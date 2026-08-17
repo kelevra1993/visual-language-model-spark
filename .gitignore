@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# IDE files
+.idea
+
+# Mac Files
+.DS_Store
+*.md
+
+# Model data
+experiments_folder/
+
+# Experiments data
+experiments/
