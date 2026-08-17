@@ -1,0 +1,6 @@
+[project]
+name = "visual-language-model-spark"
+version = "0.1.0"
+description = "Repository For Training CLIP : A Vision Language Model."
+requires-python = ">=3.13"
+dependencies = []
