@@ -10,7 +10,7 @@ wheels/
 .venv
 
 # IDE files
-.idea
+.idea/
 
 # Mac Files
 .DS_Store
