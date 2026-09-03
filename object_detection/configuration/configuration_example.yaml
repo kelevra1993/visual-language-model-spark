@@ -1,0 +1,160 @@
+ExperimentConfiguration:
+  experiment_folder: ""
+  data_folder: ""
+  train_split_file: ""
+  validation_split_file: ""
+  test_split_file: ""
+  batch_size: 8
+  information_dump: 5000
+  weight_saving_iterations: 20000
+  number_iterations: 1e10
+  compute_validation_iteration: false
+  learning_rate: 2.0e-4
+  dtype: "float64"
+  resume_training: true
+  precompute_data: true # Potentially usage of TFRecords
+  diagnosis_modes:
+      # Choice to compute Receptive-Field
+      compute_receptive_field: False
+      # Choice to compute final model size
+      compute_model_size: False
+      # Choice to view what is being fed to the neural network
+      view_input_images: False
+
+Data:
+  image_settings:
+    image_height: 300
+    image_width: 300
+    keep_ratio: True
+
+  normalization:
+    # Input Normalization : Setting image range values between [-0.5:0.5]
+    input_normalization: False
+
+    # Per Sample Input Normalization : Normalizing image input to zero mean and unit variance
+    per_sample_normalization: False
+
+    # Batch Normalization
+    # To True during Inference
+    batch_normalization: True
+
+  data_augmentation:
+    activated: False
+    types:
+      # Implementation of random flipping, horizontally, vertically ....
+      # Random Flip (Up to Down)
+      random_hflip: False
+      # Random Flip (Left to Right)
+      random_vflip: False
+      # Random Crop of image : 90% of image kept
+      random_crop: False
+      # Random Noise : Adding Truncated Gaussian Noise
+      random_noise: False
+      # Color-Space Augmentation, 30% of images are converted to grayscale
+      gray_scale_augment: False
+      # Random Color augmentation : 30% of images in RGB
+      random_colour_augmentation: False
+      # Random Image Blurring augmentation : 30% of images are blurred
+      random_blur: False
+      # Random Rotation : Randomly rotate images between -5° and 5° : Applied on 30% of images
+      random_rotation: False
+      # Random -90° or 90° rotation  : Randomly rotate images with -90° or 90° degrees : Applied on 30% of images
+      random_90_rotation: False
+      # Histogram Equalization applied on 30% of sequences
+      equalize_histogram_augment: False
+      # BGR Histogram Equalization: Applied on 30% of sequences
+      equalize_bgr_histogram_augment: False
+      # Image Sharpening with Laplacian of Gaussian filter: Applied on 30% of sequences
+      sharp_augment: False
+      # Contrast-limited Adaptive Histogram Equalization (CLAHE): Applied on 30% of sequences
+      clahe_augment: False
+
+Backbone:
+  # First axis : Number of convolution Kernel maps per Convolution Block
+  # Second axis : Number of output filters per kernel per convolution Block
+  convolutions:
+    {
+      "1": [ 1, 64 ],
+      "2": [ 2, 64 ],
+      "3": [ 2, 64 ],
+      "4": [ 4, 64 ],
+      "5": [ 5, 64 ],
+      "6": [ 5, 64 ],
+    }
+
+  modules:
+    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    residual_nets: False
+
+    # Attention Modules : Paper "Residual Attention Network for Image Classification" https://arxiv.org/pdf/1704.06904.pdf
+    attention: False
+
+    # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
+    inception: False
+
+    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    squeeze_and_excite: True
+
+  pooling:
+    # Choice to add last max pooling layer on last* convolution layer
+    last_max_pool: False
+    average_pool: False
+
+RegionProposal:
+  foreground_iou_threshold:
+    {"min":O.5,"max":1.0}
+  background_iou_threholds:
+    {"min":O.1,"max":0.3}
+  nms_threshold: 0.5
+
+
+
+Enhancer:
+  convolution_block_inputs:
+    {
+      "4": [ 2, 64 ],
+      "5": [ 2, 64 ],
+      "6": [ 2, 64 ],
+    }
+
+  anchors:
+    scales_and_ratios:
+      {
+        "4":
+          {
+            "scales":[ scale_1, scale_2,...],
+            "ratios":[ratio_1, ratio_2,...]
+          },
+        "5":
+          {
+            "scales": [ scale_1, scale_2,... ],
+            "ratios": [ ratio_1, ratio_2,... ]
+          },
+        "6":
+          {
+            "scales": [ scale_1, scale_2,... ],
+            "ratios": [ ratio_1, ratio_2,... ]
+          },
+      }
+
+  modules:
+    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    residual_nets: False
+
+    # Attention Modules : Paper "Residual Attention Network for Image Classification" https://arxiv.org/pdf/1704.06904.pdf
+    attention: False
+
+    # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
+    inception: False
+
+    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    squeeze_and_excite: True
+
+Detector:
+  fully_connected_neurons: [256,128]
+
+PostProcessor:
+  nms_threshold: 0.7
+
+
+
