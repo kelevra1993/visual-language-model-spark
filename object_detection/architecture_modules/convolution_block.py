@@ -1,7 +1,7 @@
 # Definition of the convolution block
 import torch
 from torch import nn
-from typing import Union, Tuple
+from typing import Union, Tuple, Optional
 
 
 class ConvolutionBlock(nn.Module):
@@ -24,13 +24,17 @@ class ConvolutionBlock(nn.Module):
         activation (bool): Whether to apply a ReLU activation function after each convolution.
         dropout_rate (float): The probability of an element to be zeroed in the dropout layer.
         add_pooling (bool): Whether to apply a max pooling layer at the very end of the block.
+        device (torch.device): The device on which to allocate the parameters.
+        dtype (torch.dtype): The desired data type of returned parameters.
     """
 
     def __init__(self, input_channels: int, output_channels: int, bias: bool, number_layers: int,
-                 kernel_size: Union[int, Tuple[int, int]], stride: Union[int, Tuple[int, int]],
+                 kernel_size: Union[int, Tuple[int, int]],
+                 stride: Union[int, Tuple[int, int]],
                  padding: Union[int, Tuple[int, int]],
                  batch_normalization: bool, activation: bool,
-                 dropout_rate: float, add_pooling: bool) -> None:
+                 dropout_rate: float, add_pooling: bool,
+                 device: torch.device, dtype: torch.dtype) -> None:
 
         super(ConvolutionBlock, self).__init__()
 
@@ -44,11 +48,12 @@ class ConvolutionBlock(nn.Module):
         for layer_index in range(number_layers):
             # Append the convolutional layer to extract spatial features from the input
             layers.append(nn.Conv2d(in_channels=current_input_channels, out_channels=output_channels,
-                                    kernel_size=kernel_size, stride=stride, padding=padding, bias=bias))
+                                    kernel_size=kernel_size, stride=stride, padding=padding, bias=bias,
+                                    device=device, dtype=dtype))
 
             # Conditionally apply batch normalization to stabilize training dynamics
             if batch_normalization:
-                layers.append(nn.BatchNorm2d(num_features=output_channels))
+                layers.append(nn.BatchNorm2d(num_features=output_channels, device=device, dtype=dtype))
 
             # Conditionally apply the activation function to introduce non-linearity to the network
             if activation:
@@ -78,5 +83,6 @@ class ConvolutionBlock(nn.Module):
         Returns:
             torch.Tensor: The resulting feature map after passing through the convolutional block.
         """
+
         # Process the input tensor through the sequential block and return the output feature map
         return self.block(input_tensor)
