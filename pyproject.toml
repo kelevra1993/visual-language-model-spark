@@ -3,4 +3,6 @@ name = "visual-language-model-spark"
 version = "0.1.0"
 description = "Repository For Vision and Language Models : Will Combine Detection/Segmentation Models with Language Models"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "torch>=2.14.0",
+]
