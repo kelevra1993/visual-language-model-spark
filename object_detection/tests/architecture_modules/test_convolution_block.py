@@ -10,11 +10,11 @@ def test_convolution_block():
     image_shape = (3, 32, 32)
 
     # Create input tensors and populate the simple and batched dictionaries
-    input_tensor = create_deterministic_tensor(shape=image_shape, dtype=torch.float32)
-    simple_inputs = {"input_tensor": input_tensor}
-
-    batched_input_tensor = input_tensor.unsqueeze(dim=0).broadcast_to(size=(batch_size,) + image_shape)
-    batched_inputs = {"input_tensor": batched_input_tensor}
+    input_tensor = create_deterministic_tensor(shape=(1,) + image_shape)
+    simple_input_dictionary = {"input_tensor": input_tensor}
+    
+    batched_input_tensor = input_tensor.broadcast_to(size=(batch_size,) + image_shape)
+    batched_input_dictionary = {"input_tensor": batched_input_tensor}
 
     # Initialize device and dtype for configurations
     device = torch.device(device="cpu")
@@ -52,11 +52,11 @@ def test_convolution_block():
         # Call the testing utility to verify the forward pass deterministically
         check_nn_module_method(
             module=convolution_module,
-            input_tensor_dictionary=simple_inputs,
+            simple_input_dictionary=simple_input_dictionary,
             output_tensor_names=[f"convolution_block_{configuration_name}"],
             reference_folder=Path(__file__).parent / "reference_values",
             batch_size=batch_size,
-            batched_input_dictionary=batched_inputs
+            batched_input_dictionary=batched_input_dictionary
         )
 
         print(f" - {configuration_name} Test Completed Successfully.")

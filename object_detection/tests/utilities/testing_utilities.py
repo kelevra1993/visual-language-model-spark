@@ -5,11 +5,12 @@ from typing import List, Dict, Union, Optional, Tuple
 from pathlib import Path
 
 
-def check_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str, torch.Tensor],
+def check_nn_module_method(module: nn.Module, simple_input_dictionary: Dict[str, torch.Tensor],
                            output_tensor_names: List[str],
                            reference_folder: Union[str, Path], batch_size: int,
                            batched_input_dictionary: Optional[Dict[str, torch.Tensor]] = None,
-                           use_kwargs: bool = True) -> None:
+                           use_kwargs: bool = True,
+                           save_output: bool = False) -> None:
     """
     Performs a deterministic regression test on a PyTorch module's forward pass to validate structural consistency
     within the testing pipeline.
@@ -17,13 +18,11 @@ def check_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str,
     This utility ensures architectural consistency by comparing a module's output
     against saved reference tensors. It eliminates non-determinism by setting the module to evaluation mode, 
     converting to double precision, and overwriting parameters deterministically. The function validates 
-    both a single-instance pass and a batched pass using broadcasting to ensure the module correctly
-    handles batch dimensions.
+    both a single-instance pass and a batched pass using broadcasting to ensure the module correctly handles batch dimensions.
 
     Args:
         module (nn.Module): The neural network module to be tested.
-        input_tensor_dictionary (Dict[str, torch.Tensor]): A dictionary mapping input argument names to their respective
-        input tensors.
+        simple_input_dictionary (Dict[str, torch.Tensor]): A dictionary mapping input argument names to their respective input tensors.
         output_tensor_names (List[str]): A list of names for the expected output tensors, matching the filenames in the
         reference folder.
         reference_folder (Union[str, Path]): The path to the directory containing the '.pt' reference files.
@@ -31,6 +30,7 @@ def check_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str,
         batched_input_dictionary (Optional[Dict[str, torch.Tensor]]): An optional dictionary of pre-batched inputs.
          If None, it broadcasts the simple inputs.
         use_kwargs (bool): Whether to pass inputs to the module as keyword arguments.
+        save_output (bool): If True, saves the computed outputs to the reference_folder instead of asserting.
     """
     # Set the module to evaluation mode to disable non-deterministic operations such as dropout or batch normalization
     module.eval()
@@ -44,12 +44,11 @@ def check_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str,
             # Replace the parameter values with a linearly spaced tensor matching its original shape
             parameter.copy_(torch.linspace(start=-1, end=1, steps=parameter.numel()).reshape(shape=parameter.shape))
 
-    # Construct the dictionaries for both simple and batched inputs to test both processing scenarios
-    simple_input_dictionary = {input_name: input_tensor for input_name, input_tensor in input_tensor_dictionary.items()}
     if batched_input_dictionary is None:
         # Broadcast the simple input tensors to match the simulated batch size for consistency verification
         batched_input_dictionary = {input_name: input_tensor.broadcast_to(size=(batch_size,) + input_tensor.shape)
-                                    for input_name, input_tensor in input_tensor_dictionary.items()}
+                                    for input_name, input_tensor in simple_input_dictionary.items()}
+
 
     # Execute the forward pass for both the simple and batched inputs to retrieve the module outputs
     if use_kwargs:
@@ -76,6 +75,15 @@ def check_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str,
             output_file_names, batched_output_file_names,
             output_tensor_names):
 
+        if save_output:
+            # Create directories if they do not exist to ensure saving succeeds
+            os.makedirs(name=Path(output_filename).parent, exist_ok=True)
+            # Save the computed tensors directly to disk and skip assertions
+            torch.save(obj=output_tensor, f=output_filename)
+            torch.save(obj=batched_output_tensor, f=batched_output_filename)
+            print(f"Saved reference values for {output_tensor_name}")
+            continue
+
         # Load the expected reference tensor for the simple forward pass and verify it matches the computed output
         expected_output_tensor = torch.load(f=output_filename, weights_only=True)
         assert torch.allclose(input=output_tensor, other=expected_output_tensor, atol=1e-5), \
@@ -92,7 +100,7 @@ def check_nn_module_method(module: nn.Module, input_tensor_dictionary: Dict[str,
         assert torch.allclose(input=batched_output_tensor, other=expected_batched_output_tensor, atol=1e-5), \
             f'Problem With output {output_tensor_name} For Batched Check.'
 
-def create_deterministic_tensor(shape: Tuple[int, ...], dtype: torch.dtype = torch.float32) -> torch.Tensor:
+def create_deterministic_tensor(shape: Tuple[int, ...], dtype: torch.dtype = torch.float64) -> torch.Tensor:
     """
     Creates a deterministic tensor with a specific shape and data type using a linear space.
     
