@@ -41,8 +41,9 @@ class Trainer:
         self.model = Model(configuration=self.model_configuration, device=self.device, dtype=self.dtype)
         self.model.to(device=self.device, dtype=self.dtype)
 
-        # Setting Up The Optimizer
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        # # TODO Later call the optimizer after an initial model configuration.
+        # # Setting Up The Optimizer
+        # self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
 
         # # TODO Will Be Later Implemented Step By Step starting with our backbone layer

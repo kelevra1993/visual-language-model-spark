@@ -24,8 +24,8 @@ class Model(nn.Module):
         backbone_configuration = configuration.get('Backbone', {})
 
 
-        # Set up the backbone
-        self.backbone = Backbone(
-            # todo to be filled
-            device=self.device,
-            dtype=self.dtype)
+        # # Set up the backbone
+        # self.backbone = Backbone(
+        #     # todo to be filled
+        #     device=self.device,
+        #     dtype=self.dtype)

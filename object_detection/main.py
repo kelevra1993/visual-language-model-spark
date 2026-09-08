@@ -6,7 +6,9 @@ from trainer.trainer import Trainer
 
 def main():
     # Define configuration path
-    experiment_configuration_path = Path(__file__).parent / "configurations" / f"{get_device()}_configuration.yaml"
+    # Todo will be put back after all the code has been written.
+    # experiment_configuration_path = Path(__file__).parent / "configurations" / f"{get_device()}_configuration.yaml"
+    experiment_configuration_path = Path(__file__).parent / "configurations" / f"configuration_example.yaml"
 
     # Load configuration
     experiment_configuration, model_configuration = load_experiment_configuration(experiment_configuration_path)
