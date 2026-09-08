@@ -1,5 +1,5 @@
 ExperimentConfiguration:
-  experiment_folder: ""
+  experiment_folder: "/Users/Robert/PycharmProjects/visual-language-model-spark/experiment/backbone_experiment"
   data_folder: ""
   train_split_file: ""
   validation_split_file: ""
@@ -106,8 +106,6 @@ RegionProposal:
   background_iou_threholds:
     {"min":O.1,"max":0.3}
   nms_threshold: 0.5
-
-
 
 Enhancer:
   convolution_block_inputs:
