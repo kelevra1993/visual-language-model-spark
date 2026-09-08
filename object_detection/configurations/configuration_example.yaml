@@ -113,25 +113,13 @@ Enhancer:
       "6": [ 2, 64 ],
     }
 
-  anchors:
-    scales_and_ratios:
-      {
-        "4":
-          {
-            "scales":[ scale_1, scale_2,...],
-            "ratios":[ratio_1, ratio_2,...]
-          },
-        "5":
-          {
-            "scales": [ scale_1, scale_2,... ],
-            "ratios": [ ratio_1, ratio_2,... ]
-          },
-        "6":
-          {
-            "scales": [ scale_1, scale_2,... ],
-            "ratios": [ ratio_1, ratio_2,... ]
-          },
-      }
+Anchors:
+  scales_and_ratios:
+    {
+      "4":{"scales":[ scale_1, scale_2,...], "ratios":[ratio_1, ratio_2,...]},
+      "5":{"scales":[ scale_1, scale_2,...], "ratios":[ratio_1, ratio_2,...]},
+      "6":{"scales":[ scale_1, scale_2,...], "ratios":[ratio_1, ratio_2,...]},
+    }
 
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
