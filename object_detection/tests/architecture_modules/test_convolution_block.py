@@ -25,19 +25,19 @@ def test_convolution_block():
         "basic_convolution": {
             "input_channels": 3, "output_channels": 16, "bias": True, "number_layers": 1,
             "kernel_size": 3, "stride": 1, "padding": 1,
-            "batch_normalization": False, "activation": False, "dropout_rate": 0.0, "add_pooling": False,
+            "feature_map_normalization": "none", "activation": False, "dropout_rate": 0.0, "add_pooling": False,
             "device": device, "dtype": dtype
         },
         "batch_norm_and_activation": {
             "input_channels": 3, "output_channels": 32, "bias": False, "number_layers": 2,
             "kernel_size": 3, "stride": 1, "padding": 1,
-            "batch_normalization": True, "activation": True, "dropout_rate": 0.0, "add_pooling": False,
+            "feature_map_normalization": "batch", "activation": True, "dropout_rate": 0.0, "add_pooling": False,
             "device": device, "dtype": dtype
         },
         "deep_with_pooling_and_dropout": {
             "input_channels": 3, "output_channels": 64, "bias": False, "number_layers": 3,
             "kernel_size": 5, "stride": 2, "padding": 2,
-            "batch_normalization": True, "activation": True, "dropout_rate": 0.5, "add_pooling": True,
+            "feature_map_normalization": "batch", "activation": True, "dropout_rate": 0.5, "add_pooling": True,
             "device": device, "dtype": dtype
         }
     }
