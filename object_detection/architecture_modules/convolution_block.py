@@ -4,13 +4,52 @@ from torch import nn
 from typing import Union, Tuple, Optional
 
 
+class ChannelLayerNormalizer(nn.Module):
+    """
+    Applies Layer Normalization over the channel dimension for 4D image tensors.
+    
+    This class is required because PyTorch's native LayerNorm expects the 
+    normalized dimension to be the last dimension. This wrapper permutes 
+    the tensor so normalization is applied across the channel dimension correctly.
+    """
+
+    def __init__(self, channels: int, device: torch.device, dtype: torch.dtype) -> None:
+        """
+        Initializes the ChannelLayerNormalizer.
+        
+        Args:
+            channels (int): The number of channels in the input tensor.
+            device (torch.device): The device on which to allocate the parameters.
+            dtype (torch.dtype): The desired data type of returned parameters.
+        """
+        super().__init__()
+        self.normalizer = nn.LayerNorm(normalized_shape=channels, device=device, dtype=dtype)
+
+    def forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
+        """
+        Performs the forward pass for channel-wise layer normalization.
+        
+        Args:
+            input_tensor (torch.Tensor): The input image tensor of shape (Batch, Channels, Height, Width).
+            
+        Returns:
+            torch.Tensor: The normalized tensor of shape (Batch, Channels, Height, Width).
+        """
+        # Permute from [Batch, Channels, Height, Width] to [Batch, Height, Width, Channels]
+        input_tensor = input_tensor.permute(0, 2, 3, 1)
+        input_tensor = self.normalizer(input_tensor)
+
+        # Permute back to [Batch, Channels, Height, Width]
+        return input_tensor.permute(0, 3, 1, 2)
+
+
 class ConvolutionBlock(nn.Module):
     """
     Constructs a block of convolutional layers for feature extraction in the object detection pipeline.
     
     This block allows for a configurable number of convolutional layers, optionally followed by 
-    batch normalization, an activation function, dropout, and a final pooling layer to reduce 
-    spatial dimensions.
+    batch normalization, layer normalization, an activation function, dropout, and a final pooling layer 
+    to reduce spatial dimensions.
     
     Args:
         input_channels (int): The number of channels in the input feature map.
@@ -21,6 +60,7 @@ class ConvolutionBlock(nn.Module):
         stride (Union[int, Tuple[int, int]]): The stride of the convolution.
         padding (Union[int, Tuple[int, int]]): The padding added to both sides of the input.
         batch_normalization (bool): Whether to apply batch normalization after each convolution.
+        layer_normalization (bool): Whether to apply layer normalization after each convolution.
         activation (bool): Whether to apply a ReLU activation function after each convolution.
         dropout_rate (float): The probability of an element to be zeroed in the dropout layer.
         add_pooling (bool): Whether to apply a max pooling layer at the very end of the block.
@@ -32,7 +72,7 @@ class ConvolutionBlock(nn.Module):
                  kernel_size: Union[int, Tuple[int, int]],
                  stride: Union[int, Tuple[int, int]],
                  padding: Union[int, Tuple[int, int]],
-                 batch_normalization: bool, activation: bool,
+                 batch_normalization: bool, layer_normalization: bool, activation: bool,
                  dropout_rate: float, add_pooling: bool,
                  device: torch.device, dtype: torch.dtype) -> None:
 
@@ -54,6 +94,10 @@ class ConvolutionBlock(nn.Module):
             # Conditionally apply batch normalization to stabilize training dynamics
             if batch_normalization:
                 layers.append(nn.BatchNorm2d(num_features=output_channels, device=device, dtype=dtype))
+
+            # Conditionally apply layer normalization using the custom permuting normalizer
+            if layer_normalization:
+                layers.append(ChannelLayerNormalizer(channels=output_channels, device=device, dtype=dtype))
 
             # Conditionally apply the activation function to introduce non-linearity to the network
             if activation:

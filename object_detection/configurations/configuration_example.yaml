@@ -27,17 +27,6 @@ Data:
     image_width: 300
     keep_ratio: True
 
-  normalization:
-    # Input Normalization : Setting image range values between [-0.5:0.5]
-    input_normalization: False
-
-    # Per Sample Input Normalization : Normalizing image input to zero mean and unit variance
-    per_sample_normalization: False
-
-    # Batch Normalization
-    # To True during Inference
-    batch_normalization: True
-
   data_augmentation:
     activated: False
     types:
@@ -70,6 +59,10 @@ Data:
       clahe_augment: False
 
 Backbone:
+
+  # Number of input channels for the initial convolution block (e.g., 3 for RGB images)
+  input_channels : 3
+
   # First axis : Number of convolution Kernel maps per Convolution Block
   # Second axis : Number of output filters per kernel per convolution Block
   convolutions:
@@ -81,6 +74,19 @@ Backbone:
       "5": [ 5, 64 ],
       "6": [ 5, 64 ],
     }
+
+  # Choice to add last max pooling layer on last* convolution layer
+  last_max_pooling: False
+
+  normalization:
+    # Input Normalization : Setting image range values between [-0.5:0.5]
+    input_normalization: False
+
+    # todo Layer Normalization : shortly describe it
+    layer_normalization: False
+
+    # todo Batch Normalization : shortly describe it
+    batch_normalization: True
 
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
@@ -94,11 +100,6 @@ Backbone:
 
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
-
-  pooling:
-    # Choice to add last max pooling layer on last* convolution layer
-    last_max_pool: False
-    average_pool: False
 
 RegionProposal:
   foreground_iou_threshold:
