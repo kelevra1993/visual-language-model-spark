@@ -15,7 +15,7 @@ class Backbone(nn.Module):
     """
 
     def __init__(self, input_channels: int, convolutions: Dict[str, List[int]], modules: Dict[str, bool],
-                 last_max_pooling: bool, normalization: Dict[str, bool],
+                 last_max_pooling: bool, normalization: Dict[str, str],
                  device: torch.device, dtype: torch.dtype) -> None:
         """
         Initializes the Backbone with the specified convolution blocks and parameters.
@@ -25,7 +25,7 @@ class Backbone(nn.Module):
             convolutions (Dict[str, List[int]]): Dictionary mapping block indices to [number_layers, output_channels].
             modules (Dict[str, bool]): Dictionary specifying which advanced modules to use (e.g., residual).
             last_max_pooling (bool): Whether to apply max pooling at the very end of the last convolution block.
-            normalization (Dict[str, bool]): Dictionary containing normalization settings like batch_normalization.
+            normalization (Dict[str, str]): Dictionary containing normalization settings like feature_map_normalization.
             device (torch.device): The device on which to allocate the parameters.
             dtype (torch.dtype): The desired data type of returned parameters.
         """
@@ -37,9 +37,8 @@ class Backbone(nn.Module):
         # Set the current input channels to the initial provided argument
         current_input_channels = input_channels
 
-        # Extract batch and layer normalization settings from the normalization configuration dictionary
-        batch_normalization = normalization.get("batch_normalization", True)
-        layer_normalization = normalization.get("layer_normalization", False)
+        # Extract the chosen feature map normalization strategy ("batch", "layer", or "none")
+        feature_map_normalization = normalization.get("feature_map_normalization")
 
         # Count total blocks to identify the last block during iteration
         number_of_blocks = len(convolutions)
@@ -56,7 +55,7 @@ class Backbone(nn.Module):
             # Instantiate the convolution block with the explicitly provided parameters
             block = ConvolutionBlock(input_channels=current_input_channels, output_channels=output_channels, bias=True, 
                                      number_layers=number_layers, kernel_size=3, stride=1, padding=1, 
-                                     batch_normalization=batch_normalization, layer_normalization=layer_normalization,
+                                     feature_map_normalization=feature_map_normalization,
                                      activation=True, dropout_rate=0.0, 
                                      add_pooling=add_pooling, device=device, dtype=dtype)
 

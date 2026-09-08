@@ -82,11 +82,9 @@ Backbone:
     # Input Normalization : Setting image range values between [-0.5:0.5]
     input_normalization: False
 
-    # todo Layer Normalization : shortly describe it
-    layer_normalization: False
-
-    # todo Batch Normalization : shortly describe it
-    batch_normalization: True
+    # Strategy for normalizing the feature maps in the convolution blocks.
+    # Options are: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    feature_map_normalization: "batch"
 
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385

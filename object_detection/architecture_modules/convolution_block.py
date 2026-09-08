@@ -48,8 +48,7 @@ class ConvolutionBlock(nn.Module):
     Constructs a block of convolutional layers for feature extraction in the object detection pipeline.
     
     This block allows for a configurable number of convolutional layers, optionally followed by 
-    batch normalization, layer normalization, an activation function, dropout, and a final pooling layer 
-    to reduce spatial dimensions.
+    normalization, an activation function, dropout, and a final pooling layer to reduce spatial dimensions.
     
     Args:
         input_channels (int): The number of channels in the input feature map.
@@ -59,8 +58,7 @@ class ConvolutionBlock(nn.Module):
         kernel_size (Union[int, Tuple[int, int]]): The size of the convolving kernel.
         stride (Union[int, Tuple[int, int]]): The stride of the convolution.
         padding (Union[int, Tuple[int, int]]): The padding added to both sides of the input.
-        batch_normalization (bool): Whether to apply batch normalization after each convolution.
-        layer_normalization (bool): Whether to apply layer normalization after each convolution.
+        feature_map_normalization (str): Strategy for normalization ("batch", "layer", or "none").
         activation (bool): Whether to apply a ReLU activation function after each convolution.
         dropout_rate (float): The probability of an element to be zeroed in the dropout layer.
         add_pooling (bool): Whether to apply a max pooling layer at the very end of the block.
@@ -72,7 +70,7 @@ class ConvolutionBlock(nn.Module):
                  kernel_size: Union[int, Tuple[int, int]],
                  stride: Union[int, Tuple[int, int]],
                  padding: Union[int, Tuple[int, int]],
-                 batch_normalization: bool, layer_normalization: bool, activation: bool,
+                 feature_map_normalization: str, activation: bool,
                  dropout_rate: float, add_pooling: bool,
                  device: torch.device, dtype: torch.dtype) -> None:
 
@@ -84,6 +82,13 @@ class ConvolutionBlock(nn.Module):
         # Determine the number of input channels for the current layer being constructed
         current_input_channels = input_channels
 
+        # Validate the requested normalization strategy
+        normalization_strategy = str(feature_map_normalization).lower().strip()
+        valid_strategies = ["batch", "layer", "none", "null"]
+        if normalization_strategy not in valid_strategies:
+            raise ValueError(f"Invalid feature_map_normalization: {feature_map_normalization}."
+                             f" Must be one of {valid_strategies}.")
+
         # Iteratively build the specified number of convolutional layers
         for layer_index in range(number_layers):
             # Append the convolutional layer to extract spatial features from the input
@@ -91,12 +96,10 @@ class ConvolutionBlock(nn.Module):
                                     kernel_size=kernel_size, stride=stride, padding=padding, bias=bias,
                                     device=device, dtype=dtype))
 
-            # Conditionally apply batch normalization to stabilize training dynamics
-            if batch_normalization:
+            # Conditionally apply the selected normalization strategy
+            if normalization_strategy == "batch":
                 layers.append(nn.BatchNorm2d(num_features=output_channels, device=device, dtype=dtype))
-
-            # Conditionally apply layer normalization using the custom permuting normalizer
-            if layer_normalization:
+            elif normalization_strategy == "layer":
                 layers.append(ChannelLayerNormalizer(channels=output_channels, device=device, dtype=dtype))
 
             # Conditionally apply the activation function to introduce non-linearity to the network
