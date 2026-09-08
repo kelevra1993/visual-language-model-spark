@@ -34,6 +34,12 @@ def test_convolution_block():
             "feature_map_normalization": "batch", "activation": True, "dropout_rate": 0.0, "add_pooling": False,
             "device": device, "dtype": dtype
         },
+        "layer_norm_and_activation": {
+            "input_channels": 3, "output_channels": 32, "bias": False, "number_layers": 2,
+            "kernel_size": 3, "stride": 1, "padding": 1,
+            "feature_map_normalization": "layer", "activation": True, "dropout_rate": 0.0, "add_pooling": False,
+            "device": device, "dtype": dtype
+        },
         "deep_with_pooling_and_dropout": {
             "input_channels": 3, "output_channels": 64, "bias": False, "number_layers": 3,
             "kernel_size": 5, "stride": 2, "padding": 2,
