@@ -1,5 +1,5 @@
 ExperimentConfiguration:
-  experiment_folder: "/Users/Robert/PycharmProjects/visual-language-model-spark/experiment/backbone_experiment"
+  experiment_folder: "/Users/Robert/PycharmProjects/visual-language-model-spark/experiments/backbone_experiment"
   data_folder: ""
   train_split_file: ""
   validation_split_file: ""
