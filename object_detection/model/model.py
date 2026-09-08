@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
 from architecture_modules.backbone import Backbone
 
 
@@ -39,3 +39,14 @@ class Model(nn.Module):
             device=self.device,
             dtype=self.dtype
         )
+
+    def print_summary(self, expected_image_size: Tuple[int, int]) -> None:
+        """
+        todo to be documented
+        Args:
+            expected_image_size:
+
+        Returns:
+
+        """
+        self.backbone.print_summary(expected_image_size=expected_image_size)

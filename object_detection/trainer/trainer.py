@@ -36,6 +36,7 @@ class Trainer:
 
         # Load Training Configuration containing all the training parameters
         self.model_configuration = model_configuration
+        self.data_configuration = model_configuration.get("Data")
 
         # Initialize Model and Optimizer
         self.model = Model(configuration=self.model_configuration, device=self.device, dtype=self.dtype)
@@ -50,4 +51,5 @@ class Trainer:
         # # Print experiment information to user so that they can know everything about the experiment
         # # as well as input and output shapes of the model.
         # self.print_experiment_information()
-        # self.model.print_summary(expected_image_size=(self.expected_input_size, self.expected_input_size))
+        self.model.print_summary(expected_image_size=(self.data_configuration.get("image_settings").get("size"),
+                                                      self.data_configuration.get("image_settings").get("size")))

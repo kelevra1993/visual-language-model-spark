@@ -10,7 +10,7 @@ ExperimentConfiguration:
   number_iterations: 1e10
   compute_validation_iteration: false
   learning_rate: 2.0e-4
-  dtype: "float64"
+  dtype: "float32"
   resume_training: true
   precompute_data: true # Potentially usage of TFRecords
   diagnosis_modes:
@@ -23,8 +23,7 @@ ExperimentConfiguration:
 
 Data:
   image_settings:
-    image_height: 300
-    image_width: 300
+    size: 300
     keep_ratio: True
 
   data_augmentation:
