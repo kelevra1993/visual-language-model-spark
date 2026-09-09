@@ -1,8 +1,18 @@
 import torch
 from architecture_modules.backbone import Backbone
 
-def run_summary():
-    device = torch.device("cpu")
+def debug_model_summary() -> None:
+    """
+    Executes a simulated forward pass to print out the Backbone architecture summary.
+    
+    This function acts as a standalone utility in the model architecture pipeline, allowing
+    developers to quickly inspect the constructed Backbone configuration (including layer depth, 
+    channel transformations, and normalization strategies) without initiating a full training loop.
+    
+    Args:
+        None
+    """
+    device = torch.device(device="cpu")
     dtype = torch.float32
 
     convolutions = {
@@ -28,4 +38,4 @@ def run_summary():
 
 
 if __name__ == "__main__":
-    run_summary()
+    debug_model_summary()

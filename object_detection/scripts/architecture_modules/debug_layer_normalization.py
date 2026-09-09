@@ -10,21 +10,29 @@ def debug_layer_normalization() -> None:
     """
     Validates that the ChannelLayerNormalizer correctly normalizes over 
     the channel dimension for each spatial location.
+    
+    This debugging script is essential in the architecture development pipeline to ensure 
+    that our custom normalizer does not erroneously normalize across spatial dimensions, 
+    but correctly restricts normalization to the feature channels of individual pixels,
+    which is critical for visual features alignment.
+    
+    Args:
+        None
     """
     number_channels = 4
     batch_size = 2
     height = 5
     width = 5
 
-    device = torch.device("cpu")
+    device = torch.device(device="cpu")
     dtype = torch.float32
 
     # Instantiate the custom normalizer
     layer = ChannelLayerNormalizer(channels=number_channels, device=device, dtype=dtype)
 
     # Create a random input tensor [B, C, H, W]
-    # We multiply by 50 and add 100 to ensure the initial mean/variance is far from 0 and 1
-    input_tensor = torch.randn(batch_size, number_channels, height, width, device=device, dtype=dtype) * 10.0 + 20.0
+    # We multiply by 10 and add 20 to ensure the initial mean/variance is far from 0 and 1
+    input_tensor = torch.randn(size=(batch_size, number_channels, height, width), device=device, dtype=dtype) * 10.0 + 20.0
     print_tensor_shape(tensor=input_tensor, name="input_tensor")
 
     # Apply the channel layer normalization
@@ -39,16 +47,16 @@ def debug_layer_normalization() -> None:
 
     print_blue(output="Mean across the channel dimension for the first batch item (should be ~0.0):",
                add_separators=True)
-    print_red("Before Normalisation : ")
+    print_red(output="Before Normalisation : ")
     print_tensor_list(tensor=input_tensor.mean(dim=1)[0])
-    print_green("After Normalisation : ")
+    print_green(output="After Normalisation : ")
     print_tensor_list(tensor=mean_across_channels[0])
 
     print_green(output="Standard Deviation across the channel dimension for the first batch item (should be ~1.0):",
                 add_separators=True)
-    print_red("Before Normalisation : ")
+    print_red(output="Before Normalisation : ")
     print_tensor_list(tensor=input_tensor.std(dim=1, unbiased=False)[0])
-    print_green("After Normalisation : ")
+    print_green(output="After Normalisation : ")
     print_tensor_list(tensor=std_across_channels[0])
 
 
