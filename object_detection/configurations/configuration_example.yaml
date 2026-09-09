@@ -116,9 +116,9 @@ Enhancer:
 Anchors:
   scales_and_ratios:
     {
-      "4":{"scales":[ scale_1, scale_2,...], "ratios":[ratio_1, ratio_2,...]},
-      "5":{"scales":[ scale_1, scale_2,...], "ratios":[ratio_1, ratio_2,...]},
-      "6":{"scales":[ scale_1, scale_2,...], "ratios":[ratio_1, ratio_2,...]},
+      "4":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
+      "5":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
+      "6":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
     }
 
   modules:
