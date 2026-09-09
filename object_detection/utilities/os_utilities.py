@@ -10,6 +10,10 @@ from shutil import copyfile
 from pathlib import Path
 from typing import Dict, Any, Tuple
 
+# No printing of scientific notations
+np.set_printoptions(suppress=True)
+np.set_printoptions(linewidth=1000, threshold=np.inf)
+torch.set_printoptions(linewidth=1000)
 
 def read_json(path: str) -> dict[str, Any] | list[Any]:
     """
