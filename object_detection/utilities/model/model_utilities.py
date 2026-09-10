@@ -139,33 +139,59 @@ def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: boo
     cv2.destroyAllWindows()
 
 
-def apply_regression_predictions(regression_predictions, boxes):
-    """"""
+def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: torch.Tensor) -> torch.Tensor:
+    """
+    Applies the predicted bounding box regression offsets to a set of reference boxes.
+    
+    This function takes the predicted bounding box delta coordinates (dx, dy, dw, dh) from
+    the Region Proposal Network or the final Detector and applies them to the base anchor
+    boxes (or proposed region boxes) to yield the final predicted spatial bounding boxes.
+    The regression predictions must always be of shape (..., N, k, 4), where k=1 for region proposals 
+    and k=number of classes for final detections. This supports both unbatched (N, k, 4) 
+    and batched (B, N, k, 4) inputs seamlessly.
+    
+    Args:
+        regression_predictions (torch.Tensor): A tensor of shape (..., N, k, 4) containing the predicted 
+                                               offsets [dx, dy, dw, dh].
+        boxes (torch.Tensor): A tensor of shape (..., N, 4) containing the reference bounding boxes
+                              of shape [x_min, y_min, x_max, y_max].
+        
+    Returns:
+        torch.Tensor: A tensor of shape (..., N, k, 4) containing the adjusted predicted 
+                      bounding boxes in [x_min, y_min, x_max, y_max] format.
+    """
+    # Get the width, height, x_center and y_center from the boxes using ellipsis to handle optional batch dimensions
+    boxes_widths = boxes[..., 2] - boxes[..., 0]
+    boxes_heights = boxes[..., 3] - boxes[..., 1]
+    boxes_center_x = boxes[..., 0] + 0.5 * boxes_widths
+    boxes_center_y = boxes[..., 1] + 0.5 * boxes_heights
 
-    # Note to take into account regression_predictions are of shape (N,k,4) for region proposal output k=1, but for
-    # final detection output k=number of classes.
+    # Unsqueeze across the last dimension (dim=-1) to append the `k` dimension.
+    # This transforms shape (..., N) into (..., N, 1), which broadcasts correctly with (..., N, k).
+    boxes_widths = boxes_widths.unsqueeze(dim=-1)
+    boxes_heights = boxes_heights.unsqueeze(dim=-1)
+    boxes_center_x = boxes_center_x.unsqueeze(dim=-1)
+    boxes_center_y = boxes_center_y.unsqueeze(dim=-1)
 
-    # Get the height, weight, x_center and y_center from the boxes, which are of shape N,4
+    # Get the predictions from regression predictions using ellipsis to support arbitrary batch dims
+    dx = regression_predictions[..., 0]
+    dy = regression_predictions[..., 1]
+    dw = regression_predictions[..., 2]
+    dh = regression_predictions[..., 3]
 
-    # Get the predictions from regression predictions
-    dx = regression_predictions[:, 0]
-    dy = regression_predictions[:, 1]
-    dw = regression_predictions[:, 2]
-    dh = regression_predictions[:, 3]
-
-    # Apply regressions
+    # Apply regressions to calculate the predicted centers
     predicted_center_x = boxes_widths * dx + boxes_center_x
     predicted_center_y = boxes_heights * dy + boxes_center_y
 
+    # Apply regressions to calculate the predicted dimensions using the exponential function
     predicted_width = torch.exp(input=dw) * boxes_widths
     predicted_height = torch.exp(input=dh) * boxes_heights
 
-    # Get predicted boxes
+    # Construct the final predicted boxes by converting back to [x_min, y_min, x_max, y_max] format
     predicted_boxes = torch.stack(tensors=[
         predicted_center_x - 0.5 * predicted_width,
         predicted_center_y - 0.5 * predicted_height,
         predicted_center_x + 0.5 * predicted_width,
-        predicted_center_y + 0.5 * predicted_height,
-    ],dim=-1)
+        predicted_center_y + 0.5 * predicted_height], dim=-1)
 
     return predicted_boxes
