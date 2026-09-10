@@ -198,3 +198,28 @@ def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: to
         predicted_center_y + 0.5 * predicted_height], dim=-1)
 
     return predicted_boxes
+
+
+def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) -> torch.Tensor:
+    """
+    Clamps bounding box coordinates to ensure they remain strictly within the image dimensions.
+    
+    During region proposal or bounding box regression, the predicted offsets can sometimes 
+    push the bounding box boundaries outside the actual image area. This utility function 
+    safely truncates any out-of-bounds coordinates to the image edge (0 to input_image_size). 
+    Since the network processes square images, a single dimension size is sufficient for both width and height.
+    
+    Args:
+        boxes (torch.Tensor): A tensor of bounding boxes in [x_min, y_min, x_max, y_max] format.
+        input_image_size (int): The spatial dimension (height and width) of the square input image.
+        
+    Returns:
+        torch.Tensor: The bounding boxes tensor with all coordinates clamped within [0, input_image_size].
+    """
+    # Since we are always dealing with square images, we clamp both x and y coordinates uniformly
+    boxes = boxes.clamp(min=0, max=input_image_size)
+
+    return boxes
+
+
+
