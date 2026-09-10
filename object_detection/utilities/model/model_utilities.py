@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import torch
+from typing import Tuple
 
 from utilities.os_utilities import print_blue
 
@@ -46,23 +47,24 @@ def get_intersection_over_union(boxes_1: torch.Tensor, boxes_2: torch.Tensor) ->
     return intersection_over_union
 
 
-def add_anchor(anchor: np.ndarray, image: np.ndarray, input_image_size: int) -> np.ndarray:
+def add_bounding_box(bounding_box: np.ndarray, image: np.ndarray, input_image_size: int, color: Tuple[int, int, int] = (0, 255, 0)) -> np.ndarray:
     """
-    Draws a single bounding box anchor onto the provided image canvas.
+    Draws a single bounding box onto the provided image canvas.
     
-    This function processes an individual anchor's coordinates, clamps them to the image boundaries
+    This function processes an individual bounding box's coordinates, clamps them to the image boundaries
     to prevent out-of-bounds drawing errors, and renders the rectangle using OpenCV. It centralizes 
     the bounding box drawing logic so it can be reused iteratively or collectively during visualization.
     
     Args:
-        anchor (np.ndarray): The [x_min, y_min, x_max, y_max] coordinates of the bounding box.
+        bounding_box (np.ndarray): The [x_min, y_min, x_max, y_max] coordinates of the bounding box.
         image (np.ndarray): The image canvas on which to draw the bounding box.
         input_image_size (int): The spatial size (height and width) of the image to clamp coordinates.
+        color (Tuple[int, int, int]): The RGB color tuple for the bounding box. Defaults to green (0, 255, 0).
         
     Returns:
-        np.ndarray: The updated image canvas containing the newly drawn anchor.
+        np.ndarray: The updated image canvas containing the newly drawn bounding box.
     """
-    x_min, y_min, x_max, y_max = anchor
+    x_min, y_min, x_max, y_max = bounding_box
 
     # Ensure coordinates are within image boundaries for clean visualization
     x_min = max(0, x_min)
@@ -70,8 +72,8 @@ def add_anchor(anchor: np.ndarray, image: np.ndarray, input_image_size: int) -> 
     x_max = min(input_image_size, x_max)
     y_max = min(input_image_size, y_max)
 
-    # Draw the bounding box on the canvas using a green color
-    cv2.rectangle(img=image, pt1=(x_min, y_min), pt2=(x_max, y_max), color=(0, 255, 0), thickness=2)
+    # Draw the bounding box on the canvas using the provided color
+    cv2.rectangle(img=image, pt1=(x_min, y_min), pt2=(x_max, y_max), color=color, thickness=2)
 
     return image
 
@@ -118,7 +120,7 @@ def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: boo
 
         # Iterate through each anchor and draw them one by one
         for anchor_index, anchor in enumerate(anchors_array):
-            canvas = add_anchor(anchor=anchor, image=canvas, input_image_size=input_image_size)
+            canvas = add_bounding_box(bounding_box=anchor, image=canvas, input_image_size=input_image_size)
 
             # Display the updated canvas containing the newly drawn anchor
             cv2.imshow(winname=window_name, mat=canvas)
@@ -128,7 +130,7 @@ def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: boo
     else:
         # Iterate through all anchors and draw them collectively on the canvas
         for anchor in anchors_array:
-            canvas = add_anchor(anchor=anchor, image=canvas, input_image_size=input_image_size)
+            canvas = add_bounding_box(bounding_box=anchor, image=canvas, input_image_size=input_image_size)
 
         # Display the final canvas with all anchors drawn simultaneously
         cv2.imshow(winname=window_name, mat=canvas)

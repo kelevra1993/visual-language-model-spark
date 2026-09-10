@@ -239,3 +239,21 @@ def print_dictionary(dictionary: Dict[str, Any], indent: int = 4) -> None:
         indent (int): The number of spaces to use for indentation.
     """
     print(json.dumps(dictionary, indent=indent))
+
+
+def get_random_color() -> Tuple[int, int, int]:
+    """
+    Generates a random RGB color tuple.
+    
+    This utility is useful for randomly assigning colors to different bounding boxes
+    or classes during visualization, ensuring distinct visual representations.
+    
+    Args:
+        None
+        
+    Returns:
+        Tuple[int, int, int]: A tuple containing random (B, G, R) values from 0 to 255.
+    """
+    return (int(np.random.randint(low=0, high=256)),
+            int(np.random.randint(low=0, high=256)),
+            int(np.random.randint(low=0, high=256)))
