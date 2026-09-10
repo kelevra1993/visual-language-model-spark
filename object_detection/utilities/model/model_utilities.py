@@ -5,6 +5,47 @@ import torch
 from utilities.os_utilities import print_blue
 
 
+def get_intersection_over_union(boxes_1: torch.Tensor, boxes_2: torch.Tensor) -> torch.Tensor:
+    """
+    Calculates the Intersection over Union (IoU) matrix between two sets of bounding boxes.
+    
+    This function computes the overlap between anchor boxes and ground truth boxes (or other anchors),
+    which is fundamentally required for matching ground truth targets to anchors during Region Proposal
+    Network training and for non-maximum suppression during inference.
+    
+    Args:
+        boxes_1 (torch.Tensor): A tensor of shape (N, 4) for first set of bounding boxes [x_min, y_min, x_max, y_max].
+        boxes_2 (torch.Tensor): A tensor of shape (M, 4) for second set of bounding boxes [x_min, y_min, x_max, y_max].
+        
+    Returns:
+        torch.Tensor: A tensor of shape (N, M) containing the computed IoU values for every pair of boxes.
+    """
+    # compute area of box 1 and box2
+    area_1 = (boxes_1[:, 2] - boxes_1[:, 0]) * (boxes_1[:, 3] - boxes_1[:, 1])
+    area_2 = (boxes_2[:, 2] - boxes_2[:, 0]) * (boxes_2[:, 3] - boxes_2[:, 1])
+
+    # Get the top left coordinates of intersection area using broadcasting to create an (N, M, 2) tensor
+    top_left_coordinates = torch.max(input=boxes_1.unsqueeze(dim=1)[:, :, :2],
+                                     other=boxes_2.unsqueeze(dim=0)[:, :, :2])
+
+    # Get the bottom right coordinates of intersection area using broadcasting to create an (N, M, 2) tensor
+    bottom_right_coordinates = torch.min(input=boxes_1.unsqueeze(dim=1)[:, :, 2:],
+                                         other=boxes_2.unsqueeze(dim=0)[:, :, 2:])
+
+    # Compute intersection area (clamped to 0, to avoid negative values)
+    intersection_dimensions = (bottom_right_coordinates - top_left_coordinates).clamp(min=0)
+    intersection_area = intersection_dimensions[:, :, 0] * intersection_dimensions[:, :, 1]
+
+    # Compute union area by summing individual areas and subtracting the overlapping intersection area
+    union_area = area_1.unsqueeze(dim=1) + area_2.unsqueeze(dim=0) - intersection_area
+
+    # Compute the final metric and return intersection_over_union variable, avoiding division by zero
+    # Tensor of shape (N, M)
+    intersection_over_union = intersection_area / (union_area + 1e-6)
+
+    return intersection_over_union
+
+
 def add_anchor(anchor: np.ndarray, image: np.ndarray, input_image_size: int) -> np.ndarray:
     """
     Draws a single bounding box anchor onto the provided image canvas.
@@ -96,3 +137,35 @@ def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: boo
 
     # Clean up the OpenCV windows after the visualization loop is complete
     cv2.destroyAllWindows()
+
+
+def apply_regression_predictions(regression_predictions, boxes):
+    """"""
+
+    # Note to take into account regression_predictions are of shape (N,k,4) for region proposal output k=1, but for
+    # final detection output k=number of classes.
+
+    # Get the height, weight, x_center and y_center from the boxes, which are of shape N,4
+
+    # Get the predictions from regression predictions
+    dx = regression_predictions[:, 0]
+    dy = regression_predictions[:, 1]
+    dw = regression_predictions[:, 2]
+    dh = regression_predictions[:, 3]
+
+    # Apply regressions
+    predicted_center_x = boxes_widths * dx + boxes_center_x
+    predicted_center_y = boxes_heights * dy + boxes_center_y
+
+    predicted_width = torch.exp(input=dw) * boxes_widths
+    predicted_height = torch.exp(input=dh) * boxes_heights
+
+    # Get predicted boxes
+    predicted_boxes = torch.stack(tensors=[
+        predicted_center_x - 0.5 * predicted_width,
+        predicted_center_y - 0.5 * predicted_height,
+        predicted_center_x + 0.5 * predicted_width,
+        predicted_center_y + 0.5 * predicted_height,
+    ],dim=-1)
+
+    return predicted_boxes
