@@ -4,6 +4,7 @@ from torch import nn
 from typing import List, Union, Dict
 
 from architecture_modules.anchors import Anchors
+from utilities.tensor_utilities import print_tensor_shape
 
 
 class RegionProposal(nn.Module):
@@ -23,8 +24,13 @@ class RegionProposal(nn.Module):
 
         # Get particular anchors for this region proposal
         self.region_proposal_anchor_object = Anchors(
-            # todo to be filled up
-        )
+            scales=scales,
+            aspect_ratios=aspect_ratios,
+            input_image_size=input_image_size,
+            feature_map_size=feature_map_size,
+            dtype=self.dtype,
+            device=self.device)
+
         self.number_anchors = self.region_proposal_anchor_object.number_anchors
 
         # 3x3 Convolution Layer : Todo later complexify this step (using ConvBlock)
@@ -41,6 +47,15 @@ class RegionProposal(nn.Module):
         self.region_proposal_bounding_box_regressor = nn.Conv2d(in_channels=input_channels,
                                                                 out_channels=self.number_anchors * 4,
                                                                 kernel_size=1, stride=1)
+        print(type(self.number_anchors))
 
     def forward(self, input_tensor, target_tensor):
-        pass
+        output_tensor = nn.ReLU()(self.region_proposal_convolution(input_tensor))
+
+        proposal_scores = self.region_proposal_classifier(output_tensor)
+        proposal_boxes = self.region_proposal_bounding_box_regressor(output_tensor)
+
+        print_tensor_shape(proposal_boxes, "proposal_boxes")
+        print_tensor_shape(proposal_scores, "proposal_scores")
+
+        return proposal_scores, proposal_boxes
