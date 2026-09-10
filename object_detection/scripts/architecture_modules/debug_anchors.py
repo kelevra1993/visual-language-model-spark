@@ -23,17 +23,17 @@ def debug_anchors() -> None:
     device = torch.device(device="cpu")
     dtype = torch.float32
 
-    # Define the scales and ratios for the anchors
-    # Scales determine the base size of the anchor boxes, and ratios determine their aspect ratios (width/height)
-    scales_and_ratios = {"scales": [32.0, 64.0], "ratios": [0.5, 1.0, 2.0]}
+    # Define the scales and aspect ratios for the anchors
+    # Scales determine the base size of the anchor boxes, and aspect ratios determine their aspect ratios (width/height)
+    scales_and_ratios = {"scales": [32.0, 64.0], "aspect_ratios": [0.5, 1.0, 2.0]}
 
     # Define example parameters based on typical feature map resolutions
     input_image_size = 1024
     feature_map_size = 6
 
-    # We will pick the scales and ratios for a specific feature map level (e.g., '5')
+    # We will pick the scales and aspect ratios for a specific feature map level (e.g., '5')
     scales = scales_and_ratios["scales"]
-    aspect_ratios = scales_and_ratios["ratios"]
+    aspect_ratios = scales_and_ratios["aspect_ratios"]
 
     # Display the configuration explicitly to assist with tracking spatial logic during debugging
     print_blue(output=f"Prepared Anchors configuration for Feature Map {feature_map_size}x{feature_map_size}:",

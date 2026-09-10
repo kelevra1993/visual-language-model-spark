@@ -47,7 +47,8 @@ def get_intersection_over_union(boxes_1: torch.Tensor, boxes_2: torch.Tensor) ->
     return intersection_over_union
 
 
-def add_bounding_box(bounding_box: np.ndarray, image: np.ndarray, input_image_size: int, color: Tuple[int, int, int] = (0, 255, 0)) -> np.ndarray:
+def add_bounding_box(bounding_box: np.ndarray, image: np.ndarray, input_image_size: int,
+                     color: Tuple[int, int, int] = (0, 255, 0)) -> np.ndarray:
     """
     Draws a single bounding box onto the provided image canvas.
     
