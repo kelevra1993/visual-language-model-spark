@@ -224,14 +224,12 @@ def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) 
 
 
 # TODO LATER : Might be moved elsewhere in the RPN Module but not sure
-def filter_proposals(
-    proposal_boxes: torch.Tensor,
-    proposal_scores: torch.Tensor,
-    input_image_size: int,
-    pre_nms_filter_proposals: int,
-    nms_iou_threshold: float,
-    post_nms_filter_proposals: int
-) -> Tuple[torch.Tensor, torch.Tensor]:
+def filter_proposals(proposal_boxes: torch.Tensor,
+                     proposal_scores: torch.Tensor,
+                     input_image_size: int,
+                     pre_nms_filter_proposals: int,
+                     nms_iou_threshold: float,
+                     post_nms_filter_proposals: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Filters region proposal bounding boxes using objectness scores and Non-Maximum Suppression (NMS).
     

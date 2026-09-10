@@ -103,7 +103,7 @@ RegionProposal:
     {"min":O.5,"max":1.0}
   background_iou_threholds:
     {"min":O.1,"max":0.3}
-  nms_threshold: 0.5
+  nms_iou_threshold: 0.5
 
 Enhancer:
   convolution_block_inputs:
@@ -112,15 +112,6 @@ Enhancer:
       "5": [ 2, 64 ],
       "6": [ 2, 64 ],
     }
-
-Anchors:
-  scales_and_ratios:
-    {
-      "4":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
-      "5":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
-      "6":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
-    }
-
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
     residual_nets: False
@@ -133,6 +124,14 @@ Anchors:
 
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
+
+Anchors:
+  scales_and_ratios:
+    {
+      "4":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
+      "5":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
+      "6":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
+    }
 
 Detector:
   fully_connected_neurons: [256,128]
