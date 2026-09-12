@@ -19,7 +19,7 @@ def debug_regression_predictions() -> None:
         None
     """
     input_image_size = 1024
-    number_of_boxes = 4
+    number_of_boxes = 5
     number_classes = 3
     box_scale = 192
 

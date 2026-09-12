@@ -22,7 +22,7 @@ def debug_region_proposal() -> None:
     dtype = torch.float32
 
     # Define the scales and aspect ratios for the anchors
-    scales_and_ratios = {"scales": [32.0, 64.0], "aspect_ratios": [0.5, 1.0, 2.0]}
+    scales_and_ratios = {"scales": [32.0, 64.0, 128.0], "aspect_ratios": [0.5, 1.0, 2.0]}
     scales = scales_and_ratios["scales"]
     aspect_ratios = scales_and_ratios["aspect_ratios"]
 
