@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import torch
 
-from utilities.model.model_utilities import apply_regression_predictions, add_bounding_box
+from utilities.model.model_utilities import apply_regression_predictions, add_bounding_box, get_area
 from utilities.os_utilities import print_green, print_blue, get_random_color
 from utilities.tensor_utilities import print_tensor_shape
 
@@ -53,10 +53,17 @@ def debug_regression_predictions() -> None:
     predicted_boxes_tensor = apply_regression_predictions(regression_predictions=regression_predictions,
                                                           boxes=boxes_tensor)
 
+    # Compute areas using the centralized get_area utility
+    original_areas_tensor = get_area(boxes=boxes_tensor)
+    predicted_areas_tensor = get_area(boxes=predicted_boxes_tensor)
+
     # Convert to numpy arrays for OpenCV compatibility
     original_boxes_array = boxes_tensor.numpy().astype(dtype=np.int32)
+    original_areas_array = original_areas_tensor.numpy()
+
     # Get a single element from the batch
     predicted_boxes_array = predicted_boxes_tensor.numpy().astype(dtype=np.int32)[1]
+    predicted_areas_array = predicted_areas_tensor.numpy()[1]
 
     # Generate a unique random color for each class
     class_colors = [get_random_color() for _ in range(number_classes)]
@@ -66,19 +73,26 @@ def debug_regression_predictions() -> None:
     print_green(output="- GREEN boxes: Original Reference Anchors", add_separators=False)
     print_blue(output="- RANDOM colors: Predicted/Regressed Boxes for each class", add_separators=False)
 
-    for original_box, predicted_classes_boxes in zip(original_boxes_array, predicted_boxes_array):
+    for original_box, original_area, predicted_classes_boxes, predicted_classes_areas in zip(
+            original_boxes_array, original_areas_array, predicted_boxes_array, predicted_areas_array):
         # Draw Original Anchor Box (GREEN) using the utility function
         canvas = add_bounding_box(bounding_box=original_box, image=canvas,
                                   input_image_size=input_image_size, color=(0, 255, 0))
 
-        print_green(output=f"Original Box : {original_box}", add_separators=False)
+        original_scale = np.sqrt(original_area)
+        print_green(output=f"Original Box : {original_box} :: Area: {original_area:.2f} :: Scale: {original_scale:.2f}",
+                    add_separators=False)
 
         # Draw Predicted Boxes for each class in its respective random color
         for class_index in range(number_classes):
             predicted_box = predicted_classes_boxes[class_index]
+            predicted_area = predicted_classes_areas[class_index]
             canvas = add_bounding_box(bounding_box=predicted_box, image=canvas,
                                       input_image_size=input_image_size, color=class_colors[class_index])
-            print_blue(output=f"- Associated Random Box (Class {class_index}) : {predicted_box}", add_separators=False)
+
+            predicted_scale = np.sqrt(predicted_area)
+            print_blue(output=f"- Associated Random Box (Class {class_index}) : {predicted_box}"
+                              f" :: Area: {predicted_area:.2f} :: Scale: {predicted_scale:.2f}", add_separators=False)
 
     window_name = "Regression Predictions Debugger"
     cv2.imshow(winname=window_name, mat=canvas)
