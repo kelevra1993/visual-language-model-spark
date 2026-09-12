@@ -6,7 +6,7 @@ from typing import List, Union, Dict, Tuple
 
 from architecture_modules.anchors import Anchors
 from utilities.tensor_utilities import print_tensor_shape
-from utilities.model.model_utilities import clamp_boxes_to_image_boundaries
+from utilities.model.model_utilities import clamp_boxes_to_image_boundaries, apply_regression_predictions
 
 
 class RegionProposal(nn.Module):
@@ -33,7 +33,7 @@ class RegionProposal(nn.Module):
             dtype=self.dtype,
             device=self.device)
 
-        self.number_anchors = self.region_proposal_anchor_object.number_anchors
+        self.number_anchors_per_location = self.region_proposal_anchor_object.number_anchors_per_location
 
         # 3x3 Convolution Layer : Todo later complexify this step (using ConvBlock)
         self.region_proposal_convolution = nn.Conv2d(in_channels=input_channels,
@@ -42,25 +42,50 @@ class RegionProposal(nn.Module):
 
         # 1x1 Convolution Layer for classification : Todo later complexify this step
         self.region_proposal_classifier = nn.Conv2d(in_channels=input_channels,
-                                                    out_channels=self.number_anchors,
+                                                    out_channels=self.number_anchors_per_location,
                                                     kernel_size=1, stride=1)
 
         # 1x1 Convolution Layer for regression : Todo later complexify this step
         self.region_proposal_bounding_box_regressor = nn.Conv2d(in_channels=input_channels,
-                                                                out_channels=self.number_anchors * 4,
+                                                                out_channels=self.number_anchors_per_location * 4,
                                                                 kernel_size=1, stride=1)
-        print(type(self.number_anchors))
 
     def forward(self, input_tensor, target_tensor):
+        # Get feature map dimensions
+        batch_dimension, _, feature_map_height, feature_map_width = input_tensor.shape
+
         output_tensor = nn.ReLU()(self.region_proposal_convolution(input_tensor))
 
         proposal_scores = self.region_proposal_classifier(output_tensor)
         proposal_boxes_transformations = self.region_proposal_bounding_box_regressor(output_tensor)
 
-        # todo we have not yet applied the transformations to our boxes.
+        # Reshape proposal score  from :
+        #  - [batch, number_anchors_per_location, feature_map_height, feature_map_width]
+        # to [batch, feature_map_height, feature_map_width, number_anchors_per_location]
+        proposal_scores = proposal_scores.permute(0, 2, 3, 1)
+        # Then reshape to [batch, feature_map_height * feature_map_width * number_anchors_per_location]
+        proposal_scores = proposal_scores.reshape(
+            batch_dimension, feature_map_height * feature_map_width * self.number_anchors_per_location)
 
+        # Reshape proposal box transformations from
+        #  -   [batch, 4*number_anchors_per_location, feature_map_height, feature_map_width]
+        # to   [batch, number_anchors_per_location, 4, feature_map_height, feature_map_width]
+        # then [batch, feature_map_height * feature_map_width, number_anchors_per_location, 4]
+        proposal_boxes_transformations = proposal_boxes_transformations.reshape(batch_dimension,
+                                                                                self.number_anchors_per_location, 4,
+                                                                                feature_map_height, feature_map_width)
+        proposal_boxes_transformations = proposal_boxes_transformations.permute(0, 3, 4, 1, 2)
+        proposal_boxes_transformations = proposal_boxes_transformations.reshape(
+            batch_dimension, feature_map_height * feature_map_width * self.number_anchors_per_location, 4)
+
+        # Apply the transformations to our boxes.
+        proposal_boxes = apply_regression_predictions(
+            regression_predictions=proposal_boxes_transformations.detach().unsqueeze(-2),
+            boxes=self.region_proposal_anchor_object.anchors)
+        exit()
         return proposal_scores, proposal_boxes_transformations
 
+    # todo be extremely careful with the shapes that are being put in here.
     def filter_proposals(self, proposal_boxes: torch.Tensor,
                          proposal_scores: torch.Tensor,
                          input_image_size: int,

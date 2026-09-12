@@ -4,6 +4,7 @@ import torch
 from typing import Tuple
 
 from utilities.os_utilities import print_blue
+from utilities.tensor_utilities import print_tensor_shape
 
 
 def get_area(boxes: torch.Tensor) -> torch.Tensor:
@@ -23,10 +24,11 @@ def get_area(boxes: torch.Tensor) -> torch.Tensor:
     # Extract widths and heights using tensor slicing
     widths = boxes[..., 2] - boxes[..., 0]
     heights = boxes[..., 3] - boxes[..., 1]
-    
+
     # Calculate and return the area
     areas = widths * heights
     return areas
+
 
 def get_intersection_over_union(boxes_1: torch.Tensor, boxes_2: torch.Tensor) -> torch.Tensor:
     """
@@ -185,6 +187,9 @@ def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: to
         torch.Tensor: A tensor of shape (..., N, k, 4) containing the adjusted predicted 
                       bounding boxes in [x_min, y_min, x_max, y_max] format.
     """
+    print_tensor_shape(regression_predictions, "regression_predictions")
+    print_tensor_shape(boxes, "boxes")
+
     # Get the width, height, x_center and y_center from the boxes using ellipsis to handle optional batch dimensions
     boxes_widths = boxes[..., 2] - boxes[..., 0]
     boxes_heights = boxes[..., 3] - boxes[..., 1]
@@ -218,6 +223,8 @@ def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: to
         predicted_center_y - 0.5 * predicted_height,
         predicted_center_x + 0.5 * predicted_width,
         predicted_center_y + 0.5 * predicted_height], dim=-1)
+
+    print_tensor_shape(predicted_boxes, "predicted_boxes")
 
     return predicted_boxes
 
