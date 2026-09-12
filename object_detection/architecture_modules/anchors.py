@@ -34,7 +34,7 @@ class Anchors(nn.Module):
         # Set up scales, ratios and number of anchors per spatial location
         self.scales = torch.as_tensor(data=scales, dtype=self.dtype, device=self.device)
         self.aspect_ratios = torch.as_tensor(data=aspect_ratios, dtype=self.dtype, device=self.device)
-        self.number_anchors = len(scales) * len(aspect_ratios)
+        self.number_anchors_per_location = len(scales) * len(aspect_ratios)
 
         self.input_image_size = input_image_size
         self.feature_map_size = feature_map_size
