@@ -78,11 +78,6 @@ class RegionProposal(nn.Module):
         proposal_boxes_transformations = proposal_boxes_transformations.reshape(
             batch_dimension, feature_map_height * feature_map_width * self.number_anchors_per_location, 4)
 
-        # Apply the transformations to our boxes.
-        proposal_boxes = apply_regression_predictions(
-            regression_predictions=proposal_boxes_transformations.detach().unsqueeze(-2),
-            boxes=self.region_proposal_anchor_object.anchors)
-        exit()
         return proposal_scores, proposal_boxes_transformations
 
     # todo be extremely careful with the shapes that are being put in here.

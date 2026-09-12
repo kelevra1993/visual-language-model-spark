@@ -4,6 +4,7 @@ import torch
 
 from utilities.model.model_utilities import apply_regression_predictions, add_bounding_box
 from utilities.os_utilities import print_green, print_blue, get_random_color
+from utilities.tensor_utilities import print_tensor_shape
 
 
 def debug_regression_predictions() -> None:
@@ -18,6 +19,7 @@ def debug_regression_predictions() -> None:
     Args:
         None
     """
+    batch_size = 2
     input_image_size = 1024
     number_of_boxes = 5
     number_classes = 3
@@ -38,22 +40,23 @@ def debug_regression_predictions() -> None:
 
     boxes_tensor = torch.tensor(data=boxes, dtype=torch.float32)
 
-    # 2. Generate dummy regression predictions of shape (N, k, 4)
+    # 2. Generate dummy regression predictions of shape (B, N, k, 4)
     # dx, dy: shift the center right and down (positive values)
     # dw, dh: slightly expand the boxes (positive values)
-    regression_predictions = torch.ones(size=(number_of_boxes, number_classes, 4), dtype=torch.float32) * 0.2
+    regression_predictions = torch.ones(size=(batch_size, number_of_boxes, number_classes, 4),
+                                        dtype=torch.float32) * 0.2
 
     # Add some randomness to each prediction so they don't all look exactly identical
-    regression_predictions += torch.randn(size=(number_of_boxes, number_classes, 4)) * 0.2
+    regression_predictions += torch.randn(size=(batch_size, number_of_boxes, number_classes, 4)) * 0.2
 
     # 3. Apply the regressions
-    predicted_boxes_tensor = apply_regression_predictions(
-        regression_predictions=regression_predictions,
-        boxes=boxes_tensor)
+    predicted_boxes_tensor = apply_regression_predictions(regression_predictions=regression_predictions,
+                                                          boxes=boxes_tensor)
 
     # Convert to numpy arrays for OpenCV compatibility
     original_boxes_array = boxes_tensor.numpy().astype(dtype=np.int32)
-    predicted_boxes_array = predicted_boxes_tensor.numpy().astype(dtype=np.int32)
+    # Get a single element from the batch
+    predicted_boxes_array = predicted_boxes_tensor.numpy().astype(dtype=np.int32)[1]
 
     # Generate a unique random color for each class
     class_colors = [get_random_color() for _ in range(number_classes)]
