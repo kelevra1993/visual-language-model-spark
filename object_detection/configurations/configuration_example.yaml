@@ -99,6 +99,12 @@ Backbone:
     squeeze_and_excite: True
 
 RegionProposal:
+  training:
+    pre_nms_proposals: 1000
+    post_nms_proposals: 500
+  inference:
+    pre_nms_proposals: 500
+    post_nms_proposals: 250
   foreground_iou_threshold:
     {"min":O.5,"max":1.0}
   background_iou_threholds:

@@ -1,9 +1,10 @@
 import torch
+import numpy as np
 
 from architecture_modules.anchors import Anchors
 from utilities.os_utilities import print_green, print_blue
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
-from utilities.model.model_utilities import visualise_anchors
+from utilities.model.model_utilities import visualise_anchors, get_area
 
 
 def debug_anchors() -> None:
@@ -58,11 +59,21 @@ def debug_anchors() -> None:
     print_blue(output="Anchors Tensor Shape:", add_separators=True)
     print_tensor_shape(tensor=generated_anchors, name="generated_anchors")
 
-    print_blue(output="First 5 Generated Anchors [x_min, y_min, x_max, y_max]:", add_separators=True)
-    print_tensor_list(tensor=generated_anchors[:5])
-
-    print_blue(output="Last 5 Generated Anchors [x_min, y_min, x_max, y_max]:", add_separators=True)
-    print_tensor_list(tensor=generated_anchors[-5:])
+    print_blue(output="First 10 Generated Anchors [x_min, y_min, x_max, y_max]:", add_separators=True)
+    
+    # Extract the first 10 anchors and calculate their areas using the centralized utility
+    first_ten_anchors = generated_anchors[:10]
+    areas = get_area(boxes=first_ten_anchors)
+    
+    for anchor, area in zip(first_ten_anchors, areas):
+        anchor_coordinates = np.round(a=anchor.tolist(), decimals=4)
+        area_value = area.item()
+        scale_value = np.sqrt(area_value)
+        
+        # Format the coordinates into a fixed-width string to ensure vertical alignment
+        coordinates_string = f"[{anchor_coordinates[0]:>8.4f}, {anchor_coordinates[1]:>8.4f}, {anchor_coordinates[2]:>8.4f}, {anchor_coordinates[3]:>8.4f}]"
+        
+        print(f" {coordinates_string}  >  Area: {area_value:>10.4f}  >  Scale: {scale_value:>8.4f}")
 
     # Visually debug the generated anchors on a black canvas
     # Using random_ratio to only visualize a random subset to avoid clutter

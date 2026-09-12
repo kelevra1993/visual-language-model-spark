@@ -78,6 +78,7 @@ def debug_region_proposal() -> None:
     print_blue(output="Executing forward pass with mock tensors...", add_separators=True)
 
     # Execute the forward pass
+    # todo : Be careful, are we returning proposal boxes or anchor_box/proposal_box_transformations ?
     proposal_scores, proposal_boxes = region_proposal_module(input_tensor=input_tensor, target_tensor=target_tensor)
 
     print_tensor_shape(proposal_boxes, "proposal_boxes")

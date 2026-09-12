@@ -6,6 +6,28 @@ from typing import Tuple
 from utilities.os_utilities import print_blue
 
 
+def get_area(boxes: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the spatial area of a set of bounding boxes.
+    
+    This utility calculates the area coverage for a tensor of bounding boxes provided 
+    in [x_min, y_min, x_max, y_max] format. It uses vectorized operations across the 
+    last dimension to efficiently support batched and unbatched tensors.
+    
+    Args:
+        boxes (torch.Tensor): A tensor of shape (..., 4) representing bounding boxes.
+        
+    Returns:
+        torch.Tensor: A tensor of shape (...,) containing the computed areas.
+    """
+    # Extract widths and heights using tensor slicing
+    widths = boxes[..., 2] - boxes[..., 0]
+    heights = boxes[..., 3] - boxes[..., 1]
+    
+    # Calculate and return the area
+    areas = widths * heights
+    return areas
+
 def get_intersection_over_union(boxes_1: torch.Tensor, boxes_2: torch.Tensor) -> torch.Tensor:
     """
     Calculates the Intersection over Union (IoU) matrix between two sets of bounding boxes.
