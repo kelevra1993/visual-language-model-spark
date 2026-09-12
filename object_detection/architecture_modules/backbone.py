@@ -18,7 +18,7 @@ class Backbone(nn.Module):
     """
 
     def __init__(self, input_channels: int, convolutions: Dict[str, List[int]], modules: Dict[str, bool],
-                 last_max_pooling: bool, normalization: Dict[str, str],
+                 last_max_pooling: bool, normalization: Dict[str, str], enhancer_convolution_indices: List[int],
                  device: torch.device, dtype: torch.dtype) -> None:
         """
         Initializes the Backbone with the specified convolution blocks and parameters.
@@ -82,8 +82,11 @@ class Backbone(nn.Module):
         # Initialize the current tensor to the input tensor before passing through the blocks
         current_tensor = input_tensor
 
+        # Creation of output tensor dictionary
+
         # Iterate through each convolution block and sequentially process the feature map
-        for block in self.blocks:
+        for block_index, block in enumerate(self.convolution_blocks, start=1):
+            print(block_index)
             current_tensor = block(input_tensor=current_tensor)
 
         return current_tensor

@@ -45,9 +45,6 @@ def test_region_proposer() -> None:
             "aspect_ratios": [0.5, 1.0, 2.0],
             "input_image_size": 1024,
             "feature_map_size": feature_map_size,
-            "foreground_iou_threshold": 0.7,
-            "background_iou_threholds": 0.3,
-            "nms_iou_threshold": 0.7,
             "device": device,
             "dtype": dtype
         },
@@ -57,9 +54,6 @@ def test_region_proposer() -> None:
             "aspect_ratios": [0.5, 1.0, 2.0],
             "input_image_size": 1024,
             "feature_map_size": feature_map_size,
-            "foreground_iou_threshold": 0.6,
-            "background_iou_threholds": 0.4,
-            "nms_iou_threshold": 0.5,
             "device": device,
             "dtype": dtype
         }

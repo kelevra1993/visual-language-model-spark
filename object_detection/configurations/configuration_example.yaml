@@ -97,7 +97,9 @@ Backbone:
 
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
-
+  # todo to be documented
+  enhancer_convolution_indices: [4, 5, 6]
+# Careful because here the number of proposals seems to be global
 RegionProposal:
   training:
     pre_nms_proposals: 1000
