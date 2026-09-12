@@ -15,5 +15,6 @@ dependencies = [
 
 [tool.pytest.ini_options]
 pythonpath = [
-  "."
+  ".",
+  "object_detection"
 ]
