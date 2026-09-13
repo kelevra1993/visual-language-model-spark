@@ -115,8 +115,65 @@ class Model(nn.Module):
 
         return region_proposer_dictionary
 
+    def aggregate_proposals_and_anchors(
+            self,
+            region_proposal_output_tensor_dictionary: Dict[str, Dict[str, torch.Tensor]]) -> Dict[str, torch.Tensor]:
+        """
+        Aggregates the multi-scale region proposals and their corresponding base anchors into a unified structure.
+
+        This method iterates over the outputs from the various levels of the feature pyramid, concatenating the 
+        classification scores, bounding box regressions, and proposal boxes along the sequence dimension. It also 
+        retrieves the base anchors for each scale, expanding them to include a batch dimension to seamlessly align 
+        with the network's batched predictions.
+
+        Args:
+            region_proposal_output_tensor_dictionary (Dict[str, Dict[str, torch.Tensor]]): A dictionary mapping enhancer 
+            indices to their respective region proposal predictions.
+
+        Returns:
+            Dict[str, torch.Tensor]: A single dictionary containing the concatenated predictions
+                                     and batched anchors across all scales.
+                - "classification_scores" (torch.Tensor): Shape [batch_size, total_anchors]
+                - "bounding_box_regressions" (torch.Tensor): Shape [batch_size, total_anchors, 4]
+                - "proposal_boxes" (torch.Tensor): Shape [batch_size, total_anchors, 4]
+                - "anchors" (torch.Tensor): Shape [batch_size, total_anchors, 4]
+        """
+        aggregated_scores = []
+        aggregated_regressions = []
+        aggregated_boxes = []
+        aggregated_anchors = []
+
+        for enhancer_index_string, predictions in region_proposal_output_tensor_dictionary.items():
+            # Shape: [batch_size, anchors_per_scale]
+            classification_scores = predictions["classification_scores"]
+            
+            # Shape: [batch_size, anchors_per_scale, 4]
+            bounding_box_regressions = predictions["bounding_box_regressions"]
+            
+            # Shape: [batch_size, anchors_per_scale, 4]
+            proposal_boxes = predictions["proposal_boxes"]
+
+            batch_size = classification_scores.shape[0]
+
+            # Fetch anchors and apply batch dimension expansion to match predictions
+            # Base anchor shape: [anchors_per_scale, 4]
+            anchors = self.region_proposer_dictionary[enhancer_index_string].region_proposal_anchor_object.anchors
+            
+            # Batched anchor shape: [batch_size, anchors_per_scale, 4]
+            batched_anchors = anchors.unsqueeze(dim=0).expand(size=(batch_size, -1, 4))
+
+            aggregated_scores.append(classification_scores)
+            aggregated_regressions.append(bounding_box_regressions)
+            aggregated_boxes.append(proposal_boxes)
+            aggregated_anchors.append(batched_anchors)
+
+        return {"classification_scores": torch.cat(tensors=aggregated_scores, dim=1),
+                "bounding_box_regressions": torch.cat(tensors=aggregated_regressions, dim=1),
+                "proposal_boxes": torch.cat(tensors=aggregated_boxes, dim=1),
+                "anchors": torch.cat(tensors=aggregated_anchors, dim=1)}
+
     def forward(self, input_tensor: torch.Tensor) -> Tuple[
-        torch.Tensor, Dict[str, torch.Tensor], Dict[str, Dict[str, torch.Tensor]]]:
+        torch.Tensor, Dict[str, torch.Tensor], Dict[str, Dict[str, torch.Tensor]], Dict[str, torch.Tensor]]:
         """
         Executes the forward pass of the Model.
         
@@ -124,13 +181,14 @@ class Model(nn.Module):
             input_tensor (torch.Tensor): The raw input image tensor.
             
         Returns:
-            Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, Dict[str, torch.Tensor]]]: 
+            Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, Dict[str, torch.Tensor]], Dict[str, torch.Tensor]]: 
                 - The final backbone output tensor
                 - A dictionary mapping enhancer indices to their intermediate feature maps
                 - A dictionary containing for each enhancer scale
                    - region proposal classification scores
                    - region proposal bounding box regressions
                    - predicted region proposal bounding box
+                - A dictionary containing the aggregated proposals and batched anchors flattened across all scales
         """
         # Pass the raw image through the backbone to extract the multiscale feature maps
         final_backbone_tensor, backbone_output_tensor_dictionary = self.backbone(input_tensor=input_tensor)
@@ -149,7 +207,12 @@ class Model(nn.Module):
                 "bounding_box_regressions": proposal_boxes_transformations,
                 "proposal_boxes": proposal_boxes}
 
-        return final_backbone_tensor, backbone_output_tensor_dictionary, region_proposal_output_tensor_dictionary
+        # Aggregate the proposals and anchors across all scales for downstream processing
+        aggregated_proposals_dictionary = self.aggregate_proposals_and_anchors(
+            region_proposal_output_tensor_dictionary=region_proposal_output_tensor_dictionary)
+
+        return (final_backbone_tensor, backbone_output_tensor_dictionary, region_proposal_output_tensor_dictionary,
+                aggregated_proposals_dictionary)
 
     def print_summary(self) -> None:
         """
