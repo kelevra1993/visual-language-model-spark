@@ -115,7 +115,8 @@ class Model(nn.Module):
 
         return region_proposer_dictionary
 
-    def forward(self, input_tensor: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def forward(self, input_tensor: torch.Tensor) -> Tuple[
+        torch.Tensor, Dict[str, torch.Tensor], Dict[str, Dict[str, torch.Tensor]]]:
         """
         Executes the forward pass of the Model.
         
@@ -123,13 +124,32 @@ class Model(nn.Module):
             input_tensor (torch.Tensor): The raw input image tensor.
             
         Returns:
-            Tuple[torch.Tensor, Dict[str, torch.Tensor]]: A tuple containing the final backbone output 
-            and a dictionary mapping enhancer block indices to their intermediate feature map tensors.
+            Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, Dict[str, torch.Tensor]]]: 
+                - The final backbone output tensor
+                - A dictionary mapping enhancer indices to their intermediate feature maps
+                - A dictionary containing for each enhancer scale
+                   - region proposal classification scores
+                   - region proposal bounding box regressions
+                   - predicted region proposal bounding box
         """
         # Pass the raw image through the backbone to extract the multiscale feature maps
         final_backbone_tensor, backbone_output_tensor_dictionary = self.backbone(input_tensor=input_tensor)
-        
-        return final_backbone_tensor, backbone_output_tensor_dictionary
+
+        # Dictionary to store the output of the region proposal networks
+        region_proposal_output_tensor_dictionary = {}
+
+        for enhancer_index_string, feature_map_tensor in backbone_output_tensor_dictionary.items():
+            # Pass the corresponding feature map through its specific region proposal block
+            proposal_scores, proposal_boxes_transformations, proposal_boxes = self.region_proposer_dictionary[
+                enhancer_index_string](input_tensor=feature_map_tensor)
+
+            # Store the predictions structured securely by their enhancer indices
+            region_proposal_output_tensor_dictionary[enhancer_index_string] = {
+                "classification_scores": proposal_scores,
+                "bounding_box_regressions": proposal_boxes_transformations,
+                "proposal_boxes": proposal_boxes}
+
+        return final_backbone_tensor, backbone_output_tensor_dictionary, region_proposal_output_tensor_dictionary
 
     def print_summary(self) -> None:
         """

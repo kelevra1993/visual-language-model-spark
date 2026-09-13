@@ -48,7 +48,7 @@ class RegionProposal(nn.Module):
                                                                 out_channels=self.number_anchors_per_location * 4,
                                                                 kernel_size=1, stride=1)
 
-    def forward(self, input_tensor, target_tensor):
+    def forward(self, input_tensor):
         """#todo add documentation to this function"""
         # Get feature map dimensions
         batch_dimension, _, feature_map_height, feature_map_width = input_tensor.shape
@@ -75,8 +75,9 @@ class RegionProposal(nn.Module):
                                                                                 feature_map_height, feature_map_width)
         proposal_boxes_transformations = proposal_boxes_transformations.permute(0, 3, 4, 1, 2)
         proposal_boxes_transformations = proposal_boxes_transformations.reshape(
-            batch_dimension, feature_map_height * feature_map_width * self.number_anchors_per_location, 4)
+            batch_dimension, feature_map_height * feature_map_width * self.number_anchors_per_location, 1, 4)
 
-        return proposal_scores, proposal_boxes_transformations
+        proposal_boxes = apply_regression_predictions(regression_predictions=proposal_boxes_transformations,
+                                                      boxes=self.region_proposal_anchor_object.anchors)
 
-
+        return proposal_scores, proposal_boxes_transformations, proposal_boxes
