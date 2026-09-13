@@ -10,18 +10,20 @@ from utilities.os_utilities import print_yellow, print_blue, print_green
 
 class Backbone(nn.Module):
     """
-    Constructs the backbone feature extractor consisting of multiple stacked ConvolutionBlocks.
+    Constructs the foundational feature extractor backbone consisting of multiple stacked ConvolutionBlocks.
     
-    This module builds a sequence of convolution blocks based on the configuration dictionary.
-    It extracts spatial features from the input images, iteratively reducing spatial dimensions
-    via pooling and increasing feature channels for downstream detection tasks.
+    In the context of the visual language model pipeline, this module is responsible for ingesting the raw input 
+    images and iteratively downsampling their spatial dimensions while expanding their channel capacity. The resulting 
+    high-level semantic feature maps, as well as intermediate multi-scale representations (enhancer blocks), are 
+    subsequently passed to downstream modules like the Region Proposal Network and the Feature Pyramid Network 
+    to localize and identify objects.
     """
 
     def __init__(self, input_channels: int, convolutions: Dict[str, List[int]], modules: Dict[str, bool],
                  last_max_pooling: bool, normalization: Dict[str, str], enhancer_convolution_indices: List[int],
                  device: torch.device, dtype: torch.dtype) -> None:
         """
-        Initializes the Backbone with the specified convolution blocks and parameters.
+        Initializes the Backbone with the specified convolution blocks and structural parameters.
         
         Args:
             input_channels (int): The number of initial input channels for the images.
@@ -29,6 +31,8 @@ class Backbone(nn.Module):
             modules (Dict[str, bool]): Dictionary specifying which advanced modules to use (e.g., residual).
             last_max_pooling (bool): Whether to apply max pooling at the very end of the last convolution block.
             normalization (Dict[str, str]): Dictionary containing normalization settings like feature_map_normalization.
+            enhancer_convolution_indices (List[int]): A list of block indices (1-indexed) whose intermediate feature maps 
+                are explicitly captured and returned for downstream multi-scale feature enhancement.
             device (torch.device): The device on which to allocate the parameters.
             dtype (torch.dtype): The desired data type of returned parameters.
         """
@@ -37,10 +41,13 @@ class Backbone(nn.Module):
         # Initialize the sequential container for the backbone convolution blocks
         self.convolution_blocks = nn.ModuleList()
 
+        # Set enhancer convolution indices
+        self.enhancer_convolution_indices = enhancer_convolution_indices
+
         # Set the current input channels to the initial provided argument
         current_input_channels = input_channels
 
-        # Extract and securely store the chosen feature map normalization strategy for downstream architectural transparency
+        # Extract chosen feature map normalization strategy
         self.feature_map_normalization = normalization.get("feature_map_normalization", "none")
 
         # Count total blocks to identify the last block during iteration
@@ -69,7 +76,7 @@ class Backbone(nn.Module):
             # Update the input channels for the subsequent convolution block
             current_input_channels = output_channels
 
-    def forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
+    def forward(self, input_tensor: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
         Processes the input tensor through the sequence of convolution blocks.
         
@@ -77,19 +84,25 @@ class Backbone(nn.Module):
             input_tensor (torch.Tensor): The input image tensor to be processed.
             
         Returns:
-            torch.Tensor: The resulting feature map after passing through the backbone.
+            Tuple[torch.Tensor, Dict[str, torch.Tensor]]: A tuple containing the final resulting feature map 
+            after passing through the backbone, and a dictionary containing the intermediate feature maps 
+            from the designated enhancer blocks.
         """
         # Initialize the current tensor to the input tensor before passing through the blocks
         current_tensor = input_tensor
 
         # Creation of output tensor dictionary
+        output_tensor_dictionary = {}
 
         # Iterate through each convolution block and sequentially process the feature map
         for block_index, block in enumerate(self.convolution_blocks, start=1):
-            print(block_index)
             current_tensor = block(input_tensor=current_tensor)
+            
+            # Check if the current block is designated as an enhancer and save its output
+            if block_index in self.enhancer_convolution_indices:
+                output_tensor_dictionary[str(block_index)] = current_tensor
 
-        return current_tensor
+        return current_tensor, output_tensor_dictionary
 
     def print_summary(self, expected_image_size: Tuple[int, int]) -> None:
         """

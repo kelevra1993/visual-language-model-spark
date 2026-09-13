@@ -36,9 +36,9 @@ def print_tensor_shape(tensor: torch.Tensor, name: Optional[str] = "") -> None:
 
     Args:
         tensor (torch.Tensor): The torch.Tensor whose shape will be printed. Shape: (*).
-        name (Optional[str]): An optional label to identify the tensor in the output.
+        name (Optional[str], optional): An optional label to identify the tensor in the output.
     """
-    print_blue(output=f"Tensor {name} Is Of Shape : {list(tensor.shape)}")
+    print_blue(f"Tensor {name} Is Of Shape : {list(tensor.shape)}")
 
 
 def print_tensor_type(tensor: torch.Tensor, name: Optional[str] = "") -> None:
@@ -51,9 +51,25 @@ def print_tensor_type(tensor: torch.Tensor, name: Optional[str] = "") -> None:
 
     Args:
         tensor (torch.Tensor): The torch.Tensor whose dtype will be printed. Shape: (*).
-        name (Optional[str]): An optional label to identify the tensor in the output.
+        name (Optional[str], optional): An optional label to identify the tensor in the output.
     """
-    print_yellow(output=f"Tensor {name} Is Of Type : {tensor.dtype}")
+    print_yellow(f"Tensor {name} Is Of Type : {tensor.dtype}")
+
+
+def print_tensor_min_max(tensor: torch.Tensor, name: Optional[str] = "") -> None:
+    """
+    Logs the minimum and maximum values of a tensor to the console.
+
+    This utility is crucial for debugging potential exploding or vanishing gradients and
+    verifying normalization steps within the processing pipeline, ensuring tensor values remain
+    within expected mathematical bounds.
+
+    Args:
+        tensor (torch.Tensor): The torch.Tensor to compute the min and max values for.
+        name (Optional[str], optional): An optional label to identify the tensor in the output.
+    """
+    print_yellow(f"Tensor {name} Maximum Is : {tensor.max()}")
+    print_yellow(f"Tensor {name} Minimum Is : {tensor.min()}")
 
 
 def print_tensor_device(tensor: torch.Tensor, name: Optional[str] = "") -> None:
@@ -66,9 +82,9 @@ def print_tensor_device(tensor: torch.Tensor, name: Optional[str] = "") -> None:
 
     Args:
         tensor (torch.Tensor): The torch.Tensor whose device will be printed. Shape: (*).
-        name (Optional[str]): An optional label to identify the tensor in the output.
+        name (Optional[str], optional): An optional label to identify the tensor in the output.
     """
-    print_green(output=f"Tensor {name} Is On : {tensor.device}")
+    print_green(f"Tensor {name} Is On : {tensor.device}")
 
 
 def print_tensor_status(tensor: torch.Tensor, name: Optional[str] = "") -> None:
@@ -76,16 +92,18 @@ def print_tensor_status(tensor: torch.Tensor, name: Optional[str] = "") -> None:
     Provides a comprehensive log of a tensor's shape, type, and device.
 
     Aggregates individual printing utilities to offer a single-point snapshot of a tensor's
-    state. This is particularly useful for deep debugging within dense modules like the
-    Evoformer or Structure Module where multiple transformations occur.
+    state. This is particularly useful for debugging
 
     Args:
         tensor (torch.Tensor): The torch.Tensor to inspect. Shape: (*).
-        name (Optional[str]): An optional label to identify the tensor in the output.
+        name (Optional[str], optional): An optional label to identify the tensor in the output.
     """
+    print_blue(60*'-')
     print_tensor_shape(tensor=tensor, name=name)
     print_tensor_type(tensor=tensor, name=name)
+    print_tensor_min_max(tensor=tensor,name=name)
     print_tensor_device(tensor=tensor, name=name)
+    print_blue(60*'-')
 
 
 def print_tensor_list(tensor: torch.Tensor, round: int = 4) -> None:

@@ -23,7 +23,7 @@ def debug_backbone() -> None:
     modules = {"residual": False}
     last_max_pooling = False
     normalization = {"feature_map_normalization": "none"}
-    enhancer_convolution_indices = []
+    enhancer_convolution_indices = [3, 4, 5]
 
     device = torch.device(device="cpu")
     dtype = torch.float32
@@ -54,17 +54,22 @@ def debug_backbone() -> None:
     input_tensor = torch.randn(size=(batch_size, input_channels, image_height, image_width), dtype=dtype, device=device)
 
     print_tensor_status(tensor=input_tensor, name="input_tensor")
-    print_tensor_shape(tensor=input_tensor, name="input_tensor")
 
     print_blue(output="--------------------------------------------", add_separators=False)
     print_blue(output="Executing forward pass with mock tensor...", add_separators=False)
     print_blue(output="--------------------------------------------", add_separators=False)
 
     # Execute the forward pass
-    output_tensor = backbone_module(input_tensor=input_tensor)
+    output_tensor, output_tensor_dictionary = backbone_module(input_tensor=input_tensor)
 
-    print_tensor_status(tensor=output_tensor, name="output_tensor")
-    print_tensor_shape(tensor=output_tensor, name="output_tensor")
+    print_tensor_status(tensor=output_tensor, name="final_backbone_output_tensor")
+
+    print_blue(output="--------------------------------------------", add_separators=False)
+    print_blue(output="Enhancer Output Dictionary Iteration:", add_separators=False)
+    print_blue(output="--------------------------------------------", add_separators=False)
+
+    for block_index, tensor in output_tensor_dictionary.items():
+        print_tensor_status(tensor=tensor, name=f"enhancer_output_block_{block_index}")
 
 
 if __name__ == "__main__":
