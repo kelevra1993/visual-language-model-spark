@@ -75,9 +75,10 @@ class RegionProposal(nn.Module):
                                                                                 feature_map_height, feature_map_width)
         proposal_boxes_transformations = proposal_boxes_transformations.permute(0, 3, 4, 1, 2)
         proposal_boxes_transformations = proposal_boxes_transformations.reshape(
-            batch_dimension, feature_map_height * feature_map_width * self.number_anchors_per_location, 1, 4)
+            batch_dimension, feature_map_height * feature_map_width * self.number_anchors_per_location, 4)
 
-        proposal_boxes = apply_regression_predictions(regression_predictions=proposal_boxes_transformations,
-                                                      boxes=self.region_proposal_anchor_object.anchors)
+        proposal_boxes = apply_regression_predictions(
+            regression_predictions=proposal_boxes_transformations.unsqueeze(dim=-2),
+            boxes=self.region_proposal_anchor_object.anchors).squeeze(dim=-2)
 
         return proposal_scores, proposal_boxes_transformations, proposal_boxes
