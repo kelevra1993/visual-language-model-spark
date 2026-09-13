@@ -115,8 +115,21 @@ class Model(nn.Module):
 
         return region_proposer_dictionary
 
-    def forward(self):
-        pass
+    def forward(self, input_tensor: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+        """
+        Executes the forward pass of the Model.
+        
+        Args:
+            input_tensor (torch.Tensor): The raw input image tensor.
+            
+        Returns:
+            Tuple[torch.Tensor, Dict[str, torch.Tensor]]: A tuple containing the final backbone output 
+            and a dictionary mapping enhancer block indices to their intermediate feature map tensors.
+        """
+        # Pass the raw image through the backbone to extract the multiscale feature maps
+        final_backbone_tensor, backbone_output_tensor_dictionary = self.backbone(input_tensor=input_tensor)
+        
+        return final_backbone_tensor, backbone_output_tensor_dictionary
 
     def print_summary(self) -> None:
         """

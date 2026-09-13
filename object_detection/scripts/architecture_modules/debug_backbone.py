@@ -13,9 +13,7 @@ def debug_backbone() -> None:
     prints its structural summary, and performs a single forward pass with a dummy tensor
     to verify the computational graph and spatial downsampling.
     """
-    print_blue(output="------------------------------------------------------------", add_separators=False)
-    print_blue(output="Prepared Backbone configuration:", add_separators=False)
-    print_blue(output="------------------------------------------------------------", add_separators=False)
+    print_blue(output="Prepared Backbone configuration:", add_separators=True)
 
     input_channels = 3
     input_image_size = 1024
@@ -31,20 +29,17 @@ def debug_backbone() -> None:
     dtype = torch.float32
 
     # Instantiate the backbone module
-    backbone_module = Backbone(
-        input_channels=input_channels,
-        convolutions=convolutions,
-        modules=modules,
-        last_max_pooling=last_max_pooling,
-        normalization=normalization,
-        enhancer_convolution_indices=enhancer_convolution_indices,
-        input_image_size=input_image_size,
-        device=device,
-        dtype=dtype)
+    backbone_module = Backbone(input_channels=input_channels,
+                               convolutions=convolutions,
+                               modules=modules,
+                               last_max_pooling=last_max_pooling,
+                               normalization=normalization,
+                               enhancer_convolution_indices=enhancer_convolution_indices,
+                               input_image_size=input_image_size,
+                               device=device,
+                               dtype=dtype)
 
-    print_green(output="-----------------------------------------------------------------------", add_separators=False)
-    print_green(output="Backbone module successfully instantiated and ready for testing!", add_separators=False)
-    print_green(output="-----------------------------------------------------------------------", add_separators=False)
+    print_green(output="Backbone module successfully instantiated and ready for testing!", add_separators=True)
 
     # Print the architectural summary
     backbone_module.print_summary()
@@ -54,27 +49,21 @@ def debug_backbone() -> None:
     input_tensor = torch.randn(size=(batch_size, input_channels, input_image_size, input_image_size), dtype=dtype,
                                device=device)
 
-    print_tensor_status(tensor=input_tensor, name="input_tensor")
+    print_tensor_shape(tensor=input_tensor, name="input_tensor")
 
-    print_blue(output="--------------------------------------------", add_separators=False)
-    print_blue(output="Executing forward pass with mock tensor...", add_separators=False)
-    print_blue(output="--------------------------------------------", add_separators=False)
+    print_blue(output="Executing forward pass with mock tensor...", add_separators=True)
 
     # Execute the forward pass
     output_tensor, output_tensor_dictionary = backbone_module(input_tensor=input_tensor)
 
-    print_tensor_status(tensor=output_tensor, name="final_backbone_output_tensor")
+    print_tensor_shape(tensor=output_tensor, name="final_backbone_output_tensor")
 
-    print_blue(output="--------------------------------------------", add_separators=False)
-    print_blue(output="Enhancer Output Dictionary Iteration:", add_separators=False)
-    print_blue(output="--------------------------------------------", add_separators=False)
+    print_blue(output="Enhancer Output Dictionary Iteration:", add_separators=True)
 
     for block_index, tensor in output_tensor_dictionary.items():
-        print_tensor_status(tensor=tensor, name=f"enhancer_output_block_{block_index}")
+        print_tensor_shape(tensor=tensor, name=f"enhancer_output_block_{block_index}")
 
-    print_blue(output="--------------------------------------------", add_separators=False)
-    print_blue(output="Testing dynamic structural information computation...", add_separators=False)
-    print_blue(output="--------------------------------------------", add_separators=False)
+    print_blue(output="Testing dynamic structural information computation...", add_separators=True)
 
     # Compute structural information dynamically without a full forward pass
     computed_information = backbone_module.compute_enhancer_input_information()
