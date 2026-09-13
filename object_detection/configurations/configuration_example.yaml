@@ -58,7 +58,6 @@ Data:
       clahe_augment: False
 
 Backbone:
-
   # Number of input channels for the initial convolution block (e.g., 3 for RGB images)
   input_channels : 3
 
@@ -97,8 +96,10 @@ Backbone:
 
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
+
   # todo to be documented
   enhancer_convolution_indices: [4, 5, 6]
+
 # Careful because here the number of proposals seems to be global
 RegionProposal:
   training:

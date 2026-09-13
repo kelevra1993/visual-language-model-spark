@@ -12,9 +12,6 @@ def test_region_proposer() -> None:
     feature_map_size = 6
     feature_map_shape = (input_channels, feature_map_size, feature_map_size)
 
-    # Number of ground truth boxes for the mock target tensor
-    number_of_ground_truth_boxes = 5
-
     # Create input tensors and populate the simple and batched dictionaries
     input_tensor = create_deterministic_tensor(shape=(1,) + feature_map_shape)
 
