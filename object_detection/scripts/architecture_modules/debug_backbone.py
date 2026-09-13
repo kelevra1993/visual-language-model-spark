@@ -18,8 +18,10 @@ def debug_backbone() -> None:
     print_blue(output="------------------------------------------------------------", add_separators=False)
 
     input_channels = 3
+    input_image_size = 1024
+
     # Standard VGG-like configuration mapping block index to [number_layers, output_channels]
-    convolutions = {"1": [2, 32], "2": [2, 64], "3": [3, 64], "4": [3, 128], "5": [3, 128]}
+    convolutions = {"1": [2, 16], "2": [2, 32], "3": [3, 32], "4": [3, 64], "5": [3, 128]}
     modules = {"residual": False}
     last_max_pooling = False
     normalization = {"feature_map_normalization": "none"}
@@ -36,6 +38,7 @@ def debug_backbone() -> None:
         last_max_pooling=last_max_pooling,
         normalization=normalization,
         enhancer_convolution_indices=enhancer_convolution_indices,
+        input_image_size=input_image_size,
         device=device,
         dtype=dtype)
 
@@ -44,14 +47,12 @@ def debug_backbone() -> None:
     print_green(output="-----------------------------------------------------------------------", add_separators=False)
 
     # Print the architectural summary
-    expected_image_size = (1024, 1024)
-    backbone_module.print_summary(expected_image_size=expected_image_size)
+    backbone_module.print_summary()
 
     # Generate a dummy input tensor
     batch_size = 2
-    image_height = 1024
-    image_width = 1024
-    input_tensor = torch.randn(size=(batch_size, input_channels, image_height, image_width), dtype=dtype, device=device)
+    input_tensor = torch.randn(size=(batch_size, input_channels, input_image_size, input_image_size), dtype=dtype,
+                               device=device)
 
     print_tensor_status(tensor=input_tensor, name="input_tensor")
 
@@ -70,6 +71,29 @@ def debug_backbone() -> None:
 
     for block_index, tensor in output_tensor_dictionary.items():
         print_tensor_status(tensor=tensor, name=f"enhancer_output_block_{block_index}")
+
+    print_blue(output="--------------------------------------------", add_separators=False)
+    print_blue(output="Testing dynamic structural information computation...", add_separators=False)
+    print_blue(output="--------------------------------------------", add_separators=False)
+
+    # Compute structural information dynamically without a full forward pass
+    computed_information = backbone_module.compute_enhancer_input_information()
+
+    # Verify that the computed structural information matches the actual tensor dimensions
+    for block_index, expected_structural_dictionary in computed_information.items():
+        actual_size = output_tensor_dictionary[block_index].shape[2]
+        actual_channels = output_tensor_dictionary[block_index].shape[1]
+
+        expected_size = expected_structural_dictionary["feature_map_size"]
+        expected_channels = expected_structural_dictionary["number_channels"]
+
+        match_status = "SUCCESS" if (
+                actual_size == expected_size and actual_channels == expected_channels) else "FAILED"
+
+        output_color_function = print_green if match_status == "SUCCESS" else print_blue
+        output_color_function(output=f"Block {block_index} | Computed Size: {expected_size} (Actual: {actual_size})"
+                                     f" | Computed Channels: {expected_channels} (Actual: {actual_channels})"
+                                     f" | {match_status}", add_separators=False)
 
 
 if __name__ == "__main__":

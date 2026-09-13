@@ -29,10 +29,11 @@ def debug_model_summary() -> None:
                         last_max_pooling=False,
                         normalization=normalization,
                         enhancer_convolution_indices=enhancer_convolution_indices,
+                        input_image_size=384,
                         device=device,
                         dtype=dtype)
 
-    backbone.print_summary(expected_image_size=(384, 384))
+    backbone.print_summary()
 
 
 if __name__ == "__main__":

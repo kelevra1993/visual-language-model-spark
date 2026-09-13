@@ -37,13 +37,14 @@ class Model(nn.Module):
             last_max_pooling=backbone_configuration.get("last_max_pooling"),
             normalization=backbone_configuration.get("normalization"),
             enhancer_convolution_indices=backbone_configuration.get("enhancer_convolution_indices"),
+            input_image_size=self.data_configuration.get("image_settings").get("size"),
             device=self.device,
             dtype=self.dtype)
 
     def forward(self):
         pass
 
-    def print_summary(self, expected_image_size: Tuple[int, int]) -> None:
+    def print_summary(self) -> None:
         """
         todo to be documented
         Args:
@@ -52,4 +53,4 @@ class Model(nn.Module):
         Returns:
 
         """
-        self.backbone.print_summary(expected_image_size=expected_image_size)
+        self.backbone.print_summary()

@@ -21,7 +21,7 @@ class Backbone(nn.Module):
 
     def __init__(self, input_channels: int, convolutions: Dict[str, List[int]], modules: Dict[str, bool],
                  last_max_pooling: bool, normalization: Dict[str, str], enhancer_convolution_indices: List[int],
-                 device: torch.device, dtype: torch.dtype) -> None:
+                 input_image_size: int, device: torch.device, dtype: torch.dtype) -> None:
         """
         Initializes the Backbone with the specified convolution blocks and structural parameters.
         
@@ -33,10 +33,18 @@ class Backbone(nn.Module):
             normalization (Dict[str, str]): Dictionary containing normalization settings like feature_map_normalization.
             enhancer_convolution_indices (List[int]): A list of block indices (1-indexed) whose intermediate feature maps 
                 are explicitly captured and returned for downstream multi-scale feature enhancement.
+            input_image_size (int): The spatial dimension (height and width) of the square input image, used to dynamically compute downstream tensor sizes.
             device (torch.device): The device on which to allocate the parameters.
             dtype (torch.dtype): The desired data type of returned parameters.
         """
         super(Backbone, self).__init__()
+
+        # Store device and data type for dynamic dummy tensor generation
+        self.device = device
+        self.dtype = dtype
+
+        # Get input image size
+        self.input_image_size = input_image_size
 
         # Initialize the sequential container for the backbone convolution blocks
         self.convolution_blocks = nn.ModuleList()
@@ -97,24 +105,21 @@ class Backbone(nn.Module):
         # Iterate through each convolution block and sequentially process the feature map
         for block_index, block in enumerate(self.convolution_blocks, start=1):
             current_tensor = block(input_tensor=current_tensor)
-            
+
             # Check if the current block is designated as an enhancer and save its output
             if block_index in self.enhancer_convolution_indices:
                 output_tensor_dictionary[str(block_index)] = current_tensor
 
         return current_tensor, output_tensor_dictionary
 
-    def print_summary(self, expected_image_size: Tuple[int, int]) -> None:
+    def print_summary(self) -> None:
         """
-        Prints a structural summary of the Backbone architecture given a specific input image size.
+        Prints a structural summary of the Backbone architecture using the initialized input image size.
         
         This function creates a dummy tensor and passes it through the backbone blocks to trace 
         and display the spatial and channel dimensions at each significant step of the feature 
         extraction pipeline. This summary is crucial for visually verifying that the spatial resolutions 
         and channel depths accurately align with the required downstream region proposal and detection modules.
-        
-        Args:
-            expected_image_size (Tuple[int, int]): The expected height and width of the input image.
         """
         # Initialize the rich console for formatted output, specifying a wide width to comfortably accommodate the panel
         console = Console(width=60)
@@ -124,9 +129,8 @@ class Backbone(nn.Module):
         input_channels = first_convolutional_layer.in_channels
 
         # Create a dummy tensor on the appropriate device to mathematically trace the dimension transformations
-        device_type = next(self.parameters()).device
-        dummy_tensor = torch.zeros(size=(1, input_channels, expected_image_size[0], expected_image_size[1]),
-                                   device=device_type)
+        dummy_tensor = torch.zeros(size=(1, input_channels, self.input_image_size, self.input_image_size),
+                                   device=self.device)
 
         # Print the overarching title and the initial tensor shape to begin the structured summary
         print_yellow(output="Backbone Architecture Summary", add_separators=True)
@@ -157,3 +161,39 @@ class Backbone(nn.Module):
 
         # Output the final resulting feature map shape, representing what is securely passed to the downstream detector
         print_green(output=f"Final Backbone output shape: {list(dummy_tensor.shape)}", add_separators=True)
+
+    def compute_enhancer_input_information(self) -> Dict[str, Dict[str, int]]:
+        """
+        Executes a dry-run forward pass with a dummy tensor to securely determine the 
+        spatial feature map sizes (assuming square maps) and channel depths for each 
+        designated enhancer block using the initialized input image size.
+        
+        This dynamically resolves the exact structural dimensions required by the Region Proposal 
+        Network (and Anchors) during its initialization phase, avoiding error-prone 
+        hardcoded size calculations that could break if pooling logic or strides change.
+        
+        Returns:
+            Dict[str, Dict[str, int]]: A dictionary mapping the stringified enhancer block index to 
+            a dictionary containing 'feature_map_size' and 'number_channels'.
+        """
+        # Determine the input channels expected by the backbone from its very first layer
+        first_convolutional_layer = self.convolution_blocks[0].block[0]
+        input_channels = first_convolutional_layer.in_channels
+
+        # Instantiate a dummy input tensor of the specified shape using self.device
+        dummy_tensor = torch.zeros(size=(1, input_channels, self.input_image_size, self.input_image_size),
+                                   device=self.device)
+
+        # Dictionary to store the dynamically computed structural information for each enhancer block
+        enhancer_information = {}
+
+        # Sequentially pass the dummy tensor through all convolution blocks
+        for block_index, block in enumerate(self.convolution_blocks, start=1):
+            dummy_tensor = block(input_tensor=dummy_tensor)
+
+            # If this block is designated as an enhancer, extract its spatial dimension and channel depth
+            if block_index in self.enhancer_convolution_indices:
+                enhancer_information[str(object=block_index)] = {"feature_map_size": dummy_tensor.shape[2],
+                                                                 "number_channels": dummy_tensor.shape[1]}
+
+        return enhancer_information

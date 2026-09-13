@@ -69,8 +69,7 @@ class Trainer:
         # Print experiment information to user so that they can know everything about the experiment
         # as well as input and output shapes of the model.
         self.print_experiment_information()
-        self.model.print_summary(expected_image_size=(self.input_image_size,
-                                                      self.input_image_size))
+        self.model.print_summary()
 
     def setup_training_paths(self, initial_configuration_path: Path) -> tuple[Path, Path, Path]:
         """
