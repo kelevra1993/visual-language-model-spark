@@ -1,3 +1,5 @@
+from textwrap import indent
+
 import torch
 import yaml
 from model.model import Model
@@ -49,22 +51,29 @@ def debug_model() -> None:
 
     print_blue(output="Executing forward pass with mock tensor...", add_separators=True)
 
-    final_backbone_tensor, backbone_output_tensor_dictionary, region_proposal_output_tensor_dictionary = model(input_tensor=input_tensor)
+    (final_backbone_tensor,
+     backbone_output_tensor_dictionary,
+     region_proposal_output_tensor_dictionary,
+     aggregated_proposals_dictionary) = model(input_tensor=input_tensor)
 
     print_tensor_shape(tensor=final_backbone_tensor, name="final_backbone_tensor")
 
-    print_blue(output="Backbone Output Tensor Dictionary:", add_separators=True)
+    print_blue(output="Backbone Output Tensor Dictionary:", add_separators=True, indent=1)
 
     for block_index, tensor in backbone_output_tensor_dictionary.items():
         print_tensor_shape(tensor=tensor, name=f"backbone_output_block_{block_index}", indent=1)
 
-    print_blue(output="Region Proposal Output Tensor Dictionary:", add_separators=True)
+    print_blue(output="Region Proposal Output Tensor Dictionary For Anchor Modifications:", add_separators=True)
 
     for block_index, predictions in region_proposal_output_tensor_dictionary.items():
         print_blue(output=f"Block {block_index} Predictions:", add_separators=True)
         print_tensor_shape(tensor=predictions["classification_scores"], name="classification_scores", indent=1)
         print_tensor_shape(tensor=predictions["bounding_box_regressions"], name="bounding_box_regressions", indent=1)
         print_tensor_shape(tensor=predictions["proposal_boxes"], name="proposal_boxes", indent=1)
+
+    print_blue(output="Aggregated Proposals and Anchors Dictionary:", add_separators=True)
+    for key, tensor in aggregated_proposals_dictionary.items():
+        print_tensor_shape(tensor=tensor, name=f"aggregated_{key}", indent=1)
 
 
 if __name__ == "__main__":

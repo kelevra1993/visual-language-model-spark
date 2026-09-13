@@ -189,8 +189,6 @@ def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: to
         torch.Tensor: A tensor of shape (..., N, k, 4) containing the adjusted predicted 
                       bounding boxes in [x_min, y_min, x_max, y_max] format.
     """
-    print_tensor_shape(regression_predictions, "regression_predictions")
-    print_tensor_shape(boxes, "boxes")
 
     # Get the width, height, x_center and y_center from the boxes using ellipsis to handle optional batch dimensions
     boxes_widths = boxes[..., 2] - boxes[..., 0]
@@ -225,8 +223,6 @@ def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: to
         predicted_center_y - 0.5 * predicted_height,
         predicted_center_x + 0.5 * predicted_width,
         predicted_center_y + 0.5 * predicted_height], dim=-1)
-
-    print_tensor_shape(predicted_boxes, "predicted_boxes")
 
     return predicted_boxes
 
