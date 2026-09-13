@@ -14,24 +14,15 @@ def test_region_proposer() -> None:
 
     # Number of ground truth boxes for the mock target tensor
     number_of_ground_truth_boxes = 5
-    target_shape = (number_of_ground_truth_boxes, 4)
 
     # Create input tensors and populate the simple and batched dictionaries
     input_tensor = create_deterministic_tensor(shape=(1,) + feature_map_shape)
-    target_tensor = create_deterministic_tensor(shape=(1,) + target_shape)
 
-    simple_input_dictionary = {
-        "input_tensor": input_tensor,
-        "target_tensor": target_tensor
-    }
+    simple_input_dictionary = {"input_tensor": input_tensor}
 
     batched_input_tensor = input_tensor.broadcast_to(size=(batch_size,) + feature_map_shape)
-    batched_target_tensor = target_tensor.broadcast_to(size=(batch_size,) + target_shape)
 
-    batched_input_dictionary = {
-        "input_tensor": batched_input_tensor,
-        "target_tensor": batched_target_tensor
-    }
+    batched_input_dictionary = {"input_tensor": batched_input_tensor}
 
     # Initialize device and dtype for configurations
     device = torch.device(device="cpu")
@@ -46,8 +37,7 @@ def test_region_proposer() -> None:
             "input_image_size": 1024,
             "feature_map_size": feature_map_size,
             "device": device,
-            "dtype": dtype
-        },
+            "dtype": dtype},
         "complex_region_proposal": {
             "input_channels": input_channels,
             "scales": [16.0, 32.0, 64.0, 128.0],
@@ -55,9 +45,7 @@ def test_region_proposer() -> None:
             "input_image_size": 1024,
             "feature_map_size": feature_map_size,
             "device": device,
-            "dtype": dtype
-        }
-    }
+            "dtype": dtype}}
 
     # Iterate through the defined configurations to test each structural permutation
     for configuration_name, configuration_dictionary in region_proposal_configurations.items():
@@ -76,8 +64,7 @@ def test_region_proposer() -> None:
             reference_folder=Path(__file__).parent / "reference_values",
             batch_size=batch_size,
             batched_input_dictionary=batched_input_dictionary,
-            save_output=False
-        )
+            save_output=False)
 
         print(f" - {configuration_name} Test Completed Successfully.")
 
