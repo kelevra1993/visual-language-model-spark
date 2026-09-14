@@ -4,6 +4,7 @@ from architecture_modules.region_proposer import RegionProposal
 from utilities.os_utilities import print_green, print_blue
 from utilities.tensor_utilities import print_tensor_status, print_tensor_shape
 from utilities.model.model_utilities import get_area, apply_regression_predictions
+from scripts.utilities.debugging_utilities import print_bounding_boxes
 import numpy as np
 
 
@@ -62,50 +63,29 @@ def debug_region_proposal() -> None:
                                dtype=dtype,
                                device=device)
 
-    # Create a mock target tensor (e.g., ground truth bounding boxes)
-    # Shape: (batch_size, num_ground_truth_boxes, 4)
-    number_of_ground_truth_boxes = 3
-    target_tensor = torch.randn(size=(batch_size, number_of_ground_truth_boxes, 4),
-                                dtype=dtype,
-                                device=device)
-
     print_blue(output="Executing forward pass with mock tensors...", add_separators=True)
 
     # Execute the forward pass
-    proposal_scores, proposal_boxes_transformations = region_proposal_module(input_tensor=input_tensor,
-                                                                             target_tensor=target_tensor)
+    proposal_scores, proposal_boxes_transformations, proposal_boxes = region_proposal_module(input_tensor=input_tensor)
 
     # Extract original anchors
     original_anchors = region_proposal_module.region_proposal_anchor_object.anchors
 
     print_blue(output="Original Anchors (First 5):", add_separators=True)
-    first_five_anchors = original_anchors[:5]
-    anchor_areas = get_area(boxes=first_five_anchors)
-    for anchor, area in zip(first_five_anchors, anchor_areas):
-        anchor_coordinates = np.round(a=anchor.tolist(), decimals=4)
-        area_value = area.item()
-        scale_value = np.sqrt(area_value)
-        coordinates_string = f"[{anchor_coordinates[0]:>6.2f}, {anchor_coordinates[1]:>6.2f}, {anchor_coordinates[2]:>6.2f}, {anchor_coordinates[3]:>6.2f}]"
-        print(f" {coordinates_string}  ::  Area: {area_value:>8.2f}  ::  Scale: {scale_value:>6.2f}")
+    print_bounding_boxes(boxes=original_anchors, number_of_boxes=5, indent=1)
 
     # Apply the predicted bounding box transformations to our anchors manually for debugging
     applied_proposal_boxes = apply_regression_predictions(
         regression_predictions=proposal_boxes_transformations.detach().unsqueeze(dim=-2),
-        boxes=original_anchors)
+        boxes=original_anchors).squeeze(dim=-2)
+
+    print_blue(output="Region Proposal Transformed Boxes (First 5):", add_separators=True)
+    # The proposal boxes returned from the region_proposal_module (shape: B, N, 4)
+    print_bounding_boxes(boxes=proposal_boxes[0], number_of_boxes=5, indent=1)
 
     print_blue(output="Applied Regressions (First 5):", add_separators=True)
-    # The proposal boxes returned are the applied regressions (shape: B, N, 1, 4)
-    # We take the first batch [0], squeeze out the k-dimension
-    first_five_proposals = applied_proposal_boxes[0, :5].squeeze(dim=1) if applied_proposal_boxes.dim() == 4 else \
-    applied_proposal_boxes[0, :5]
-    proposal_areas = get_area(boxes=first_five_proposals)
-
-    for box, area in zip(first_five_proposals, proposal_areas):
-        box_coordinates = np.round(a=box.tolist(), decimals=4)
-        area_value = area.item()
-        scale_value = np.sqrt(area_value)
-        coordinates_string = f"[{box_coordinates[0]:>6.2f}, {box_coordinates[1]:>6.2f}, {box_coordinates[2]:>6.2f}, {box_coordinates[3]:>6.2f}]"
-        print(f" {coordinates_string}  ::  Area: {area_value:>8.2f}  ::  Scale: {scale_value:>6.2f}")
+    # The proposal boxes returned are the applied regressions (shape: B, N, 4)
+    print_bounding_boxes(boxes=applied_proposal_boxes[0], number_of_boxes=5, indent=1)
 
 
 if __name__ == "__main__":

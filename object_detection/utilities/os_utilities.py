@@ -133,7 +133,7 @@ def print_blue(output: str, add_separators: bool = False, indent: int = 0) -> No
             separators for better visibility.
         indent (int, optional): The number of indentation levels (2 spaces each). Defaults to 0.
     """
-    indentation_string = (indent * 2 * " ")
+    indentation_string = (indent * 2 * " ") + "- " if indent > 0 else ""
     indented_output = "\n".join(f"{indentation_string}{line}" for line in output.split("\n"))
 
     if add_separators:
@@ -159,7 +159,7 @@ def print_green(output: str, add_separators: bool = False, indent: int = 0) -> N
             separators for better visibility.
         indent (int, optional): The number of indentation levels (2 spaces each). Defaults to 0.
     """
-    indentation_string = (indent * 2 * " ")
+    indentation_string = (indent * 2 * " ") + "- " if indent > 0 else ""
     indented_output = "\n".join(f"{indentation_string}{line}" for line in output.split("\n"))
 
     if add_separators:
@@ -185,7 +185,7 @@ def print_yellow(output: str, add_separators: bool = False, indent: int = 0) -> 
             separators for better visibility.
         indent (int, optional): The number of indentation levels (2 spaces each). Defaults to 0.
     """
-    indentation_string = (indent * 2 * " ")
+    indentation_string = (indent * 2 * " ") + "- " if indent > 0 else ""
     indented_output = "\n".join(f"{indentation_string}{line}" for line in output.split("\n"))
 
     if add_separators:
@@ -210,7 +210,7 @@ def print_red(output: str, add_separators: bool = False, indent: int = 0) -> Non
             separators for better visibility.
         indent (int, optional): The number of indentation levels (2 spaces each). Defaults to 0.
     """
-    indentation_string = (indent * 2 * " ")
+    indentation_string = (indent * 2 * " ") + "- " if indent > 0 else ""
     indented_output = "\n".join(f"{indentation_string}{line}" for line in output.split("\n"))
 
     if add_separators:
@@ -235,7 +235,7 @@ def print_bold(output: str, add_separators: bool = False, indent: int = 0) -> No
             separators for better visibility.
         indent (int, optional): The number of indentation levels (2 spaces each). Defaults to 0.
     """
-    indentation_string = (indent * 2 * " ")
+    indentation_string = (indent * 2 * " ") + "- " if indent > 0 else ""
     indented_output = "\n".join(f"{indentation_string}{line}" for line in output.split("\n"))
 
     if add_separators:
