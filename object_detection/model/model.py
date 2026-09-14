@@ -198,7 +198,8 @@ class Model(nn.Module):
                 "anchors": torch.cat(tensors=aggregated_anchors, dim=1)}
 
     def forward(self, input_tensor: torch.Tensor) -> Tuple[
-        torch.Tensor, Dict[str, torch.Tensor], Dict[str, Dict[str, torch.Tensor]], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+        torch.Tensor, Dict[str, torch.Tensor], Dict[str, Dict[str, torch.Tensor]], Dict[str, torch.Tensor], Dict[
+            str, torch.Tensor]]:
         """
         Executes the forward pass of the Model.
         
@@ -206,7 +207,8 @@ class Model(nn.Module):
             input_tensor (torch.Tensor): The raw input image tensor.
             
         Returns:
-            Tuple[torch.Tensor, Dict[str, torch.Tensor], Dict[str, Dict[str, torch.Tensor]], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]: 
+            Tuple[torch.Tensor, Dict[str, torch.Tensor],
+                  Dict[str, Dict[str, torch.Tensor]], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
                 - The final backbone output tensor
                 - A dictionary mapping enhancer indices to their intermediate feature maps
                 - A dictionary containing for each enhancer scale
@@ -244,9 +246,8 @@ class Model(nn.Module):
             input_image_size=self.input_image_size)
 
         # Repackage the refined proposals cleanly into a dictionary structure
-        filtered_proposals_dictionary = {
-            "filtered_proposal_boxes": filtered_boxes,
-            "filtered_proposal_scores": filtered_scores}
+        filtered_proposals_dictionary = {"filtered_proposal_boxes": filtered_boxes,
+                                         "filtered_proposal_scores": filtered_scores}
 
         return (final_backbone_tensor, backbone_output_tensor_dictionary, region_proposal_output_tensor_dictionary,
                 aggregated_proposals_dictionary, filtered_proposals_dictionary)

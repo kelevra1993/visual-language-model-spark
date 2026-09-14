@@ -6,7 +6,7 @@ from typing import Tuple
 from torchvision.ops import nms
 
 from utilities.os_utilities import print_blue
-from utilities.tensor_utilities import print_tensor_shape
+from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
 
 def get_area(boxes: torch.Tensor) -> torch.Tensor:
@@ -247,3 +247,45 @@ def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) 
     boxes = boxes.clamp(min=0, max=input_image_size)
 
     return boxes
+
+
+def assign_targets_to_anchors(anchors, ground_truth_boxes, background_iou_threshold, foreground_iou_threshold):
+    """todo add documentation"""
+
+    # todo add small comment of shape
+    intersection_over_union_matrix = get_intersection_over_union(boxes_1=anchors, boxes_2=ground_truth_boxes)
+    print("Intersection Over Union Matrix")
+    print_tensor_shape(intersection_over_union_matrix, "intersection_over_union_matrix")
+    print_tensor_list(intersection_over_union_matrix)
+
+    # todo add small comment explaination
+    best_matching_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=0)
+    print_tensor_shape(best_match_ground_truth_index, "best_match_ground_truth_index")
+    print("----Best Matching Anchor Index For Each Ground Truth Box----")
+    print_tensor_list(best_match_ground_truth_index)
+    print("----Best Matching Anchor IOU For Each Ground Truth Box----")
+    print_tensor_list(best_matching_iou)
+
+    # todo add small comment explaination (to always get at least one positive anchors per ground truth box even if overlap is lower than threshold)
+    best_match_ground_truth_index_before_thresholding = best_match_ground_truth_index.clone()
+
+    # todo add small comment explaination
+    background_indices = (best_matching_iou > background_iou_threshold['min']) & (
+            best_matching_iou < background_iou_threshold['max'])
+    print("----Background Indices----")
+    print(background_indices)
+
+    # todo add small comment explaination
+    grey_zone_indices = (best_matching_iou >= background_iou_threshold['max']) & (
+            best_matching_iou < foreground_iou_threshold['min'])
+    print("----Grey Zone Indices----")
+    print(grey_zone_indices)
+
+    # todo add small comment explaination
+    foreground_indices = (best_matching_iou >= foreground_iou_threshold['min']) & (
+            best_matching_iou <= foreground_iou_threshold['max'])
+    print("----Foreground Indices----")
+    print(foreground_indices)
+    # Assign labels to our different ground
+
+    exit()

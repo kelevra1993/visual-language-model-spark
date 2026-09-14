@@ -25,11 +25,11 @@ def print_bounding_boxes(boxes: torch.Tensor, number_of_boxes: int = 5, indent: 
         box_coordinates = np.round(a=box.tolist(), decimals=4)
         area_value = area.item()
         scale_value = np.sqrt(area_value)
-        coordinates_string = (f"[{box_coordinates[0]:>6.2f},"
-                              f" {box_coordinates[1]:>6.2f},"
-                              f" {box_coordinates[2]:>6.2f},"
-                              f" {box_coordinates[3]:>6.2f}]")
+        coordinates_string = (f"[{box_coordinates[0]:>8.2f},"
+                              f" {box_coordinates[1]:>8.2f},"
+                              f" {box_coordinates[2]:>8.2f},"
+                              f" {box_coordinates[3]:>8.2f}]")
         print(f"{indentation_string}"
               f"{coordinates_string}  ::"
-              f"  Area: {area_value:>9.2f}  ::"
-              f"  Scale: {scale_value:>6.2f}")
+              f"  Area: {area_value:>10.2f}  ::"
+              f"  Scale: {scale_value:>8.2f}")
