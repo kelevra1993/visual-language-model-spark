@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import torch
 
-from typing import Tuple
+from typing import Tuple, Dict
 from torchvision.ops import nms
 
 from utilities.os_utilities import print_blue
@@ -249,16 +249,38 @@ def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) 
     return boxes
 
 
-def assign_targets_to_anchors(ground_truth_boxes, anchors, background_iou_threshold, foreground_iou_threshold):
-    """todo add documentation"""
+def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor, 
+                              anchors: torch.Tensor, 
+                              background_iou_threshold: Dict[str, float], 
+                              foreground_iou_threshold: Dict[str, float]) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Assigns ground truth boxes to anchors to prepare the binary classification and regression targets for the Region Proposal Network.
 
-    # todo add small comment of shape
+    This function sits at the heart of the RPN training pipeline. It computes the IoU between every anchor 
+    and every ground truth box, categorizing each anchor as foreground (positive object), background (negative), 
+    or grey zone (ignored during training). It guarantees that every ground truth box has at least one positive 
+    anchor assigned to it to prevent objects from being missed during training.
+
+    Args:
+        ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes in [x_min, y_min, x_max, y_max] format.
+        anchors (torch.Tensor): A tensor of the base anchors generated for the current feature map.
+        background_iou_threshold (Dict[str, float]): Dictionary defining the 'min' and 'max' IoU thresholds for background.
+        foreground_iou_threshold (Dict[str, float]): Dictionary defining the 'min' and 'max' IoU thresholds for foreground.
+        
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+            - matched_ground_truth_boxes (torch.Tensor): The assigned ground truth boxes for each anchor.
+            - labels (torch.Tensor): The binary labels for each anchor (1.0 = foreground, 0.0 = background, -1.0 = ignored).
+    """
+
+    # Shape: [number_of_ground_truths, number_of_anchors]
     intersection_over_union_matrix = get_intersection_over_union(boxes_1=ground_truth_boxes, boxes_2=anchors)
 
-    # todo add small comment explaination
+    # For every anchor, find the ground truth box that has the highest IoU with it
     best_match_ground_truth_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=0)
 
-    # todo add small comment explaination (to always get at least one positive anchors per ground truth box even if overlap is lower than threshold)
+    # Store a pristine copy of the best matches before we corrupt it with negative labels
+    # This guarantees we can later recover the best match to fulfill the "at least one anchor per GT box" rule
     best_match_ground_truth_index_before_thresholding = best_match_ground_truth_index.clone()
 
     # Create readable condition variables based on the IoU thresholds
@@ -270,10 +292,11 @@ def assign_targets_to_anchors(ground_truth_boxes, anchors, background_iou_thresh
 
     below_foreground_min = best_match_ground_truth_iou < foreground_iou_threshold['min']
 
-    # todo add small comment explaination
+    # Anchors that fall strictly within the background IoU limits are true negatives
     background_indices = above_or_equal_background_min & below_background_max
 
-    # todo add small comment explaination
+    # Anchors that fall between the maximum background limit and the minimum foreground limit, 
+    # or below the absolute minimum background limit, are ignored (grey zone)
     grey_zone_indices = (above_or_equal_background_max & below_foreground_min) | below_background_min
 
     # Assign labels to our different anchors
@@ -285,14 +308,19 @@ def assign_targets_to_anchors(ground_truth_boxes, anchors, background_iou_thresh
     best_match_ground_truth_index[grey_zone_indices] = -2
 
     # Making sure that every ground truth will have at least one positive anchor bounding box
-    # Get the best iou value for each anchor
+    # Get the best iou value for each ground truth box across all available anchors
     best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=1)
 
-    # This gives us all the anchors with the highest iou for each ground truth box
+    # This gives us all the anchors that tie for the highest iou for each ground truth box
     best_anchor_indices_for_each_ground_truth_box = torch.where(
         intersection_over_union_matrix == best_match_anchor_iou.unsqueeze(dim=-1))
 
-    # We assign each anchor that corresponds to the maximum iou for a given ground truth the index of that ground truth
+    # We recover the positive labels for the anchors that had the highest IoU for each ground truth box.
+    # IMPORTANT QUIRK: Notice that we are assigning the anchor to its absolute best match overall 
+    # (using best_match_ground_truth_index_before_thresholding) rather than strictly forcing it to 
+    # match the specific ground truth box that selected it. For example, if an anchor is forced 
+    # positive to cover Ground Truth A, but it actually overlaps more with Ground Truth B, it will 
+    # be assigned to predict Ground Truth B. This perfectly mirrors the official PyTorch RPN logic!
     anchor_indices_to_retrieve = best_anchor_indices_for_each_ground_truth_box[1]
     best_match_ground_truth_index[anchor_indices_to_retrieve] = best_match_ground_truth_index_before_thresholding[
         anchor_indices_to_retrieve]
