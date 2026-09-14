@@ -34,6 +34,10 @@ def debug_assign_targets() -> None:
                                  [150.0, 90.0, 200.0, 120.0],
                                  [150.0, 56.0, 82.0, 70.0],
                                  [12.0, 80.0, 10.0, 550.0],
+                                 [67.0, 35.0, 135.0, 176.0],
+                                 [67.0, 12.0, 243.0, 245.0],
+                                 [94.0, 12.0, 142.0, 352.0],
+                                 [94.0, 65.0, 120.0, 245.0],
                                  [200.0, 200.0, 300.0, 300.0]], dtype=dtype, device=device)
 
     # Batched anchor shape: [batch_size, number_anchors, 4]
@@ -73,8 +77,8 @@ def debug_assign_targets() -> None:
     for batch_index in range(batch_size):
         # Test the target assignment module by matching the mock ground truth boxes to the predefined FPN anchors
         assigned_targets = assign_targets_to_anchors(
-            anchors=anchors[batch_index],
             ground_truth_boxes=ground_truth_boxes[batch_index],
+            anchors=anchors[batch_index],
             background_iou_threshold=background_iou_threshold,
             foreground_iou_threshold=foreground_iou_threshold)
 

@@ -249,43 +249,67 @@ def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) 
     return boxes
 
 
-def assign_targets_to_anchors(anchors, ground_truth_boxes, background_iou_threshold, foreground_iou_threshold):
+def assign_targets_to_anchors(ground_truth_boxes, anchors, background_iou_threshold, foreground_iou_threshold):
     """todo add documentation"""
 
     # todo add small comment of shape
-    intersection_over_union_matrix = get_intersection_over_union(boxes_1=anchors, boxes_2=ground_truth_boxes)
+    intersection_over_union_matrix = get_intersection_over_union(boxes_1=ground_truth_boxes, boxes_2=anchors)
     print("Intersection Over Union Matrix")
     print_tensor_shape(intersection_over_union_matrix, "intersection_over_union_matrix")
     print_tensor_list(intersection_over_union_matrix)
 
     # todo add small comment explaination
-    best_matching_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=0)
+    best_match_ground_truth_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=0)
     print_tensor_shape(best_match_ground_truth_index, "best_match_ground_truth_index")
-    print("----Best Matching Anchor Index For Each Ground Truth Box----")
+    print("----Best Matching Ground Truth Index For Each Anchor Box----")
     print_tensor_list(best_match_ground_truth_index)
-    print("----Best Matching Anchor IOU For Each Ground Truth Box----")
-    print_tensor_list(best_matching_iou)
+    print("----Best Matching Ground Truth IOU For Each Anchor Box----")
+    print_tensor_list(best_match_ground_truth_iou)
 
     # todo add small comment explaination (to always get at least one positive anchors per ground truth box even if overlap is lower than threshold)
     best_match_ground_truth_index_before_thresholding = best_match_ground_truth_index.clone()
 
     # todo add small comment explaination
-    background_indices = (best_matching_iou > background_iou_threshold['min']) & (
-            best_matching_iou < background_iou_threshold['max'])
+    background_indices = (best_match_ground_truth_iou > background_iou_threshold['min']) & (
+            best_match_ground_truth_iou < background_iou_threshold['max'])
     print("----Background Indices----")
     print(background_indices)
 
     # todo add small comment explaination
-    grey_zone_indices = (best_matching_iou >= background_iou_threshold['max']) & (
-            best_matching_iou < foreground_iou_threshold['min'])
+    grey_zone_indices = ((best_match_ground_truth_iou >= background_iou_threshold['max']) & (
+            best_match_ground_truth_iou < foreground_iou_threshold['min'])) | (
+                                best_match_ground_truth_iou < background_iou_threshold['min'])
     print("----Grey Zone Indices----")
     print(grey_zone_indices)
 
     # todo add small comment explaination
-    foreground_indices = (best_matching_iou >= foreground_iou_threshold['min']) & (
-            best_matching_iou <= foreground_iou_threshold['max'])
+    foreground_indices = (best_match_ground_truth_iou >= foreground_iou_threshold['min']) & (
+            best_match_ground_truth_iou <= foreground_iou_threshold['max'])
     print("----Foreground Indices----")
     print(foreground_indices)
-    # Assign labels to our different ground
 
+    # Assign labels to our different anchors
+    # Each anchor for which it's highest scoring iou ground truth box
+    # is either considered background or in the grey zone are labelled as such :
+    # - background > -1
+    # - grey zone > -2
+    print("----Best Matching Ground Truth Box Index For Each Anchor Before And After Assignment----")
+    print_tensor_list(best_match_ground_truth_index)
+    best_match_ground_truth_index[background_indices] = -1
+    best_match_ground_truth_index[grey_zone_indices] = -2
+    print_tensor_list(best_match_ground_truth_index)
+    exit()
+    # Making sure that every ground truth will have at least one positive anchor bounding box
+    # Get the best iou value for each anchor
+    best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=1)
+    print("----Best Matching Ground Truth IOU For Each Anchor Box----")
+    print_tensor_shape(best_match_anchor_iou, "best_match_anchor_iou")
+    print_tensor_list(best_match_anchor_iou)
+
+    # This gives us all the ground truth boxes with the highest iou for each anchor
+    best_ground_truth_indices_for_each_anchor = torch.where(
+        intersection_over_union_matrix == best_match_anchor_iou.unsqueeze(dim=-1))
+    print(best_ground_truth_indices_for_each_anchor)
+    print_tensor_list(intersection_over_union_matrix)
+    print_tensor_shape(intersection_over_union_matrix, "intersection_over_union_matrix")
     exit()
