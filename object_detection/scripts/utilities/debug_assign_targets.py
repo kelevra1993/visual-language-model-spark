@@ -29,6 +29,7 @@ def debug_assign_targets() -> None:
     # Shape: [number_of_anchors, 4]
     anchors = torch.tensor(data=[[10.0, 10.0, 50.0, 50.0],
                                  [20.0, 20.0, 80.0, 80.0],
+                                 [20.0, 20.0, 80.0, 80.0],
                                  [100.0, 100.0, 150.0, 150.0],
                                  [110.0, 100.0, 190.0, 250.0],
                                  [150.0, 90.0, 200.0, 120.0],
@@ -45,13 +46,11 @@ def debug_assign_targets() -> None:
 
     # Define a small set of ground truth bounding boxes in [x_min, y_min, x_max, y_max] format
     # Shape: [batch_size, number_of_ground_truths, 4].
-    ground_truth_boxes = torch.tensor(data=[
-        [12.0, 12.0, 48.0, 48.0],  # Highly overlaps with anchor 0
-        [210.0, 210.0, 290.0, 290.0],  # Highly overlaps with anchor 7
-        [0.0, 70.0, 200.0, 120.0],  # Does not overlap much with anything
-        [150.0, 96.0, 230.0, 120.0],  # Highly overlaps with anchor 4
-        [30.0, 60.0, 50.0, 150.0],  # Highly overlaps with anchor 4
-    ], dtype=dtype, device=device)
+    ground_truth_boxes = torch.tensor(data=[[12.0, 12.0, 48.0, 48.0],
+                                            [210.0, 210.0, 290.0, 290.0],
+                                            [0.0, 70.0, 200.0, 120.0],
+                                            [150.0, 96.0, 230.0, 120.0],
+                                            [30.0, 60.0, 50.0, 150.0]], dtype=dtype, device=device)
 
     # Batched ground truth boxes shape: [batch_size, number_anchors, 4]
     ground_truth_boxes = ground_truth_boxes.unsqueeze(dim=0).expand(size=(batch_size, -1, 4))
@@ -70,8 +69,8 @@ def debug_assign_targets() -> None:
     # Define the Intersection over Union (IoU) threshold dictionaries.
     # These threshold bounds strictly follow the project's YAML configuration and dictate 
     # whether an anchor is considered a positive match (foreground) or negative (background).
-    background_iou_threshold = {"min": 0.1, "max": 0.4}
-    foreground_iou_threshold = {"min": 0.6, "max": 1.0}
+    background_iou_threshold = {"min": 0.1, "max": 0.3}
+    foreground_iou_threshold = {"min": 0.5, "max": 1.0}
 
     # Iterate over the batched dimensions to process the target assignments independently per image
     for batch_index in range(batch_size):

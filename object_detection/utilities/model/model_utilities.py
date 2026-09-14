@@ -269,22 +269,29 @@ def assign_targets_to_anchors(ground_truth_boxes, anchors, background_iou_thresh
     # todo add small comment explaination (to always get at least one positive anchors per ground truth box even if overlap is lower than threshold)
     best_match_ground_truth_index_before_thresholding = best_match_ground_truth_index.clone()
 
+    # Create readable condition variables based on the IoU thresholds
+    below_background_min = best_match_ground_truth_iou < background_iou_threshold['min']
+    above_or_equal_background_min = best_match_ground_truth_iou >= background_iou_threshold['min']
+    below_background_max = best_match_ground_truth_iou < background_iou_threshold['max']
+
+    above_or_equal_background_max = best_match_ground_truth_iou >= background_iou_threshold['max']
+
+    below_foreground_min = best_match_ground_truth_iou < foreground_iou_threshold['min']
+    above_or_equal_foreground_min = best_match_ground_truth_iou >= foreground_iou_threshold['min']
+    below_or_equal_foreground_max = best_match_ground_truth_iou <= foreground_iou_threshold['max']
+
     # todo add small comment explaination
-    background_indices = (best_match_ground_truth_iou > background_iou_threshold['min']) & (
-            best_match_ground_truth_iou < background_iou_threshold['max'])
+    background_indices = above_or_equal_background_min & below_background_max
     print("----Background Indices----")
     print(background_indices)
 
     # todo add small comment explaination
-    grey_zone_indices = ((best_match_ground_truth_iou >= background_iou_threshold['max']) & (
-            best_match_ground_truth_iou < foreground_iou_threshold['min'])) | (
-                                best_match_ground_truth_iou < background_iou_threshold['min'])
+    grey_zone_indices = (above_or_equal_background_max & below_foreground_min) | below_background_min
     print("----Grey Zone Indices----")
     print(grey_zone_indices)
 
     # todo add small comment explaination
-    foreground_indices = (best_match_ground_truth_iou >= foreground_iou_threshold['min']) & (
-            best_match_ground_truth_iou <= foreground_iou_threshold['max'])
+    foreground_indices = above_or_equal_foreground_min & below_or_equal_foreground_max
     print("----Foreground Indices----")
     print(foreground_indices)
 
@@ -295,21 +302,43 @@ def assign_targets_to_anchors(ground_truth_boxes, anchors, background_iou_thresh
     # - grey zone > -2
     print("----Best Matching Ground Truth Box Index For Each Anchor Before And After Assignment----")
     print_tensor_list(best_match_ground_truth_index)
+    # print_tensor_list(best_match_ground_truth_iou)
     best_match_ground_truth_index[background_indices] = -1
     best_match_ground_truth_index[grey_zone_indices] = -2
     print_tensor_list(best_match_ground_truth_index)
-    exit()
+
     # Making sure that every ground truth will have at least one positive anchor bounding box
     # Get the best iou value for each anchor
     best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=1)
-    print("----Best Matching Ground Truth IOU For Each Anchor Box----")
+    print("----Best Matching Anchor IOU For Each Ground Truth Box----")
     print_tensor_shape(best_match_anchor_iou, "best_match_anchor_iou")
     print_tensor_list(best_match_anchor_iou)
 
-    # This gives us all the ground truth boxes with the highest iou for each anchor
-    best_ground_truth_indices_for_each_anchor = torch.where(
+    # This gives us all the anchors with the highest iou for each ground truth box
+    best_anchor_indices_for_each_ground_truth_box = torch.where(
         intersection_over_union_matrix == best_match_anchor_iou.unsqueeze(dim=-1))
-    print(best_ground_truth_indices_for_each_anchor)
-    print_tensor_list(intersection_over_union_matrix)
-    print_tensor_shape(intersection_over_union_matrix, "intersection_over_union_matrix")
-    exit()
+    print(best_anchor_indices_for_each_ground_truth_box)
+
+    # We assign each anchor that corresponds to the maximum iou for a given ground truth the index of that ground truth
+    anchor_indices_to_retrieve = best_anchor_indices_for_each_ground_truth_box[1]
+    best_match_ground_truth_index[anchor_indices_to_retrieve] = best_match_ground_truth_index_before_thresholding[
+        anchor_indices_to_retrieve]
+
+    # Get coordinates of best matching ground truth target boxes (so each anchor will have at least one target)
+    # But we will not necessarily train on all the assigned targets because the -1 and -2 will be bogus targets.
+    # Be careful with coordinates -1 and -2 to clamp to 0 to always have the same coordinates for background and grey zone
+    matched_ground_truth_boxes = ground_truth_boxes[best_match_ground_truth_index.clamp(0)]
+    print_tensor_shape(matched_ground_truth_boxes, "target_coordinates")
+    print_tensor_shape(anchors, "anchors")
+
+    # Now set all labels for training so there is no ambiguity
+    # For classification loss we consider labels above 0, where 0 is background and 1 is foreground
+    # For bounding box regression we only consider labels equal to 1 which are foreground
+    # Shape (anchor_boxes)
+    labels = (best_match_ground_truth_index >= 0).to(dtype=torch.float32)
+    labels[best_match_ground_truth_index == -1] = 0.0  # set -1 to 0 (background)
+    labels[best_match_ground_truth_index == -2] = -1.0  # set -2 to -1 (ignored)
+    print_tensor_list(best_match_ground_truth_index)
+    print_tensor_list(labels)
+
+    return matched_ground_truth_boxes, labels
