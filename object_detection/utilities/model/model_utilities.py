@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import torch
 
-from typing import Tuple, Dict
+from typing import Tuple, Dict, List
 from torchvision.ops import nms
 
 from utilities.os_utilities import print_blue
@@ -339,3 +339,49 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
     labels[best_match_ground_truth_index == -2] = -1.0  # set -2 to -1 (ignored)
 
     return target_ground_truth_boxes, labels
+
+
+def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tensor],
+                                    batched_anchors: torch.Tensor,
+                                    background_iou_threshold: Dict[str, float],
+                                    foreground_iou_threshold: Dict[str, float]) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Applies target assignment logic across an entire batch of images.
+    
+    This function iterates over the batch dimension to match anchors to ground truth boxes 
+    independently for each image, avoiding the complexity and memory overhead of padding 
+    varying numbers of ground truth boxes. The results are then stacked into unified batch tensors.
+    
+    Args:
+        batched_ground_truth_boxes (List[torch.Tensor]): A list of length batch_size, where each tensor 
+                                                         contains the ground truth boxes for that image.
+        batched_anchors (torch.Tensor): A tensor of shape [batch_size, number_of_anchors, 4].
+        background_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for background.
+        foreground_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for foreground.
+        
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+            - batched_target_boxes (torch.Tensor): Shape [batch_size, number_of_anchors, 4]
+            - batched_labels (torch.Tensor): Shape [batch_size, number_of_anchors]
+    """
+    aggregated_target_boxes = []
+    aggregated_labels = []
+
+    # Iterate over each image in the batch to independently process target assignments
+    for batch_index in range(len(batched_ground_truth_boxes)):
+        # Calculate assignments for the current image using explicit argument naming
+        target_boxes, labels = assign_targets_to_anchors(
+            ground_truth_boxes=batched_ground_truth_boxes[batch_index],
+            anchors=batched_anchors[batch_index],
+            background_iou_threshold=background_iou_threshold,
+            foreground_iou_threshold=foreground_iou_threshold)
+
+        # Store the processed targets and labels
+        aggregated_target_boxes.append(target_boxes)
+        aggregated_labels.append(labels)
+
+    # Stack the lists along a new batch dimension (dim=0)
+    batched_target_boxes = torch.stack(tensors=aggregated_target_boxes, dim=0)
+    batched_labels = torch.stack(tensors=aggregated_labels, dim=0)
+
+    return batched_target_boxes, batched_labels
