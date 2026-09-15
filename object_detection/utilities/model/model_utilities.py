@@ -249,9 +249,9 @@ def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) 
     return boxes
 
 
-def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor, 
-                              anchors: torch.Tensor, 
-                              background_iou_threshold: Dict[str, float], 
+def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
+                              anchors: torch.Tensor,
+                              background_iou_threshold: Dict[str, float],
                               foreground_iou_threshold: Dict[str, float]) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Assigns ground truth boxes to anchors to prepare the binary classification and regression targets for the Region Proposal Network.
@@ -328,7 +328,7 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
     # Get coordinates of best matching ground truth target boxes (so each anchor will have at least one target)
     # But we will not necessarily train on all the assigned targets because the -1 and -2 will be bogus targets.
     # Be careful with coordinates -1 and -2 to clamp to 0 to always have the same coordinates for background and grey zone
-    matched_ground_truth_boxes = ground_truth_boxes[best_match_ground_truth_index.clamp(0)]
+    target_ground_truth_boxes = ground_truth_boxes[best_match_ground_truth_index.clamp(0)]
 
     # Now set all labels for training so there is no ambiguity
     # For classification loss we consider labels above 0, where 0 is background and 1 is foreground
@@ -338,4 +338,4 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
     labels[best_match_ground_truth_index == -1] = 0.0  # set -1 to 0 (background)
     labels[best_match_ground_truth_index == -2] = -1.0  # set -2 to -1 (ignored)
 
-    return matched_ground_truth_boxes, labels
+    return target_ground_truth_boxes, labels
