@@ -79,7 +79,7 @@ class RegionProposal(nn.Module):
             batch_dimension, feature_map_height * feature_map_width * self.number_anchors_per_location, 4)
 
         proposal_boxes = apply_regression_predictions(
-            regression_predictions=proposal_boxes_transformations.unsqueeze(dim=-2),
+            regression_predictions=proposal_boxes_transformations.detach().unsqueeze(dim=-2),
             boxes=self.region_proposal_anchor_object.anchors).squeeze(dim=-2)
 
         return proposal_scores, proposal_boxes_transformations, proposal_boxes
@@ -131,7 +131,7 @@ class RegionProposalFilter(nn.Module):
                 - filtered_proposal_scores (torch.Tensor): The objectness scores for the filtered boxes of shape [B, Post_NMS].
         """
         batch_size = proposal_scores.shape[0]
-        
+
         filtered_boxes_list = []
         filtered_scores_list = []
 
@@ -140,7 +140,7 @@ class RegionProposalFilter(nn.Module):
             boxes = proposal_boxes[batch_index]
 
             scores = torch.sigmoid(input=scores)
-            
+
             # Clamp the topk limit to avoid out-of-bounds errors if total anchors < pre_nms threshold
             maximum_pre_nms_proposals = min(self.pre_nms_filter_proposals, scores.shape[0])
             _, top_proposal_indices = scores.topk(k=maximum_pre_nms_proposals)
