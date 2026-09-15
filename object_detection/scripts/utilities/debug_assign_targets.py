@@ -132,14 +132,20 @@ def debug_assign_targets() -> None:
 
             # Draw the anchor bounding box in blue
             anchor_array = anchor.cpu().numpy().astype(dtype=np.int32)
-            canvas = add_bounding_box(bounding_box=anchor_array, image=canvas, input_image_size=input_image_size, color=(255, 0, 0))
+            canvas = add_bounding_box(bounding_box=anchor_array,
+                                      image=canvas,
+                                      input_image_size=input_image_size,
+                                      color=(255, 0, 0))
 
             # Determine the bounding box color based on the assigned label class
             box_color = get_box_color(label=label.item())
 
             # Draw the target ground truth bounding box in the assigned color
             target_array = target_ground_truth.cpu().numpy().astype(dtype=np.int32)
-            canvas = add_bounding_box(bounding_box=target_array, image=canvas, input_image_size=input_image_size, color=box_color)
+            canvas = add_bounding_box(bounding_box=target_array,
+                                      image=canvas,
+                                      input_image_size=input_image_size,
+                                      color=box_color)
 
             # Calculate the Intersection over Union (IoU) to overlay as text
             iou_matrix = get_intersection_over_union(boxes_1=anchor.unsqueeze(dim=0),
