@@ -3,7 +3,8 @@ from textwrap import indent
 import torch
 import yaml
 from model.model import Model
-from scripts.utilities.debugging_utilities import print_bounding_boxes
+import numpy as np
+from scripts.utilities.debugging_utilities import print_bounding_boxes, generate_random_bounding_boxes
 from utilities.os_utilities import print_green, print_blue
 from utilities.tensor_utilities import print_tensor_status, print_tensor_shape, print_tensor_list
 
@@ -35,8 +36,10 @@ def debug_model() -> None:
                                                '7': {'scales': [32, 64], 'aspect_ratios': [0.5, 1.0, 2.0]}}},
                      'RegionProposal': {
                          'nms_iou_threshold': 0.7,
-                         'training': {'pre_nms_proposals': 12000, 'post_nms_proposals': 2000},
-                         'inference': {'pre_nms_proposals': 6000, 'post_nms_proposals': 1000}
+                         'training': {'pre_nms_proposals': 1000, 'post_nms_proposals': 500},
+                         'inference': {'pre_nms_proposals': 500, 'post_nms_proposals': 250},
+                         'foreground_iou_threshold': {"min": 0.5, "max": 1.0},
+                         'background_iou_threshold': {"min": 0.1, "max": 0.3}
                      }}
 
     device = torch.device(device="cpu")
@@ -55,10 +58,35 @@ def debug_model() -> None:
 
     print_tensor_shape(tensor=input_tensor, name="input_tensor")
 
+    print_blue(output="Generating random ground truth boxes...", add_separators=True)
+    scales = [32.0, 64.0, 128.0, 256.0]
+    aspect_ratios = [0.5, 1.0, 2.0]
+    ground_truth_bounding_boxes = []
+
+    for batch_index in range(batch_size):
+        # Generate a realistic random quantity of boxes (e.g., between 4 and 15 objects per image)
+        random_number_of_boxes = int(np.random.randint(low=4, high=15))
+        mock_boxes = generate_random_bounding_boxes(
+            scales=scales, aspect_ratios=aspect_ratios,
+            input_image_size=input_image_size,
+            number_of_boxes=random_number_of_boxes,
+            device=device, dtype=dtype)
+        ground_truth_bounding_boxes.append(mock_boxes)
+
+    for index, boxes in enumerate(ground_truth_bounding_boxes):
+        print_tensor_shape(tensor=boxes, name=f"ground_truth_boxes_image_{index}", indent=1)
+
     print_blue(output="Executing forward pass with mock tensor...", add_separators=True)
 
-    (final_backbone_tensor, backbone_output_tensor_dictionary, region_proposal_output_tensor_dictionary,
-     aggregated_proposals_dictionary, filtered_proposals_dictionary) = model(input_tensor=input_tensor)
+    model_output_dictionary = model(
+        input_tensor=input_tensor, ground_truth_bounding_boxes=ground_truth_bounding_boxes)
+        
+    # Unpack the dictionary for the subsequent debugging output
+    final_backbone_tensor = model_output_dictionary["final_backbone_tensor"]
+    backbone_output_tensor_dictionary = model_output_dictionary["backbone_output_tensor_dictionary"]
+    region_proposal_output_tensor_dictionary = model_output_dictionary["region_proposal_output_tensor_dictionary"]
+    aggregated_proposals_dictionary = model_output_dictionary["aggregated_proposals_dictionary"]
+    filtered_proposals_dictionary = model_output_dictionary["filtered_proposals_dictionary"]
 
     print_tensor_shape(tensor=final_backbone_tensor, name="final_backbone_tensor")
 
@@ -85,8 +113,7 @@ def debug_model() -> None:
         if "score" in key:
             print_tensor_list(tensor=tensor[0, :15])
         else:
-            print_bounding_boxes(boxes=tensor[0],number_of_boxes=5)
-
+            print_bounding_boxes(boxes=tensor[0], number_of_boxes=5)
 
 
 if __name__ == "__main__":
