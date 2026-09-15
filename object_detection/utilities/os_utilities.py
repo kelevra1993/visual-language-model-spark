@@ -8,7 +8,8 @@ import yaml
 
 from shutil import copyfile
 from pathlib import Path
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
+import inspect
 
 # No printing of scientific notations
 np.set_printoptions(suppress=True)
@@ -277,3 +278,34 @@ def get_random_color() -> Tuple[int, int, int]:
     return (int(np.random.randint(low=0, high=256)),
             int(np.random.randint(low=0, high=256)),
             int(np.random.randint(low=0, high=256)))
+
+
+def get_variable_name(target_variable: Any, namespace: Optional[Dict[str, Any]] = None) -> str:
+    """
+    Retrieves the string name of a variable by checking for its exact memory identity in a given namespace.
+    If no namespace is provided, it automatically inspects the caller's frame (two levels up) to find 
+    the original variable name, removing the need for manual typing.
+    
+    Args:
+        target_variable (Any): The variable whose name we want to find.
+        namespace (Optional[Dict[str, Any]]): The dictionary mapping variable names to values. 
+                                              Defaults to None, triggering automatic frame inspection.
+        
+    Returns:
+        str: The name of the variable as a string, or 'Unknown_Variable' if not found.
+    """
+    if namespace is None:
+        try:
+            # We go back 2 frames: 1 frame for this function, 1 frame for the caller (e.g., print_tensor_shape)
+            # This allows us to access the locals dictionary of the script/function that actually passed the variable.
+            frame = inspect.currentframe().f_back.f_back
+            namespace = frame.f_locals
+        except Exception:
+            namespace = {}
+
+    for name, value in namespace.items():
+        # Using 'is' checks for exact memory identity, not just equal value
+        if value is target_variable:
+            return name
+            
+    return "Unknown_Variable"
