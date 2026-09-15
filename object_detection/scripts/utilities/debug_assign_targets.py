@@ -3,7 +3,8 @@ import numpy as np
 import torch
 from typing import Tuple
 
-from utilities.model.model_utilities import assign_targets_to_anchors, get_intersection_over_union, add_bounding_box
+from utilities.model.model_utilities import batch_assign_targets_to_anchors, get_intersection_over_union, \
+    add_bounding_box
 from utilities.os_utilities import print_blue, print_green
 from scripts.utilities.debugging_utilities import print_bounding_boxes
 from utilities.tensor_utilities import print_tensor_shape
@@ -117,12 +118,18 @@ def debug_assign_targets() -> None:
     background_iou_threshold = {"min": 0.1, "max": 0.3}
     foreground_iou_threshold = {"min": 0.5, "max": 1.0}
 
-    # Iterate over the batched dimensions to process the target assignments independently per image
+    # Test the target assignment module by matching the mock ground truth boxes to the predefined FPN anchors across the whole batch
+    batched_target_ground_truth_boxes, batched_labels = batch_assign_targets_to_anchors(
+        batched_ground_truth_boxes=ground_truth_boxes,
+        batched_anchors=anchors,
+        background_iou_threshold=background_iou_threshold,
+        foreground_iou_threshold=foreground_iou_threshold)
+
+    # Iterate over the batched dimensions to process the target assignments independently per image for visualization
     for batch_index in range(batch_size):
-        # Test the target assignment module by matching the mock ground truth boxes to the predefined FPN anchors
-        target_ground_truth_boxes, labels = assign_targets_to_anchors(
-            ground_truth_boxes=ground_truth_boxes[batch_index], anchors=anchors[batch_index],
-            background_iou_threshold=background_iou_threshold, foreground_iou_threshold=foreground_iou_threshold)
+        # Extract the specific assignments and targets for the current image in the batch
+        target_ground_truth_boxes = batched_target_ground_truth_boxes[batch_index]
+        labels = batched_labels[batch_index]
 
         # Iterate through each anchor and its corresponding target assignment to visualize the matching logic
         for anchor_index, (anchor, target_ground_truth, label) in enumerate(
