@@ -78,20 +78,19 @@ def generate_random_bounding_boxes(scales: List[float], aspect_ratios: List[floa
         width = final_scale * np.sqrt(aspect_ratio)
         height = final_scale / np.sqrt(aspect_ratio)
 
-        # Determine safe center coordinates to prevent the box from completely leaving the image frame
-        minimum_x = width / 2.0
-        maximum_x = max(minimum_x, input_image_size - width / 2.0)
-        center_x = np.random.uniform(low=minimum_x, high=maximum_x)
+        # Determine top-left corner coordinates randomly across the entire image
+        x_min = np.random.uniform(low=0.0, high=float(input_image_size))
+        y_min = np.random.uniform(low=0.0, high=float(input_image_size))
 
-        minimum_y = height / 2.0
-        maximum_y = max(minimum_y, input_image_size - height / 2.0)
-        center_y = np.random.uniform(low=minimum_y, high=maximum_y)
+        # Calculate bottom-right corner based on width and height
+        x_max = x_min + width
+        y_max = y_min + height
 
-        # Convert the center coordinates back to corner format [x_min, y_min, x_max, y_max]
-        x_min = center_x - (width / 2.0)
-        y_min = center_y - (height / 2.0)
-        x_max = center_x + (width / 2.0)
-        y_max = center_y + (height / 2.0)
+        # Clamp all coordinates to ensure they strictly remain within the image boundaries
+        x_min = max(0.0, min(x_min, float(input_image_size)))
+        y_min = max(0.0, min(y_min, float(input_image_size)))
+        x_max = max(0.0, min(x_max, float(input_image_size)))
+        y_max = max(0.0, min(y_max, float(input_image_size)))
 
         boxes.append([x_min, y_min, x_max, y_max])
 
@@ -165,7 +164,8 @@ def visualize_anchor_target_assignments(ground_truth_bounding_boxes: List[torch.
 
     Args:
         ground_truth_bounding_boxes (List[torch.Tensor]): The raw unbatched ground truth boxes for each image.
-        batched_target_ground_truth_boxes (torch.Tensor): Tensor of shape [batch_size, num_anchors, 4] containing assigned targets.
+        batched_target_ground_truth_boxes (torch.Tensor): Tensor of shape [batch_size, num_anchors, 4]
+         containing assigned targets.
         batched_labels (torch.Tensor): Tensor of shape [batch_size, num_anchors] with assigned match labels.
         batched_anchors (torch.Tensor): Tensor of shape [batch_size, num_anchors, 4] of all generated anchors.
         input_image_size (int): The height/width of the input image canvas.
@@ -212,7 +212,8 @@ def visualize_anchor_target_assignments(ground_truth_bounding_boxes: List[torch.
             box_color = get_box_color(label=label.item())
 
             if label.item() <= 0.0:
-                # Recompute IoU against all true ground truth boxes to find the one that caused this negative/ignored assignment
+                # Recompute IoU against all true ground truth boxes
+                # to find the one that caused this negative/ignored assignment
                 iou_matrix = get_intersection_over_union(boxes_1=anchor.unsqueeze(dim=0),
                                                          boxes_2=original_ground_truth_boxes)
                 max_iou_values, max_iou_indices = torch.max(input=iou_matrix, dim=1)
@@ -222,7 +223,8 @@ def visualize_anchor_target_assignments(ground_truth_bounding_boxes: List[torch.
                 print_red(f"Non Positive IOU Value :: {iou_value}")
 
             else:
-                # For positive anchors, use the assigned target since it might have bypassed max IoU due to fallback rules
+                # For positive anchors, use the assigned target
+                # since it might have bypassed max IoU due to fallback rules
                 iou_matrix = get_intersection_over_union(boxes_1=anchor.unsqueeze(dim=0),
                                                          boxes_2=target_ground_truth.unsqueeze(dim=0))
                 iou_value = iou_matrix[0, 0].item()
