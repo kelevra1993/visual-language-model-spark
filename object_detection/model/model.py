@@ -4,8 +4,9 @@ from torch import nn
 from typing import Dict, Any, Tuple, Literal, Optional, List
 from architecture_modules.backbone import Backbone
 from architecture_modules.region_proposer import RegionProposal, RegionProposalFilter
-from utilities.model.model_utilities import assign_targets_to_anchors, batch_assign_targets_to_anchors
-from utilities.tensor_utilities import print_tensor_shape
+from utilities.model.model_utilities import assign_targets_to_anchors, batch_assign_targets_to_anchors, \
+    turn_boxes_to_transformation_targets, apply_regression_predictions
+from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
 
 class Model(nn.Module):
@@ -252,8 +253,8 @@ class Model(nn.Module):
             input_image_size=self.input_image_size)
 
         # Repackage the refined proposals cleanly into a dictionary structure
-        filtered_proposals_dictionary = {"filtered_proposal_boxes": filtered_boxes,
-                                         "filtered_proposal_scores": filtered_scores}
+        filtered_proposals_dictionary = {"proposal_boxes": filtered_boxes,
+                                         "proposal_scores": filtered_scores}
 
         # Package the outputs into a unified dictionary for clean extraction
         model_output_dictionary = {"final_backbone_tensor": final_backbone_tensor,
@@ -266,6 +267,7 @@ class Model(nn.Module):
         # Train -> Assign targets for loss computation
         if self.mode == "training" and ground_truth_bounding_boxes is not None:
             # First assign targets based on ground truth bounding boxes
+            # Here we consider absolutely all anchors targets based on all ground truth boxes
             region_proposal_anchor_targets, region_proposal_anchor_labels = batch_assign_targets_to_anchors(
                 batched_ground_truth_boxes=ground_truth_bounding_boxes,
                 batched_anchors=aggregated_proposals_dictionary["anchors"],
@@ -273,9 +275,15 @@ class Model(nn.Module):
                 foreground_iou_threshold=self.region_proposal_configuration['foreground_iou_threshold'],
                 strict_fallback_assignment=self.region_proposal_configuration['strict_fallback_assignment'])
 
+            # Compute regression targets
+            region_proposal_regression_targets = turn_boxes_to_transformation_targets(
+                ground_truth_boxes=region_proposal_anchor_targets,
+                predicted_boxes=aggregated_proposals_dictionary["anchors"])
+
             # Append the assignments to the output dictionary
             model_output_dictionary["region_proposal_anchor_targets"] = region_proposal_anchor_targets
             model_output_dictionary["region_proposal_anchor_labels"] = region_proposal_anchor_labels
+            model_output_dictionary["region_proposal_regression_targets"] = region_proposal_regression_targets
 
         return model_output_dictionary
 

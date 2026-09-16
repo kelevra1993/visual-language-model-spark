@@ -464,7 +464,7 @@ def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
     # Shape: (..., N)
     target_dx = (ground_truth_boxes_center_x - predicted_boxes_center_x) / (predicted_boxes_widths + 1e-6)
     target_dy = (ground_truth_boxes_center_y - predicted_boxes_center_y) / (predicted_boxes_heights + 1e-6)
-    
+
     # Compute log-space scale adjustments for width and height (clamped to prevent log(0) -> -inf)
     # Shape: (..., N)
     target_dw = torch.log(input=(ground_truth_boxes_widths / (predicted_boxes_widths + 1e-6)).clamp(min=1e-6))
@@ -473,7 +473,5 @@ def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
     # Stack the individual parameterized targets into the final format [dx, dy, dw, dh]
     # Shape: (..., N, 4)
     regression_targets = torch.stack(tensors=[target_dx, target_dy, target_dw, target_dh], dim=-1)
-
-    print_tensor_shape(tensor=regression_targets)
 
     return regression_targets
