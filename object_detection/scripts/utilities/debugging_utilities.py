@@ -211,7 +211,7 @@ def visualize_anchor_target_assignments(ground_truth_bounding_boxes: List[torch.
             box_color = get_box_color(label=label.item())
 
             if label.item() <= 0.0:
-                type_name ="Ignored" if label.item() == -1 else "Negative"
+                type_name ="Ign." if label.item() == -1 else "Neg."
 
                 # Recompute IoU against all true ground truth boxes
                 # to find the one that caused this negative/ignored assignment
@@ -221,14 +221,14 @@ def visualize_anchor_target_assignments(ground_truth_bounding_boxes: List[torch.
                 best_match_index = max_iou_indices[0].item()
                 target_ground_truth = original_ground_truth_boxes[best_match_index]
                 iou_value = max_iou_values[0].item()
-                print_red(f"{type_name} Anchor IOU Value :: {iou_value:.6f}", indent=1)
+                print_red(f"{type_name} Anchor IOU Value :: {iou_value:.4f}", indent=1)
 
             else:
                 # For positive anchors, use the assigned target since it might have bypassed max IoU due to fallback rules
                 iou_matrix = get_intersection_over_union(boxes_1=anchor.unsqueeze(dim=0),
                                                          boxes_2=target_ground_truth.unsqueeze(dim=0))
                 iou_value = iou_matrix[0, 0].item()
-                print_green(f"Positive Anchor IOU Value :: {iou_value:.6f}", indent=1)
+                print_green(f"Pos. Anchor IOU Value :: {iou_value:.4f}", indent=1)
 
             # Always draw the true target ground truth bounding box that the anchor was measured against
             target_array = target_ground_truth.cpu().numpy().astype(dtype=np.int32)

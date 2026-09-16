@@ -40,8 +40,8 @@ def debug_model() -> None:
                          }},
                      'RegionProposal': {
                          'nms_iou_threshold': 0.7,
-                         'training': {'pre_nms_proposals': 1000, 'post_nms_proposals': 500},
-                         'inference': {'pre_nms_proposals': 500, 'post_nms_proposals': 250},
+                         'training': {'pre_nms_proposals': 500, 'post_nms_proposals': 250},
+                         'inference': {'pre_nms_proposals': 100, 'post_nms_proposals': 50},
                          'foreground_iou_threshold': {"min": 0.5, "max": 1.0},
                          'background_iou_threshold': {"min": 0.05, "max": 0.3},
                          'strict_fallback_assignment': False
@@ -93,8 +93,8 @@ def debug_model() -> None:
     region_proposal_output_tensor_dictionary = model_output_dictionary["region_proposal_output_tensor_dictionary"]
     aggregated_proposals_dictionary = model_output_dictionary["aggregated_proposals_dictionary"]
     filtered_proposals_dictionary = model_output_dictionary["filtered_proposals_dictionary"]
-    batched_target_ground_truth_boxes = model_output_dictionary["batched_target_ground_truth_boxes"]
-    batched_labels = model_output_dictionary["batched_labels"]
+    region_proposal_anchor_targets = model_output_dictionary["region_proposal_anchor_targets"]
+    region_proposal_anchor_labels = model_output_dictionary["region_proposal_anchor_labels"]
 
     print_tensor_shape(tensor=final_backbone_tensor, name="final_backbone_tensor")
 
@@ -125,8 +125,8 @@ def debug_model() -> None:
 
     print_blue(output="Visualizing Anchor Target Assignments...", add_separators=True)
     visualize_anchor_target_assignments(ground_truth_bounding_boxes=ground_truth_bounding_boxes,
-                                        batched_target_ground_truth_boxes=batched_target_ground_truth_boxes,
-                                        batched_labels=batched_labels,
+                                        batched_target_ground_truth_boxes=region_proposal_anchor_targets,
+                                        batched_labels=region_proposal_anchor_labels,
                                         batched_anchors=aggregated_proposals_dictionary["anchors"],
                                         input_image_size=input_image_size)
 

@@ -256,19 +256,17 @@ class Model(nn.Module):
                                          "filtered_proposal_scores": filtered_scores}
 
         # Package the outputs into a unified dictionary for clean extraction
-        model_output_dictionary = {
-            "final_backbone_tensor": final_backbone_tensor,
-            "backbone_output_tensor_dictionary": backbone_output_tensor_dictionary,
-            "region_proposal_output_tensor_dictionary": region_proposal_output_tensor_dictionary,
-            "aggregated_proposals_dictionary": aggregated_proposals_dictionary,
-            "filtered_proposals_dictionary": filtered_proposals_dictionary
-        }
+        model_output_dictionary = {"final_backbone_tensor": final_backbone_tensor,
+                                   "backbone_output_tensor_dictionary": backbone_output_tensor_dictionary,
+                                   "region_proposal_output_tensor_dictionary": region_proposal_output_tensor_dictionary,
+                                   "aggregated_proposals_dictionary": aggregated_proposals_dictionary,
+                                   "filtered_proposals_dictionary": filtered_proposals_dictionary}
 
         # Depending on the mode:
         # Train -> Assign targets for loss computation
         if self.mode == "training" and ground_truth_bounding_boxes is not None:
             # First assign targets based on ground truth bounding boxes
-            batched_target_ground_truth_boxes, batched_labels = batch_assign_targets_to_anchors(
+            region_proposal_anchor_targets, region_proposal_anchor_labels = batch_assign_targets_to_anchors(
                 batched_ground_truth_boxes=ground_truth_bounding_boxes,
                 batched_anchors=aggregated_proposals_dictionary["anchors"],
                 background_iou_threshold=self.region_proposal_configuration['background_iou_threshold'],
@@ -276,8 +274,8 @@ class Model(nn.Module):
                 strict_fallback_assignment=self.region_proposal_configuration['strict_fallback_assignment'])
 
             # Append the assignments to the output dictionary
-            model_output_dictionary["batched_target_ground_truth_boxes"] = batched_target_ground_truth_boxes
-            model_output_dictionary["batched_labels"] = batched_labels
+            model_output_dictionary["region_proposal_anchor_targets"] = region_proposal_anchor_targets
+            model_output_dictionary["region_proposal_anchor_labels"] = region_proposal_anchor_labels
 
         return model_output_dictionary
 
