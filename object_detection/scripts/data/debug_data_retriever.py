@@ -39,4 +39,4 @@ def debug_data_retriever(dataset_name: str = "open-images-v7") -> None:
 
 
 if __name__ == "__main__":
-    debug_data_retriever()
+    debug_data_retriever(dataset_name="coco-2017-train-validation-test-None")

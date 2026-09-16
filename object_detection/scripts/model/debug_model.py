@@ -5,7 +5,7 @@ import yaml
 from model.model import Model
 import numpy as np
 from scripts.utilities.debugging_utilities import print_bounding_boxes, generate_random_bounding_boxes, \
-    visualize_anchor_target_assignments
+    visualize_anchor_target_assignments, visualize_foreground_and_background_anchors
 from utilities.os_utilities import print_green, print_blue
 from utilities.tensor_utilities import print_tensor_status, print_tensor_shape, print_tensor_list
 
@@ -28,13 +28,15 @@ def debug_model() -> None:
                                           '6': [2, 64],
                                           '7': [2, 64],
                                           '8': [2, 64],
+                                          '9': [2, 64],
                                           },
                          'modules': {},
                          'last_max_pooling': True,
                          'normalization': {'feature_map_normalization': 'none'},
-                         'enhancer_convolution_indices': [7, 8]},
+                         'enhancer_convolution_indices': [5, 7, 8]},
                      'Anchors': {
                          'scales_and_ratios': {
+                             '5': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
                              '7': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
                              '8': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]}
                          }},
@@ -42,9 +44,11 @@ def debug_model() -> None:
                          'nms_iou_threshold': 0.7,
                          'training': {'pre_nms_proposals': 500, 'post_nms_proposals': 250},
                          'inference': {'pre_nms_proposals': 100, 'post_nms_proposals': 50},
-                         'foreground_iou_threshold': {"min": 0.5, "max": 1.0},
-                         'background_iou_threshold': {"min": 0.05, "max": 0.3},
-                         'strict_fallback_assignment': False
+                         'foreground_iou_threshold': {"min": 0.35, "max": 1.0},
+                         'background_iou_threshold': {"min": 0.2, "max": 0.3},
+                         'strict_fallback_assignment': False,
+                         'number_training_positives': 128,
+                         'total_training_samples': 256
 
                      }}
 
@@ -65,7 +69,7 @@ def debug_model() -> None:
     print_tensor_shape(tensor=input_tensor, name="input_tensor")
 
     print_blue(output="Generating random ground truth boxes...", add_separators=True)
-    scales = [256.0, 384]
+    scales = [64.0, 128.0]
     aspect_ratios = [0.5, 1.0, 2.0]
     ground_truth_bounding_boxes = []
 
@@ -86,6 +90,14 @@ def debug_model() -> None:
 
     model_output_dictionary = model(
         input_tensor=input_tensor, ground_truth_bounding_boxes=ground_truth_bounding_boxes)
+
+    # Only run for the first batch to visualise the ground truth iou's with proposals.
+    visualize_foreground_and_background_anchors(
+        ground_truth_boxes=ground_truth_bounding_boxes[0],
+        anchors=model.anchors,
+        background_iou_threshold=configuration["RegionProposal"]["background_iou_threshold"],
+        foreground_iou_threshold=configuration["RegionProposal"]["foreground_iou_threshold"],
+        input_image_size=input_image_size)
 
     # Unpack the dictionary for the subsequent debugging output
     final_backbone_tensor = model_output_dictionary["final_backbone_tensor"]
