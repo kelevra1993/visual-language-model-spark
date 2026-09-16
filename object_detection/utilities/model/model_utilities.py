@@ -73,34 +73,39 @@ def get_intersection_over_union(boxes_1: torch.Tensor, boxes_2: torch.Tensor) ->
     return intersection_over_union
 
 
-def add_bounding_box(bounding_box: np.ndarray, image: np.ndarray, input_image_size: int,
-                     color: Tuple[int, int, int] = (0, 255, 0)) -> np.ndarray:
+def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_image_size: int,
+                       color: Tuple[int, int, int] = (0, 255, 0)) -> np.ndarray:
     """
-    Draws a single bounding box onto the provided image canvas.
+    Draws one or more bounding boxes onto the provided image canvas.
     
-    This function processes an individual bounding box's coordinates, clamps them to the image boundaries
-    to prevent out-of-bounds drawing errors, and renders the rectangle using OpenCV. It centralizes 
-    the bounding box drawing logic so it can be reused iteratively or collectively during visualization.
+    This function processes bounding box coordinates, clamps them to the image boundaries
+    to prevent out-of-bounds drawing errors, and renders the rectangles using OpenCV. 
+    It supports both single bounding boxes [4] and batches of bounding boxes [N, 4].
     
     Args:
-        bounding_box (np.ndarray): The [x_min, y_min, x_max, y_max] coordinates of the bounding box.
-        image (np.ndarray): The image canvas on which to draw the bounding box.
+        bounding_boxes (np.ndarray): The [x_min, y_min, x_max, y_max] coordinates. Shape (4,) or (N, 4).
+        image (np.ndarray): The image canvas on which to draw the bounding boxes.
         input_image_size (int): The spatial size (height and width) of the image to clamp coordinates.
-        color (Tuple[int, int, int]): The RGB color tuple for the bounding box. Defaults to green (0, 255, 0).
+        color (Tuple[int, int, int]): The BGR color tuple for the bounding boxes. Defaults to green (0, 255, 0).
         
     Returns:
-        np.ndarray: The updated image canvas containing the newly drawn bounding box.
+        np.ndarray: The updated image canvas containing the newly drawn bounding boxes.
     """
-    x_min, y_min, x_max, y_max = bounding_box
+    # Standardize shape to [N, 4] for consistent iteration
+    if bounding_boxes.ndim == 1:
+        bounding_boxes = bounding_boxes.reshape((1, 4))
 
-    # Ensure coordinates are within image boundaries for clean visualization
-    x_min = max(0, x_min)
-    y_min = max(0, y_min)
-    x_max = min(input_image_size, x_max)
-    y_max = min(input_image_size, y_max)
-
-    # Draw the bounding box on the canvas using the provided color
-    cv2.rectangle(img=image, pt1=(x_min, y_min), pt2=(x_max, y_max), color=color, thickness=2)
+    for box in bounding_boxes:
+        x_min, y_min, x_max, y_max = box
+    
+        # Ensure coordinates are within image boundaries for clean visualization
+        x_min = max(0, int(x_min))
+        y_min = max(0, int(y_min))
+        x_max = min(input_image_size, int(x_max))
+        y_max = min(input_image_size, int(y_max))
+    
+        # Draw the bounding box on the canvas using the provided color
+        cv2.rectangle(img=image, pt1=(x_min, y_min), pt2=(x_max, y_max), color=color, thickness=2)
 
     return image
 
@@ -145,9 +150,8 @@ def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: boo
         if not delay:
             print_blue(output="Showing Anchors Iteratively. Press any key to continue...", add_separators=True)
 
-        # Iterate through each anchor and draw them one by one
         for anchor_index, anchor in enumerate(anchors_array):
-            canvas = add_bounding_box(bounding_box=anchor, image=canvas, input_image_size=input_image_size)
+            canvas = add_bounding_boxes(bounding_boxes=anchor, image=canvas, input_image_size=input_image_size)
 
             # Display the updated canvas containing the newly drawn anchor
             cv2.imshow(winname=window_name, mat=canvas)
@@ -155,9 +159,8 @@ def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: boo
             # Pause execution for the specified delay or until the user presses a key
             cv2.waitKey(delay=delay)
     else:
-        # Iterate through all anchors and draw them collectively on the canvas
-        for anchor in anchors_array:
-            canvas = add_bounding_box(bounding_box=anchor, image=canvas, input_image_size=input_image_size)
+        # Draw all anchors collectively on the canvas without a loop
+        canvas = add_bounding_boxes(bounding_boxes=anchors_array, image=canvas, input_image_size=input_image_size)
 
         # Display the final canvas with all anchors drawn simultaneously
         cv2.imshow(winname=window_name, mat=canvas)
@@ -311,9 +314,20 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
     # Get the best iou value for each ground truth box across all available anchors
     best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=1)
 
-    # This gives us all the anchors that tie for the highest iou for each ground truth box
+    # # todo to be removed
+    # # This gives us all the anchors that tie for the highest iou for each ground truth box
+    # best_anchor_indices_for_each_ground_truth_box = torch.where(
+    #     intersection_over_union_matrix == best_match_anchor_iou.unsqueeze(dim=-1))
+    # print(best_anchor_indices_for_each_ground_truth_box)
+    # # end of removal
+
+    # This gives us all the anchors that tie for the highest iou for each ground truth box.
+    # We use torch.isclose to safely handle float32 truncation artifacts where mathematically 
+    # identical bounding box areas might differ by ~1e-7.
     best_anchor_indices_for_each_ground_truth_box = torch.where(
-        intersection_over_union_matrix == best_match_anchor_iou.unsqueeze(dim=-1))
+        torch.isclose(input=intersection_over_union_matrix,
+                      other=best_match_anchor_iou.unsqueeze(dim=-1),
+                      atol=1e-4))
 
     # We recover the positive labels for the anchors that had the highest IoU for each ground truth box.
     # IMPORTANT QUIRK: Notice that we are assigning the anchor to its absolute best match overall 
