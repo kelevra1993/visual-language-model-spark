@@ -475,3 +475,54 @@ def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
     regression_targets = torch.stack(tensors=[target_dx, target_dy, target_dw, target_dh], dim=-1)
 
     return regression_targets
+
+
+def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_positives: int, desired_total: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Randomly samples positive and negative anchors to maintain a fixed ratio during Region Proposal Network training.
+
+    To prevent the classification loss from being completely overwhelmed by the massive number of background 
+    (negative) anchors, this function constructs a balanced mini-batch for a single image. It guarantees up to 
+    `desired_positives` foreground anchors, and fills the remainder of the `desired_total` quota with background anchors.
+    Note: This function operates on a single image's tensor (unbatched), not across the entire batch dimension.
+
+    Args:
+        labels (torch.Tensor): A 1D tensor of shape (N,) containing anchor labels (1.0 = positive, 0.0 = negative).
+        desired_positives (int): The maximum number of positive anchors to sample.
+        desired_total (int): The total combined number of anchors (positive + negative) to sample.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: A tuple containing two boolean masks of shape (N,):
+            - sampled_positive_mask (torch.Tensor): True for selected positive anchors.
+            - sampled_negative_mask (torch.Tensor): True for selected negative anchors.
+    """
+    # Identify the raw indices for all available positive and negative anchors
+    positive_labels_indices = torch.where(condition=labels >= 1.0)[0]
+    negative_labels_indices = torch.where(condition=labels == 0.0)[0]
+
+    # Calculate the actual number of positives to sample, capped by availability
+    possible_positives = min(positive_labels_indices.numel(), desired_positives)
+
+    # Fill the remaining slots with negatives, capped by availability
+    desired_negatives = desired_total - possible_positives
+    possible_negatives = min(negative_labels_indices.numel(), desired_negatives)
+
+    # Generate random permutations to shuffle and select the required number of indices
+    random_positive_indices = torch.randperm(n=positive_labels_indices.numel(),
+                                             device=positive_labels_indices.device)[:possible_positives]
+    random_negative_indices = torch.randperm(n=negative_labels_indices.numel(),
+                                             device=negative_labels_indices.device)[:possible_negatives]
+
+    # Map the shuffled local indices back to the absolute anchor indices
+    final_positive_indices = positive_labels_indices[random_positive_indices]
+    final_negative_indices = negative_labels_indices[random_negative_indices]
+
+    # Create a boolean mask highlighting only the randomly sampled positive anchors
+    sampled_positive_mask = torch.zeros_like(input=labels, dtype=torch.bool)
+    sampled_positive_mask[final_positive_indices] = True
+
+    # Create a boolean mask highlighting only the randomly sampled negative anchors
+    sampled_negative_mask = torch.zeros_like(input=labels, dtype=torch.bool)
+    sampled_negative_mask[final_negative_indices] = True
+
+    return sampled_positive_mask, sampled_negative_mask

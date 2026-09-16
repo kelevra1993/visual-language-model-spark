@@ -275,7 +275,7 @@ class Model(nn.Module):
                 foreground_iou_threshold=self.region_proposal_configuration['foreground_iou_threshold'],
                 strict_fallback_assignment=self.region_proposal_configuration['strict_fallback_assignment'])
 
-            # Compute regression targets
+            # Compute region proposal regression targets
             region_proposal_regression_targets = turn_boxes_to_transformation_targets(
                 ground_truth_boxes=region_proposal_anchor_targets,
                 predicted_boxes=aggregated_proposals_dictionary["anchors"])
