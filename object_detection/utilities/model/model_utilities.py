@@ -1,3 +1,5 @@
+from collections import Counter
+
 import cv2
 import numpy as np
 import torch
@@ -5,7 +7,7 @@ import torch
 from typing import Tuple, Dict, List
 from torchvision.ops import nms
 
-from utilities.os_utilities import print_blue
+from utilities.os_utilities import print_blue, print_green, print_red
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
 
@@ -97,13 +99,13 @@ def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_imag
 
     for box in bounding_boxes:
         x_min, y_min, x_max, y_max = box
-    
+
         # Ensure coordinates are within image boundaries for clean visualization
         x_min = max(0, int(x_min))
         y_min = max(0, int(y_min))
         x_max = min(input_image_size, int(x_max))
         y_max = min(input_image_size, int(y_max))
-    
+
         # Draw the bounding box on the canvas using the provided color
         cv2.rectangle(img=image, pt1=(x_min, y_min), pt2=(x_max, y_max), color=color, thickness=2)
 
@@ -255,7 +257,8 @@ def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) 
 def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
                               anchors: torch.Tensor,
                               background_iou_threshold: Dict[str, float],
-                              foreground_iou_threshold: Dict[str, float]) -> Tuple[torch.Tensor, torch.Tensor]:
+                              foreground_iou_threshold: Dict[str, float],
+                              strict_fallback_assignment: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Assigns ground truth boxes to anchors to prepare the binary classification and regression targets for the Region Proposal Network.
 
@@ -269,6 +272,7 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
         anchors (torch.Tensor): A tensor of the base anchors generated for the current feature map.
         background_iou_threshold (Dict[str, float]): Dictionary defining the 'min' and 'max' IoU thresholds for background.
         foreground_iou_threshold (Dict[str, float]): Dictionary defining the 'min' and 'max' IoU thresholds for foreground.
+        strict_fallback_assignment (bool): If True, assigns resurrected anchors strictly to the ground truth box that triggered their resurrection. If False, follows default PyTorch RPN behavior of assigning them to the ground truth box they overlap with most. Defaults to False.
         
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
@@ -314,30 +318,28 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
     # Get the best iou value for each ground truth box across all available anchors
     best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=1)
 
-    # # todo to be removed
-    # # This gives us all the anchors that tie for the highest iou for each ground truth box
-    # best_anchor_indices_for_each_ground_truth_box = torch.where(
-    #     intersection_over_union_matrix == best_match_anchor_iou.unsqueeze(dim=-1))
-    # print(best_anchor_indices_for_each_ground_truth_box)
-    # # end of removal
-
     # This gives us all the anchors that tie for the highest iou for each ground truth box.
     # We use torch.isclose to safely handle float32 truncation artifacts where mathematically 
-    # identical bounding box areas might differ by ~1e-7.
+    # identical bounding box areas might differ by ~1e-6.
     best_anchor_indices_for_each_ground_truth_box = torch.where(
         torch.isclose(input=intersection_over_union_matrix,
                       other=best_match_anchor_iou.unsqueeze(dim=-1),
-                      atol=1e-4))
+                      atol=1e-6))
 
-    # We recover the positive labels for the anchors that had the highest IoU for each ground truth box.
-    # IMPORTANT QUIRK: Notice that we are assigning the anchor to its absolute best match overall 
-    # (using best_match_ground_truth_index_before_thresholding) rather than strictly forcing it to 
-    # match the specific ground truth box that selected it. For example, if an anchor is forced 
-    # positive to cover Ground Truth A, but it actually overlaps more with Ground Truth B, it will 
-    # be assigned to predict Ground Truth B. This perfectly mirrors the official PyTorch RPN logic!
     anchor_indices_to_retrieve = best_anchor_indices_for_each_ground_truth_box[1]
-    best_match_ground_truth_index[anchor_indices_to_retrieve] = best_match_ground_truth_index_before_thresholding[
-        anchor_indices_to_retrieve]
+
+    if strict_fallback_assignment:
+        ground_truths_for_retrieved_anchors = best_anchor_indices_for_each_ground_truth_box[0]
+        best_match_ground_truth_index[anchor_indices_to_retrieve] = ground_truths_for_retrieved_anchors
+    else:
+        # We recover the positive labels for the anchors that had the highest IoU for each ground truth box.
+        # IMPORTANT QUIRK: Notice that we are assigning the anchor to its absolute best match overall
+        # (using best_match_ground_truth_index_before_thresholding) rather than strictly forcing it to
+        # match the specific ground truth box that selected it. For example, if an anchor is forced
+        # positive to cover Ground Truth A, but it actually overlaps more with Ground Truth B, it will
+        # be assigned to predict Ground Truth B. This perfectly mirrors the official PyTorch RPN logic!
+        best_match_ground_truth_index[anchor_indices_to_retrieve] = best_match_ground_truth_index_before_thresholding[
+            anchor_indices_to_retrieve]
 
     # Get coordinates of best matching ground truth target boxes (so each anchor will have at least one target)
     # But we will not necessarily train on all the assigned targets because the -1 and -2 will be bogus targets.
@@ -358,7 +360,8 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
 def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tensor],
                                     batched_anchors: torch.Tensor,
                                     background_iou_threshold: Dict[str, float],
-                                    foreground_iou_threshold: Dict[str, float]) -> Tuple[torch.Tensor, torch.Tensor]:
+                                    foreground_iou_threshold: Dict[str, float],
+                                    strict_fallback_assignment: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Applies target assignment logic across an entire batch of images.
     
@@ -372,6 +375,7 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
         batched_anchors (torch.Tensor): A tensor of shape [batch_size, number_of_anchors, 4].
         background_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for background.
         foreground_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for foreground.
+        strict_fallback_assignment (bool): Propagates the resurrection override flag to the assignment logic. Defaults to False.
         
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
@@ -388,7 +392,8 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
             ground_truth_boxes=batched_ground_truth_boxes[batch_index],
             anchors=batched_anchors[batch_index],
             background_iou_threshold=background_iou_threshold,
-            foreground_iou_threshold=foreground_iou_threshold)
+            foreground_iou_threshold=foreground_iou_threshold,
+            strict_fallback_assignment=strict_fallback_assignment)
 
         # Store the processed targets and labels
         aggregated_target_boxes.append(target_boxes)
