@@ -428,29 +428,52 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
     return batched_target_boxes, batched_labels
 
 
-def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor, predicted_boxes: torch.Tensor):
-    """"""
+def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
+                                         predicted_boxes: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the ideal regression targets (dx, dy, dw, dh) required to transform predicted boxes into ground truth boxes.
+    
+    In object detection pipelines, bounding box regression heads do not directly predict absolute coordinates. 
+    Instead, they predict parameterized offsets relative to a base box (like an anchor or a previous proposal). 
+    This function calculates those continuous targets by computing the scale-invariant center shifts (dx, dy) 
+    and the log-space dimension adjustments (dw, dh) so the network can safely regress them using Smooth L1 Loss.
 
-    # Get ground truth dimensions
-    # todo Add shapes in comments
+    Args:
+        ground_truth_boxes (torch.Tensor): A tensor of shape (..., N, 4)
+        containing the target bounding boxes in [x_min, y_min, x_max, y_max] format.
+        predicted_boxes (torch.Tensor): A tensor of shape (..., N, 4)
+        containing the base/reference bounding boxes in [x_min, y_min, x_max, y_max] format.
+
+    Returns:
+        torch.Tensor: A tensor of shape (..., N, 4) containing the regression targets [dx, dy, dw, dh].
+    """
+
+    # Get ground truth dimensions (Widths, Heights, Center X, Center Y)
+    # Shapes for all returned variables: (..., N)
     (ground_truth_boxes_widths, ground_truth_boxes_heights,
      ground_truth_boxes_center_x, ground_truth_boxes_center_y) = get_box_dimensions_and_centers(
         boxes=ground_truth_boxes)
 
-    # Get predicted boxes dimensions
-    # todo Add shapes in comments
+    # Get predicted (base) boxes dimensions (Widths, Heights, Center X, Center Y)
+    # Shapes for all returned variables: (..., N)
     (predicted_boxes_widths, predicted_boxes_heights,
      predicted_boxes_center_x, predicted_boxes_center_y) = get_box_dimensions_and_centers(
         boxes=predicted_boxes)
 
-    target_dx = (ground_truth_boxes_center_x - predicted_boxes_center_x) / predicted_boxes_widths
-    target_dy = (ground_truth_boxes_center_y - predicted_boxes_center_y) / predicted_boxes_heights
-    target_dw = torch.log(ground_truth_boxes_widths / predicted_boxes_widths)
-    target_dh = torch.log(ground_truth_boxes_heights / predicted_boxes_heights)
+    # Compute scale-invariant offsets for the center coordinates (with epsilon to prevent division by zero)
+    # Shape: (..., N)
+    target_dx = (ground_truth_boxes_center_x - predicted_boxes_center_x) / (predicted_boxes_widths + 1e-6)
+    target_dy = (ground_truth_boxes_center_y - predicted_boxes_center_y) / (predicted_boxes_heights + 1e-6)
+    
+    # Compute log-space scale adjustments for width and height (clamped to prevent log(0) -> -inf)
+    # Shape: (..., N)
+    target_dw = torch.log(input=(ground_truth_boxes_widths / (predicted_boxes_widths + 1e-6)).clamp(min=1e-6))
+    target_dh = torch.log(input=(ground_truth_boxes_heights / (predicted_boxes_heights + 1e-6)).clamp(min=1e-6))
 
-    # todo Add shapes in comments
-    regression_targets = torch.stack([target_dx, target_dy, target_dw, target_dh], dim=-1)
+    # Stack the individual parameterized targets into the final format [dx, dy, dw, dh]
+    # Shape: (..., N, 4)
+    regression_targets = torch.stack(tensors=[target_dx, target_dy, target_dw, target_dh], dim=-1)
 
-    print_tensor_shape(regression_targets)
+    print_tensor_shape(tensor=regression_targets)
 
     return regression_targets
