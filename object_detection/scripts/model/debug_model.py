@@ -4,7 +4,8 @@ import torch
 import yaml
 from model.model import Model
 import numpy as np
-from scripts.utilities.debugging_utilities import print_bounding_boxes, generate_random_bounding_boxes
+from scripts.utilities.debugging_utilities import print_bounding_boxes, generate_random_bounding_boxes, \
+    visualize_anchor_target_assignments
 from utilities.os_utilities import print_green, print_blue
 from utilities.tensor_utilities import print_tensor_status, print_tensor_shape, print_tensor_list
 
@@ -29,9 +30,9 @@ def debug_model() -> None:
                          'modules': {},
                          'last_max_pooling': True,
                          'normalization': {'feature_map_normalization': 'none'},
-                         'enhancer_convolution_indices': [5, 6, 7]},
+                         'enhancer_convolution_indices': [6, 7]},
                      'Anchors': {
-                         'scales_and_ratios': {'5': {'scales': [32, 64], 'aspect_ratios': [0.5, 1.0, 2.0]},
+                         'scales_and_ratios': {
                                                '6': {'scales': [32, 64], 'aspect_ratios': [0.5, 1.0, 2.0]},
                                                '7': {'scales': [32, 64], 'aspect_ratios': [0.5, 1.0, 2.0]}}},
                      'RegionProposal': {
@@ -59,13 +60,13 @@ def debug_model() -> None:
     print_tensor_shape(tensor=input_tensor, name="input_tensor")
 
     print_blue(output="Generating random ground truth boxes...", add_separators=True)
-    scales = [32.0, 64.0, 128.0, 256.0]
+    scales = [256.0, 384]
     aspect_ratios = [0.5, 1.0, 2.0]
     ground_truth_bounding_boxes = []
 
     for batch_index in range(batch_size):
-        # Generate a realistic random quantity of boxes (e.g., between 4 and 15 objects per image)
-        random_number_of_boxes = int(np.random.randint(low=4, high=15))
+        # Generate a realistic random quantity of boxes (e.g., between 10 and 20 objects per image)
+        random_number_of_boxes = int(np.random.randint(low=10, high=20))
         mock_boxes = generate_random_bounding_boxes(
             scales=scales, aspect_ratios=aspect_ratios,
             input_image_size=input_image_size,
@@ -80,13 +81,15 @@ def debug_model() -> None:
 
     model_output_dictionary = model(
         input_tensor=input_tensor, ground_truth_bounding_boxes=ground_truth_bounding_boxes)
-        
+
     # Unpack the dictionary for the subsequent debugging output
     final_backbone_tensor = model_output_dictionary["final_backbone_tensor"]
     backbone_output_tensor_dictionary = model_output_dictionary["backbone_output_tensor_dictionary"]
     region_proposal_output_tensor_dictionary = model_output_dictionary["region_proposal_output_tensor_dictionary"]
     aggregated_proposals_dictionary = model_output_dictionary["aggregated_proposals_dictionary"]
     filtered_proposals_dictionary = model_output_dictionary["filtered_proposals_dictionary"]
+    batched_target_ground_truth_boxes = model_output_dictionary["batched_target_ground_truth_boxes"]
+    batched_labels = model_output_dictionary["batched_labels"]
 
     print_tensor_shape(tensor=final_backbone_tensor, name="final_backbone_tensor")
 
@@ -114,6 +117,13 @@ def debug_model() -> None:
             print_tensor_list(tensor=tensor[0, :15])
         else:
             print_bounding_boxes(boxes=tensor[0], number_of_boxes=5)
+
+    print_blue(output="Visualizing Anchor Target Assignments...", add_separators=True)
+    visualize_anchor_target_assignments(ground_truth_bounding_boxes=ground_truth_bounding_boxes,
+                                        batched_target_ground_truth_boxes=batched_target_ground_truth_boxes,
+                                        batched_labels=batched_labels,
+                                        batched_anchors=aggregated_proposals_dictionary["anchors"],
+                                        input_image_size=input_image_size)
 
 
 if __name__ == "__main__":
