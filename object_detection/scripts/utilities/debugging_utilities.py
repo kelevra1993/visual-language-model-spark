@@ -1,7 +1,7 @@
 import cv2
 import torch
 import numpy as np
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 
 from utilities.model.model_utilities import get_area, get_intersection_over_union, add_bounding_boxes
 from utilities.os_utilities import print_green, print_red, print_blue
@@ -276,4 +276,106 @@ def visualize_anchor_target_assignments(ground_truth_bounding_boxes: List[torch.
                 break
 
     # Destroy all OpenCV windows after the visualization loop completes
+    cv2.destroyAllWindows()
+
+
+def visualize_foreground_and_background_anchors(ground_truth_boxes: torch.Tensor,
+                                                anchors: torch.Tensor,
+                                                background_iou_threshold: Dict[str, float],
+                                                foreground_iou_threshold: Dict[str, float],
+                                                input_image_size: int) -> None:
+    """
+    Visualizes the foreground and background anchors assigned to each individual ground truth bounding box.
+    
+    This function acts as a debugging step for the Region Proposal Network's assignment logic. By isolating
+    each ground truth box and displaying two side-by-side images (one for positive matches, one for negative
+    matches), it helps developers visually verify whether the Intersection over Union (IoU) thresholds are
+    appropriately capturing objects of varying scales and aspect ratios.
+    
+    Args:
+        ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes in [x_min, y_min, x_max, y_max] format.
+        anchors (torch.Tensor): A tensor of base anchors generated for the current feature map.
+        background_iou_threshold (Dict[str, float]): Dictionary defining the 'min' and 'max' IoU thresholds for background.
+        foreground_iou_threshold (Dict[str, float]): Dictionary defining the 'min' and 'max' IoU thresholds for foreground.
+        input_image_size (int): The spatial dimension (height and width) of the square input image canvas.
+        
+    Returns:
+        None
+    """
+    # Compute the IoU matrix between the single image's ground truth boxes and all anchors.
+    # Shape: [number_of_ground_truths, number_of_anchors]
+    intersection_over_union_matrix = get_intersection_over_union(boxes_1=ground_truth_boxes, boxes_2=anchors)
+
+    number_of_ground_truths = ground_truth_boxes.shape[0]
+
+    for ground_truth_index in range(number_of_ground_truths):
+        ground_truth_box = ground_truth_boxes[ground_truth_index]
+
+        # Extract the IoU values specifically for this ground truth box across all anchors
+        iou_values_for_current_box = intersection_over_union_matrix[ground_truth_index]
+
+        # Determine which anchors meet the threshold criteria for this specific ground truth box
+        foreground_indices = torch.where(condition=(iou_values_for_current_box >= foreground_iou_threshold['min']) &
+                                                   (iou_values_for_current_box <= foreground_iou_threshold['max']))[0]
+        background_indices = torch.where(condition=(iou_values_for_current_box >= background_iou_threshold['min']) &
+                                                   (iou_values_for_current_box < background_iou_threshold['max']))[0]
+
+        # Retrieve the actual anchor coordinates
+        foreground_anchors = anchors[foreground_indices]
+        background_anchors = anchors[background_indices]
+
+        # Create separate empty black canvases for the positive and negative visualizations
+        positive_canvas = np.zeros(shape=(input_image_size, input_image_size, 3), dtype=np.uint8)
+        negative_canvas = np.zeros(shape=(input_image_size, input_image_size, 3), dtype=np.uint8)
+
+        # Draw the target ground truth bounding box in blue on both canvases
+        ground_truth_array = ground_truth_box.cpu().numpy().astype(dtype=np.int32)
+        positive_canvas = add_bounding_boxes(bounding_boxes=ground_truth_array,
+                                             image=positive_canvas,
+                                             input_image_size=input_image_size,
+                                             color=(255, 0, 0))
+        negative_canvas = add_bounding_boxes(bounding_boxes=ground_truth_array,
+                                             image=negative_canvas,
+                                             input_image_size=input_image_size,
+                                             color=(255, 0, 0))
+
+        # Draw the positively matched anchors in green
+        if foreground_anchors.shape[0] > 0:
+            foreground_anchors_array = foreground_anchors.cpu().numpy().astype(dtype=np.int32)
+            positive_canvas = add_bounding_boxes(bounding_boxes=foreground_anchors_array,
+                                                 image=positive_canvas,
+                                                 input_image_size=input_image_size,
+                                                 color=(0, 255, 0))
+
+        # Draw the negatively matched anchors in red
+        if background_anchors.shape[0] > 0:
+            background_anchors_array = background_anchors.cpu().numpy().astype(dtype=np.int32)
+            negative_canvas = add_bounding_boxes(bounding_boxes=background_anchors_array,
+                                                 image=negative_canvas,
+                                                 input_image_size=input_image_size,
+                                                 color=(0, 0, 255))
+
+        # Add descriptive text to the top of both canvases
+        cv2.putText(img=positive_canvas, text=f"Ground Truth {ground_truth_index}: Positive Anchors",
+                    org=(20, 30), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=(255, 255, 255), thickness=2)
+        cv2.putText(img=negative_canvas, text=f"Ground Truth {ground_truth_index}: Negative Anchors",
+                    org=(20, 30), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=(255, 255, 255), thickness=2)
+
+        # Add instructions for the interactive loop
+        cv2.putText(img=positive_canvas, text="Press Spacebar for next box, Enter to quit",
+                    org=(20, input_image_size - 30), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.6,
+                    color=(255, 255, 255), thickness=1)
+
+        # Display the visualizations
+        cv2.imshow(winname="Positive Anchors", mat=positive_canvas)
+        cv2.imshow(winname="Negative Anchors", mat=negative_canvas)
+
+        # Wait for user interaction
+        key = cv2.waitKey(delay=0) & 0xFF
+        while key not in [13, 32]:  # 13 is Enter, 32 is Spacebar
+            key = cv2.waitKey(delay=0) & 0xFF
+
+        if key == 13:
+            break
+
     cv2.destroyAllWindows()

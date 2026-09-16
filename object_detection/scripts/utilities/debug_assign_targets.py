@@ -6,7 +6,8 @@ from typing import Tuple
 from utilities.model.model_utilities import batch_assign_targets_to_anchors, get_intersection_over_union, \
     add_bounding_boxes
 from utilities.os_utilities import print_blue, print_green
-from scripts.utilities.debugging_utilities import print_bounding_boxes, visualize_anchor_target_assignments
+from scripts.utilities.debugging_utilities import print_bounding_boxes, visualize_anchor_target_assignments, \
+    visualize_foreground_and_background_anchors
 from utilities.tensor_utilities import print_tensor_shape
 
 
@@ -85,6 +86,14 @@ def debug_assign_targets() -> None:
                                         batched_labels=batched_labels,
                                         batched_anchors=anchors,
                                         input_image_size=input_image_size)
+
+    # Only run for the first batch.
+    visualize_foreground_and_background_anchors(ground_truth_boxes=ground_truth_boxes[0],
+                                                anchors=anchors[0],
+                                                background_iou_threshold=background_iou_threshold,
+                                                foreground_iou_threshold=foreground_iou_threshold,
+                                                input_image_size=input_image_size)
+
 
 if __name__ == "__main__":
     debug_assign_targets()
