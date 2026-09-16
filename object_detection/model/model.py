@@ -255,7 +255,6 @@ class Model(nn.Module):
         filtered_proposals_dictionary = {"filtered_proposal_boxes": filtered_boxes,
                                          "filtered_proposal_scores": filtered_scores}
 
-
         # Package the outputs into a unified dictionary for clean extraction
         model_output_dictionary = {
             "final_backbone_tensor": final_backbone_tensor,
@@ -273,8 +272,9 @@ class Model(nn.Module):
                 batched_ground_truth_boxes=ground_truth_bounding_boxes,
                 batched_anchors=aggregated_proposals_dictionary["anchors"],
                 background_iou_threshold=self.region_proposal_configuration['background_iou_threshold'],
-                foreground_iou_threshold=self.region_proposal_configuration['foreground_iou_threshold'])
-            
+                foreground_iou_threshold=self.region_proposal_configuration['foreground_iou_threshold'],
+                strict_fallback_assignment=self.region_proposal_configuration['strict_fallback_assignment'])
+
             # Append the assignments to the output dictionary
             model_output_dictionary["batched_target_ground_truth_boxes"] = batched_target_ground_truth_boxes
             model_output_dictionary["batched_labels"] = batched_labels

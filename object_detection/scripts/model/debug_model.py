@@ -26,21 +26,26 @@ def debug_model() -> None:
                                           '4': [2, 64],
                                           '5': [2, 64],
                                           '6': [2, 64],
-                                          '7': [2, 64]},
+                                          '7': [2, 64],
+                                          '8': [2, 64],
+                                          },
                          'modules': {},
                          'last_max_pooling': True,
                          'normalization': {'feature_map_normalization': 'none'},
-                         'enhancer_convolution_indices': [6, 7]},
+                         'enhancer_convolution_indices': [7, 8]},
                      'Anchors': {
                          'scales_and_ratios': {
-                                               '6': {'scales': [32, 64], 'aspect_ratios': [0.5, 1.0, 2.0]},
-                                               '7': {'scales': [32, 64], 'aspect_ratios': [0.5, 1.0, 2.0]}}},
+                             '7': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
+                             '8': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]}
+                         }},
                      'RegionProposal': {
                          'nms_iou_threshold': 0.7,
                          'training': {'pre_nms_proposals': 1000, 'post_nms_proposals': 500},
                          'inference': {'pre_nms_proposals': 500, 'post_nms_proposals': 250},
                          'foreground_iou_threshold': {"min": 0.5, "max": 1.0},
-                         'background_iou_threshold': {"min": 0.1, "max": 0.3}
+                         'background_iou_threshold': {"min": 0.05, "max": 0.3},
+                         'strict_fallback_assignment': False
+
                      }}
 
     device = torch.device(device="cpu")
