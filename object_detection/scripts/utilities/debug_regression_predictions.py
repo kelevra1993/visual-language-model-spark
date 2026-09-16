@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import torch
 
-from utilities.model.model_utilities import apply_regression_predictions, add_bounding_box, get_area
+from utilities.model.model_utilities import apply_regression_predictions, add_bounding_boxes, get_area
 from utilities.os_utilities import print_green, print_blue, get_random_color
 from utilities.tensor_utilities import print_tensor_shape
 
@@ -76,7 +76,7 @@ def debug_regression_predictions() -> None:
     for original_box, original_area, predicted_classes_boxes, predicted_classes_areas in zip(
             original_boxes_array, original_areas_array, predicted_boxes_array, predicted_areas_array):
         # Draw Original Anchor Box (GREEN) using the utility function
-        canvas = add_bounding_box(bounding_box=original_box, image=canvas,
+        canvas = add_bounding_boxes(bounding_boxes=original_box, image=canvas,
                                   input_image_size=input_image_size, color=(0, 255, 0))
 
         original_scale = np.sqrt(original_area)
@@ -87,7 +87,7 @@ def debug_regression_predictions() -> None:
         for class_index in range(number_classes):
             predicted_box = predicted_classes_boxes[class_index]
             predicted_area = predicted_classes_areas[class_index]
-            canvas = add_bounding_box(bounding_box=predicted_box, image=canvas,
+            canvas = add_bounding_boxes(bounding_boxes=predicted_box, image=canvas,
                                       input_image_size=input_image_size, color=class_colors[class_index])
 
             predicted_scale = np.sqrt(predicted_area)
