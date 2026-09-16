@@ -173,6 +173,31 @@ def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: boo
     cv2.destroyAllWindows()
 
 
+def get_box_dimensions_and_centers(boxes: torch.Tensor) -> Tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Extracts the widths, heights, and center coordinates from a tensor of bounding boxes.
+    
+    This function processes bounding boxes in [x_min, y_min, x_max, y_max] format to compute 
+    their spatial dimensions and geometric centers. It utilizes ellipsis broadcasting to 
+    support arbitrary batch dimensions seamlessly.
+    
+    Args:
+        boxes (torch.Tensor): A tensor of shape (..., 4) containing the bounding boxes.
+        
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing the 
+        widths, heights, center_x, and center_y tensors, respectively.
+    """
+    # Get the width, height, x_center and y_center from the boxes using ellipsis to handle optional batch dimensions
+    boxes_widths = boxes[..., 2] - boxes[..., 0]
+    boxes_heights = boxes[..., 3] - boxes[..., 1]
+    boxes_center_x = boxes[..., 0] + 0.5 * boxes_widths
+    boxes_center_y = boxes[..., 1] + 0.5 * boxes_heights
+
+    return boxes_widths, boxes_heights, boxes_center_x, boxes_center_y
+
+
 def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: torch.Tensor) -> torch.Tensor:
     """
     Applies the predicted bounding box regression offsets to a set of reference boxes.
@@ -195,11 +220,8 @@ def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: to
                       bounding boxes in [x_min, y_min, x_max, y_max] format.
     """
 
-    # Get the width, height, x_center and y_center from the boxes using ellipsis to handle optional batch dimensions
-    boxes_widths = boxes[..., 2] - boxes[..., 0]
-    boxes_heights = boxes[..., 3] - boxes[..., 1]
-    boxes_center_x = boxes[..., 0] + 0.5 * boxes_widths
-    boxes_center_y = boxes[..., 1] + 0.5 * boxes_heights
+    # Extract the foundational dimensions and centers from the base boxes
+    boxes_widths, boxes_heights, boxes_center_x, boxes_center_y = get_box_dimensions_and_centers(boxes=boxes)
 
     # Unsqueeze across the last dimension (dim=-1) to append the `k` dimension.
     # This transforms shape (..., N) into (..., N, 1), which broadcasts correctly with (..., N, k).
@@ -404,3 +426,31 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
     batched_labels = torch.stack(tensors=aggregated_labels, dim=0)
 
     return batched_target_boxes, batched_labels
+
+
+def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor, predicted_boxes: torch.Tensor):
+    """"""
+
+    # Get ground truth dimensions
+    # todo Add shapes in comments
+    (ground_truth_boxes_widths, ground_truth_boxes_heights,
+     ground_truth_boxes_center_x, ground_truth_boxes_center_y) = get_box_dimensions_and_centers(
+        boxes=ground_truth_boxes)
+
+    # Get predicted boxes dimensions
+    # todo Add shapes in comments
+    (predicted_boxes_widths, predicted_boxes_heights,
+     predicted_boxes_center_x, predicted_boxes_center_y) = get_box_dimensions_and_centers(
+        boxes=predicted_boxes)
+
+    target_dx = (ground_truth_boxes_center_x - predicted_boxes_center_x) / predicted_boxes_widths
+    target_dy = (ground_truth_boxes_center_y - predicted_boxes_center_y) / predicted_boxes_heights
+    target_dw = torch.log(ground_truth_boxes_widths / predicted_boxes_widths)
+    target_dh = torch.log(ground_truth_boxes_heights / predicted_boxes_heights)
+
+    # todo Add shapes in comments
+    regression_targets = torch.stack([target_dx, target_dy, target_dw, target_dh], dim=-1)
+
+    print_tensor_shape(regression_targets)
+
+    return regression_targets
