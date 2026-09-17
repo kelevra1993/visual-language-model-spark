@@ -1,3 +1,6 @@
+import os
+# Suppress annoying Qt font warnings from OpenCV's imshow backend
+os.environ['QT_LOGGING_RULES'] = '*=false'
 import cv2
 import torch
 import numpy as np
