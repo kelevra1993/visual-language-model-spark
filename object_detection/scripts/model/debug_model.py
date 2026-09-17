@@ -150,14 +150,7 @@ def debug_model() -> None:
                                                                device=device,
                                                                dtype=dtype)
 
-    for index, boxes in enumerate(ground_truth_bounding_boxes):
-        print_tensor_shape(tensor=boxes, name=f"ground_truth_boxes_image_{index}", indent=1)
-
-    print_blue(output="Executing forward pass with mock tensor...", add_separators=True)
-
-    model_output_dictionary = model(
-        input_tensor=input_tensor, ground_truth_bounding_boxes=ground_truth_bounding_boxes)
-
+    print_blue(output="Visualising Ground Truths with Possitive and Negative Anchors...", add_separators=True)
     # Only run for the first batch to visualise the ground truth iou's with proposals.
     visualize_foreground_and_background_anchors(
         ground_truth_boxes=ground_truth_bounding_boxes[0],
@@ -165,6 +158,14 @@ def debug_model() -> None:
         background_iou_threshold=configuration["RegionProposal"]["background_iou_threshold"],
         foreground_iou_threshold=configuration["RegionProposal"]["foreground_iou_threshold"],
         input_image_size=input_image_size)
+
+    for index, boxes in enumerate(ground_truth_bounding_boxes):
+        print_tensor_shape(tensor=boxes, name=f"ground_truth_boxes_image_{index}", indent=1)
+
+    print_blue(output="Executing forward pass with mock tensor...", add_separators=True)
+
+    model_output_dictionary = model(
+        input_tensor=input_tensor, ground_truth_bounding_boxes=ground_truth_bounding_boxes)
 
     # Unpack the dictionary for the subsequent debugging output
     final_backbone_tensor = model_output_dictionary["final_backbone_tensor"]
@@ -175,20 +176,12 @@ def debug_model() -> None:
     region_proposal_anchor_targets = model_output_dictionary["region_proposal_anchor_targets"]
     region_proposal_anchor_labels = model_output_dictionary["region_proposal_anchor_labels"]
 
-    print_tensor_shape(tensor=final_backbone_tensor, name="final_backbone_tensor",indent=1)
+    print_tensor_shape(tensor=final_backbone_tensor, name="final_backbone_tensor", indent=1)
 
     print_blue(output="Backbone Output Tensor Dictionary:", add_separators=True)
 
     for block_index, tensor in backbone_output_tensor_dictionary.items():
         print_tensor_shape(tensor=tensor, name=f"backbone_output_block_{block_index}", indent=1)
-
-    print_blue(output="Region Proposal Output Tensor Dictionary For Anchor Modifications:", add_separators=True)
-
-    for block_index, predictions in region_proposal_output_tensor_dictionary.items():
-        print_blue(output=f"Block {block_index} Predictions:", add_separators=True)
-        print_tensor_shape(tensor=predictions["classification_scores"], name="classification_scores", indent=1)
-        print_tensor_shape(tensor=predictions["bounding_box_regressions"], name="bounding_box_regressions", indent=1)
-        print_tensor_shape(tensor=predictions["proposal_boxes"], name="proposal_boxes", indent=1)
 
     print_blue(output="Aggregated Proposals and Anchors Dictionary:", add_separators=True)
     for key, tensor in aggregated_proposals_dictionary.items():
@@ -197,10 +190,6 @@ def debug_model() -> None:
     print_blue(output="Filtered Region Proposals Dictionary (Post-NMS):", add_separators=True)
     for key, tensor in filtered_proposals_dictionary.items():
         print_tensor_shape(tensor=tensor, name=key, indent=1)
-        if "score" in key:
-            print_tensor_list(tensor=tensor[0, :15])
-        else:
-            print_bounding_boxes(boxes=tensor[0], number_of_boxes=5)
 
     print_blue(output="Visualizing Anchor Target Assignments...", add_separators=True)
     visualize_anchor_target_assignments(ground_truth_bounding_boxes=ground_truth_bounding_boxes,
