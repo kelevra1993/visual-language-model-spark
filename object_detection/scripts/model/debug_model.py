@@ -9,14 +9,16 @@ from scripts.utilities.debugging_utilities import print_bounding_boxes, generate
 from utilities.os_utilities import print_green, print_blue
 from utilities.tensor_utilities import print_tensor_status, print_tensor_shape, print_tensor_list
 
+from typing import Tuple, List, Dict, Any
 
-def debug_model() -> None:
-    """
-    Instantiates the complete Model and runs a dummy forward pass to verify
-    the outputs of the backbone and subsequently the region proposals.
-    """
-    print_blue(output="Prepared Model configuration:", add_separators=True)
 
+def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
+    """
+    Supplies the default configuration dictionary, device, and dtype for testing the object detection Model pipeline.
+    
+    Returns:
+        Tuple[Dict[str, Any], torch.device, torch.dtype]: The FPN F-RCNN configuration mapping, compute device, and tensor dtype.
+    """
     configuration = {'Data': {'image_settings': {'size': 1024}},
                      'Backbone': {
                          'input_channels': 3,
@@ -51,14 +53,24 @@ def debug_model() -> None:
                          'total_training_samples': 256
 
                      }}
-
     device = torch.device(device="cpu")
     dtype = torch.float32
 
-    model = Model(configuration=configuration, mode="training", device=device, dtype=dtype)
+    return configuration, device, dtype
 
-    print_green(output="Model successfully instantiated and ready for testing!", add_separators=True)
 
+def get_dummy_input_tensor(device: torch.device, dtype: torch.dtype) -> Tuple[int, int, int, torch.Tensor]:
+    """
+    Generates a dummy batched input image tensor to feed the object detection model during debugging.
+    
+    Args:
+        device (torch.device): The device (CPU/GPU) to allocate the tensor on.
+        dtype (torch.dtype): The specific precision type for the tensor.
+        
+    Returns:
+        Tuple[int, int, int, torch.Tensor]: A tuple containing the batch size, channel dimension, 
+                                            spatial resolution, and the generated mock tensor itself.
+    """
     batch_size = 2
     input_channels = 3
     input_image_size = 1024
@@ -66,11 +78,39 @@ def debug_model() -> None:
     input_tensor = torch.randn(size=(batch_size, input_channels, input_image_size, input_image_size), dtype=dtype,
                                device=device)
 
-    print_tensor_shape(tensor=input_tensor, name="input_tensor")
+    return batch_size, input_channels, input_image_size, input_tensor
 
-    print_blue(output="Generating random ground truth boxes...", add_separators=True)
-    scales = [64.0, 128.0]
-    aspect_ratios = [0.5, 1.0, 2.0]
+
+def get_dummy_ground_truth_boxes(batch_size: int, input_image_size: int, configuration: Dict[str, Any],
+                                 device: torch.device, dtype: torch.dtype) -> List[torch.Tensor]:
+    """
+    Generates a realistic list of randomly positioned ground truth bounding boxes for each image in the batch.
+    
+    It extracts the unique bounding box scales and aspect ratios directly from the provided model configuration 
+    to assure the randomly generated boxes closely resemble objects the Region Proposal Network expects.
+    
+    Args:
+        batch_size (int): Number of images in the batch to generate boxes for.
+        input_image_size (int): The maximum spatial resolution constraint for the random boxes.
+        configuration (Dict[str, Any]): The master model configuration dict to dynamically extract scales and ratios.
+        device (torch.device): The compute device allocation.
+        dtype (torch.dtype): The specific precision type allocation.
+        
+    Returns:
+        List[torch.Tensor]: A list containing the generated ground truth bounding boxes for each image in the batch.
+    """
+    # Dynamically retrieve a unique list of all scales and ratios from the FPN anchors configuration
+    scales_and_ratios = configuration.get("Anchors", {}).get("scales_and_ratios", {})
+
+    all_scales = set()
+    all_aspect_ratios = set()
+    for scale_level, config in scales_and_ratios.items():
+        all_scales.update(config.get("scales", []))
+        all_aspect_ratios.update(config.get("aspect_ratios", []))
+
+    scales = list(all_scales)
+    aspect_ratios = list(all_aspect_ratios)
+
     ground_truth_bounding_boxes = []
 
     for batch_index in range(batch_size):
@@ -82,6 +122,33 @@ def debug_model() -> None:
             number_of_boxes=random_number_of_boxes,
             device=device, dtype=dtype)
         ground_truth_bounding_boxes.append(mock_boxes)
+
+    return ground_truth_bounding_boxes
+
+
+def debug_model() -> None:
+    """
+    Instantiates the complete Model and runs a dummy forward pass to verify
+    the outputs of the backbone and subsequently the region proposals.
+    """
+
+    configuration, device, dtype = get_model_configuration()
+
+    model = Model(configuration=configuration, mode="training", device=device, dtype=dtype)
+
+    print_green(output="Model Configuration + Instantiation Done!", add_separators=True)
+
+    batch_size, input_channels, input_image_size, input_tensor = get_dummy_input_tensor(device=device, dtype=dtype)
+
+    print_tensor_shape(tensor=input_tensor, name="input_tensor")
+
+    print_blue(output="Generating random ground truth boxes...", add_separators=True)
+
+    ground_truth_bounding_boxes = get_dummy_ground_truth_boxes(batch_size=batch_size,
+                                                               input_image_size=input_image_size,
+                                                               configuration=configuration,
+                                                               device=device,
+                                                               dtype=dtype)
 
     for index, boxes in enumerate(ground_truth_bounding_boxes):
         print_tensor_shape(tensor=boxes, name=f"ground_truth_boxes_image_{index}", indent=1)
@@ -108,7 +175,7 @@ def debug_model() -> None:
     region_proposal_anchor_targets = model_output_dictionary["region_proposal_anchor_targets"]
     region_proposal_anchor_labels = model_output_dictionary["region_proposal_anchor_labels"]
 
-    print_tensor_shape(tensor=final_backbone_tensor, name="final_backbone_tensor")
+    print_tensor_shape(tensor=final_backbone_tensor, name="final_backbone_tensor",indent=1)
 
     print_blue(output="Backbone Output Tensor Dictionary:", add_separators=True)
 
