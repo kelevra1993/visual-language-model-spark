@@ -19,13 +19,17 @@ class RegionProposal(nn.Module):
         self.dtype = dtype
         self.device = device
 
+        # Get scales and aspect ratios
+        self.scales = scales
+        self.aspect_ratios = aspect_ratios
+
         # Get image and feature map sizes of interest
         self.input_image_size = input_image_size
         self.feature_map_size = feature_map_size
 
         # Get particular anchors for this region proposal
-        self.region_proposal_anchor_object = Anchors(scales=scales,
-                                                     aspect_ratios=aspect_ratios,
+        self.region_proposal_anchor_object = Anchors(scales=self.scales,
+                                                     aspect_ratios=self.aspect_ratios,
                                                      input_image_size=input_image_size,
                                                      feature_map_size=feature_map_size,
                                                      dtype=self.dtype,

@@ -59,5 +59,5 @@ if __name__ == "__main__":
       
     """
     retrieve_dataset(dataset_name="coco-2017",
-                     dataset_directory="/home/robert_kelevra/Data/object_detection_data",
-                     maximum_samples=None)
+                     dataset_directory="/Users/Robert/Data/object_detection_data",
+                     maximum_samples=100)
