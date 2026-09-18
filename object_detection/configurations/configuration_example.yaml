@@ -98,7 +98,7 @@ Backbone:
     squeeze_and_excite: True
 
   # todo to be documented
-  enhancer_convolution_indices: [4, 5, 6]
+  detection_convolution_block_indices: [4, 5, 6]
 
 # Careful because here the number of proposals seems to be global
 RegionProposal:
@@ -120,13 +120,22 @@ RegionProposal:
   total_training_samples: 256
   localisation_loss_beta: 1/9
 
-Enhancer:
-  convolution_block_inputs:
+Anchors:
+  scales_and_ratios:
     {
-      "4": [ 2, 64 ],
-      "5": [ 2, 64 ],
-      "6": [ 2, 64 ],
+      "4":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
+      "5":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
+      "6":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
     }
+
+Detector:
+  configuration:
+    {
+      "4": { "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
+      "5": { "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
+      "6": { "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
+    }
+
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
     residual_nets: False
@@ -139,17 +148,6 @@ Enhancer:
 
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
-
-Anchors:
-  scales_and_ratios:
-    {
-      "4":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
-      "5":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
-      "6":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
-    }
-
-Detector:
-  fully_connected_neurons: [256,128]
 
 PostProcessor:
   nms_threshold: 0.7
