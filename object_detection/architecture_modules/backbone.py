@@ -56,7 +56,7 @@ class Backbone(nn.Module):
         current_input_channels = input_channels
 
         # Extract chosen feature map normalization strategy
-        self.feature_map_normalization = normalization.get("feature_map_normalization", "none")
+        self.feature_map_normalization = normalization.get("feature_map_normalization")
 
         # Count total blocks to identify the last block during iteration
         number_of_blocks = len(convolutions)

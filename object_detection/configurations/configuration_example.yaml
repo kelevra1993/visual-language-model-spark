@@ -131,10 +131,14 @@ Anchors:
 Detector:
   configuration:
     {
-      "4": { "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
-      "5": { "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
-      "6": { "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
+      "4": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
+      "5": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
+      "6": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
     }
+
+  normalization:
+    # Options: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    feature_map_normalization: "batch"
 
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
