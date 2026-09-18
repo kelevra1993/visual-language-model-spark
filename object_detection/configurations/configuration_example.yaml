@@ -118,6 +118,7 @@ RegionProposal:
   strict_fallback_assignment: False
   number_training_positives: 128
   total_training_samples: 256
+  localisation_loss_beta: 1/9
 
 Enhancer:
   convolution_block_inputs:

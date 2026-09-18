@@ -305,24 +305,26 @@ class Model(nn.Module):
                 desired_positives=self.region_proposal_configuration['number_training_positives'],
                 desired_total=self.region_proposal_configuration['total_training_samples'])
 
-            # Compute the classification loss : Simple binary cross entropy loss
-            # Here we use with logits since we did not apply sigmoid function to the classification scores.
-            # Get all the sampled positives and negative masks
+            # Compute the classification loss: Simple binary cross entropy loss
+            # We use the variant 'with_logits' since the classification scores are raw, un-sigmoid network outputs.
+            # We compute this loss over both the sampled positive (foreground) and sampled negative (background) anchors.
             sampled_mask = sampled_positive_mask | sampled_negative_mask
-            sample_mask_indices = torch.where(sampled_mask != 0)
 
             region_proposal_classification_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-                input=aggregated_proposals_dictionary["classification_scores"][sample_mask_indices],
-                target=region_proposal_anchor_labels[sample_mask_indices])
+                input=aggregated_proposals_dictionary["classification_scores"][sampled_mask],
+                target=region_proposal_anchor_labels[sampled_mask],
+                reduction="mean")
 
-            # Compute the localization loss
-            # TODO We will later have to experiment with different losses
-            # todo explain the reduction that was chosen
+            # Compute the localization loss: Smooth L1 Loss (Huber Loss)
+            # We only compute regression loss on the positively sampled anchors, as background anchors have no target.
+            # We explicitly use reduction="sum" and divide by the total number of positive anchors instead of using 
+            # reduction="mean". This ensures the loss is averaged per bounding box rather than per individual 
+            # coordinate, aligning perfectly with standard Region Proposal Network normalization practices.
             region_proposal_localisation_loss = torch.nn.functional.smooth_l1_loss(
                 input=aggregated_proposals_dictionary["bounding_box_regressions"][sampled_positive_mask],
-                target=region_proposal_anchor_targets[sampled_positive_mask],
+                target=region_proposal_regression_targets[sampled_positive_mask],
                 beta=self.region_proposal_configuration['localisation_loss_beta'],
-                reduction="mean")
+                reduction="sum") / torch.sum(input=sampled_positive_mask)
 
             # Append the assignments to the output dictionary
             model_output_dictionary["region_proposal_anchor_targets"] = region_proposal_anchor_targets

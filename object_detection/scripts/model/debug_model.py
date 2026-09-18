@@ -35,10 +35,10 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
                          'modules': {},
                          'last_max_pooling': True,
                          'normalization': {'feature_map_normalization': 'none'},
-                         'enhancer_convolution_indices': [5, 7, 8]},
+                         'enhancer_convolution_indices': [6, 7, 8]},
                      'Anchors': {
                          'scales_and_ratios': {
-                             '5': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
+                             '6': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
                              '7': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
                              '8': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]}
                          }},
@@ -50,7 +50,8 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
                          'background_iou_threshold': {"min": 0.2, "max": 0.3},
                          'strict_fallback_assignment': False,
                          'number_training_positives': 128,
-                         'total_training_samples': 256
+                         'total_training_samples': 256,
+                         'localisation_loss_beta': 1 / 9
 
                      }}
     device = torch.device(device="cpu")
@@ -137,12 +138,9 @@ def debug_model() -> None:
     model = Model(configuration=configuration, mode="training", device=device, dtype=dtype)
 
     print_green(output="Model Configuration + Instantiation Done!", add_separators=True)
+    model.print_summary()
 
     batch_size, input_channels, input_image_size, input_tensor = get_dummy_input_tensor(device=device, dtype=dtype)
-
-    print_tensor_shape(tensor=input_tensor, name="input_tensor")
-
-    print_blue(output="Generating random ground truth boxes...", add_separators=True)
 
     ground_truth_bounding_boxes = get_dummy_ground_truth_boxes(batch_size=batch_size,
                                                                input_image_size=input_image_size,
@@ -152,51 +150,23 @@ def debug_model() -> None:
 
     print_blue(output="Visualising Ground Truths with Possitive and Negative Anchors...", add_separators=True)
     # Only run for the first batch to visualise the ground truth iou's with proposals.
-    visualize_foreground_and_background_anchors(
-        ground_truth_boxes=ground_truth_bounding_boxes[0],
-        anchors=model.anchors,
-        background_iou_threshold=configuration["RegionProposal"]["background_iou_threshold"],
-        foreground_iou_threshold=configuration["RegionProposal"]["foreground_iou_threshold"],
-        input_image_size=input_image_size)
+    # visualize_foreground_and_background_anchors(
+    #     ground_truth_boxes=ground_truth_bounding_boxes[0],
+    #     anchors=model.anchors,
+    #     background_iou_threshold=configuration["RegionProposal"]["background_iou_threshold"],
+    #     foreground_iou_threshold=configuration["RegionProposal"]["foreground_iou_threshold"],
+    #     input_image_size=input_image_size)
 
     for index, boxes in enumerate(ground_truth_bounding_boxes):
         print_tensor_shape(tensor=boxes, name=f"ground_truth_boxes_image_{index}", indent=1)
 
-    print_blue(output="Executing forward pass with mock tensor...", add_separators=True)
-
-    model_output_dictionary = model(
-        input_tensor=input_tensor, ground_truth_bounding_boxes=ground_truth_bounding_boxes)
+    model_output_dictionary = model(input_tensor=input_tensor, ground_truth_bounding_boxes=ground_truth_bounding_boxes)
 
     # Unpack the dictionary for the subsequent debugging output
     final_backbone_tensor = model_output_dictionary["final_backbone_tensor"]
     backbone_output_tensor_dictionary = model_output_dictionary["backbone_output_tensor_dictionary"]
-    region_proposal_output_tensor_dictionary = model_output_dictionary["region_proposal_output_tensor_dictionary"]
     aggregated_proposals_dictionary = model_output_dictionary["aggregated_proposals_dictionary"]
     filtered_proposals_dictionary = model_output_dictionary["filtered_proposals_dictionary"]
-    region_proposal_anchor_targets = model_output_dictionary["region_proposal_anchor_targets"]
-    region_proposal_anchor_labels = model_output_dictionary["region_proposal_anchor_labels"]
-
-    print_tensor_shape(tensor=final_backbone_tensor, name="final_backbone_tensor", indent=1)
-
-    print_blue(output="Backbone Output Tensor Dictionary:", add_separators=True)
-
-    for block_index, tensor in backbone_output_tensor_dictionary.items():
-        print_tensor_shape(tensor=tensor, name=f"backbone_output_block_{block_index}", indent=1)
-
-    print_blue(output="Aggregated Proposals and Anchors Dictionary:", add_separators=True)
-    for key, tensor in aggregated_proposals_dictionary.items():
-        print_tensor_shape(tensor=tensor, name=f"aggregated_{key}", indent=1)
-
-    print_blue(output="Filtered Region Proposals Dictionary (Post-NMS):", add_separators=True)
-    for key, tensor in filtered_proposals_dictionary.items():
-        print_tensor_shape(tensor=tensor, name=key, indent=1)
-
-    print_blue(output="Visualizing Anchor Target Assignments...", add_separators=True)
-    visualize_anchor_target_assignments(ground_truth_bounding_boxes=ground_truth_bounding_boxes,
-                                        batched_target_ground_truth_boxes=region_proposal_anchor_targets,
-                                        batched_labels=region_proposal_anchor_labels,
-                                        batched_anchors=aggregated_proposals_dictionary["anchors"],
-                                        input_image_size=input_image_size)
 
 
 if __name__ == "__main__":
