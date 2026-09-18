@@ -1,40 +1,26 @@
 import torch
-from architecture_modules.backbone import Backbone
-
+from model.model import Model
+from scripts.utilities.debugging_utilities import get_model_configuration
 
 def debug_model_summary() -> None:
     """
-    Executes a simulated forward pass to print out the Backbone architecture summary.
+    Executes a simulated instantiation to print out the full Model architecture summary.
     
     This function acts as a standalone utility in the model architecture pipeline, allowing
-    developers to quickly inspect the constructed Backbone configuration (including layer depth, 
-    channel transformations, and normalization strategies) without initiating a full training loop.
+    developers to quickly inspect the constructed Model configuration (including the backbone,
+    enhancer, and region proposal components) without initiating a full training loop.
     
     Args:
         None
     """
-    device = torch.device(device="cpu")
-    dtype = torch.float32
+    configuration, device, dtype = get_model_configuration()
 
-    convolutions = {"1": [2, 32], "2": [2, 32], "3": [2, 64], "4": [2, 64], "5": [2, 128]}
+    model = Model(configuration=configuration,
+                  mode="training",
+                  device=device,
+                  dtype=dtype)
 
-    enhancer_convolution_indices = [3, 4, 5]
-
-    modules = {}
-    normalization = {"feature_map_normalization": "layer"}
-
-    backbone = Backbone(input_channels=3,
-                        convolutions=convolutions,
-                        modules=modules,
-                        last_max_pooling=False,
-                        normalization=normalization,
-                        enhancer_convolution_indices=enhancer_convolution_indices,
-                        input_image_size=384,
-                        device=device,
-                        dtype=dtype)
-
-    backbone.print_summary()
-
+    model.print_summary()
 
 if __name__ == "__main__":
     debug_model_summary()
