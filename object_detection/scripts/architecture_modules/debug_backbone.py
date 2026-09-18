@@ -1,8 +1,7 @@
-import torch
-
 from architecture_modules.backbone import Backbone
+from scripts.utilities.debugging_utilities import get_model_configuration, get_dummy_input_tensor
 from utilities.os_utilities import print_green, print_blue
-from utilities.tensor_utilities import print_tensor_status, print_tensor_shape
+from utilities.tensor_utilities import print_tensor_shape
 
 
 def debug_backbone() -> None:
@@ -15,26 +14,18 @@ def debug_backbone() -> None:
     """
     print_blue(output="Prepared Backbone configuration:", add_separators=True)
 
-    input_channels = 3
-    input_image_size = 1024
-
-    # Standard VGG-like configuration mapping block index to [number_layers, output_channels]
-    convolutions = {"1": [2, 16], "2": [2, 32], "3": [3, 32], "4": [3, 64], "5": [3, 128]}
-    modules = {"residual": False}
-    last_max_pooling = False
-    normalization = {"feature_map_normalization": "none"}
-    enhancer_convolution_indices = [3, 4, 5]
-
-    device = torch.device(device="cpu")
-    dtype = torch.float32
+    # Fetch standard configuration and tensor generating tools via utility
+    configuration, device, dtype = get_model_configuration()
+    backbone_configuration = configuration.get("Backbone")
+    input_image_size = configuration.get("Data").get("image_settings").get("size")
 
     # Instantiate the backbone module
-    backbone_module = Backbone(input_channels=input_channels,
-                               convolutions=convolutions,
-                               modules=modules,
-                               last_max_pooling=last_max_pooling,
-                               normalization=normalization,
-                               enhancer_convolution_indices=enhancer_convolution_indices,
+    backbone_module = Backbone(input_channels=backbone_configuration.get("input_channels"),
+                               convolutions=backbone_configuration.get("convolutions"),
+                               modules=backbone_configuration.get("modules"),
+                               last_max_pooling=backbone_configuration.get("last_max_pooling"),
+                               normalization=backbone_configuration.get("normalization"),
+                               detection_convolution_block_indices=backbone_configuration.get("detection_convolution_block_indices"),
                                input_image_size=input_image_size,
                                device=device,
                                dtype=dtype)
@@ -44,29 +35,20 @@ def debug_backbone() -> None:
     # Print the architectural summary
     backbone_module.print_summary()
 
-    # Generate a dummy input tensor
-    batch_size = 2
-    input_tensor = torch.randn(size=(batch_size, input_channels, input_image_size, input_image_size), dtype=dtype,
-                               device=device)
+    # Generate a dummy input tensor natively using the utility
+    batch_size, input_channels, image_size, input_tensor = get_dummy_input_tensor(device=device, dtype=dtype)
 
-    print_tensor_shape(tensor=input_tensor, name="input_tensor")
-
-    print_blue(output="Executing forward pass with mock tensor...", add_separators=True)
+    print_tensor_shape(tensor=input_tensor, indent=1)
 
     # Execute the forward pass
     output_tensor, output_tensor_dictionary = backbone_module(input_tensor=input_tensor)
 
-    print_tensor_shape(tensor=output_tensor, name="final_backbone_output_tensor")
-
-    print_blue(output="Enhancer Output Dictionary Iteration:", add_separators=True)
-
-    for block_index, tensor in output_tensor_dictionary.items():
-        print_tensor_shape(tensor=tensor, name=f"enhancer_output_block_{block_index}")
+    print_tensor_shape(tensor=output_tensor, indent=1)
 
     print_blue(output="Testing dynamic structural information computation...", add_separators=True)
 
     # Compute structural information dynamically without a full forward pass
-    computed_information = backbone_module.compute_enhancer_input_information()
+    computed_information = backbone_module.compute_detection_input_information()
 
     # Verify that the computed structural information matches the actual tensor dimensions
     for block_index, expected_structural_dictionary in computed_information.items():

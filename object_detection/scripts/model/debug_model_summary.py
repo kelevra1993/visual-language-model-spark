@@ -8,7 +8,7 @@ def debug_model_summary() -> None:
     
     This function acts as a standalone utility in the model architecture pipeline, allowing
     developers to quickly inspect the constructed Model configuration (including the backbone,
-    enhancer, and region proposal components) without initiating a full training loop.
+    detection, and region proposal components) without initiating a full training loop.
     
     Args:
         None

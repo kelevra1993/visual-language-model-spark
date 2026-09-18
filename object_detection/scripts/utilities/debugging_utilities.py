@@ -415,7 +415,7 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
                          'modules': {},
                          'last_max_pooling': True,
                          'normalization': {'feature_map_normalization': 'none'},
-                         'enhancer_convolution_indices': [6, 7, 8]},
+                         'detection_convolution_block_indices': [6, 7, 8]},
                      'Anchors': {
                          'scales_and_ratios': {
                              '6': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
