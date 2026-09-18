@@ -498,7 +498,8 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
         labels (torch.Tensor): A tensor of shape (B, N) containing anchor labels (1.0 = positive, 0.0 = negative).
         desired_positives (int): The maximum number of positive anchors to sample per image.
         desired_total (int): The total combined number of anchors (positive + negative) to sample per image.
-        verbose (bool): If True, prints a console summary detailing the total positive, negative, and combined anchors sampled across the batch. Defaults to False.
+        verbose (bool): If True, prints a console summary detailing the total positive, negative,
+         and combined anchors sampled across the batch. Defaults to False.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing two boolean masks of shape (B, N):
