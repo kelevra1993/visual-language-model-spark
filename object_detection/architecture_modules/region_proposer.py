@@ -13,7 +13,22 @@ class RegionProposal(nn.Module):
     def __init__(self, input_channels: int, scales: List[float], aspect_ratios: List[float],
                  input_image_size: int, feature_map_size: int,
                  dtype: torch.dtype, device: torch.device) -> None:
-        """"""
+        """
+        Initializes the Region Proposal module for a specific feature map scale.
+        
+        This module constructs convolutional layers to generate objectness scores and bounding box 
+        regression targets from the backbone's feature maps. It also generates the anchor boxes 
+        necessary to convert relative regressions into absolute coordinates.
+        
+        Args:
+            input_channels (int): The number of channels output by the corresponding backbone layer.
+            scales (List[float]): A list of scaling factors for the anchor boxes at this specific feature map scale.
+            aspect_ratios (List[float]): A list of aspect ratios (width/height) for the anchor boxes.
+            input_image_size (int): The absolute size (height and width) of the original input image.
+            feature_map_size (int): The spatial resolution (height and width) of the input feature map.
+            dtype (torch.dtype): The tensor data type.
+            device (torch.device): The computational device.
+        """
         super(RegionProposal, self).__init__()
 
         self.dtype = dtype
@@ -54,7 +69,22 @@ class RegionProposal(nn.Module):
                                                                 kernel_size=1, stride=1)
 
     def forward(self, input_tensor):
-        """#todo add documentation to this function"""
+        """
+        Processes a batched feature map to generate region proposal predictions.
+        
+        This executes the primary convolutions to extract objectness scores and bounding box regressions,
+        reshapes the output tensors to align with the generated anchors, and applies the regression
+        transformations to the base anchors to yield proposed absolute bounding boxes.
+        
+        Args:
+            input_tensor (torch.Tensor): A batched feature map tensor of shape [B, C, H, W].
+            
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
+                - proposal_scores (torch.Tensor): The objectness logits for each anchor, shape [B, H*W*A].
+                - proposal_boxes_transformations (torch.Tensor): The regressed [dx, dy, dw, dh] offsets, shape [B, H*W*A, 4].
+                - proposal_boxes (torch.Tensor): The absolute [x1, y1, x2, y2] bounding boxes, shape [B, H*W*A, 4].
+        """
         # Get feature map dimensions
         batch_dimension, _, feature_map_height, feature_map_width = input_tensor.shape
 
