@@ -7,7 +7,7 @@ import torch
 from typing import Tuple, Dict, List
 from torchvision.ops import nms
 
-from utilities.os_utilities import print_blue, print_green, print_red
+from utilities.os_utilities import print_blue, print_green, print_red, print_yellow
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
 
@@ -484,8 +484,8 @@ def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
     return regression_targets
 
 
-def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_positives: int,
-                                                  desired_total: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_positives: int, desired_total: int,
+                                                  verbose: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Randomly samples positive and negative anchors to maintain a fixed ratio during Region Proposal Network training.
 
@@ -498,6 +498,7 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
         labels (torch.Tensor): A tensor of shape (B, N) containing anchor labels (1.0 = positive, 0.0 = negative).
         desired_positives (int): The maximum number of positive anchors to sample per image.
         desired_total (int): The total combined number of anchors (positive + negative) to sample per image.
+        verbose (bool): If True, prints a console summary detailing the total positive, negative, and combined anchors sampled across the batch. Defaults to False.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing two boolean masks of shape (B, N):
@@ -536,5 +537,13 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
         # Apply the selected indices to the batched masks for this specific image
         sampled_positive_mask[batch_index, final_positive_indices] = True
         sampled_negative_mask[batch_index, final_negative_indices] = True
+
+    # Calculate and display the final breakdown of sampled anchors per image in the batch for debugging
+    if verbose:
+        total_positives = torch.sum(input=sampled_positive_mask, dim=1)
+        total_negatives = torch.sum(input=sampled_negative_mask, dim=1)
+        print_yellow(output=f"Positive RPN Anchor Samples : {total_positives.tolist()}", indent=1)
+        print_yellow(output=f"Negative RPN Anchor Samples : {total_negatives.tolist()}", indent=1)
+        print_yellow(output=f"All Batched Anchor Samples  : {(total_negatives + total_positives).tolist()}", indent=1)
 
     return sampled_positive_mask, sampled_negative_mask
