@@ -48,12 +48,6 @@ def debug_model() -> None:
 
     model_output_dictionary = model(input_tensor=input_tensor, ground_truth_bounding_boxes=ground_truth_bounding_boxes)
 
-    # Unpack the dictionary for the subsequent debugging output
-    final_backbone_tensor = model_output_dictionary["final_backbone_tensor"]
-    backbone_output_tensor_dictionary = model_output_dictionary["backbone_output_tensor_dictionary"]
-    aggregated_proposals_dictionary = model_output_dictionary["aggregated_proposals_dictionary"]
-    filtered_proposals_dictionary = model_output_dictionary["filtered_proposals_dictionary"]
-
 
 if __name__ == "__main__":
     debug_model()

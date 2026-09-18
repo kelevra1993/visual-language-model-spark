@@ -80,7 +80,8 @@ class Model(nn.Module):
                             modules=backbone_configuration.get("modules"),
                             last_max_pooling=backbone_configuration.get("last_max_pooling"),
                             normalization=backbone_configuration.get("normalization"),
-                            detection_convolution_block_indices=backbone_configuration.get("detection_convolution_block_indices"),
+                            detection_convolution_block_indices=backbone_configuration.get(
+                                "detection_convolution_block_indices"),
                             input_image_size=self.input_image_size,
                             device=self.device,
                             dtype=self.dtype)
@@ -222,6 +223,66 @@ class Model(nn.Module):
                 # Batched anchor shape: [batch_size, anchors_per_scale, 4]
                 "anchors": self.anchors.unsqueeze(dim=0).expand(size=(batch_size, -1, 4))}
 
+    def _compute_region_proposal_losses(self, ground_truth_bounding_boxes: List[torch.Tensor],
+                                        aggregated_proposals_dictionary: Dict[str, torch.Tensor]) -> Tuple[
+        torch.Tensor, torch.Tensor]:
+        """
+        Computes the Region Proposal Network classification and localisation losses.
+
+        This isolated logic extracts positive and negative target anchors, compares the predicted
+        logits and regressed box offsets against the true targets, and generates the two loss
+        components used to train the region proposer.
+
+        Args:
+            ground_truth_bounding_boxes (List[torch.Tensor]): The batched ground truth boxes.
+            aggregated_proposals_dictionary (Dict[str, torch.Tensor]): The aggregated anchor and prediction tensor.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: The scalar classification loss and localisation loss.
+        """
+        # First assign targets based on ground truth bounding boxes
+        # Here we consider absolutely all anchors targets based on all ground truth boxes
+        region_proposal_anchor_targets, region_proposal_anchor_labels = batch_assign_targets_to_anchors(
+            batched_ground_truth_boxes=ground_truth_bounding_boxes,
+            batched_anchors=aggregated_proposals_dictionary["anchors"],
+            background_iou_threshold=self.region_proposal_configuration['background_iou_threshold'],
+            foreground_iou_threshold=self.region_proposal_configuration['foreground_iou_threshold'],
+            strict_fallback_assignment=self.region_proposal_configuration['strict_fallback_assignment'])
+
+        # Compute region proposal regression targets
+        region_proposal_regression_targets = turn_boxes_to_transformation_targets(
+            ground_truth_boxes=region_proposal_anchor_targets,
+            predicted_boxes=aggregated_proposals_dictionary["anchors"])
+
+        # Get training samples for region proposal network
+        sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
+            labels=region_proposal_anchor_labels,
+            desired_positives=self.region_proposal_configuration['number_training_positives'],
+            desired_total=self.region_proposal_configuration['total_training_samples'])
+
+        # Compute the classification loss: Simple binary cross entropy loss
+        # We use the variant 'with_logits' since the classification scores are raw, un-sigmoid network outputs.
+        # Computed over both the sampled positive (foreground) and sampled negative (background) anchors.
+        sampled_mask = sampled_positive_mask | sampled_negative_mask
+
+        region_proposal_classification_loss = torch.nn.functional.binary_cross_entropy_with_logits(
+            input=aggregated_proposals_dictionary["classification_scores"][sampled_mask],
+            target=region_proposal_anchor_labels[sampled_mask],
+            reduction="mean")
+
+        # Compute the localization loss: Smooth L1 Loss (Huber Loss)
+        # We only compute regression loss on the positively sampled anchors, as background anchors have no target.
+        # We explicitly use reduction="sum" and divide by the total number of positive anchors instead of using
+        # reduction="mean". This ensures the loss is averaged per bounding box rather than per individual
+        # coordinate, aligning perfectly with standard Region Proposal Network normalization practices.
+        region_proposal_localisation_loss = torch.nn.functional.smooth_l1_loss(
+            input=aggregated_proposals_dictionary["bounding_box_regressions"][sampled_positive_mask],
+            target=region_proposal_regression_targets[sampled_positive_mask],
+            beta=self.region_proposal_configuration['localisation_loss_beta'],
+            reduction="sum") / torch.sum(input=sampled_positive_mask)
+
+        return region_proposal_classification_loss, region_proposal_localisation_loss
+
     def forward(self, input_tensor: torch.Tensor,
                 ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
         """
@@ -273,65 +334,24 @@ class Model(nn.Module):
             proposal_scores=aggregated_proposals_dictionary["classification_scores"],
             input_image_size=self.input_image_size)
 
-        # Repackage the refined proposals cleanly into a dictionary structure
-        filtered_proposals_dictionary = {"proposal_boxes": filtered_boxes,
-                                         "proposal_scores": filtered_scores}
-
         # Package the outputs into a unified dictionary for clean extraction
         model_output_dictionary = {"final_backbone_tensor": final_backbone_tensor,
                                    "backbone_output_tensor_dictionary": backbone_output_tensor_dictionary,
                                    "region_proposal_output_tensor_dictionary": region_proposal_output_tensor_dictionary,
                                    "aggregated_proposals_dictionary": aggregated_proposals_dictionary,
-                                   "filtered_proposals_dictionary": filtered_proposals_dictionary}
+                                   "filtered_proposal_boxes": filtered_boxes,
+                                   "filtered_proposal_scores": filtered_scores}
 
-        # Depending on the mode:
-        # Train -> Assign targets for loss computation
+        # Train -> Assign targets for loss computation :
+        # - For Region Proposal
+        # - For Detection
         if self.mode == "training" and ground_truth_bounding_boxes is not None:
-            # First assign targets based on ground truth bounding boxes
-            # Here we consider absolutely all anchors targets based on all ground truth boxes
-            region_proposal_anchor_targets, region_proposal_anchor_labels = batch_assign_targets_to_anchors(
-                batched_ground_truth_boxes=ground_truth_bounding_boxes,
-                batched_anchors=aggregated_proposals_dictionary["anchors"],
-                background_iou_threshold=self.region_proposal_configuration['background_iou_threshold'],
-                foreground_iou_threshold=self.region_proposal_configuration['foreground_iou_threshold'],
-                strict_fallback_assignment=self.region_proposal_configuration['strict_fallback_assignment'])
-
-            # Compute region proposal regression targets
-            region_proposal_regression_targets = turn_boxes_to_transformation_targets(
-                ground_truth_boxes=region_proposal_anchor_targets,
-                predicted_boxes=aggregated_proposals_dictionary["anchors"])
-
-            # Get training samples for region proposal network
-            sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
-                labels=region_proposal_anchor_labels,
-                desired_positives=self.region_proposal_configuration['number_training_positives'],
-                desired_total=self.region_proposal_configuration['total_training_samples'])
-
-            # Compute the classification loss: Simple binary cross entropy loss
-            # We use the variant 'with_logits' since the classification scores are raw, un-sigmoid network outputs.
-            # Computed over both the sampled positive (foreground) and sampled negative (background) anchors.
-            sampled_mask = sampled_positive_mask | sampled_negative_mask
-
-            region_proposal_classification_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-                input=aggregated_proposals_dictionary["classification_scores"][sampled_mask],
-                target=region_proposal_anchor_labels[sampled_mask],
-                reduction="mean")
-
-            # Compute the localization loss: Smooth L1 Loss (Huber Loss)
-            # We only compute regression loss on the positively sampled anchors, as background anchors have no target.
-            # We explicitly use reduction="sum" and divide by the total number of positive anchors instead of using 
-            # reduction="mean". This ensures the loss is averaged per bounding box rather than per individual 
-            # coordinate, aligning perfectly with standard Region Proposal Network normalization practices.
-            region_proposal_localisation_loss = torch.nn.functional.smooth_l1_loss(
-                input=aggregated_proposals_dictionary["bounding_box_regressions"][sampled_positive_mask],
-                target=region_proposal_regression_targets[sampled_positive_mask],
-                beta=self.region_proposal_configuration['localisation_loss_beta'],
-                reduction="sum") / torch.sum(input=sampled_positive_mask)
+            (region_proposal_classification_loss,
+             region_proposal_localisation_loss) = self._compute_region_proposal_losses(
+                ground_truth_bounding_boxes=ground_truth_bounding_boxes,
+                aggregated_proposals_dictionary=aggregated_proposals_dictionary)
 
             # Append the assignments to the output dictionary
-            model_output_dictionary["region_proposal_anchor_targets"] = region_proposal_anchor_targets
-            model_output_dictionary["region_proposal_anchor_labels"] = region_proposal_anchor_labels
-            model_output_dictionary["region_proposal_regression_targets"] = region_proposal_regression_targets
             model_output_dictionary["region_proposal_classification_loss"] = region_proposal_classification_loss
             model_output_dictionary["region_proposal_localisation_loss"] = region_proposal_localisation_loss
 

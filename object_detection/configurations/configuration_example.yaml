@@ -149,8 +149,10 @@ Detector:
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
 
-PostProcessor:
-  nms_threshold: 0.7
+  foreground_iou_threshold: 0.5
+  nms_iou_threshold: 0.8
+  number_training_positives: 128
+  total_training_samples: 256
 
 
 
