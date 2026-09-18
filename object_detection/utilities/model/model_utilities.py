@@ -548,3 +548,43 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
         print_yellow(output=f"All Batched Anchor Samples  : {(total_negatives + total_positives).tolist()}", indent=1)
 
     return sampled_positive_mask, sampled_negative_mask
+
+
+def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor,
+                                proposals: torch.Tensor,
+                                labels: torch.Tensor,
+                                foreground_iou_threshold: float) -> Tuple[torch.Tensor, torch.Tensor]:
+    """todo to be documented"""
+    # Note to self to check afterwards : ground truth boxes and labels should have the same first dimension shape which are the number of ground truth boxes in the image
+
+    # Shape: [number_of_ground_truths, number_of_proposals]
+    intersection_over_union_matrix = get_intersection_over_union(boxes_1=ground_truth_boxes, boxes_2=proposals)
+
+    # For every proposal, find the ground truth box that has the highest IoU with it
+    best_match_ground_truth_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=0)
+
+    # Create readable condition variables based on the IoU thresholds
+    below_foreground_min = best_match_ground_truth_iou < foreground_iou_threshold['min']
+
+    # Proposals that fall strictly within the foreground IoU limits are considered negatives
+    # Will never be considered for the detection loss
+    background_indices = below_foreground_min
+
+    # Assign background labels for these proposals
+    # - background > -1
+    best_match_ground_truth_index[background_indices] = -1
+
+    # Get coordinates of best matching ground truth target boxes (so each proposal will have at least one target)
+    # But we will not necessarily train on all the assigned targets because the -1 are bogus targets.
+    # Be careful Coordinates -1 are clamped to 0 to always have the same coordinates for background
+    target_ground_truth_boxes = ground_truth_boxes[best_match_ground_truth_index.clamp(min=0)]
+
+    # Now set all labels for training so there is no ambiguity
+    # For classification loss we get the labels of the best iou ground truth match for each proposal
+    # We then set to -1 all negatives
+    # Shape (proposal_boxes)
+    target_labels = labels[best_match_ground_truth_index.clamp(min=0)].to(dtype=torch.int64)
+    target_labels[background_indices] = -1
+    # For bounding box regression we only consider labels larger than 0 which are foreground
+
+    return target_ground_truth_boxes, target_labels
