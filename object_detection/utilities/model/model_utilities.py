@@ -552,9 +552,27 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
 
 def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor,
                                 proposals: torch.Tensor,
-                                labels: torch.Tensor,
+                                ground_truth_labels: torch.Tensor,
                                 foreground_iou_threshold: float) -> Tuple[torch.Tensor, torch.Tensor]:
-    """todo to be documented"""
+    """
+    Assigns ground truth bounding boxes and class labels to region proposals for Detection Head training.
+    
+    This function matches the predicted region proposals (from the Region Proposal Network) against 
+    the actual ground truth boxes using Intersection over Union (IoU). Proposals with an IoU 
+    greater than or equal to the foreground threshold are assigned the corresponding ground truth class.
+    Proposals falling below the threshold are assigned the background class (class index 0).
+
+    Args:
+        ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes in [x_min, y_min, x_max, y_max] format.
+        proposals (torch.Tensor): A tensor of proposed bounding boxes.
+        ground_truth_labels (torch.Tensor): A tensor of the true class indices for each ground truth box.
+        foreground_iou_threshold (float): The minimum IoU required for a proposal to be considered a positive match.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+            - target_ground_truth_boxes (torch.Tensor): The assigned ground truth coordinates for each proposal.
+            - target_labels (torch.Tensor): The assigned class labels for each proposal (0 for background).
+    """
     # Note to self to check afterwards : ground truth boxes and labels should have the same first dimension shape which are the number of ground truth boxes in the image
 
     # Shape: [number_of_ground_truths, number_of_proposals]
@@ -564,7 +582,7 @@ def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor,
     best_match_ground_truth_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=0)
 
     # Create readable condition variables based on the IoU thresholds
-    below_foreground_min = best_match_ground_truth_iou < foreground_iou_threshold['min']
+    below_foreground_min = best_match_ground_truth_iou < foreground_iou_threshold
 
     # Proposals that fall strictly within the foreground IoU limits are considered negatives
     # Will never be considered for the detection loss
@@ -583,8 +601,8 @@ def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor,
     # For classification loss we get the labels of the best iou ground truth match for each proposal
     # We then set to -1 all negatives
     # Shape (proposal_boxes)
-    target_labels = labels[best_match_ground_truth_index.clamp(min=0)].to(dtype=torch.int64)
-    target_labels[background_indices] = -1
+    target_labels = ground_truth_labels[best_match_ground_truth_index.clamp(min=0)].to(dtype=torch.int64)
+    target_labels[background_indices] = 0
     # For bounding box regression we only consider labels larger than 0 which are foreground
 
     return target_ground_truth_boxes, target_labels
