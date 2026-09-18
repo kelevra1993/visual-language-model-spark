@@ -1,4 +1,5 @@
 import os
+
 # Suppress annoying Qt font warnings from OpenCV's imshow backend
 os.environ['QT_LOGGING_RULES'] = '*=false'
 import cv2
@@ -168,7 +169,8 @@ def visualize_anchor_target_assignments(ground_truth_bounding_boxes: List[torch.
 
     Args:
         ground_truth_bounding_boxes (List[torch.Tensor]): The raw unbatched ground truth boxes for each image.
-        batched_target_ground_truth_boxes (torch.Tensor): Tensor of shape [batch_size, num_anchors, 4] containing assigned targets.
+        batched_target_ground_truth_boxes (torch.Tensor): Tensor of shape [batch_size, num_anchors, 4]
+         containing assigned targets.
         batched_labels (torch.Tensor): Tensor of shape [batch_size, num_anchors] with assigned match labels.
         batched_anchors (torch.Tensor): Tensor of shape [batch_size, num_anchors, 4] of all generated anchors.
         input_image_size (int): The height/width of the input image canvas.
@@ -214,7 +216,7 @@ def visualize_anchor_target_assignments(ground_truth_bounding_boxes: List[torch.
             box_color = get_box_color(label=label.item())
 
             if label.item() <= 0.0:
-                type_name ="Ign." if label.item() == -1 else "Neg."
+                type_name = "Ign." if label.item() == -1 else "Neg."
 
                 # Recompute IoU against all true ground truth boxes
                 # to find the one that caused this negative/ignored assignment
@@ -227,7 +229,8 @@ def visualize_anchor_target_assignments(ground_truth_bounding_boxes: List[torch.
                 print_red(f"{type_name} Anchor IOU Value :: {iou_value:.4f}", indent=1)
 
             else:
-                # For positive anchors, use the assigned target since it might have bypassed max IoU due to fallback rules
+                # For positive anchors, use the assigned target since it might have
+                # bypassed max IoU due to fallback rules
                 iou_matrix = get_intersection_over_union(boxes_1=anchor.unsqueeze(dim=0),
                                                          boxes_2=target_ground_truth.unsqueeze(dim=0))
                 iou_value = iou_matrix[0, 0].item()
@@ -292,8 +295,8 @@ def visualize_foreground_and_background_anchors(ground_truth_boxes: torch.Tensor
     Args:
         ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes in [x_min, y_min, x_max, y_max] format.
         anchors (torch.Tensor): A tensor of base anchors generated for the current feature map.
-        background_iou_threshold (Dict[str, float]): Dictionary defining the 'min' and 'max' IoU thresholds for background.
-        foreground_iou_threshold (Dict[str, float]): Dictionary defining the 'min' and 'max' IoU thresholds for foreground.
+        background_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for background.
+        foreground_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for foreground.
         input_image_size (int): The spatial dimension (height and width) of the square input image canvas.
         
     Returns:
@@ -352,11 +355,23 @@ def visualize_foreground_and_background_anchors(ground_truth_boxes: torch.Tensor
                                                  input_image_size=input_image_size,
                                                  color=(0, 0, 255))
 
-        # Add descriptive text to the top of both canvases
-        cv2.putText(img=positive_canvas, text=f"Ground Truth {ground_truth_index}: Positive Anchors",
+        # Add descriptive text to the top of both canvases including counts and thresholds
+        number_of_positive_anchors = foreground_anchors.shape[0]
+        number_of_negative_anchors = background_anchors.shape[0]
+
+        cv2.putText(img=positive_canvas,
+                    text=f"Ground Truth {ground_truth_index}: Positive Anchors ({number_of_positive_anchors})",
                     org=(20, 30), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=(255, 255, 255), thickness=2)
-        cv2.putText(img=negative_canvas, text=f"Ground Truth {ground_truth_index}: Negative Anchors",
+        cv2.putText(img=positive_canvas,
+                    text=f"IoU Threshold: {foreground_iou_threshold['min']} to {foreground_iou_threshold['max']}",
+                    org=(20, 60), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(255, 255, 255), thickness=1)
+
+        cv2.putText(img=negative_canvas,
+                    text=f"Ground Truth {ground_truth_index}: Negative Anchors ({number_of_negative_anchors})",
                     org=(20, 30), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.7, color=(255, 255, 255), thickness=2)
+        cv2.putText(img=negative_canvas,
+                    text=f"IoU Threshold: {background_iou_threshold['min']} to {background_iou_threshold['max']}",
+                    org=(20, 60), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(255, 255, 255), thickness=1)
 
         # Add instructions for the interactive loop
         cv2.putText(img=positive_canvas, text="Press Spacebar for next box, Enter to quit",

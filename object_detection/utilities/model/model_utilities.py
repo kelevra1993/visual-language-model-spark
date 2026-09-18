@@ -282,7 +282,8 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
                               foreground_iou_threshold: Dict[str, float],
                               strict_fallback_assignment: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Assigns ground truth boxes to anchors to prepare the binary classification and regression targets for the Region Proposal Network.
+    Assigns ground truth boxes to anchors to prepare the binary classification and regression targets
+    for the Region Proposal Network.
 
     This function sits at the heart of the RPN training pipeline. It computes the IoU between every anchor 
     and every ground truth box, categorizing each anchor as foreground (positive object), background (negative), 
@@ -292,14 +293,17 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
     Args:
         ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes in [x_min, y_min, x_max, y_max] format.
         anchors (torch.Tensor): A tensor of the base anchors generated for the current feature map.
-        background_iou_threshold (Dict[str, float]): Dictionary defining the 'min' and 'max' IoU thresholds for background.
-        foreground_iou_threshold (Dict[str, float]): Dictionary defining the 'min' and 'max' IoU thresholds for foreground.
-        strict_fallback_assignment (bool): If True, assigns resurrected anchors strictly to the ground truth box that triggered their resurrection. If False, follows default PyTorch RPN behavior of assigning them to the ground truth box they overlap with most. Defaults to False.
+        background_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for background.
+        foreground_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for foreground.
+        strict_fallback_assignment (bool): If True, assigns resurrected anchors strictly to the ground truth box
+        that triggered their resurrection. If False, follows default PyTorch RPN behavior of assigning them to
+        the ground truth box they overlap with most. Defaults to False.
         
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
             - matched_ground_truth_boxes (torch.Tensor): The assigned ground truth boxes for each anchor.
-            - labels (torch.Tensor): The binary labels for each anchor (1.0 = foreground, 0.0 = background, -1.0 = ignored).
+            - labels (torch.Tensor): The binary labels for each anchor
+                                     (1.0 = foreground, 0.0 = background, -1.0 = ignored).
     """
 
     # Shape: [number_of_ground_truths, number_of_anchors]
@@ -399,7 +403,8 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
         batched_anchors (torch.Tensor): A tensor of shape [batch_size, number_of_anchors, 4].
         background_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for background.
         foreground_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for foreground.
-        strict_fallback_assignment (bool): Propagates the resurrection override flag to the assignment logic. Defaults to False.
+        strict_fallback_assignment (bool): Propagates the resurrection override flag to the assignment logic.
+        Defaults to False.
         
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
@@ -433,7 +438,7 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
 def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
                                          predicted_boxes: torch.Tensor) -> torch.Tensor:
     """
-    Computes the ideal regression targets (dx, dy, dw, dh) required to transform predicted boxes into ground truth boxes.
+    Computes ideal regression targets (dx, dy, dw, dh) required to transform predicted boxes into ground truth boxes.
     
     In object detection pipelines, bounding box regression heads do not directly predict absolute coordinates. 
     Instead, they predict parameterized offsets relative to a base box (like an anchor or a previous proposal). 
