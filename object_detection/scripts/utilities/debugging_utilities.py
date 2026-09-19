@@ -543,3 +543,146 @@ def get_dummy_ground_truth_labels(ground_truth_boxes: List[torch.Tensor], number
         ground_truth_labels.append(random_labels)
 
     return ground_truth_labels
+
+
+def get_assignment_debugger_input(batch_size: int, device: torch.device, dtype: torch.dtype) -> Tuple[
+    torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Generates deterministic mock data (boxes, ground truth boxes, and labels) to test target assignment logic.
+    
+    This function mutualizes the mock data generation for both the Region Proposal Network (anchors) 
+    and the Detector (proposals) debugging scripts to ensure consistency.
+    
+    Args:
+        batch_size (int): The number of images to simulate in the batch.
+        device (torch.device): The computational device.
+        dtype (torch.dtype): The tensor data type.
+        
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
+            - reference_boxes (torch.Tensor): The mock anchors/proposals of shape [batch_size, N, 4].
+            - ground_truth_boxes (torch.Tensor): The mock ground truth boxes of shape [batch_size, M, 4].
+            - ground_truth_labels (torch.Tensor): The mock ground truth class labels of shape [batch_size, M].
+    """
+    # Define a small set of reference boxes (anchors or proposals) in [x_min, y_min, x_max, y_max] format
+    reference_boxes = torch.tensor(data=[[10.0, 10.0, 50.0, 50.0],
+                                         [20.0, 20.0, 80.0, 80.0],
+                                         [20.0, 20.0, 80.0, 80.0],
+                                         [100.0, 100.0, 150.0, 150.0],
+                                         [110.0, 100.0, 190.0, 250.0],
+                                         [150.0, 90.0, 200.0, 120.0],
+                                         [82.0, 56.0, 150.0, 70.0],
+                                         [12.0, 80.0, 50.0, 240.0],
+                                         [67.0, 35.0, 135.0, 176.0],
+                                         [67.0, 12.0, 243.0, 245.0],
+                                         [94.0, 12.0, 142.0, 352.0],
+                                         [94.0, 65.0, 120.0, 245.0],
+                                         [200.0, 200.0, 300.0, 300.0]], dtype=dtype, device=device)
+
+    # Define a small set of ground truth bounding boxes
+    ground_truth_boxes = torch.tensor(data=[[12.0, 12.0, 48.0, 48.0],
+                                            [210.0, 210.0, 290.0, 290.0],
+                                            [0.0, 70.0, 200.0, 120.0],
+                                            [150.0, 96.0, 230.0, 120.0],
+                                            [30.0, 60.0, 50.0, 150.0]], dtype=dtype, device=device)
+
+    # Define mock ground truth labels for these boxes
+    ground_truth_labels = torch.tensor(data=[1, 2, 1, 3, 2], dtype=torch.int64, device=device)
+
+    # Expand across the batch dimension
+    reference_boxes = reference_boxes.unsqueeze(dim=0).expand(size=(batch_size, -1, 4))
+    ground_truth_boxes = ground_truth_boxes.unsqueeze(dim=0).expand(size=(batch_size, -1, 4))
+    ground_truth_labels = ground_truth_labels.unsqueeze(dim=0).expand(size=(batch_size, -1))
+
+    return reference_boxes, ground_truth_boxes, ground_truth_labels
+
+def visualize_proposal_target_assignments(ground_truth_bounding_boxes: List[torch.Tensor],
+                                          batched_target_ground_truth_boxes: torch.Tensor,
+                                          batched_labels: torch.Tensor,
+                                          batched_proposals: torch.Tensor,
+                                          input_image_size: int) -> None:
+    """
+    Visualizes the proposal to ground truth matching logic using interactive OpenCV windows.
+
+    This debugging utility iterates over batched assignments and provides an interactive view.
+    Positive matches display both the proposal (blue) and the matched ground truth box (green),
+    along with the assigned object label.
+    Negative matches display the proposal (blue) and the matched ground truth box (red) that
+    caused the rejection (assigned class 0).
+    Users can navigate interactively using Spacebar/Enter keybindings.
+
+    Args:
+        ground_truth_bounding_boxes (List[torch.Tensor]): The raw unbatched ground truth boxes for each image.
+        batched_target_ground_truth_boxes (torch.Tensor): Tensor of shape [batch_size, num_proposals, 4].
+        batched_labels (torch.Tensor): Tensor of shape [batch_size, num_proposals] with assigned class labels (0=bg).
+        batched_proposals (torch.Tensor): Tensor of shape [batch_size, num_proposals, 4] of proposals.
+        input_image_size (int): The height/width of the input image canvas.
+    """
+    import cv2
+    import numpy as np
+    import torch
+    from utilities.model.model_utilities import get_intersection_over_union, add_bounding_boxes
+    from utilities.os_utilities import print_green, print_red
+    
+    batch_size = batched_proposals.shape[0]
+
+    for batch_index in range(batch_size):
+        original_ground_truth_boxes = ground_truth_bounding_boxes[batch_index]
+        
+        target_ground_truth_boxes = batched_target_ground_truth_boxes[batch_index]
+        labels = batched_labels[batch_index]
+        proposals = batched_proposals[batch_index]
+
+        for proposal_index, (proposal, target_ground_truth, label) in enumerate(
+                zip(proposals, target_ground_truth_boxes, labels)):
+                
+            canvas = np.zeros(shape=(input_image_size, input_image_size, 3), dtype=np.uint8)
+
+            # Draw the proposal bounding box in blue
+            proposal_array = proposal.cpu().numpy().astype(dtype=np.int32)
+            canvas = add_bounding_boxes(bounding_boxes=proposal_array,
+                                        image=canvas,
+                                        input_image_size=input_image_size,
+                                        color=(255, 0, 0))
+
+            # Foreground is green, Background (label 0) is red
+            box_color = (0, 255, 0) if label.item() > 0 else (0, 0, 255)
+
+            iou_matrix = get_intersection_over_union(boxes_1=proposal.unsqueeze(dim=0),
+                                                     boxes_2=target_ground_truth.unsqueeze(dim=0))
+            iou_value = iou_matrix[0, 0].item()
+
+            if label.item() == 0:
+                print_red(f"Background Proposal IOU Value :: {iou_value:.4f}", indent=1)
+                text_info = f"Assigned Label: 0 (Background) | IoU: {iou_value:.4f}"
+            else:
+                print_green(f"Foreground Proposal IOU Value :: {iou_value:.4f}", indent=1)
+                text_info = f"Assigned Label: {label.item()} (Foreground) | IoU: {iou_value:.4f}"
+
+            # Draw the target ground truth bounding box that the proposal was measured against
+            target_array = target_ground_truth.cpu().numpy().astype(dtype=np.int32)
+            canvas = add_bounding_boxes(bounding_boxes=target_array,
+                                        image=canvas,
+                                        input_image_size=input_image_size,
+                                        color=box_color)
+
+            # Draw text over the proposal
+            proposal_x_min, proposal_y_min, _, _ = map(int, proposal.tolist())
+            cv2.putText(img=canvas, text=text_info, org=(max(proposal_x_min, 10), max(proposal_y_min - 10, 20)),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(255, 255, 255), thickness=1)
+
+            # Add instructions for the interactive loop
+            cv2.putText(img=canvas, text="Press Spacebar to continue, Enter to skip remaining proposals",
+                        org=(20, input_image_size - 30),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.6, color=(255, 255, 255), thickness=1)
+
+            cv2.imshow(winname="Proposal and Target Visualization", mat=canvas)
+
+            key = cv2.waitKey(delay=0) & 0xFF
+            while key not in [13, 32]:  # 13 is Enter, 32 is Spacebar
+                key = cv2.waitKey(delay=0) & 0xFF
+
+            if key == 13:
+                break
+
+    cv2.destroyAllWindows()
