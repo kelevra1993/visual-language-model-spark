@@ -26,25 +26,36 @@ def debug_detection_head() -> None:
     feature_map_normalization = detector_configuration["normalization"]["feature_map_normalization"]
 
     input_image_size = 1024
+    feature_map_size = 32  # Block 5 corresponds to 32x32 feature map
     number_classes = 21  # Standard (20 objects + 1 background)
     input_channels = 64  # Output channels from the feature extraction layers
     batch_size = 2
-    roi_align_pool_size = specific_configuration["roi_align_pool_size"]
 
     # Mocking the number of ROI proposals we feed into the detection head
-    number_of_proposals_per_image = 500
+    number_of_proposals_per_image = 128
     total_proposals = batch_size * number_of_proposals_per_image
 
-    # Generate mock pooled features (simulating output of RoIAlign)
-    mock_roi_features = torch.randn(size=(total_proposals, input_channels, roi_align_pool_size, roi_align_pool_size),
-                                    device=device, dtype=dtype)
+    # Generate a raw backbone feature map instead of pre-pooled ROIs
+    mock_feature_map = torch.randn(size=(batch_size, input_channels, feature_map_size, feature_map_size),
+                                   device=device, dtype=dtype)
+
+    # Generate the mock [K, 5] proposal boxes tensor
+    batch_indices = torch.arange(start=0, end=batch_size, device=device, dtype=dtype).view(-1, 1)
+    batch_indices = batch_indices.expand(batch_size, number_of_proposals_per_image).reshape(-1, 1)
+
+    boxes = torch.rand(size=(total_proposals, 4), device=device, dtype=dtype) * (input_image_size / 2)
+    boxes[:, 2:] += boxes[:, :2]  # Ensure x2 > x1 and y2 > y1
+    mock_proposal_boxes = torch.cat([batch_indices, boxes], dim=-1)
 
     # Instantiate the module
     console.print(Panel(renderable="[bold green]Instantiating DetectionHead Module...[/bold green]"))
     detection_head = DetectionHead(detector_configuration=specific_configuration,
                                    number_classes=number_classes,
                                    input_channels=input_channels,
+                                   mode="training",
                                    feature_map_normalization=feature_map_normalization,
+                                   input_image_size=input_image_size,
+                                   feature_map_size=feature_map_size,
                                    dtype=dtype,
                                    device=device)
 
@@ -64,11 +75,14 @@ def debug_detection_head() -> None:
 
     # Forward Pass
     console.print(Panel(renderable="[bold green]Running Forward Pass...[/bold green]"))
-    class_scores, box_regressions = detection_head(input_tensor=mock_roi_features)
+    class_scores, box_regressions = detection_head(proposal_boxes=mock_proposal_boxes,
+                                                   input_tensor=mock_feature_map,
+                                                   tensor_to_concatenate=None)
 
     # Analyze outputs
     console.print("[bold blue]DetectionHead Outputs:[/bold blue]")
-    console.print(f"  - Input RoI Features : {list(mock_roi_features.shape)}")
+    console.print(f"  - Input Feature Map  : {list(mock_feature_map.shape)}")
+    console.print(f"  - Input Proposals    : {list(mock_proposal_boxes.shape)}")
     console.print(f"  - Class Scores       : {list(class_scores.shape)}")
     console.print(f"  - Box Regressions    : {list(box_regressions.shape)}")
 
