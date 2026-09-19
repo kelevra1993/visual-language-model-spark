@@ -367,6 +367,7 @@ class Model(nn.Module):
 
             # todo what to do if we want to also add the ground truth bounding boxes as well ?
             #  so that the network also learns not to modify some boxes ?
+
             # Later to be moved to another function
             # First assign targets based on ground truth bounding boxes
             # Here we consider only the filtered proposal boxes from the NMS based on all ground truth boxes
@@ -391,8 +392,18 @@ class Model(nn.Module):
 
             sampled_mask = sampled_positive_mask | sampled_negative_mask
 
-            # todo might not need to have been done here
-            sampled_detection_proposals = filtered_boxes[sampled_mask]
+            # Generate batch indices of shape [Batch, Proposals] to track which image each proposal belongs to
+            batch_size, num_proposals, _ = filtered_boxes.shape
+            batch_indices = torch.arange(start=0, end=batch_size, device=self.device,
+                                         dtype=self.dtype).view(-1, 1).expand(batch_size, num_proposals)
+
+            # Apply the mask, extracting only the valid elements across the entire batch (flattening them)
+            sampled_batch_indices = batch_indices[sampled_mask].unsqueeze(dim=-1)
+
+            sampled_boxes = filtered_boxes[sampled_mask]
+
+            # Concatenate the batch indices as the first column to create the [K, 5] tensor expected by RoIAlign
+            sampled_detection_proposals = torch.cat(tensors=[sampled_batch_indices, sampled_boxes], dim=-1)
             sampled_detection_proposals_origins = filtered_origins[sampled_mask]
             sampled_detection_labels = detector_proposal_labels[sampled_mask]
             sampled_detection_regression_targets = detection_regression_targets[sampled_mask]
