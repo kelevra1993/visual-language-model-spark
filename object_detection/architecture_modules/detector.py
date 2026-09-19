@@ -7,7 +7,7 @@ from architecture_modules.convolution_block import ConvolutionBlock
 
 
 class DetectionHead(nn.Module):
-    def __init__(self, detector_configuration: Dict[str, Any], number_classes: int, input_channels: int,
+    def __init__(self, detector_configuration: Dict[str, Any], number_classes: int, input_channels: int, feature_map_normalization: str,
                  dtype: torch.dtype, device: torch.device) -> None:
         """
         Initializes the Detection Head module for a specific feature map scale.
@@ -20,6 +20,7 @@ class DetectionHead(nn.Module):
             detector_configuration (Dict[str, Any]): The configuration dictionary for this specific head scale.
             number_classes (int): The total number of classes to predict (including background).
             input_channels (int): The number of channels in the input feature maps.
+            feature_map_normalization (str): The chosen normalization layer type (e.g., 'batch', 'layer', 'none').
             dtype (torch.dtype): The tensor data type.
             device (torch.device): The computational device.
         """
@@ -39,7 +40,7 @@ class DetectionHead(nn.Module):
             input_channels=input_channels, output_channels=convolution_output_channels,
             bias=True, number_layers=convolution_number_layers,
             kernel_size=3, stride=1, padding=1,
-            feature_map_normalization=detector_configuration.get("feature_map_normalization"),
+            feature_map_normalization=feature_map_normalization,
             activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype)
 
         # Fully connected layers
@@ -81,7 +82,22 @@ class DetectionHead(nn.Module):
         return nn.Sequential(*fully_connected_layers)
 
     def forward(self, input_tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """todo to be done later"""
+        """
+        Executes the forward pass of the Detection Head.
+        
+        This processes the ROI Align pooled feature maps through the detection convolutions 
+        and fully connected layers to produce the raw object classification logits and 
+        the bounding box regression coordinate offsets.
+
+        Args:
+            input_tensor (torch.Tensor): The pooled feature maps from the ROI Align operation.
+                                         Expected shape: (N, C, pool_size, pool_size).
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+                - class_scores (torch.Tensor): The un-normalized classification logits of shape (N, number_classes).
+                - box_regressions (torch.Tensor): The regression offsets [dx, dy, dw, dh] of shape (N, number_classes * 4).
+        """
         # Pass through the convolution block
         features = self.convolutional_block(input_tensor=input_tensor)
 

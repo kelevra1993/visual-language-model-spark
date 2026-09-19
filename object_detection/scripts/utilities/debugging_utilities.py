@@ -392,6 +392,7 @@ def visualize_foreground_and_background_anchors(ground_truth_boxes: torch.Tensor
 
     cv2.destroyAllWindows()
 
+
 def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
     """
     Supplies the default configuration dictionary, device, and dtype for testing the object detection Model pipeline.
@@ -432,7 +433,14 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
                          'number_training_positives': 128,
                          'total_training_samples': 256,
                          'localisation_loss_beta': 1 / 9
-
+                     },
+                     'Detector': {
+                         'head_configurations': {
+                             '4': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]},
+                             '5': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]},
+                             '6': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]}
+                         },
+                         'normalization': {'feature_map_normalization': 'batch'}
                      }}
     device = torch.device(device="cpu")
     dtype = torch.float32
@@ -507,3 +515,31 @@ def get_dummy_ground_truth_boxes(batch_size: int, input_image_size: int, configu
     return ground_truth_bounding_boxes
 
 
+def get_dummy_ground_truth_labels(ground_truth_boxes: List[torch.Tensor], number_classes: int,
+                                  device: torch.device, dtype: torch.dtype) -> List[torch.Tensor]:
+    """
+    Generates a realistic list of randomly assigned ground truth class labels for each image in the batch.
+    
+    This function pairs with the ground truth bounding box generator to assign a valid foreground class index 
+    (from 1 to number_classes - 1) to each generated box, mimicking real annotations.
+
+    Args:
+        ground_truth_boxes (List[torch.Tensor]): A list of length batch_size, containing bounding box tensors.
+        number_classes (int): The total number of classes including the background class at index 0.
+        device (torch.device): The compute device allocation.
+        dtype (torch.dtype): The specific precision type allocation (unused for labels as they are integer indices,
+        but kept for signature consistency).
+
+    Returns:
+        List[torch.Tensor]: A list of length batch_size containing 1D tensors of class labels (int64).
+    """
+    ground_truth_labels = []
+
+    for boxes in ground_truth_boxes:
+        number_of_boxes = boxes.shape[0]
+        # Generate random labels between 1 and number_classes - 1 (inclusive), as 0 is typically background.
+        random_labels = torch.randint(low=1, high=number_classes, size=(number_of_boxes,), device=device,
+                                      dtype=torch.int64)
+        ground_truth_labels.append(random_labels)
+
+    return ground_truth_labels
