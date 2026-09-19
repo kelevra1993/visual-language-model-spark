@@ -145,7 +145,8 @@ class RegionProposalFilter(nn.Module):
 
     def forward(self, proposal_boxes: torch.Tensor,
                 proposal_scores: torch.Tensor,
-                input_image_size: int) -> Tuple[torch.Tensor, torch.Tensor]:
+                proposal_origins: torch.Tensor,
+                input_image_size: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Filters region proposal bounding boxes using objectness scores and Non-Maximum Suppression (NMS).
 
@@ -157,21 +158,25 @@ class RegionProposalFilter(nn.Module):
         Args:
             proposal_boxes (torch.Tensor): A tensor containing the proposed bounding boxes of shape [B, N, 4].
             proposal_scores (torch.Tensor): A tensor containing the raw objectness logits of shape [B, N].
+            proposal_origins (torch.Tensor): A tensor tracking the FPN level origin of shape [B, N].
             input_image_size (int): The spatial dimension (height and width) of the square input image.
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
                 - filtered_proposal_boxes (torch.Tensor): The filtered bounding boxes of shape [B, Post_NMS, 4].
                 - filtered_proposal_scores (torch.Tensor): The objectness scores for the filtered boxes of shape [B, Post_NMS].
+                - filtered_proposal_origins (torch.Tensor): The origin indices of shape [B, Post_NMS].
         """
         batch_size = proposal_scores.shape[0]
 
         filtered_boxes_list = []
         filtered_scores_list = []
+        filtered_origins_list = []
 
         for batch_index in range(batch_size):
             scores = proposal_scores[batch_index]
             boxes = proposal_boxes[batch_index]
+            origins = proposal_origins[batch_index]
 
             scores = torch.sigmoid(input=scores)
 
@@ -181,6 +186,7 @@ class RegionProposalFilter(nn.Module):
 
             scores = scores[top_proposal_indices]
             boxes = boxes[top_proposal_indices]
+            origins = origins[top_proposal_indices]
 
             # Clamp boxes to image boundary
             boxes = clamp_boxes_to_image_boundaries(boxes=boxes, input_image_size=input_image_size)
@@ -195,18 +201,21 @@ class RegionProposalFilter(nn.Module):
             # Post NMS top k filtering
             boxes = boxes[proposal_post_nms_indices][:self.post_nms_filter_proposals]
             scores = scores[proposal_post_nms_indices][:self.post_nms_filter_proposals]
+            origins = origins[proposal_post_nms_indices][:self.post_nms_filter_proposals]
 
-            # Pad boxes and scores if necessary
-            boxes, scores = self._pad_proposals_to_target_size(boxes=boxes, scores=scores)
+            boxes, scores, origins = self._pad_proposals_to_target_size(boxes=boxes, scores=scores, origins=origins)
 
             filtered_boxes_list.append(boxes)
             filtered_scores_list.append(scores)
+            filtered_origins_list.append(origins)
 
         # Re-stack into a single batched tensor
-        return torch.stack(tensors=filtered_boxes_list, dim=0), torch.stack(tensors=filtered_scores_list, dim=0)
+        return (torch.stack(tensors=filtered_boxes_list, dim=0),
+                torch.stack(tensors=filtered_scores_list, dim=0),
+                torch.stack(tensors=filtered_origins_list, dim=0))
 
-    def _pad_proposals_to_target_size(self, boxes: torch.Tensor,
-                                      scores: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _pad_proposals_to_target_size(self, boxes: torch.Tensor, scores: torch.Tensor,
+                                      origins: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Pads the filtered bounding boxes and scores up to post_nms_filter_proposals size by duplicating 
         valid proposals to ensure uniform tensor shapes across the batch.
@@ -214,9 +223,10 @@ class RegionProposalFilter(nn.Module):
         Args:
             boxes (torch.Tensor): The remaining bounding boxes after NMS.
             scores (torch.Tensor): The objectness scores for those boxes.
+            origins (torch.Tensor): The block origin indices for those boxes.
             
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]: The padded boxes and scores.
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The padded boxes, scores, and origins.
         """
         number_of_proposals = boxes.shape[0]
         if number_of_proposals < self.post_nms_filter_proposals and number_of_proposals > 0:
@@ -229,16 +239,11 @@ class RegionProposalFilter(nn.Module):
 
             extra_boxes = boxes[random_indices]
             extra_scores = scores[random_indices]
+            extra_origins = origins[random_indices]
 
-            # Add the extra boxes and scores
+            # Add the extra boxes, scores, and origins
             boxes = torch.cat(tensors=[boxes, extra_boxes], dim=0)
             scores = torch.cat(tensors=[scores, extra_scores], dim=0)
+            origins = torch.cat(tensors=[origins, extra_origins], dim=0)
 
-        elif number_of_proposals == 0:
-            # Extreme edge case: NMS returned zero proposals
-            dummy_boxes = torch.zeros(size=(self.post_nms_filter_proposals, 4), device=boxes.device, dtype=boxes.dtype)
-            dummy_scores = torch.zeros(size=(self.post_nms_filter_proposals,), device=scores.device, dtype=scores.dtype)
-            boxes = dummy_boxes
-            scores = dummy_scores
-
-        return boxes, scores
+        return boxes, scores, origins
