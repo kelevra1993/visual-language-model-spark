@@ -118,7 +118,6 @@ class Model(nn.Module):
 
         # Iterate over the sequentially ordered detection blocks computed by the backbone
         for index_string in self.detection_input_information.keys():
-
             # Retrieve the specific anchor scales and ratios for this scale level
             anchor_configuration = anchors_configuration.get("scales_and_ratios").get(index_string)
             scales = anchor_configuration.get("scales")
@@ -162,7 +161,6 @@ class Model(nn.Module):
 
         # Iterate over the sequentially ordered detection blocks computed by the backbone
         for index_string in self.detection_input_information.keys():
-
             # Retrieve the specific head configuration for this scale level
             specific_configuration = detector_head_configurations.get(index_string)
 
@@ -340,6 +338,86 @@ class Model(nn.Module):
 
         return region_proposal_classification_loss, region_proposal_localisation_loss
 
+    def _prepare_detector_inputs(self,
+                                 filtered_boxes: torch.Tensor,
+                                 filtered_origins: torch.Tensor,
+                                 ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
+                                 ground_truth_labels: Optional[List[torch.Tensor]] = None
+                                 ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """
+        Prepares the formatted inputs required by the Detection Head's RoIAlign and loss functions.
+        
+        During training, it assigns ground truth targets to the filtered proposals, computes regression
+        targets, and samples a balanced set of positive and negative proposals.
+        During inference, it simply flattens the filtered proposals and prepends batch indices.
+        
+        Args:
+            filtered_boxes (torch.Tensor): The filtered region proposals of shape [Batch, Num_Proposals, 4].
+            filtered_origins (torch.Tensor): The detection scale origins of the proposals of shape [Batch, Num_Proposals].
+            ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List of ground truth bounding boxes.
+            ground_truth_labels (Optional[List[torch.Tensor]]): List of ground truth class labels.
+            
+        Returns:
+            Tuple containing:
+                - detection_proposals (torch.Tensor): Formatted proposals of shape [K, 5] (batch_index + coords).
+                - detection_proposals_origins (torch.Tensor): Origins of shape [K].
+                - detection_labels (Optional[torch.Tensor]): Assigned ground truth labels of shape [K].
+                - detection_regression_targets (Optional[torch.Tensor]): Target regressions of shape [K, 4].
+        """
+        batch_size, num_proposals, _ = filtered_boxes.shape
+
+        # Generate batch indices of shape [Batch, Proposals] to track which image each proposal belongs to
+        batch_indices = torch.arange(start=0, end=batch_size, device=self.device,
+                                     dtype=self.dtype).view(-1, 1).expand(batch_size, num_proposals)
+
+        if self.mode == "training" and ground_truth_bounding_boxes is not None:
+            # First assign targets based on ground truth bounding boxes
+            # Here we consider only the filtered proposal boxes from the NMS based on all ground truth boxes
+            # TODO Find out if this is the right approach.
+            detector_proposal_targets, detector_proposal_labels = batch_assign_targets_to_proposals(
+                batched_ground_truth_boxes=ground_truth_bounding_boxes,
+                batched_proposals=filtered_boxes,
+                batched_ground_truth_labels=ground_truth_labels,
+                foreground_iou_threshold=self.detector_configuration["foreground_iou_threshold"])
+
+            # Compute detection head regression targets
+            detection_regression_targets = turn_boxes_to_transformation_targets(
+                ground_truth_boxes=detector_proposal_targets,
+                predicted_boxes=filtered_boxes)
+
+            # Get training samples for detection network
+            sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
+                labels=detector_proposal_labels,
+                desired_positives=self.detector_configuration['number_training_positives'],
+                desired_total=self.detector_configuration['total_training_samples'],
+                verbose=True)
+
+            sampled_mask = sampled_positive_mask | sampled_negative_mask
+
+            # Apply the mask, extracting only the valid elements across the entire batch (flattening them)
+            sampled_batch_indices = batch_indices[sampled_mask].unsqueeze(dim=-1)
+            sampled_boxes = filtered_boxes[sampled_mask]
+
+            # Concatenate the batch indices as the first column to create the [K, 5] tensor expected by RoIAlign
+            detection_proposals = torch.cat(tensors=[sampled_batch_indices, sampled_boxes], dim=-1)
+            detection_proposals_origins = filtered_origins[sampled_mask]
+
+            detection_labels = detector_proposal_labels[sampled_mask]
+            detection_regression_targets = detection_regression_targets[sampled_mask]
+
+        else:
+            # During inference, simply flatten the valid proposals and prepend the batch indices
+            flattened_batch_indices = batch_indices.reshape(-1).unsqueeze(dim=-1)
+            flattened_boxes = filtered_boxes.reshape(-1, 4)
+
+            detection_proposals = torch.cat(tensors=[flattened_batch_indices, flattened_boxes], dim=-1)
+            detection_proposals_origins = filtered_origins.reshape(-1)
+
+            detection_labels = None
+            detection_regression_targets = None
+
+        return detection_proposals, detection_proposals_origins, detection_labels, detection_regression_targets
+
     def forward(self, input_tensor: torch.Tensor,
                 ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                 ground_truth_labels: Optional[List[torch.Tensor]] = None, ) -> Dict[str, Any]:
@@ -393,6 +471,14 @@ class Model(nn.Module):
             proposal_origins=aggregated_proposals_dictionary["convolution_block_origin"],
             input_image_size=self.input_image_size)
 
+        # Prepare the filtered proposals to be safely digested by the Detection Head's RoIAlign
+        (detection_proposals, detection_proposals_origins,
+         detection_labels, detection_regression_targets) = self._prepare_detector_inputs(
+            filtered_boxes=filtered_boxes,
+            filtered_origins=filtered_origins,
+            ground_truth_bounding_boxes=ground_truth_bounding_boxes,
+            ground_truth_labels=ground_truth_labels)
+
         # Package the outputs into a unified dictionary for clean extraction
         model_output_dictionary = {"final_backbone_tensor": final_backbone_tensor,
                                    "backbone_output_tensor_dictionary": backbone_output_tensor_dictionary,
@@ -400,7 +486,11 @@ class Model(nn.Module):
                                    "aggregated_proposals_dictionary": aggregated_proposals_dictionary,
                                    "filtered_proposal_boxes": filtered_boxes,
                                    "filtered_proposal_scores": filtered_scores,
-                                   "filtered_proposal_origins": filtered_origins}
+                                   "filtered_proposal_origins": filtered_origins,
+                                   "detection_proposals": detection_proposals,
+                                   "detection_proposals_origins": detection_proposals_origins,
+                                   "detection_labels": detection_labels,
+                                   "detection_regression_targets": detection_regression_targets}
 
         # Train -> Assign targets for loss computation :
         # - For Region Proposal
@@ -413,46 +503,6 @@ class Model(nn.Module):
 
             # todo what to do if we want to also add the ground truth bounding boxes as well ?
             #  so that the network also learns not to modify some boxes ?
-
-            # Later to be moved to another function
-            # First assign targets based on ground truth bounding boxes
-            # Here we consider only the filtered proposal boxes from the NMS based on all ground truth boxes
-            # TODO Find out if this is the right approach.
-            detector_proposal_targets, detector_proposal_labels = batch_assign_targets_to_proposals(
-                batched_ground_truth_boxes=ground_truth_bounding_boxes,
-                batched_proposals=filtered_boxes,
-                batched_ground_truth_labels=ground_truth_labels,
-                foreground_iou_threshold=self.detector_configuration["foreground_iou_threshold"])
-
-            # Compute detection head regression targets
-            detection_regression_targets = turn_boxes_to_transformation_targets(
-                ground_truth_boxes=detector_proposal_targets,
-                predicted_boxes=filtered_boxes)
-
-            # Get training samples for detection network
-            sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
-                labels=detector_proposal_labels,
-                desired_positives=self.detector_configuration['number_training_positives'],
-                desired_total=self.detector_configuration['total_training_samples'],
-                verbose=True)
-
-            sampled_mask = sampled_positive_mask | sampled_negative_mask
-
-            # Generate batch indices of shape [Batch, Proposals] to track which image each proposal belongs to
-            batch_size, num_proposals, _ = filtered_boxes.shape
-            batch_indices = torch.arange(start=0, end=batch_size, device=self.device,
-                                         dtype=self.dtype).view(-1, 1).expand(batch_size, num_proposals)
-
-            # Apply the mask, extracting only the valid elements across the entire batch (flattening them)
-            sampled_batch_indices = batch_indices[sampled_mask].unsqueeze(dim=-1)
-
-            sampled_boxes = filtered_boxes[sampled_mask]
-
-            # Concatenate the batch indices as the first column to create the [K, 5] tensor expected by RoIAlign
-            sampled_detection_proposals = torch.cat(tensors=[sampled_batch_indices, sampled_boxes], dim=-1)
-            sampled_detection_proposals_origins = filtered_origins[sampled_mask]
-            sampled_detection_labels = detector_proposal_labels[sampled_mask]
-            sampled_detection_regression_targets = detection_regression_targets[sampled_mask]
 
             # Append the assignments to the output dictionary
             model_output_dictionary["region_proposal_classification_loss"] = region_proposal_classification_loss
