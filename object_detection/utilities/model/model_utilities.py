@@ -487,26 +487,26 @@ def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
 def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_positives: int, desired_total: int,
                                                   verbose: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    # todo this is not only for anchors but also for proposals, not only for Region Proposal, but also for the detector network.
-    # todo docstring to be updated
-    Randomly samples positive and negative anchors to maintain a fixed ratio during Region Proposal Network training.
+    Randomly samples positive and negative targets (anchors or proposals) to maintain a fixed ratio during training.
 
-    To prevent the classification loss from being completely overwhelmed by the massive number of background 
-    (negative) anchors, this function constructs a balanced mini-batch for each image in the batch. 
-    It guarantees up to `desired_positives` foreground anchors, and fills the remainder of the `desired_total` quota 
-    with background anchors.
+    This utility is universally applicable to both the Region Proposal Network (sampling raw anchors) and the 
+    Detector Network (sampling NMS-filtered proposals). To prevent the classification loss from being completely 
+    overwhelmed by the massive number of background targets, this function constructs a balanced mini-batch 
+    for each image. It guarantees up to `desired_positives` foreground targets, and fills the remainder 
+    of the `desired_total` quota with background targets.
 
     Args:
-        labels (torch.Tensor): A tensor of shape (B, N) containing anchor labels (1.0 = positive, 0.0 = negative).
-        desired_positives (int): The maximum number of positive anchors to sample per image.
-        desired_total (int): The total combined number of anchors (positive + negative) to sample per image.
+        labels (torch.Tensor): A batched tensor of shape (B, N) containing target labels 
+                               (Values >= 1.0 = positive foreground, 0.0 = negative background).
+        desired_positives (int): The maximum number of positive targets to sample per image.
+        desired_total (int): The total combined number of targets (positive + negative) to sample per image.
         verbose (bool): If True, prints a console summary detailing the total positive, negative,
-         and combined anchors sampled across the batch. Defaults to False.
+                        and combined targets sampled across the batch. Defaults to False.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing two boolean masks of shape (B, N):
-            - sampled_positive_mask (torch.Tensor): True for selected positive anchors.
-            - sampled_negative_mask (torch.Tensor): True for selected negative anchors.
+            - sampled_positive_mask (torch.Tensor): True for selected positive targets.
+            - sampled_negative_mask (torch.Tensor): True for selected negative targets.
     """
     # Create batched boolean masks highlighting only the randomly sampled positive and negative anchors
     sampled_positive_mask = torch.zeros_like(input=labels, dtype=torch.bool)
