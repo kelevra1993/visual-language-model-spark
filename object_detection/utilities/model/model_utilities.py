@@ -606,3 +606,53 @@ def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor,
     # For bounding box regression we only consider labels larger than 0 which are foreground
 
     return target_ground_truth_boxes, target_labels
+
+
+def batch_assign_targets_to_proposals(batched_ground_truth_boxes: List[torch.Tensor],
+                                      batched_proposals: List[torch.Tensor],
+                                      batched_ground_truth_labels: List[torch.Tensor],
+                                      foreground_iou_threshold: float) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Applies proposal target assignment logic across an entire batch of images.
+    
+    This function iterates over the batch dimension to match Region Proposal Network (RPN) proposals 
+    to ground truth boxes independently for each image, avoiding the complexity of padding 
+    varying numbers of ground truth boxes. The results are stacked into unified batch tensors.
+    
+    Args:
+        batched_ground_truth_boxes (List[torch.Tensor]): A list of length batch_size, where each tensor 
+                                                         contains the ground truth boxes for that image.
+        batched_proposals (List[torch.Tensor]): A list of length batch_size (or a unified tensor), 
+                                                where each tensor contains the proposed bounding boxes for that image.
+        batched_ground_truth_labels (List[torch.Tensor]): A list of length batch_size, containing the true class 
+                                                          indices for the ground truth boxes of each image.
+        foreground_iou_threshold (float): The minimum IoU required for a proposal to be considered foreground.
+        
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+            - batched_target_boxes (torch.Tensor): The assigned ground truth coordinates.
+             Shape [batch_size, number_of_proposals, 4]
+            - batched_labels (torch.Tensor): The assigned class labels.
+             Shape [batch_size, number_of_proposals]
+    """
+    aggregated_target_boxes = []
+    aggregated_labels = []
+
+    # Iterate over each image in the batch to independently process target assignments
+    for batch_index in range(len(batched_ground_truth_boxes)):
+        # Calculate assignments for the current image using explicit argument naming
+        target_boxes, target_labels = assign_targets_to_proposals(
+            ground_truth_boxes=batched_ground_truth_boxes[batch_index],
+            proposals=batched_proposals[batch_index],
+            ground_truth_labels=batched_ground_truth_labels[batch_index],
+            foreground_iou_threshold=foreground_iou_threshold)
+
+        # Store the processed targets and labels
+        aggregated_target_boxes.append(target_boxes)
+        aggregated_labels.append(target_labels)
+
+    # Stack the lists along a new batch dimension (dim=0)
+    batched_target_boxes = torch.stack(tensors=aggregated_target_boxes, dim=0)
+    batched_target_labels = torch.stack(tensors=aggregated_labels, dim=0)
+
+    return batched_target_boxes, batched_target_labels
