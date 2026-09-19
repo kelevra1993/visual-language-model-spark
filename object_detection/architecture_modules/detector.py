@@ -1,15 +1,18 @@
 import torch
 
-from typing import List, Union, Dict, Literal, Tuple, Any
+from typing import List, Union, Dict, Literal, Tuple, Any, Optional
 from torch import nn
 
 from architecture_modules.convolution_block import ConvolutionBlock
+from utilities.model.model_utilities import  batch_assign_targets_to_proposals
 
 
 class DetectionHead(nn.Module):
-    def __init__(self, detector_configuration: Dict[str, Any], number_classes: int, input_channels: int, feature_map_normalization: str,
+    def __init__(self, detector_configuration: Dict[str, Any], number_classes: int, input_channels: int,
+                 mode: Literal["training", "inference"], feature_map_normalization: str,
                  dtype: torch.dtype, device: torch.device) -> None:
         """
+        todo update the documentation with the mode of the detection head
         Initializes the Detection Head module for a specific feature map scale.
         
         This module receives pooled features from the ROI Align layer and processes them through
@@ -26,6 +29,7 @@ class DetectionHead(nn.Module):
         """
         super(DetectionHead, self).__init__()
 
+        self.mode = mode
         self.dtype = dtype
         self.device = device
         self.number_classes = number_classes
@@ -81,23 +85,16 @@ class DetectionHead(nn.Module):
 
         return nn.Sequential(*fully_connected_layers)
 
-    def forward(self, input_tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Executes the forward pass of the Detection Head.
-        
-        This processes the ROI Align pooled feature maps through the detection convolutions 
-        and fully connected layers to produce the raw object classification logits and 
-        the bounding box regression coordinate offsets.
+    def forward(self, input_tensor: torch.Tensor, tensor_to_concatenate: Optional[torch.Tensor],
+                ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
+                ground_truth_labels: Optional[List[torch.Tensor]] = None,
+                ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """"""
+        # todo will be moved because we do it for all proposals while being together.
+        # During Training
 
-        Args:
-            input_tensor (torch.Tensor): The pooled feature maps from the ROI Align operation.
-                                         Expected shape: (N, C, pool_size, pool_size).
 
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
-                - class_scores (torch.Tensor): The un-normalized classification logits of shape (N, number_classes).
-                - box_regressions (torch.Tensor): The regression offsets [dx, dy, dw, dh] of shape (N, number_classes * 4).
-        """
+
         # Pass through the convolution block
         features = self.convolutional_block(input_tensor=input_tensor)
 
