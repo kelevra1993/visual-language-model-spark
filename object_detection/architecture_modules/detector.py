@@ -94,29 +94,60 @@ class DetectionHead(nn.Module):
         return nn.Sequential(*fully_connected_layers)
 
     def forward(self, proposal_boxes: torch.Tensor, input_tensor: torch.Tensor,
-                tensor_to_concatenate: Optional[torch.Tensor],
+                tensor_to_concatenate: Optional[torch.Tensor] = None,
                 ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                 ground_truth_labels: Optional[List[torch.Tensor]] = None,
                 ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """"""
+        """
+        Executes the forward pass of the Detection Head.
+        
+        This method processes the sampled region proposals by cropping and aligning their corresponding 
+        features from the backbone's feature map using RoIAlign. The pooled features are then passed 
+        through a series of convolutional and fully connected layers to predict class probabilities 
+        and bounding box refinements.
+        
+        Args:
+            proposal_boxes (torch.Tensor): A tensor of shape [K, 5] representing the sampled proposals across the batch, 
+                                           where the first column is the batch index and the rest are [x1, y1, x2, y2].
+            input_tensor (torch.Tensor): The batched feature map from the backbone of shape [Batch, Channels, Height, Width].
+            tensor_to_concatenate (Optional[torch.Tensor]): Optional tensor to concatenate (e.g., visual/text embeddings).
+            ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List of ground truth bounding boxes per image.
+            ground_truth_labels (Optional[List[torch.Tensor]]): List of ground truth labels per image.
+            
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+                - classification_scores (torch.Tensor): The predicted class logits of shape [K, number_classes].
+                - box_regressions (torch.Tensor): The predicted bounding box regressions of shape [K, number_classes * 4].
+        """
 
-        # First get the aligned regions of interest from the feature map
+        # 1. RoIAlign: Extract and pool features for each proposal
+        # Input Feature Map Shape: [Batch, Channels, Height, Width]
+        # Output Pooled Shape: [K, Channels, Pool_Size, Pool_Size]
         pooled_features = roi_align(input=input_tensor, boxes=proposal_boxes,
                                     output_size=(self.roi_align_pool_size, self.roi_align_pool_size),
                                     spatial_scale=self.spatial_scale, aligned=True)
 
-        # Pass through the convolution block
+        # 2. Convolutional Block: Process the pooled features
+        # Input Shape: [K, Channels, Pool_Size, Pool_Size]
+        # Output Shape: [K, Conv_Out_Channels, Pool_Size, Pool_Size]
         enhanced_pooled_features = self.convolutional_block(input_tensor=pooled_features)
 
-        # Flatten the spatial dimensions
+        # 3. Flatten the spatial dimensions for the fully connected layers
+        # Input Shape: [K, Conv_Out_Channels, Pool_Size, Pool_Size]
+        # Output Shape: [K, Flattened_Dimension]
         proposals_batch_size = enhanced_pooled_features.shape[0]
         flattened_enhanced_pooled_features = enhanced_pooled_features.reshape(proposals_batch_size, -1)
 
-        # Pass through the fully connected block
+        # 4. Fully Connected Block: Deep feature extraction
+        # Input Shape: [K, Flattened_Dimension] 
+        # Output Shape: [K, FC_Out_Dimension]
         fully_connected_output_tensor = self.fully_connected_block(input=flattened_enhanced_pooled_features)
 
-        # Compute predictions
+        # 5. Prediction Heads: Output classification and regression predictions
+        # Output Classification Shape: [K, number_classes]
         classification_scores = self.classifier(input=fully_connected_output_tensor)
+        
+        # Output Regression Shape: [K, number_classes * 4]
         box_regressions = self.bounding_box_regressor(input=fully_connected_output_tensor)
 
         return classification_scores, box_regressions
