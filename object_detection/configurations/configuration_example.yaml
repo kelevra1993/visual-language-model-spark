@@ -25,7 +25,7 @@ Data:
   image_settings:
     size: 300
     keep_ratio: True
-
+  number_classes: 21 # Here we also count the background as the first class
   data_augmentation:
     activated: False
     types:

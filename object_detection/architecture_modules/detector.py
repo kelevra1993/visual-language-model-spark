@@ -109,15 +109,16 @@ class DetectionHead(nn.Module):
         Args:
             proposal_boxes (torch.Tensor): A tensor of shape [K, 5] representing the sampled proposals across the batch, 
                                            where the first column is the batch index and the rest are [x1, y1, x2, y2].
-            input_tensor (torch.Tensor): The batched feature map from the backbone of shape [Batch, Channels, Height, Width].
-            tensor_to_concatenate (Optional[torch.Tensor]): Optional tensor to concatenate (e.g., visual/text embeddings).
+            input_tensor (torch.Tensor): Batched feature map from backbone of shape [Batch, Channels, Height, Width].
+            tensor_to_concatenate (Optional[torch.Tensor]): Optional tensor to concatenate.
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List of ground truth bounding boxes per image.
             ground_truth_labels (Optional[List[torch.Tensor]]): List of ground truth labels per image.
             
         Returns:
             Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
                 - classification_scores (torch.Tensor): The predicted class logits of shape [K, number_classes].
-                - box_regressions (torch.Tensor): The predicted bounding box regressions of shape [K, number_classes * 4].
+                - box_regressions (torch.Tensor): The predicted bounding box regressions of shape
+                [K, number_classes * 4].
         """
 
         # 1. RoIAlign: Extract and pool features for each proposal
