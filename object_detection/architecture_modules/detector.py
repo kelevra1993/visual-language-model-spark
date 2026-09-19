@@ -6,12 +6,13 @@ from torch import nn
 
 from architecture_modules.convolution_block import ConvolutionBlock
 from utilities.model.model_utilities import batch_assign_targets_to_proposals
+from utilities.tensor_utilities import print_tensor_shape
 
 
 class DetectionHead(nn.Module):
     def __init__(self, detector_configuration: Dict[str, Any], number_classes: int, input_channels: int,
                  mode: Literal["training", "inference"], feature_map_normalization: str,
-                 dtype: torch.dtype, device: torch.device) -> None:
+                 input_image_size: int, feature_map_size: int, dtype: torch.dtype, device: torch.device) -> None:
         """
         todo update the documentation with the mode of the detection head
         Initializes the Detection Head module for a specific feature map scale.
@@ -34,8 +35,14 @@ class DetectionHead(nn.Module):
         self.dtype = dtype
         self.device = device
         self.number_classes = number_classes
+        self.input_image_size = input_image_size
+        self.feature_map_size = feature_map_size
 
-        roi_align_pool_size = detector_configuration["roi_align_pool_size"]
+        # The spatial scale is the ratio used by RoIAlign to map coordinates from the original 
+        # input image space down into the downsampled feature map coordinate space (e.g., 32 / 1024 = 1/32)
+        self.spatial_scale = self.feature_map_size / self.input_image_size
+        self.roi_align_pool_size = detector_configuration["roi_align_pool_size"]
+
         convolution_number_layers = detector_configuration["convolutions"][0]
         convolution_output_channels = detector_configuration["convolutions"][1]
         fully_connected_dimensions = detector_configuration["fully_connected"]
@@ -49,7 +56,7 @@ class DetectionHead(nn.Module):
             activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype)
 
         # Fully connected layers
-        flattened_dimension = roi_align_pool_size * roi_align_pool_size * convolution_output_channels
+        flattened_dimension = self.roi_align_pool_size * self.roi_align_pool_size * convolution_output_channels
         self.fully_connected_block = self._build_fully_connected_block(
             input_dimension=flattened_dimension,
             dimensions=fully_connected_dimensions)
@@ -86,27 +93,30 @@ class DetectionHead(nn.Module):
 
         return nn.Sequential(*fully_connected_layers)
 
-    def forward(self, input_tensor: torch.Tensor, tensor_to_concatenate: Optional[torch.Tensor],
+    def forward(self, proposal_boxes: torch.Tensor, input_tensor: torch.Tensor,
+                tensor_to_concatenate: Optional[torch.Tensor],
                 ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                 ground_truth_labels: Optional[List[torch.Tensor]] = None,
                 ) -> Tuple[torch.Tensor, torch.Tensor]:
         """"""
-        # todo will be moved because we do it for all proposals while being together.
-        # During Training
-        roi_align(input=None, boxes=None, output_size=None, spatial_scale=None, aligned=True)
+
+        # First get the aligned regions of interest from the feature map
+        pooled_features = roi_align(input=input_tensor, boxes=proposal_boxes,
+                                    output_size=(self.roi_align_pool_size, self.roi_align_pool_size),
+                                    spatial_scale=self.spatial_scale, aligned=True)
 
         # Pass through the convolution block
-        features = self.convolutional_block(input_tensor=input_tensor)
+        enhanced_pooled_features = self.convolutional_block(input_tensor=pooled_features)
 
         # Flatten the spatial dimensions
-        batch_size = features.shape[0]
-        features = features.reshape(batch_size, -1)
+        proposals_batch_size = enhanced_pooled_features.shape[0]
+        flattened_enhanced_pooled_features = enhanced_pooled_features.reshape(proposals_batch_size, -1)
 
         # Pass through the fully connected block
-        features = self.fully_connected_block(input=features)
+        fully_connected_output_tensor = self.fully_connected_block(input=flattened_enhanced_pooled_features)
 
         # Compute predictions
-        class_scores = self.classifier(input=features)
-        box_regressions = self.bounding_box_regressor(input=features)
+        classification_scores = self.classifier(input=fully_connected_output_tensor)
+        box_regressions = self.bounding_box_regressor(input=fully_connected_output_tensor)
 
-        return class_scores, box_regressions
+        return classification_scores, box_regressions
