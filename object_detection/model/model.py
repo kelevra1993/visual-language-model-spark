@@ -193,10 +193,12 @@ class Model(nn.Module):
                 - "bounding_box_regressions" (torch.Tensor): Shape [batch_size, total_anchors, 4]
                 - "proposal_boxes" (torch.Tensor): Shape [batch_size, total_anchors, 4]
                 - "anchors" (torch.Tensor): Shape [batch_size, total_anchors, 4]
+                - "convolution_block_origin" (torch.Tensor): Shape [batch_size, total_anchors]
         """
         aggregated_scores = []
         aggregated_regressions = []
         aggregated_boxes = []
+        aggregated_origins = []
 
         batch_size = None
 
@@ -213,13 +215,19 @@ class Model(nn.Module):
             if batch_size is None:
                 batch_size = classification_scores.shape[0]
 
+            # Generate origin tracker to know which FPN level these proposals came from
+            origin_tensor = torch.full_like(input=classification_scores, fill_value=int(detection_index_string),
+                                            dtype=torch.int64)
+
             aggregated_scores.append(classification_scores)
             aggregated_regressions.append(bounding_box_regressions)
             aggregated_boxes.append(proposal_boxes)
+            aggregated_origins.append(origin_tensor)
 
         return {"classification_scores": torch.cat(tensors=aggregated_scores, dim=1),
                 "bounding_box_regressions": torch.cat(tensors=aggregated_regressions, dim=1),
                 "proposal_boxes": torch.cat(tensors=aggregated_boxes, dim=1),
+                "convolution_block_origin": torch.cat(tensors=aggregated_origins, dim=1),
                 # Batched anchor shape: [batch_size, anchors_per_scale, 4]
                 "anchors": self.anchors.unsqueeze(dim=0).expand(size=(batch_size, -1, 4))}
 
@@ -329,9 +337,10 @@ class Model(nn.Module):
             region_proposal_output_tensor_dictionary=region_proposal_output_tensor_dictionary)
 
         # Refine the raw bounding box predictions by filtering out low scores and suppressing overlapping boxes
-        filtered_boxes, filtered_scores = self.region_proposal_filter(
+        filtered_boxes, filtered_scores, filtered_origins = self.region_proposal_filter(
             proposal_boxes=aggregated_proposals_dictionary["proposal_boxes"],
             proposal_scores=aggregated_proposals_dictionary["classification_scores"],
+            proposal_origins=aggregated_proposals_dictionary["convolution_block_origin"],
             input_image_size=self.input_image_size)
 
         # Package the outputs into a unified dictionary for clean extraction
@@ -340,7 +349,8 @@ class Model(nn.Module):
                                    "region_proposal_output_tensor_dictionary": region_proposal_output_tensor_dictionary,
                                    "aggregated_proposals_dictionary": aggregated_proposals_dictionary,
                                    "filtered_proposal_boxes": filtered_boxes,
-                                   "filtered_proposal_scores": filtered_scores}
+                                   "filtered_proposal_scores": filtered_scores,
+                                   "filtered_proposal_origins": filtered_origins}
 
         # Train -> Assign targets for loss computation :
         # - For Region Proposal
