@@ -277,6 +277,48 @@ class Model(nn.Module):
                 # Batched anchor shape: [batch_size, anchors_per_scale, 4]
                 "anchors": self.anchors.unsqueeze(dim=0).expand(size=(batch_size, -1, 4))}
 
+    def aggregate_detection_outputs(
+            self,
+            detection_output_dictionary: Dict[str, Dict[str, Optional[torch.Tensor]]]
+    ) -> Dict[str, Optional[torch.Tensor]]:
+        """
+        Aggregates the multi-scale detection outputs into a unified structure.
+
+        This method iterates over the detection outputs from the various levels of the feature pyramid, 
+        concatenating the classification scores, bounding box regressions, and corresponding sliced 
+        targets (if in training mode) along the first dimension (total proposals across all scales).
+
+        Args:
+            detection_output_dictionary (Dict[str, Dict[str, Optional[torch.Tensor]]]): A dictionary mapping detection 
+            indices to their respective detection head predictions and sliced targets.
+
+        Returns:
+            Dict[str, Optional[torch.Tensor]]: A single dictionary containing the concatenated predictions
+                                               and targets across all scales.
+        """
+        aggregated_scores = []
+        aggregated_regressions = []
+        aggregated_labels = []
+        aggregated_targets = []
+        aggregated_proposals = []
+
+        for detection_index_string, predictions in detection_output_dictionary.items():
+            aggregated_scores.append(predictions["classification_scores"])
+            aggregated_regressions.append(predictions["box_regressions"])
+            aggregated_proposals.append(predictions["sliced_proposals"])
+            
+            if self.mode == "training":
+                aggregated_labels.append(predictions["sliced_labels"])
+                aggregated_targets.append(predictions["sliced_targets"])
+
+        return {
+            "classification_scores": torch.cat(tensors=aggregated_scores, dim=0),
+            "box_regressions": torch.cat(tensors=aggregated_regressions, dim=0),
+            "sliced_proposals": torch.cat(tensors=aggregated_proposals, dim=0),
+            "sliced_labels": torch.cat(tensors=aggregated_labels, dim=0) if self.mode == "training" else None,
+            "sliced_targets": torch.cat(tensors=aggregated_targets, dim=0) if self.mode == "training" else None
+        }
+
     def _compute_region_proposal_losses(self, ground_truth_bounding_boxes: List[torch.Tensor],
                                         aggregated_proposals_dictionary: Dict[str, torch.Tensor]) -> Tuple[
         torch.Tensor, torch.Tensor]:
@@ -342,7 +384,8 @@ class Model(nn.Module):
                                  filtered_boxes: torch.Tensor,
                                  filtered_origins: torch.Tensor,
                                  ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
-                                 ground_truth_labels: Optional[List[torch.Tensor]] = None
+                                 ground_truth_labels: Optional[List[torch.Tensor]] = None,
+                                 verbose: bool = False
                                  ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Prepares the formatted inputs required by the Detection Head's RoIAlign and loss functions.
@@ -416,12 +459,100 @@ class Model(nn.Module):
             detection_labels = None
             detection_regression_targets = None
 
+        # Calculate and display the final breakdown detection input proposals for debugging
+        if verbose:
+            print_yellow("Detector Information", add_separators=True)
+            print_tensor_shape(detection_proposals, indent=1)
+            print_tensor_shape(detection_proposals_origins, indent=1)
+            if self.mode == "training":
+                print_tensor_shape(detection_labels, indent=1)
+                print_tensor_shape(detection_regression_targets, indent=1)
+
         return detection_proposals, detection_proposals_origins, detection_labels, detection_regression_targets
+
+    def _forward_region_proposals(
+            self, backbone_output_tensor_dictionary: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, torch.Tensor]]:
+        """
+        Executes the Region Proposal forward pass for all intermediate feature map scales.
+        
+        Args:
+            backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps.
+            
+        Returns:
+            Dict[str, Dict[str, torch.Tensor]]: The predicted proposal scores, bounding box regressions, 
+                                                and generated proposal boxes per detection block index.
+        """
+        region_proposal_output_tensor_dictionary = {}
+
+        for detection_index_string, feature_map_tensor in backbone_output_tensor_dictionary.items():
+            # Pass the corresponding feature map through its specific region proposal block
+            proposal_scores, proposal_boxes_transformations, proposal_boxes = self.region_proposer_dictionary[
+                detection_index_string](input_tensor=feature_map_tensor)
+
+            # Store the predictions structured securely by their detection indices
+            region_proposal_output_tensor_dictionary[detection_index_string] = {
+                "classification_scores": proposal_scores,
+                "bounding_box_regressions": proposal_boxes_transformations,
+                "proposal_boxes": proposal_boxes}
+
+        return region_proposal_output_tensor_dictionary
+
+    def _forward_detections(
+            self,
+            backbone_output_tensor_dictionary: Dict[str, torch.Tensor],
+            detection_proposals: torch.Tensor,
+            detection_proposals_origins: torch.Tensor,
+            detection_labels: Optional[torch.Tensor] = None,
+            detection_regression_targets: Optional[torch.Tensor] = None
+    ) -> Dict[str, Any]:
+        """
+        Executes the Detection Head forward pass for all proposals across their respective feature maps.
+        
+        Args:
+            backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps.
+            detection_proposals (torch.Tensor): Formatted proposals of shape [K, 5] (batch_index + coords).
+            detection_proposals_origins (torch.Tensor): Origins of shape [K].
+            detection_labels (Optional[torch.Tensor]): Target labels for training of shape [K].
+            detection_regression_targets (Optional[torch.Tensor]): Target regressions for training of shape [K, 4].
+            
+        Returns:
+            Dict[str, Any]: Dictionary containing the sliced and computed outputs per scale.
+        """
+        detection_output_dictionary = {}
+
+        for detection_index_string, feature_map_tensor in backbone_output_tensor_dictionary.items():
+            # Find the indices of the proposals that originated from this specific feature map scale
+            scale_indices = torch.where(detection_proposals_origins == int(detection_index_string))[0]
+
+            # Slice the valid proposals for this particular scale
+            scale_proposals = detection_proposals[scale_indices]
+
+            # Slice the labels and regression targets if they are provided (training mode)
+            scale_labels = detection_labels[scale_indices] if detection_labels is not None else None
+            scale_targets = detection_regression_targets[
+                scale_indices] if detection_regression_targets is not None else None
+
+            # Retrieve the specific detection head for this feature map scale
+            detection_head = self.detector_heads_dictionary[detection_index_string]
+
+            # Execute the forward pass to get the classification logits and bounding box regressions
+            classification_scores, box_regressions = detection_head(proposal_boxes=scale_proposals,
+                                                                    input_tensor=feature_map_tensor)
+
+            # Store the computed tensors and the sliced ground truth targets for later loss computation
+            detection_output_dictionary[detection_index_string] = {"classification_scores": classification_scores,
+                                                                   "box_regressions": box_regressions,
+                                                                   "sliced_labels": scale_labels,
+                                                                   "sliced_targets": scale_targets,
+                                                                   "sliced_proposals": scale_proposals}
+
+        return detection_output_dictionary
 
     def forward(self, input_tensor: torch.Tensor,
                 ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                 ground_truth_labels: Optional[List[torch.Tensor]] = None, ) -> Dict[str, Any]:
         """
+        todo add ground truth labels in docstring.
         Executes the forward pass of the Model.
         
         Args:
@@ -441,19 +572,9 @@ class Model(nn.Module):
         # Pass the raw image through the backbone to extract the multiscale feature maps
         final_backbone_tensor, backbone_output_tensor_dictionary = self.backbone(input_tensor=input_tensor)
 
-        # Dictionary to store the output of the region proposal networks
-        region_proposal_output_tensor_dictionary = {}
-
-        for detection_index_string, feature_map_tensor in backbone_output_tensor_dictionary.items():
-            # Pass the corresponding feature map through its specific region proposal block
-            proposal_scores, proposal_boxes_transformations, proposal_boxes = self.region_proposer_dictionary[
-                detection_index_string](input_tensor=feature_map_tensor)
-
-            # Store the predictions structured securely by their detection indices
-            region_proposal_output_tensor_dictionary[detection_index_string] = {
-                "classification_scores": proposal_scores,
-                "bounding_box_regressions": proposal_boxes_transformations,
-                "proposal_boxes": proposal_boxes}
+        # Execute the Region Proposal networks across all extracted intermediate feature maps
+        region_proposal_output_tensor_dictionary = self._forward_region_proposals(
+            backbone_output_tensor_dictionary=backbone_output_tensor_dictionary)
 
         # Aggregate the proposals and anchors across all scales for downstream processing
         # The resulting dictionary structure contains the following concatenated tensors:
@@ -477,7 +598,20 @@ class Model(nn.Module):
             filtered_boxes=filtered_boxes,
             filtered_origins=filtered_origins,
             ground_truth_bounding_boxes=ground_truth_bounding_boxes,
-            ground_truth_labels=ground_truth_labels)
+            ground_truth_labels=ground_truth_labels,
+            verbose=True)
+
+        # Route the formatted proposals to their appropriate detection heads to compute final box scores and regressions
+        detection_output_tensor_dictionary = self._forward_detections(
+            backbone_output_tensor_dictionary=backbone_output_tensor_dictionary,
+            detection_proposals=detection_proposals,
+            detection_proposals_origins=detection_proposals_origins,
+            detection_labels=detection_labels,
+            detection_regression_targets=detection_regression_targets)
+
+        # Aggregate the final detection head outputs across all scales
+        aggregated_detections_dictionary = self.aggregate_detection_outputs(
+            detection_output_dictionary=detection_output_tensor_dictionary)
 
         # Package the outputs into a unified dictionary for clean extraction
         model_output_dictionary = {"final_backbone_tensor": final_backbone_tensor,

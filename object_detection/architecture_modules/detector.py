@@ -94,11 +94,9 @@ class DetectionHead(nn.Module):
         return nn.Sequential(*fully_connected_layers)
 
     def forward(self, proposal_boxes: torch.Tensor, input_tensor: torch.Tensor,
-                tensor_to_concatenate: Optional[torch.Tensor] = None,
-                ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
-                ground_truth_labels: Optional[List[torch.Tensor]] = None,
-                ) -> Tuple[torch.Tensor, torch.Tensor]:
+                tensor_to_concatenate: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
+        todo docstring to be updated
         Executes the forward pass of the Detection Head.
         
         This method processes the sampled region proposals by cropping and aligning their corresponding 
@@ -136,8 +134,7 @@ class DetectionHead(nn.Module):
         # 3. Flatten the spatial dimensions for the fully connected layers
         # Input Shape: [K, Conv_Out_Channels, Pool_Size, Pool_Size]
         # Output Shape: [K, Flattened_Dimension]
-        proposals_batch_size = enhanced_pooled_features.shape[0]
-        flattened_enhanced_pooled_features = enhanced_pooled_features.reshape(proposals_batch_size, -1)
+        flattened_enhanced_pooled_features = enhanced_pooled_features.flatten(start_dim=1)
 
         # 4. Fully Connected Block: Deep feature extraction
         # Input Shape: [K, Flattened_Dimension] 
@@ -147,7 +144,7 @@ class DetectionHead(nn.Module):
         # 5. Prediction Heads: Output classification and regression predictions
         # Output Classification Shape: [K, number_classes]
         classification_scores = self.classifier(input=fully_connected_output_tensor)
-        
+
         # Output Regression Shape: [K, number_classes * 4]
         box_regressions = self.bounding_box_regressor(input=fully_connected_output_tensor)
 
