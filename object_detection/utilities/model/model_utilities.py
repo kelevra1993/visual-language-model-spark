@@ -543,6 +543,7 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
 
     # Calculate and display the final breakdown of sampled anchors per image in the batch for debugging
     if verbose:
+        print_yellow("Sampling Information", add_separators=True)
         total_positives = torch.sum(input=sampled_positive_mask, dim=1)
         total_negatives = torch.sum(input=sampled_negative_mask, dim=1)
         print_yellow(output=f"Positive Training Samples   : {total_positives.tolist()}", indent=1)

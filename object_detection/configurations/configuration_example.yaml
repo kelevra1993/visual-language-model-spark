@@ -157,6 +157,7 @@ Detector:
   nms_iou_threshold: 0.8
   number_training_positives: 64
   total_training_samples: 128
+  localisation_loss_beta: 1/9
 
 
 

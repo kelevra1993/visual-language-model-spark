@@ -96,7 +96,6 @@ class DetectionHead(nn.Module):
     def forward(self, proposal_boxes: torch.Tensor, input_tensor: torch.Tensor,
                 tensor_to_concatenate: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        todo docstring to be updated
         Executes the forward pass of the Detection Head.
         
         This method processes the sampled region proposals by cropping and aligning their corresponding 
@@ -109,14 +108,11 @@ class DetectionHead(nn.Module):
                                            where the first column is the batch index and the rest are [x1, y1, x2, y2].
             input_tensor (torch.Tensor): Batched feature map from backbone of shape [Batch, Channels, Height, Width].
             tensor_to_concatenate (Optional[torch.Tensor]): Optional tensor to concatenate.
-            ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List of ground truth bounding boxes per image.
-            ground_truth_labels (Optional[List[torch.Tensor]]): List of ground truth labels per image.
             
         Returns:
             Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
                 - classification_scores (torch.Tensor): The predicted class logits of shape [K, number_classes].
-                - box_regressions (torch.Tensor): The predicted bounding box regressions of shape
-                [K, number_classes * 4].
+                - box_regressions (torch.Tensor): The predicted bounding box regressions of shape [K, number_classes, 4].
         """
 
         # 1. RoIAlign: Extract and pool features for each proposal
@@ -145,7 +141,11 @@ class DetectionHead(nn.Module):
         # Output Classification Shape: [K, number_classes]
         classification_scores = self.classifier(input=fully_connected_output_tensor)
 
-        # Output Regression Shape: [K, number_classes * 4]
+        # Output Regression Shape: [K, number_classes * 4] -> reshaped to [K, number_classes, 4]
         box_regressions = self.bounding_box_regressor(input=fully_connected_output_tensor)
+
+        # Reshape box regressions to isolate the coordinates per class cleanly
+        number_boxes = box_regressions.shape[0]
+        box_regressions = box_regressions.reshape(number_boxes, self.number_classes, 4)
 
         return classification_scores, box_regressions

@@ -277,10 +277,9 @@ class Model(nn.Module):
                 # Batched anchor shape: [batch_size, anchors_per_scale, 4]
                 "anchors": self.anchors.unsqueeze(dim=0).expand(size=(batch_size, -1, 4))}
 
-    def aggregate_detection_outputs(
-            self,
-            detection_output_dictionary: Dict[str, Dict[str, Optional[torch.Tensor]]]
-    ) -> Dict[str, Optional[torch.Tensor]]:
+    def aggregate_detection_outputs(self,
+                                    detection_output_dictionary: Dict[str, Dict[str, Optional[torch.Tensor]]]
+                                    ) -> Dict[str, Optional[torch.Tensor]]:
         """
         Aggregates the multi-scale detection outputs into a unified structure.
 
@@ -295,28 +294,34 @@ class Model(nn.Module):
         Returns:
             Dict[str, Optional[torch.Tensor]]: A single dictionary containing the concatenated predictions
                                                and targets across all scales.
+                - "classification_scores" (torch.Tensor): Shape [total_proposals, number_classes]
+                - "box_regressions" (torch.Tensor): Shape [total_proposals, number_classes, 4]
+                - "sliced_proposals" (torch.Tensor): Shape [total_proposals, 5]
+                - "sliced_labels" (Optional[torch.Tensor]): Shape [total_proposals] (only in training)
+                - "sliced_regression_targets" (Optional[torch.Tensor]): Shape [total_proposals, 4] (only in training)
         """
         aggregated_scores = []
         aggregated_regressions = []
         aggregated_labels = []
-        aggregated_targets = []
+        aggregated_regression_targets = []
         aggregated_proposals = []
 
         for detection_index_string, predictions in detection_output_dictionary.items():
             aggregated_scores.append(predictions["classification_scores"])
             aggregated_regressions.append(predictions["box_regressions"])
             aggregated_proposals.append(predictions["sliced_proposals"])
-            
+
             if self.mode == "training":
                 aggregated_labels.append(predictions["sliced_labels"])
-                aggregated_targets.append(predictions["sliced_targets"])
+                aggregated_regression_targets.append(predictions["sliced_regression_targets"])
 
         return {
             "classification_scores": torch.cat(tensors=aggregated_scores, dim=0),
             "box_regressions": torch.cat(tensors=aggregated_regressions, dim=0),
             "sliced_proposals": torch.cat(tensors=aggregated_proposals, dim=0),
             "sliced_labels": torch.cat(tensors=aggregated_labels, dim=0) if self.mode == "training" else None,
-            "sliced_targets": torch.cat(tensors=aggregated_targets, dim=0) if self.mode == "training" else None
+            "sliced_regression_targets": torch.cat(tensors=aggregated_regression_targets,
+                                                   dim=0) if self.mode == "training" else None
         }
 
     def _compute_region_proposal_losses(self, ground_truth_bounding_boxes: List[torch.Tensor],
@@ -380,6 +385,46 @@ class Model(nn.Module):
 
         return region_proposal_classification_loss, region_proposal_localisation_loss
 
+    def _compute_detection_losses(self, aggregated_detections_dictionary: Dict[str, Optional[torch.Tensor]]) -> Tuple[
+        torch.Tensor, torch.Tensor]:
+        """
+        Computes the final Detection Head classification and localisation losses.
+
+        Args:
+            aggregated_detections_dictionary (Dict[str, Optional[torch.Tensor]]): The aggregated predictions 
+                                                                                 and targets from all detection heads.
+                - "classification_scores" (torch.Tensor): Shape [total_proposals, number_classes]
+                - "box_regressions" (torch.Tensor): Shape [total_proposals, number_classes, 4]
+                - "sliced_proposals" (torch.Tensor): Shape [total_proposals, 5]
+                - "sliced_labels" (torch.Tensor): Shape [total_proposals]
+                - "sliced_targets" (torch.Tensor): Shape [total_proposals, 4]
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: The classification loss and the bounding box regression loss.
+        """
+        # Compute the Classification Loss (Cross Entropy)
+        # This evaluates all sampled proposals (both foreground and background). 
+        # The background proposals (label 0) will naturally train the network to suppress false positives.
+        detection_classification_loss = torch.nn.functional.cross_entropy(
+            input=aggregated_detections_dictionary["classification_scores"],
+            target=aggregated_detections_dictionary["sliced_labels"])
+
+        # Filter out background proposals: Bounding box regressions are ONLY trained on positive, foreground samples.
+        sampled_positive_indices = torch.where(aggregated_detections_dictionary["sliced_labels"] > 0)[0]
+        foreground_classes = aggregated_detections_dictionary["sliced_labels"][sampled_positive_indices].long()
+
+        # Compute the Localisation Loss (Smooth L1 / Huber Loss)
+        # The detector outputs regression predictions for EVERY class [K, number_classes, 4]. 
+        # We use advanced indexing `[sampled_positive_indices, foreground_classes]` to pluck out ONLY the 4 
+        # coordinate regressions that correspond to the specific ground truth class of each proposal.
+        detection_localisation_loss = torch.nn.functional.smooth_l1_loss(
+            input=aggregated_detections_dictionary["box_regressions"][sampled_positive_indices, foreground_classes],
+            target=aggregated_detections_dictionary["sliced_regression_targets"][sampled_positive_indices],
+            beta=self.detector_configuration['localisation_loss_beta'],
+            reduction="sum") / max(1, sampled_positive_indices.numel())
+
+        return detection_classification_loss, detection_localisation_loss
+
     def _prepare_detector_inputs(self,
                                  filtered_boxes: torch.Tensor,
                                  filtered_origins: torch.Tensor,
@@ -433,7 +478,7 @@ class Model(nn.Module):
                 labels=detector_proposal_labels,
                 desired_positives=self.detector_configuration['number_training_positives'],
                 desired_total=self.detector_configuration['total_training_samples'],
-                verbose=True)
+                verbose=False)
 
             sampled_mask = sampled_positive_mask | sampled_negative_mask
 
@@ -529,7 +574,7 @@ class Model(nn.Module):
 
             # Slice the labels and regression targets if they are provided (training mode)
             scale_labels = detection_labels[scale_indices] if detection_labels is not None else None
-            scale_targets = detection_regression_targets[
+            scale_regression_targets = detection_regression_targets[
                 scale_indices] if detection_regression_targets is not None else None
 
             # Retrieve the specific detection head for this feature map scale
@@ -540,11 +585,12 @@ class Model(nn.Module):
                                                                     input_tensor=feature_map_tensor)
 
             # Store the computed tensors and the sliced ground truth targets for later loss computation
-            detection_output_dictionary[detection_index_string] = {"classification_scores": classification_scores,
-                                                                   "box_regressions": box_regressions,
-                                                                   "sliced_labels": scale_labels,
-                                                                   "sliced_targets": scale_targets,
-                                                                   "sliced_proposals": scale_proposals}
+            detection_output_dictionary[detection_index_string] = {
+                "classification_scores": classification_scores,
+                "box_regressions": box_regressions,
+                "sliced_labels": scale_labels,
+                "sliced_regression_targets": scale_regression_targets,
+                "sliced_proposals": scale_proposals}
 
         return detection_output_dictionary
 
@@ -599,7 +645,7 @@ class Model(nn.Module):
             filtered_origins=filtered_origins,
             ground_truth_bounding_boxes=ground_truth_bounding_boxes,
             ground_truth_labels=ground_truth_labels,
-            verbose=True)
+            verbose=False)
 
         # Route the formatted proposals to their appropriate detection heads to compute final box scores and regressions
         detection_output_tensor_dictionary = self._forward_detections(
@@ -626,14 +672,19 @@ class Model(nn.Module):
                                    "detection_labels": detection_labels,
                                    "detection_regression_targets": detection_regression_targets}
 
-        # Train -> Assign targets for loss computation :
+        # Train -> Loss Computation :
         # - For Region Proposal
         # - For Detection
         if self.mode == "training" and ground_truth_bounding_boxes is not None:
+            # Region Proposal Losses
             (region_proposal_classification_loss,
              region_proposal_localisation_loss) = self._compute_region_proposal_losses(
                 ground_truth_bounding_boxes=ground_truth_bounding_boxes,
                 aggregated_proposals_dictionary=aggregated_proposals_dictionary)
+
+            # Detection Losses
+            (detection_classification_loss, detection_regression_loss) = self._compute_detection_losses(
+                aggregated_detections_dictionary=aggregated_detections_dictionary)
 
             # todo what to do if we want to also add the ground truth bounding boxes as well ?
             #  so that the network also learns not to modify some boxes ?
@@ -641,6 +692,9 @@ class Model(nn.Module):
             # Append the assignments to the output dictionary
             model_output_dictionary["region_proposal_classification_loss"] = region_proposal_classification_loss
             model_output_dictionary["region_proposal_localisation_loss"] = region_proposal_localisation_loss
+
+            model_output_dictionary["detection_classification_loss"] = detection_classification_loss
+            model_output_dictionary["detection_regression_loss"] = detection_regression_loss
 
         return model_output_dictionary
 

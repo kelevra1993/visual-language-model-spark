@@ -442,8 +442,9 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
                          },
                          'normalization': {'feature_map_normalization': 'batch'},
                          'foreground_iou_threshold': 0.3,
-                         'number_training_positives': 64,
-                         'total_training_samples': 92
+                         'number_training_positives': 128,
+                         'total_training_samples': 256,
+                         'localisation_loss_beta': 1 / 9,
                      }}
     device = torch.device(device="cpu")
     dtype = torch.float32
