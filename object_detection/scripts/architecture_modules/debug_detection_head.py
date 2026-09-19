@@ -22,14 +22,14 @@ def debug_detection_head() -> None:
     # Extract configuration specifically for scale '4' as an example
     detector_configuration = configuration.get("Detector")
     detector_head_configurations = detector_configuration["head_configurations"]
-    specific_configuration = detector_head_configurations["4"]
+    specific_configuration = detector_head_configurations["5"]
     feature_map_normalization = detector_configuration["normalization"]["feature_map_normalization"]
 
     input_image_size = 1024
     number_classes = 21  # Standard (20 objects + 1 background)
     input_channels = 64  # Output channels from the feature extraction layers
     batch_size = 2
-    roi_align_pool_size = specific_configuration.get("roi_align_pool_size", 7)
+    roi_align_pool_size = specific_configuration["roi_align_pool_size"]
 
     # Mocking the number of ROI proposals we feed into the detection head
     number_of_proposals_per_image = 500
