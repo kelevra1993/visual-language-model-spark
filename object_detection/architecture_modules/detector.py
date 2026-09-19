@@ -1,10 +1,11 @@
 import torch
 
 from typing import List, Union, Dict, Literal, Tuple, Any, Optional
+from torchvision.ops import roi_align
 from torch import nn
 
 from architecture_modules.convolution_block import ConvolutionBlock
-from utilities.model.model_utilities import  batch_assign_targets_to_proposals
+from utilities.model.model_utilities import batch_assign_targets_to_proposals
 
 
 class DetectionHead(nn.Module):
@@ -92,8 +93,7 @@ class DetectionHead(nn.Module):
         """"""
         # todo will be moved because we do it for all proposals while being together.
         # During Training
-
-
+        roi_align(input=None, boxes=None, output_size=None, spatial_scale=None, aligned=True)
 
         # Pass through the convolution block
         features = self.convolutional_block(input_tensor=input_tensor)
