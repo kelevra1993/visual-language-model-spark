@@ -155,8 +155,8 @@ Detector:
 
   foreground_iou_threshold: 0.5
   nms_iou_threshold: 0.8
-  number_training_positives: 128
-  total_training_samples: 256
+  number_training_positives: 64
+  total_training_samples: 128
 
 
 
