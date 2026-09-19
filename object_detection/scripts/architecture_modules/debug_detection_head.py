@@ -27,7 +27,7 @@ def debug_detection_head() -> None:
 
     input_image_size = 1024
     feature_map_size = 32  # Block 5 corresponds to 32x32 feature map
-    number_classes = 21  # Standard (20 objects + 1 background)
+    number_classes = configuration.get("Data").get("number_classes")
     input_channels = 64  # Output channels from the feature extraction layers
     batch_size = 2
 

@@ -19,8 +19,8 @@ def debug_model() -> None:
     the outputs of the backbone and subsequently the region proposals.
     """
 
-    number_classes = 21  # Standard (20 objects + 1 background)
     configuration, device, dtype = get_model_configuration()
+    number_classes = configuration.get("Data").get("number_classes")
 
     model = Model(configuration=configuration, mode="training", device=device, dtype=dtype)
 
