@@ -441,9 +441,9 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
                              '7': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]}
                          },
                          'normalization': {'feature_map_normalization': 'batch'},
-                         'foreground_iou_threshold': 0.5,
+                         'foreground_iou_threshold': 0.3,
                          'number_training_positives': 64,
-                         'total_training_samples': 128
+                         'total_training_samples': 92
                      }}
     device = torch.device(device="cpu")
     dtype = torch.float32

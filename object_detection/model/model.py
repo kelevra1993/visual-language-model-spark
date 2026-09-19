@@ -10,7 +10,7 @@ from utilities.model.model_utilities import assign_targets_to_anchors, batch_ass
     turn_boxes_to_transformation_targets, apply_regression_predictions, sample_positive_and_negative_training_targets, \
     batch_assign_targets_to_proposals
 from utilities.os_utilities import print_yellow
-from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
+from utilities.tensor_utilities import print_tensor_shape, print_tensor_list, print_tensor_min_max
 
 
 class Model(nn.Module):
@@ -296,7 +296,7 @@ class Model(nn.Module):
 
     def forward(self, input_tensor: torch.Tensor,
                 ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
-                ground_truth_labels: Optional[List[torch.Tensor]] = None,) -> Dict[str, Any]:
+                ground_truth_labels: Optional[List[torch.Tensor]] = None, ) -> Dict[str, Any]:
         """
         Executes the forward pass of the Model.
         
@@ -377,24 +377,26 @@ class Model(nn.Module):
                 batched_ground_truth_labels=ground_truth_labels,
                 foreground_iou_threshold=self.detector_configuration["foreground_iou_threshold"])
 
+            # Compute detection head regression targets
+            detection_regression_targets = turn_boxes_to_transformation_targets(
+                ground_truth_boxes=detector_proposal_targets,
+                predicted_boxes=filtered_boxes)
+
             # Get training samples for detection network
             sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
                 labels=detector_proposal_labels,
                 desired_positives=self.detector_configuration['number_training_positives'],
-                desired_total=self.detector_configuration['total_training_samples'])
+                desired_total=self.detector_configuration['total_training_samples'],
+                verbose=True)
 
-            # todo to be removed
-            for element in ground_truth_bounding_boxes:
-                print_tensor_shape(element)
-            print_tensor_shape(detector_proposal_targets)
-            print_tensor_shape(detector_proposal_labels)
-            print_tensor_list(detector_proposal_labels[0,:10])
-            print((set(detector_proposal_labels[0].tolist())))
-            print((set(detector_proposal_labels[1].tolist())))
-            print(100*'-')
-            print_tensor_list(ground_truth_bounding_boxes[0][:10])
-            # todo end of to be removed
-            exit()
+            sampled_mask = sampled_positive_mask | sampled_negative_mask
+
+            # todo might not need to have been done here
+            sampled_detection_proposals = filtered_boxes[sampled_mask]
+            sampled_detection_proposals_origins = filtered_origins[sampled_mask]
+            sampled_detection_labels = detector_proposal_labels[sampled_mask]
+            sampled_detection_regression_targets = detection_regression_targets[sampled_mask]
+
             # Append the assignments to the output dictionary
             model_output_dictionary["region_proposal_classification_loss"] = region_proposal_classification_loss
             model_output_dictionary["region_proposal_localisation_loss"] = region_proposal_localisation_loss

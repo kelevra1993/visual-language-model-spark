@@ -487,6 +487,8 @@ def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
 def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_positives: int, desired_total: int,
                                                   verbose: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
     """
+    # todo this is not only for anchors but also for proposals, not only for Region Proposal, but also for the detector network.
+    # todo docstring to be updated
     Randomly samples positive and negative anchors to maintain a fixed ratio during Region Proposal Network training.
 
     To prevent the classification loss from being completely overwhelmed by the massive number of background 
@@ -543,9 +545,9 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
     if verbose:
         total_positives = torch.sum(input=sampled_positive_mask, dim=1)
         total_negatives = torch.sum(input=sampled_negative_mask, dim=1)
-        print_yellow(output=f"Positive RPN Anchor Samples : {total_positives.tolist()}", indent=1)
-        print_yellow(output=f"Negative RPN Anchor Samples : {total_negatives.tolist()}", indent=1)
-        print_yellow(output=f"All Batched Anchor Samples  : {(total_negatives + total_positives).tolist()}", indent=1)
+        print_yellow(output=f"Positive Training Samples   : {total_positives.tolist()}", indent=1)
+        print_yellow(output=f"Negative Training Samples   : {total_negatives.tolist()}", indent=1)
+        print_yellow(output=f"All Batch Training Samples  : {(total_negatives + total_positives).tolist()}", indent=1)
 
     return sampled_positive_mask, sampled_negative_mask
 
