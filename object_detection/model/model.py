@@ -7,7 +7,8 @@ from typing import Dict, Any, Tuple, Literal, Optional, List
 from architecture_modules.backbone import Backbone
 from architecture_modules.region_proposer import RegionProposal, RegionProposalFilter
 from utilities.model.model_utilities import assign_targets_to_anchors, batch_assign_targets_to_anchors, \
-    turn_boxes_to_transformation_targets, apply_regression_predictions, sample_positive_and_negative_training_targets
+    turn_boxes_to_transformation_targets, apply_regression_predictions, sample_positive_and_negative_training_targets, \
+    batch_assign_targets_to_proposals
 from utilities.os_utilities import print_yellow
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
@@ -41,6 +42,7 @@ class Model(nn.Module):
         self.backbone_configuration = configuration.get('Backbone')
         self.anchors_configuration = configuration.get('Anchors')
         self.region_proposal_configuration = configuration.get('RegionProposal')
+        self.detector_configuration = configuration.get('Detector')
 
         # Get input image size
         self.input_image_size = self.data_configuration.get("image_settings").get("size")
@@ -248,6 +250,7 @@ class Model(nn.Module):
         Returns:
             Tuple[torch.Tensor, torch.Tensor]: The scalar classification loss and localisation loss.
         """
+
         # First assign targets based on ground truth bounding boxes
         # Here we consider absolutely all anchors targets based on all ground truth boxes
         region_proposal_anchor_targets, region_proposal_anchor_labels = batch_assign_targets_to_anchors(
@@ -292,7 +295,8 @@ class Model(nn.Module):
         return region_proposal_classification_loss, region_proposal_localisation_loss
 
     def forward(self, input_tensor: torch.Tensor,
-                ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
+                ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
+                ground_truth_labels: Optional[List[torch.Tensor]] = None,) -> Dict[str, Any]:
         """
         Executes the forward pass of the Model.
         
@@ -361,6 +365,36 @@ class Model(nn.Module):
                 ground_truth_bounding_boxes=ground_truth_bounding_boxes,
                 aggregated_proposals_dictionary=aggregated_proposals_dictionary)
 
+            # todo what to do if we want to also add the ground truth bounding boxes as well ?
+            #  so that the network also learns not to modify some boxes ?
+            # Later to be moved to another function
+            # First assign targets based on ground truth bounding boxes
+            # Here we consider only the filtered proposal boxes from the NMS based on all ground truth boxes
+            # TODO Find out if this is the right approach.
+            detector_proposal_targets, detector_proposal_labels = batch_assign_targets_to_proposals(
+                batched_ground_truth_boxes=ground_truth_bounding_boxes,
+                batched_proposals=filtered_boxes,
+                batched_ground_truth_labels=ground_truth_labels,
+                foreground_iou_threshold=self.detector_configuration["foreground_iou_threshold"])
+
+            # Get training samples for detection network
+            sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
+                labels=detector_proposal_labels,
+                desired_positives=self.detector_configuration['number_training_positives'],
+                desired_total=self.detector_configuration['total_training_samples'])
+
+            # todo to be removed
+            for element in ground_truth_bounding_boxes:
+                print_tensor_shape(element)
+            print_tensor_shape(detector_proposal_targets)
+            print_tensor_shape(detector_proposal_labels)
+            print_tensor_list(detector_proposal_labels[0,:10])
+            print((set(detector_proposal_labels[0].tolist())))
+            print((set(detector_proposal_labels[1].tolist())))
+            print(100*'-')
+            print_tensor_list(ground_truth_bounding_boxes[0][:10])
+            # todo end of to be removed
+            exit()
             # Append the assignments to the output dictionary
             model_output_dictionary["region_proposal_classification_loss"] = region_proposal_classification_loss
             model_output_dictionary["region_proposal_localisation_loss"] = region_proposal_localisation_loss
