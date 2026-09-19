@@ -129,7 +129,7 @@ Anchors:
     }
 
 Detector:
-  configuration:
+  head_configurations:
     {
       "4": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
       "5": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
