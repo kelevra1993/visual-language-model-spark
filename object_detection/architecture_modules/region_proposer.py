@@ -196,8 +196,49 @@ class RegionProposalFilter(nn.Module):
             boxes = boxes[proposal_post_nms_indices][:self.post_nms_filter_proposals]
             scores = scores[proposal_post_nms_indices][:self.post_nms_filter_proposals]
 
+            # Pad boxes and scores if necessary
+            boxes, scores = self._pad_proposals_to_target_size(boxes=boxes, scores=scores)
+
             filtered_boxes_list.append(boxes)
             filtered_scores_list.append(scores)
 
         # Re-stack into a single batched tensor
         return torch.stack(tensors=filtered_boxes_list, dim=0), torch.stack(tensors=filtered_scores_list, dim=0)
+
+    def _pad_proposals_to_target_size(self, boxes: torch.Tensor,
+                                      scores: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Pads the filtered bounding boxes and scores up to post_nms_filter_proposals size by duplicating 
+        valid proposals to ensure uniform tensor shapes across the batch.
+        
+        Args:
+            boxes (torch.Tensor): The remaining bounding boxes after NMS.
+            scores (torch.Tensor): The objectness scores for those boxes.
+            
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: The padded boxes and scores.
+        """
+        number_of_proposals = boxes.shape[0]
+        if number_of_proposals < self.post_nms_filter_proposals and number_of_proposals > 0:
+            # Calculate how many extra proposals we need to reach the uniform batched size
+            missing_proposals_count = self.post_nms_filter_proposals - number_of_proposals
+
+            # Sample random indices from the valid proposals to duplicate them
+            random_indices = torch.randint(low=0, high=number_of_proposals, size=(missing_proposals_count,),
+                                           device=boxes.device, dtype=torch.long)
+
+            extra_boxes = boxes[random_indices]
+            extra_scores = scores[random_indices]
+
+            # Add the extra boxes and scores
+            boxes = torch.cat(tensors=[boxes, extra_boxes], dim=0)
+            scores = torch.cat(tensors=[scores, extra_scores], dim=0)
+
+        elif number_of_proposals == 0:
+            # Extreme edge case: NMS returned zero proposals
+            dummy_boxes = torch.zeros(size=(self.post_nms_filter_proposals, 4), device=boxes.device, dtype=boxes.dtype)
+            dummy_scores = torch.zeros(size=(self.post_nms_filter_proposals,), device=scores.device, dtype=scores.dtype)
+            boxes = dummy_boxes
+            scores = dummy_scores
+
+        return boxes, scores
