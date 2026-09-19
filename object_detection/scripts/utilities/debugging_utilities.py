@@ -416,12 +416,12 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
                          'modules': {},
                          'last_max_pooling': True,
                          'normalization': {'feature_map_normalization': 'none'},
-                         'detection_convolution_block_indices': [6, 7, 8]},
+                         'detection_convolution_block_indices': [5, 6, 7]},
                      'Anchors': {
                          'scales_and_ratios': {
+                             '5': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
                              '6': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
-                             '7': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
-                             '8': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]}
+                             '7': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]}
                          }},
                      'RegionProposal': {
                          'nms_iou_threshold': 0.7,
@@ -436,11 +436,14 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
                      },
                      'Detector': {
                          'head_configurations': {
-                             '4': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]},
                              '5': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]},
-                             '6': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]}
+                             '6': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]},
+                             '7': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]}
                          },
-                         'normalization': {'feature_map_normalization': 'batch'}
+                         'normalization': {'feature_map_normalization': 'batch'},
+                         'foreground_iou_threshold': 0.5,
+                         'number_training_positives': 64,
+                         'total_training_samples': 128
                      }}
     device = torch.device(device="cpu")
     dtype = torch.float32
@@ -596,6 +599,7 @@ def get_assignment_debugger_input(batch_size: int, device: torch.device, dtype: 
 
     return reference_boxes, ground_truth_boxes, ground_truth_labels
 
+
 def visualize_proposal_target_assignments(ground_truth_bounding_boxes: List[torch.Tensor],
                                           batched_target_ground_truth_boxes: torch.Tensor,
                                           batched_labels: torch.Tensor,
@@ -623,19 +627,19 @@ def visualize_proposal_target_assignments(ground_truth_bounding_boxes: List[torc
     import torch
     from utilities.model.model_utilities import get_intersection_over_union, add_bounding_boxes
     from utilities.os_utilities import print_green, print_red
-    
+
     batch_size = batched_proposals.shape[0]
 
     for batch_index in range(batch_size):
         original_ground_truth_boxes = ground_truth_bounding_boxes[batch_index]
-        
+
         target_ground_truth_boxes = batched_target_ground_truth_boxes[batch_index]
         labels = batched_labels[batch_index]
         proposals = batched_proposals[batch_index]
 
         for proposal_index, (proposal, target_ground_truth, label) in enumerate(
                 zip(proposals, target_ground_truth_boxes, labels)):
-                
+
             canvas = np.zeros(shape=(input_image_size, input_image_size, 3), dtype=np.uint8)
 
             # Draw the proposal bounding box in blue
