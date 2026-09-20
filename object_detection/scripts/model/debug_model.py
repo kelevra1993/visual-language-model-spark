@@ -22,7 +22,7 @@ def debug_model() -> None:
     configuration, device, dtype = get_model_configuration()
     number_classes = configuration.get("Data").get("number_classes")
 
-    model = Model(configuration=configuration, mode="training", device=device, dtype=dtype)
+    model = Model(configuration=configuration, mode="training", device=device, dtype=dtype, verbose=True)
 
     print_green(output="Model Configuration + Instantiation Done!", add_separators=True)
     model.print_summary()
@@ -34,7 +34,7 @@ def debug_model() -> None:
                                                                configuration=configuration,
                                                                device=device,
                                                                dtype=dtype)
-                                                               
+
     ground_truth_labels = get_dummy_ground_truth_labels(ground_truth_boxes=ground_truth_bounding_boxes,
                                                         number_classes=number_classes,
                                                         device=device,
@@ -52,7 +52,7 @@ def debug_model() -> None:
     for index, boxes in enumerate(ground_truth_bounding_boxes):
         print_tensor_shape(tensor=boxes, name=f"ground_truth_boxes_image_{index}", indent=1)
 
-    model_output_dictionary = model(input_tensor=input_tensor, 
+    model_output_dictionary = model(input_tensor=input_tensor,
                                     ground_truth_bounding_boxes=ground_truth_bounding_boxes,
                                     ground_truth_labels=ground_truth_labels)
 
