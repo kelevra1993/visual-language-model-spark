@@ -11,10 +11,9 @@ from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
 class DetectionHead(nn.Module):
     def __init__(self, detector_configuration: Dict[str, Any], number_classes: int, input_channels: int,
-                 mode: Literal["training", "inference"], feature_map_normalization: str,
-                 input_image_size: int, feature_map_size: int, dtype: torch.dtype, device: torch.device) -> None:
+                 feature_map_normalization: str, input_image_size: int, feature_map_size: int, dtype: torch.dtype,
+                 device: torch.device) -> None:
         """
-        todo update the documentation with the mode of the detection head
         Initializes the Detection Head module for a specific feature map scale.
         
         This module receives pooled features from the ROI Align layer and processes them through
@@ -31,7 +30,6 @@ class DetectionHead(nn.Module):
         """
         super(DetectionHead, self).__init__()
 
-        self.mode = mode
         self.dtype = dtype
         self.device = device
         self.number_classes = number_classes
@@ -111,7 +109,7 @@ class DetectionHead(nn.Module):
             tensor_to_concatenate (Optional[torch.Tensor]): Optional tensor to concatenate.
             
         Returns:
-            Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]: A tuple containing:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
                 - classification_scores (torch.Tensor): The predicted class logits of shape [K, number_classes].
                 - box_regressions (torch.Tensor): The predicted bounding box regressions of shape [K, number_classes, 4].
                 - detection_boxes (torch.Tensor): The final bounding box coordinates after
