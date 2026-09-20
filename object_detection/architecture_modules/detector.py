@@ -35,29 +35,30 @@ class DetectionHead(nn.Module):
         self.number_classes = number_classes
         self.input_image_size = input_image_size
         self.feature_map_size = feature_map_size
+        self.feature_map_normalization = feature_map_normalization
 
         # The spatial scale is the ratio used by RoIAlign to map coordinates from the original 
         # input image space down into the downsampled feature map coordinate space (e.g., 32 / 1024 = 1/32)
         self.spatial_scale = self.feature_map_size / self.input_image_size
         self.roi_align_pool_size = detector_configuration["roi_align_pool_size"]
 
-        convolution_number_layers = detector_configuration["convolutions"][0]
+        self.convolution_number_layers = detector_configuration["convolutions"][0]
         convolution_output_channels = detector_configuration["convolutions"][1]
-        fully_connected_dimensions = detector_configuration["fully_connected"]
+        self.fully_connected_dimensions = detector_configuration["fully_connected"]
 
         # Convolutional feature extraction block
         self.convolutional_block = ConvolutionBlock(
             input_channels=input_channels, output_channels=convolution_output_channels,
-            bias=True, number_layers=convolution_number_layers,
+            bias=True, number_layers=self.convolution_number_layers,
             kernel_size=3, stride=1, padding=1,
-            feature_map_normalization=feature_map_normalization,
+            feature_map_normalization=self.feature_map_normalization,
             activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype)
 
         # Fully connected layers
         flattened_dimension = self.roi_align_pool_size * self.roi_align_pool_size * convolution_output_channels
         self.fully_connected_block = self._build_fully_connected_block(
             input_dimension=flattened_dimension,
-            dimensions=fully_connected_dimensions)
+            dimensions=self.fully_connected_dimensions)
 
         # Final task-specific output layers
         # Object classification layer (outputs un-normalized logits for number_classes)
