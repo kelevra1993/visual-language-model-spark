@@ -5,8 +5,8 @@ from torchvision.ops import roi_align
 from torch import nn
 
 from architecture_modules.convolution_block import ConvolutionBlock
-from utilities.model.model_utilities import batch_assign_targets_to_proposals
-from utilities.tensor_utilities import print_tensor_shape
+from utilities.model.model_utilities import batch_assign_targets_to_proposals, apply_regression_predictions
+from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
 
 class DetectionHead(nn.Module):
@@ -94,7 +94,8 @@ class DetectionHead(nn.Module):
         return nn.Sequential(*fully_connected_layers)
 
     def forward(self, proposal_boxes: torch.Tensor, input_tensor: torch.Tensor,
-                tensor_to_concatenate: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+                tensor_to_concatenate: Optional[torch.Tensor] = None) -> Tuple[
+        torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Executes the forward pass of the Detection Head.
         
@@ -110,9 +111,11 @@ class DetectionHead(nn.Module):
             tensor_to_concatenate (Optional[torch.Tensor]): Optional tensor to concatenate.
             
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+            Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]: A tuple containing:
                 - classification_scores (torch.Tensor): The predicted class logits of shape [K, number_classes].
                 - box_regressions (torch.Tensor): The predicted bounding box regressions of shape [K, number_classes, 4].
+                - detection_boxes (torch.Tensor): The final bounding box coordinates after
+                 applying regression offsets of shape [K, number_classes, 4].
         """
 
         # 1. RoIAlign: Extract and pool features for each proposal
@@ -148,4 +151,10 @@ class DetectionHead(nn.Module):
         number_boxes = box_regressions.shape[0]
         box_regressions = box_regressions.reshape(number_boxes, self.number_classes, 4)
 
-        return classification_scores, box_regressions
+        # The proposal_boxes have shape [K, 5] where the first column is the batch index.
+        # We slice [:, 1:] to extract the [K, 4] bounding box coordinates.
+        detection_boxes = apply_regression_predictions(
+            regression_predictions=box_regressions.detach(),
+            boxes=proposal_boxes[:, 1:])
+
+        return classification_scores, box_regressions, detection_boxes

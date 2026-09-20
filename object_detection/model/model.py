@@ -297,6 +297,7 @@ class Model(nn.Module):
                 - "classification_scores" (torch.Tensor): Shape [total_proposals, number_classes]
                 - "box_regressions" (torch.Tensor): Shape [total_proposals, number_classes, 4]
                 - "sliced_proposals" (torch.Tensor): Shape [total_proposals, 5]
+                - "sliced_batch_indices" (torch.Tensor): Shape [total_proposals, 1]
                 - "sliced_labels" (Optional[torch.Tensor]): Shape [total_proposals] (only in training)
                 - "sliced_regression_targets" (Optional[torch.Tensor]): Shape [total_proposals, 4] (only in training)
         """
@@ -305,11 +306,15 @@ class Model(nn.Module):
         aggregated_labels = []
         aggregated_regression_targets = []
         aggregated_proposals = []
+        aggregated_detection_boxes = []
+        aggregated_batch_indices = []
 
         for detection_index_string, predictions in detection_output_dictionary.items():
             aggregated_scores.append(predictions["classification_scores"])
             aggregated_regressions.append(predictions["box_regressions"])
             aggregated_proposals.append(predictions["sliced_proposals"])
+            aggregated_batch_indices.append(predictions["sliced_batch_indices"])
+            aggregated_detection_boxes.append(predictions["detection_boxes"])
 
             if self.mode == "training":
                 aggregated_labels.append(predictions["sliced_labels"])
@@ -318,11 +323,12 @@ class Model(nn.Module):
         return {
             "classification_scores": torch.cat(tensors=aggregated_scores, dim=0),
             "box_regressions": torch.cat(tensors=aggregated_regressions, dim=0),
+            "detection_boxes": torch.cat(tensors=aggregated_detection_boxes, dim=0),
+            "sliced_batch_indices": torch.cat(tensors=aggregated_batch_indices, dim=0),
             "sliced_proposals": torch.cat(tensors=aggregated_proposals, dim=0),
             "sliced_labels": torch.cat(tensors=aggregated_labels, dim=0) if self.mode == "training" else None,
             "sliced_regression_targets": torch.cat(tensors=aggregated_regression_targets,
-                                                   dim=0) if self.mode == "training" else None
-        }
+                                                   dim=0) if self.mode == "training" else None}
 
     def _compute_region_proposal_losses(self, ground_truth_bounding_boxes: List[torch.Tensor],
                                         aggregated_proposals_dictionary: Dict[str, torch.Tensor]) -> Tuple[
@@ -431,7 +437,7 @@ class Model(nn.Module):
                                  ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                                  ground_truth_labels: Optional[List[torch.Tensor]] = None,
                                  verbose: bool = False
-                                 ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+                                 ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], torch.Tensor]:
         """
         Prepares the formatted inputs required by the Detection Head's RoIAlign and loss functions.
         
@@ -451,6 +457,7 @@ class Model(nn.Module):
                 - detection_proposals_origins (torch.Tensor): Origins of shape [K].
                 - detection_labels (Optional[torch.Tensor]): Assigned ground truth labels of shape [K].
                 - detection_regression_targets (Optional[torch.Tensor]): Target regressions of shape [K, 4].
+                - detection_batch_indices (torch.Tensor): The batch indices for each valid proposal of shape [K, 1].
         """
         batch_size, num_proposals, _ = filtered_boxes.shape
 
@@ -483,11 +490,11 @@ class Model(nn.Module):
             sampled_mask = sampled_positive_mask | sampled_negative_mask
 
             # Apply the mask, extracting only the valid elements across the entire batch (flattening them)
-            sampled_batch_indices = batch_indices[sampled_mask].unsqueeze(dim=-1)
+            detection_batch_indices = batch_indices[sampled_mask].unsqueeze(dim=-1)
             sampled_boxes = filtered_boxes[sampled_mask]
 
             # Concatenate the batch indices as the first column to create the [K, 5] tensor expected by RoIAlign
-            detection_proposals = torch.cat(tensors=[sampled_batch_indices, sampled_boxes], dim=-1)
+            detection_proposals = torch.cat(tensors=[detection_batch_indices, sampled_boxes], dim=-1)
             detection_proposals_origins = filtered_origins[sampled_mask]
 
             detection_labels = detector_proposal_labels[sampled_mask]
@@ -495,10 +502,10 @@ class Model(nn.Module):
 
         else:
             # During inference, simply flatten the valid proposals and prepend the batch indices
-            flattened_batch_indices = batch_indices.reshape(-1).unsqueeze(dim=-1)
+            detection_batch_indices = batch_indices.reshape(-1).unsqueeze(dim=-1)
             flattened_boxes = filtered_boxes.reshape(-1, 4)
 
-            detection_proposals = torch.cat(tensors=[flattened_batch_indices, flattened_boxes], dim=-1)
+            detection_proposals = torch.cat(tensors=[detection_batch_indices, flattened_boxes], dim=-1)
             detection_proposals_origins = filtered_origins.reshape(-1)
 
             detection_labels = None
@@ -513,7 +520,8 @@ class Model(nn.Module):
                 print_tensor_shape(detection_labels, indent=1)
                 print_tensor_shape(detection_regression_targets, indent=1)
 
-        return detection_proposals, detection_proposals_origins, detection_labels, detection_regression_targets
+        return (detection_proposals, detection_proposals_origins, detection_labels, detection_regression_targets,
+                detection_batch_indices)
 
     def _forward_region_proposals(
             self, backbone_output_tensor_dictionary: Dict[str, torch.Tensor]) -> Dict[str, Dict[str, torch.Tensor]]:
@@ -547,6 +555,7 @@ class Model(nn.Module):
             backbone_output_tensor_dictionary: Dict[str, torch.Tensor],
             detection_proposals: torch.Tensor,
             detection_proposals_origins: torch.Tensor,
+            detection_batch_indices: torch.Tensor,
             detection_labels: Optional[torch.Tensor] = None,
             detection_regression_targets: Optional[torch.Tensor] = None
     ) -> Dict[str, Any]:
@@ -557,6 +566,7 @@ class Model(nn.Module):
             backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps.
             detection_proposals (torch.Tensor): Formatted proposals of shape [K, 5] (batch_index + coords).
             detection_proposals_origins (torch.Tensor): Origins of shape [K].
+            detection_batch_indices (torch.Tensor): Batch indices of shape [K, 1].
             detection_labels (Optional[torch.Tensor]): Target labels for training of shape [K].
             detection_regression_targets (Optional[torch.Tensor]): Target regressions for training of shape [K, 4].
             
@@ -571,6 +581,7 @@ class Model(nn.Module):
 
             # Slice the valid proposals for this particular scale
             scale_proposals = detection_proposals[scale_indices]
+            scale_batch_indices = detection_batch_indices[scale_indices]
 
             # Slice the labels and regression targets if they are provided (training mode)
             scale_labels = detection_labels[scale_indices] if detection_labels is not None else None
@@ -581,13 +592,15 @@ class Model(nn.Module):
             detection_head = self.detector_heads_dictionary[detection_index_string]
 
             # Execute the forward pass to get the classification logits and bounding box regressions
-            classification_scores, box_regressions = detection_head(proposal_boxes=scale_proposals,
-                                                                    input_tensor=feature_map_tensor)
+            classification_scores, box_regressions, detection_boxes = detection_head(proposal_boxes=scale_proposals,
+                                                                                     input_tensor=feature_map_tensor)
 
             # Store the computed tensors and the sliced ground truth targets for later loss computation
             detection_output_dictionary[detection_index_string] = {
                 "classification_scores": classification_scores,
                 "box_regressions": box_regressions,
+                "detection_boxes": detection_boxes,
+                "sliced_batch_indices": scale_batch_indices,
                 "sliced_labels": scale_labels,
                 "sliced_regression_targets": scale_regression_targets,
                 "sliced_proposals": scale_proposals}
@@ -640,7 +653,8 @@ class Model(nn.Module):
 
         # Prepare the filtered proposals to be safely digested by the Detection Head's RoIAlign
         (detection_proposals, detection_proposals_origins,
-         detection_labels, detection_regression_targets) = self._prepare_detector_inputs(
+         detection_labels, detection_regression_targets,
+         detection_batch_indices) = self._prepare_detector_inputs(
             filtered_boxes=filtered_boxes,
             filtered_origins=filtered_origins,
             ground_truth_bounding_boxes=ground_truth_bounding_boxes,
@@ -652,6 +666,7 @@ class Model(nn.Module):
             backbone_output_tensor_dictionary=backbone_output_tensor_dictionary,
             detection_proposals=detection_proposals,
             detection_proposals_origins=detection_proposals_origins,
+            detection_batch_indices=detection_batch_indices,
             detection_labels=detection_labels,
             detection_regression_targets=detection_regression_targets)
 
@@ -670,7 +685,8 @@ class Model(nn.Module):
                                    "detection_proposals": detection_proposals,
                                    "detection_proposals_origins": detection_proposals_origins,
                                    "detection_labels": detection_labels,
-                                   "detection_regression_targets": detection_regression_targets}
+                                   "detection_regression_targets": detection_regression_targets,
+                                   "detection_batch_indices": detection_batch_indices}
 
         # Train -> Loss Computation :
         # - For Region Proposal
@@ -686,8 +702,9 @@ class Model(nn.Module):
             (detection_classification_loss, detection_regression_loss) = self._compute_detection_losses(
                 aggregated_detections_dictionary=aggregated_detections_dictionary)
 
-            # todo what to do if we want to also add the ground truth bounding boxes as well ?
+            # todo Consider adding the ground truth bounding boxes as well ?
             #  so that the network also learns not to modify some boxes ?
+            #  would be easy to implement since we would be using lists ?
 
             # Append the assignments to the output dictionary
             model_output_dictionary["region_proposal_classification_loss"] = region_proposal_classification_loss
