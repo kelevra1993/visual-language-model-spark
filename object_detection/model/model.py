@@ -20,7 +20,7 @@ class Model(nn.Module):
     region proposal, and detector modules based on the configuration.
     """
 
-    def __init__(self, configuration: Dict[str, Any], mode: Literal["training", "inference"],
+    def __init__(self, configuration: Dict[str, Any], mode: Literal["training", "inference"], verbose: bool = True,
                  device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Initializes the Model components.
@@ -37,6 +37,7 @@ class Model(nn.Module):
         self.device = device
         self.dtype = dtype
         self.mode = mode
+        self.verbose = verbose
 
         # Get configuration for each component of our model
         self.data_configuration = configuration.get('Data')
@@ -298,6 +299,7 @@ class Model(nn.Module):
                 - "box_regressions" (torch.Tensor): Shape [total_proposals, number_classes, 4]
                 - "sliced_proposals" (torch.Tensor): Shape [total_proposals, 5]
                 - "sliced_batch_indices" (torch.Tensor): Shape [total_proposals, 1]
+                - "detection_boxes" (Optional[torch.Tensor]): Shape [total_proposals, number_classes, 4]
                 - "sliced_labels" (Optional[torch.Tensor]): Shape [total_proposals] (only in training)
                 - "sliced_regression_targets" (Optional[torch.Tensor]): Shape [total_proposals, 4] (only in training)
         """
@@ -329,6 +331,57 @@ class Model(nn.Module):
             "sliced_labels": torch.cat(tensors=aggregated_labels, dim=0) if self.mode == "training" else None,
             "sliced_regression_targets": torch.cat(tensors=aggregated_regression_targets,
                                                    dim=0) if self.mode == "training" else None}
+
+    def _rearrange_predictions_by_batch(self, batch_size: int, detection_batch_indices: torch.Tensor,
+                                        prediction_tensors_dictionary: Dict[str, Optional[torch.Tensor]],
+                                        verbose: bool = False,
+                                        ) -> Dict[str, Optional[torch.Tensor]]:
+        """
+        Re-arranges the flattened network predictions back into a batched list format.
+        
+        This method groups the predicted class scores, box regressions, and final bounding 
+        boxes by their original batch index. This is particularly useful during inference 
+        or metric calculation, where predictions need to be associated with their specific 
+        input images.
+        
+        Args:
+            batch_size (int): The total number of images in the batch.
+            detection_batch_indices (torch.Tensor): The batch indices mapping each proposal to an image. Shape: [K, 1] or [K].
+            prediction_tensors_dictionary (Dict[str, Optional[torch.Tensor]]): A dictionary containing 
+                                            the flattened prediction tensors (e.g., classification_scores, detection_boxes).
+                                            Each valid tensor must have a first dimension of size K.
+            verbose (bool): If True, prints a structural summary of the resulting rearranged tensors. Defaults to False.
+                                            
+        Returns:
+            Dict[str, Optional[torch.Tensor]]: A dictionary where each key maps to a batched tensor of shape `[batch_size, ...]`, 
+                                           containing the predictions for each specific image.
+        """
+
+        tensor_names = ["classification_scores", "box_regressions", "detection_boxes"]
+        rearranged_predictions = {key: [] for key in tensor_names}
+
+        # Squeeze the indices since they are of shape [K, 1]
+        squeezed_indices = detection_batch_indices.squeeze(dim=-1)
+
+        for batch_index in range(batch_size):
+            # Find the indices of the proposals that belong to the current image
+            image_indices = torch.where(squeezed_indices == batch_index)[0]
+
+            for tensor_name, tensor_data in prediction_tensors_dictionary.items():
+                if tensor_data is not None and tensor_name in tensor_names:
+                    rearranged_predictions[tensor_name].append(tensor_data[image_indices])
+
+        # Stack the lists into batched tensors
+        for tensor_name, tensor_list in rearranged_predictions.items():
+            if tensor_list is not None and len(tensor_list) > 0:
+                rearranged_predictions[tensor_name] = torch.stack(tensors=tensor_list, dim=0)
+
+        if verbose:
+            print_yellow(f"Re-Arranged Detection Output Information", add_separators=True)
+            for tensor_name, tensor_value in rearranged_predictions.items():
+                print_tensor_shape(tensor_value, tensor_name, indent=1)
+
+        return rearranged_predictions
 
     def _compute_region_proposal_losses(self, ground_truth_bounding_boxes: List[torch.Tensor],
                                         aggregated_proposals_dictionary: Dict[str, torch.Tensor]) -> Tuple[
@@ -437,7 +490,8 @@ class Model(nn.Module):
                                  ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                                  ground_truth_labels: Optional[List[torch.Tensor]] = None,
                                  verbose: bool = False
-                                 ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], torch.Tensor]:
+                                 ) -> Tuple[
+        torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], torch.Tensor]:
         """
         Prepares the formatted inputs required by the Detection Head's RoIAlign and loss functions.
         
@@ -450,6 +504,7 @@ class Model(nn.Module):
             filtered_origins (torch.Tensor): The detection scale origins of the proposals of shape [Batch, Num_Proposals].
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List of ground truth bounding boxes.
             ground_truth_labels (Optional[List[torch.Tensor]]): List of ground truth class labels.
+            verbose (bool): If True, prints a structural summary of the generated inputs. Defaults to False.
             
         Returns:
             Tuple containing:
@@ -485,7 +540,7 @@ class Model(nn.Module):
                 labels=detector_proposal_labels,
                 desired_positives=self.detector_configuration['number_training_positives'],
                 desired_total=self.detector_configuration['total_training_samples'],
-                verbose=False)
+                verbose=self.verbose)
 
             sampled_mask = sampled_positive_mask | sampled_negative_mask
 
@@ -611,22 +666,22 @@ class Model(nn.Module):
                 ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                 ground_truth_labels: Optional[List[torch.Tensor]] = None, ) -> Dict[str, Any]:
         """
-        todo add ground truth labels in docstring.
         Executes the forward pass of the Model.
         
         Args:
             input_tensor (torch.Tensor): The raw input image tensor.
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List containing ground truth boxes per image.
+            ground_truth_labels (Optional[List[torch.Tensor]]): List containing ground truth labels per image.
             
         Returns:
             Dict[str, Any]: A unified dictionary containing:
-                - "final_backbone_tensor": The final backbone output tensor.
-                - "backbone_output_tensor_dictionary": Detection indices to intermediate feature maps.
-                - "region_proposal_output_tensor_dictionary": Predictions per detection scale.
-                - "aggregated_proposals_dictionary": Flattened anchors and proposals across all scales.
-                - "filtered_proposals_dictionary": The final filtered proposal boxes and their scores.
-                - "batched_target_ground_truth_boxes" (if training): The matched ground truth boxes for each anchor.
-                - "batched_labels" (if training): The foreground/background assignments for each anchor.
+                - "classification_scores": Batched tensor of class logits per image.
+                - "box_regressions": Batched tensor of bounding box regression offsets per image.
+                - "detection_boxes": Batched tensor of final absolute bounding box coordinates per image.
+                - "region_proposal_classification_loss" (if training): RPN classification loss.
+                - "region_proposal_localisation_loss" (if training): RPN regression loss.
+                - "detection_classification_loss" (if training): Detection Head classification loss.
+                - "detection_regression_loss" (if training): Detection Head regression loss.
         """
         # Pass the raw image through the backbone to extract the multiscale feature maps
         final_backbone_tensor, backbone_output_tensor_dictionary = self.backbone(input_tensor=input_tensor)
@@ -659,7 +714,7 @@ class Model(nn.Module):
             filtered_origins=filtered_origins,
             ground_truth_bounding_boxes=ground_truth_bounding_boxes,
             ground_truth_labels=ground_truth_labels,
-            verbose=False)
+            verbose=self.verbose)
 
         # Route the formatted proposals to their appropriate detection heads to compute final box scores and regressions
         detection_output_tensor_dictionary = self._forward_detections(
@@ -675,18 +730,12 @@ class Model(nn.Module):
             detection_output_dictionary=detection_output_tensor_dictionary)
 
         # Package the outputs into a unified dictionary for clean extraction
-        model_output_dictionary = {"final_backbone_tensor": final_backbone_tensor,
-                                   "backbone_output_tensor_dictionary": backbone_output_tensor_dictionary,
-                                   "region_proposal_output_tensor_dictionary": region_proposal_output_tensor_dictionary,
-                                   "aggregated_proposals_dictionary": aggregated_proposals_dictionary,
-                                   "filtered_proposal_boxes": filtered_boxes,
-                                   "filtered_proposal_scores": filtered_scores,
-                                   "filtered_proposal_origins": filtered_origins,
-                                   "detection_proposals": detection_proposals,
-                                   "detection_proposals_origins": detection_proposals_origins,
-                                   "detection_labels": detection_labels,
-                                   "detection_regression_targets": detection_regression_targets,
-                                   "detection_batch_indices": detection_batch_indices}
+        # Rearrange the flattened detections back into a batched list format
+        model_output_dictionary = self._rearrange_predictions_by_batch(
+            batch_size=input_tensor.shape[0],
+            detection_batch_indices=aggregated_detections_dictionary["sliced_batch_indices"],
+            prediction_tensors_dictionary=aggregated_detections_dictionary,
+            verbose=self.verbose)
 
         # Train -> Loss Computation :
         # - For Region Proposal
