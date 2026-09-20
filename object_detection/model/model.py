@@ -20,7 +20,7 @@ class Model(nn.Module):
     region proposal, and detector modules based on the configuration.
     """
 
-    def __init__(self, configuration: Dict[str, Any], mode: Literal["training", "inference"], verbose: bool = True,
+    def __init__(self, configuration: Dict[str, Any], mode: Literal["training", "inference"], verbose: bool = False,
                  device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Initializes the Model components.
@@ -768,11 +768,12 @@ class Model(nn.Module):
         Prints a structural summary of the overarching Model architecture.
         
         This method delegates to the underlying Backbone to print its layer-by-layer 
-        spatial dimension summary, and then prints the Region Proposal summary,
-        ensuring the structural integrity of the visual pipeline.
+        spatial dimension summary, then prints the Region Proposal summary, and finally 
+        the Detection summary, ensuring the structural integrity of the visual pipeline.
         """
         self.backbone.print_summary()
         self.print_region_proposal_summary()
+        self.print_detection_summary()
 
     def print_region_proposal_summary(self) -> None:
         """
@@ -808,4 +809,38 @@ class Model(nn.Module):
         summary_text += f"[bold blue]Total Network Anchors: {self.number_anchors}[/bold blue]"
 
         panel = Panel(summary_text, title="[bold]Region Proposal Architecture[/bold]", border_style="yellow")
+        console.print(panel)
+
+    def print_detection_summary(self) -> None:
+        """
+        Prints a structural summary of the Detection Network components.
+        
+        This summary leverages rich panels to cleanly display the feature map size, the RoI Align 
+        pool size, and the spatial scale used for RoI pooling across each configured Detection block.
+        """
+        console = Console(width=60)
+
+        # Initialize the textual representation of the architecture,
+        # including the applied normalization strategy prominently
+        summary_text = (f"[bold]Normalization Strategy:[/bold]"
+                        f" {str(object=self.detector_configuration["normalization"]["feature_map_normalization"]).capitalize()}\n\n")
+
+        for index_string, detection_head in self.detector_heads_dictionary.items():
+            convolution_layers = detection_head.convolution_number_layers
+            fully_connected_layers = detection_head.fully_connected_dimensions
+            feature_map_size = detection_head.feature_map_size
+            roi_align_pool_size = detection_head.roi_align_pool_size
+            spatial_scale = detection_head.spatial_scale
+
+            summary_text += f"[bold]Detection Block {index_string}[/bold]\n"
+            summary_text += f"  - Convolution Layers : {convolution_layers}\n"
+            summary_text += f"  - Fully Conn. Layers : {fully_connected_layers}\n"
+            summary_text += f"  - Feature Map Size   : [{feature_map_size}, {feature_map_size}]\n"
+            summary_text += f"  - RoI Align Pool     : [{roi_align_pool_size}, {roi_align_pool_size}]\n"
+            summary_text += f"  - Spatial Scale      : {spatial_scale:.4f}\n\n"
+
+        if summary_text.endswith("\n\n"):
+            summary_text = summary_text[:-2]
+
+        panel = Panel(summary_text, title="[bold]Detection Architecture[/bold]", border_style="green")
         console.print(panel)
