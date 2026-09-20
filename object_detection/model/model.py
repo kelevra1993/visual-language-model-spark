@@ -173,7 +173,6 @@ class Model(nn.Module):
             detector_heads_dictionary[index_string] = DetectionHead(detector_configuration=specific_configuration,
                                                                     number_classes=self.number_classes,
                                                                     input_channels=input_channels,
-                                                                    mode=self.mode,
                                                                     feature_map_normalization=feature_map_normalization,
                                                                     input_image_size=self.input_image_size,
                                                                     feature_map_size=feature_map_size,
