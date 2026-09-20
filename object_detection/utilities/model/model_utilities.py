@@ -189,6 +189,12 @@ def get_box_dimensions_and_centers(boxes: torch.Tensor) -> Tuple[
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing the 
         widths, heights, center_x, and center_y tensors, respectively.
     """
+    # Check that the last dimension is of shape 4 if not raise an error
+    if boxes.shape[-1] != 4:
+        print_tensor_shape(boxes)
+        print_red(f"Unexpected Tensor Shape For Boxes, The Last Dimension Is {boxes.shape[-1]} Instead Of 4")
+        exit()
+
     # Get the width, height, x_center and y_center from the boxes using ellipsis to handle optional batch dimensions
     boxes_widths = boxes[..., 2] - boxes[..., 0]
     boxes_heights = boxes[..., 3] - boxes[..., 1]
