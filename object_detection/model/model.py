@@ -20,23 +20,22 @@ class Model(nn.Module):
     region proposal, and detector modules based on the configuration.
     """
 
-    def __init__(self, configuration: Dict[str, Any], mode: Literal["training", "inference"], verbose: bool = False,
+    def __init__(self, configuration: Dict[str, Any], verbose: bool = False,
                  device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
         Initializes the Model components.
         
         Args:
             configuration (Dict[str, Any]): The complete configuration dictionary for the experiment.
-            mode (Literal["training", "inference"]): The execution mode of the model.
+            verbose (bool): If True, prints a structural summary of the instantiated model architecture. Defaults to False.
             device (torch.device): The device for parameter allocation.
             dtype (torch.dtype): The data type for parameter allocation.
         """
         super(Model, self).__init__()
 
-        # Assign device, dtype, and mode globally for the model
+        # Assign device and dtype globally for the model
         self.device = device
         self.dtype = dtype
-        self.mode = mode
         self.verbose = verbose
 
         # Get configuration for each component of our model
@@ -214,7 +213,7 @@ class Model(nn.Module):
         Returns:
             RegionProposalFilter: The initialized module for filtering bounding box proposals.
         """
-        region_proposal_filter = RegionProposalFilter(configuration=region_proposal_configuration, mode=self.mode)
+        region_proposal_filter = RegionProposalFilter(configuration=region_proposal_configuration, )
 
         return region_proposal_filter
 
@@ -317,7 +316,7 @@ class Model(nn.Module):
             aggregated_batch_indices.append(predictions["sliced_batch_indices"])
             aggregated_detection_boxes.append(predictions["detection_boxes"])
 
-            if self.mode == "training":
+            if self.training:
                 aggregated_labels.append(predictions["sliced_labels"])
                 aggregated_regression_targets.append(predictions["sliced_regression_targets"])
 
@@ -327,9 +326,9 @@ class Model(nn.Module):
             "detection_boxes": torch.cat(tensors=aggregated_detection_boxes, dim=0),
             "sliced_batch_indices": torch.cat(tensors=aggregated_batch_indices, dim=0),
             "sliced_proposals": torch.cat(tensors=aggregated_proposals, dim=0),
-            "sliced_labels": torch.cat(tensors=aggregated_labels, dim=0) if self.mode == "training" else None,
+            "sliced_labels": torch.cat(tensors=aggregated_labels, dim=0) if self.training else None,
             "sliced_regression_targets": torch.cat(tensors=aggregated_regression_targets,
-                                                   dim=0) if self.mode == "training" else None}
+                                                   dim=0) if self.training else None}
 
     def _rearrange_predictions_by_batch(self, batch_size: int, detection_batch_indices: torch.Tensor,
                                         prediction_tensors_dictionary: Dict[str, Optional[torch.Tensor]],
@@ -519,7 +518,7 @@ class Model(nn.Module):
         batch_indices = torch.arange(start=0, end=batch_size, device=self.device,
                                      dtype=self.dtype).view(-1, 1).expand(batch_size, num_proposals)
 
-        if self.mode == "training" and ground_truth_bounding_boxes is not None:
+        if self.training and ground_truth_bounding_boxes is not None:
             # First assign targets based on ground truth bounding boxes
             # Here we consider only the filtered proposal boxes from the NMS based on all ground truth boxes
             # TODO Find out if this is the right approach.
@@ -570,7 +569,7 @@ class Model(nn.Module):
             print_yellow("Detector Information", add_separators=True)
             print_tensor_shape(detection_proposals, indent=1)
             print_tensor_shape(detection_proposals_origins, indent=1)
-            if self.mode == "training":
+            if self.training:
                 print_tensor_shape(detection_labels, indent=1)
                 print_tensor_shape(detection_regression_targets, indent=1)
 
@@ -747,7 +746,7 @@ class Model(nn.Module):
         # Train -> Loss Computation :
         # - For Region Proposal
         # - For Detection
-        if self.mode == "training" and ground_truth_bounding_boxes is not None:
+        if self.training and ground_truth_bounding_boxes is not None:
             # Region Proposal Losses
             (region_proposal_classification_loss,
              region_proposal_localisation_loss) = self._compute_region_proposal_losses(
