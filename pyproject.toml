@@ -12,6 +12,7 @@ dependencies = [
     "opencv-python>=5.0.0.93",
     "torchvision>=0.29.0",
     "fiftyone>=1.22.0",
+    "tensorboard>=2.21.0",
 ]
 
 [tool.pytest.ini_options]
