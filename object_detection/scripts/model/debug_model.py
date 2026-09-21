@@ -22,7 +22,7 @@ def debug_model() -> None:
     configuration, device, dtype = get_model_configuration()
     number_classes = configuration.get("Data").get("number_classes")
 
-    model = Model(configuration=configuration, mode="training", device=device, dtype=dtype, verbose=True)
+    model = Model(configuration=configuration, device=device, dtype=dtype, verbose=True)
 
     print_green(output="Model Configuration + Instantiation Done!", add_separators=True)
     model.print_summary()
