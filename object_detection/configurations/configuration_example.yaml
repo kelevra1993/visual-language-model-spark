@@ -1,6 +1,6 @@
 ExperimentConfiguration:
   # Directory where experiment artifacts, weights, and logs are saved.
-  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/backbone_experiment"
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/poseidon_experiment"
   # Root directory containing the dataset images.
   data_folder: ""
   # JSON file containing the training dataset split.
@@ -39,10 +39,12 @@ ExperimentConfiguration:
 Data:
   image_settings:
     # Target resolution to resize all input images.
-    size: 300
+    size: 1024
     # Flag to maintain the original aspect ratio when resizing.
     keep_ratio: True
-  number_classes: 21 # Here we also count the background as the first class
+  label_dictionary: # Always start with background as 0.
+    background: 0
+    foreground: 1
   data_augmentation:
     # Global switch to enable or disable all data augmentation.
     activated: False
@@ -122,6 +124,15 @@ Backbone:
 
 # Careful because here the number of proposals seems to be global
 RegionProposal:
+  head_configurations:
+    {
+      "5": [2, 64 ],
+      "6": [2, 64 ],
+      "7": [2, 64 ],
+    }
+  normalization:
+    # Options: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    feature_map_normalization: "batch"
   training:
     # Raw proposals to keep per image BEFORE Non-Maximum Suppression during training [Just top k proposals].
     pre_nms_proposals: 1000
