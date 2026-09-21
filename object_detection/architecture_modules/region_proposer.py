@@ -221,12 +221,14 @@ class RegionProposalFilter(nn.Module):
         valid proposals to ensure uniform tensor shapes across the batch.
         
         Args:
-            boxes (torch.Tensor): The remaining bounding boxes after NMS.
-            scores (torch.Tensor): The objectness scores for those boxes.
-            origins (torch.Tensor): The block origin indices for those boxes.
+            boxes (torch.Tensor): The remaining bounding boxes after NMS of shape [N_remaining, 4].
+            scores (torch.Tensor): The objectness scores for those boxes of shape [N_remaining].
+            origins (torch.Tensor): The block origin indices for those boxes of shape [N_remaining].
             
         Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The padded boxes, scores, and origins.
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The padded boxes of shape [post_nms_filter_proposals, 4], 
+                                                             scores of shape [post_nms_filter_proposals], 
+                                                             and origins of shape [post_nms_filter_proposals].
         """
         number_of_proposals = boxes.shape[0]
         if number_of_proposals < self.post_nms_filter_proposals and number_of_proposals > 0:
