@@ -47,7 +47,8 @@ class Model(nn.Module):
 
         # Get input image size and total number of classes
         self.input_image_size = self.data_configuration.get("image_settings").get("size")
-        self.number_classes = self.data_configuration.get("number_classes")
+        self.label_dictionary = self.data_configuration.get("label_dictionary")
+        self.number_classes = len(self.label_dictionary)
 
         # Initialize the backbone feature extractor using the dedicated builder method
         self.backbone = self._build_backbone(backbone_configuration=self.backbone_configuration)
@@ -57,6 +58,7 @@ class Model(nn.Module):
 
         # Initialize the region proposal dictionary (since we are using a Feature Pyramid Network Approach)
         self.region_proposer_dictionary = self._build_region_proposer_dictionary(
+            region_proposal_configuration=self.region_proposal_configuration,
             anchors_configuration=self.anchors_configuration)
 
         # Initialize the detection head dictionary (each FPN scale gets its own detection head)
@@ -98,7 +100,8 @@ class Model(nn.Module):
 
         return backbone
 
-    def _build_region_proposer_dictionary(self, anchors_configuration: Dict[str, Any]) -> nn.ModuleDict:
+    def _build_region_proposer_dictionary(self, region_proposal_configuration: Dict[str, Any],
+                                          anchors_configuration: Dict[str, Any]) -> nn.ModuleDict:
         """
         Dynamically constructs the Region Proposal components tailored for each detection feature map scale.
         
@@ -107,6 +110,7 @@ class Model(nn.Module):
         instantiate a distinct RegionProposal module for each scale level in the Feature Pyramid Network.
         
         Args:
+            region_proposal_configuration (Dict[str, Any]): Configuration governing region proposal settings and normalization.
             anchors_configuration (Dict[str, Any]): Configuration governing anchor scales and aspect ratios
                                                     per feature level.
             
@@ -127,14 +131,18 @@ class Model(nn.Module):
             feature_map_size = self.detection_input_information[index_string]["feature_map_size"]
             input_channels = self.detection_input_information[index_string]["number_channels"]
 
+            feature_map_normalization = self.region_proposal_configuration["normalization"]["feature_map_normalization"]
             # Initialize and store the RegionProposal module
-            region_proposer_dictionary[index_string] = RegionProposal(input_channels=input_channels,
-                                                                      scales=scales,
-                                                                      aspect_ratios=aspect_ratios,
-                                                                      input_image_size=self.input_image_size,
-                                                                      feature_map_size=feature_map_size,
-                                                                      dtype=self.dtype,
-                                                                      device=self.device)
+            region_proposer_dictionary[index_string] = RegionProposal(
+                head_configurations=self.region_proposal_configuration["head_configurations"][index_string],
+                input_channels=input_channels,
+                scales=scales,
+                aspect_ratios=aspect_ratios,
+                input_image_size=self.input_image_size,
+                feature_map_size=feature_map_size,
+                feature_map_normalization=feature_map_normalization,
+                dtype=self.dtype,
+                device=self.device)
 
         return region_proposer_dictionary
 
