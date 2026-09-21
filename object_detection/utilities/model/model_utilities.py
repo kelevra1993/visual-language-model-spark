@@ -187,7 +187,7 @@ def get_box_dimensions_and_centers(boxes: torch.Tensor) -> Tuple[
         
     Returns:
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing the 
-        widths, heights, center_x, and center_y tensors, respectively.
+        widths, heights, center_x, and center_y tensors, respectively, each of shape (...).
     """
     # Check that the last dimension is of shape 4 if not raise an error
     if boxes.shape[-1] != 4:
@@ -270,11 +270,11 @@ def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) 
     Since the network processes square images, a single dimension size is sufficient for both width and height.
     
     Args:
-        boxes (torch.Tensor): A tensor of bounding boxes in [x_min, y_min, x_max, y_max] format.
+        boxes (torch.Tensor): A tensor of bounding boxes in [x_min, y_min, x_max, y_max] format, shape (..., 4).
         input_image_size (int): The spatial dimension (height and width) of the square input image.
         
     Returns:
-        torch.Tensor: The bounding boxes tensor with all coordinates clamped within [0, input_image_size].
+        torch.Tensor: The bounding boxes tensor with all coordinates clamped within [0, input_image_size], shape (..., 4).
     """
     # Since we are always dealing with square images, we clamp both x and y coordinates uniformly
     boxes = boxes.clamp(min=0, max=input_image_size)
@@ -297,8 +297,8 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
     anchor assigned to it to prevent objects from being missed during training.
 
     Args:
-        ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes in [x_min, y_min, x_max, y_max] format.
-        anchors (torch.Tensor): A tensor of the base anchors generated for the current feature map.
+        ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes in [x_min, y_min, x_max, y_max] format of shape [Num_GT, 4].
+        anchors (torch.Tensor): A tensor of the base anchors generated for the current feature map of shape [Num_Anchors, 4].
         background_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for background.
         foreground_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for foreground.
         strict_fallback_assignment (bool): If True, assigns resurrected anchors strictly to the ground truth box
@@ -307,8 +307,8 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
         
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
-            - matched_ground_truth_boxes (torch.Tensor): The assigned ground truth boxes for each anchor.
-            - labels (torch.Tensor): The binary labels for each anchor
+            - matched_ground_truth_boxes (torch.Tensor): The assigned ground truth boxes for each anchor of shape [Num_Anchors, 4].
+            - labels (torch.Tensor): The binary labels for each anchor of shape [Num_Anchors]
                                      (1.0 = foreground, 0.0 = background, -1.0 = ignored).
     """
 
@@ -572,15 +572,15 @@ def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor,
     Proposals falling below the threshold are assigned the background class (class index 0).
 
     Args:
-        ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes in [x_min, y_min, x_max, y_max] format.
-        proposals (torch.Tensor): A tensor of proposed bounding boxes.
-        ground_truth_labels (torch.Tensor): A tensor of the true class indices for each ground truth box.
+        ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes of shape [Num_GT, 4] in [x_min, y_min, x_max, y_max] format.
+        proposals (torch.Tensor): A tensor of proposed bounding boxes of shape [Num_Proposals, 4].
+        ground_truth_labels (torch.Tensor): A tensor of the true class indices for each ground truth box of shape [Num_GT].
         foreground_iou_threshold (float): The minimum IoU required for a proposal to be considered a positive match.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
-            - target_ground_truth_boxes (torch.Tensor): The assigned ground truth coordinates for each proposal.
-            - target_labels (torch.Tensor): The assigned class labels for each proposal (0 for background).
+            - target_ground_truth_boxes (torch.Tensor): The assigned ground truth coordinates for each proposal of shape [Num_Proposals, 4].
+            - target_labels (torch.Tensor): The assigned class labels for each proposal (0 for background) of shape [Num_Proposals].
     """
     # Note to self to check afterwards : ground truth boxes and labels should have the same first dimension shape which are the number of ground truth boxes in the image
 
