@@ -89,12 +89,12 @@ class Backbone(nn.Module):
         Processes the input tensor through the sequence of convolution blocks.
         
         Args:
-            input_tensor (torch.Tensor): The input image tensor to be processed.
+            input_tensor (torch.Tensor): The input image tensor to be processed of shape [Batch, Channels, Height, Width].
             
         Returns:
-            Tuple[torch.Tensor, Dict[str, torch.Tensor]]: A tuple containing the final resulting feature map 
-            after passing through the backbone, and a dictionary containing the intermediate feature maps 
-            from the designated detection blocks.
+            Tuple[torch.Tensor, Dict[str, torch.Tensor]]: A tuple containing:
+                - The final resulting feature map of shape [Batch, Out_Channels, Final_Height, Final_Width]
+                - A dictionary mapping block indices to intermediate feature maps of shape [Batch, Channels, H, W].
         """
         # Initialize the current tensor to the input tensor before passing through the blocks
         current_tensor = input_tensor
