@@ -16,7 +16,6 @@ def debug_model_summary() -> None:
     configuration, device, dtype = get_model_configuration()
 
     model = Model(configuration=configuration,
-                  mode="training",
                   device=device,
                   dtype=dtype)
 
