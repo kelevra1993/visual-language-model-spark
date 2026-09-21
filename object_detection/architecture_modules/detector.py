@@ -25,6 +25,8 @@ class DetectionHead(nn.Module):
             number_classes (int): The total number of classes to predict (including background).
             input_channels (int): The number of channels in the input feature maps.
             feature_map_normalization (str): The chosen normalization layer type (e.g., 'batch', 'layer', 'none').
+            input_image_size (int): The spatial dimension (height and width) of the original input image.
+            feature_map_size (int): The spatial dimension (height and width) of the feature map at this scale.
             dtype (torch.dtype): The tensor data type.
             device (torch.device): The computational device.
         """
@@ -107,7 +109,7 @@ class DetectionHead(nn.Module):
             proposal_boxes (torch.Tensor): A tensor of shape [K, 5] representing the sampled proposals across the batch, 
                                            where the first column is the batch index and the rest are [x1, y1, x2, y2].
             input_tensor (torch.Tensor): Batched feature map from backbone of shape [Batch, Channels, Height, Width].
-            tensor_to_concatenate (Optional[torch.Tensor]): Optional tensor to concatenate.
+            tensor_to_concatenate (Optional[torch.Tensor]): Optional tensor to concatenate of shape [K, Additional_Channels].
             
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
