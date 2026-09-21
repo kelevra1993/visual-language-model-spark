@@ -455,10 +455,10 @@ class Model(nn.Module):
                 - "box_regressions" (torch.Tensor): Shape [total_proposals, number_classes, 4]
                 - "sliced_proposals" (torch.Tensor): Shape [total_proposals, 5]
                 - "sliced_labels" (torch.Tensor): Shape [total_proposals]
-                - "sliced_targets" (torch.Tensor): Shape [total_proposals, 4]
+                - "sliced_regression_targets" (torch.Tensor): Shape [total_proposals, 4]
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor]: The classification loss and the bounding box regression loss.
+            Tuple[torch.Tensor, torch.Tensor]: The classification loss and the bounding box regression loss (scalar tensors).
         """
         # Compute the Classification Loss (Cross Entropy)
         # This evaluates all sampled proposals (both foreground and background). 
@@ -583,11 +583,14 @@ class Model(nn.Module):
         Executes the Region Proposal forward pass for all intermediate feature map scales.
         
         Args:
-            backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps.
+            backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps of shape [Batch, Channels, Height, Width].
             
         Returns:
             Dict[str, Dict[str, torch.Tensor]]: The predicted proposal scores, bounding box regressions, 
                                                 and generated proposal boxes per detection block index.
+                - "classification_scores" (torch.Tensor): Shape [Batch, Anchors_in_scale]
+                - "bounding_box_regressions" (torch.Tensor): Shape [Batch, Anchors_in_scale, 4]
+                - "proposal_boxes" (torch.Tensor): Shape [Batch, Anchors_in_scale, 4]
         """
         region_proposal_output_tensor_dictionary = {}
 
@@ -617,7 +620,7 @@ class Model(nn.Module):
         Executes the Detection Head forward pass for all proposals across their respective feature maps.
         
         Args:
-            backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps.
+            backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps of shape [Batch, Channels, Height, Width].
             detection_proposals (torch.Tensor): Formatted proposals of shape [K, 5] (batch_index + coords).
             detection_proposals_origins (torch.Tensor): Origins of shape [K].
             detection_batch_indices (torch.Tensor): Batch indices of shape [K, 1].
@@ -625,7 +628,12 @@ class Model(nn.Module):
             detection_regression_targets (Optional[torch.Tensor]): Target regressions for training of shape [K, 4].
             
         Returns:
-            Dict[str, Any]: Dictionary containing the sliced and computed outputs per scale.
+            Dict[str, Any]: Dictionary mapping detection index to a dictionary containing the sliced and computed outputs:
+                - "classification_scores" (torch.Tensor): Shape [K_scale, number_classes]
+                - "box_regressions" (torch.Tensor): Shape [K_scale, number_classes, 4]
+                - "sliced_labels" (Optional[torch.Tensor]): Shape [K_scale]
+                - "sliced_regression_targets" (Optional[torch.Tensor]): Shape [K_scale, 4]
+                - "sliced_proposals" (torch.Tensor): Shape [K_scale, 5]
         """
         detection_output_dictionary = {}
 
@@ -668,19 +676,19 @@ class Model(nn.Module):
         Executes the forward pass of the Model.
         
         Args:
-            input_tensor (torch.Tensor): The raw input image tensor.
-            ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List containing ground truth boxes per image.
-            ground_truth_labels (Optional[List[torch.Tensor]]): List containing ground truth labels per image.
+            input_tensor (torch.Tensor): The raw input image tensor of shape [Batch, Channels, Height, Width].
+            ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List containing ground truth boxes per image, each of shape [Num_GT, 4].
+            ground_truth_labels (Optional[List[torch.Tensor]]): List containing ground truth labels per image, each of shape [Num_GT].
             
         Returns:
             Dict[str, Any]: A unified dictionary containing:
-                - "classification_scores": Batched tensor of class logits per image.
-                - "box_regressions": Batched tensor of bounding box regression offsets per image.
-                - "detection_boxes": Batched tensor of final absolute bounding box coordinates per image.
-                - "region_proposal_classification_loss" (if training): RPN classification loss.
-                - "region_proposal_localisation_loss" (if training): RPN regression loss.
-                - "detection_classification_loss" (if training): Detection Head classification loss.
-                - "detection_regression_loss" (if training): Detection Head regression loss.
+                - "classification_scores" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes].
+                - "box_regressions" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes, 4].
+                - "detection_boxes" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes, 4].
+                - "region_proposal_classification_loss" (Optional[torch.Tensor]): Scalar loss (if training).
+                - "region_proposal_localisation_loss" (Optional[torch.Tensor]): Scalar loss (if training).
+                - "detection_classification_loss" (Optional[torch.Tensor]): Scalar loss (if training).
+                - "detection_regression_loss" (Optional[torch.Tensor]): Scalar loss (if training).
         """
         # Pass the raw image through the backbone to extract the multiscale feature maps
         final_backbone_tensor, backbone_output_tensor_dictionary = self.backbone(input_tensor=input_tensor)
