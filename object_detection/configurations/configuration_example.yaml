@@ -1,16 +1,29 @@
 ExperimentConfiguration:
+  # Directory where experiment artifacts, weights, and logs are saved.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/backbone_experiment"
+  # Root directory containing the dataset images.
   data_folder: ""
+  # JSON file containing the training dataset split.
   train_split_file: ""
+  # JSON file containing the validation dataset split.
   validation_split_file: ""
+  # JSON file containing the test dataset split.
   test_split_file: ""
+  # Number of images processed in a single forward/backward pass.
   batch_size: 8
+  # Frequency (in iterations) to log performance metrics.
   information_dump: 5000
+  # Frequency (in iterations) to checkpoint the model weights.
   weight_saving_iterations: 20000
+  # Total number of training iterations before stopping.
   number_iterations: 1e10
+  # Flag to determine whether validation metrics are computed during training.
   compute_validation_iteration: false
+  # Base learning rate used by the optimizer.
   learning_rate: 2.0e-4
+  # Global tensor data type (e.g., "float32" or "float16").
   dtype: "float32"
+  # Flag to attempt loading the most recent checkpoint to resume training.
   resume_training: true
   precompute_data: true # Potentially usage of TFRecords
   diagnosis_modes:
@@ -23,10 +36,13 @@ ExperimentConfiguration:
 
 Data:
   image_settings:
+    # Target resolution to resize all input images.
     size: 300
+    # Flag to maintain the original aspect ratio when resizing.
     keep_ratio: True
   number_classes: 21 # Here we also count the background as the first class
   data_augmentation:
+    # Global switch to enable or disable all data augmentation.
     activated: False
     types:
       # Implementation of random flipping, horizontally, vertically ....
@@ -97,30 +113,44 @@ Backbone:
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
 
-  # todo to be documented
+  # Backbone spatial resolution block indices to branch out to the object detection heads.
   detection_convolution_block_indices: [4, 5, 6]
 
 # Careful because here the number of proposals seems to be global
 RegionProposal:
   training:
+    # Raw proposals to keep per image BEFORE Non-Maximum Suppression during training [Just top k proposals].
     pre_nms_proposals: 1000
+    # Filtered proposals to keep per image AFTER Non-Maximum Suppression during training.
     post_nms_proposals: 500
   inference:
+    # Raw proposals to keep per image BEFORE Non-Maximum Suppression during inference [Just top k proposals].
     pre_nms_proposals: 500
+    # Filtered proposals to keep per image AFTER Non-Maximum Suppression during inference.
     post_nms_proposals: 250
   foreground_iou_threshold:
+    # Minimum IoU required for an anchor to be a positive foreground match.
     min: 0.5
+    # Maximum IoU limit for matching (capped at 1.0).
     max: 1.0
   background_iou_threshold:
+    # Minimum IoU required for an anchor to be a strict background sample.
     min: 0.1
+    # Maximum IoU allowed for an anchor to be a strict background sample.
     max: 0.3
+  # IoU threshold for Non-Maximum Suppression to eliminate redundant overlapping proposals.
   nms_iou_threshold: 0.5
+  # Force assign best-overlapping anchors as foreground even if below the min threshold.
   strict_fallback_assignment: False
+  # Exact number of strictly positive foreground anchors sampled for loss calculation per image.
   number_training_positives: 128
+  # Combined budget of positive and negative anchor samples evaluated per image.
   total_training_samples: 256
+  # Beta scaling parameter for Smooth L1 Loss during bounding box regression.
   localisation_loss_beta: 1/9
 
 Anchors:
+  # Dictionary mapping anchor scales and aspect ratios to specific feature map indices.
   scales_and_ratios:
     {
       "4":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
@@ -129,6 +159,7 @@ Anchors:
     }
 
 Detector:
+  # Master configuration parameterizing the prediction heads assigned to each feature map scale.
   head_configurations:
     {
       "4": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
@@ -153,11 +184,13 @@ Detector:
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
 
+  # Minimum IoU required for a filtered proposal to be classified as a positive target.
   foreground_iou_threshold: 0.5
+  # IoU overlap tolerance for the final Non-Maximum Suppression pass on predictions.
   nms_iou_threshold: 0.8
+  # Upper limit of positive (foreground) region proposals sampled per image.
   number_training_positives: 64
+  # Total budget of positive and negative region proposals sampled per image.
   total_training_samples: 128
+  # Beta scalar for the Smooth L1 Loss bounding box regression transition.
   localisation_loss_beta: 1/9
-
-
-
