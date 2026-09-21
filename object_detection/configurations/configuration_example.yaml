@@ -27,6 +27,8 @@ ExperimentConfiguration:
   resume_training: true
   precompute_data: true # Potentially usage of TFRecords
   diagnosis_modes:
+      # Choice to print out everything about the model
+      verbose: True
       # Choice to compute Receptive-Field
       compute_receptive_field: False
       # Choice to compute final model size
@@ -152,7 +154,7 @@ RegionProposal:
   localisation_loss_beta: 1/9
 
 Anchors:
-  # Todo : Maybe keep it as a list ? Dictonary modification is cumbersome.
+  # Todo : Maybe keep it as a list ? Dictionary modification is cumbersome.
   # Dictionary mapping anchor scales and aspect ratios to specific feature map indices.
   scales_and_ratios:
     {
