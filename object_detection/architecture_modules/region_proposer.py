@@ -5,14 +5,15 @@ from typing import List, Union, Dict, Tuple, Any, Literal
 from torchvision.ops import nms
 
 from architecture_modules.anchors import Anchors
+from architecture_modules.convolution_block import ConvolutionBlock
 from utilities.tensor_utilities import print_tensor_shape
 from utilities.model.model_utilities import apply_regression_predictions, clamp_boxes_to_image_boundaries
 
 
 class RegionProposal(nn.Module):
-    def __init__(self, input_channels: int, scales: List[float], aspect_ratios: List[float],
-                 input_image_size: int, feature_map_size: int,
-                 dtype: torch.dtype, device: torch.device) -> None:
+    def __init__(self, head_configurations: List[int], input_channels: int, scales: List[float],
+                 aspect_ratios: List[float], input_image_size: int, feature_map_size: int,
+                 feature_map_normalization: str, dtype: torch.dtype, device: torch.device) -> None:
         """
         Initializes the Region Proposal module for a specific feature map scale.
         
@@ -21,11 +22,13 @@ class RegionProposal(nn.Module):
         necessary to convert relative regressions into absolute coordinates.
         
         Args:
+            head_configurations (List[int]): Architecture configurations [num_layers, channels] for this feature map's convolutions.
             input_channels (int): The number of channels output by the corresponding backbone layer.
             scales (List[float]): A list of scaling factors for the anchor boxes at this specific feature map scale.
             aspect_ratios (List[float]): A list of aspect ratios (width/height) for the anchor boxes.
             input_image_size (int): The absolute size (height and width) of the original input image.
             feature_map_size (int): The spatial resolution (height and width) of the input feature map.
+            feature_map_normalization (str): The normalization strategy to use in the convolution block (e.g. 'batch', 'none').
             dtype (torch.dtype): The tensor data type.
             device (torch.device): The computational device.
         """
@@ -41,6 +44,7 @@ class RegionProposal(nn.Module):
         # Get image and feature map sizes of interest
         self.input_image_size = input_image_size
         self.feature_map_size = feature_map_size
+        self.feature_map_normalization = feature_map_normalization
 
         # Get particular anchors for this region proposal
         self.region_proposal_anchor_object = Anchors(scales=self.scales,
@@ -52,11 +56,22 @@ class RegionProposal(nn.Module):
 
         self.number_anchors_per_location = self.region_proposal_anchor_object.number_anchors_per_location
 
-        # 3x3 Convolution Layer : Todo later complexify this step (using ConvBlock)
-        # TODO : Note that there was no batch normalisation or even a layer normalisation that was applied here.
-        self.region_proposal_convolution = nn.Conv2d(in_channels=input_channels,
-                                                     out_channels=input_channels,
-                                                     kernel_size=3, stride=1, padding=1)
+        # Region Proposal enhancement convolution block
+        self.convolution_number_layers = head_configurations[0]
+        convolution_output_channels = head_configurations[1]
+
+        # 3x3 Convolution Layers
+        # Convolutional feature extraction block
+        self.region_proposal_convolutional_block = ConvolutionBlock(
+            input_channels=input_channels, output_channels=convolution_output_channels,
+            bias=True, number_layers=self.convolution_number_layers,
+            kernel_size=3, stride=1, padding=1,
+            feature_map_normalization=self.feature_map_normalization,
+            activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype)
+
+        self.region_proposal_last_convolution = nn.Conv2d(in_channels=convolution_output_channels,
+                                                          out_channels=input_channels,
+                                                          kernel_size=3, stride=1, padding=1)
 
         # 1x1 Convolution Layer for classification : Todo later complexify this step
         self.region_proposal_classifier = nn.Conv2d(in_channels=input_channels,
@@ -88,7 +103,8 @@ class RegionProposal(nn.Module):
         # Get feature map dimensions
         batch_dimension, _, feature_map_height, feature_map_width = input_tensor.shape
 
-        output_tensor = nn.ReLU()(self.region_proposal_convolution(input_tensor))
+        output_tensor = self.region_proposal_convolutional_block(input_tensor)
+        output_tensor = nn.ReLU()(self.region_proposal_last_convolution(output_tensor))
 
         proposal_scores = self.region_proposal_classifier(output_tensor)
         proposal_boxes_transformations = self.region_proposal_bounding_box_regressor(output_tensor)
