@@ -87,6 +87,7 @@ Backbone:
       "4": [ 4, 64 ],
       "5": [ 5, 64 ],
       "6": [ 5, 64 ],
+      "7": [ 5, 64 ],
     }
 
   # Choice to add last max pooling layer on last* convolution layer
@@ -113,8 +114,9 @@ Backbone:
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
 
+  # TODO See if we cannot just keep all of this in one place ?
   # Backbone spatial resolution block indices to branch out to the object detection heads.
-  detection_convolution_block_indices: [4, 5, 6]
+  detection_convolution_block_indices: [5, 6, 7]
 
 # Careful because here the number of proposals seems to be global
 RegionProposal:
@@ -150,21 +152,23 @@ RegionProposal:
   localisation_loss_beta: 1/9
 
 Anchors:
+  # Todo : Maybe keep it as a list ? Dictonary modification is cumbersome.
   # Dictionary mapping anchor scales and aspect ratios to specific feature map indices.
   scales_and_ratios:
     {
-      "4":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
-      "5":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
-      "6":{"scales":[ scale_1, scale_2,...], "aspect_ratios":[ratio_1, ratio_2,...]},
+      "5":{"scales":[ 32, 64, 128], "aspect_ratios":[0.5, 1.0, 2.0]},
+      "6":{"scales":[ 32, 64, 128], "aspect_ratios":[0.5, 1.0, 2.0]},
+      "7":{"scales":[ 32, 64, 128], "aspect_ratios":[0.5, 1.0, 2.0]},
     }
 
 Detector:
+  # Todo : Maybe keep it as a list ? Dictonary modification is cumbersome.
   # Master configuration parameterizing the prediction heads assigned to each feature map scale.
   head_configurations:
     {
-      "4": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
       "5": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
       "6": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
+      "7": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
     }
 
   normalization:
