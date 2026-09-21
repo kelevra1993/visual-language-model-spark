@@ -1,12 +1,19 @@
+import time
 import torch
+import torchvision
 
 from pathlib import Path
-from typing import Dict, Tuple, List, Union, Any
+from typing import Dict, Tuple, List, Union, Any, Optional
 from shutil import copyfile
+
+from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data.dataloader import _BaseDataLoaderIter
+from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from model.model import Model
 from utilities.tensor_utilities import get_device
-from utilities.os_utilities import print_blue, print_yellow
+from utilities.os_utilities import print_blue, print_yellow, print_red, print_green
 
 
 class Trainer:
@@ -49,6 +56,7 @@ class Trainer:
         self.compute_validation_iteration = self.experiment_configuration["compute_validation_iteration"]
         self.information_dump = self.experiment_configuration["information_dump"]
         self.learning_rate = self.experiment_configuration["learning_rate"]
+        self.diagnosis_modes = self.experiment_configuration["diagnosis_modes"]
 
         self.input_image_size = self.data_configuration.get("image_settings").get("size")
         self.batch_size = self.experiment_configuration["batch_size"]
@@ -59,17 +67,37 @@ class Trainer:
         self.tensorboard_directory, self.weights_directory, self.configuration_path = self.setup_training_paths(
             initial_configuration_path=Path(configuration_path))
 
+        # We use lazy initialization for the tensorboard writers to avoid prematurely creating
+        # empty log files on disk during the Trainer instantiation.
+        self.training_writer = None
+        self.validation_writer = None
+
+        # # todo to be later implemented
+        # # Setting up dataloaders
+        # self.dataset_folder = self.experiment_configuration["dataset_folder"]
+        # self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.get_trainer_data_loaders()
+
         # Initialize Model and Optimizer
-        self.model = Model(configuration=self.model_configuration, device=self.device, dtype=self.dtype)
+        self.model = Model(configuration=self.model_configuration, device=self.device, dtype=self.dtype,
+                           verbose=self.diagnosis_modes["verbose"])
         self.model.to(device=self.device, dtype=self.dtype)
 
         # Setting Up The Optimizer
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
 
+        # TODO Add more tracking to this.
+        # Metric tracking
+        self.tracked_metrics_mapping = {"total_loss": f"Total Loss"}
+
         # Print experiment information to user so that they can know everything about the experiment
         # as well as input and output shapes of the model.
         self.print_experiment_information()
         self.model.print_summary()
+
+        # Restoration logic before starting any training or inference
+        self.start_iteration = 1
+        if self.resume_training:
+            self.start_iteration = self.restore_last_model()
 
     def setup_training_paths(self, initial_configuration_path: Path) -> tuple[Path, Path, Path]:
         """
@@ -127,3 +155,604 @@ class Trainer:
         print_blue(f"- Total Iterations      : {self.training_iterations}")
         print_blue(f"- Learning Rate         : {self.learning_rate}")
         print_blue(f"- Resume Training       : {self.resume_training}")
+
+    def setup_tensorboard_writers(self) -> Tuple[SummaryWriter, Optional[SummaryWriter]]:
+        """
+        Initializes TensorBoard SummaryWriters for logging training and validation metrics.
+
+        Returns:
+            Tuple[SummaryWriter, Optional[SummaryWriter]]: A tuple containing the training writer
+            and the validation writer (if validation is enabled).
+        """
+        training_writer = SummaryWriter(log_dir=str(self.tensorboard_directory / "Train"))
+        if self.compute_validation_iteration:
+            validation_writer = SummaryWriter(log_dir=str(self.tensorboard_directory / "Validation"))
+        else:
+            validation_writer = None
+
+        return training_writer, validation_writer
+
+    # todo to be properly implemented !!!
+    # def get_trainer_data_loaders(self) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    #     """
+    #     Initializes and returns the PyTorch DataLoaders for the training, validation, and test phases.
+    #
+    #     Returns:
+    #         Tuple[DataLoader, DataLoader, DataLoader]: A tuple containing the DataLoaders for
+    #             the training, validation, and testing splits, respectively.
+    #     """
+    #     print_blue("Initializing U-Net DataLoaders...", add_separators=True)
+    #
+    #     train_dataloader, validation_dataloader, test_dataloader = get_dataloaders(
+    #         preprocessed_directory=self.dataset_folder,
+    #         experiment_configuration=self.experiment_configuration,
+    #         model_configuration=self.model_configuration,
+    #         batch_size=self.batch_size, number_of_workers=4)
+    #
+    #     return train_dataloader, validation_dataloader, test_dataloader
+
+    # todo to be properly implemented !!!
+    # @staticmethod
+    # def get_next_batch(dataloader_iterator: _BaseDataLoaderIter, dataloader: DataLoader) -> Tuple[
+    #     torch.Tensor, torch.Tensor, _BaseDataLoaderIter]:
+    #     """
+    #     Retrieves the next batch of images and masks from the dataloader iterator.
+    #
+    #     If the iterator is exhausted, it re-initializes it from the dataloader.
+    #     If a FileNotFoundError is encountered during data loading, it continues attempting
+    #     to fetch the next available batch, up to a maximum of 10 consecutive failures.
+    #
+    #     Args:
+    #         dataloader_iterator (_BaseDataLoaderIter): The current iterator for the dataloader.
+    #         dataloader (DataLoader): The original dataloader object to reset the iterator.
+    #
+    #     Returns:
+    #         Tuple[torch.Tensor, torch.Tensor, iter]: A tuple containing the batch of images,
+    #             the batch of masks, and the potentially refreshed iterator.
+    #
+    #     Raises:
+    #         SystemExit: If more than 10 consecutive FileNotFoundError occur.
+    #     """
+    #     missing_files_count = 0
+    #     while True:
+    #         try:
+    #             images, masks = next(dataloader_iterator)
+    #             break
+    #         except StopIteration:
+    #             dataloader_iterator = iter(dataloader)
+    #         except FileNotFoundError:
+    #             missing_files_count += 1
+    #             if missing_files_count > 10:
+    #                 print_red("Critical Error: Over 10 consecutive missing files encountered. Exiting.",
+    #                           add_separators=True)
+    #                 exit(1)
+    #             continue
+    #
+    #     return images, masks, dataloader_iterator
+
+    # todo to be properly implemented !!!
+    # def run_benchmarking_loop(self, benchmarking_iterations: int = 1e5) -> None:
+    #     """
+    #     Executes a performance benchmarking loop to assess model throughput and training speed.
+    #
+    #     This function iterates through the dataset for a specified number of iterations without
+    #     running a full training epoch. It is primarily used to isolate and measure the raw
+    #     performance of the forward/backward passes and data loading bottleneck within the training pipeline.
+    #
+    #     Args:
+    #         benchmarking_iterations (int): The total number of iterations to run the benchmark. Defaults to 100,000.
+    #     """
+    #
+    #     # Get dataloader
+    #     training_dataloader_iterator = iter(self.train_dataloader)
+    #     validation_dataloader_iterator = iter(self.validation_dataloader)
+    #
+    #     for training_iteration in tqdm(range(int(benchmarking_iterations)), desc="Benchmarking Loop"):
+    #
+    #         # Get next training elements
+    #         training_images, training_masks, training_dataloader_iterator = self.get_next_batch(
+    #             dataloader_iterator=training_dataloader_iterator, dataloader=self.train_dataloader)
+    #
+    #         self.model.train()
+    #         self.optimizer.zero_grad()
+    #
+    #         # Forward pass
+    #         training_loss, _ = self.run_model_iteration(batch_images=training_images,
+    #                                                     batch_masks=training_masks,
+    #                                                     writer=self.training_writer,
+    #                                                     iteration=training_iteration,
+    #                                                     tracker_dictionary=None)
+    #
+    #         # Backward and Step
+    #         training_loss.backward()
+    #         self.optimizer.step()
+    #
+    #         # Validation phase
+    #         if self.compute_validation_iteration:
+    #             # Get next validation elements
+    #             validation_images, validation_masks, validation_dataloader_iterator = self.get_next_batch(
+    #                 dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader)
+    #
+    #             self.model.eval()
+    #             with torch.no_grad():
+    #                 _, _ = self.run_model_iteration(batch_images=validation_images, batch_masks=validation_masks,
+    #                                                 writer=self.validation_writer, iteration=training_iteration,
+    #                                                 tracker_dictionary=None)
+
+    # todo to be properly implemented !!!
+    # def run_training_loop(self) -> None:
+    #     """
+    #     Executes the main training loop for the U-Net model.
+    #     """
+    #     # Initialize tensorboard writers right before training starts
+    #     self.training_writer, self.validation_writer = self.setup_tensorboard_writers()
+    #
+    #     # Get dataloader
+    #     training_dataloader_iterator = iter(self.train_dataloader)
+    #     validation_dataloader_iterator = iter(self.validation_dataloader)
+    #
+    #     # Get Metric Trackers
+    #     # Currently just Cross Entropy Loss
+    #     training_trackers = self.get_metric_trackers()
+    #     validation_trackers = self.get_metric_trackers() if self.compute_validation_iteration else None
+    #
+    #     # Get current training iteration
+    #     training_iteration = self.start_iteration
+    #
+    #     try:
+    #         for training_iteration in range(self.start_iteration, self.training_iterations + self.start_iteration, 1):
+    #             if training_iteration % self.weight_saving_iterations == 0:
+    #                 self.save_model(iteration=training_iteration)
+    #                 self.run_test_evaluation(iteration=training_iteration)
+    #
+    #             # Get next training elements
+    #             training_images, training_masks, training_dataloader_iterator = self.get_next_batch(
+    #                 dataloader_iterator=training_dataloader_iterator, dataloader=self.train_dataloader)
+    #
+    #             self.model.train()
+    #             self.optimizer.zero_grad()
+    #
+    #             # Forward pass
+    #             training_loss, _ = self.run_model_iteration(
+    #                 batch_images=training_images,
+    #                 batch_masks=training_masks,
+    #                 writer=self.training_writer,
+    #                 iteration=training_iteration,
+    #                 tracker_dictionary=training_trackers)
+    #
+    #             # Backward and Step
+    #             training_loss.backward()
+    #             self.optimizer.step()
+    #
+    #             # Validation phase
+    #             if self.compute_validation_iteration:
+    #                 self.model.eval()
+    #                 with torch.no_grad():
+    #                     validation_images, validation_masks, validation_dataloader_iterator = self.get_next_batch(
+    #                         dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader)
+    #
+    #                     _, _ = self.run_model_iteration(
+    #                         batch_images=validation_images,
+    #                         batch_masks=validation_masks,
+    #                         writer=self.validation_writer,
+    #                         iteration=training_iteration,
+    #                         tracker_dictionary=validation_trackers)
+    #
+    #             # Console log dump
+    #             if training_iteration % self.information_dump == 0:
+    #                 training_trackers = self.console_log_update_tracker(
+    #                     iterations=training_iteration,
+    #                     training_tracker_dictionary=training_trackers,
+    #                     validation_tracker_dictionary=validation_trackers)
+    #
+    #                 if self.compute_validation_iteration:
+    #                     validation_trackers = self.get_metric_trackers()
+    #
+    #     except KeyboardInterrupt:
+    #         print_red(f"Training Interrupted by User at iteration {training_iteration}.", add_separators=True)
+    #     except Exception as error:
+    #         print_red(f"An Error Occurred During Training", add_separators=True)
+    #         print(error)
+    #     finally:
+    #         self.save_model(iteration=training_iteration)
+    #         print_green(f"Model successfully saved at iteration {training_iteration}. Exiting Training.",
+    #                     add_separators=True)
+    #         if self.training_writer is not None:
+    #             self.training_writer.close()
+    #         if self.compute_validation_iteration and self.validation_writer is not None:
+    #             self.validation_writer.close()
+
+    # todo to be properly implemented !!!
+    # def run_test_evaluation(self, iteration: int) -> None:
+    #     """
+    #     Performs a full evaluation on the test dataset and logs results to a file.
+    #
+    #     Args:
+    #         iteration (int): The current training iteration index.
+    #     """
+    #     self.model.eval()
+    #
+    #     total_test_loss = 0.0
+    #     number_batches = len(self.test_dataloader)
+    #
+    #     # Initialize dictionary to accumulate IoU for each label
+    #     total_iou = {label: 0.0 for label in self.experiment_configuration["label_dictionary"].keys()}
+    #
+    #     with torch.no_grad():
+    #         for test_images, test_masks in tqdm(self.test_dataloader, total=number_batches,
+    #                                             desc=f"Test Evaluation Iteration {iteration}"):
+    #             test_images = test_images.to(device=self.device, dtype=self.dtype)
+    #             test_masks = test_masks.to(device=self.device, dtype=self.dtype)
+    #
+    #             model_outputs = self.model(test_images)
+    #             loss = self.criterion(model_predictions=model_outputs, ground_truths=test_masks)
+    #
+    #             total_test_loss += loss.item()
+    #
+    #             # Compute IoU for this batch
+    #             batch_iou = self.intersection_over_union_per_class(predictions=model_outputs, targets=test_masks)
+    #             for label_name in total_iou.keys():
+    #                 # intersection_over_union_per_class returns keys like "iou_{label_name}"
+    #                 total_iou[label_name] += batch_iou[f"iou_{label_name}"].item()
+    #
+    #     # Calculate mean
+    #     mean_test_loss = total_test_loss / number_batches if number_batches > 0 else 0.0
+    #     mean_iou_per_class = {label_name: (accumulated_iou / number_batches if number_batches > 0 else 0.0)
+    #                           for label_name, accumulated_iou in total_iou.items()}
+    #
+    #     # todo not implemented yet
+    #     # # Log to the results to a single file, for all the saved iterations of the given architecture.
+    #     # save_test_evaluation_csv(experiment_folder=self.project_root,
+    #     #                          iteration=iteration,
+    #     #                          loss=mean_test_loss,
+    #     #                          iou_per_class=mean_iou_per_class)
+    #
+    #     # Run sample predictions for visualization
+    #     self.run_sample_predictions(iteration=iteration, number_samples=20)
+
+    # todo to be properly implemented !!!
+    # def run_sample_predictions(self, iteration: int, number_samples: int = 20) -> None:
+    #     """
+    #     Runs inference on a subset of the test dataset and saves the predicted
+    #     segmentation masks as PNG images for visual inspection.
+    #
+    #     Args:
+    #         iteration (int): The current training iteration index.
+    #         number_samples (int): The maximum number of test samples to process.
+    #     """
+    #     print(f"\nRunning {number_samples} Sample Predictions For Iteration {iteration}...")
+    #
+    #     output_directory = self.weights_directory / f"Iteration_{iteration}" / "test_sample_predictions"
+    #     output_directory.mkdir(exist_ok=True, parents=True)
+    #
+    #     self.model.eval()
+    #     samples_processed = 0
+    #     test_dataloader_iterator = iter(self.test_dataloader)
+    #
+    #     with torch.no_grad():
+    #         while samples_processed < number_samples:
+    #             try:
+    #                 test_images, test_masks = next(test_dataloader_iterator)
+    #             except StopIteration:
+    #                 break
+    #
+    #             test_images = test_images.to(device=self.device, dtype=self.dtype)
+    #             test_masks = test_masks.to(device=self.device, dtype=self.dtype)
+    #
+    #             model_outputs = self.model(test_images)
+    #
+    #             # For mutually exclusive multi-channel classification, the channel with the max
+    #             # logit is the predicted class. This avoids a computationally expensive softmax.
+    #             max_logits = model_outputs.max(dim=1, keepdim=True).values
+    #             predicted_masks = (model_outputs == max_logits).to(self.dtype)
+    #
+    #             batch_size_current = test_images.size(0)
+    #             for sample_index in range(batch_size_current):
+    #
+    #                 if samples_processed >= number_samples:
+    #                     break
+    #
+    #                 # Extract the current input image from the batch
+    #                 input_image_tensor = test_images[sample_index:sample_index + 1]
+    #
+    #                 # Convert RGB images to grayscale by averaging across the channel dimension
+    #                 # This ensures the input image can be concatenated into the same visualization grid
+    #                 # alongside the single-channel ground truth and predicted masks without shape mismatches
+    #                 if input_image_tensor.shape[1] == 3:
+    #                     input_image_tensor = input_image_tensor.mean(dim=1, keepdim=True)
+    #
+    #                 # Create a comprehensive evaluation grid for this sample, stacking rows for each channel
+    #                 all_components = []
+    #                 for channel_index in range(test_masks.shape[1]):
+    #                     ground_truth_channel = test_masks[
+    #                         sample_index:sample_index + 1, channel_index:channel_index + 1, :, :]
+    #                     prediction_channel = predicted_masks[
+    #                         sample_index:sample_index + 1, channel_index:channel_index + 1, :, :]
+    #
+    #                     # Generate the visualization row (Ground Truth, Prediction, Error Map, Boundary Overlay)
+    #                     row_components = create_evaluation_row_for_channel(
+    #                         original_image=input_image_tensor,
+    #                         ground_truth=ground_truth_channel,
+    #                         prediction=prediction_channel)
+    #                     all_components.extend(row_components)
+    #
+    #                 comparison_grid = torch.cat(all_components, dim=0)
+    #
+    #                 # Determine the number of columns to wrap properly (5 images per channel row)
+    #                 number_of_columns = 5
+    #
+    #                 output_path = output_directory / f"sample_{samples_processed:04d}.png"
+    #                 torchvision.utils.save_image(comparison_grid, output_path, nrow=number_of_columns)
+    #                 samples_processed += 1
+    #
+    #     print_green(f"- file://{output_directory}")
+
+    # todo to be properly implemented !!!
+    # def intersection_over_union_per_class(self, predictions: torch.Tensor, targets: torch.Tensor,
+    #                                       smooth: float = 1e-6) -> dict[str, torch.Tensor]:
+    #     """
+    #     Computes the Intersection over Union (IoU) for each class independently.
+    #
+    #     Args:
+    #         predictions (torch.Tensor): The model's raw logits output of shape (B, C, H, W).
+    #         targets (torch.Tensor): The ground truth mask tensor of shape (B, C, H, W).
+    #         smooth (float, optional): A small constant to avoid division by zero. Defaults to 1e-6.
+    #
+    #     Returns:
+    #         dict[str, torch.Tensor]: A dictionary mapping class IoU keys to their calculated tensor values.
+    #     """
+    #     # Determine the winning class per pixel by finding the maximum logit across channels
+    #     max_logits = predictions.max(dim=1, keepdim=True).values
+    #     predicted_masks = (predictions == max_logits).to(self.dtype)
+    #
+    #     ious = {}
+    #
+    #     for label_name, index in self.experiment_configuration["label_dictionary"].items():
+    #         predicted_class_masks = predicted_masks[:, index, :, :]
+    #         target_class_masks = targets[:, index, :, :]
+    #
+    #         intersection = (predicted_class_masks * target_class_masks).sum(dim=(1, 2))
+    #         union = predicted_class_masks.sum(dim=(1, 2)) + target_class_masks.sum(dim=(1, 2)) - intersection
+    #
+    #         iou = (intersection + smooth) / (union + smooth)
+    #         ious[f"iou_{label_name}"] = iou.mean()
+    #
+    #     return ious
+
+    # todo to be properly implemented !!!
+    # def run_model_iteration(self, batch_images: torch.Tensor, batch_masks: torch.Tensor,
+    #                         writer: Optional[SummaryWriter], iteration: int,
+    #                         tracker_dictionary: dict | None) -> tuple[torch.Tensor, torch.Tensor]:
+    #     """
+    #     Executes a single forward pass of the U-Net, computes the loss,
+    #     and updates performance trackers.
+    #
+    #     Args:
+    #         batch_images (torch.Tensor): The input image tensor of shape (B, C, H, W).
+    #         batch_masks (torch.Tensor): The ground truth mask tensor of shape (B, number_classes, H, W).
+    #         writer (Optional[SummaryWriter]): TensorBoard writer for logging. If None, logging is skipped.
+    #         iteration (int): The current training iteration step.
+    #         tracker_dictionary (Dict[str, Any] | None): Dictionary tracking rolling average metrics.
+    #
+    #     Returns:
+    #         tuple[torch.Tensor, torch.Tensor]: A tuple containing the total_loss and the model predictions.
+    #     """
+    #     # Move to target device/dtype
+    #     batch_images = batch_images.to(device=self.device, dtype=self.dtype)
+    #     batch_masks = batch_masks.to(device=self.device, dtype=self.dtype)
+    #
+    #     # Forward pass
+    #     model_outputs = self.model(batch_images)
+    #
+    #     # Loss Calculation
+    #     total_loss = self.criterion(model_outputs, batch_masks)
+    #
+    #     metric_dictionary = {"total_loss": total_loss}
+    #     iou_metrics = self.intersection_over_union_per_class(model_outputs, batch_masks)
+    #     metric_dictionary.update(iou_metrics)
+    #
+    #     # Update tracker dictionary (rolling average accumulation)
+    #     if tracker_dictionary is not None:
+    #         for metric_key, metric_value in metric_dictionary.items():
+    #             tracker_dictionary[metric_key] += metric_value.item() / self.information_dump
+    #
+    #     # Log data to tensorboard (per-iteration)
+    #     self.log_metrics_to_tensorboard(writer=writer,
+    #                                     iteration=iteration,
+    #                                     metric_dictionary=metric_dictionary)
+    #
+    #     return total_loss, model_outputs
+
+    def save_model(self, iteration: int) -> None:
+        """
+        Persists the current model weights and optimizer state to disk.
+
+        Args:
+            iteration (int): The current training iteration, used for naming the weight file.
+        """
+        model_directory = self.weights_directory / f"Iteration_{iteration}"
+        model_directory.mkdir(exist_ok=True, parents=True)
+
+        checkpoint_path = model_directory / f"model_{iteration:06}.pt"
+
+        torch.save({
+            'iteration': iteration,
+            'model_state': self.model.state_dict(),
+            'optimizer_state': self.optimizer.state_dict()}, checkpoint_path)
+
+        print(f"Checkpoint Folder : file://{model_directory}...")
+        print(f" - Model Saved In : model_{iteration:06}.pt")
+
+        # Update the full-checkpoint registry
+        self.dump_in_checkpoint(iteration=iteration)
+
+    def log_metrics_to_tensorboard(self, writer: Optional[SummaryWriter], iteration: int,
+                                   metric_dictionary: Dict[str, torch.Tensor]):
+        """
+        Logs individual metric components and total loss to TensorBoard.
+
+        Args:
+            writer (Optional[SummaryWriter]): The TensorBoard writer to use. If None, writing is skipped.
+            iteration (int): The current iteration index.
+            metric_dictionary (Dict[str, torch.Tensor]): Dictionary containing current iteration metrics.
+        """
+        if writer is None:
+            return
+
+        for metric_key, display_name in self.tracked_metrics_mapping.items():
+            writer.add_scalar(display_name, metric_dictionary[metric_key].item(), iteration)
+
+    def extract_last_model_iteration(self) -> int:
+        """
+        Retrieves the iteration number of the most recently saved model checkpoint.
+
+        This method reads the 'full-checkpoint' registry file located in the weights
+        directory to determine the latest available checkpoint. This is crucial for
+        seamlessly resuming training after an interruption without manual intervention.
+
+        Returns:
+            int: The iteration number of the last saved model, or 0 if no checkpoint exists.
+        """
+        last_iteration = 0
+
+        full_checkpoint_logger = self.weights_directory / "full-checkpoint"
+
+        if not full_checkpoint_logger.exists():
+            return last_iteration
+
+        with open(full_checkpoint_logger, 'r') as file:
+            first_line = file.readline().strip()
+
+        last_iteration_string = first_line.split('"')[1]
+        last_iteration = int(last_iteration_string.split("_")[-1])
+
+        return last_iteration
+
+    def restore_last_model(self, index_iteration: Optional[int] = None) -> int:
+        """
+        Restores the model and optimizer states to a specific or the most recent checkpoint.
+
+        If `index_iteration` is provided, it restores that exact checkpoint (useful for
+        running isolated evaluation or inference on a specific model state). If not provided,
+        it automatically finds and loads the latest checkpoint to resume training.
+
+        Args:
+            index_iteration (Optional[int]): The specific iteration to restore. If None,
+                it resolves to the last saved iteration.
+
+        Returns:
+            int: The iteration number from which training should commence. If a model was
+                loaded, it returns `loaded_iteration + 1`. If no model was found, it returns 1.
+        """
+
+        if not index_iteration:
+            index_iteration = self.extract_last_model_iteration()
+
+        # Despite trying to get the last model None was found
+        if not index_iteration:
+            print_green(
+                "No Initiation Model Weights Will Be Used..."
+                "\nWe generate A New Model That Will Be Trained From Scratch.",
+                add_separators=True)
+            return 1
+        else:
+            self.load_model(iteration=index_iteration)
+            print_green(f"We Loaded A Model That Was Previously Saved At Iteration {index_iteration}",
+                        add_separators=True)
+            # Resume from the next iteration
+            return index_iteration + 1
+
+    def load_model(self, iteration: int) -> None:
+        """
+        Loads the model weights and optimizer state from a specified iteration checkpoint.
+
+        This method reads the serialized `.pt` file from disk and maps the tensors to
+        the currently active device (CPU, CUDA, or MPS).
+
+        Args:
+            iteration (int): The exact iteration number identifying the checkpoint to load.
+        """
+
+        model_path = self.weights_directory / f"Iteration_{iteration}" / f"model_{iteration:06}.pt"
+
+        checkpoint = torch.load(model_path, map_location=self.device)
+
+        self.model.load_state_dict(checkpoint["model_state"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state"])
+
+    def dump_in_checkpoint(self, iteration: int) -> None:
+        """
+        Updates the checkpoint registry file to track the most recently saved model.
+
+        The `full-checkpoint` file acts as a manifest, keeping a historical record of
+        all saved checkpoints and explicitly marking the latest one. This ensures the
+        resumption logic (`extract_last_model_iteration`) always knows where to start.
+
+        Args:
+            iteration (int): The iteration number of the newly saved checkpoint.
+        """
+        checkpoint_file = self.weights_directory / "full-checkpoint"
+
+        # Saved the iteration in a checkpoint file
+        try:
+            with open(checkpoint_file, "r") as f:
+                d = f.readlines()
+        except FileNotFoundError:
+            d = []
+
+        with open(checkpoint_file, "w") as f:
+            if len(d) == 0:
+                d.append(f'model_checkpoint_path: "Iteration_{iteration}"\n')
+                d.append(f'all_model_checkpoint_paths: "Iteration_{iteration}"\n')
+            else:
+                d[0] = f'model_checkpoint_path: "Iteration_{iteration}"\n'
+                d.append(f'all_model_checkpoint_paths: "Iteration_{iteration}"\n')
+            for line in d:
+                f.write(line)
+
+    def console_log_update_tracker(self, iterations: int,
+                                   training_tracker_dictionary: Dict[str, Any],
+                                   validation_tracker_dictionary: Optional[Dict[str, Any]] = None):
+        """
+        Prints the rolling average of metrics to the console.
+
+        Args:
+            iterations (int): Current global training iteration.
+            training_tracker_dictionary (Dict[str, Any]): Rolling average trackers for training.
+            validation_tracker_dictionary (Optional[Dict[str, Any]]): Rolling average trackers for validation.
+
+        Returns:
+            Dict[str, Any]: A fresh training tracker dictionary for the next interval.
+        """
+        print_length = 60
+        print("-" * print_length)
+        print(f"Iteration: {iterations}")
+
+        for metric_key, display_name in self.tracked_metrics_mapping.items():
+            train_value = training_tracker_dictionary[metric_key]
+            message = f"Moving Average of Train {display_name:20} : {train_value:.4f}"
+            print_blue(message)
+
+            if validation_tracker_dictionary is not None:
+                validation_value = validation_tracker_dictionary[metric_key]
+                validation_message = f"Moving Average of Valid {display_name:20} : {validation_value:.4f}"
+                print_yellow(validation_message)
+
+        duration = time.time() - training_tracker_dictionary['start_time']
+        print(f"These {self.information_dump} iterations took {duration:.2f} seconds")
+        print("-" * print_length)
+
+        return self.get_metric_trackers()
+
+    def get_metric_trackers(self) -> Dict[str, Any]:
+        """
+        Initializes a dictionary to track rolling averages of metrics.
+
+        Returns:
+            Dict[str, Any]: A dictionary with metric keys set to 0.0 and a start_time.
+        """
+        tracker_dictionary = {"start_time": time.time()}
+        for metric_key in self.tracked_metrics_mapping.keys():
+            tracker_dictionary[metric_key] = 0.0
+
+        return tracker_dictionary
