@@ -125,10 +125,10 @@ class ConvolutionBlock(nn.Module):
         Processes the input tensor through the sequence of convolutional layers to extract features.
         
         Args:
-            input_tensor (torch.Tensor): The input feature map to be processed by the network.
+            input_tensor (torch.Tensor): The input feature map to be processed by the network of shape [Batch, Channels, Height, Width].
             
         Returns:
-            torch.Tensor: The resulting feature map after passing through the convolutional block.
+            torch.Tensor: The resulting feature map after passing through the convolutional block of shape [Batch, Out_Channels, Out_Height, Out_Width].
         """
 
         # Process the input tensor through the sequential block and return the output feature map
