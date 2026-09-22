@@ -285,7 +285,7 @@ class Trainer:
     # todo to be properly implemented !!!
     def run_training_loop(self) -> None:
         """
-        Executes the main training loop for the U-Net model.
+        Executes the main training loop for the models.
         """
         # Initialize tensorboard writers right before training starts
         self.training_writer, self.validation_writer = self.setup_tensorboard_writers()
@@ -484,7 +484,7 @@ class Trainer:
                             tracker_dictionary: dict | None) -> tuple[torch.Tensor, torch.Tensor]:
         """
         # todo to be updated
-        Executes a single forward pass of the U-Net, computes the loss,
+        Executes a single forward pass of the models, computes the loss,
         and updates performance trackers.
 
         Args:
