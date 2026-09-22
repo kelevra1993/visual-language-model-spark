@@ -428,7 +428,7 @@ def main() -> None:
     
     csv_file_path = os.path.abspath(path=os.path.join(os.path.dirname(p=__file__), 'benchmark_results_all.csv'))
     with open(file=csv_file_path, mode='w', newline='') as file_handler:
-        writer = csv.writer(csvfile=file_handler)
+        writer = csv.writer(file_handler)
         writer.writerow(['Method', 'Average Time (s) per 2000 images'])
         for method, average_time in results.items():
             if average_time is not None:
