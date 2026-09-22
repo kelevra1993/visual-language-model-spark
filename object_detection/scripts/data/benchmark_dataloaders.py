@@ -33,7 +33,7 @@ def resize_image_and_boxes(image_pil: Image.Image, bounding_boxes: List[List[flo
     
     This function processes the image to fit the expected input dimensions of the object detection 
     pipeline. It computes the independent x and y scaling factors and adjusts all bounding box 
-    coordinates accordingly to ensure spatial alignment is preserved.
+    coordinates accordingly to ensure spatial alignment is preserved for the Region Proposal Network.
 
     Args:
         image_pil (Image.Image): The original PIL image.
@@ -63,8 +63,9 @@ def collate_function(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
     """
     Collates a list of dataset samples into a batched format.
     
-    This is used by the DataLoader to stack images into a single tensor while keeping 
-    bounding boxes and labels as lists since they vary in size per image.
+    This function is used by the PyTorch DataLoader to aggregate individual data samples 
+    into mini-batches. It stacks images into a single tensor for efficient GPU processing, 
+    while preserving bounding boxes and labels as lists since they vary in quantity per image.
 
     Args:
         batch (List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]]): A list of tuples containing (image, boxes, labels).
@@ -79,7 +80,21 @@ def collate_function(batch: List[Tuple[torch.Tensor, torch.Tensor, torch.Tensor]
 
 # --- 1. Native PyTorch ---
 class NativeCocoDataset(Dataset):
+    """
+    A native PyTorch Dataset implementation for reading COCO-format datasets from raw JPEGs.
+    
+    This dataset serves as the baseline in the data loading benchmark pipeline. It reads raw 
+    image files directly from the disk filesystem and parses a monolithic JSON annotations file, 
+    which is highly representative of standard, unoptimized data loading bottlenecks.
+    """
     def __init__(self, data_directory: str, labels_file: str):
+        """
+        Initializes the native COCO dataset.
+        
+        Args:
+            data_directory (str): The path to the directory containing raw JPEG images.
+            labels_file (str): The path to the JSON file containing COCO-formatted annotations.
+        """
         self.data_directory = data_directory
         with open(file=labels_file, mode='r') as file_handler:
             coco_data = json.load(fp=file_handler)
@@ -95,9 +110,25 @@ class NativeCocoDataset(Dataset):
             self.image_to_annotations[image_identifier].append(annotation)
             
     def __len__(self) -> int:
+        """
+        Returns the total number of images in the dataset.
+        
+        Returns:
+            int: The total count of image identifiers.
+        """
         return len(self.image_identifiers)
         
     def __getitem__(self, _index: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Retrieves and processes a single image and its corresponding annotations.
+        
+        Args:
+            _index (int): The index of the image to retrieve.
+            
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing the resized image tensor, 
+                                                             bounding boxes tensor, and labels tensor.
+        """
         image_identifier = self.image_identifiers[_index]
         image_information = self.images[image_identifier]
         image_path = os.path.join(self.data_directory, image_information['file_name'])
@@ -114,6 +145,20 @@ class NativeCocoDataset(Dataset):
         return image_tensor, torch.tensor(data=resized_bounding_boxes), torch.tensor(data=labels)
 
 def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int = 10) -> float:
+    """
+    Benchmarks the Native PyTorch dataset loader.
+    
+    This function evaluates the performance of the NativeCocoDataset within the data loading 
+    benchmark pipeline, simulating real-world iterative epoch loops.
+    
+    Args:
+        data_directory (str): The path to the directory containing raw JPEG images.
+        labels_file (str): The path to the JSON file containing COCO-formatted annotations.
+        number_of_runs (int, optional): The number of full epoch passes to simulate. Defaults to 10.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+    """
     dataset = NativeCocoDataset(data_directory=data_directory, labels_file=labels_file)
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=False, num_workers=4, collate_fn=collate_function)
     times = []
@@ -126,6 +171,21 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int 
 
 # --- 2. WebDataset ---
 def decode_webdataset(sample: Dict[str, bytes]) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Decodes a single sample from a WebDataset TAR archive.
+    
+    This function serves as the mapping stage in the WebDataset pipeline, extracting 
+    and parsing the raw JPEG bytes and JSON annotation bytes directly from memory without 
+    incurring individual filesystem read overhead.
+    
+    Args:
+        sample (Dict[str, bytes]): A dictionary containing the raw bytes for the image ('jpg') 
+                                   and annotations ('json').
+                                   
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing the resized image tensor, 
+                                                         bounding boxes tensor, and labels tensor.
+    """
     image_bytes = sample['jpg']
     image_pil = Image.open(fp=io.BytesIO(initial_bytes=image_bytes)).convert(mode='RGB')
     
@@ -139,6 +199,19 @@ def decode_webdataset(sample: Dict[str, bytes]) -> Tuple[torch.Tensor, torch.Ten
     return image_tensor, torch.tensor(data=resized_bounding_boxes), torch.tensor(data=labels)
 
 def benchmark_webdataset(tar_url: str, number_of_runs: int = 10) -> float:
+    """
+    Benchmarks the WebDataset tar archive loader.
+    
+    This function evaluates the performance of sequential TAR archive streaming within the 
+    data loading benchmark pipeline.
+    
+    Args:
+        tar_url (str): The POSIX-style shell brace expansion path to the TAR archives.
+        number_of_runs (int, optional): The number of full epoch passes to simulate. Defaults to 10.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+    """
     dataset = wds.WebDataset(urls=tar_url).map(f=decode_webdataset).batched(batchsize=16, collation_fn=collate_function)
     dataloader = DataLoader(dataset=dataset, batch_size=None, num_workers=4)
     times = []
@@ -151,6 +224,20 @@ def benchmark_webdataset(tar_url: str, number_of_runs: int = 10) -> float:
 
 # --- 3. TFRecord (Raw and Sharded) ---
 def decode_tfrecord(features: Dict[str, Any], pre_resized: bool = False) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Decodes a single sample from a TFRecord archive.
+    
+    This function acts as the parsing mechanism for TFRecord datasets in the benchmarking pipeline, 
+    efficiently unpacking batched bytes and avoiding file I/O bottlenecks.
+    
+    Args:
+        features (Dict[str, Any]): A dictionary mapping feature names to their extracted raw values.
+        pre_resized (bool, optional): If True, skips spatial resizing. Defaults to False.
+        
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing the image tensor, 
+                                                         bounding boxes tensor, and labels tensor.
+    """
     image_bytes = features['image']
     bounding_boxes_flat = features['bboxes']
     labels = features['labels']
@@ -170,7 +257,20 @@ def decode_tfrecord(features: Dict[str, Any], pre_resized: bool = False) -> Tupl
     return image_tensor, torch.tensor(data=resized_bounding_boxes), torch.tensor(data=labels)
 
 class CustomTFRecordDataset(Dataset):
+    """
+    A custom PyTorch Dataset implementation for iterating over a monolithic TFRecord archive.
+    
+    This class integrates into the benchmark pipeline to evaluate the latency of decoding 
+    massive binary records natively in Python.
+    """
     def __init__(self, tfrecord_path: str, pre_resized: bool = False):
+        """
+        Initializes the TFRecord dataset and preloads records.
+        
+        Args:
+            tfrecord_path (str): The absolute path to the TFRecord archive file.
+            pre_resized (bool, optional): Indicates if the embedded JPEGs are already sized correctly. Defaults to False.
+        """
         self.pre_resized = pre_resized
         self.data_records = []
         iterator = tfrecord.tfrecord_loader(data_path=tfrecord_path, index_path=None, description={
@@ -182,12 +282,39 @@ class CustomTFRecordDataset(Dataset):
             self.data_records.append(record)
             
     def __len__(self) -> int:
+        """
+        Returns the total number of records loaded from the archive.
+        
+        Returns:
+            int: The total count of loaded data records.
+        """
         return len(self.data_records)
         
     def __getitem__(self, _index: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Retrieves and decodes a single TFRecord entry.
+        
+        Args:
+            _index (int): The index of the record to decode.
+            
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The decoded image, boxes, and labels.
+        """
         return decode_tfrecord(features=self.data_records[_index], pre_resized=self.pre_resized)
 
 def benchmark_tfrecord(tfrecord_path: str, number_of_runs: int = 10) -> float:
+    """
+    Benchmarks the single-file TFRecord dataset loader.
+    
+    This function evaluates monolithic TFRecord performance within the data loading benchmark pipeline.
+    
+    Args:
+        tfrecord_path (str): The absolute path to the TFRecord archive file.
+        number_of_runs (int, optional): The number of full epoch passes to simulate. Defaults to 10.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+    """
     dataset = CustomTFRecordDataset(tfrecord_path=tfrecord_path, pre_resized=False)
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=False, num_workers=4, collate_fn=collate_function)
     times = []
@@ -199,7 +326,20 @@ def benchmark_tfrecord(tfrecord_path: str, number_of_runs: int = 10) -> float:
     return sum(times) / number_of_runs
 
 class CustomShardedTFRecordDataset(Dataset):
+    """
+    A custom PyTorch Dataset implementation for reading from multiple sharded TFRecord files.
+    
+    This class supports distributed, highly parallel data storage strategies in the benchmarking 
+    pipeline by seamlessly merging sequential shards into a unified virtual dataset.
+    """
     def __init__(self, directory_pattern: str, pre_resized: bool = False):
+        """
+        Initializes the sharded TFRecord dataset by traversing matching patterns.
+        
+        Args:
+            directory_pattern (str): The wildcard pattern used to locate all TFRecord shards.
+            pre_resized (bool, optional): Indicates if the embedded JPEGs are already sized correctly. Defaults to False.
+        """
         self.pre_resized = pre_resized
         self.data_records = []
         tfrecord_files = sorted(glob.glob(pathname=directory_pattern))
@@ -213,12 +353,39 @@ class CustomShardedTFRecordDataset(Dataset):
                 self.data_records.append(record)
                 
     def __len__(self) -> int:
+        """
+        Returns the total number of records across all shards.
+        
+        Returns:
+            int: The total count of combined data records.
+        """
         return len(self.data_records)
         
     def __getitem__(self, _index: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Retrieves and decodes a single TFRecord entry from the combined shards.
+        
+        Args:
+            _index (int): The index of the record to decode.
+            
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The decoded image, boxes, and labels.
+        """
         return decode_tfrecord(features=self.data_records[_index], pre_resized=self.pre_resized)
 
 def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int = 10) -> float:
+    """
+    Benchmarks the sharded TFRecord dataset loader.
+    
+    This function evaluates multi-file partitioned TFRecord performance within the benchmark pipeline.
+    
+    Args:
+        directory_pattern (str): The wildcard pattern used to locate all TFRecord shards.
+        number_of_runs (int, optional): The number of full epoch passes to simulate. Defaults to 10.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+    """
     dataset = CustomShardedTFRecordDataset(directory_pattern=directory_pattern, pre_resized=False)
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=False, num_workers=4, collate_fn=collate_function)
     times = []
@@ -231,15 +398,42 @@ def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int = 10)
 
 # --- 4. LMDB ---
 class LMDBDataset(Dataset):
+    """
+    A PyTorch Dataset implementation for interacting with Lightning Memory-Mapped Databases (LMDB).
+    
+    This class is evaluated in the benchmarking pipeline to test the efficiency of memory-mapped 
+    key-value stores for massive dataset retrieval, avoiding traditional disk seeks.
+    """
     def __init__(self, lmdb_path: str):
+        """
+        Initializes the LMDB dataset and maps the environment into memory.
+        
+        Args:
+            lmdb_path (str): The absolute path to the LMDB database folder.
+        """
         self.environment = lmdb.open(path=lmdb_path, readonly=True, lock=False, readahead=False, meminit=False)
         with self.environment.begin() as transaction:
             self.keys = pickle.loads(data=transaction.get(key=b'__keys__'))
             
     def __len__(self) -> int:
+        """
+        Returns the total number of keys registered in the LMDB database.
+        
+        Returns:
+            int: The total count of items.
+        """
         return len(self.keys)
         
     def __getitem__(self, _index: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Retrieves, unpickles, and decodes an image sample from the memory-mapped environment.
+        
+        Args:
+            _index (int): The index of the item to retrieve.
+            
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The decoded image, boxes, and labels.
+        """
         key = self.keys[_index]
         with self.environment.begin() as transaction:
             data = pickle.loads(data=transaction.get(key=str(key).encode(encoding='ascii')))
@@ -255,6 +449,18 @@ class LMDBDataset(Dataset):
         return image_tensor, torch.tensor(data=resized_bounding_boxes), torch.tensor(data=labels)
 
 def benchmark_lmdb(lmdb_path: str, number_of_runs: int = 10) -> float:
+    """
+    Benchmarks the LMDB dataset loader.
+    
+    This function evaluates memory-mapped database latency within the data loading benchmark pipeline.
+    
+    Args:
+        lmdb_path (str): The absolute path to the LMDB database folder.
+        number_of_runs (int, optional): The number of full epoch passes to simulate. Defaults to 10.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+    """
     dataset = LMDBDataset(lmdb_path=lmdb_path)
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=False, num_workers=4, collate_fn=collate_function)
     times = []
@@ -267,11 +473,29 @@ def benchmark_lmdb(lmdb_path: str, number_of_runs: int = 10) -> float:
 
 # --- 5. HDF5 ---
 class HDF5Dataset(Dataset):
+    """
+    A PyTorch Dataset implementation for interacting with Hierarchical Data Format (HDF5) files.
+    
+    This dataset assesses the viability of scientific array storage formats within the 
+    data loading benchmark pipeline.
+    """
     def __init__(self, h5_path: str):
+        """
+        Initializes the HDF5 dataset without eagerly opening the file handler.
+        
+        Args:
+            h5_path (str): The absolute path to the HDF5 file.
+        """
         self.h5_path = h5_path
         self.h5_file = None
         
     def __len__(self) -> int:
+        """
+        Calculates the length of the dataset by safely peeking into the HDF5 file structure.
+        
+        Returns:
+            int: The total count of images inside the 'images' group.
+        """
         if self.h5_file is None:
             self.h5_file = h5py.File(name=self.h5_path, mode='r')
             self.length = len(self.h5_file['images'])
@@ -281,6 +505,15 @@ class HDF5Dataset(Dataset):
         return len(self.h5_file['images'])
         
     def __getitem__(self, _index: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Retrieves and decodes an image sample from the underlying HDF5 hierarchy.
+        
+        Args:
+            _index (int): The index of the item to retrieve.
+            
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The decoded image, boxes, and labels.
+        """
         if self.h5_file is None:
             self.h5_file = h5py.File(name=self.h5_path, mode='r')
             
@@ -300,6 +533,18 @@ class HDF5Dataset(Dataset):
         return image_tensor, torch.tensor(data=resized_bounding_boxes), torch.tensor(data=labels)
 
 def benchmark_hdf5(h5_path: str, number_of_runs: int = 10) -> float:
+    """
+    Benchmarks the HDF5 dataset loader.
+    
+    This function evaluates scientific storage container latency within the benchmark pipeline.
+    
+    Args:
+        h5_path (str): The absolute path to the HDF5 file.
+        number_of_runs (int, optional): The number of full epoch passes to simulate. Defaults to 10.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+    """
     dataset = HDF5Dataset(h5_path=h5_path)
     dataset.__len__()
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=False, num_workers=4, collate_fn=collate_function)
@@ -313,15 +558,43 @@ def benchmark_hdf5(h5_path: str, number_of_runs: int = 10) -> float:
 
 # --- 6. Pre-Resized JPEGs (Native) ---
 class PreResizedDataset(Dataset):
+    """
+    A PyTorch Dataset that loads native JPEGs which have already been preemptively scaled.
+    
+    This class is utilized in the benchmark pipeline to isolate and quantify the exact CPU 
+    overhead introduced by runtime PIL resizing operations.
+    """
     def __init__(self, data_directory: str, labels_file: str):
+        """
+        Initializes the pre-resized JPEGs dataset.
+        
+        Args:
+            data_directory (str): The directory containing the pre-scaled JPEG images.
+            labels_file (str): The JSON file containing the correspondingly scaled bounding box coordinates.
+        """
         self.data_directory = data_directory
         with open(file=labels_file, mode='r') as file_handler:
             self.data_items = json.load(fp=file_handler)
             
     def __len__(self) -> int:
+        """
+        Returns the total number of pre-scaled images.
+        
+        Returns:
+            int: The total count of images.
+        """
         return len(self.data_items)
         
     def __getitem__(self, _index: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Retrieves a pre-scaled image and its pre-scaled annotations directly into a tensor.
+        
+        Args:
+            _index (int): The index of the item to retrieve.
+            
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The image tensor, boxes, and labels.
+        """
         item = self.data_items[_index]
         image_path = os.path.join(self.data_directory, item['file_name'])
         image_pil = Image.open(fp=image_path).convert(mode='RGB')
@@ -329,6 +602,20 @@ class PreResizedDataset(Dataset):
         return image_tensor, torch.tensor(data=item['bboxes']), torch.tensor(data=item['labels'])
 
 def benchmark_preresized(data_directory: str, labels_file: str, number_of_runs: int = 10) -> float:
+    """
+    Benchmarks the Pre-Resized JPEGs dataset loader.
+    
+    This function evaluates the performance of the Native PyTorch dataloader without CPU resizing 
+    bottlenecks within the benchmark pipeline.
+    
+    Args:
+        data_directory (str): The path to the directory containing pre-scaled JPEG images.
+        labels_file (str): The path to the JSON file containing pre-scaled COCO-formatted annotations.
+        number_of_runs (int, optional): The number of full epoch passes to simulate. Defaults to 10.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+    """
     dataset = PreResizedDataset(data_directory=data_directory, labels_file=labels_file)
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=False, num_workers=4, collate_fn=collate_function)
     times = []
@@ -341,6 +628,19 @@ def benchmark_preresized(data_directory: str, labels_file: str, number_of_runs: 
 
 # --- 7. Pre-Resized TFRecord ---
 def benchmark_tfrecord_preresized(tfrecord_path: str, number_of_runs: int = 10) -> float:
+    """
+    Benchmarks the Pre-Resized TFRecord dataset loader.
+    
+    This function evaluates the absolute theoretical maximum throughput of CPU decoding by 
+    combining binary archive storage with preemptive spatial scaling in the benchmark pipeline.
+    
+    Args:
+        tfrecord_path (str): The absolute path to the pre-resized TFRecord archive file.
+        number_of_runs (int, optional): The number of full epoch passes to simulate. Defaults to 10.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+    """
     dataset = CustomTFRecordDataset(tfrecord_path=tfrecord_path, pre_resized=True)
     dataloader = DataLoader(dataset=dataset, batch_size=16, shuffle=False, num_workers=4, collate_fn=collate_function)
     times = []
@@ -354,6 +654,21 @@ def benchmark_tfrecord_preresized(tfrecord_path: str, number_of_runs: int = 10) 
 # --- 8. NVIDIA DALI ---
 @pipeline_def(batch_size=16, num_threads=4, device_id=0)
 def coco_dali_pipeline(data_directory: str, annotations_file: str):
+    """
+    Defines the computation graph for NVIDIA DALI hardware-accelerated processing.
+    
+    This pipeline fundamentally replaces standard PyTorch CPU dataloading by offloading JPEG 
+    decoding and spatial resizing directly to the GPU's NVJPEG decoders for massive speedups 
+    in the training pipeline.
+    
+    Args:
+        data_directory (str): The path to the directory containing raw JPEG images.
+        annotations_file (str): The path to the JSON file containing COCO-formatted annotations.
+        
+    Returns:
+        Tuple[nvidia.dali.types.TensorList, nvidia.dali.types.TensorList, nvidia.dali.types.TensorList]: 
+            The DALI execution graph nodes representing the output images, boxes, and labels.
+    """
     inputs, bounding_boxes, labels = fn.readers.coco(
         file_root=data_directory,
         annotations_file=annotations_file,
@@ -370,6 +685,23 @@ def coco_dali_pipeline(data_directory: str, annotations_file: str):
     return images, bounding_boxes, labels
 
 def benchmark_dali(data_directory: str, annotations_file: str, number_of_runs: int = 10) -> float:
+    """
+    Benchmarks the NVIDIA DALI hardware-accelerated pipeline.
+    
+    This function wraps the DALI pipeline in a PyTorch compatibility layer to simulate 
+    its integration within the overall training loop benchmarking process.
+    
+    Args:
+        data_directory (str): The path to the directory containing raw JPEG images.
+        annotations_file (str): The path to the JSON file containing COCO-formatted annotations.
+        number_of_runs (int, optional): The number of full epoch passes to simulate. Defaults to 10.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+        
+    Raises:
+        RuntimeError: If the underlying DALI package is not installed on the system.
+    """
     if not HAS_DALI:
         raise RuntimeError("DALI is not installed.")
     pipe = coco_dali_pipeline(data_directory=data_directory, annotations_file=annotations_file)
@@ -384,6 +716,16 @@ def benchmark_dali(data_directory: str, annotations_file: str, number_of_runs: i
     return sum(times) / number_of_runs
 
 def main() -> None:
+    """
+    Executes the comprehensive Dataloader Format Benchmarking suite.
+    
+    This overarching pipeline orchestrates the sequential testing of various data storage 
+    strategies (e.g. TFRecords, WebDataset, LMDB) to empirically determine the optimal I/O 
+    throughput architecture for the visual-language model downstream trainer.
+    
+    Returns:
+        None
+    """
     base_directory = '/Users/Robert/Data/object_detection_data/coco-2017/train'
     original_data_directory = os.path.join(base_directory, 'data')
     original_labels = os.path.join(base_directory, 'labels.json')
@@ -406,6 +748,20 @@ def main() -> None:
     results = {}
     
     def run_benchmark(name: str, function: callable, *arguments: Any) -> None:
+        """
+        Wraps and executes a designated benchmark sequence safely.
+        
+        This internal utility isolates crashing benchmarks (due to missing datasets) from 
+        the remainder of the pipeline, ensuring that available formats are successfully timed.
+        
+        Args:
+            name (str): The descriptive display name of the benchmark iteration.
+            function (callable): The target benchmark method to invoke.
+            *arguments (Any): The corresponding parameter arguments forwarded to the method.
+            
+        Returns:
+            None
+        """
         try:
             print(f"Benchmarking {name}...")
             average_time = function(*arguments)
