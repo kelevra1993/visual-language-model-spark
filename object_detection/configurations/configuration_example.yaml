@@ -37,6 +37,10 @@ ExperimentConfiguration:
       view_input_images: False
 
 Data:
+  TFRecord:
+    activated: True
+    sharded: True
+    number_shards: 100
   image_settings:
     # Target resolution to resize all input images.
     size: 1024

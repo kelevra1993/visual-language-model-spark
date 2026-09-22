@@ -5,6 +5,7 @@ import torchvision
 from pathlib import Path
 from typing import Dict, Tuple, List, Union, Any, Optional
 from shutil import copyfile
+from data.data_loader import get_dataloaders
 
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data.dataloader import _BaseDataLoaderIter
@@ -245,6 +246,8 @@ class Trainer:
             benchmarking_iterations (int): The total number of iterations to run the benchmark. Defaults to 100,000.
         """
 
+        self.dataset_folder = self.experiment_configuration.get('dataset_folder', '')
+        self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.get_trainer_data_loaders()
         # Get dataloader
         training_dataloader_iterator = iter(self.train_dataloader)
         validation_dataloader_iterator = iter(self.validation_dataloader)
@@ -530,7 +533,7 @@ class Trainer:
                                         iteration=iteration,
                                         metric_dictionary=metric_dictionary)
 
-        return total_loss, model_outputs
+        return total_loss, None
 
     def save_model(self, iteration: int) -> None:
         """
