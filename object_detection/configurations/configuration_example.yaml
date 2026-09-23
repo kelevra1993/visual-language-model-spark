@@ -25,7 +25,6 @@ ExperimentConfiguration:
   dtype: "float32"
   # Flag to attempt loading the most recent checkpoint to resume training.
   resume_training: true
-  precompute_data: true # Potentially usage of TFRecords
   diagnosis_modes:
       # Choice to print out everything about the model
       verbose: True
@@ -38,8 +37,11 @@ ExperimentConfiguration:
 
 Data:
   TFRecord:
+    # Flag to enable the TFRecord data pipeline for faster sequential batching.
     activated: True
+    # Flag to indicate if the TFRecord dataset is distributed across multiple shard files.
     sharded: True
+    # Total number of individual shard files the dataset is partitioned into.
     number_shards: 100
   image_settings:
     # Target resolution to resize all input images.
