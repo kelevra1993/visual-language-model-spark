@@ -26,5 +26,6 @@ def main() -> None:
 
     trainer.run_benchmarking_loop(benchmarking_iterations=100)
 
+
 if __name__ == "__main__":
     main()
