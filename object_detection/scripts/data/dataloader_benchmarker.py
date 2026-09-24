@@ -13,10 +13,12 @@ from datetime import datetime
 import time
 import json
 import torch
+import tensorflow as tf
+tf.config.set_visible_devices([], "GPU")
 import cv2
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
-import torchvision.transforms as T
+from torch.utils.data import Dataset, DataLoader, IterableDataset
+import torch
 from tqdm import tqdm
 from typing import Tuple, List, Dict, Any
 from utilities.data_utilities import preprocess_image_and_boxes, view_input_data
@@ -232,6 +234,210 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
     return sum(times) / number_of_runs
 
 
+def create_tfrecord(data_directory: str, labels_file: str, output_tfrecord: str, image_size: int, keep_ratio: bool) -> None:
+    """
+    Parses the COCO dataset, resizes the images and bounding boxes, and writes 
+    them into a pure-Python TFRecord archive.
+    
+    This function acts as the preprocessing step for the TFRecord benchmark pipeline,
+    ensuring that the visual-language model downstream trainer has access to pre-scaled
+    images for maximum I/O throughput.
+    
+    Args:
+        data_directory (str): The path to the directory containing raw JPEG images.
+        labels_file (str): The path to the JSON file containing COCO-formatted annotations.
+        output_tfrecord (str): The destination path where the TFRecord file will be saved.
+        image_size (int): The target uniform image size for resizing.
+        keep_ratio (bool): Whether to maintain aspect ratio with padding during resizing.
+    """
+    print(f"Loading annotations from {labels_file}...")
+    with open(file=labels_file, mode='r') as file_handler:
+        coco_data = json.load(fp=file_handler)
+        
+    images_dictionary = {image['id']: image for image in tqdm(coco_data['images'], desc="Indexing Images")}
+    image_to_annotations = {}
+    
+    for annotation in tqdm(coco_data['annotations'], desc="Indexing Annotations"):
+        image_identifier = annotation['image_id']
+        if image_identifier not in image_to_annotations:
+            image_to_annotations[image_identifier] = []
+        image_to_annotations[image_identifier].append(annotation)
+        
+    writer = tf.io.TFRecordWriter(output_tfrecord)
+    
+    for image_identifier, image_information in tqdm(images_dictionary.items(), desc="Creating TFRecord"):
+        image_path = os.path.join(data_directory, image_information['file_name'])
+        image_cv2 = cv2.imread(filename=image_path)
+        
+        if image_cv2 is None:
+            continue
+            
+        annotations = image_to_annotations.get(image_identifier, [])
+        bounding_boxes = []
+        for annotation in annotations:
+            box_x, box_y, box_w, box_h = annotation['bbox']
+            bounding_boxes.append([box_x, box_y, box_x + box_w, box_y + box_h])
+        labels = [annotation['category_id'] for annotation in annotations]
+        
+        image_resized, resized_bounding_boxes = preprocess_image_and_boxes(
+            image=image_cv2,
+            bounding_boxes=bounding_boxes,
+            image_size=image_size,
+            keep_ratio=keep_ratio
+        )
+        
+        success, encoded_image = cv2.imencode(ext='.png', img=image_resized)
+        image_bytes = encoded_image.tobytes()
+
+        # to compare with
+        # encoded_image_string = cv2.imencode(".png", processed_image)[1].tostring()
+        # image_label = os.path.basename(os.path.dirname(image_path))
+        # def _bytes_feature(value):
+        #     """
+        #     :param value: input value of type bytes
+        #     :return: a feature
+        #     """
+        #     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+        # # example stored in tf record
+        # example = tf.train.Example(
+        #     features=tf.train.Features(
+        #         feature={
+        #             "input_name": _bytes_feature(name_raw),
+        #             "input": _bytes_feature(encoded_image_string),
+        #             "label": _bytes_feature(label_raw),
+        #         }
+        #     )
+        # )
+        
+        flattened_boxes = []
+        for box in resized_bounding_boxes:
+            flattened_boxes.extend(box)
+            
+        import numpy as np
+        boxes_bytes = np.array(flattened_boxes, dtype=np.float32).tobytes()
+        labels_bytes = np.array(labels, dtype=np.int64).tobytes()
+        
+        def _bytes_feature(value):
+            return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+            
+        example = tf.train.Example(
+            features=tf.train.Features(
+                feature={
+                    "images": _bytes_feature(image_bytes),
+                    "bounding_boxes": _bytes_feature(boxes_bytes),
+                    "labels": _bytes_feature(labels_bytes),
+                }
+            )
+        )
+        writer.write(example.SerializeToString())
+        
+    writer.close()
+
+
+class TFRecordCocoDataset(IterableDataset):
+    """
+    A PyTorch IterableDataset implementation for reading pre-processed TFRecord archives using TensorFlow.
+    
+    This dataset serves as a high-throughput format in the data loading benchmark pipeline. 
+    It streams records directly from the disk using tf.data for maximum efficiency.
+    """
+
+    def __init__(self, tfrecord_path: str):
+        """
+        Initializes the TFRecord iterable dataset.
+        
+        Args:
+            tfrecord_path (str): The absolute path to the TFRecord archive file.
+        """
+        self.tfrecord_path = tfrecord_path
+
+    def __iter__(self):
+        """
+        Returns an iterator over the dataset using optimized tf.data pipeline.
+        """
+        worker_info = torch.utils.data.get_worker_info()
+        dataset = tf.data.TFRecordDataset([self.tfrecord_path])
+        
+        # If running with multiple workers in DataLoader, shard the data to avoid duplicates
+        if worker_info is not None:
+            dataset = dataset.shard(num_shards=worker_info.num_workers, index=worker_info.id)
+            
+        def read_and_decode(serialized_data):
+            features = tf.io.parse_single_example(
+                serialized_data,
+                features={
+                    "images": tf.io.FixedLenFeature([], tf.string),
+                    "bounding_boxes": tf.io.FixedLenFeature([], tf.string),
+                    "labels": tf.io.FixedLenFeature([], tf.string),
+                }
+            )
+            
+            image = tf.io.decode_png(features["images"], channels=3)
+            bounding_boxes = tf.io.decode_raw(features["bounding_boxes"], out_type=tf.float32)
+            labels = tf.io.decode_raw(features["labels"], out_type=tf.int64)
+            
+            # Reshape bounding boxes back to [N, 4] format
+            bounding_boxes = tf.reshape(bounding_boxes, [-1, 4])
+            
+            return image, bounding_boxes, labels
+            
+        dataset = dataset.map(map_func=read_and_decode, num_parallel_calls=tf.data.AUTOTUNE)
+        
+        for image, bounding_boxes, labels in dataset:
+            # Convert TF Tensors -> NumPy -> PyTorch Tensors
+            image_numpy = image.numpy()
+            boxes_numpy = bounding_boxes.numpy()
+            labels_numpy = labels.numpy()
+            
+            # Reorder channels for PyTorch (H, W, C) -> (C, H, W)
+            image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous()
+            
+            yield {
+                "images": image_tensor,
+                "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=torch.float32),
+                "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)
+            }
+
+
+def benchmark_tfrecord(tfrecord_path: str, number_of_runs: int, batch_size: int, view_images: bool) -> float:
+    """
+    Benchmarks the Pre-Resized TFRecord dataset loader.
+    
+    This function evaluates the absolute theoretical maximum throughput of CPU decoding by 
+    combining binary archive storage with preemptive spatial scaling in the benchmark pipeline.
+    
+    Args:
+        tfrecord_path (str): The absolute path to the pre-resized TFRecord archive file.
+        number_of_runs (int): The number of full epoch passes to simulate.
+        batch_size (int): The number of images per batch.
+        view_images (bool): Whether to visualize the batches using OpenCV.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+    """
+    dataset = TFRecordCocoDataset(tfrecord_path=tfrecord_path)
+    dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
+                            collate_fn=collate_function)
+    times = []
+
+    # Iteratively drain the dataloader to precisely measure the wall-clock time required for full epoch traversals
+    for _run_index in range(number_of_runs):
+        start_time = time.time()
+        for batch_data_dictionary in tqdm(dataloader, desc=f"TFRecord Epoch {_run_index + 1}", leave=False):
+            if view_images:
+                # Iterate through each item in the current batch explicitly
+                for batch_index in range(batch_data_dictionary["images"].size(0)):
+                    # Dispatch the individual item to the visualization utility to render the ground truth annotations
+                    user_quit = view_input_data(image=batch_data_dictionary["images"][batch_index],
+                                                bounding_boxes=batch_data_dictionary["bounding_boxes"][batch_index],
+                                                labels=batch_data_dictionary["labels"][batch_index])
+                    if user_quit:
+                        return 0.0
+        times.append(time.time() - start_time)
+
+    return sum(times) / number_of_runs
+
+
 def main() -> None:
     """
     Executes the comprehensive Dataloader Format Benchmarking suite.
@@ -254,20 +460,47 @@ def main() -> None:
     original_data_directory = os.path.join(base_directory, 'data')
     original_labels = os.path.join(base_directory, 'labels.json')
 
+    tfrecord_path = os.path.join('/home/robert_kelevra/Projects/visual-language-model-spark/datasets/formats',
+                                 'coco-train-preresized.tfrecord')
+
+    if not os.path.exists(path=tfrecord_path):
+        print(f"TFRecord file not found at {tfrecord_path}. Generating it now...")
+        # Make sure the parent directory exists
+        os.makedirs(name=os.path.dirname(p=tfrecord_path), exist_ok=True)
+        create_tfrecord(
+            data_directory=original_data_directory, 
+            labels_file=original_labels, 
+            output_tfrecord=tfrecord_path, 
+            image_size=image_size, 
+            keep_ratio=keep_ratio
+        )
+        print("TFRecord generation complete!")
+    else:
+        print(f"Found existing TFRecord file at {tfrecord_path}.")
+
     print("Synchronizing dataset annotations with physical disk files...")
     # clean_data(data_directory=original_data_directory, labels_file=original_labels)
 
     print(f"Starting Comprehensive Benchmarks... ({number_of_runs} runs each)")
     print("-" * 50)
 
+    # try:
+    #     print(f"Benchmarking Native PyTorch...")
+    #     average_time = benchmark_native(data_directory=original_data_directory, labels_file=original_labels,
+    #                                     number_of_runs=number_of_runs, batch_size=batch_size,
+    #                                     image_size=image_size, keep_ratio=keep_ratio, view_images=view_images)
+    #     print(f"[Native PyTorch] Average Time: {average_time:.4f} s")
+    # except Exception as error:
+    #     print(f"[Native PyTorch] Skipped due to error: {error}")
+    # print("-" * 50)
+
     try:
-        print(f"Benchmarking Native PyTorch...")
-        average_time = benchmark_native(data_directory=original_data_directory, labels_file=original_labels,
-                                        number_of_runs=number_of_runs, batch_size=batch_size,
-                                        image_size=image_size, keep_ratio=keep_ratio, view_images=view_images)
-        print(f"[Native PyTorch] Average Time: {average_time:.4f} s")
+        print(f"Benchmarking TFRecord (Pre-Resized)...")
+        average_time = benchmark_tfrecord(tfrecord_path=tfrecord_path, number_of_runs=number_of_runs,
+                                          batch_size=batch_size, view_images=view_images)
+        print(f"[TFRecord (Pre-Resized)] Average Time: {average_time:.4f} s")
     except Exception as error:
-        print(f"[Native PyTorch] Skipped due to error: {error}")
+        print(f"[TFRecord (Pre-Resized)] Skipped due to error: {error}")
     print("-" * 50)
 
 
