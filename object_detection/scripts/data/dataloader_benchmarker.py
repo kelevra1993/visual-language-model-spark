@@ -19,7 +19,7 @@ from torch.utils.data import Dataset, DataLoader
 import torchvision.transforms as T
 from tqdm import tqdm
 from typing import Tuple, List, Dict, Any
-from utilities.data_utilities import preprocess_image_and_boxes
+from utilities.data_utilities import preprocess_image_and_boxes, view_input_data
 
 import shutil
 from datetime import datetime
@@ -115,7 +115,7 @@ class NativeCocoDataset(Dataset):
     which is highly representative of standard, unoptimized data loading bottlenecks.
     """
 
-    def __init__(self, data_directory: str, labels_file: str):
+    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool):
         """
         Initializes the native COCO dataset.
 
@@ -124,6 +124,8 @@ class NativeCocoDataset(Dataset):
             labels_file (str): The path to the JSON file containing COCO-formatted annotations.
         """
         self.data_directory = data_directory
+        self.image_size = image_size
+        self.keep_ratio = keep_ratio
         # Load the monolithic JSON file completely into memory to parse all annotations
         with open(file=labels_file, mode='r') as file_handler:
             coco_data = json.load(fp=file_handler)
@@ -178,7 +180,8 @@ class NativeCocoDataset(Dataset):
         # Scale the image and pad it to the target uniform size while adjusting the bounding box coordinates to match
         image_resized, resized_bounding_boxes = preprocess_image_and_boxes(image=image_cv2,
                                                                            bounding_boxes=bounding_boxes,
-                                                                           image_size=1024, keep_ratio=True)
+                                                                           image_size=self.image_size,
+                                                                           keep_ratio=self.keep_ratio)
         # Cast the preprocessed NumPy array into a contiguous PyTorch tensor and transpose
         # the axes to the expected channel-first format without altering pixel scales
         image_tensor = torch.from_numpy(image_resized).permute(2, 0, 1).contiguous()
@@ -189,7 +192,8 @@ class NativeCocoDataset(Dataset):
                 "labels": torch.tensor(data=labels)}
 
 
-def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int = 10, batch_size: int = 16) -> float:
+def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int, batch_size: int, image_size: int,
+                     keep_ratio: bool, view_images: bool) -> float:
     """
     Benchmarks the Native PyTorch dataset loader.
 
@@ -205,15 +209,25 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int 
         float: The average time taken per run in seconds.
     """
     # Initialize the dataset and wrap it in a multi-processed dataloader to simulate real-world parallel fetching
-    dataset = NativeCocoDataset(data_directory=data_directory, labels_file=labels_file)
+    dataset = NativeCocoDataset(data_directory=data_directory, labels_file=labels_file, image_size=image_size,
+                                keep_ratio=keep_ratio)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
                             collate_fn=collate_function)
     times = []
     # Iteratively drain the dataloader to precisely measure the wall-clock time required for full epoch traversals
     for _run_index in range(number_of_runs):
         start_time = time.time()
-        for _batch in tqdm(dataloader, desc=f"Running Epoch {_run_index + 1}", leave=False):
-            pass
+        for batch_data_dictionary in tqdm(dataloader, desc=f"Running Epoch {_run_index + 1}", leave=False):
+            if view_images:
+
+                # Iterate through each item in the current batch explicitly
+                for batch_index in range(batch_data_dictionary["images"].size(0)):
+                    # Dispatch the individual item to the visualization utility to render the ground truth annotations
+                    user_quit = view_input_data(image=batch_data_dictionary["images"][batch_index],
+                                                bounding_boxes=batch_data_dictionary["bounding_boxes"][batch_index],
+                                                labels=batch_data_dictionary["labels"][batch_index])
+                    if user_quit:
+                        return 0.0
         times.append(time.time() - start_time)
     return sum(times) / number_of_runs
 
@@ -232,6 +246,10 @@ def main() -> None:
     number_of_runs = 5
     batch_size = 20
 
+    image_size = 1024
+    keep_ratio = True
+    view_images = False
+
     base_directory = '/home/robert_kelevra/Projects/visual-language-model-spark/datasets/coco-2017/train'
     original_data_directory = os.path.join(base_directory, 'data')
     original_labels = os.path.join(base_directory, 'labels.json')
@@ -244,10 +262,9 @@ def main() -> None:
 
     try:
         print(f"Benchmarking Native PyTorch...")
-        average_time = benchmark_native(data_directory=original_data_directory,
-                                        labels_file=original_labels,
-                                        number_of_runs=number_of_runs,
-                                        batch_size=batch_size)
+        average_time = benchmark_native(data_directory=original_data_directory, labels_file=original_labels,
+                                        number_of_runs=number_of_runs, batch_size=batch_size,
+                                        image_size=image_size, keep_ratio=keep_ratio, view_images=view_images)
         print(f"[Native PyTorch] Average Time: {average_time:.4f} s")
     except Exception as error:
         print(f"[Native PyTorch] Skipped due to error: {error}")

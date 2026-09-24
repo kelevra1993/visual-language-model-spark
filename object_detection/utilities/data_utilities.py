@@ -1,3 +1,4 @@
+import torch
 import cv2
 import numpy as np
 
@@ -108,3 +109,58 @@ def preprocess_image_and_boxes(image: np.ndarray, bounding_boxes: list[list[floa
                                                 image_height=image_height, image_size=image_size, keep_ratio=keep_ratio)
 
     return processed_image, processed_bounding_boxes
+
+
+def view_input_data(image: torch.Tensor, bounding_boxes: torch.Tensor, labels: torch.Tensor) -> bool:
+    """
+    Visualizes a single preprocessed image, drawing its bounding boxes and labels for manual inspection.
+
+    This function transposes the image tensor back to an OpenCV-compatible NumPy array and draws 
+    the ground truth annotations on top. It halts execution until the user presses a key.
+
+    Args:
+        image (torch.Tensor): The preprocessed image tensor.
+        bounding_boxes (torch.Tensor): The bounding boxes associated with the image.
+        labels (torch.Tensor): The class labels associated with the bounding boxes.
+
+    Returns:
+        bool: True if the user pressed 'q' to forcefully quit the visualization loop, False otherwise.
+    """
+    # Transpose the tensor back from (C, H, W) to (H, W, C) for OpenCV compatibility
+    image_numpy = image.permute(1, 2, 0).numpy().copy()
+
+    # Convert bounding boxes and labels to standard NumPy structures
+    boxes_numpy = bounding_boxes.numpy()
+    labels_numpy = labels.numpy()
+
+    # Iterate through the objects in this specific image and draw their coordinates
+    for box, label in zip(boxes_numpy, labels_numpy):
+        box_x1, box_y1, box_x2, box_y2 = map(int, box)
+
+        # Draw the bounding box rectangle and place the class label text
+        cv2.rectangle(img=image_numpy, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0), thickness=2)
+        cv2.putText(img=image_numpy, text=str(label), org=(box_x1, max(box_y1 - 10, 0)),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
+
+    # Overlay instructional text at the bottom left of the image to guide the user
+    # Draw a solid black background block first to guarantee the grey text is highly visible against any image background
+    image_height, _image_width, _ = image_numpy.shape
+    cv2.rectangle(img=image_numpy, pt1=(5, image_height - 45), pt2=(550, image_height - 5), color=(0, 0, 0),
+                  thickness=-1)
+    cv2.putText(img=image_numpy, text="Press SPACE For Next Image, Or ENTER To Quit",
+                org=(10, image_height - 20), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=0.7, color=(150, 150, 150), thickness=2)
+
+    # Display the annotated image and wait for the user to trigger a supported hotkey
+    cv2.imshow(winname="Input Data Viewer", mat=image_numpy)
+
+    # Enter a polling loop to restrict progression exclusively to the Spacebar or Enter keys
+    while True:
+        pressed_key = cv2.waitKey(delay=0) & 0xFF
+        if pressed_key == 13:  # 13 represents the Enter/Return key
+            cv2.destroyAllWindows()
+            return True
+        if pressed_key == ord(' '):
+            break
+
+    return False
