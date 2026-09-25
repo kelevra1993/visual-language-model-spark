@@ -2,6 +2,7 @@ import os
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import json
+import csv
 import time
 import cv2
 import numpy
@@ -216,7 +217,7 @@ class NativeCocoDataset(Dataset):
 
 
 def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int, batch_size: int, image_size: int,
-                     keep_ratio: bool, view_images: bool) -> float:
+                     keep_ratio: bool, view_images: bool) -> List[float]:
     """
     Benchmarks the Native PyTorch dataset loader.
 
@@ -256,7 +257,7 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
                         return 0.0
         times.append(time.time() - start_time)
 
-    return sum(times) / number_of_runs
+    return times
 
 
 def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_record: str, image_size: int,
@@ -384,7 +385,7 @@ class TFRecordCocoDataset(IterableDataset):
                    "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)}
 
 
-def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_size: int, view_images: bool) -> float:
+def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_size: int, view_images: bool) -> List[float]:
     """
     Benchmarks the Pre-Resized TFRecord dataset loader.
     
@@ -420,7 +421,7 @@ def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_s
                         return 0.0
         times.append(time.time() - start_time)
 
-    return sum(times) / number_of_runs
+    return times
 
 
 
@@ -551,7 +552,7 @@ class TFRecordShardedCocoDataset(IterableDataset):
                    "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)}
 
 
-def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batch_size: int, view_images: bool) -> float:
+def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batch_size: int, view_images: bool) -> List[float]:
     """
     Benchmarks the sharded TFRecord dataset loader.
     
@@ -581,7 +582,7 @@ def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batc
                         return 0.0
         times.append(time.time() - start_time)
 
-    return sum(times) / number_of_runs
+    return times
 
 
 def main() -> None:
@@ -605,17 +606,17 @@ def main() -> None:
     original_labels = os.path.join(base_directory, 'labels.json')
 
     tensorflow_record_path = os.path.join('/home/robert_kelevra/Projects/visual-language-model-spark/datasets/formats',
-                                          'coco-train-preresized.tfrecord')
-    sharded_output_directory = os.path.join('/home/robert_kelevra/Projects/visual-language-model-spark/datasets/formats', 'sharded_tfrecords')
+                                          f'KAR-{image_size}-coco-train-preresized.tfrecord')
+    sharded_output_directory = os.path.join('/home/robert_kelevra/Projects/visual-language-model-spark/datasets/formats', f'KAR-{image_size}-sharded_tfrecords')
     tfrecord_sharded_pattern = os.path.join(sharded_output_directory, 'coco-train-*.tfrecord')
 
-    # if not os.path.exists(path=tensorflow_record_path):
-    #     print(f"TFRecord file not found at {tensorflow_record_path}. Generating it now...")
-    #     os.makedirs(name=os.path.dirname(p=tensorflow_record_path), exist_ok=True)
-    #     create_tfrecord(data_directory=original_data_directory, labels_file=original_labels, output_tensorflow_record=tensorflow_record_path, image_size=image_size, keep_ratio=keep_ratio)
-    #     print("TFRecord generation complete!")
-    # else:
-    #     print(f"Found existing TFRecord file at {tensorflow_record_path}.")
+    if not os.path.exists(path=tensorflow_record_path):
+        print(f"TFRecord file not found at {tensorflow_record_path}. Generating it now...")
+        os.makedirs(name=os.path.dirname(p=tensorflow_record_path), exist_ok=True)
+        create_tfrecord(data_directory=original_data_directory, labels_file=original_labels, output_tensorflow_record=tensorflow_record_path, image_size=image_size, keep_ratio=keep_ratio)
+        print("TFRecord generation complete!")
+    else:
+        print(f"Found existing TFRecord file at {tensorflow_record_path}.")
 
     if not os.path.exists(path=sharded_output_directory) or len(glob.glob(tfrecord_sharded_pattern)) == 0:
         print(f"Sharded TFRecords not found at {sharded_output_directory}. Generating them now...")
@@ -629,37 +630,61 @@ def main() -> None:
     print(f"Starting Comprehensive Benchmarks... ({number_of_runs} runs each)")
     print("-" * 50)
 
-    # NOTE: Please keep the Native PyTorch and single-file TFRecord benchmarks commented out.
-    # Do not delete them. They are kept commented to allow testing data loading strategies one by one.
+    # NOTE: These benchmarks can be commented out if you want to test them one by one.
+    
+    results = {'Native': [], 'TFRecord': [], 'Sharded': []}
 
-    # try:
-    #     print(f"Benchmarking Native PyTorch...")
-    #     average_time = benchmark_native(data_directory=original_data_directory, labels_file=original_labels,
-    #                                     number_of_runs=number_of_runs, batch_size=batch_size,
-    #                                     image_size=image_size, keep_ratio=keep_ratio, view_images=view_images)
-    #     print(f"[Native PyTorch] Average Time: {average_time:.4f} s")
-    # except Exception as error:
-    #     print(f"[Native PyTorch] Skipped due to error: {error}")
-    # print("-" * 50)
+    try:
+        print(f"Benchmarking Native PyTorch...")
+        times = benchmark_native(data_directory=original_data_directory, labels_file=original_labels,
+                                        number_of_runs=number_of_runs, batch_size=batch_size,
+                                        image_size=image_size, keep_ratio=keep_ratio, view_images=view_images)
+        results['Native'] = times
+        print(f"[Native PyTorch] Average Time: {sum(times)/len(times):.4f} s")
+    except Exception as error:
+        print(f"[Native PyTorch] Skipped due to error: {error}")
+    print("-" * 50)
 
-    # try:
-    #     print("Benchmarking TFRecord (Pre-Resized)...")
-    #     average_time = benchmark_tfrecord(tensorflow_record_path=tensorflow_record_path, number_of_runs=number_of_runs,
-    #                                       batch_size=batch_size, view_images=view_images)
-    #     print(f"[TFRecord (Pre-Resized)] Average Time: {average_time:.4f} s")
-    # except Exception as error:
-    #     print(f"[TFRecord (Pre-Resized)] Skipped due to error: {error}")
-    # print("-" * 50)
+    try:
+        print("Benchmarking TFRecord (Pre-Resized)...")
+        times = benchmark_tfrecord(tensorflow_record_path=tensorflow_record_path, number_of_runs=number_of_runs,
+                                          batch_size=batch_size, view_images=view_images)
+        results['TFRecord'] = times
+        print(f"[TFRecord (Pre-Resized)] Average Time: {sum(times)/len(times):.4f} s")
+    except Exception as error:
+        print(f"[TFRecord (Pre-Resized)] Skipped due to error: {error}")
+    print("-" * 50)
 
     try:
         print("Benchmarking TFRecord (Sharded)...")
-        average_time = benchmark_tfrecord_sharded(directory_pattern=tfrecord_sharded_pattern, number_of_runs=number_of_runs,
+        times = benchmark_tfrecord_sharded(directory_pattern=tfrecord_sharded_pattern, number_of_runs=number_of_runs,
                                                   batch_size=batch_size, view_images=view_images)
-        print(f"[TFRecord (Sharded)] Average Time: {average_time:.4f} s")
+        results['Sharded'] = times
+        print(f"[TFRecord (Sharded)] Average Time: {sum(times)/len(times):.4f} s")
     except Exception as error:
         print(f"[TFRecord (Sharded)] Skipped due to error: {error}")
     print("-" * 50)
 
+    csv_file_path = 'benchmark_results.csv'
+    with open(csv_file_path, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Native', 'TFRecord', 'Sharded'])
+        
+        # Write individual run times
+        for i in range(number_of_runs):
+            native_val = results['Native'][i] if i < len(results['Native']) else ''
+            tf_val = results['TFRecord'][i] if i < len(results['TFRecord']) else ''
+            sharded_val = results['Sharded'][i] if i < len(results['Sharded']) else ''
+            writer.writerow([native_val, tf_val, sharded_val])
+            
+        # Write average times
+        native_avg = sum(results['Native'])/len(results['Native']) if results['Native'] else ''
+        tf_avg = sum(results['TFRecord'])/len(results['TFRecord']) if results['TFRecord'] else ''
+        sharded_avg = sum(results['Sharded'])/len(results['Sharded']) if results['Sharded'] else ''
+        writer.writerow([native_avg, tf_avg, sharded_avg])
+        
+    print(f"Results saved to {csv_file_path}")
 
 if __name__ == "__main__":
     main()
+
