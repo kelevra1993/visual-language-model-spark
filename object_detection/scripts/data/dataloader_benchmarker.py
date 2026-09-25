@@ -139,7 +139,7 @@ class NativeCocoDataset(Dataset):
     during each dataloader fetch iteration.
     """
 
-    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool):
+    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool) -> None:
         """
         Initializes the Native dataset and parses the monolithic COCO JSON file.
 
@@ -350,7 +350,7 @@ class TFRecordCocoDataset(IterableDataset):
     It streams records directly from the disk using tensorflow.data for maximum efficiency.
     """
 
-    def __init__(self, tensorflow_record_path: str):
+    def __init__(self, tensorflow_record_path: str) -> None:
         """
         Initializes the TFRecord iterable dataset.
         
@@ -368,7 +368,7 @@ class TFRecordCocoDataset(IterableDataset):
 
         # Partition the dataset appropriately if multiple workers are deployed to prevent data duplication
         if worker_info is not None:
-            dataset = dataset.shard(num_shards=worker_info.num_workers, index=worker_info.id)
+            dataset = dataset.shard(number_of_shards=worker_info.num_workers, index=worker_info.id)
 
         dataset = dataset.map(map_func=parse_single_example, num_parallel_calls=tensorflow.data.AUTOTUNE)
 
@@ -426,7 +426,7 @@ def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_s
 
 
 def create_tfrecord_sharded(data_directory: str, labels_file: str, output_directory: str, image_size: int,
-                            keep_ratio: bool, num_shards: int = 10) -> None:
+                            keep_ratio: bool, number_of_shards: int = 10) -> None:
     """
     Parses a COCO dataset and compiles it into optimized sharded TFRecord archives.
     
@@ -436,7 +436,7 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
         output_directory (str): The destination directory for the sharded TFRecord archives.
         image_size (int): The target dimension to scale the images to.
         keep_ratio (bool): Whether to pad the scaled images to maintain aspect ratio.
-        num_shards (int): Number of shards to create.
+        number_of_shards (int): Number of shards to create.
         
     Returns:
         None
@@ -457,17 +457,17 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
     os.makedirs(name=output_directory, exist_ok=True)
     
     image_keys = list(images_dictionary.keys())
-    images_per_shard = len(image_keys) // num_shards + (1 if len(image_keys) % num_shards != 0 else 0)
+    images_per_shard = len(image_keys) // number_of_shards + (1 if len(image_keys) % number_of_shards != 0 else 0)
 
-    for shard_index in range(num_shards):
-        shard_path = os.path.join(output_directory, f"coco-train-{shard_index:04d}-of-{num_shards:04d}.tfrecord")
+    for shard_index in range(number_of_shards):
+        shard_path = os.path.join(output_directory, f"coco-train-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
         writer = tensorflow.io.TFRecordWriter(path=shard_path)
         
         start_index = shard_index * images_per_shard
         end_index = min((shard_index + 1) * images_per_shard, len(image_keys))
         shard_keys = image_keys[start_index:end_index]
         
-        for image_identifier in tqdm(iterable=shard_keys, desc=f"Creating Shard {shard_index + 1}/{num_shards}", leave=False):
+        for image_identifier in tqdm(iterable=shard_keys, desc=f"Creating Shard {shard_index + 1}/{number_of_shards}", leave=False):
             image_information = images_dictionary[image_identifier]
             image_path = os.path.join(data_directory, image_information['file_name'])
             if not os.path.exists(path=image_path):
@@ -520,7 +520,7 @@ class TFRecordShardedCocoDataset(IterableDataset):
     A PyTorch IterableDataset implementation for reading from multiple sharded TFRecord files.
     """
 
-    def __init__(self, directory_pattern: str):
+    def __init__(self, directory_pattern: str) -> None:
         """
         Initializes the sharded TFRecord iterable dataset.
         
@@ -537,7 +537,7 @@ class TFRecordShardedCocoDataset(IterableDataset):
         dataset = tensorflow.data.TFRecordDataset(filenames=self.tensorflow_record_files, buffer_size=262144)
 
         if worker_info is not None:
-            dataset = dataset.shard(num_shards=worker_info.num_workers, index=worker_info.id)
+            dataset = dataset.shard(number_of_shards=worker_info.num_workers, index=worker_info.id)
 
         dataset = dataset.map(map_func=parse_single_example, num_parallel_calls=tensorflow.data.AUTOTUNE)
 
@@ -622,7 +622,7 @@ def main() -> None:
 
     if not os.path.exists(path=sharded_output_directory) or len(glob.glob(tfrecord_sharded_pattern)) == 0:
         print(f"Sharded TFRecords not found at {sharded_output_directory}. Generating them now...")
-        create_tfrecord_sharded(data_directory=original_data_directory, labels_file=original_labels, output_directory=sharded_output_directory, image_size=image_size, keep_ratio=keep_ratio, num_shards=10)
+        create_tfrecord_sharded(data_directory=original_data_directory, labels_file=original_labels, output_directory=sharded_output_directory, image_size=image_size, keep_ratio=keep_ratio, number_of_shards=10)
         print("Sharded TFRecord generation complete!")
     else:
         print(f"Found existing sharded TFRecords at {sharded_output_directory}.")
@@ -673,17 +673,17 @@ def main() -> None:
         writer.writerow(['Native', 'TFRecord', 'Sharded'])
         
         # Write individual run times
-        for i in range(number_of_runs):
-            native_val = results['Native'][i] if i < len(results['Native']) else ''
-            tf_val = results['TFRecord'][i] if i < len(results['TFRecord']) else ''
-            sharded_val = results['Sharded'][i] if i < len(results['Sharded']) else ''
-            writer.writerow([native_val, tf_val, sharded_val])
+        for _index in range(number_of_runs):
+            native_value = results['Native'][_index] if _index < len(results['Native']) else ''
+            tensorflow_value = results['TFRecord'][_index] if _index < len(results['TFRecord']) else ''
+            sharded_value = results['Sharded'][_index] if _index < len(results['Sharded']) else ''
+            writer.writerow([native_value, tensorflow_value, sharded_value])
             
         # Write average times
-        native_avg = sum(results['Native'])/len(results['Native']) if results['Native'] else ''
-        tf_avg = sum(results['TFRecord'])/len(results['TFRecord']) if results['TFRecord'] else ''
-        sharded_avg = sum(results['Sharded'])/len(results['Sharded']) if results['Sharded'] else ''
-        writer.writerow([native_avg, tf_avg, sharded_avg])
+        native_average = sum(results['Native'])/len(results['Native']) if results['Native'] else ''
+        tensorflow_average = sum(results['TFRecord'])/len(results['TFRecord']) if results['TFRecord'] else ''
+        sharded_average = sum(results['Sharded'])/len(results['Sharded']) if results['Sharded'] else ''
+        writer.writerow([native_average, tensorflow_average, sharded_average])
         
     print(f"Results saved to {csv_file_path}")
 
