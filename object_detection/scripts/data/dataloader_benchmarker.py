@@ -601,13 +601,15 @@ def main() -> None:
     keep_ratio = True
     view_images = False
 
-    base_directory = '/home/robert_kelevra/Projects/visual-language-model-spark/datasets/coco-2017/train'
+    project_base_directory = '/home/robert_kelevra/Projects/visual-language-model-spark'
+    base_directory = os.path.join(project_base_directory, 'datasets', 'coco-2017', 'train')
     original_data_directory = os.path.join(base_directory, 'data')
     original_labels = os.path.join(base_directory, 'labels.json')
 
-    tensorflow_record_path = os.path.join('/home/robert_kelevra/Projects/visual-language-model-spark/datasets/formats',
-                                          f'KAR-{image_size}-coco-train-preresized.tfrecord')
-    sharded_output_directory = os.path.join('/home/robert_kelevra/Projects/visual-language-model-spark/datasets/formats', f'KAR-{image_size}-sharded_tfrecords')
+    prefix = f"KAR-{image_size}-" if keep_ratio else f"{image_size}-"
+    formats_directory = os.path.join(project_base_directory, 'datasets', 'formats')
+    tensorflow_record_path = os.path.join(formats_directory, f'{prefix}coco-train-preresized.tfrecord')
+    sharded_output_directory = os.path.join(formats_directory, f'{prefix}sharded_tfrecords')
     tfrecord_sharded_pattern = os.path.join(sharded_output_directory, 'coco-train-*.tfrecord')
 
     if not os.path.exists(path=tensorflow_record_path):
