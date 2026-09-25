@@ -587,7 +587,7 @@ def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batc
 
 def get_dataset_paths(project_base_directory: str, image_size: int, keep_ratio: bool) -> Dict[str, str]:
     """
-    Generates the necessary file and directory paths for dataset processing.
+    Constructs and orchestrates the standardized filesystem paths required by the dataloader format benchmarker pipeline to locate annotations and output compiled archives.
     
     Args:
         project_base_directory (str): The root directory of the project.
@@ -618,7 +618,7 @@ def get_dataset_paths(project_base_directory: str, image_size: int, keep_ratio: 
 
 def prepare_tfrecords(paths_dictionary: Dict[str, str], image_size: int, keep_ratio: bool) -> None:
     """
-    Ensures that required single and sharded TFRecord files exist, generating them if they do not.
+    Validates the presence of the pre-resized and sharded TFRecord archives on disk, dynamically compiling them from the raw COCO dataset if missing, in order to guarantee data availability for the benchmarking pipeline.
     
     Args:
         paths_dictionary (Dict[str, str]): A dictionary containing dataset input and output paths.
