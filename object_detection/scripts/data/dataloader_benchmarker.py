@@ -1,81 +1,19 @@
-"""
-Comprehensive Dataloader Format Benchmarking Suite
-
-This script focuses solely on benchmarking the Native PyTorch dataloader.
-It reads raw JPEG images directly from the filesystem and parses a monolithic 
-JSON annotations file. Highly bottlenecked by disk I/O, this serves as the 
-baseline for future optimizations.
-"""
-
 import os
-import shutil
-from datetime import datetime
-import time
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import json
-import torch
-import tensorflow as tf
-tf.config.set_visible_devices([], "GPU")
+import time
 import cv2
-import numpy as np
-from torch.utils.data import Dataset, DataLoader, IterableDataset
+import numpy
 import torch
+import tensorflow
 from tqdm import tqdm
-from typing import Tuple, List, Dict, Any
+from typing import List, Dict, Any
+from torch.utils.data import Dataset, DataLoader, IterableDataset
 from utilities.data_utilities import preprocess_image_and_boxes, view_input_data
 
-import shutil
-from datetime import datetime
-
-
-def clean_data(data_directory: str, labels_file: str) -> None:
-    """
-    Synchronizes the COCO annotations file with the physical images present on disk.
-
-    This function scans the image directory for existing files, backs up the original
-    JSON annotations file with a timestamp, and actively filters out any images and
-    annotations from the JSON that do not have a corresponding physical file.
-
-    Args:
-        data_directory (str): The path to the directory containing raw JPEG images.
-        labels_file (str): The path to the JSON file containing COCO-formatted annotations.
-    """
-    # Scan the physical directory to build a rapid-access set of all existing image filenames
-    existing_files = set(os.listdir(data_directory))
-
-    # Generate a timestamped backup file path to ensure no original data is permanently lost
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_file = f"{labels_file}.{timestamp}.backup"
-
-    # Copy the original file to the backup location
-    shutil.copy2(src=labels_file, dst=backup_file)
-    print(f"Created a backup of the original labels at: {backup_file}")
-
-    # Load the monolithic JSON file completely into memory to parse all annotations
-    with open(file=labels_file, mode='r') as file_handler:
-        coco_data = json.load(fp=file_handler)
-
-    # Filter the images list to explicitly retain only those present in the physical directory
-    filtered_images = []
-    for image in tqdm(coco_data['images'], desc="Filtering Images", leave=False):
-        if image['file_name'] in existing_files:
-            filtered_images.append(image)
-
-    valid_image_ids = {image['id'] for image in filtered_images}
-
-    # Filter the annotations to explicitly retain only those linked to the valid physical images
-    filtered_annotations = []
-    for annotation in tqdm(coco_data['annotations'], desc="Filtering Annotations", leave=False):
-        if annotation['image_id'] in valid_image_ids:
-            filtered_annotations.append(annotation)
-
-    # Mutate the original dictionary with the filtered lists and write back to the filesystem
-    coco_data['images'] = filtered_images
-    coco_data['annotations'] = filtered_annotations
-
-    with open(file=labels_file, mode='w') as file_handler:
-        json.dump(obj=coco_data, fp=file_handler, indent=4)
-
-    print(f"Cleaned labels.json: Retained {len(filtered_images)} images and {len(filtered_annotations)} annotations.")
+# Hide GPU from TensorFlow so it does not reserve all memory, leaving none for PyTorch
+tensorflow.config.set_visible_devices(devices=[], device_type='GPU')
 
 
 def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
@@ -92,53 +30,136 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
     Returns:
         Dict[str, Any]: A dictionary containing the batched images, list of bounding boxes, and list of labels.
     """
-    # Extract the individual components from the batched dictionaries
     images = [item["images"] for item in batch]
     bounding_boxes = [item["bounding_boxes"] for item in batch]
     labels = [item["labels"] for item in batch]
 
     # Consolidate the image tensors into a single unified batch tensor for GPU acceleration
     # Keep bounding boxes and labels as standard lists to accommodate variable object counts per image
-    # Return as a structured dictionary for clean downstream consumption
-    return {
-        "images": torch.stack(tensors=images),
-        "bounding_boxes": bounding_boxes,
-        "labels": labels
-    }
+    return {"images": torch.stack(tensors=images), "bounding_boxes": bounding_boxes, "labels": labels}
 
 
-# --- 1. Native PyTorch ---
+def convert_to_bytes_feature(value: bytes) -> tensorflow.train.Feature:
+    """
+    Converts a standard byte string into a TensorFlow compatible Feature object.
+    
+    This function wraps the raw bytes so they can be securely serialized within the 
+    tensorflow.train.Example protocol buffer, which is required by the TensorFlow data pipeline.
+    
+    Args:
+        value (bytes): The raw byte string to be encapsulated.
+        
+    Returns:
+        tensorflow.train.Feature: The TensorFlow Feature object containing the byte string.
+    """
+    return tensorflow.train.Feature(bytes_list=tensorflow.train.BytesList(value=[value]))
+
+
+def parse_single_example(serialized_data: tensorflow.Tensor) -> tuple[
+    tensorflow.Tensor, tensorflow.Tensor, tensorflow.Tensor]:
+    """
+    Parses a single serialized tensorflow.train.Example protobuf into distinct TensorFlow tensors.
+    
+    This function decodes the raw image bytes into pixel values and reconstructs the sparse
+    bounding boxes and labels arrays for downstream PyTorch conversion.
+    
+    Args:
+        serialized_data (tensorflow.Tensor): The raw serialized protocol buffer string from the TFRecord.
+        
+    Returns:
+        tuple[tensorflow.Tensor, tensorflow.Tensor, tensorflow.Tensor]: A tuple containing the decoded image tensor, 
+                                                                        bounding boxes tensor, and labels tensor.
+    """
+    features = tensorflow.io.parse_single_example(serialized=serialized_data, features={
+        "images": tensorflow.io.FixedLenFeature(shape=[], dtype=tensorflow.string),
+        "bounding_boxes": tensorflow.io.FixedLenFeature(shape=[], dtype=tensorflow.string),
+        "labels": tensorflow.io.FixedLenFeature(shape=[], dtype=tensorflow.string)})
+
+    image = tensorflow.io.decode_png(contents=features["images"], channels=3)
+    bounding_boxes = tensorflow.io.decode_raw(input_bytes=features["bounding_boxes"], out_type=tensorflow.float32)
+    labels = tensorflow.io.decode_raw(input_bytes=features["labels"], out_type=tensorflow.int64)
+
+    # Reshape bounding boxes back to expected multi-dimensional format
+    bounding_boxes = tensorflow.reshape(tensor=bounding_boxes, shape=[-1, 4])
+
+    return image, bounding_boxes, labels
+
+
+def clean_data(data_directory: str, labels_file: str) -> None:
+    """
+    Sanitizes the COCO dataset by removing images without annotations and annotations without images.
+
+    This ensures that the dataloader does not crash when encountering missing files
+    or empty labels during the training loop. It writes the filtered output back
+    to the original JSON file path.
+
+    Args:
+        data_directory (str): The absolute path to the directory containing the physical image files.
+        labels_file (str): The absolute path to the JSON file containing the COCO annotations.
+
+    Returns:
+        None
+    """
+    print(f"Loading annotations from {labels_file}...")
+    with open(file=labels_file, mode='r') as file_handler:
+        coco_data = json.load(fp=file_handler)
+
+    print("Checking for missing images...")
+    filtered_images = []
+    for image in tqdm(iterable=coco_data['images'], desc="Filtering Images", leave=False):
+        image_path = os.path.join(data_directory, image['file_name'])
+        if os.path.exists(path=image_path):
+            filtered_images.append(image)
+
+    valid_image_ids = {image['id'] for image in filtered_images}
+
+    print("Filtering annotations for valid images...")
+    filtered_annotations = []
+    for annotation in tqdm(iterable=coco_data['annotations'], desc="Filtering Annotations", leave=False):
+        if annotation['image_id'] in valid_image_ids:
+            filtered_annotations.append(annotation)
+
+    coco_data['images'] = filtered_images
+    coco_data['annotations'] = filtered_annotations
+
+    print(f"Writing cleaned annotations back to {labels_file}...")
+    with open(file=labels_file, mode='w') as file_handler:
+        json.dump(obj=coco_data, fp=file_handler, indent=4)
+    print("Data cleaning complete.")
+
+
 class NativeCocoDataset(Dataset):
     """
-    A native PyTorch Dataset implementation for reading COCO-format datasets from raw JPEGs.
+    A PyTorch Dataset implementation for reading the raw COCO image format.
 
-    This dataset serves as the baseline in the data loading benchmark pipeline. It reads raw
-    image files directly from the disk filesystem and parses a monolithic JSON annotations file,
-    which is highly representative of standard, unoptimized data loading bottlenecks.
+    This class serves as the baseline for the data loading benchmark pipeline. It reads
+    images directly from the standard filesystem and scales them dynamically on the CPU
+    during each dataloader fetch iteration.
     """
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool):
         """
-        Initializes the native COCO dataset.
+        Initializes the Native dataset and parses the monolithic COCO JSON file.
 
         Args:
-            data_directory (str): The path to the directory containing raw JPEG images.
-            labels_file (str): The path to the JSON file containing COCO-formatted annotations.
+            data_directory (str): The absolute path to the directory containing the physical image files.
+            labels_file (str): The absolute path to the JSON file containing the COCO annotations.
+            image_size (int): The target height and width for the scaled images.
+            keep_ratio (bool): Whether to maintain the aspect ratio during scaling by padding.
         """
         self.data_directory = data_directory
         self.image_size = image_size
         self.keep_ratio = keep_ratio
-        # Load the monolithic JSON file completely into memory to parse all annotations
+
         with open(file=labels_file, mode='r') as file_handler:
-            coco_data = json.load(fp=file_handler)
+            self.coco_data = json.load(fp=file_handler)
 
-        # Build a rapid lookup dictionary for images using their unique identifier as the key
-        self.images = {image['id']: image for image in coco_data['images']}
-        self.image_identifiers = list(self.images.keys())
+        self.images = self.coco_data['images']
+        self.annotations = self.coco_data['annotations']
 
-        # Map each image identifier to its corresponding list of annotations for immediate retrieval during the getitem call
+        # Map image identifiers to their respective bounding box and label collections for rapid retrieval
         self.image_to_annotations = {}
-        for annotation in coco_data['annotations']:
+        for annotation in self.annotations:
             image_identifier = annotation['image_id']
             if image_identifier not in self.image_to_annotations:
                 self.image_to_annotations[image_identifier] = []
@@ -149,49 +170,48 @@ class NativeCocoDataset(Dataset):
         Returns the total number of images in the dataset.
 
         Returns:
-            int: The total count of image identifiers.
+            int: The total count of available images.
         """
-        return len(self.image_identifiers)
+        return len(self.images)
 
-    def __getitem__(self, _index: int) -> Dict[str, torch.Tensor]:
+    def __getitem__(self, _index: int) -> dict:
         """
-        Retrieves and processes a single image and its corresponding annotations.
+        Retrieves, reads, and dynamically preprocesses a single image and its annotations.
 
         Args:
-            _index (int): The index of the image to retrieve.
+            _index (int): The index of the image metadata to fetch.
 
         Returns:
-            Dict[str, torch.Tensor]: A dictionary containing the resized image tensor,
-                                     bounding boxes tensor, and labels tensor.
+            dict: A dictionary containing the preprocessed image tensor, bounding boxes tensor, and labels tensor.
         """
-        image_identifier = self.image_identifiers[_index]
-        image_information = self.images[image_identifier]
+        image_information = self.images[_index]
+        image_identifier = image_information['id']
         image_path = os.path.join(self.data_directory, image_information['file_name'])
 
-        # Read the raw bytes from the disk filesystem and decode them into a BGR NumPy array using OpenCV
-        image_cv2 = cv2.imread(filename=image_path)
+        image = cv2.imread(filename=image_path)
+        image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
 
-        # Retrieve all bounding boxes for the current image and convert them from COCO format to the required coordinate format
-        annotations = self.image_to_annotations.get(image_identifier, [])
+        image_annotations = self.image_to_annotations.get(image_identifier, [])
+
         bounding_boxes = []
-        for annotation in annotations:
-            box_x, box_y, box_w, box_h = annotation['bbox']
-            bounding_boxes.append([box_x, box_y, box_x + box_w, box_y + box_h])
-        labels = [annotation['category_id'] for annotation in annotations]
+        labels = []
+        for annotation in image_annotations:
+            x_coordinate, y_coordinate, width, height = annotation['bbox']
+            bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
+            labels.append(annotation['category_id'])
 
-        # Scale the image and pad it to the target uniform size while adjusting the bounding box coordinates to match
-        image_resized, resized_bounding_boxes = preprocess_image_and_boxes(image=image_cv2,
-                                                                           bounding_boxes=bounding_boxes,
+        bounding_boxes_numpy = numpy.array(object=bounding_boxes, dtype=numpy.float32)
+
+        # Dynamically scale the image and calculate the corresponding adjustments for the bounding boxes
+        resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
+                                                                           bounding_boxes=bounding_boxes_numpy,
                                                                            image_size=self.image_size,
                                                                            keep_ratio=self.keep_ratio)
-        # Cast the preprocessed NumPy array into a contiguous PyTorch tensor and transpose
-        # the axes to the expected channel-first format without altering pixel scales
-        image_tensor = torch.from_numpy(image_resized).permute(2, 0, 1).contiguous()
+        image_tensor = torch.from_numpy(numpy.array(object=resized_image)).permute(2, 0, 1).float() / 255.0
 
-        # Return the parsed data as a structured dictionary to match downstream interface requirements
         return {"images": image_tensor,
-                "bounding_boxes": torch.tensor(data=resized_bounding_boxes),
-                "labels": torch.tensor(data=labels)}
+                "bounding_boxes": torch.tensor(data=resized_bounding_boxes, dtype=torch.float32),
+                "labels": torch.tensor(data=labels, dtype=torch.int64)}
 
 
 def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int, batch_size: int, image_size: int,
@@ -199,29 +219,32 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
     """
     Benchmarks the Native PyTorch dataset loader.
 
-    This function evaluates the performance of the NativeCocoDataset within the data loading
-    benchmark pipeline, simulating real-world iterative epoch loops.
+    This function evaluates the baseline throughput of CPU decoding by loading images from the disk
+    and scaling them preemptively in the data pipeline.
 
     Args:
-        data_directory (str): The path to the directory containing raw JPEG images.
-        labels_file (str): The path to the JSON file containing COCO-formatted annotations.
-        number_of_runs (int, optional): The number of full epoch passes to simulate. Defaults to 10.
+        data_directory (str): The absolute path to the directory containing the physical image files.
+        labels_file (str): The absolute path to the JSON file containing the COCO annotations.
+        number_of_runs (int): The number of full epoch passes to simulate.
+        batch_size (int): The number of images per batch.
+        image_size (int): The target height and width for the scaled images.
+        keep_ratio (bool): Whether to maintain the aspect ratio during scaling by padding.
+        view_images (bool): Whether to visualize the batches using OpenCV.
 
     Returns:
         float: The average time taken per run in seconds.
     """
-    # Initialize the dataset and wrap it in a multi-processed dataloader to simulate real-world parallel fetching
     dataset = NativeCocoDataset(data_directory=data_directory, labels_file=labels_file, image_size=image_size,
                                 keep_ratio=keep_ratio)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
                             collate_fn=collate_function)
     times = []
+
     # Iteratively drain the dataloader to precisely measure the wall-clock time required for full epoch traversals
     for _run_index in range(number_of_runs):
         start_time = time.time()
-        for batch_data_dictionary in tqdm(dataloader, desc=f"Running Epoch {_run_index + 1}", leave=False):
+        for batch_data_dictionary in tqdm(iterable=dataloader, desc=f"Running Epoch {_run_index + 1}", leave=False):
             if view_images:
-
                 # Iterate through each item in the current batch explicitly
                 for batch_index in range(batch_data_dictionary["images"].size(0)):
                     # Dispatch the individual item to the visualization utility to render the ground truth annotations
@@ -231,106 +254,89 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
                     if user_quit:
                         return 0.0
         times.append(time.time() - start_time)
+
     return sum(times) / number_of_runs
 
 
-def create_tfrecord(data_directory: str, labels_file: str, output_tfrecord: str, image_size: int, keep_ratio: bool) -> None:
+def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_record: str, image_size: int,
+                    keep_ratio: bool) -> None:
     """
-    Parses the COCO dataset, resizes the images and bounding boxes, and writes 
-    them into a pure-Python TFRecord archive.
+    Parses a COCO dataset and compiles it into an optimized TFRecord archive.
     
-    This function acts as the preprocessing step for the TFRecord benchmark pipeline,
-    ensuring that the visual-language model downstream trainer has access to pre-scaled
-    images for maximum I/O throughput.
+    This function accelerates downstream training by preemptively scaling all images 
+    and encoding them directly into a continuous binary file format.
     
     Args:
-        data_directory (str): The path to the directory containing raw JPEG images.
-        labels_file (str): The path to the JSON file containing COCO-formatted annotations.
-        output_tfrecord (str): The destination path where the TFRecord file will be saved.
-        image_size (int): The target uniform image size for resizing.
-        keep_ratio (bool): Whether to maintain aspect ratio with padding during resizing.
+        data_directory (str): The absolute path to the physical image files.
+        labels_file (str): The absolute path to the JSON COCO annotations.
+        output_tensorflow_record (str): The absolute destination path for the TFRecord archive.
+        image_size (int): The target dimension to scale the images to.
+        keep_ratio (bool): Whether to pad the scaled images to maintain aspect ratio.
+        
+    Returns:
+        None
     """
     print(f"Loading annotations from {labels_file}...")
     with open(file=labels_file, mode='r') as file_handler:
         coco_data = json.load(fp=file_handler)
-        
-    images_dictionary = {image['id']: image for image in tqdm(coco_data['images'], desc="Indexing Images")}
+
+    images_dictionary = {image['id']: image for image in tqdm(iterable=coco_data['images'], desc="Indexing Images")}
     image_to_annotations = {}
-    
-    for annotation in tqdm(coco_data['annotations'], desc="Indexing Annotations"):
+
+    for annotation in tqdm(iterable=coco_data['annotations'], desc="Indexing Annotations"):
         image_identifier = annotation['image_id']
         if image_identifier not in image_to_annotations:
             image_to_annotations[image_identifier] = []
         image_to_annotations[image_identifier].append(annotation)
-        
-    writer = tf.io.TFRecordWriter(output_tfrecord)
-    
-    for image_identifier, image_information in tqdm(images_dictionary.items(), desc="Creating TFRecord"):
+
+    writer = tensorflow.io.TFRecordWriter(path=output_tensorflow_record)
+
+    for image_identifier, image_information in tqdm(iterable=images_dictionary.items(), desc="Creating TFRecord"):
         image_path = os.path.join(data_directory, image_information['file_name'])
-        image_cv2 = cv2.imread(filename=image_path)
-        
-        if image_cv2 is None:
+        if not os.path.exists(path=image_path):
             continue
-            
-        annotations = image_to_annotations.get(image_identifier, [])
+
+        image = cv2.imread(filename=image_path)
+        if image is None:
+            continue
+
+        image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
+
+        image_annotations = image_to_annotations.get(image_identifier, [])
         bounding_boxes = []
-        for annotation in annotations:
-            box_x, box_y, box_w, box_h = annotation['bbox']
-            bounding_boxes.append([box_x, box_y, box_x + box_w, box_y + box_h])
-        labels = [annotation['category_id'] for annotation in annotations]
-        
-        image_resized, resized_bounding_boxes = preprocess_image_and_boxes(
-            image=image_cv2,
-            bounding_boxes=bounding_boxes,
-            image_size=image_size,
-            keep_ratio=keep_ratio
-        )
-        
-        success, encoded_image = cv2.imencode(ext='.png', img=image_resized)
+        labels = []
+        for annotation in image_annotations:
+            x_coordinate, y_coordinate, width, height = annotation['bbox']
+            bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
+            labels.append(annotation['category_id'])
+
+        bounding_boxes_numpy = numpy.array(object=bounding_boxes, dtype=numpy.float32)
+
+        # Preemptively process the image to eliminate redundant CPU cycles during the actual training loop
+        resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
+                                                                           bounding_boxes=bounding_boxes_numpy,
+                                                                           image_size=image_size, keep_ratio=keep_ratio)
+
+        # Re-encode the image as a standard PNG format to drastically reduce the binary archive size
+        success, encoded_image = cv2.imencode(ext='.png', img=resized_image)
+        if not success:
+            continue
+
         image_bytes = encoded_image.tobytes()
 
-        # to compare with
-        # encoded_image_string = cv2.imencode(".png", processed_image)[1].tostring()
-        # image_label = os.path.basename(os.path.dirname(image_path))
-        # def _bytes_feature(value):
-        #     """
-        #     :param value: input value of type bytes
-        #     :return: a feature
-        #     """
-        #     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
-        # # example stored in tf record
-        # example = tf.train.Example(
-        #     features=tf.train.Features(
-        #         feature={
-        #             "input_name": _bytes_feature(name_raw),
-        #             "input": _bytes_feature(encoded_image_string),
-        #             "label": _bytes_feature(label_raw),
-        #         }
-        #     )
-        # )
-        
         flattened_boxes = []
         for box in resized_bounding_boxes:
             flattened_boxes.extend(box)
-            
-        import numpy as np
-        boxes_bytes = np.array(flattened_boxes, dtype=np.float32).tobytes()
-        labels_bytes = np.array(labels, dtype=np.int64).tobytes()
-        
-        def _bytes_feature(value):
-            return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
-            
-        example = tf.train.Example(
-            features=tf.train.Features(
-                feature={
-                    "images": _bytes_feature(image_bytes),
-                    "bounding_boxes": _bytes_feature(boxes_bytes),
-                    "labels": _bytes_feature(labels_bytes),
-                }
-            )
-        )
-        writer.write(example.SerializeToString())
-        
+
+        bounding_boxes_bytes = numpy.array(object=flattened_boxes, dtype=numpy.float32).tobytes()
+        labels_bytes = numpy.array(object=labels, dtype=numpy.int64).tobytes()
+
+        example = tensorflow.train.Example(features=tensorflow.train.Features(
+            feature={"images": convert_to_bytes_feature(value=image_bytes),
+                     "bounding_boxes": convert_to_bytes_feature(value=bounding_boxes_bytes),
+                     "labels": convert_to_bytes_feature(value=labels_bytes)}))
+        writer.write(record=example.SerializeToString())
+
     writer.close()
 
 
@@ -339,67 +345,45 @@ class TFRecordCocoDataset(IterableDataset):
     A PyTorch IterableDataset implementation for reading pre-processed TFRecord archives using TensorFlow.
     
     This dataset serves as a high-throughput format in the data loading benchmark pipeline. 
-    It streams records directly from the disk using tf.data for maximum efficiency.
+    It streams records directly from the disk using tensorflow.data for maximum efficiency.
     """
 
-    def __init__(self, tfrecord_path: str):
+    def __init__(self, tensorflow_record_path: str):
         """
         Initializes the TFRecord iterable dataset.
         
         Args:
-            tfrecord_path (str): The absolute path to the TFRecord archive file.
+            tensorflow_record_path (str): The absolute path to the TFRecord archive file.
         """
-        self.tfrecord_path = tfrecord_path
+        self.tensorflow_record_path = tensorflow_record_path
 
     def __iter__(self):
         """
-        Returns an iterator over the dataset using optimized tf.data pipeline.
+        Returns an iterator over the dataset using optimized tensorflow.data pipeline.
         """
         worker_info = torch.utils.data.get_worker_info()
-        dataset = tf.data.TFRecordDataset([self.tfrecord_path])
-        
-        # If running with multiple workers in DataLoader, shard the data to avoid duplicates
+        dataset = tensorflow.data.TFRecordDataset(filenames=[self.tensorflow_record_path], buffer_size=262144)
+
+        # Partition the dataset appropriately if multiple workers are deployed to prevent data duplication
         if worker_info is not None:
             dataset = dataset.shard(num_shards=worker_info.num_workers, index=worker_info.id)
-            
-        def read_and_decode(serialized_data):
-            features = tf.io.parse_single_example(
-                serialized_data,
-                features={
-                    "images": tf.io.FixedLenFeature([], tf.string),
-                    "bounding_boxes": tf.io.FixedLenFeature([], tf.string),
-                    "labels": tf.io.FixedLenFeature([], tf.string),
-                }
-            )
-            
-            image = tf.io.decode_png(features["images"], channels=3)
-            bounding_boxes = tf.io.decode_raw(features["bounding_boxes"], out_type=tf.float32)
-            labels = tf.io.decode_raw(features["labels"], out_type=tf.int64)
-            
-            # Reshape bounding boxes back to [N, 4] format
-            bounding_boxes = tf.reshape(bounding_boxes, [-1, 4])
-            
-            return image, bounding_boxes, labels
-            
-        dataset = dataset.map(map_func=read_and_decode, num_parallel_calls=tf.data.AUTOTUNE)
-        
+
+        dataset = dataset.map(map_func=parse_single_example, num_parallel_calls=tensorflow.data.AUTOTUNE)
+
         for image, bounding_boxes, labels in dataset:
-            # Convert TF Tensors -> NumPy -> PyTorch Tensors
+            # Convert TensorFlow Tensors into native NumPy arrays to bridge the gap with PyTorch
             image_numpy = image.numpy()
             boxes_numpy = bounding_boxes.numpy()
             labels_numpy = labels.numpy()
-            
-            # Reorder channels for PyTorch (H, W, C) -> (C, H, W)
+
+            # Reorder channels from height/width/channel structure to channel/height/width for PyTorch
             image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous()
-            
-            yield {
-                "images": image_tensor,
-                "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=torch.float32),
-                "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)
-            }
+
+            yield {"images": image_tensor, "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=torch.float32),
+                   "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)}
 
 
-def benchmark_tfrecord(tfrecord_path: str, number_of_runs: int, batch_size: int, view_images: bool) -> float:
+def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_size: int, view_images: bool) -> float:
     """
     Benchmarks the Pre-Resized TFRecord dataset loader.
     
@@ -407,7 +391,7 @@ def benchmark_tfrecord(tfrecord_path: str, number_of_runs: int, batch_size: int,
     combining binary archive storage with preemptive spatial scaling in the benchmark pipeline.
     
     Args:
-        tfrecord_path (str): The absolute path to the pre-resized TFRecord archive file.
+        tensorflow_record_path (str): The absolute path to the pre-resized TFRecord archive file.
         number_of_runs (int): The number of full epoch passes to simulate.
         batch_size (int): The number of images per batch.
         view_images (bool): Whether to visualize the batches using OpenCV.
@@ -415,7 +399,7 @@ def benchmark_tfrecord(tfrecord_path: str, number_of_runs: int, batch_size: int,
     Returns:
         float: The average time taken per run in seconds.
     """
-    dataset = TFRecordCocoDataset(tfrecord_path=tfrecord_path)
+    dataset = TFRecordCocoDataset(tensorflow_record_path=tensorflow_record_path)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
                             collate_fn=collate_function)
     times = []
@@ -423,7 +407,7 @@ def benchmark_tfrecord(tfrecord_path: str, number_of_runs: int, batch_size: int,
     # Iteratively drain the dataloader to precisely measure the wall-clock time required for full epoch traversals
     for _run_index in range(number_of_runs):
         start_time = time.time()
-        for batch_data_dictionary in tqdm(dataloader, desc=f"TFRecord Epoch {_run_index + 1}", leave=False):
+        for batch_data_dictionary in tqdm(iterable=dataloader, desc=f"TFRecord Epoch {_run_index + 1}", leave=False):
             if view_images:
                 # Iterate through each item in the current batch explicitly
                 for batch_index in range(batch_data_dictionary["images"].size(0)):
@@ -443,15 +427,13 @@ def main() -> None:
     Executes the comprehensive Dataloader Format Benchmarking suite.
 
     This overarching pipeline orchestrates the sequential testing of various data storage
-    strategies (e.g. TFRecords, WebDataset, LMDB) to empirically determine the optimal I/O
-    throughput architecture for the visual-language model downstream trainer.
+    strategies to empirically determine the optimal throughput architecture for the downstream trainer.
 
     Returns:
         None
     """
     number_of_runs = 5
     batch_size = 20
-
     image_size = 1024
     keep_ratio = True
     view_images = False
@@ -460,26 +442,18 @@ def main() -> None:
     original_data_directory = os.path.join(base_directory, 'data')
     original_labels = os.path.join(base_directory, 'labels.json')
 
-    tfrecord_path = os.path.join('/home/robert_kelevra/Projects/visual-language-model-spark/datasets/formats',
-                                 'coco-train-preresized.tfrecord')
+    tensorflow_record_path = os.path.join('/home/robert_kelevra/Projects/visual-language-model-spark/datasets/formats',
+                                          'coco-train-preresized.tfrecord')
 
-    if not os.path.exists(path=tfrecord_path):
-        print(f"TFRecord file not found at {tfrecord_path}. Generating it now...")
-        # Make sure the parent directory exists
-        os.makedirs(name=os.path.dirname(p=tfrecord_path), exist_ok=True)
-        create_tfrecord(
-            data_directory=original_data_directory, 
-            labels_file=original_labels, 
-            output_tfrecord=tfrecord_path, 
-            image_size=image_size, 
-            keep_ratio=keep_ratio
-        )
-        print("TFRecord generation complete!")
-    else:
-        print(f"Found existing TFRecord file at {tfrecord_path}.")
+    # if not os.path.exists(path=tensorflow_record_path):
+    #     print(f"TFRecord file not found at {tensorflow_record_path}. Generating it now...")
+    #     os.makedirs(name=os.path.dirname(p=tensorflow_record_path), exist_ok=True)
+    #     create_tfrecord(data_directory=original_data_directory, labels_file=original_labels, output_tensorflow_record=tensorflow_record_path, image_size=image_size, keep_ratio=keep_ratio)
+    #     print("TFRecord generation complete!")
+    # else:
+    #     print(f"Found existing TFRecord file at {tensorflow_record_path}.")
 
     print("Synchronizing dataset annotations with physical disk files...")
-    # clean_data(data_directory=original_data_directory, labels_file=original_labels)
 
     print(f"Starting Comprehensive Benchmarks... ({number_of_runs} runs each)")
     print("-" * 50)
@@ -494,14 +468,14 @@ def main() -> None:
     #     print(f"[Native PyTorch] Skipped due to error: {error}")
     # print("-" * 50)
 
-    try:
-        print(f"Benchmarking TFRecord (Pre-Resized)...")
-        average_time = benchmark_tfrecord(tfrecord_path=tfrecord_path, number_of_runs=number_of_runs,
-                                          batch_size=batch_size, view_images=view_images)
-        print(f"[TFRecord (Pre-Resized)] Average Time: {average_time:.4f} s")
-    except Exception as error:
-        print(f"[TFRecord (Pre-Resized)] Skipped due to error: {error}")
-    print("-" * 50)
+    # try:
+    #     print("Benchmarking TFRecord (Pre-Resized)...")
+    #     average_time = benchmark_tfrecord(tensorflow_record_path=tensorflow_record_path, number_of_runs=number_of_runs,
+    #                                       batch_size=batch_size, view_images=view_images)
+    #     print(f"[TFRecord (Pre-Resized)] Average Time: {average_time:.4f} s")
+    # except Exception as error:
+    #     print(f"[TFRecord (Pre-Resized)] Skipped due to error: {error}")
+    # print("-" * 50)
 
 
 if __name__ == "__main__":
