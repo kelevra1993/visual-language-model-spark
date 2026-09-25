@@ -13,6 +13,8 @@ dependencies = [
     "fiftyone>=1.22.0",
     "tensorboard>=2.21.0",
     "opencv-python>=5.0.0.93",
+    "tfrecord>=1.14.6",
+    "tensorflow>=2.21.0",
 ]
 
 [tool.pytest.ini_options]
