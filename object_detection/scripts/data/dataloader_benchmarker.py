@@ -8,6 +8,7 @@ import numpy
 import torch
 import tensorflow
 from tqdm import tqdm
+import glob
 from typing import List, Dict, Any
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 from utilities.data_utilities import preprocess_image_and_boxes, view_input_data
@@ -422,6 +423,167 @@ def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_s
     return sum(times) / number_of_runs
 
 
+
+def create_tfrecord_sharded(data_directory: str, labels_file: str, output_directory: str, image_size: int,
+                            keep_ratio: bool, num_shards: int = 10) -> None:
+    """
+    Parses a COCO dataset and compiles it into optimized sharded TFRecord archives.
+    
+    Args:
+        data_directory (str): The absolute path to the physical image files.
+        labels_file (str): The absolute path to the JSON COCO annotations.
+        output_directory (str): The destination directory for the sharded TFRecord archives.
+        image_size (int): The target dimension to scale the images to.
+        keep_ratio (bool): Whether to pad the scaled images to maintain aspect ratio.
+        num_shards (int): Number of shards to create.
+        
+    Returns:
+        None
+    """
+    print(f"Loading annotations from {labels_file}...")
+    with open(file=labels_file, mode='r') as file_handler:
+        coco_data = json.load(fp=file_handler)
+
+    images_dictionary = {image['id']: image for image in tqdm(iterable=coco_data['images'], desc="Indexing Images")}
+    image_to_annotations = {}
+
+    for annotation in tqdm(iterable=coco_data['annotations'], desc="Indexing Annotations"):
+        image_identifier = annotation['image_id']
+        if image_identifier not in image_to_annotations:
+            image_to_annotations[image_identifier] = []
+        image_to_annotations[image_identifier].append(annotation)
+
+    os.makedirs(name=output_directory, exist_ok=True)
+    
+    image_keys = list(images_dictionary.keys())
+    images_per_shard = len(image_keys) // num_shards + (1 if len(image_keys) % num_shards != 0 else 0)
+
+    for shard_index in range(num_shards):
+        shard_path = os.path.join(output_directory, f"coco-train-{shard_index:04d}-of-{num_shards:04d}.tfrecord")
+        writer = tensorflow.io.TFRecordWriter(path=shard_path)
+        
+        start_index = shard_index * images_per_shard
+        end_index = min((shard_index + 1) * images_per_shard, len(image_keys))
+        shard_keys = image_keys[start_index:end_index]
+        
+        for image_identifier in tqdm(iterable=shard_keys, desc=f"Creating Shard {shard_index + 1}/{num_shards}", leave=False):
+            image_information = images_dictionary[image_identifier]
+            image_path = os.path.join(data_directory, image_information['file_name'])
+            if not os.path.exists(path=image_path):
+                continue
+
+            image = cv2.imread(filename=image_path)
+            if image is None:
+                continue
+
+            image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
+
+            image_annotations = image_to_annotations.get(image_identifier, [])
+            bounding_boxes = []
+            labels = []
+            for annotation in image_annotations:
+                x_coordinate, y_coordinate, width, height = annotation['bbox']
+                bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
+                labels.append(annotation['category_id'])
+
+            bounding_boxes_numpy = numpy.array(object=bounding_boxes, dtype=numpy.float32)
+
+            resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
+                                                                               bounding_boxes=bounding_boxes_numpy,
+                                                                               image_size=image_size, keep_ratio=keep_ratio)
+
+            success, encoded_image = cv2.imencode(ext='.png', img=resized_image)
+            if not success:
+                continue
+
+            image_bytes = encoded_image.tobytes()
+
+            flattened_boxes = []
+            for box in resized_bounding_boxes:
+                flattened_boxes.extend(box)
+
+            bounding_boxes_bytes = numpy.array(object=flattened_boxes, dtype=numpy.float32).tobytes()
+            labels_bytes = numpy.array(object=labels, dtype=numpy.int64).tobytes()
+
+            example = tensorflow.train.Example(features=tensorflow.train.Features(
+                feature={"images": convert_to_bytes_feature(value=image_bytes),
+                         "bounding_boxes": convert_to_bytes_feature(value=bounding_boxes_bytes),
+                         "labels": convert_to_bytes_feature(value=labels_bytes)}))
+            writer.write(record=example.SerializeToString())
+
+        writer.close()
+
+
+class TFRecordShardedCocoDataset(IterableDataset):
+    """
+    A PyTorch IterableDataset implementation for reading from multiple sharded TFRecord files.
+    """
+
+    def __init__(self, directory_pattern: str):
+        """
+        Initializes the sharded TFRecord iterable dataset.
+        
+        Args:
+            directory_pattern (str): The wildcard pattern used to locate all TFRecord shards.
+        """
+        self.tensorflow_record_files = sorted(glob.glob(pathname=directory_pattern))
+
+    def __iter__(self):
+        """
+        Returns an iterator over the dataset using optimized tensorflow.data pipeline.
+        """
+        worker_info = torch.utils.data.get_worker_info()
+        dataset = tensorflow.data.TFRecordDataset(filenames=self.tensorflow_record_files, buffer_size=262144)
+
+        if worker_info is not None:
+            dataset = dataset.shard(num_shards=worker_info.num_workers, index=worker_info.id)
+
+        dataset = dataset.map(map_func=parse_single_example, num_parallel_calls=tensorflow.data.AUTOTUNE)
+
+        for image, bounding_boxes, labels in dataset:
+            image_numpy = image.numpy()
+            boxes_numpy = bounding_boxes.numpy()
+            labels_numpy = labels.numpy()
+
+            image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous()
+
+            yield {"images": image_tensor, "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=torch.float32),
+                   "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)}
+
+
+def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batch_size: int, view_images: bool) -> float:
+    """
+    Benchmarks the sharded TFRecord dataset loader.
+    
+    Args:
+        directory_pattern (str): The wildcard pattern used to locate all TFRecord shards.
+        number_of_runs (int): The number of full epoch passes to simulate.
+        batch_size (int): The number of images per batch.
+        view_images (bool): Whether to visualize the batches using OpenCV.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+    """
+    dataset = TFRecordShardedCocoDataset(directory_pattern=directory_pattern)
+    dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
+                            collate_fn=collate_function)
+    times = []
+
+    for _run_index in range(number_of_runs):
+        start_time = time.time()
+        for batch_data_dictionary in tqdm(iterable=dataloader, desc=f"TFRecord Sharded Epoch {_run_index + 1}", leave=False):
+            if view_images:
+                for batch_index in range(batch_data_dictionary["images"].size(0)):
+                    user_quit = view_input_data(image=batch_data_dictionary["images"][batch_index],
+                                                bounding_boxes=batch_data_dictionary["bounding_boxes"][batch_index],
+                                                labels=batch_data_dictionary["labels"][batch_index])
+                    if user_quit:
+                        return 0.0
+        times.append(time.time() - start_time)
+
+    return sum(times) / number_of_runs
+
+
 def main() -> None:
     """
     Executes the comprehensive Dataloader Format Benchmarking suite.
@@ -444,6 +606,8 @@ def main() -> None:
 
     tensorflow_record_path = os.path.join('/home/robert_kelevra/Projects/visual-language-model-spark/datasets/formats',
                                           'coco-train-preresized.tfrecord')
+    sharded_output_directory = os.path.join('/home/robert_kelevra/Projects/visual-language-model-spark/datasets/formats', 'sharded_tfrecords')
+    tfrecord_sharded_pattern = os.path.join(sharded_output_directory, 'coco-train-*.tfrecord')
 
     # if not os.path.exists(path=tensorflow_record_path):
     #     print(f"TFRecord file not found at {tensorflow_record_path}. Generating it now...")
@@ -453,10 +617,20 @@ def main() -> None:
     # else:
     #     print(f"Found existing TFRecord file at {tensorflow_record_path}.")
 
+    if not os.path.exists(path=sharded_output_directory) or len(glob.glob(tfrecord_sharded_pattern)) == 0:
+        print(f"Sharded TFRecords not found at {sharded_output_directory}. Generating them now...")
+        create_tfrecord_sharded(data_directory=original_data_directory, labels_file=original_labels, output_directory=sharded_output_directory, image_size=image_size, keep_ratio=keep_ratio, num_shards=10)
+        print("Sharded TFRecord generation complete!")
+    else:
+        print(f"Found existing sharded TFRecords at {sharded_output_directory}.")
+
     print("Synchronizing dataset annotations with physical disk files...")
 
     print(f"Starting Comprehensive Benchmarks... ({number_of_runs} runs each)")
     print("-" * 50)
+
+    # NOTE: Please keep the Native PyTorch and single-file TFRecord benchmarks commented out.
+    # Do not delete them. They are kept commented to allow testing data loading strategies one by one.
 
     # try:
     #     print(f"Benchmarking Native PyTorch...")
@@ -476,6 +650,15 @@ def main() -> None:
     # except Exception as error:
     #     print(f"[TFRecord (Pre-Resized)] Skipped due to error: {error}")
     # print("-" * 50)
+
+    try:
+        print("Benchmarking TFRecord (Sharded)...")
+        average_time = benchmark_tfrecord_sharded(directory_pattern=tfrecord_sharded_pattern, number_of_runs=number_of_runs,
+                                                  batch_size=batch_size, view_images=view_images)
+        print(f"[TFRecord (Sharded)] Average Time: {average_time:.4f} s")
+    except Exception as error:
+        print(f"[TFRecord (Sharded)] Skipped due to error: {error}")
+    print("-" * 50)
 
 
 if __name__ == "__main__":
