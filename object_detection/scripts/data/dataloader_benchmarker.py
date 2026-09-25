@@ -585,6 +585,72 @@ def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batc
     return times
 
 
+def get_dataset_paths(project_base_directory: str, image_size: int, keep_ratio: bool) -> Dict[str, str]:
+    """
+    Generates the necessary file and directory paths for dataset processing.
+    
+    Args:
+        project_base_directory (str): The root directory of the project.
+        image_size (int): The target image dimension used to construct file prefixes.
+        keep_ratio (bool): Whether the aspect ratio is maintained, used for prefix formatting.
+        
+    Returns:
+        Dict[str, str]: A dictionary containing absolute paths for data, labels, and output formats.
+    """
+    base_directory = os.path.join(project_base_directory, 'datasets', 'coco-2017', 'train')
+    original_data_directory = os.path.join(base_directory, 'data')
+    original_labels = os.path.join(base_directory, 'labels.json')
+
+    prefix = f"KAR-{image_size}-" if keep_ratio else f"{image_size}-"
+    formats_directory = os.path.join(project_base_directory, 'datasets', 'formats')
+    tensorflow_record_path = os.path.join(formats_directory, f'{prefix}coco-train-preresized.tfrecord')
+    sharded_output_directory = os.path.join(formats_directory, f'{prefix}sharded_tfrecords')
+    tfrecord_sharded_pattern = os.path.join(sharded_output_directory, 'coco-train-*.tfrecord')
+    
+    return {
+        "data_directory": original_data_directory,
+        "labels_file": original_labels,
+        "tensorflow_record_path": tensorflow_record_path,
+        "sharded_output_directory": sharded_output_directory,
+        "tfrecord_sharded_pattern": tfrecord_sharded_pattern
+    }
+
+
+def prepare_tfrecords(paths_dictionary: Dict[str, str], image_size: int, keep_ratio: bool) -> None:
+    """
+    Ensures that required single and sharded TFRecord files exist, generating them if they do not.
+    
+    Args:
+        paths_dictionary (Dict[str, str]): A dictionary containing dataset input and output paths.
+        image_size (int): The target dimension to scale images.
+        keep_ratio (bool): Whether to pad images during scaling to maintain aspect ratio.
+        
+    Returns:
+        None
+    """
+    tensorflow_record_path = paths_dictionary["tensorflow_record_path"]
+    original_data_directory = paths_dictionary["data_directory"]
+    original_labels = paths_dictionary["labels_file"]
+    
+    if not os.path.exists(path=tensorflow_record_path):
+        print(f"TFRecord file not found at {tensorflow_record_path}. Generating it now...")
+        os.makedirs(name=os.path.dirname(p=tensorflow_record_path), exist_ok=True)
+        create_tfrecord(data_directory=original_data_directory, labels_file=original_labels, output_tensorflow_record=tensorflow_record_path, image_size=image_size, keep_ratio=keep_ratio)
+        print("TFRecord generation complete!")
+    else:
+        print(f"Found existing TFRecord file at {tensorflow_record_path}.")
+
+    sharded_output_directory = paths_dictionary["sharded_output_directory"]
+    tfrecord_sharded_pattern = paths_dictionary["tfrecord_sharded_pattern"]
+    
+    if not os.path.exists(path=sharded_output_directory) or len(glob.glob(pathname=tfrecord_sharded_pattern)) == 0:
+        print(f"Sharded TFRecords not found at {sharded_output_directory}. Generating them now...")
+        create_tfrecord_sharded(data_directory=original_data_directory, labels_file=original_labels, output_directory=sharded_output_directory, image_size=image_size, keep_ratio=keep_ratio, number_of_shards=10)
+        print("Sharded TFRecord generation complete!")
+    else:
+        print(f"Found existing sharded TFRecords at {sharded_output_directory}.")
+
+
 def main() -> None:
     """
     Executes the comprehensive Dataloader Format Benchmarking suite.
@@ -600,32 +666,11 @@ def main() -> None:
     image_size = 1024
     keep_ratio = True
     view_images = False
-
     project_base_directory = '/home/robert_kelevra/Projects/visual-language-model-spark'
-    base_directory = os.path.join(project_base_directory, 'datasets', 'coco-2017', 'train')
-    original_data_directory = os.path.join(base_directory, 'data')
-    original_labels = os.path.join(base_directory, 'labels.json')
 
-    prefix = f"KAR-{image_size}-" if keep_ratio else f"{image_size}-"
-    formats_directory = os.path.join(project_base_directory, 'datasets', 'formats')
-    tensorflow_record_path = os.path.join(formats_directory, f'{prefix}coco-train-preresized.tfrecord')
-    sharded_output_directory = os.path.join(formats_directory, f'{prefix}sharded_tfrecords')
-    tfrecord_sharded_pattern = os.path.join(sharded_output_directory, 'coco-train-*.tfrecord')
-
-    if not os.path.exists(path=tensorflow_record_path):
-        print(f"TFRecord file not found at {tensorflow_record_path}. Generating it now...")
-        os.makedirs(name=os.path.dirname(p=tensorflow_record_path), exist_ok=True)
-        create_tfrecord(data_directory=original_data_directory, labels_file=original_labels, output_tensorflow_record=tensorflow_record_path, image_size=image_size, keep_ratio=keep_ratio)
-        print("TFRecord generation complete!")
-    else:
-        print(f"Found existing TFRecord file at {tensorflow_record_path}.")
-
-    if not os.path.exists(path=sharded_output_directory) or len(glob.glob(tfrecord_sharded_pattern)) == 0:
-        print(f"Sharded TFRecords not found at {sharded_output_directory}. Generating them now...")
-        create_tfrecord_sharded(data_directory=original_data_directory, labels_file=original_labels, output_directory=sharded_output_directory, image_size=image_size, keep_ratio=keep_ratio, number_of_shards=10)
-        print("Sharded TFRecord generation complete!")
-    else:
-        print(f"Found existing sharded TFRecords at {sharded_output_directory}.")
+    paths_dictionary = get_dataset_paths(project_base_directory=project_base_directory, image_size=image_size, keep_ratio=keep_ratio)
+    
+    prepare_tfrecords(paths_dictionary=paths_dictionary, image_size=image_size, keep_ratio=keep_ratio)
 
     print("Synchronizing dataset annotations with physical disk files...")
 
@@ -638,7 +683,7 @@ def main() -> None:
 
     try:
         print(f"Benchmarking Native PyTorch...")
-        times = benchmark_native(data_directory=original_data_directory, labels_file=original_labels,
+        times = benchmark_native(data_directory=paths_dictionary["data_directory"], labels_file=paths_dictionary["labels_file"],
                                         number_of_runs=number_of_runs, batch_size=batch_size,
                                         image_size=image_size, keep_ratio=keep_ratio, view_images=view_images)
         results['Native'] = times
@@ -649,7 +694,7 @@ def main() -> None:
 
     try:
         print("Benchmarking TFRecord (Pre-Resized)...")
-        times = benchmark_tfrecord(tensorflow_record_path=tensorflow_record_path, number_of_runs=number_of_runs,
+        times = benchmark_tfrecord(tensorflow_record_path=paths_dictionary["tensorflow_record_path"], number_of_runs=number_of_runs,
                                           batch_size=batch_size, view_images=view_images)
         results['TFRecord'] = times
         print(f"[TFRecord (Pre-Resized)] Average Time: {sum(times)/len(times):.4f} s")
@@ -659,7 +704,7 @@ def main() -> None:
 
     try:
         print("Benchmarking TFRecord (Sharded)...")
-        times = benchmark_tfrecord_sharded(directory_pattern=tfrecord_sharded_pattern, number_of_runs=number_of_runs,
+        times = benchmark_tfrecord_sharded(directory_pattern=paths_dictionary["tfrecord_sharded_pattern"], number_of_runs=number_of_runs,
                                                   batch_size=batch_size, view_images=view_images)
         results['Sharded'] = times
         print(f"[TFRecord (Sharded)] Average Time: {sum(times)/len(times):.4f} s")
