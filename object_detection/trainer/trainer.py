@@ -191,8 +191,6 @@ class Trainer:
             experiment_configuration=self.experiment_configuration,
             model_configuration=self.model_configuration,
             batch_size=self.batch_size,
-            device=self.device,
-            dtype=self.dtype,
             number_of_workers=4)
 
         return train_dataloader, validation_dataloader, test_dataloader, waiting_for_tfrecords
@@ -534,8 +532,7 @@ class Trainer:
         and updates performance trackers.
 
         Args:
-            batch_images (torch.Tensor): The input image tensor of shape (B, C, H, W).
-            batch_masks (torch.Tensor): The ground truth mask tensor of shape (B, number_classes, H, W).
+            data_dictionary (Dict[str, torch.Tensor | Any]): Dictionary containing batched 'images', 'bounding_boxes', and 'labels'.
             writer (Optional[SummaryWriter]): TensorBoard writer for logging. If None, logging is skipped.
             iteration (int): The current training iteration step.
             tracker_dictionary (Dict[str, Any] | None): Dictionary tracking rolling average metrics.
@@ -544,9 +541,15 @@ class Trainer:
             tuple[torch.Tensor, torch.Tensor]: A tuple containing the total_loss and the model predictions.
         """
 
-        # todo get different elements of the data dictionary
+        # Unpack and cast the batch to the designated target device and precision type
+        images = data_dictionary["images"].to(device=self.device, dtype=self.dtype)
+        
+        # Bounding boxes and labels are lists of tensors, move each tensor to the device
+        bounding_boxes = [box_tensor.to(device=self.device, dtype=self.dtype) for box_tensor in data_dictionary["bounding_boxes"]]
+        labels = [label_tensor.to(device=self.device, dtype=torch.int64) for label_tensor in data_dictionary["labels"]]
 
         # Forward pass : TODO
+        # Note: model forward pass needs to take the unpacked data, adjusting to match existing placeholder
         model_outputs = self.model()
 
         # TODO Get total loss for backward propagations. to be tested

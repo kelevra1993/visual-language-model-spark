@@ -121,7 +121,7 @@ def clean_data(data_directory: str, labels_file: str) -> None:
 
 
 def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int, batch_size: int, image_size: int,
-                     keep_ratio: bool, view_images: bool, device: torch.device, dtype: torch.dtype) -> List[float]:
+                     keep_ratio: bool, view_images: bool) -> List[float]:
     """
     Benchmarks the Native PyTorch dataset loader.
 
@@ -141,7 +141,7 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
         float: The average time taken per run in seconds.
     """
     dataset = NativeDataset(data_directory=data_directory, labels_file=labels_file, image_size=image_size,
-                                keep_ratio=keep_ratio, device=device, dtype=dtype)
+                            keep_ratio=keep_ratio)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
                             collate_fn=collate_function)
     times = []
@@ -165,7 +165,7 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
 
 
 def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_size: int, view_images: bool,
-                       device: torch.device, dtype: torch.dtype, buffer_size: int) -> List[float]:
+                       buffer_size: int) -> List[float]:
     """
     Benchmarks the Pre-Resized TFRecord dataset loader.
     
@@ -177,12 +177,12 @@ def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_s
         number_of_runs (int): The number of full epoch passes to simulate.
         batch_size (int): The number of images per batch.
         view_images (bool): Whether to visualize the batches using OpenCV.
+        buffer_size (int): The buffer size for TFRecord loading.
         
     Returns:
         float: The average time taken per run in seconds.
     """
-    dataset = TFRecordDataset(tensorflow_record_path=tensorflow_record_path, device=device, dtype=dtype,
-                                  buffer_size=buffer_size)
+    dataset = TFRecordDataset(tensorflow_record_path=tensorflow_record_path, buffer_size=buffer_size)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
                             collate_fn=collate_function)
     times = []
@@ -206,7 +206,7 @@ def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_s
 
 
 def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batch_size: int, view_images: bool,
-                               device: torch.device, dtype: torch.dtype, buffer_size: int) -> List[float]:
+                               buffer_size: int) -> List[float]:
     """
     Benchmarks the sharded TFRecord dataset loader.
     
@@ -215,12 +215,12 @@ def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batc
         number_of_runs (int): The number of full epoch passes to simulate.
         batch_size (int): The number of images per batch.
         view_images (bool): Whether to visualize the batches using OpenCV.
+        buffer_size (int): The buffer size for TFRecord loading.
         
     Returns:
         float: The average time taken per run in seconds.
     """
-    dataset = TFRecordShardedDataset(directory_pattern=directory_pattern, device=device, dtype=dtype,
-                                         buffer_size=buffer_size)
+    dataset = TFRecordShardedDataset(directory_pattern=directory_pattern, buffer_size=buffer_size)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
                             collate_fn=collate_function)
     times = []
@@ -428,16 +428,16 @@ def main() -> None:
                    'arguments': {'data_directory': paths_dictionary["data_directory"],
                                  'labels_file': paths_dictionary["labels_file"], 'number_of_runs': number_of_runs,
                                  'batch_size': batch_size, 'image_size': image_size, 'keep_ratio': keep_ratio,
-                                 'view_images': view_images, 'device': device, 'dtype': dtype}},
+                                 'view_images': view_images}},
         'TFRecord': {'function': benchmark_tfrecord,
                      'arguments': {'tensorflow_record_path': paths_dictionary["tensorflow_record_path"],
                                    'number_of_runs': number_of_runs, 'batch_size': batch_size,
-                                   'view_images': view_images, 'device': device, 'dtype': dtype,
+                                   'view_images': view_images,
                                    'buffer_size': buffer_size}},
         'Sharded': {'function': benchmark_tfrecord_sharded,
                     'arguments': {'directory_pattern': paths_dictionary["tfrecord_sharded_pattern"],
                                   'number_of_runs': number_of_runs, 'batch_size': batch_size,
-                                  'view_images': view_images, 'device': device, 'dtype': dtype,
+                                  'view_images': view_images,
                                   'buffer_size': buffer_size}}}
 
     # Initialize a tracking dictionary tailored precisely

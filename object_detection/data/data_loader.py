@@ -116,8 +116,7 @@ class NativeDataset(Dataset):
     on the CPU during each dataloader fetch iteration.
     """
 
-    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool, device: torch.device,
-                 dtype: torch.dtype) -> None:
+    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool) -> None:
         """
         Initializes the Native dataset and parses the JSON file.
 
@@ -130,8 +129,6 @@ class NativeDataset(Dataset):
         self.data_directory = data_directory
         self.image_size = image_size
         self.keep_ratio = keep_ratio
-        self.device = device
-        self.dtype = dtype
 
         # Parse the JSON annotation file into memory for rapid preprocessing
         with open(file=labels_file, mode='r') as file_handler:
@@ -190,14 +187,13 @@ class NativeDataset(Dataset):
                                                                            bounding_boxes=bounding_boxes_numpy,
                                                                            image_size=self.image_size,
                                                                            keep_ratio=self.keep_ratio)
-        # Convert the resized array into a PyTorch float tensor
-        # Note: The standard division by 255.0 has been intentionally omitted to preserve raw pixel scale
-        image_tensor = torch.from_numpy(np.array(object=resized_image)).permute(2, 0, 1).to(device=self.device,
-                                                                                            dtype=self.dtype)
+        # Convert the resized array into a PyTorch tensor without dtype/device casting
+        # The consumer (trainer) handles the cast per-batch for maximum data pipeline throughput
+        image_tensor = torch.from_numpy(np.array(object=resized_image)).permute(2, 0, 1)
 
         return {"images": image_tensor,
-                "bounding_boxes": torch.tensor(data=resized_bounding_boxes, dtype=self.dtype, device=self.device),
-                "labels": torch.tensor(data=labels, dtype=torch.int64, device=self.device)}
+                "bounding_boxes": torch.tensor(data=resized_bounding_boxes, dtype=torch.float32),
+                "labels": torch.tensor(data=labels, dtype=torch.int64)}
 
 
 class TFRecordDataset(IterableDataset):
@@ -207,19 +203,15 @@ class TFRecordDataset(IterableDataset):
     It streams records directly from the disk using tensorflow.data for maximum efficiency.
     """
 
-    def __init__(self, tensorflow_record_path: str, device: torch.device, dtype: torch.dtype, buffer_size: int) -> None:
+    def __init__(self, tensorflow_record_path: str, buffer_size: int) -> None:
         """
         Initializes the TFRecord iterable dataset.
 
         Args:
             tensorflow_record_path (str): The absolute path to the TFRecord archive file.
-            device (torch.device): The device on which to place the output tensors.
-            dtype (torch.dtype): The data type for the output tensors.
             buffer_size (int): The number of bytes in the read buffer.
         """
         self.tensorflow_record_path = tensorflow_record_path
-        self.device = device
-        self.dtype = dtype
         self.buffer_size = buffer_size
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
@@ -247,12 +239,12 @@ class TFRecordDataset(IterableDataset):
             labels_numpy = labels.numpy()
 
             # Reorder channels from height/width/channel structure to channel/height/width for PyTorch
-            image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous().to(device=self.device,
-                                                                                          dtype=self.dtype)
+            # No dtype/device casting here — the consumer (trainer) handles the cast per-batch for throughput
+            image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous()
 
             yield {"images": image_tensor,
-                   "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=self.dtype, device=self.device),
-                   "labels": torch.tensor(data=labels_numpy, dtype=torch.int64, device=self.device)}
+                   "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=torch.float32),
+                   "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)}
 
 
 def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_record: str, image_size: int,
@@ -363,19 +355,15 @@ class TFRecordShardedDataset(IterableDataset):
     A PyTorch IterableDataset implementation for reading from multiple sharded TFRecord files.
     """
 
-    def __init__(self, directory_pattern: str, device: torch.device, dtype: torch.dtype, buffer_size: int) -> None:
+    def __init__(self, directory_pattern: str, buffer_size: int) -> None:
         """
         Initializes the sharded TFRecord iterable dataset.
 
         Args:
             directory_pattern (str): The wildcard pattern used to locate all TFRecord shards.
-            device (torch.device): The device on which to place the output tensors.
-            dtype (torch.dtype): The data type for the output tensors.
             buffer_size (int): The number of bytes in the read buffer.
         """
         self.tensorflow_record_files = sorted(glob.glob(pathname=directory_pattern))
-        self.device = device
-        self.dtype = dtype
         self.buffer_size = buffer_size
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
@@ -401,12 +389,12 @@ class TFRecordShardedDataset(IterableDataset):
             boxes_numpy = bounding_boxes.numpy()
             labels_numpy = labels.numpy()
 
-            image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous().to(device=self.device,
-                                                                                          dtype=self.dtype)
+            # No dtype/device casting here — the consumer (trainer) handles the cast per-batch for throughput
+            image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous()
 
             yield {"images": image_tensor,
-                   "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=self.dtype, device=self.device),
-                   "labels": torch.tensor(data=labels_numpy, dtype=torch.int64, device=self.device)}
+                   "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=torch.float32),
+                   "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)}
 
 
 def create_tfrecord_sharded(data_directory: str, labels_file: str, output_directory: str, image_size: int,
@@ -527,8 +515,7 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
 
 def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
                    experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                   batch_size: int, device: torch.device, dtype: torch.dtype,
-                   number_of_workers: int) -> Tuple[DataLoader, bool]:
+                   batch_size: int, number_of_workers: int) -> Tuple[DataLoader, bool]:
     """
     Instantiates and retrieves the appropriate DataLoader for designated data within the machine learning pipeline.
     This function dynamically attempts to utilize highly-optimized TFRecords if requested, but gracefully falls back 
@@ -541,8 +528,6 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
         experiment_configuration (Dict[str, Any]): The overall experiment configuration including data paths.
         model_configuration (Dict[str, Any]): The model-specific configuration detailing data loading preferences.
         batch_size (int): The number of samples to include in each batch.
-        device (torch.device): The hardware device where the output tensors will be located.
-        dtype (torch.dtype): The numerical precision type for the tensors.
         number_of_workers (int): The number of parallel subprocesses to allocate for data loading.
 
     Returns:
@@ -580,13 +565,11 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
             final_shards = [file_path for file_path in final_shards if "Buffer-" not in file_path]
 
             if len(final_shards) == number_of_shards:
-                dataset = TFRecordShardedDataset(directory_pattern=sharded_pattern, device=device, dtype=dtype,
-                                                     buffer_size=buffer_size)
+                dataset = TFRecordShardedDataset(directory_pattern=sharded_pattern, buffer_size=buffer_size)
         else:
             # Verify the monolithic TFRecord exists and is not currently being written by a background process
             if os.path.exists(path=tfrecord_path) and "Buffer-" not in tfrecord_path:
-                dataset = TFRecordDataset(tensorflow_record_path=tfrecord_path, device=device, dtype=dtype,
-                                              buffer_size=buffer_size)
+                dataset = TFRecordDataset(tensorflow_record_path=tfrecord_path, buffer_size=buffer_size)
 
         # Flag the fallback state if the TFRecords were requested but could not be safely located
         if dataset is None:
@@ -597,7 +580,7 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
     # ensuring training can commence immediately
     if dataset is None:
         dataset = NativeDataset(data_directory=data_directory, labels_file=split_file, image_size=image_size,
-                                    keep_ratio=keep_ratio, device=device, dtype=dtype)
+                                keep_ratio=keep_ratio)
 
     # Determine if the dataset streams data to properly configure the shuffle parameter
     is_iterable = isinstance(dataset, IterableDataset)
@@ -608,7 +591,7 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
 
 
 def get_dataloaders(experiment_configuration: Dict[str, Any],
-                    model_configuration: Dict[str, Any], batch_size: int, device: torch.device, dtype: torch.dtype,
+                    model_configuration: Dict[str, Any], batch_size: int,
                     number_of_workers: int = 4) -> Tuple[DataLoader, DataLoader, DataLoader, bool]:
     """
     Initializes and returns the training, validation, and testing dataloaders for the object detection pipeline.
@@ -619,8 +602,6 @@ def get_dataloaders(experiment_configuration: Dict[str, Any],
         experiment_configuration (Dict[str, Any]): The overall experiment configuration including data paths.
         model_configuration (Dict[str, Any]): The model-specific configuration detailing data loading preferences.
         batch_size (int): The number of samples to include in each batch.
-        device (torch.device): The hardware device where the output tensors will be located.
-        dtype (torch.dtype): The numerical precision type for the tensors.
         number_of_workers (int): The number of parallel subprocesses to allocate for data loading. Defaults to 4.
 
     Returns:
@@ -644,7 +625,7 @@ def get_dataloaders(experiment_configuration: Dict[str, Any],
         dataset_prefix=dataset_prefix,
         experiment_configuration=experiment_configuration,
         model_configuration=model_configuration,
-        batch_size=batch_size, device=device, dtype=dtype, number_of_workers=number_of_workers)
+        batch_size=batch_size, number_of_workers=number_of_workers)
 
     # Get validation dataloader
     validation_loader, validation_fallback = get_dataloader(
@@ -653,7 +634,7 @@ def get_dataloaders(experiment_configuration: Dict[str, Any],
         dataset_prefix=dataset_prefix,
         experiment_configuration=experiment_configuration,
         model_configuration=model_configuration,
-        batch_size=batch_size, device=device, dtype=dtype, number_of_workers=number_of_workers)
+        batch_size=batch_size, number_of_workers=number_of_workers)
 
     # Get test dataloader
     test_loader, test_fallback = get_dataloader(
@@ -662,7 +643,7 @@ def get_dataloaders(experiment_configuration: Dict[str, Any],
         dataset_prefix=dataset_prefix,
         experiment_configuration=experiment_configuration,
         model_configuration=model_configuration,
-        batch_size=batch_size, device=device, dtype=dtype, number_of_workers=number_of_workers)
+        batch_size=batch_size, number_of_workers=number_of_workers)
 
     waiting_for_tfrecords = train_fallback or validation_fallback or test_fallback
 
