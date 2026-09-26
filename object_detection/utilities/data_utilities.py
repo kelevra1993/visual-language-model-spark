@@ -21,18 +21,26 @@ def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True
     """
     if keep_ratio:
         image_height, image_width, _ = image.shape
-
-        maximum_size = max([image_height, image_width])
-        processed_image = np.zeros((maximum_size, maximum_size, 3), dtype=image.dtype)
-
-        start_x = int((maximum_size - image_width) / 2)
-        start_y = int((maximum_size - image_height) / 2)
-
-        processed_image[start_y: start_y + image_height, start_x: start_x + image_width, :] = image[
-            :image_height, :image_width, :]
-        processed_image = cv2.resize(processed_image, (image_size, image_size))
+        scale = image_size / max(image_height, image_width)
+        
+        # Calculate new dimensions after scaling, matching DALI's not_larger logic
+        new_width = int(round(image_width * scale))
+        new_height = int(round(image_height * scale))
+        
+        # Resize first to pure image pixels to avoid bilinear black padding bleed
+        resized_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+        
+        # Create the padded square canvas
+        processed_image = np.zeros((image_size, image_size, 3), dtype=image.dtype)
+        
+        # Calculate centering offsets (matching DALI crop_pos=0.5 symmetric padding)
+        start_x = (image_size - new_width) // 2
+        start_y = (image_size - new_height) // 2
+        
+        # Drop the resized image into the center
+        processed_image[start_y: start_y + new_height, start_x: start_x + new_width, :] = resized_image
     else:
-        processed_image = cv2.resize(image, (image_size, image_size))
+        processed_image = cv2.resize(image, (image_size, image_size), interpolation=cv2.INTER_LINEAR)
 
     return processed_image
 
@@ -59,17 +67,28 @@ def preprocess_boxes(bounding_boxes: list[list[float]], image_width: int, image_
     processed_bounding_boxes = []
 
     if keep_ratio:
-        maximum_size = max([image_height, image_width])
-        start_x = int((maximum_size - image_width) / 2)
-        start_y = int((maximum_size - image_height) / 2)
-        scale = image_size / maximum_size
+        scale = image_size / max(image_height, image_width)
+        new_width = int(round(image_width * scale))
+        new_height = int(round(image_height * scale))
+        
+        start_x = (image_size - new_width) // 2
+        start_y = (image_size - new_height) // 2
 
         for bounding_box in bounding_boxes:
             box_x_1, box_y_1, box_x_2, box_y_2 = bounding_box
-            new_x_1 = (box_x_1 + start_x) * scale
-            new_y_1 = (box_y_1 + start_y) * scale
-            new_x_2 = (box_x_2 + start_x) * scale
-            new_y_2 = (box_y_2 + start_y) * scale
+            
+            # Scale coordinates first
+            scaled_x_1 = box_x_1 * scale
+            scaled_y_1 = box_y_1 * scale
+            scaled_x_2 = box_x_2 * scale
+            scaled_y_2 = box_y_2 * scale
+            
+            # Then shift them by the padding offset
+            new_x_1 = scaled_x_1 + start_x
+            new_y_1 = scaled_y_1 + start_y
+            new_x_2 = scaled_x_2 + start_x
+            new_y_2 = scaled_y_2 + start_y
+            
             processed_bounding_boxes.append([new_x_1, new_y_1, new_x_2, new_y_2])
     else:
         scale_x = image_size / image_width
