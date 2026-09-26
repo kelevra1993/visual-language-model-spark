@@ -184,12 +184,13 @@ class Trainer:
         """
         print_blue("Initializing Training, Validation And Test DataLoaders...", add_separators=True)
 
-        # todo should contain the device and the dtype so that everything is set accordingly.
         train_dataloader, validation_dataloader, test_dataloader = get_dataloaders(
             preprocessed_directory=self.dataset_folder,
             experiment_configuration=self.experiment_configuration,
             model_configuration=self.model_configuration,
             batch_size=self.batch_size,
+            device=self.device,
+            dtype=self.dtype,
             number_of_workers=4)
 
         return train_dataloader, validation_dataloader, test_dataloader
