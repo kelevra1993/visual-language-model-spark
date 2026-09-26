@@ -195,7 +195,6 @@ class NativeCocoDataset(Dataset):
 
         image = cv2.imread(filename=image_path)
 
-
         image_annotations = self.image_to_annotations.get(image_identifier, [])
 
         bounding_boxes = []
@@ -602,7 +601,8 @@ def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batc
 
 def get_dataset_paths(project_base_directory: str, image_size: int, keep_ratio: bool) -> Dict[str, str]:
     """
-    Constructs and orchestrates the standardized filesystem paths required by the dataloader format benchmarker pipeline to locate annotations and output compiled archives.
+    Constructs and orchestrates the standardized filesystem paths required by the dataloader format benchmarker
+     pipeline to locate annotations and output compiled archives.
     
     Args:
         project_base_directory (str): The root directory of the project.
@@ -633,7 +633,8 @@ def get_dataset_paths(project_base_directory: str, image_size: int, keep_ratio: 
 
 def prepare_tfrecords(paths_dictionary: Dict[str, str], image_size: int, keep_ratio: bool) -> None:
     """
-    Validates the presence of the pre-resized and sharded TFRecord archives on disk, dynamically compiling them from the raw COCO dataset if missing, in order to guarantee data availability for the benchmarking pipeline.
+    Validates the presence of the pre-resized and sharded TFRecord archives on disk, dynamically compiling them from
+     the raw COCO dataset if missing, in order to guarantee data availability for the benchmarking pipeline.
     
     Args:
         paths_dictionary (Dict[str, str]): A dictionary containing dataset input and output paths.
@@ -692,7 +693,8 @@ def benchmark_method(method_name: str, method_function: Callable, benchmark_argu
     return times
 
 
-def save_benchmark_results(csv_file_path: str, methods_to_benchmark: List[str], results: Dict[str, List[float]], number_of_runs: int) -> None:
+def save_benchmark_results(csv_file_path: str, methods_to_benchmark: List[str], results: Dict[str, List[float]],
+                           number_of_runs: int) -> None:
     """
     Persists the collected benchmark execution times to a CSV file for offline analysis.
     
@@ -720,7 +722,8 @@ def save_benchmark_results(csv_file_path: str, methods_to_benchmark: List[str], 
                     row.append('')
             writer.writerow(row)
 
-        # Compute and append the final average throughput times across all successful runs to conclude the benchmark report
+        # Compute and append the final average throughput times
+        # across all successful runs to conclude the benchmark report
         average_row = []
         for method_name in methods_to_benchmark:
             if results[method_name]:
@@ -731,6 +734,7 @@ def save_benchmark_results(csv_file_path: str, methods_to_benchmark: List[str], 
         writer.writerow(average_row)
 
     print(f"Results saved to {csv_file_path}")
+
 
 def main() -> None:
     """
@@ -756,7 +760,8 @@ def main() -> None:
         'Sharded'
     ]
 
-    # Construct the absolute system paths required to locate the underlying dataset and to output the compiled storage formats
+    # Construct the absolute system paths required
+    # to locate the underlying dataset and to output the compiled storage formats
     project_base_directory = str(Path(__file__).absolute().parents[3] / 'datasets')
 
     # CSV Benchmark File
@@ -766,57 +771,43 @@ def main() -> None:
     paths_dictionary = get_dataset_paths(project_base_directory=project_base_directory, image_size=image_size,
                                          keep_ratio=keep_ratio)
 
-    # Validate the existence of the requisite TFRecord archives, dynamically regenerating them if they are missing to guarantee smooth execution
+    # Validate the existence of the requisite TFRecord archives,
+    # dynamically regenerating them if they are missing to guarantee smooth execution
     prepare_tfrecords(paths_dictionary=paths_dictionary, image_size=image_size, keep_ratio=keep_ratio)
 
-    # Map each dataloader strategy to its specific execution function and arguments to enable a clean, dynamic testing loop
+    # Map each dataloader strategy to its specific execution function and arguments
+    # to enable a clean, dynamic testing loop
     benchmark_argument_dictionary = {
-        'Native': {
-            'function': benchmark_native,
-            'arguments': {
-                'data_directory': paths_dictionary["data_directory"],
-                'labels_file': paths_dictionary["labels_file"],
-                'number_of_runs': number_of_runs,
-                'batch_size': batch_size,
-                'image_size': image_size,
-                'keep_ratio': keep_ratio,
-                'view_images': view_images
-            }
-        },
-        'TFRecord': {
-            'function': benchmark_tfrecord,
-            'arguments': {
-                'tensorflow_record_path': paths_dictionary["tensorflow_record_path"],
-                'number_of_runs': number_of_runs,
-                'batch_size': batch_size,
-                'view_images': view_images
-            }
-        },
-        'Sharded': {
-            'function': benchmark_tfrecord_sharded,
-            'arguments': {
-                'directory_pattern': paths_dictionary["tfrecord_sharded_pattern"],
-                'number_of_runs': number_of_runs,
-                'batch_size': batch_size,
-                'view_images': view_images
-            }
-        }
-    }
+        'Native': {'function': benchmark_native,
+                   'arguments': {'data_directory': paths_dictionary["data_directory"],
+                                 'labels_file': paths_dictionary["labels_file"], 'number_of_runs': number_of_runs,
+                                 'batch_size': batch_size, 'image_size': image_size, 'keep_ratio': keep_ratio,
+                                 'view_images': view_images}},
+        'TFRecord': {'function': benchmark_tfrecord,
+                     'arguments': {'tensorflow_record_path': paths_dictionary["tensorflow_record_path"],
+                                   'number_of_runs': number_of_runs, 'batch_size': batch_size,
+                                   'view_images': view_images}},
+        'Sharded': {'function': benchmark_tfrecord_sharded,
+                    'arguments': {'directory_pattern': paths_dictionary["tfrecord_sharded_pattern"],
+                                  'number_of_runs': number_of_runs, 'batch_size': batch_size,
+                                  'view_images': view_images}}}
 
-    # Initialize a tracking dictionary tailored precisely to the active methods to store the execution times of each epoch
+    # Initialize a tracking dictionary tailored precisely
+    # to the active methods to store the execution times of each epoch
     results = {key: [] for key in methods_to_benchmark}
 
-    # Iterate over the predefined strategies, selectively triggering the underlying method if it is flagged for active testing
+    # Iterate over the predefined strategies, selectively
+    # triggering the underlying method if it is flagged for active testing
     for method_name, method_details in benchmark_argument_dictionary.items():
         if method_name in methods_to_benchmark:
-            results[method_name] = benchmark_method(
-                method_name=method_name,
-                method_function=method_details['function'],
-                benchmark_arguments=method_details['arguments'])
+            results[method_name] = benchmark_method(method_name=method_name, method_function=method_details['function'],
+                                                    benchmark_arguments=method_details['arguments'])
             print("-" * 50)
 
     # Dispatch the accumulated execution results to be formalized and persisted into a CSV file
-    save_benchmark_results(csv_file_path=csv_file_path, methods_to_benchmark=methods_to_benchmark, results=results, number_of_runs=number_of_runs)
+    save_benchmark_results(csv_file_path=csv_file_path, methods_to_benchmark=methods_to_benchmark, results=results,
+                           number_of_runs=number_of_runs)
+
 
 if __name__ == "__main__":
     main()
