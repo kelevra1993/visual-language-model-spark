@@ -2,6 +2,9 @@ import time
 import torch
 import torchvision
 
+import os
+import sys
+import glob
 from pathlib import Path
 from typing import Dict, Tuple, List, Union, Any, Optional
 from shutil import copyfile
@@ -76,7 +79,8 @@ class Trainer:
 
         # Setting up dataloaders
         self.dataset_folder = self.experiment_configuration["dataset_folder"]
-        self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.get_trainer_data_loaders()
+        (self.train_dataloader, self.validation_dataloader, self.test_dataloader,
+         self.waiting_for_tfrecords) = self.get_trainer_data_loaders()
 
         # Initialize Model and Optimizer
         self.model = Model(configuration=self.model_configuration, device=self.device, dtype=self.dtype,
@@ -173,18 +177,17 @@ class Trainer:
 
         return training_writer, validation_writer
 
-    def get_trainer_data_loaders(self) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    def get_trainer_data_loaders(self) -> Tuple[DataLoader, DataLoader, DataLoader, bool]:
         """
         Initializes and returns the PyTorch DataLoaders for the training, validation, and test phases.
 
         Returns:
-            Tuple[DataLoader, DataLoader, DataLoader]: A tuple containing the DataLoaders for
-                the training, validation, and testing splits, respectively.
+            Tuple[DataLoader, DataLoader, DataLoader, bool]: A tuple containing the DataLoaders for
+                the training, validation, testing splits, and a flag indicating if it's waiting for TFRecords.
         """
         print_blue("Initializing Training, Validation And Test DataLoaders...", add_separators=True)
 
-        train_dataloader, validation_dataloader, test_dataloader = get_dataloaders(
-            preprocessed_directory=self.dataset_folder,
+        train_dataloader, validation_dataloader, test_dataloader, waiting_for_tfrecords = get_dataloaders(
             experiment_configuration=self.experiment_configuration,
             model_configuration=self.model_configuration,
             batch_size=self.batch_size,
@@ -192,7 +195,7 @@ class Trainer:
             dtype=self.dtype,
             number_of_workers=4)
 
-        return train_dataloader, validation_dataloader, test_dataloader
+        return train_dataloader, validation_dataloader, test_dataloader, waiting_for_tfrecords
 
     @staticmethod
     def get_next_batch(dataloader_iterator: _BaseDataLoaderIter, dataloader: DataLoader) -> Tuple[
@@ -349,6 +352,9 @@ class Trainer:
                     if self.compute_validation_iteration:
                         validation_trackers = self.get_metric_trackers()
 
+                    if getattr(self, "waiting_for_tfrecords", False):
+                        self.check_and_restart_for_tfrecords(iteration=training_iteration)
+
         except KeyboardInterrupt:
             print_red(f"Training Interrupted by User at iteration {training_iteration}.", add_separators=True)
         except Exception as error:
@@ -401,6 +407,45 @@ class Trainer:
 
         # Run sample predictions for visualization
         self.run_sample_predictions(iteration=iteration, number_samples=20)
+
+    def check_and_restart_for_tfrecords(self, iteration: int) -> None:
+        """
+        Checks if the background generation of TFRecords is complete. If so, saves the model and restarts the script.
+        """
+        data_configuration = self.model_configuration["Data"]
+        image_settings = data_configuration["image_settings"]
+        image_size = image_settings["size"]
+        keep_ratio = image_settings["keep_ratio"]
+        prefix = f"KAR-{image_size}-" if keep_ratio else f"{image_size}-"
+
+        data_dir = self.experiment_configuration["data_folder"]
+        is_sharded = data_configuration["TFRecord"]["sharded"]
+        num_shards = data_configuration["TFRecord"].get("number_shards", 10)
+
+        splits = ["Train", "Validation", "Test"]
+        all_ready = True
+
+        for split in splits:
+            if is_sharded:
+                sharded_dir = os.path.join(data_dir, f"{prefix}Sharded-Records-{split}")
+                shards = glob.glob(os.path.join(sharded_dir, f"shard-*.tfrecord"))
+                final_shards = [f for f in shards if "Buffer-" not in f]
+                if len(final_shards) < num_shards:
+                    all_ready = False
+                    break
+            else:
+                tfrecord_path = os.path.join(data_dir, f"{prefix}{split}.tfrecord")
+                if not os.path.exists(tfrecord_path) or "Buffer-" in tfrecord_path:
+                    all_ready = False
+                    break
+
+        if all_ready:
+            print_blue("\nAll TFRecords are now fully generated! Restarting to switch to high-throughput dataloader...",
+                       add_separators=True)
+            self.save_model(iteration=iteration)
+
+            # Use os.execv to restart the main process
+            os.execv(sys.executable, ['python'] + sys.argv)
 
     # todo to be properly implemented !!!
     # def run_sample_predictions(self, iteration: int, number_samples: int = 20) -> None:
