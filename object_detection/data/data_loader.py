@@ -256,10 +256,9 @@ class TFRecordDataset(IterableDataset):
                    "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)}
 
 
-
 def process_image_to_tensorflow_example(image_identifier: int, image_information: dict, data_directory: str,
-                                image_to_annotations: dict, image_size: int, 
-                                keep_ratio: bool):
+                                        image_to_annotations: dict, image_size: int,
+                                        keep_ratio: bool):
     """
     Processes a single image and its annotations into a TensorFlow Example protobuf message.
     
@@ -290,16 +289,16 @@ def process_image_to_tensorflow_example(image_identifier: int, image_information
     # By providing an RGB array, imencode physically saves a BGR PNG file. When tf.io.decode_png reads it, 
     # it natively returns a BGR tensor, ensuring consistency with the raw cv2.imread Native pipeline.
     image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
-    
+
     # Retrieve the corresponding annotations for the current image or default to an empty list
     if image_identifier in image_to_annotations:
         image_annotations = image_to_annotations[image_identifier]
     else:
         image_annotations = []
-        
+
     bounding_boxes = []
     labels = []
-    
+
     # Extract and format the bounding box coordinates and object categories associated with the current image
     for annotation in image_annotations:
         x_coordinate, y_coordinate, width, height = annotation['bbox']
@@ -307,7 +306,7 @@ def process_image_to_tensorflow_example(image_identifier: int, image_information
         labels.append(annotation['category_id'])
 
     bounding_boxes_numpy = np.array(object=bounding_boxes, dtype=np.float32)
-    
+
     # Dynamically scale the image and calculate the corresponding adjustments for the bounding boxes
     resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
                                                                        bounding_boxes=bounding_boxes_numpy,
@@ -335,7 +334,7 @@ def process_image_to_tensorflow_example(image_identifier: int, image_information
         feature={"images": convert_to_bytes_feature(value=image_bytes),
                  "bounding_boxes": convert_to_bytes_feature(value=bounding_boxes_bytes),
                  "labels": convert_to_bytes_feature(value=labels_bytes)}))
-                 
+
     return example
 
 
@@ -468,13 +467,14 @@ def dali_pipeline(data_directory: str, annotations_file: str, image_size: int, k
         tuple: A tuple of DALI Edge objects representing the processed images, padded bounding boxes, and padded labels.
     """
     # Load raw data and annotations
-    inputs, bounding_boxes, labels = dali_function.readers.coco(file_root=data_directory,
-                                                                annotations_file=annotations_file,
-                                                                polygon_masks=False,
-                                                                ratio=False,
-                                                                ltrb=True,
-                                                                random_shuffle=True,
-                                                                name="Reader")
+    inputs, bounding_boxes, labels, image_ids = dali_function.readers.coco(file_root=data_directory,
+                                                                           annotations_file=annotations_file,
+                                                                           polygon_masks=False,
+                                                                           ratio=False,
+                                                                           ltrb=True,
+                                                                           random_shuffle=True,
+                                                                           image_ids=True,
+                                                                           name="Reader")
 
     # Decode directly on the GPU using hardware acceleration
     images = dali_function.decoders.image(inputs, device="mixed", output_type=dali_types.BGR)
@@ -482,7 +482,6 @@ def dali_pipeline(data_directory: str, annotations_file: str, image_size: int, k
     # We must retrieve the original shapes to un-normalize bounding boxes correctly in the wrapper
     shapes = dali_function.peek_image_shape(inputs)
 
-    # Hardware accelerated resize mimicking PyTorch zero-padding NativeDataset
     # Hardware accelerated resize mimicking PyTorch zero-padding NativeDataset
     if keep_ratio:
         # Resize such that the longest edge equals image_size
@@ -507,7 +506,7 @@ def dali_pipeline(data_directory: str, annotations_file: str, image_size: int, k
     bounding_boxes = dali_function.pad(bounding_boxes, axes=(0,), fill_value=-1.0)
     labels = dali_function.pad(labels, axes=(0,), fill_value=-1)
 
-    return images, bounding_boxes, labels, shapes
+    return images, bounding_boxes, labels, shapes, image_ids
 
 
 class DALIDataloaderWrapper:
@@ -546,6 +545,7 @@ class DALIDataloaderWrapper:
             bounding_boxes_padded = data["bounding_boxes"]
             labels_padded = data["labels"]
             shapes = data["shapes"]
+            image_ids = data["image_ids"].squeeze(-1)  # Squeeze 2D [batch_size, 1] to 1D [batch_size] if necessary
 
             bounding_boxes_list = []
             labels_list = []
@@ -554,7 +554,7 @@ class DALIDataloaderWrapper:
             for batch_index in range(images.shape[0]):
                 # Identify the valid items by filtering out the padding fill value (-1)
                 valid_mask = (labels_padded[batch_index] != -1).squeeze(-1) if labels_padded.dim() == 3 else (
-                            labels_padded[batch_index] != -1)
+                        labels_padded[batch_index] != -1)
 
                 valid_boxes = bounding_boxes_padded[batch_index][valid_mask].clone()
                 labels_list.append(labels_padded[batch_index][valid_mask])
@@ -577,7 +577,8 @@ class DALIDataloaderWrapper:
 
                 bounding_boxes_list.append(valid_boxes)
 
-            yield {"images": images, "bounding_boxes": bounding_boxes_list, "labels": labels_list}
+            yield {"images": images, "bounding_boxes": bounding_boxes_list, "labels": labels_list,
+                   "image_ids": image_ids}
 
     def __len__(self) -> int:
         """
@@ -662,12 +663,12 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
                                      leave=False):
             image_information = images_dictionary[image_identifier]
             example = process_image_to_tensorflow_example(
-            image_identifier=image_identifier,
-            image_information=image_information,
-            data_directory=data_directory,
-            image_to_annotations=image_to_annotations,
-            image_size=image_size,
-            keep_ratio=keep_ratio )
+                image_identifier=image_identifier,
+                image_information=image_information,
+                data_directory=data_directory,
+                image_to_annotations=image_to_annotations,
+                image_size=image_size,
+                keep_ratio=keep_ratio)
         if example is not None:
             writer.write(record=example.SerializeToString())
 

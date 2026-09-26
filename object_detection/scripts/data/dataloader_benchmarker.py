@@ -265,7 +265,7 @@ def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, b
                                        batch_size=batch_size, num_threads=4, device_id=0)
     data_pipeline.build()
     dali_iterator = DALIGenericIterator([data_pipeline],
-                                        ['images', 'bounding_boxes', 'labels', 'shapes'],
+                                        ['images', 'bounding_boxes', 'labels', 'shapes', 'image_ids'],
                                         reader_name="Reader",
                                         auto_reset=True)
     dataloader = DALIDataloaderWrapper(dali_iterator=dali_iterator, image_size=image_size, keep_ratio=keep_ratio)
@@ -436,11 +436,11 @@ def main() -> None:
     training loop with the fastest possible dataloader.
     """
     # Core execution configuration
-    number_of_runs = 10
+    number_of_runs = 2
     batch_size = 20
     image_size = 1024
     keep_ratio = True
-    view_images = True
+    view_images = False
     buffer_size = 262144  # 256 MB
 
     device = torch.device('cpu')
