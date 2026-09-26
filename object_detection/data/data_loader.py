@@ -324,13 +324,13 @@ def get_dataloaders(preprocessed_directory: str, experiment_configuration: Dict[
     Returns:
         Tuple[DataLoader, DataLoader, DataLoader]: A tuple containing the DataLoaders for training, validation, and testing splits.
     """
-    data_config = model_configuration["Data"]
-    tfrecord_config = data_config["TFRecord"]
-    use_tfrecord = tfrecord_config["activated"]
-    is_sharded = tfrecord_config["sharded"]
-    buffer_size = tfrecord_config["buffer_size"]
+    data_configuration = model_configuration["Data"]
+    tfrecord_configuration = data_configuration["TFRecord"]
+    use_tfrecord = tfrecord_configuration["activated"]
+    is_sharded = tfrecord_configuration["sharded"]
+    buffer_size = tfrecord_configuration["buffer_size"]
 
-    image_settings = data_config["image_settings"]
+    image_settings = data_configuration["image_settings"]
     image_size = image_settings["size"]
     keep_ratio = image_settings["keep_ratio"]
 
