@@ -379,6 +379,15 @@ def save_benchmark_results(csv_file_path: str, methods_to_benchmark: List[str], 
 
 
 def main() -> None:
+    """
+    Serves as the primary entry point for the dataloader benchmarking suite.
+    
+    This function orchestrates the sequential evaluation of different data ingestion strategies 
+    (Native PyTorch vs. TFRecord variants) to experimentally determine the optimal data pipeline 
+    configuration for the object detection model. By executing simulated epoch loops and aggregating 
+    the wall-clock times, it provides the empirical metrics necessary to configure the downstream 
+    training loop with the fastest possible dataloader.
+    """
     # Core execution configuration
     number_of_runs = 1
     batch_size = 20
