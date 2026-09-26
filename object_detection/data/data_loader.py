@@ -75,7 +75,7 @@ class DummyDataset(Dataset):
     returning zeros for images, bounding boxes, and labels to prevent downstream component crashes during
     pipeline initialization or testing.
     """
-    def __init__(self, image_size: int = 1024, device: torch.device = torch.device(device='cpu'), dtype: torch.dtype = torch.float32) -> None:
+    def __init__(self, image_size: int, device: torch.device, dtype: torch.dtype) -> None:
         """
         Initializes the DummyDataset.
 
@@ -122,7 +122,7 @@ class NativeCocoDataset(Dataset):
     on the CPU during each dataloader fetch iteration.
     """
 
-    def __init__(self, data_directory: str, labels_file: str, image_size: int = 1024, keep_ratio: bool = True, device: torch.device = torch.device('cpu'), dtype: torch.dtype = torch.float32) -> None:
+    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool, device: torch.device, dtype: torch.dtype) -> None:
         """
         Initializes the Native dataset and parses the monolithic COCO JSON file.
 
@@ -209,7 +209,7 @@ class TFRecordCocoDataset(IterableDataset):
     It streams records directly from the disk using tensorflow.data for maximum efficiency.
     """
 
-    def __init__(self, tensorflow_record_path: str, device: torch.device = torch.device(device='cpu'), dtype: torch.dtype = torch.float32, buffer_size: int = 262144) -> None:
+    def __init__(self, tensorflow_record_path: str, device: torch.device, dtype: torch.dtype, buffer_size: int) -> None:
         """
         Initializes the TFRecord iterable dataset.
         
@@ -260,7 +260,7 @@ class TFRecordShardedCocoDataset(IterableDataset):
     A PyTorch IterableDataset implementation for reading from multiple sharded TFRecord files.
     """
 
-    def __init__(self, directory_pattern: str, device: torch.device = torch.device(device='cpu'), dtype: torch.dtype = torch.float32, buffer_size: int = 262144) -> None:
+    def __init__(self, directory_pattern: str, device: torch.device, dtype: torch.dtype, buffer_size: int) -> None:
         """
         Initializes the sharded TFRecord iterable dataset.
         
