@@ -2,6 +2,7 @@ import multiprocessing
 import fiftyone as fo
 import fiftyone.zoo as foz
 from typing import Optional, List, Literal
+from pathlib import Path
 
 
 def retrieve_dataset(dataset_name: Literal["open-images-v7", "coco-2017"],
@@ -58,6 +59,7 @@ if __name__ == "__main__":
       this dataset in its entirety can take several days. Ensure you have sufficient storage and bandwidth.
       
     """
+    base_folder = str(Path(__file__).absolute().parents[2] / "datasets")
     retrieve_dataset(dataset_name="coco-2017",
-                     dataset_directory="/Users/Robert/Data/object_detection_data",
-                     maximum_samples=100)
+                     dataset_directory=base_folder,
+                     maximum_samples=1000)
