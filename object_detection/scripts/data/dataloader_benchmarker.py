@@ -1,23 +1,22 @@
 import os
-from pathlib import Path
-
-from utilities.os_utilities import print_blue
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
+
 import json
 import csv
 import time
-import cv2
-import numpy
 import torch
 import tensorflow
 from tqdm import tqdm
 import glob
+
+from utilities.os_utilities import print_blue
+
+from pathlib import Path
 from typing import List, Dict, Any, Callable
 from torch.utils.data import Dataset, DataLoader, IterableDataset
-from utilities.data_utilities import preprocess_image_and_boxes, view_input_data
-from utilities.data_utilities import NativeCocoDataset, TFRecordCocoDataset, TFRecordShardedCocoDataset, \
-    create_tfrecord, create_tfrecord_sharded
+
+from data.data_loader import NativeCocoDataset, TFRecordCocoDataset, TFRecordShardedCocoDataset, collate_function, create_tfrecord, create_tfrecord_sharded, view_input_data
 
 # Hide GPU from TensorFlow so it does not reserve all memory, leaving none for PyTorch
 tensorflow.config.set_visible_devices(devices=[], device_type='GPU')
