@@ -688,9 +688,16 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
                 writer.write(record=example.SerializeToString())
 
         writer.close()
-        # Atomically rename the completed shard buffer to confirm
-        # successful generation and allow the dataloader to begin streaming
-        os.rename(buffer_shard_path, final_shard_path)
+
+    # Atomically rename all completed shard buffers to their final destination names only after
+    # the entire dataset has been successfully serialized. This prevents data duplication issues
+    # where an interrupted shuffled run leaves behind partial valid shards that clash with a new shuffle.
+    for shard_index in range(number_of_shards):
+        final_shard_path = os.path.join(output_directory, f"{prefix}shard-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
+        buffer_shard_path = os.path.join(output_directory, f"Buffer-{prefix}shard-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
+        
+        if os.path.exists(path=buffer_shard_path):
+            os.rename(src=buffer_shard_path, dst=final_shard_path)
 
 
 def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
@@ -733,7 +740,6 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
     tfrecord_filename = f"{dataset_prefix}{split_name}.tfrecord"
     tfrecord_path = os.path.join(data_directory, tfrecord_filename)
 
-    # todo to be verified especially for the shard naming part
     sharded_directory = os.path.join(data_directory, f"{dataset_prefix}Sharded-Records-{split_name}")
     sharded_pattern = os.path.join(sharded_directory, f"shard-*.tfrecord")
 

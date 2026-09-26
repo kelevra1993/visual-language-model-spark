@@ -408,7 +408,7 @@ def get_dataset_paths(project_base_directory: str, image_size: int, keep_ratio: 
     formats_directory = os.path.join(project_base_directory, 'formats')
     tensorflow_record_path = os.path.join(formats_directory, f'{prefix}coco-train.tfrecord')
     sharded_output_directory = os.path.join(formats_directory, f'{prefix}Sharded-Records')
-    tfrecord_sharded_pattern = os.path.join(sharded_output_directory, 'coco-train-*.tfrecord')
+    tfrecord_sharded_pattern = os.path.join(sharded_output_directory, 'shard-*.tfrecord')
 
     return {
         "data_directory": original_data_directory,
