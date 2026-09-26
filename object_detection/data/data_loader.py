@@ -108,9 +108,9 @@ def parse_single_example(serialized_data: tensorflow.Tensor) -> Tuple[
     return image, bounding_boxes, labels
 
 
-class NativeCocoDataset(Dataset):
+class NativeDataset(Dataset):
     """
-    A PyTorch Dataset implementation for reading the raw COCO image format.
+    A PyTorch Dataset implementation for reading the raw image format.
 
     This class reads images directly from the standard filesystem and scales them dynamically
     on the CPU during each dataloader fetch iteration.
@@ -119,11 +119,11 @@ class NativeCocoDataset(Dataset):
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool, device: torch.device,
                  dtype: torch.dtype) -> None:
         """
-        Initializes the Native dataset and parses the monolithic COCO JSON file.
+        Initializes the Native dataset and parses the JSON file.
 
         Args:
             data_directory (str): The absolute path to the directory containing the physical image files.
-            labels_file (str): The absolute path to the JSON file containing the COCO annotations.
+            labels_file (str): The absolute path to the JSON file containing the annotations.
             image_size (int): The target height and width for the scaled images.
             keep_ratio (bool): Whether to maintain the aspect ratio during scaling by padding.
         """
@@ -133,12 +133,12 @@ class NativeCocoDataset(Dataset):
         self.device = device
         self.dtype = dtype
 
-        # Parse the monolithic COCO JSON annotation file into memory for rapid preprocessing
+        # Parse the JSON annotation file into memory for rapid preprocessing
         with open(file=labels_file, mode='r') as file_handler:
-            self.coco_data = json.load(fp=file_handler)
+            self.data = json.load(fp=file_handler)
 
-        self.images = self.coco_data['images']
-        self.annotations = self.coco_data['annotations']
+        self.images = self.data['images']
+        self.annotations = self.data['annotations']
 
         # Map image identifiers to their respective bounding box and label collections for rapid retrieval
         self.image_to_annotations = {}
@@ -200,7 +200,7 @@ class NativeCocoDataset(Dataset):
                 "labels": torch.tensor(data=labels, dtype=torch.int64, device=self.device)}
 
 
-class TFRecordCocoDataset(IterableDataset):
+class TFRecordDataset(IterableDataset):
     """
     A PyTorch IterableDataset implementation for reading pre-processed TFRecord archives using TensorFlow.
 
@@ -258,7 +258,7 @@ class TFRecordCocoDataset(IterableDataset):
 def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_record: str, image_size: int,
                     keep_ratio: bool) -> None:
     """
-    Generates a monolithic TFRecord archive file from the raw COCO dataset.
+    Generates a monolithic TFRecord archive file from the raw dataset.
 
     This function processes images and bounding boxes preemptively by scaling them to the target spatial dimension
     and serializing them into a highly optimized binary format. This dramatically reduces disk I/O bottlenecks
@@ -283,15 +283,15 @@ def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_rec
         os.remove(buffer_record)
 
     print(f"Loading annotations from {labels_file}...")
-    # Parse the monolithic COCO JSON annotation file into memory for rapid preprocessing
+    # Parse the JSON annotation file into memory for rapid preprocessing
     with open(file=labels_file, mode='r') as file_handler:
-        coco_data = json.load(fp=file_handler)
+        data = json.load(fp=file_handler)
 
     # Construct lookup dictionaries mapping image identifiers to their metadata and annotations
-    images_dictionary = {image['id']: image for image in tqdm(iterable=coco_data['images'], desc="Indexing Images")}
+    images_dictionary = {image['id']: image for image in tqdm(iterable=data['images'], desc="Indexing Images")}
     image_to_annotations = {}
 
-    for annotation in tqdm(iterable=coco_data['annotations'], desc="Indexing Annotations"):
+    for annotation in tqdm(iterable=data['annotations'], desc="Indexing Annotations"):
         image_identifier = annotation['image_id']
         if image_identifier not in image_to_annotations:
             image_to_annotations[image_identifier] = []
@@ -358,7 +358,7 @@ def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_rec
     print(f"Successfully generated {output_tensorflow_record}")
 
 
-class TFRecordShardedCocoDataset(IterableDataset):
+class TFRecordShardedDataset(IterableDataset):
     """
     A PyTorch IterableDataset implementation for reading from multiple sharded TFRecord files.
     """
@@ -412,7 +412,7 @@ class TFRecordShardedCocoDataset(IterableDataset):
 def create_tfrecord_sharded(data_directory: str, labels_file: str, output_directory: str, image_size: int,
                             keep_ratio: bool, number_of_shards: int = 10, prefix: str = "") -> None:
     """
-    Generates a sharded sequence of TFRecord archive files from the raw COCO dataset.
+    Generates a sharded sequence of TFRecord archive files from the raw dataset.
 
     This function splits the dataset processing across multiple fragmented binary files to allow the data loading
     pipeline to interleave multiple shards concurrently, maximizing read throughput and minimizing disk thrashing
@@ -431,7 +431,7 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
     os.makedirs(name=output_directory, exist_ok=True)
 
     # Scan the output directory to verify if the required number of completed shards already exist
-    final_shards = glob.glob(os.path.join(output_directory, f"{prefix}coco-*.tfrecord"))
+    final_shards = glob.glob(os.path.join(output_directory, f"{prefix}shard-*.tfrecord"))
     final_shards = [f for f in final_shards if "Buffer-" not in f]
     if len(final_shards) == number_of_shards:
         print(f"Skipping sharded generation, already found {number_of_shards} shards in {output_directory}")
@@ -439,12 +439,12 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
 
     print(f"Loading annotations from {labels_file}...")
     with open(file=labels_file, mode='r') as file_handler:
-        coco_data = json.load(fp=file_handler)
+        data = json.load(fp=file_handler)
 
-    images_dictionary = {image['id']: image for image in tqdm(iterable=coco_data['images'], desc="Indexing Images")}
+    images_dictionary = {image['id']: image for image in tqdm(iterable=data['images'], desc="Indexing Images")}
     image_to_annotations = {}
 
-    for annotation in tqdm(iterable=coco_data['annotations'], desc="Indexing Annotations"):
+    for annotation in tqdm(iterable=data['annotations'], desc="Indexing Annotations"):
         image_identifier = annotation['image_id']
         if image_identifier not in image_to_annotations:
             image_to_annotations[image_identifier] = []
@@ -457,9 +457,9 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
     # Iterate through the calculated shard splits, independently serializing the partitioned image chunks
     for shard_index in range(number_of_shards):
         final_shard_path = os.path.join(output_directory,
-                                        f"{prefix}coco-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
+                                        f"{prefix}shard-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
         buffer_shard_path = os.path.join(output_directory,
-                                         f"Buffer-{prefix}coco-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
+                                         f"Buffer-{prefix}shard-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
 
         if os.path.exists(final_shard_path):
             continue
@@ -565,8 +565,9 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
     tfrecord_filename = f"{dataset_prefix}{split_name}.tfrecord"
     tfrecord_path = os.path.join(data_directory, tfrecord_filename)
 
+    # todo to be verified especially for the shard naming part
     sharded_directory = os.path.join(data_directory, f"{dataset_prefix}Sharded-Records-{split_name}")
-    sharded_pattern = os.path.join(sharded_directory, f"coco-*.tfrecord")
+    sharded_pattern = os.path.join(sharded_directory, f"shard-*.tfrecord")
 
     dataset = None
     fallback_to_native = False
@@ -579,12 +580,12 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
             final_shards = [file_path for file_path in final_shards if "Buffer-" not in file_path]
 
             if len(final_shards) == number_of_shards:
-                dataset = TFRecordShardedCocoDataset(directory_pattern=sharded_pattern, device=device, dtype=dtype,
+                dataset = TFRecordShardedDataset(directory_pattern=sharded_pattern, device=device, dtype=dtype,
                                                      buffer_size=buffer_size)
         else:
             # Verify the monolithic TFRecord exists and is not currently being written by a background process
             if os.path.exists(path=tfrecord_path) and "Buffer-" not in tfrecord_path:
-                dataset = TFRecordCocoDataset(tensorflow_record_path=tfrecord_path, device=device, dtype=dtype,
+                dataset = TFRecordDataset(tensorflow_record_path=tfrecord_path, device=device, dtype=dtype,
                                               buffer_size=buffer_size)
 
         # Flag the fallback state if the TFRecords were requested but could not be safely located
@@ -595,7 +596,7 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
     # Instantiate the standard PyTorch Native dataset if TFRecords are disabled or missing,
     # ensuring training can commence immediately
     if dataset is None:
-        dataset = NativeCocoDataset(data_directory=data_directory, labels_file=split_file, image_size=image_size,
+        dataset = NativeDataset(data_directory=data_directory, labels_file=split_file, image_size=image_size,
                                     keep_ratio=keep_ratio, device=device, dtype=dtype)
 
     # Determine if the dataset streams data to properly configure the shuffle parameter
@@ -635,31 +636,33 @@ def get_dataloaders(experiment_configuration: Dict[str, Any],
 
     dataset_prefix = get_dataset_prefix(image_size=image_size, keep_ratio=keep_ratio)
 
-    train_loader, train_fallback = get_dataloader(split_name="Train",
-                                                  split_file=experiment_configuration["train_split_file"],
-                                                  dataset_prefix=dataset_prefix,
-                                                  experiment_configuration=experiment_configuration,
-                                                  model_configuration=model_configuration,
-                                                  batch_size=batch_size,
-                                                  device=device, dtype=dtype, number_of_workers=number_of_workers)
+    # Get Train dataloader and fallback to native boolean indicating that the tfrecord might need to be created,
+    # if we were looking for a tfrecord.
+    train_loader, train_fallback = get_dataloader(
+        split_name="Train",
+        split_file=experiment_configuration["train_split_file"],
+        dataset_prefix=dataset_prefix,
+        experiment_configuration=experiment_configuration,
+        model_configuration=model_configuration,
+        batch_size=batch_size, device=device, dtype=dtype, number_of_workers=number_of_workers)
 
-    validation_loader, validation_fallback = get_dataloader(split_name="Validation",
-                                                            split_file=experiment_configuration[
-                                                                "validation_split_file"],
-                                                            dataset_prefix=dataset_prefix,
-                                                            experiment_configuration=experiment_configuration,
-                                                            model_configuration=model_configuration,
-                                                            batch_size=batch_size,
-                                                            device=device, dtype=dtype,
-                                                            number_of_workers=number_of_workers)
+    # Get validation dataloader
+    validation_loader, validation_fallback = get_dataloader(
+        split_name="Validation",
+        split_file=experiment_configuration["validation_split_file"],
+        dataset_prefix=dataset_prefix,
+        experiment_configuration=experiment_configuration,
+        model_configuration=model_configuration,
+        batch_size=batch_size, device=device, dtype=dtype, number_of_workers=number_of_workers)
 
-    test_loader, test_fallback = get_dataloader(split_name="Test",
-                                                split_file=experiment_configuration["test_split_file"],
-                                                dataset_prefix=dataset_prefix,
-                                                experiment_configuration=experiment_configuration,
-                                                model_configuration=model_configuration,
-                                                batch_size=batch_size,
-                                                device=device, dtype=dtype, number_of_workers=number_of_workers)
+    # Get test dataloader
+    test_loader, test_fallback = get_dataloader(
+        split_name="Test",
+        split_file=experiment_configuration["test_split_file"],
+        dataset_prefix=dataset_prefix,
+        experiment_configuration=experiment_configuration,
+        model_configuration=model_configuration,
+        batch_size=batch_size, device=device, dtype=dtype, number_of_workers=number_of_workers)
 
     waiting_for_tfrecords = train_fallback or validation_fallback or test_fallback
 
@@ -671,18 +674,16 @@ def get_dataloaders(experiment_configuration: Dict[str, Any],
         creator_script_path = os.path.join(os.path.dirname(__file__), "tfrecord_creator.py")
 
         # Build the exact argument list for the dedicated creator script to mirror the current configuration
-        command = [
-            sys.executable, creator_script_path,
-            "--data_folder", experiment_configuration["data_folder"],
-            "--image_size", str(image_size),
-            "--keep_ratio", str(keep_ratio),
-            "--is_sharded", str(data_configuration["TFRecord"]["sharded"]),
-            "--number_of_shards", str(data_configuration["TFRecord"].get("number_shards", 10)),
-            "--prefix", dataset_prefix,
-            "--train_split", experiment_configuration["train_split_file"],
-            "--validation_split", experiment_configuration["validation_split_file"],
-            "--test_split", experiment_configuration["test_split_file"]
-        ]
+        command = [sys.executable, creator_script_path,
+                   "--data_folder", experiment_configuration["data_folder"],
+                   "--image_size", str(image_size),
+                   "--keep_ratio", str(keep_ratio),
+                   "--is_sharded", str(data_configuration["TFRecord"]["sharded"]),
+                   "--number_of_shards", str(data_configuration["TFRecord"].get("number_shards", 10)),
+                   "--prefix", dataset_prefix,
+                   "--train_split", experiment_configuration["train_split_file"],
+                   "--validation_split", experiment_configuration["validation_split_file"],
+                   "--test_split", experiment_configuration["test_split_file"]]
 
         subprocess.Popen(args=command, start_new_session=True)
 
