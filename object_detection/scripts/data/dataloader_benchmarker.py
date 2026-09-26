@@ -16,7 +16,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Callable
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 
-from data.data_loader import NativeCocoDataset, TFRecordCocoDataset, TFRecordShardedCocoDataset, collate_function, create_tfrecord, create_tfrecord_sharded, view_input_data
+from data.data_loader import NativeCocoDataset, TFRecordCocoDataset, TFRecordShardedCocoDataset, collate_function, \
+    create_tfrecord, create_tfrecord_sharded, view_input_data
 
 # Hide GPU from TensorFlow so it does not reserve all memory, leaving none for PyTorch
 tensorflow.config.set_visible_devices(devices=[], device_type='GPU')
@@ -382,7 +383,7 @@ def main() -> None:
     batch_size = 20
     image_size = 1024
     keep_ratio = True
-    view_images = True
+    view_images = False
     buffer_size = 262144
 
     device = torch.device('cpu')
