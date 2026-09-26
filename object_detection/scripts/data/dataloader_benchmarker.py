@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Callable
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 
-from data.data_loader import NativeCocoDataset, TFRecordCocoDataset, TFRecordShardedCocoDataset, collate_function, \
+from data.data_loader import NativeDataset, TFRecordDataset, TFRecordShardedDataset, collate_function, \
     create_tfrecord, create_tfrecord_sharded
 
 # Hide GPU from TensorFlow so it does not reserve all memory, leaving none for PyTorch
@@ -79,7 +79,7 @@ def parse_single_example(serialized_data: tensorflow.Tensor) -> tuple[
 
 def clean_data(data_directory: str, labels_file: str) -> None:
     """
-    Sanitizes the COCO dataset by removing images without annotations and annotations without images.
+    Sanitizes the dataset by removing images without annotations and annotations without images.
 
     This ensures that the dataloader does not crash when encountering missing files
     or empty labels during the training loop. It writes the filtered output back
@@ -87,18 +87,18 @@ def clean_data(data_directory: str, labels_file: str) -> None:
 
     Args:
         data_directory (str): The absolute path to the directory containing the physical image files.
-        labels_file (str): The absolute path to the JSON file containing the COCO annotations.
+        labels_file (str): The absolute path to the JSON file containing the annotations.
 
     Returns:
         None
     """
     print(f"Loading annotations from {labels_file}...")
     with open(file=labels_file, mode='r') as file_handler:
-        coco_data = json.load(fp=file_handler)
+        data = json.load(fp=file_handler)
 
     print("Checking for missing images...")
     filtered_images = []
-    for image in tqdm(iterable=coco_data['images'], desc="Filtering Images", leave=False):
+    for image in tqdm(iterable=data['images'], desc="Filtering Images", leave=False):
         image_path = os.path.join(data_directory, image['file_name'])
         if os.path.exists(path=image_path):
             filtered_images.append(image)
@@ -107,16 +107,16 @@ def clean_data(data_directory: str, labels_file: str) -> None:
 
     print("Filtering annotations for valid images...")
     filtered_annotations = []
-    for annotation in tqdm(iterable=coco_data['annotations'], desc="Filtering Annotations", leave=False):
+    for annotation in tqdm(iterable=data['annotations'], desc="Filtering Annotations", leave=False):
         if annotation['image_id'] in valid_image_ids:
             filtered_annotations.append(annotation)
 
-    coco_data['images'] = filtered_images
-    coco_data['annotations'] = filtered_annotations
+    data['images'] = filtered_images
+    data['annotations'] = filtered_annotations
 
     print(f"Writing cleaned annotations back to {labels_file}...")
     with open(file=labels_file, mode='w') as file_handler:
-        json.dump(obj=coco_data, fp=file_handler, indent=4)
+        json.dump(obj=data, fp=file_handler, indent=4)
     print("Data cleaning complete.")
 
 
@@ -130,7 +130,7 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
 
     Args:
         data_directory (str): The absolute path to the directory containing the physical image files.
-        labels_file (str): The absolute path to the JSON file containing the COCO annotations.
+        labels_file (str): The absolute path to the JSON file containing the annotations.
         number_of_runs (int): The number of full epoch passes to simulate.
         batch_size (int): The number of images per batch.
         image_size (int): The target height and width for the scaled images.
@@ -140,7 +140,7 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
     Returns:
         float: The average time taken per run in seconds.
     """
-    dataset = NativeCocoDataset(data_directory=data_directory, labels_file=labels_file, image_size=image_size,
+    dataset = NativeDataset(data_directory=data_directory, labels_file=labels_file, image_size=image_size,
                                 keep_ratio=keep_ratio, device=device, dtype=dtype)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
                             collate_fn=collate_function)
@@ -181,7 +181,7 @@ def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_s
     Returns:
         float: The average time taken per run in seconds.
     """
-    dataset = TFRecordCocoDataset(tensorflow_record_path=tensorflow_record_path, device=device, dtype=dtype,
+    dataset = TFRecordDataset(tensorflow_record_path=tensorflow_record_path, device=device, dtype=dtype,
                                   buffer_size=buffer_size)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
                             collate_fn=collate_function)
@@ -219,7 +219,7 @@ def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batc
     Returns:
         float: The average time taken per run in seconds.
     """
-    dataset = TFRecordShardedCocoDataset(directory_pattern=directory_pattern, device=device, dtype=dtype,
+    dataset = TFRecordShardedDataset(directory_pattern=directory_pattern, device=device, dtype=dtype,
                                          buffer_size=buffer_size)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
                             collate_fn=collate_function)
@@ -276,7 +276,7 @@ def get_dataset_paths(project_base_directory: str, image_size: int, keep_ratio: 
 def prepare_tfrecords(paths_dictionary: Dict[str, str], image_size: int, keep_ratio: bool) -> None:
     """
     Validates the presence of the pre-resized and sharded TFRecord archives on disk, dynamically compiling them from
-     the raw COCO dataset if missing, in order to guarantee data availability for the benchmarking pipeline.
+     the raw dataset if missing, in order to guarantee data availability for the benchmarking pipeline.
     
     Args:
         paths_dictionary (Dict[str, str]): A dictionary containing dataset input and output paths.
