@@ -1,18 +1,39 @@
-import os
-import glob
-import json
-import torch
-import cv2
+from tqdm import tqdm
+from typing import List, Iterator
 import numpy as np
+import cv2
+import json
+import os
+import sys
+import glob
+import torch
+import subprocess
 import tensorflow
 
-from typing import Dict, Any, Tuple, List, Iterator
-from torch.utils.data import Dataset, DataLoader, IterableDataset
+from typing import Dict, Any, Tuple
+from torch.utils.data import DataLoader, IterableDataset, Dataset
+
 from utilities.data_utilities import preprocess_image_and_boxes
-from utilities.os_utilities import print_blue
+from utilities.os_utilities import print_blue, print_yellow
 
 # Hide GPU from TensorFlow so it does not reserve all memory, leaving none for PyTorch
 tensorflow.config.set_visible_devices(devices=[], device_type='GPU')
+
+
+def get_dataset_prefix(image_size: int, keep_ratio: bool) -> str:
+    """
+    Creates a standardized prefix string for dataset files based on the spatial image size and aspect ratio handling.
+    This prefix ensures that TFRecord files for different preprocessing configurations are stored uniquely,
+    preventing pipeline conflicts during concurrent hyperparameter sweeps.
+
+    Args:
+        image_size (int): The target spatial dimension to scale the images to.
+        keep_ratio (bool): Whether the aspect ratio is maintained by padding during preprocessing.
+
+    Returns:
+        str: The generated prefix string to be prepended to dataset filenames.
+    """
+    return f"KAR-{image_size}-" if keep_ratio else f"{image_size}-"
 
 
 def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
@@ -36,6 +57,10 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
     # Consolidate the image tensors into a single unified batch tensor for GPU acceleration
     # Keep bounding boxes and labels as standard lists to accommodate variable object counts per image
     return {"images": torch.stack(tensors=images), "bounding_boxes": bounding_boxes, "labels": labels}
+
+
+def convert_to_bytes_feature(value: bytes) -> tensorflow.train.Feature:
+    return tensorflow.train.Feature(bytes_list=tensorflow.train.BytesList(value=[value]))
 
 
 def parse_single_example(serialized_data: tensorflow.Tensor) -> Tuple[
@@ -213,6 +238,81 @@ class TFRecordCocoDataset(IterableDataset):
                    "labels": torch.tensor(data=labels_numpy, dtype=torch.int64, device=self.device)}
 
 
+def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_record: str, image_size: int,
+                    keep_ratio: bool) -> None:
+    if os.path.exists(output_tensorflow_record):
+        print(f"Skipping generation, final TFRecord already exists: {output_tensorflow_record}")
+        return
+
+    buffer_record = os.path.join(os.path.dirname(output_tensorflow_record),
+                                 "Buffer-" + os.path.basename(output_tensorflow_record))
+    if os.path.exists(buffer_record):
+        os.remove(buffer_record)
+
+    print(f"Loading annotations from {labels_file}...")
+    with open(file=labels_file, mode='r') as file_handler:
+        coco_data = json.load(fp=file_handler)
+
+    images_dictionary = {image['id']: image for image in tqdm(iterable=coco_data['images'], desc="Indexing Images")}
+    image_to_annotations = {}
+
+    for annotation in tqdm(iterable=coco_data['annotations'], desc="Indexing Annotations"):
+        image_identifier = annotation['image_id']
+        if image_identifier not in image_to_annotations:
+            image_to_annotations[image_identifier] = []
+        image_to_annotations[image_identifier].append(annotation)
+
+    writer = tensorflow.io.TFRecordWriter(path=buffer_record)
+
+    for image_identifier, image_information in tqdm(iterable=images_dictionary.items(), desc="Creating TFRecord"):
+        image_path = os.path.join(data_directory, image_information['file_name'])
+        if not os.path.exists(path=image_path):
+            continue
+
+        image = cv2.imread(filename=image_path)
+        if image is None:
+            continue
+
+        image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
+        image_annotations = image_to_annotations.get(image_identifier, [])
+        bounding_boxes = []
+        labels = []
+        for annotation in image_annotations:
+            x_coordinate, y_coordinate, width, height = annotation['bbox']
+            bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
+            labels.append(annotation['category_id'])
+
+        bounding_boxes_numpy = np.array(object=bounding_boxes, dtype=np.float32)
+        resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
+                                                                           bounding_boxes=bounding_boxes_numpy,
+                                                                           image_size=image_size, keep_ratio=keep_ratio)
+
+        success, encoded_image = cv2.imencode(ext='.png', img=resized_image)
+        if not success:
+            continue
+
+        image_bytes = encoded_image.tobytes()
+
+        flattened_boxes = []
+        for box in resized_bounding_boxes:
+            flattened_boxes.extend(box)
+
+        bounding_boxes_bytes = np.array(object=flattened_boxes, dtype=np.float32).tobytes()
+        labels_bytes = np.array(object=labels, dtype=np.int64).tobytes()
+
+        example = tensorflow.train.Example(features=tensorflow.train.Features(
+            feature={"images": convert_to_bytes_feature(value=image_bytes),
+                     "bounding_boxes": convert_to_bytes_feature(value=bounding_boxes_bytes),
+                     "labels": convert_to_bytes_feature(value=labels_bytes)}))
+        writer.write(record=example.SerializeToString())
+
+    writer.close()
+
+    # Atomic rename
+    os.rename(buffer_record, output_tensorflow_record)
+    print(f"Successfully generated {output_tensorflow_record}")
+
+
 class TFRecordShardedCocoDataset(IterableDataset):
     """
     A PyTorch IterableDataset implementation for reading from multiple sharded TFRecord files.
@@ -263,70 +363,266 @@ class TFRecordShardedCocoDataset(IterableDataset):
                    "labels": torch.tensor(data=labels_numpy, dtype=torch.int64, device=self.device)}
 
 
-def get_dataloaders(preprocessed_directory: str, experiment_configuration: Dict[str, Any],
-                    model_configuration: Dict[str, Any], batch_size: int, device: torch.device, dtype: torch.dtype,
-                    number_of_workers: int = 4) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    """
-    Initializes and returns the training, validation, and testing dataloaders for the object detection pipeline.
+def create_tfrecord_sharded(data_directory: str, labels_file: str, output_directory: str, image_size: int,
+                            keep_ratio: bool, number_of_shards: int = 10, prefix: str = "") -> None:
+    os.makedirs(name=output_directory, exist_ok=True)
 
-    This function dynamically resolves the appropriate dataset implementation (Native or TFRecord) based on
-    the model configuration, injecting the globally specified tensor devices and data types.
+    final_shards = glob.glob(os.path.join(output_directory, f"{prefix}coco-*.tfrecord"))
+    final_shards = [f for f in final_shards if "Buffer-" not in f]
+    if len(final_shards) == number_of_shards:
+        print(f"Skipping sharded generation, already found {number_of_shards} shards in {output_directory}")
+        return
+
+    print(f"Loading annotations from {labels_file}...")
+    with open(file=labels_file, mode='r') as file_handler:
+        coco_data = json.load(fp=file_handler)
+
+    images_dictionary = {image['id']: image for image in tqdm(iterable=coco_data['images'], desc="Indexing Images")}
+    image_to_annotations = {}
+
+    for annotation in tqdm(iterable=coco_data['annotations'], desc="Indexing Annotations"):
+        image_identifier = annotation['image_id']
+        if image_identifier not in image_to_annotations:
+            image_to_annotations[image_identifier] = []
+        image_to_annotations[image_identifier].append(annotation)
+
+    image_keys = list(images_dictionary.keys())
+    images_per_shard = len(image_keys) // number_of_shards + (1 if len(image_keys) % number_of_shards != 0 else 0)
+
+    for shard_index in range(number_of_shards):
+        final_shard_path = os.path.join(output_directory,
+                                        f"{prefix}coco-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
+        buffer_shard_path = os.path.join(output_directory,
+                                         f"Buffer-{prefix}coco-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
+
+        if os.path.exists(final_shard_path):
+            continue
+
+        if os.path.exists(buffer_shard_path):
+            os.remove(buffer_shard_path)
+
+        writer = tensorflow.io.TFRecordWriter(path=buffer_shard_path)
+
+        start_index = shard_index * images_per_shard
+        end_index = min((shard_index + 1) * images_per_shard, len(image_keys))
+        shard_keys = image_keys[start_index:end_index]
+
+        for image_identifier in tqdm(iterable=shard_keys, desc=f"Creating Shard {shard_index + 1}/{number_of_shards}",
+                                     leave=False):
+            image_information = images_dictionary[image_identifier]
+            image_path = os.path.join(data_directory, image_information['file_name'])
+            if not os.path.exists(path=image_path):
+                continue
+
+            image = cv2.imread(filename=image_path)
+            if image is None:
+                continue
+
+            image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
+            image_annotations = image_to_annotations.get(image_identifier, [])
+            bounding_boxes = []
+            labels = []
+            for annotation in image_annotations:
+                x_coordinate, y_coordinate, width, height = annotation['bbox']
+                bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
+                labels.append(annotation['category_id'])
+
+            bounding_boxes_numpy = np.array(object=bounding_boxes, dtype=np.float32)
+            resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
+                                                                               bounding_boxes=bounding_boxes_numpy,
+                                                                               image_size=image_size,
+                                                                               keep_ratio=keep_ratio)
+
+            success, encoded_image = cv2.imencode(ext='.png', img=resized_image)
+            if not success:
+                continue
+
+            image_bytes = encoded_image.tobytes()
+
+            flattened_boxes = []
+            for box in resized_bounding_boxes:
+                flattened_boxes.extend(box)
+
+            bounding_boxes_bytes = np.array(object=flattened_boxes, dtype=np.float32).tobytes()
+            labels_bytes = np.array(object=labels, dtype=np.int64).tobytes()
+
+            example = tensorflow.train.Example(features=tensorflow.train.Features(
+                feature={"images": convert_to_bytes_feature(value=image_bytes),
+                         "bounding_boxes": convert_to_bytes_feature(value=bounding_boxes_bytes),
+                         "labels": convert_to_bytes_feature(value=labels_bytes)}))
+            writer.write(record=example.SerializeToString())
+
+        writer.close()
+        os.rename(buffer_shard_path, final_shard_path)
+
+
+def get_dataloader(split_name: str, split_file: str, dataset_prefix: str, preprocessed_directory: str,
+                   experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
+                   batch_size: int, device: torch.device, dtype: torch.dtype,
+                   number_of_workers: int) -> Tuple[DataLoader, bool]:
+    """
+    Instantiates and retrieves the appropriate DataLoader for a designated data split within the object detection pipeline.
+    This function dynamically attempts to utilize highly-optimized TFRecords if requested, but gracefully falls back 
+    to the standard Native PyTorch dataset if the records have not yet been generated.
 
     Args:
-        preprocessed_directory (str): The directory containing preprocessed dataset files.
-        experiment_configuration (Dict[str, Any]): The configuration dictionary containing data folder and split definitions.
-        model_configuration (Dict[str, Any]): The configuration dictionary containing data loading parameters.
-        batch_size (int): The number of images per batch.
-        device (torch.device): The hardware device to allocate output tensors to.
-        dtype (torch.dtype): The numerical precision for the image and bounding box tensors.
-        number_of_workers (int): The number of subprocesses to use for data loading.
+        split_name (str): The name of the split (e.g., 'Train', 'Validation', 'Test').
+        split_file (str): The absolute path to the JSON file containing the dataset annotations for this split.
+        dataset_prefix (str): The standardized prefix identifying the preprocessing configuration.
+        preprocessed_directory (str): The directory designated for storing preprocessed dataset files.
+        experiment_configuration (Dict[str, Any]): The overall experiment configuration including data paths.
+        model_configuration (Dict[str, Any]): The model-specific configuration detailing data loading preferences.
+        batch_size (int): The number of samples to include in each batch.
+        device (torch.device): The hardware device where the output tensors will be located.
+        dtype (torch.dtype): The numerical precision type for the tensors.
+        number_of_workers (int): The number of parallel subprocesses to allocate for data loading.
 
     Returns:
-        Tuple[DataLoader, DataLoader, DataLoader]: A tuple containing the DataLoaders for
-         training, validation, and testing splits.
+        Tuple[DataLoader, bool]: A tuple containing the configured DataLoader and a boolean flag indicating if the 
+                                 system fell back to the Native dataset because TFRecords were missing.
     """
     data_configuration = model_configuration["Data"]
     tfrecord_configuration = data_configuration["TFRecord"]
     use_tfrecord = tfrecord_configuration["activated"]
     is_sharded = tfrecord_configuration["sharded"]
     buffer_size = tfrecord_configuration["buffer_size"]
+    number_of_shards = tfrecord_configuration["number_shards"]
 
     image_settings = data_configuration["image_settings"]
     image_size = image_settings["size"]
     keep_ratio = image_settings["keep_ratio"]
 
     data_directory = experiment_configuration["data_folder"]
-    train_labels = experiment_configuration["train_split_file"]
 
-    # todo will need to be changed
-    # should have conventional nemaes
-    tfrecord_path = os.path.join(data_directory, 'coco-train.tfrecord')
-    sharded_pattern = os.path.join(data_directory, 'sharded', 'coco-train-*.tfrecord')
+    tfrecord_filename = f"{dataset_prefix}{split_name}.tfrecord"
+    tfrecord_path = os.path.join(data_directory, tfrecord_filename)
+
+    sharded_directory = os.path.join(data_directory, f"{dataset_prefix}Sharded-Records-{split_name}")
+    sharded_pattern = os.path.join(sharded_directory, f"coco-*.tfrecord")
 
     dataset = None
+    fallback_to_native = False
+
+    # Attempt to locate and load the highly optimized TFRecord archives to maximize data throughput
     if use_tfrecord:
-        # todo we might need a comment because not clear how we deal with this if the sharded tfrectords are not there.
-        if is_sharded and len(glob.glob(pathname=sharded_pattern)) > 0:
-            dataset = TFRecordShardedCocoDataset(directory_pattern=sharded_pattern, device=device, dtype=dtype,
-                                                 buffer_size=buffer_size)
-        elif os.path.exists(path=tfrecord_path):
-            dataset = TFRecordCocoDataset(tensorflow_record_path=tfrecord_path, device=device, dtype=dtype,
-                                          buffer_size=buffer_size)
+        if is_sharded:
+            # Verify that all required shards have been completely generated and are not currently buffering
+            final_shards = glob.glob(pathname=sharded_pattern)
+            final_shards = [file_path for file_path in final_shards if "Buffer-" not in file_path]
+
+            if len(final_shards) == number_of_shards:
+                dataset = TFRecordShardedCocoDataset(directory_pattern=sharded_pattern, device=device, dtype=dtype,
+                                                     buffer_size=buffer_size)
         else:
-            # todo we might need to a message to say that we are using the NativeDataset and that the tfrecord or shareded tfrecord creation will run in the background
-            #  and once it is done the code will stop and re-run to launch itself on the tfrecords that have been created.
-            # logic_to_be_implemented_here.
-            pass
+            # Verify the monolithic TFRecord exists and is not currently being written by a background process
+            if os.path.exists(path=tfrecord_path) and "Buffer-" not in tfrecord_path:
+                dataset = TFRecordCocoDataset(tensorflow_record_path=tfrecord_path, device=device, dtype=dtype,
+                                              buffer_size=buffer_size)
 
-    # TODO Need of comment
+        # Flag the fallback state if the TFRecords were requested but could not be safely located
+        if dataset is None:
+            fallback_to_native = True
+            print_yellow(message=f"TFRecords for {split_name} not found. Falling back to Native dataset.")
+
+    # Instantiate the standard PyTorch Native dataset if TFRecords are disabled or missing,
+    # ensuring training can commence immediately
     if dataset is None:
-        print_blue(f"We Are Using The Native Dataset For {put_something_clear}")
-        dataset = NativeCocoDataset(data_directory=data_directory, labels_file=train_labels, image_size=image_size,
-                                        keep_ratio=keep_ratio, device=device, dtype=dtype)
+        dataset = NativeCocoDataset(data_directory=data_directory, labels_file=split_file, image_size=image_size,
+                                    keep_ratio=keep_ratio, device=device, dtype=dtype)
 
+    # Determine if the dataset streams data to properly configure the shuffle parameter
     is_iterable = isinstance(dataset, IterableDataset)
-    train_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=not is_iterable,
-                              num_workers=number_of_workers, collate_fn=collate_function)
+    loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=not is_iterable,
+                        num_workers=number_of_workers, collate_fn=collate_function)
 
-    # todo this is not good should not have been implemented like this.
-    return train_loader, train_loader, train_loader
+    return loader, fallback_to_native
+
+
+def get_dataloaders(preprocessed_directory: str, experiment_configuration: Dict[str, Any],
+                    model_configuration: Dict[str, Any], batch_size: int, device: torch.device, dtype: torch.dtype,
+                    number_of_workers: int = 4) -> Tuple[DataLoader, DataLoader, DataLoader, bool]:
+    """
+    Initializes and returns the training, validation, and testing dataloaders for the object detection pipeline.
+    This function acts as the central coordinator for the data loading subsystem, establishing the dataset 
+    prefixes and orchestrating the background generation of TFRecords if they are missing.
+
+    Args:
+        preprocessed_directory (str): The directory designated for storing preprocessed dataset files.
+        experiment_configuration (Dict[str, Any]): The overall experiment configuration including data paths.
+        model_configuration (Dict[str, Any]): The model-specific configuration detailing data loading preferences.
+        batch_size (int): The number of samples to include in each batch.
+        device (torch.device): The hardware device where the output tensors will be located.
+        dtype (torch.dtype): The numerical precision type for the tensors.
+        number_of_workers (int): The number of parallel subprocesses to allocate for data loading. Defaults to 4.
+
+    Returns:
+        Tuple[DataLoader, DataLoader, DataLoader, bool]: A tuple containing the configured DataLoaders for the 
+                                                         training, validation, and testing splits respectively, 
+                                                         along with a boolean flag indicating if the system is waiting 
+                                                         for background TFRecords to be generated.
+    """
+    data_configuration = model_configuration["Data"]
+    image_settings = data_configuration["image_settings"]
+    image_size = image_settings["size"]
+    keep_ratio = image_settings["keep_ratio"]
+
+    dataset_prefix = get_dataset_prefix(image_size=image_size, keep_ratio=keep_ratio)
+
+    train_loader, train_fallback = get_dataloader(
+        split_name="Train",
+        split_file=experiment_configuration["train_split_file"],
+        dataset_prefix=dataset_prefix,
+        preprocessed_directory=preprocessed_directory,
+        experiment_configuration=experiment_configuration,
+        model_configuration=model_configuration,
+        batch_size=batch_size,
+        device=device, dtype=dtype, number_of_workers=number_of_workers
+    )
+
+    validation_loader, validation_fallback = get_dataloader(
+        split_name="Validation",
+        split_file=experiment_configuration["validation_split_file"],
+        dataset_prefix=dataset_prefix,
+        preprocessed_directory=preprocessed_directory,
+        experiment_configuration=experiment_configuration,
+        model_configuration=model_configuration,
+        batch_size=batch_size,
+        device=device, dtype=dtype, number_of_workers=number_of_workers
+    )
+
+    test_loader, test_fallback = get_dataloader(
+        split_name="Test",
+        split_file=experiment_configuration["test_split_file"],
+        dataset_prefix=dataset_prefix,
+        preprocessed_directory=preprocessed_directory,
+        experiment_configuration=experiment_configuration,
+        model_configuration=model_configuration,
+        batch_size=batch_size,
+        device=device, dtype=dtype, number_of_workers=number_of_workers
+    )
+
+    waiting_for_tfrecords = train_fallback or validation_fallback or test_fallback
+
+    # Launch a detached background worker to generate the highly optimized TFRecords without blocking the primary training loop
+    if waiting_for_tfrecords:
+        print_blue(output="TFRecord generation required. Spawning background process...")
+
+        creator_script_path = os.path.join(os.path.dirname(__file__), "tfrecord_creator.py")
+
+        # Build the exact argument list for the dedicated creator script to mirror the current configuration
+        command = [
+            sys.executable, creator_script_path,
+            "--data_folder", experiment_configuration["data_folder"],
+            "--image_size", str(image_size),
+            "--keep_ratio", str(keep_ratio),
+            "--is_sharded", str(data_configuration["TFRecord"]["sharded"]),
+            "--number_of_shards", str(data_configuration["TFRecord"].get("number_shards", 10)),
+            "--prefix", dataset_prefix,
+            "--train_split", experiment_configuration["train_split_file"],
+            "--validation_split", experiment_configuration["validation_split_file"],
+            "--test_split", experiment_configuration["test_split_file"]
+        ]
+
+        subprocess.Popen(args=command, start_new_session=True)
+
+    return train_loader, validation_loader, test_loader, waiting_for_tfrecords
