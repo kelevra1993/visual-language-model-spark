@@ -1,4 +1,9 @@
 from tqdm import tqdm
+from nvidia.dali import pipeline_def as pipeline_definition
+import nvidia.dali.fn as dali_function
+import nvidia.dali.types as dali_types
+from nvidia.dali.plugin.pytorch import DALIGenericIterator
+
 from typing import List, Iterator
 import numpy as np
 import cv2
@@ -13,7 +18,7 @@ import tensorflow
 from typing import Dict, Any, Tuple
 from torch.utils.data import DataLoader, IterableDataset, Dataset
 
-from utilities.data_utilities import preprocess_image_and_boxes
+from utilities.data_utilities import preprocess_image_and_boxes, preprocess_boxes
 from utilities.os_utilities import print_blue, print_yellow
 
 # Hide GPU from TensorFlow so it does not reserve all memory, leaving none for PyTorch
@@ -171,7 +176,10 @@ class NativeDataset(Dataset):
         # Load the physical image directly from the filesystem into a dense matrix format
         image = cv2.imread(filename=image_path)
 
-        image_annotations = self.image_to_annotations.get(image_identifier, [])
+        if image_identifier in self.image_to_annotations:
+            image_annotations = self.image_to_annotations[image_identifier]
+        else:
+            image_annotations = []
 
         bounding_boxes = []
         labels = []
@@ -188,6 +196,7 @@ class NativeDataset(Dataset):
                                                                            image_size=self.image_size,
                                                                            keep_ratio=self.keep_ratio)
         # Convert the resized array into a PyTorch tensor without dtype/device casting
+        # Note: The standard division by 255.0 has been intentionally omitted to preserve raw pixel scale
         # The consumer (trainer) handles the cast per-batch for maximum data pipeline throughput
         image_tensor = torch.from_numpy(np.array(object=resized_image)).permute(2, 0, 1)
 
@@ -247,6 +256,89 @@ class TFRecordDataset(IterableDataset):
                    "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)}
 
 
+
+def process_image_to_tensorflow_example(image_identifier: int, image_information: dict, data_directory: str,
+                                image_to_annotations: dict, image_size: int, 
+                                keep_ratio: bool):
+    """
+    Processes a single image and its annotations into a TensorFlow Example protobuf message.
+    
+    This function consolidates the image loading, spatial scaling, annotation extraction, 
+    and binary serialization logic shared across both un-sharded and sharded TFRecord generation.
+    
+    Args:
+        image_identifier (int): The unique integer ID corresponding to the image.
+        image_information (dict): Dictionary containing metadata like the file name.
+        data_directory (str): The root directory where the image files are physically stored.
+        image_to_annotations (dict): A mapping from image IDs to their object bounding boxes.
+        image_size (int): The target square dimension to scale the image and bounding boxes to.
+        keep_ratio (bool): Flag indicating whether to preserve the original aspect ratio during scaling.
+        
+    Returns:
+        tensorflow.train.Example: The constructed protocol buffer message, or None if reading/encoding failed.
+    """
+    image_path = os.path.join(data_directory, image_information['file_name'])
+    if not os.path.exists(path=image_path):
+        return None
+
+    # Load the physical image directly from the filesystem into a dense matrix format
+    image = cv2.imread(filename=image_path)
+    if image is None:
+        return None
+
+    # Convert BGR to RGB intentionally. OpenCV's imencode assumes input is BGR and swaps channels for PNG storage.
+    # By providing an RGB array, imencode physically saves a BGR PNG file. When tf.io.decode_png reads it, 
+    # it natively returns a BGR tensor, ensuring consistency with the raw cv2.imread Native pipeline.
+    image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
+    
+    # Retrieve the corresponding annotations for the current image or default to an empty list
+    if image_identifier in image_to_annotations:
+        image_annotations = image_to_annotations[image_identifier]
+    else:
+        image_annotations = []
+        
+    bounding_boxes = []
+    labels = []
+    
+    # Extract and format the bounding box coordinates and object categories associated with the current image
+    for annotation in image_annotations:
+        x_coordinate, y_coordinate, width, height = annotation['bbox']
+        bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
+        labels.append(annotation['category_id'])
+
+    bounding_boxes_numpy = np.array(object=bounding_boxes, dtype=np.float32)
+    
+    # Dynamically scale the image and calculate the corresponding adjustments for the bounding boxes
+    resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
+                                                                       bounding_boxes=bounding_boxes_numpy,
+                                                                       image_size=image_size,
+                                                                       keep_ratio=keep_ratio)
+
+    # Compress the image matrix back into a PNG byte stream to dramatically reduce the final TFRecord file size
+    success, encoded_image = cv2.imencode(ext='.png', img=resized_image)
+    if not success:
+        return None
+
+    image_bytes = encoded_image.tobytes()
+
+    # Flatten the nested bounding box array into a continuous one-dimensional list for serialization
+    flattened_boxes = []
+    for box in resized_bounding_boxes:
+        flattened_boxes.extend(box)
+
+    # Serialize the arrays directly into standard byte streams
+    bounding_boxes_bytes = np.array(object=flattened_boxes, dtype=np.float32).tobytes()
+    labels_bytes = np.array(object=labels, dtype=np.int64).tobytes()
+
+    # Construct the formal TensorFlow Example protobuf message with the raw encoded bytes
+    example = tensorflow.train.Example(features=tensorflow.train.Features(
+        feature={"images": convert_to_bytes_feature(value=image_bytes),
+                 "bounding_boxes": convert_to_bytes_feature(value=bounding_boxes_bytes),
+                 "labels": convert_to_bytes_feature(value=labels_bytes)}))
+                 
+    return example
+
+
 def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_record: str, image_size: int,
                     keep_ratio: bool) -> None:
     """
@@ -293,55 +385,16 @@ def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_rec
 
     # Iterate systematically over every indexed image to perform spatial scaling and binary serialization
     for image_identifier, image_information in tqdm(iterable=images_dictionary.items(), desc="Creating TFRecord"):
-        image_path = os.path.join(data_directory, image_information['file_name'])
-        if not os.path.exists(path=image_path):
-            continue
-
-        # Load the physical image directly from the filesystem into a dense matrix format
-        image = cv2.imread(filename=image_path)
-        if image is None:
-            continue
-
-        # Convert the decoded image matrix from the default BGR format utilized by OpenCV into the standard RGB format
-        image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
-        image_annotations = image_to_annotations.get(image_identifier, [])
-        bounding_boxes = []
-        labels = []
-
-        # Extract and format the bounding box coordinates and object categories associated with the current image
-        for annotation in image_annotations:
-            x_coordinate, y_coordinate, width, height = annotation['bbox']
-            bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
-            labels.append(annotation['category_id'])
-
-        bounding_boxes_numpy = np.array(object=bounding_boxes, dtype=np.float32)
-
-        # Dynamically scale the raw image and adjust the corresponding bounding box coordinates to match dimensions
-        resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
-                                                                           bounding_boxes=bounding_boxes_numpy,
-                                                                           image_size=image_size, keep_ratio=keep_ratio)
-
-        # Compress the image matrix back into a PNG byte stream to dramatically reduce the final TFRecord file size
-        success, encoded_image = cv2.imencode(ext='.png', img=resized_image)
-        if not success:
-            continue
-
-        image_bytes = encoded_image.tobytes()
-
-        # Flatten the multidimensional bounding box arrays into a one-dimensional list for protocol buffer serialization
-        flattened_boxes = []
-        for box in resized_bounding_boxes:
-            flattened_boxes.extend(box)
-
-        bounding_boxes_bytes = np.array(object=flattened_boxes, dtype=np.float32).tobytes()
-        labels_bytes = np.array(object=labels, dtype=np.int64).tobytes()
-
-        # Encapsulate the raw serialized byte streams into a strictly formatted TensorFlow Example protocol buffer
-        example = tensorflow.train.Example(features=tensorflow.train.Features(
-            feature={"images": convert_to_bytes_feature(value=image_bytes),
-                     "bounding_boxes": convert_to_bytes_feature(value=bounding_boxes_bytes),
-                     "labels": convert_to_bytes_feature(value=labels_bytes)}))
-        writer.write(record=example.SerializeToString())
+        example = process_image_to_tensorflow_example(
+            image_identifier=image_identifier,
+            image_information=image_information,
+            data_directory=data_directory,
+            image_to_annotations=image_to_annotations,
+            image_size=image_size,
+            keep_ratio=keep_ratio
+        )
+        if example is not None:
+            writer.write(record=example.SerializeToString())
 
     writer.close()
 
@@ -397,6 +450,145 @@ class TFRecordShardedDataset(IterableDataset):
                    "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)}
 
 
+@pipeline_definition
+def dali_pipeline(data_directory: str, annotations_file: str, image_size: int, keep_ratio: bool):
+    """
+    Defines the NVIDIA DALI processing pipeline for decoding and augmenting images directly on the GPU.
+    
+    This circumvents the CPU bottleneck by routing raw JPEG/PNG bytes directly to the GPU's hardware decoder
+    and CUDA cores, maximizing throughput.
+    
+    Args:
+        data_directory (str): The absolute path to the directory containing the physical image files.
+        annotations_file (str): The absolute path to the JSON file containing the annotations.
+        image_size (int): The target spatial dimension to scale the images to.
+        keep_ratio (bool): Whether to maintain the aspect ratio during scaling.
+        
+    Returns:
+        tuple: A tuple of DALI Edge objects representing the processed images, padded bounding boxes, and padded labels.
+    """
+    # Load raw data and annotations
+    inputs, bounding_boxes, labels = dali_function.readers.coco(file_root=data_directory,
+                                                                annotations_file=annotations_file,
+                                                                polygon_masks=False,
+                                                                ratio=False,
+                                                                ltrb=True,
+                                                                random_shuffle=True,
+                                                                name="Reader")
+
+    # Decode directly on the GPU using hardware acceleration
+    images = dali_function.decoders.image(inputs, device="mixed", output_type=dali_types.BGR)
+
+    # We must retrieve the original shapes to un-normalize bounding boxes correctly in the wrapper
+    shapes = dali_function.peek_image_shape(inputs)
+
+    # Hardware accelerated resize mimicking PyTorch zero-padding NativeDataset
+    # Hardware accelerated resize mimicking PyTorch zero-padding NativeDataset
+    if keep_ratio:
+        # Resize such that the longest edge equals image_size
+        images = dali_function.resize(images, resize_x=image_size, resize_y=image_size, mode="not_larger")
+
+        # We do NOT divide by 255.0 here to maintain parity with the native datasets, keeping pixels in [0, 255]
+        # By providing a crop larger than the image (since it was resized to have a max dimension of image_size) 
+        # and setting crop_pos=0.5, DALI automatically applies symmetric center padding!
+        images = dali_function.crop_mirror_normalize(images, dtype=dali_types.FLOAT, output_layout="CHW",
+                                                     mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0],
+                                                     crop=(image_size, image_size), crop_pos_x=0.5, crop_pos_y=0.5,
+                                                     out_of_bounds_policy="pad", fill_values=0.0)
+    else:
+        # Direct squash resize
+        images = dali_function.resize(images, resize_x=image_size, resize_y=image_size,
+                                      interp_type=dali_types.INTERP_LINEAR)
+
+        images = dali_function.crop_mirror_normalize(images, dtype=dali_types.FLOAT, output_layout="CHW",
+                                                     mean=[0.0, 0.0, 0.0], std=[1.0, 1.0, 1.0])
+
+    # Pad variable-length boxes and labels to uniform tensors for the batch
+    bounding_boxes = dali_function.pad(bounding_boxes, axes=(0,), fill_value=-1.0)
+    labels = dali_function.pad(labels, axes=(0,), fill_value=-1)
+
+    return images, bounding_boxes, labels, shapes
+
+
+class DALIDataloaderWrapper:
+    """
+    Wraps the NVIDIA DALIGenericIterator to perfectly match the expected PyTorch dataloader output format.
+    
+    Since DALI pads bounding boxes and labels to uniform tensors to process them in a single batch,
+    this wrapper dynamically unpads them back into lists of independent tensors, allowing seamless integration
+    with the existing model architecture and loss functions that expect variable-sized lists.
+    """
+
+    def __init__(self, dali_iterator: DALIGenericIterator, image_size: int, keep_ratio: bool):
+        """
+        Initializes the DALI wrapper.
+        
+        Args:
+            dali_iterator (DALIGenericIterator): The underlying DALI hardware-accelerated iterator.
+            image_size (int): The target spatial dimension images were scaled to.
+            keep_ratio (bool): Whether images were padded to maintain aspect ratio.
+        """
+        self.dali_iterator = dali_iterator
+        self.image_size = image_size
+        self.keep_ratio = keep_ratio
+
+    def __iter__(self):
+        """
+        Yields the next batch from the DALI pipeline, unpacking the padded tensors into standard lists.
+        
+        Yields:
+            Dict[str, Any]: A dictionary containing the batched images, and unpadded lists for bounding boxes and labels.
+        """
+        for batch in self.dali_iterator:
+            # DALI returns a list of dictionaries (one for each pipeline instance)
+            data = batch[0]
+            images = data["images"]
+            bounding_boxes_padded = data["bounding_boxes"]
+            labels_padded = data["labels"]
+            shapes = data["shapes"]
+
+            bounding_boxes_list = []
+            labels_list = []
+
+            # Unpack the padded tensors back into variable-length lists per image
+            for batch_index in range(images.shape[0]):
+                # Identify the valid items by filtering out the padding fill value (-1)
+                valid_mask = (labels_padded[batch_index] != -1).squeeze(-1) if labels_padded.dim() == 3 else (
+                            labels_padded[batch_index] != -1)
+
+                valid_boxes = bounding_boxes_padded[batch_index][valid_mask].clone()
+                labels_list.append(labels_padded[batch_index][valid_mask])
+
+                # Transform bounding boxes using the centralized math in preprocess_boxes
+                original_height = shapes[batch_index][0].item()
+                original_width = shapes[batch_index][1].item()
+
+                # Convert the absolute original coordinate PyTorch tensor to a Python list for preprocess_boxes
+                processed_boxes_list = preprocess_boxes(bounding_boxes=valid_boxes.tolist(),
+                                                        image_width=original_width,
+                                                        image_height=original_height,
+                                                        image_size=self.image_size,
+                                                        keep_ratio=self.keep_ratio)
+
+                # Convert back to a PyTorch tensor
+                valid_boxes = torch.tensor(data=processed_boxes_list, dtype=torch.float32, device=valid_boxes.device)
+                if valid_boxes.numel() == 0:
+                    valid_boxes = valid_boxes.reshape(0, 4)
+
+                bounding_boxes_list.append(valid_boxes)
+
+            yield {"images": images, "bounding_boxes": bounding_boxes_list, "labels": labels_list}
+
+    def __len__(self) -> int:
+        """
+        Returns the number of batches in the dataset.
+        
+        Returns:
+            int: The total number of batches.
+        """
+        return len(self.dali_iterator)
+
+
 def create_tfrecord_sharded(data_directory: str, labels_file: str, output_directory: str, image_size: int,
                             keep_ratio: bool, number_of_shards: int = 10, prefix: str = "") -> None:
     """
@@ -444,19 +636,23 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
 
     # Iterate through the calculated shard splits, independently serializing the partitioned image chunks
     for shard_index in range(number_of_shards):
+        # Determine file paths for the final output and the temporary buffer
         final_shard_path = os.path.join(output_directory,
                                         f"{prefix}shard-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
         buffer_shard_path = os.path.join(output_directory,
                                          f"Buffer-{prefix}shard-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
 
+        # Skip processing if the final shard file already exists to resume interrupted generation
         if os.path.exists(final_shard_path):
             continue
 
+        # Remove any incomplete buffer files from previous interrupted runs
         if os.path.exists(buffer_shard_path):
             os.remove(buffer_shard_path)
 
         writer = tensorflow.io.TFRecordWriter(path=buffer_shard_path)
 
+        # Slice the master image key list to isolate the chunk designated for the current shard
         start_index = shard_index * images_per_shard
         end_index = min((shard_index + 1) * images_per_shard, len(image_keys))
         shard_keys = image_keys[start_index:end_index]
@@ -465,52 +661,21 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
         for image_identifier in tqdm(iterable=shard_keys, desc=f"Creating Shard {shard_index + 1}/{number_of_shards}",
                                      leave=False):
             image_information = images_dictionary[image_identifier]
-            image_path = os.path.join(data_directory, image_information['file_name'])
-            if not os.path.exists(path=image_path):
-                continue
-
-            image = cv2.imread(filename=image_path)
-            if image is None:
-                continue
-
-            image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
-            image_annotations = image_to_annotations.get(image_identifier, [])
-            bounding_boxes = []
-            labels = []
-            for annotation in image_annotations:
-                x_coordinate, y_coordinate, width, height = annotation['bbox']
-                bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
-                labels.append(annotation['category_id'])
-
-            bounding_boxes_numpy = np.array(object=bounding_boxes, dtype=np.float32)
-            resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
-                                                                               bounding_boxes=bounding_boxes_numpy,
-                                                                               image_size=image_size,
-                                                                               keep_ratio=keep_ratio)
-
-            success, encoded_image = cv2.imencode(ext='.png', img=resized_image)
-            if not success:
-                continue
-
-            image_bytes = encoded_image.tobytes()
-
-            flattened_boxes = []
-            for box in resized_bounding_boxes:
-                flattened_boxes.extend(box)
-
-            bounding_boxes_bytes = np.array(object=flattened_boxes, dtype=np.float32).tobytes()
-            labels_bytes = np.array(object=labels, dtype=np.int64).tobytes()
-
-            example = tensorflow.train.Example(features=tensorflow.train.Features(
-                feature={"images": convert_to_bytes_feature(value=image_bytes),
-                         "bounding_boxes": convert_to_bytes_feature(value=bounding_boxes_bytes),
-                         "labels": convert_to_bytes_feature(value=labels_bytes)}))
+            example = process_image_to_tensorflow_example(
+            image_identifier=image_identifier,
+            image_information=image_information,
+            data_directory=data_directory,
+            image_to_annotations=image_to_annotations,
+            image_size=image_size,
+            keep_ratio=keep_ratio )
+        if example is not None:
             writer.write(record=example.SerializeToString())
 
         writer.close()
         # Atomically rename the completed shard buffer to confirm
         # successful generation and allow the dataloader to begin streaming
         os.rename(buffer_shard_path, final_shard_path)
+        # todo end of function to be mutualised
 
 
 def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
@@ -653,6 +818,7 @@ def get_dataloaders(experiment_configuration: Dict[str, Any],
         print_blue(output="TFRecord generation required. Spawning background process...")
 
         creator_script_path = os.path.join(os.path.dirname(__file__), "tfrecord_creator.py")
+        number_of_shards = data_configuration["TFRecord"]["number_shards"]
 
         # Build the exact argument list for the dedicated creator script to mirror the current configuration
         command = [sys.executable, creator_script_path,
@@ -660,7 +826,7 @@ def get_dataloaders(experiment_configuration: Dict[str, Any],
                    "--image_size", str(image_size),
                    "--keep_ratio", str(keep_ratio),
                    "--is_sharded", str(data_configuration["TFRecord"]["sharded"]),
-                   "--number_of_shards", str(data_configuration["TFRecord"].get("number_shards", 10)),
+                   "--number_of_shards", str(number_of_shards),
                    "--prefix", dataset_prefix,
                    "--train_split", experiment_configuration["train_split_file"],
                    "--validation_split", experiment_configuration["validation_split_file"],

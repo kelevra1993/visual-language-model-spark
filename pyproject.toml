@@ -15,6 +15,7 @@ dependencies = [
     "opencv-python>=5.0.0.93",
     "tfrecord>=1.14.6",
     "tensorflow>=2.21.0",
+    "nvidia-dali-cuda120>=2.3.0",
 ]
 
 [tool.pytest.ini_options]

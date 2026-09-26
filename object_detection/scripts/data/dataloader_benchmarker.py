@@ -18,7 +18,9 @@ from typing import List, Dict, Any, Callable
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 
 from data.data_loader import NativeDataset, TFRecordDataset, TFRecordShardedDataset, collate_function, \
-    create_tfrecord, create_tfrecord_sharded
+    create_tfrecord, create_tfrecord_sharded, dali_pipeline, DALIDataloaderWrapper
+
+from nvidia.dali.plugin.pytorch import DALIGenericIterator
 
 # Hide GPU from TensorFlow so it does not reserve all memory, leaving none for PyTorch
 tensorflow.config.set_visible_devices(devices=[], device_type='GPU')
@@ -241,6 +243,51 @@ def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batc
     return times
 
 
+def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, batch_size: int, image_size: int,
+                   keep_ratio: bool, view_images: bool) -> List[float]:
+    """
+    Benchmarks the NVIDIA DALI hardware-accelerated dataloader.
+    
+    Args:
+        data_directory (str): The absolute path to the directory containing the physical image files.
+        labels_file (str): The absolute path to the JSON file containing the annotations.
+        number_of_runs (int): The number of full epoch passes to simulate.
+        batch_size (int): The number of images per batch.
+        image_size (int): The target height and width for the scaled images.
+        keep_ratio (bool): Whether to maintain the aspect ratio during scaling by padding.
+        view_images (bool): Whether to visualize the batches using OpenCV.
+        
+    Returns:
+        float: The average time taken per run in seconds.
+    """
+    data_pipeline = dali_pipeline(data_directory=data_directory, annotations_file=labels_file,
+                                       image_size=image_size, keep_ratio=keep_ratio,
+                                       batch_size=batch_size, num_threads=4, device_id=0)
+    data_pipeline.build()
+    dali_iterator = DALIGenericIterator([data_pipeline],
+                                        ['images', 'bounding_boxes', 'labels', 'shapes'],
+                                        reader_name="Reader",
+                                        auto_reset=True)
+    dataloader = DALIDataloaderWrapper(dali_iterator=dali_iterator, image_size=image_size, keep_ratio=keep_ratio)
+
+    times = []
+
+    for _run_index in range(number_of_runs):
+        start_time = time.time()
+        for batch_data_dictionary in tqdm(iterable=dataloader, desc=f"DALI Epoch {_run_index + 1}", leave=False):
+            if view_images:
+                for batch_index in range(batch_data_dictionary["images"].size(0)):
+                    user_quit = view_input_data(
+                        image=batch_data_dictionary["images"][batch_index].cpu(),
+                        bounding_boxes=batch_data_dictionary["bounding_boxes"][batch_index].cpu(),
+                        labels=batch_data_dictionary["labels"][batch_index].cpu())
+                    if user_quit:
+                        return 0.0
+        times.append(time.time() - start_time)
+
+    return times
+
+
 def get_dataset_paths(project_base_directory: str, image_size: int, keep_ratio: bool) -> Dict[str, str]:
     """
     Constructs and orchestrates the standardized filesystem paths required by the dataloader format benchmarker
@@ -389,21 +436,22 @@ def main() -> None:
     training loop with the fastest possible dataloader.
     """
     # Core execution configuration
-    number_of_runs = 1
+    number_of_runs = 10
     batch_size = 20
     image_size = 1024
     keep_ratio = True
-    view_images = False
-    buffer_size = 262144
+    view_images = True
+    buffer_size = 262144  # 256 MB
 
     device = torch.device('cpu')
     dtype = torch.float32
 
     # Specify the dataloader architectures that should actively be executed during the current benchmark run
     methods_to_benchmark = [
-        'Native',
-        'TFRecord',
-        'Sharded'
+        # 'Native',
+        # 'TFRecord',
+        # 'Sharded',
+        'DALI'
     ]
 
     # Construct the absolute system paths required
@@ -438,7 +486,13 @@ def main() -> None:
                     'arguments': {'directory_pattern': paths_dictionary["tfrecord_sharded_pattern"],
                                   'number_of_runs': number_of_runs, 'batch_size': batch_size,
                                   'view_images': view_images,
-                                  'buffer_size': buffer_size}}}
+                                  'buffer_size': buffer_size}},
+        'DALI': {'function': benchmark_dali,
+                 'arguments': {'data_directory': paths_dictionary["data_directory"],
+                               'labels_file': paths_dictionary["labels_file"], 'number_of_runs': number_of_runs,
+                               'batch_size': batch_size, 'image_size': image_size, 'keep_ratio': keep_ratio,
+                               'view_images': view_images}}
+    }
 
     # Initialize a tracking dictionary tailored precisely
     # to the active methods to store the execution times of each epoch
