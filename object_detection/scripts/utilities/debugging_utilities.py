@@ -499,9 +499,9 @@ def get_dummy_ground_truth_boxes(batch_size: int, input_image_size: int, configu
 
     all_scales = set()
     all_aspect_ratios = set()
-    for scale_level, config in scales_and_ratios.items():
-        all_scales.update(config.get("scales", []))
-        all_aspect_ratios.update(config.get("aspect_ratios", []))
+    for scale_level, configuration in scales_and_ratios.items():
+        all_scales.update(configuration.get("scales", []))
+        all_aspect_ratios.update(configuration.get("aspect_ratios", []))
 
     scales = list(all_scales)
     aspect_ratios = list(all_aspect_ratios)
