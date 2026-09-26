@@ -36,6 +36,10 @@ ExperimentConfiguration:
       view_input_images: False
 
 Data:
+  DALI:
+    # Flag to enable the NVIDIA DALI hardware-accelerated pipeline.
+    # Note: When activated, this overrides TFRecord and Native PyTorch loaders.
+    activated: False
   TFRecord:
     # Flag to enable the TFRecord data pipeline for faster sequential batching.
     activated: True

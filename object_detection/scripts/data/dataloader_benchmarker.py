@@ -245,18 +245,22 @@ def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batc
     return times
 
 
-def compare_dali_and_native(dali_image_tensor, dali_boxes, dali_labels,
-                            native_image_tensor, native_boxes, native_labels) -> bool:
+def compare_dali_and_native(dali_image_tensor: torch.Tensor, dali_boxes: torch.Tensor, dali_labels: torch.Tensor,
+                            native_image_tensor: torch.Tensor, native_boxes: torch.Tensor, native_labels: torch.Tensor) -> bool:
     """
-    Visually compares the preprocessing outputs of the DALI and Native pipelines.
+    Serves as a visual debugging utility within the dataloader benchmarking suite to evaluate precision alignment.
+    
+    This function computes and visualizes the pixel-level absolute difference between the hardware-accelerated 
+    DALI data pipeline and the Native Python preprocessing pipeline. It ensures that the generated image tensors 
+    fed into the object detection model during training are mathematically equivalent regardless of the active dataloader.
     
     Args:
-        dali_image_tensor: The image tensor processed by DALI.
-        dali_boxes: The bounding box tensor from DALI (padded).
-        dali_labels: The labels from DALI (padded).
-        native_image_tensor: The image tensor processed by Native Python.
-        native_boxes: The bounding box tensor from Native Python.
-        native_labels: The labels from Native Python.
+        dali_image_tensor (torch.Tensor): The image tensor processed by DALI.
+        dali_boxes (torch.Tensor): The bounding box tensor from DALI (padded).
+        dali_labels (torch.Tensor): The labels from DALI (padded).
+        native_image_tensor (torch.Tensor): The image tensor processed by Native Python.
+        native_boxes (torch.Tensor): The bounding box tensor from Native Python.
+        native_labels (torch.Tensor): The labels from Native Python.
         
     Returns:
         bool: True if the user pressed ENTER to quit, False otherwise.
@@ -270,7 +274,7 @@ def compare_dali_and_native(dali_image_tensor, dali_boxes, dali_labels,
     average_pixel_difference = np.mean(raw_difference)
 
     # Enhance difference visibility (optional but helpful)
-    difference_image = cv2.convertScaleAbs(raw_difference, alpha=10.0)
+    difference_image = cv2.convertScaleAbs(src=raw_difference, alpha=10.0)
 
     # Add average difference text directly onto the difference image
     cv2.putText(img=difference_image, text=f"Avg Diff: {average_pixel_difference:.4f}",
@@ -535,12 +539,12 @@ def main() -> None:
     batch_size = 20
     image_size = 1024
     keep_ratio = True
-    view_images = True
+    view_images = False
     buffer_size = 262144  # 256 MB
 
     # Specify the dataloader architectures that should actively be executed during the current benchmark run
     methods_to_benchmark = [
-        'Native',
+        # 'Native',
         'TFRecord',
         'Sharded',
         'DALI'

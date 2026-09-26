@@ -122,7 +122,8 @@ class NativeDataset(Dataset):
     on the CPU during each dataloader fetch iteration.
     """
 
-    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool, shuffle: bool = True) -> None:
+    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
+                 shuffle: bool = True) -> None:
         """
         Initializes the Native dataset and parses the JSON file.
 
@@ -600,7 +601,8 @@ class DALIDataloaderWrapper:
 
 
 def create_tfrecord_sharded(data_directory: str, labels_file: str, output_directory: str, image_size: int,
-                            keep_ratio: bool, number_of_shards: int = 10, prefix: str = "", shuffle: bool = True) -> None:
+                            keep_ratio: bool, number_of_shards: int = 10, prefix: str = "",
+                            shuffle: bool = True) -> None:
     """
     Generates a sharded sequence of TFRecord archive files from the raw dataset.
 
@@ -642,6 +644,10 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
 
     # Calculate the exact distribution of images across the requested number of dataset shards
     image_keys = list(images_dictionary.keys())
+
+    if shuffle:
+        random.shuffle(image_keys)
+
     images_per_shard = len(image_keys) // number_of_shards + (1 if len(image_keys) % number_of_shards != 0 else 0)
 
     # Iterate through the calculated shard splits, independently serializing the partitioned image chunks
@@ -678,14 +684,13 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
                 image_to_annotations=image_to_annotations,
                 image_size=image_size,
                 keep_ratio=keep_ratio)
-        if example is not None:
-            writer.write(record=example.SerializeToString())
+            if example is not None:
+                writer.write(record=example.SerializeToString())
 
         writer.close()
         # Atomically rename the completed shard buffer to confirm
         # successful generation and allow the dataloader to begin streaming
         os.rename(buffer_shard_path, final_shard_path)
-        # todo end of function to be mutualised
 
 
 def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
@@ -716,6 +721,9 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
     buffer_size = tfrecord_configuration["buffer_size"]
     number_of_shards = tfrecord_configuration["number_shards"]
 
+    dali_configuration = data_configuration["DALI"]
+    use_dali = dali_configuration["activated"]
+
     image_settings = data_configuration["image_settings"]
     image_size = image_settings["size"]
     keep_ratio = image_settings["keep_ratio"]
@@ -731,6 +739,23 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
 
     dataset = None
     fallback_to_native = False
+
+    # If DALI is activated, bypass all other dataloaders and initialize the GPU-accelerated pipeline
+    if use_dali:
+        pipeline = dali_pipeline(data_directory=data_directory, annotations_file=split_file, image_size=image_size,
+                                 keep_ratio=keep_ratio, batch_size=batch_size, num_threads=number_of_workers,
+                                 device_id=0)
+        pipeline.build()
+
+        dali_iterator = DALIGenericIterator(pipelines=[pipeline],
+                                            output_map=["images", "bounding_boxes", "labels", "shapes", "image_ids"],
+                                            reader_name="Reader", auto_reset=True)
+
+        # Wrap the DALI iterator so it behaves exactly like our standard PyTorch DataLoader outputs
+        loader = DALIDataloaderWrapper(dali_iterator=dali_iterator, image_size=image_size, keep_ratio=keep_ratio)
+
+        # DALI handles TFRecord generation replacement, so fallback is False
+        return loader, False
 
     # Attempt to locate and load the highly optimized TFRecord archives to maximize data throughput
     if use_tfrecord:

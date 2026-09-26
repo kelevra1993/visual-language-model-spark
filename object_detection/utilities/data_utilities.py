@@ -28,7 +28,7 @@ def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True
         new_height = int(round(image_height * scale))
         
         # Resize first to pure image pixels to avoid bilinear black padding bleed
-        resized_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+        resized_image = cv2.resize(src=image, dsize=(new_width, new_height), interpolation=cv2.INTER_LINEAR)
         
         # Create the padded square canvas
         processed_image = np.zeros((image_size, image_size, 3), dtype=image.dtype)
@@ -40,7 +40,7 @@ def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True
         # Drop the resized image into the center
         processed_image[start_y: start_y + new_height, start_x: start_x + new_width, :] = resized_image
     else:
-        processed_image = cv2.resize(image, (image_size, image_size), interpolation=cv2.INTER_LINEAR)
+        processed_image = cv2.resize(src=image, dsize=(image_size, image_size), interpolation=cv2.INTER_LINEAR)
 
     return processed_image
 

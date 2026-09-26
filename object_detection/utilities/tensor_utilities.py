@@ -64,6 +64,28 @@ def print_tensor_type(tensor: torch.Tensor, name: Optional[str] = None, indent: 
     print_yellow(output=f"{indentation_string}Tensor {name} Is Of Type : {tensor.dtype}")
 
 
+def print_tensor_average(tensor: torch.Tensor, name: Optional[str] = None, indent: int = 0) -> None:
+    """
+    Logs the mean (average) value of a tensor to the console.
+
+    This utility is crucial for debugging the center of mass of tensor distributions,
+    ensuring that normalization layers and gradients are behaving consistently and have not
+    drifted significantly.
+
+    Args:
+        tensor (torch.Tensor): The torch.Tensor to compute the average value for.
+        name (Optional[str], optional): An optional label to identify the tensor in the output.
+        indent (int, optional): The number of indentation levels (2 spaces each). Defaults to 0.
+    """
+    if not name:
+        name = get_variable_name(target_variable=tensor)
+    indentation_string = (indent * 2 * " ") + "- " if indent > 0 else ""
+    
+    # Safely compute mean as float (to handle int/bool tensors gracefully)
+    average_value = tensor.float().mean().item()
+    print_yellow(output=f"{indentation_string}Tensor {name} Average Is : {average_value:.6f}")
+
+
 def print_tensor_min_max(tensor: torch.Tensor, name: Optional[str] = None, indent: int = 0) -> None:
     """
     Logs the minimum and maximum values of a tensor to the console.
@@ -121,6 +143,7 @@ def print_tensor_status(tensor: torch.Tensor, name: Optional[str] = None, indent
     print_blue(output=f"{indentation_string}" + 60*'-')
     print_tensor_shape(tensor=tensor, name=name, indent=indent)
     print_tensor_type(tensor=tensor, name=name, indent=indent)
+    print_tensor_average(tensor=tensor, name=name, indent=indent)
     print_tensor_min_max(tensor=tensor, name=name, indent=indent)
     print_tensor_device(tensor=tensor, name=name, indent=indent)
     print_blue(output=f"{indentation_string}" + 60*'-')
