@@ -245,7 +245,7 @@ def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batc
     return times
 
 
-def compare_dali_and_native(dali_image_tensor, dali_boxes, dali_labels, 
+def compare_dali_and_native(dali_image_tensor, dali_boxes, dali_labels,
                             native_image_tensor, native_boxes, native_labels) -> bool:
     """
     Visually compares the preprocessing outputs of the DALI and Native pipelines.
@@ -261,20 +261,20 @@ def compare_dali_and_native(dali_image_tensor, dali_boxes, dali_labels,
     Returns:
         bool: True if the user pressed ENTER to quit, False otherwise.
     """
-    
+
     dali_image = dali_image_tensor.permute(1, 2, 0).numpy().copy().astype(np.uint8)
     native_image = native_image_tensor.permute(1, 2, 0).numpy().copy().astype(np.uint8)
-    
+
     # Compute absolute difference before drawing boxes
     raw_difference = cv2.absdiff(src1=dali_image, src2=native_image)
     average_pixel_difference = np.mean(raw_difference)
-    
+
     # Enhance difference visibility (optional but helpful)
     difference_image = cv2.convertScaleAbs(raw_difference, alpha=10.0)
-    
+
     # Add average difference text directly onto the difference image
     cv2.putText(img=difference_image, text=f"Avg Diff: {average_pixel_difference:.4f}",
-                org=(10, 30), fontFace=cv2.FONT_HERSHEY_SIMPLEX, 
+                org=(10, 30), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                 fontScale=0.7, color=(0, 255, 0), thickness=2)
 
     # Draw boxes on DALI
@@ -284,7 +284,7 @@ def compare_dali_and_native(dali_image_tensor, dali_boxes, dali_labels,
             cv2.rectangle(img=dali_image, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0), thickness=2)
             cv2.putText(img=dali_image, text=str(label), org=(box_x1, max(box_y1 - 10, 0)),
                         fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
-                    
+
     # Draw boxes on Native
     for box, label in zip(native_boxes.numpy(), native_labels.numpy()):
         box_x1, box_y1, box_x2, box_y2 = map(int, box)
@@ -292,23 +292,25 @@ def compare_dali_and_native(dali_image_tensor, dali_boxes, dali_labels,
             cv2.rectangle(img=native_image, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0), thickness=2)
             cv2.putText(img=native_image, text=str(label), org=(box_x1, max(box_y1 - 10, 0)),
                         fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
-                    
+
     # Create a 3-channel version of raw difference so it can be stacked if it was single channel
     # (cv2.absdiff on 3-channel BGR returns 3-channel BGR, so it's already 3-channel, but just to be safe)
-    
+
     # Add titles directly to each frame before stacking
-    cv2.putText(img=raw_difference, text="Raw Difference", org=(10, 30), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=(0, 255, 0), thickness=2)
-    cv2.putText(img=difference_image, text="Scaled Difference (x10)", org=(10, 60), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=1.0, color=(0, 255, 0), thickness=2)
+    cv2.putText(img=raw_difference, text="Raw Difference", org=(10, 30), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=1.0, color=(0, 255, 0), thickness=2)
+    cv2.putText(img=difference_image, text="Scaled Difference (x10)", org=(10, 60), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                fontScale=1.0, color=(0, 255, 0), thickness=2)
 
     # Stack images horizontally
     combined_image = np.hstack((dali_image, native_image, raw_difference, difference_image))
-    
+
     cv2.putText(img=combined_image, text="DALI | Native | Raw Diff | Scaled Diff - SPACE for next, ENTER to quit",
                 org=(10, 30), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                 fontScale=1.0, color=(0, 0, 255), thickness=2)
-                
+
     cv2.imshow(winname="DALI vs Native Comparison", mat=combined_image)
-    
+
     while True:
         pressed_key = cv2.waitKey(delay=0) & 0xFF
         if pressed_key == 13:  # 13 represents the Enter/Return key
@@ -316,6 +318,7 @@ def compare_dali_and_native(dali_image_tensor, dali_boxes, dali_labels,
             return True
         if pressed_key == ord(' '):
             return False
+
 
 def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, batch_size: int, image_size: int,
                    keep_ratio: bool, view_images: bool) -> List[float]:
@@ -335,8 +338,8 @@ def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, b
         float: The average time taken per run in seconds.
     """
     data_pipeline = dali_pipeline(data_directory=data_directory, annotations_file=labels_file,
-                                       image_size=image_size, keep_ratio=keep_ratio,
-                                       batch_size=batch_size, num_threads=4, device_id=0)
+                                  image_size=image_size, keep_ratio=keep_ratio,
+                                  batch_size=batch_size, num_threads=4, device_id=0)
     data_pipeline.build()
     dali_iterator = DALIGenericIterator([data_pipeline],
                                         ['images', 'bounding_boxes', 'labels', 'shapes', 'image_ids'],
@@ -345,7 +348,7 @@ def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, b
     dataloader = DALIDataloaderWrapper(dali_iterator=dali_iterator, image_size=image_size, keep_ratio=keep_ratio)
 
     if view_images:
-        native_dataset = NativeDataset(data_directory=data_directory, labels_file=labels_file, 
+        native_dataset = NativeDataset(data_directory=data_directory, labels_file=labels_file,
                                        image_size=image_size, keep_ratio=keep_ratio)
         image_id_to_index = {img['id']: idx for idx, img in enumerate(native_dataset.images)}
 
@@ -360,19 +363,19 @@ def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, b
                     dali_boxes = batch_data_dictionary["bounding_boxes"][batch_index].cpu()
                     dali_labels = batch_data_dictionary["labels"][batch_index].cpu()
                     image_id = batch_data_dictionary["image_ids"][batch_index].item()
-                    
+
                     native_data = native_dataset[image_id_to_index[image_id]]
                     native_image_tensor = native_data["images"].cpu()
                     native_boxes = native_data["bounding_boxes"].cpu()
                     native_labels = native_data["labels"].cpu()
-                    
-                    user_quit = compare_dali_and_native(dali_image_tensor=dali_image_tensor, 
-                                                                        dali_boxes=dali_boxes, 
-                                                                        dali_labels=dali_labels,
-                                                                        native_image_tensor=native_image_tensor, 
-                                                                        native_boxes=native_boxes, 
-                                                                        native_labels=native_labels)
-                            
+
+                    user_quit = compare_dali_and_native(dali_image_tensor=dali_image_tensor,
+                                                        dali_boxes=dali_boxes,
+                                                        dali_labels=dali_labels,
+                                                        native_image_tensor=native_image_tensor,
+                                                        native_boxes=native_boxes,
+                                                        native_labels=native_labels)
+
                     if user_quit:
                         return 0.0
         times.append(time.time() - start_time)
@@ -532,17 +535,14 @@ def main() -> None:
     batch_size = 20
     image_size = 1024
     keep_ratio = True
-    view_images = False
+    view_images = True
     buffer_size = 262144  # 256 MB
-
-    device = torch.device('cpu')
-    dtype = torch.float32
 
     # Specify the dataloader architectures that should actively be executed during the current benchmark run
     methods_to_benchmark = [
-        # 'Native',
-        # 'TFRecord',
-        # 'Sharded',
+        'Native',
+        'TFRecord',
+        'Sharded',
         'DALI'
     ]
 

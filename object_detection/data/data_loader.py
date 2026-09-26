@@ -1,3 +1,4 @@
+import random
 from tqdm import tqdm
 from nvidia.dali import pipeline_def as pipeline_definition
 import nvidia.dali.fn as dali_function
@@ -121,7 +122,7 @@ class NativeDataset(Dataset):
     on the CPU during each dataloader fetch iteration.
     """
 
-    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool) -> None:
+    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool, shuffle: bool = True) -> None:
         """
         Initializes the Native dataset and parses the JSON file.
 
@@ -130,6 +131,7 @@ class NativeDataset(Dataset):
             labels_file (str): The absolute path to the JSON file containing the annotations.
             image_size (int): The target height and width for the scaled images.
             keep_ratio (bool): Whether to maintain the aspect ratio during scaling by padding.
+            shuffle (bool): Whether to randomly shuffle the dataset internally. Defaults to True.
         """
         self.data_directory = data_directory
         self.image_size = image_size
@@ -140,6 +142,8 @@ class NativeDataset(Dataset):
             self.data = json.load(fp=file_handler)
 
         self.images = self.data['images']
+        if shuffle:
+            random.shuffle(self.images)
         self.annotations = self.data['annotations']
 
         # Map image identifiers to their respective bounding box and label collections for rapid retrieval
@@ -339,7 +343,7 @@ def process_image_to_tensorflow_example(image_identifier: int, image_information
 
 
 def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_record: str, image_size: int,
-                    keep_ratio: bool) -> None:
+                    keep_ratio: bool, shuffle: bool = True) -> None:
     """
     Generates a monolithic TFRecord archive file from the raw dataset.
 
@@ -353,6 +357,7 @@ def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_rec
         output_tensorflow_record (str): The absolute path where the final TFRecord file will be saved.
         image_size (int): The target height and width for the scaled images.
         keep_ratio (bool): Whether to maintain the original aspect ratio by padding the images.
+        shuffle (bool): Whether to randomly shuffle the image sequence before serialization. Defaults to True.
     """
     # Verify if the requested TFRecord file has already been completely generated to avoid redundant processing
     if os.path.exists(output_tensorflow_record):
@@ -382,8 +387,12 @@ def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_rec
 
     writer = tensorflow.io.TFRecordWriter(path=buffer_record)
 
+    image_items = list(images_dictionary.items())
+    if shuffle:
+        random.shuffle(image_items)
+
     # Iterate systematically over every indexed image to perform spatial scaling and binary serialization
-    for image_identifier, image_information in tqdm(iterable=images_dictionary.items(), desc="Creating TFRecord"):
+    for image_identifier, image_information in tqdm(iterable=image_items, desc="Creating TFRecord"):
         example = process_image_to_tensorflow_example(
             image_identifier=image_identifier,
             image_information=image_information,
@@ -591,7 +600,7 @@ class DALIDataloaderWrapper:
 
 
 def create_tfrecord_sharded(data_directory: str, labels_file: str, output_directory: str, image_size: int,
-                            keep_ratio: bool, number_of_shards: int = 10, prefix: str = "") -> None:
+                            keep_ratio: bool, number_of_shards: int = 10, prefix: str = "", shuffle: bool = True) -> None:
     """
     Generates a sharded sequence of TFRecord archive files from the raw dataset.
 
