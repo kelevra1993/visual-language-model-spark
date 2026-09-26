@@ -74,10 +74,9 @@ class Trainer:
         self.training_writer = None
         self.validation_writer = None
 
-        # # todo to be later implemented
-        # # Setting up dataloaders
-        # self.dataset_folder = self.experiment_configuration["dataset_folder"]
-        # self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.get_trainer_data_loaders()
+        # Setting up dataloaders
+        self.dataset_folder = self.experiment_configuration["dataset_folder"]
+        self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.get_trainer_data_loaders()
 
         # Initialize Model and Optimizer
         self.model = Model(configuration=self.model_configuration, device=self.device, dtype=self.dtype,
@@ -247,8 +246,6 @@ class Trainer:
             benchmarking_iterations (int): The total number of iterations to run the benchmark. Defaults to 100,000.
         """
 
-        self.dataset_folder = self.experiment_configuration.get('dataset_folder', '')
-        self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.get_trainer_data_loaders()
         # Get dataloader
         training_dataloader_iterator = iter(self.train_dataloader)
         validation_dataloader_iterator = iter(self.validation_dataloader)

@@ -9,6 +9,7 @@ import tensorflow
 from typing import Dict, Any, Tuple, List, Iterator
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 from utilities.data_utilities import preprocess_image_and_boxes
+from utilities.os_utilities import print_blue
 
 # Hide GPU from TensorFlow so it does not reserve all memory, leaving none for PyTorch
 tensorflow.config.set_visible_devices(devices=[], device_type='GPU')
@@ -67,53 +68,6 @@ def parse_single_example(serialized_data: tensorflow.Tensor) -> Tuple[
     return image, bounding_boxes, labels
 
 
-class DummyDataset(Dataset):
-    """
-    A PyTorch Dataset implementation for yielding dummy data tensors.
-
-    This class provides a fallback mechanism in the data pipeline to gracefully handle missing datasets,
-    returning zeros for images, bounding boxes, and labels to prevent downstream component crashes during
-    pipeline initialization or testing.
-    """
-    def __init__(self, image_size: int, device: torch.device, dtype: torch.dtype) -> None:
-        """
-        Initializes the DummyDataset.
-
-        Args:
-            image_size (int): The height and width for the dummy image tensors.
-            device (torch.device): The device on which to place the dummy tensors.
-            dtype (torch.dtype): The data type for the dummy image and bounding box tensors.
-        """
-        self.image_size = image_size
-        self.device = device
-        self.dtype = dtype
-
-    def __len__(self) -> int:
-        """
-        Returns a fixed number of dummy samples.
-
-        Returns:
-            int: The total count of available dummy images.
-        """
-        return 100
-
-    def __getitem__(self, _index: int) -> dict:
-        """
-        Retrieves a single set of dummy tensors for the data pipeline.
-
-        Args:
-            _index (int): The index of the item to fetch.
-
-        Returns:
-            dict: A dictionary containing the dummy image tensor, bounding boxes tensor, and labels tensor.
-        """
-        return {
-            "images": torch.zeros(size=(3, self.image_size, self.image_size), dtype=self.dtype, device=self.device),
-            "bounding_boxes": torch.zeros(size=(1, 4), dtype=self.dtype, device=self.device),
-            "labels": torch.zeros(size=(1,), dtype=torch.int64, device=self.device)
-        }
-
-
 class NativeCocoDataset(Dataset):
     """
     A PyTorch Dataset implementation for reading the raw COCO image format.
@@ -122,7 +76,8 @@ class NativeCocoDataset(Dataset):
     on the CPU during each dataloader fetch iteration.
     """
 
-    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool, device: torch.device, dtype: torch.dtype) -> None:
+    def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool, device: torch.device,
+                 dtype: torch.dtype) -> None:
         """
         Initializes the Native dataset and parses the monolithic COCO JSON file.
 
@@ -195,7 +150,8 @@ class NativeCocoDataset(Dataset):
                                                                            keep_ratio=self.keep_ratio)
         # Convert the resized array into a PyTorch float tensor
         # Note: The standard division by 255.0 has been intentionally omitted to preserve raw pixel scale
-        image_tensor = torch.from_numpy(np.array(object=resized_image)).permute(2, 0, 1).to(device=self.device, dtype=self.dtype)
+        image_tensor = torch.from_numpy(np.array(object=resized_image)).permute(2, 0, 1).to(device=self.device,
+                                                                                            dtype=self.dtype)
 
         return {"images": image_tensor,
                 "bounding_boxes": torch.tensor(data=resized_bounding_boxes, dtype=self.dtype, device=self.device),
@@ -249,9 +205,11 @@ class TFRecordCocoDataset(IterableDataset):
             labels_numpy = labels.numpy()
 
             # Reorder channels from height/width/channel structure to channel/height/width for PyTorch
-            image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous().to(device=self.device, dtype=self.dtype)
+            image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous().to(device=self.device,
+                                                                                          dtype=self.dtype)
 
-            yield {"images": image_tensor, "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=self.dtype, device=self.device),
+            yield {"images": image_tensor,
+                   "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=self.dtype, device=self.device),
                    "labels": torch.tensor(data=labels_numpy, dtype=torch.int64, device=self.device)}
 
 
@@ -297,15 +255,17 @@ class TFRecordShardedCocoDataset(IterableDataset):
             boxes_numpy = bounding_boxes.numpy()
             labels_numpy = labels.numpy()
 
-            image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous().to(device=self.device, dtype=self.dtype)
+            image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous().to(device=self.device,
+                                                                                          dtype=self.dtype)
 
-            yield {"images": image_tensor, "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=self.dtype, device=self.device),
+            yield {"images": image_tensor,
+                   "bounding_boxes": torch.tensor(data=boxes_numpy, dtype=self.dtype, device=self.device),
                    "labels": torch.tensor(data=labels_numpy, dtype=torch.int64, device=self.device)}
 
 
 def get_dataloaders(preprocessed_directory: str, experiment_configuration: Dict[str, Any],
-                    model_configuration: Dict[str, Any], batch_size: int, device: torch.device, dtype: torch.dtype, number_of_workers: int = 4) -> Tuple[
-    DataLoader, DataLoader, DataLoader]:
+                    model_configuration: Dict[str, Any], batch_size: int, device: torch.device, dtype: torch.dtype,
+                    number_of_workers: int = 4) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Initializes and returns the training, validation, and testing dataloaders for the object detection pipeline.
 
@@ -322,7 +282,8 @@ def get_dataloaders(preprocessed_directory: str, experiment_configuration: Dict[
         number_of_workers (int): The number of subprocesses to use for data loading.
 
     Returns:
-        Tuple[DataLoader, DataLoader, DataLoader]: A tuple containing the DataLoaders for training, validation, and testing splits.
+        Tuple[DataLoader, DataLoader, DataLoader]: A tuple containing the DataLoaders for
+         training, validation, and testing splits.
     """
     data_configuration = model_configuration["Data"]
     tfrecord_configuration = data_configuration["TFRecord"]
@@ -337,25 +298,35 @@ def get_dataloaders(preprocessed_directory: str, experiment_configuration: Dict[
     data_directory = experiment_configuration["data_folder"]
     train_labels = experiment_configuration["train_split_file"]
 
+    # todo will need to be changed
+    # should have conventional nemaes
     tfrecord_path = os.path.join(data_directory, 'coco-train.tfrecord')
     sharded_pattern = os.path.join(data_directory, 'sharded', 'coco-train-*.tfrecord')
 
     dataset = None
     if use_tfrecord:
+        # todo we might need a comment because not clear how we deal with this if the sharded tfrectords are not there.
         if is_sharded and len(glob.glob(pathname=sharded_pattern)) > 0:
-            dataset = TFRecordShardedCocoDataset(directory_pattern=sharded_pattern, device=device, dtype=dtype, buffer_size=buffer_size)
+            dataset = TFRecordShardedCocoDataset(directory_pattern=sharded_pattern, device=device, dtype=dtype,
+                                                 buffer_size=buffer_size)
         elif os.path.exists(path=tfrecord_path):
-            dataset = TFRecordCocoDataset(tensorflow_record_path=tfrecord_path, device=device, dtype=dtype, buffer_size=buffer_size)
-
-    if dataset is None:
-        if not data_directory or not train_labels or not os.path.isfile(train_labels):
-            print(f"Warning: Falling back to dummy dataloader because data path does not exist: {data_directory}")
-            dataset = DummyDataset(image_size=image_size, device=device, dtype=dtype)
+            dataset = TFRecordCocoDataset(tensorflow_record_path=tfrecord_path, device=device, dtype=dtype,
+                                          buffer_size=buffer_size)
         else:
-            dataset = NativeCocoDataset(data_directory=data_directory, labels_file=train_labels, image_size=image_size,
+            # todo we might need to a message to say that we are using the NativeDataset and that the tfrecord or shareded tfrecord creation will run in the background
+            #  and once it is done the code will stop and re-run to launch itself on the tfrecords that have been created.
+            # logic_to_be_implemented_here.
+            pass
+
+    # TODO Need of comment
+    if dataset is None:
+        print_blue(f"We Are Using The Native Dataset For {put_something_clear}")
+        dataset = NativeCocoDataset(data_directory=data_directory, labels_file=train_labels, image_size=image_size,
                                         keep_ratio=keep_ratio, device=device, dtype=dtype)
 
     is_iterable = isinstance(dataset, IterableDataset)
     train_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=not is_iterable,
                               num_workers=number_of_workers, collate_fn=collate_function)
+
+    # todo this is not good should not have been implemented like this.
     return train_loader, train_loader, train_loader
