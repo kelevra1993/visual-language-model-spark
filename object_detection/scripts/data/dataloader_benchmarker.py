@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import json
@@ -10,7 +11,7 @@ import torch
 import tensorflow
 from tqdm import tqdm
 import glob
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Callable
 from torch.utils.data import Dataset, DataLoader, IterableDataset
 from utilities.data_utilities import preprocess_image_and_boxes, view_input_data
 
@@ -385,7 +386,8 @@ class TFRecordCocoDataset(IterableDataset):
                    "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)}
 
 
-def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_size: int, view_images: bool) -> List[float]:
+def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_size: int, view_images: bool) -> List[
+    float]:
     """
     Benchmarks the Pre-Resized TFRecord dataset loader.
     
@@ -424,7 +426,6 @@ def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_s
     return times
 
 
-
 def create_tfrecord_sharded(data_directory: str, labels_file: str, output_directory: str, image_size: int,
                             keep_ratio: bool, number_of_shards: int = 10) -> None:
     """
@@ -455,19 +456,20 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
         image_to_annotations[image_identifier].append(annotation)
 
     os.makedirs(name=output_directory, exist_ok=True)
-    
+
     image_keys = list(images_dictionary.keys())
     images_per_shard = len(image_keys) // number_of_shards + (1 if len(image_keys) % number_of_shards != 0 else 0)
 
     for shard_index in range(number_of_shards):
         shard_path = os.path.join(output_directory, f"coco-train-{shard_index:04d}-of-{number_of_shards:04d}.tfrecord")
         writer = tensorflow.io.TFRecordWriter(path=shard_path)
-        
+
         start_index = shard_index * images_per_shard
         end_index = min((shard_index + 1) * images_per_shard, len(image_keys))
         shard_keys = image_keys[start_index:end_index]
-        
-        for image_identifier in tqdm(iterable=shard_keys, desc=f"Creating Shard {shard_index + 1}/{number_of_shards}", leave=False):
+
+        for image_identifier in tqdm(iterable=shard_keys, desc=f"Creating Shard {shard_index + 1}/{number_of_shards}",
+                                     leave=False):
             image_information = images_dictionary[image_identifier]
             image_path = os.path.join(data_directory, image_information['file_name'])
             if not os.path.exists(path=image_path):
@@ -491,7 +493,8 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
 
             resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
                                                                                bounding_boxes=bounding_boxes_numpy,
-                                                                               image_size=image_size, keep_ratio=keep_ratio)
+                                                                               image_size=image_size,
+                                                                               keep_ratio=keep_ratio)
 
             success, encoded_image = cv2.imencode(ext='.png', img=resized_image)
             if not success:
@@ -552,7 +555,8 @@ class TFRecordShardedCocoDataset(IterableDataset):
                    "labels": torch.tensor(data=labels_numpy, dtype=torch.int64)}
 
 
-def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batch_size: int, view_images: bool) -> List[float]:
+def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batch_size: int, view_images: bool) -> List[
+    float]:
     """
     Benchmarks the sharded TFRecord dataset loader.
     
@@ -572,7 +576,8 @@ def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batc
 
     for _run_index in range(number_of_runs):
         start_time = time.time()
-        for batch_data_dictionary in tqdm(iterable=dataloader, desc=f"TFRecord Sharded Epoch {_run_index + 1}", leave=False):
+        for batch_data_dictionary in tqdm(iterable=dataloader, desc=f"TFRecord Sharded Epoch {_run_index + 1}",
+                                          leave=False):
             if view_images:
                 for batch_index in range(batch_data_dictionary["images"].size(0)):
                     user_quit = view_input_data(image=batch_data_dictionary["images"][batch_index],
@@ -603,10 +608,10 @@ def get_dataset_paths(project_base_directory: str, image_size: int, keep_ratio: 
 
     prefix = f"KAR-{image_size}-" if keep_ratio else f"{image_size}-"
     formats_directory = os.path.join(project_base_directory, 'datasets', 'formats')
-    tensorflow_record_path = os.path.join(formats_directory, f'{prefix}coco-train-preresized.tfrecord')
-    sharded_output_directory = os.path.join(formats_directory, f'{prefix}sharded_tfrecords')
+    tensorflow_record_path = os.path.join(formats_directory, f'{prefix}coco-train.tfrecord')
+    sharded_output_directory = os.path.join(formats_directory, f'{prefix}Sharded-Records')
     tfrecord_sharded_pattern = os.path.join(sharded_output_directory, 'coco-train-*.tfrecord')
-    
+
     return {
         "data_directory": original_data_directory,
         "labels_file": original_labels,
@@ -631,25 +636,54 @@ def prepare_tfrecords(paths_dictionary: Dict[str, str], image_size: int, keep_ra
     tensorflow_record_path = paths_dictionary["tensorflow_record_path"]
     original_data_directory = paths_dictionary["data_directory"]
     original_labels = paths_dictionary["labels_file"]
-    
+
     if not os.path.exists(path=tensorflow_record_path):
         print(f"TFRecord file not found at {tensorflow_record_path}. Generating it now...")
         os.makedirs(name=os.path.dirname(p=tensorflow_record_path), exist_ok=True)
-        create_tfrecord(data_directory=original_data_directory, labels_file=original_labels, output_tensorflow_record=tensorflow_record_path, image_size=image_size, keep_ratio=keep_ratio)
+        create_tfrecord(data_directory=original_data_directory, labels_file=original_labels,
+                        output_tensorflow_record=tensorflow_record_path, image_size=image_size, keep_ratio=keep_ratio)
         print("TFRecord generation complete!")
     else:
         print(f"Found existing TFRecord file at {tensorflow_record_path}.")
 
     sharded_output_directory = paths_dictionary["sharded_output_directory"]
     tfrecord_sharded_pattern = paths_dictionary["tfrecord_sharded_pattern"]
-    
+
     if not os.path.exists(path=sharded_output_directory) or len(glob.glob(pathname=tfrecord_sharded_pattern)) == 0:
         print(f"Sharded TFRecords not found at {sharded_output_directory}. Generating them now...")
-        create_tfrecord_sharded(data_directory=original_data_directory, labels_file=original_labels, output_directory=sharded_output_directory, image_size=image_size, keep_ratio=keep_ratio, number_of_shards=10)
+        create_tfrecord_sharded(data_directory=original_data_directory, labels_file=original_labels,
+                                output_directory=sharded_output_directory, image_size=image_size, keep_ratio=keep_ratio,
+                                number_of_shards=10)
         print("Sharded TFRecord generation complete!")
     else:
         print(f"Found existing sharded TFRecords at {sharded_output_directory}.")
 
+
+
+def benchmark_method(method_name: str, method_function: Callable, benchmark_arguments: Dict[str, Any]) -> List[float]:
+    """
+    Wraps and executes a designated benchmark sequence safely.
+    
+    This function abstracts the error handling and timing mechanism away from the main logic,
+    ensuring that a single missing file or crash does not halt the entire pipeline.
+    
+    Args:
+        method_name (str): The descriptive name of the dataloader format being tested.
+        method_function (Callable): The specific benchmark function to invoke.
+        benchmark_arguments (Dict[str, Any]): The explicit arguments to pass into the method.
+        
+    Returns:
+        List[float]: A list of epoch times in seconds, or an empty list if execution failed.
+    """
+    try:
+        print(f"Benchmarking {method_name}...")
+        times = method_function(**benchmark_arguments)
+        if times:
+            print(f"[{method_name}] Average Time: {sum(times) / len(times):.4f} s")
+        return times
+    except Exception as error:
+        print(f"[{method_name}] Skipped due to error: {error}")
+        return []
 
 def main() -> None:
     """
@@ -666,72 +700,79 @@ def main() -> None:
     image_size = 1024
     keep_ratio = True
     view_images = False
-    project_base_directory = '/home/robert_kelevra/Projects/visual-language-model-spark'
+    project_base_directory = str(Path(__file__).absolute().parents[3])
 
-    paths_dictionary = get_dataset_paths(project_base_directory=project_base_directory, image_size=image_size, keep_ratio=keep_ratio)
-    
+    paths_dictionary = get_dataset_paths(project_base_directory=project_base_directory, image_size=image_size,
+                                         keep_ratio=keep_ratio)
+
+    # Prepare TFRecords
     prepare_tfrecords(paths_dictionary=paths_dictionary, image_size=image_size, keep_ratio=keep_ratio)
 
-    print("Synchronizing dataset annotations with physical disk files...")
-
-    print(f"Starting Comprehensive Benchmarks... ({number_of_runs} runs each)")
-    print("-" * 50)
-
     # NOTE: These benchmarks can be commented out if you want to test them one by one.
-    
+
+    benchmark_argument_dictionary = {
+        'Native': {
+            'function': benchmark_native,
+            'arguments': {
+                'data_directory': paths_dictionary["data_directory"],
+                'labels_file': paths_dictionary["labels_file"],
+                'number_of_runs': number_of_runs,
+                'batch_size': batch_size,
+                'image_size': image_size,
+                'keep_ratio': keep_ratio,
+                'view_images': view_images
+            }
+        },
+        'TFRecord': {
+            'function': benchmark_tfrecord,
+            'arguments': {
+                'tensorflow_record_path': paths_dictionary["tensorflow_record_path"],
+                'number_of_runs': number_of_runs,
+                'batch_size': batch_size,
+                'view_images': view_images
+            }
+        },
+        'Sharded': {
+            'function': benchmark_tfrecord_sharded,
+            'arguments': {
+                'directory_pattern': paths_dictionary["tfrecord_sharded_pattern"],
+                'number_of_runs': number_of_runs,
+                'batch_size': batch_size,
+                'view_images': view_images
+            }
+        }
+    }
+
     results = {'Native': [], 'TFRecord': [], 'Sharded': []}
 
-    try:
-        print(f"Benchmarking Native PyTorch...")
-        times = benchmark_native(data_directory=paths_dictionary["data_directory"], labels_file=paths_dictionary["labels_file"],
-                                        number_of_runs=number_of_runs, batch_size=batch_size,
-                                        image_size=image_size, keep_ratio=keep_ratio, view_images=view_images)
-        results['Native'] = times
-        print(f"[Native PyTorch] Average Time: {sum(times)/len(times):.4f} s")
-    except Exception as error:
-        print(f"[Native PyTorch] Skipped due to error: {error}")
-    print("-" * 50)
-
-    try:
-        print("Benchmarking TFRecord (Pre-Resized)...")
-        times = benchmark_tfrecord(tensorflow_record_path=paths_dictionary["tensorflow_record_path"], number_of_runs=number_of_runs,
-                                          batch_size=batch_size, view_images=view_images)
-        results['TFRecord'] = times
-        print(f"[TFRecord (Pre-Resized)] Average Time: {sum(times)/len(times):.4f} s")
-    except Exception as error:
-        print(f"[TFRecord (Pre-Resized)] Skipped due to error: {error}")
-    print("-" * 50)
-
-    try:
-        print("Benchmarking TFRecord (Sharded)...")
-        times = benchmark_tfrecord_sharded(directory_pattern=paths_dictionary["tfrecord_sharded_pattern"], number_of_runs=number_of_runs,
-                                                  batch_size=batch_size, view_images=view_images)
-        results['Sharded'] = times
-        print(f"[TFRecord (Sharded)] Average Time: {sum(times)/len(times):.4f} s")
-    except Exception as error:
-        print(f"[TFRecord (Sharded)] Skipped due to error: {error}")
-    print("-" * 50)
+    for method_name, method_details in benchmark_argument_dictionary.items():
+        results[method_name] = benchmark_method(
+            method_name=method_name,
+            method_function=method_details['function'],
+            benchmark_arguments=method_details['arguments']
+        )
+        print("-" * 50)
 
     csv_file_path = 'benchmark_results.csv'
     with open(csv_file_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(['Native', 'TFRecord', 'Sharded'])
-        
+
         # Write individual run times
         for _index in range(number_of_runs):
             native_value = results['Native'][_index] if _index < len(results['Native']) else ''
             tensorflow_value = results['TFRecord'][_index] if _index < len(results['TFRecord']) else ''
             sharded_value = results['Sharded'][_index] if _index < len(results['Sharded']) else ''
             writer.writerow([native_value, tensorflow_value, sharded_value])
-            
+
         # Write average times
-        native_average = sum(results['Native'])/len(results['Native']) if results['Native'] else ''
-        tensorflow_average = sum(results['TFRecord'])/len(results['TFRecord']) if results['TFRecord'] else ''
-        sharded_average = sum(results['Sharded'])/len(results['Sharded']) if results['Sharded'] else ''
+        native_average = sum(results['Native']) / len(results['Native']) if results['Native'] else ''
+        tensorflow_average = sum(results['TFRecord']) / len(results['TFRecord']) if results['TFRecord'] else ''
+        sharded_average = sum(results['Sharded']) / len(results['Sharded']) if results['Sharded'] else ''
         writer.writerow([native_average, tensorflow_average, sharded_average])
-        
+
     print(f"Results saved to {csv_file_path}")
+
 
 if __name__ == "__main__":
     main()
-
