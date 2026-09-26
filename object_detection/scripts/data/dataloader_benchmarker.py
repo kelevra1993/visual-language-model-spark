@@ -743,7 +743,7 @@ def main() -> None:
         None
     """
     # Define the core benchmarking parameters that govern the scale and configuration of the dataset testing
-    number_of_runs = 1
+    number_of_runs = 20
     batch_size = 20
     image_size = 1024
     keep_ratio = True
