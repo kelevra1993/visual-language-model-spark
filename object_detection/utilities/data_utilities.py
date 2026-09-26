@@ -143,7 +143,7 @@ def view_input_data(image: torch.Tensor, bounding_boxes: torch.Tensor, labels: t
                     fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
 
     # Overlay instructional text at the bottom left of the image to guide the user
-    # Draw a solid black background block first to guarantee the grey text is highly visible against any image background
+    # Draw a solid black background block first to guarantee the grey text is visible against any image background
     image_height, _image_width, _ = image_numpy.shape
     cv2.rectangle(img=image_numpy, pt1=(5, image_height - 45), pt2=(550, image_height - 5), color=(0, 0, 0),
                   thickness=-1)
