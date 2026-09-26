@@ -126,8 +126,8 @@ def view_input_data(image: torch.Tensor, bounding_boxes: torch.Tensor, labels: t
     Returns:
         bool: True if the user pressed 'q' to forcefully quit the visualization loop, False otherwise.
     """
-    # Transpose the tensor back from (C, H, W) to (H, W, C) for OpenCV compatibility
-    image_numpy = image.permute(1, 2, 0).numpy().copy()
+    # Transpose the tensor back from (C, H, W) to (H, W, C) for OpenCV compatibility and cast to uint8
+    image_numpy = image.permute(1, 2, 0).numpy().copy().astype(np.uint8)
 
     # Convert bounding boxes and labels to standard NumPy structures
     boxes_numpy = bounding_boxes.numpy()

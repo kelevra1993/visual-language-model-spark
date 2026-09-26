@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from utilities.os_utilities import print_blue
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import json
 import csv
@@ -192,7 +194,7 @@ class NativeCocoDataset(Dataset):
         image_path = os.path.join(self.data_directory, image_information['file_name'])
 
         image = cv2.imread(filename=image_path)
-        image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
+
 
         image_annotations = self.image_to_annotations.get(image_identifier, [])
 
@@ -210,7 +212,9 @@ class NativeCocoDataset(Dataset):
                                                                            bounding_boxes=bounding_boxes_numpy,
                                                                            image_size=self.image_size,
                                                                            keep_ratio=self.keep_ratio)
-        image_tensor = torch.from_numpy(numpy.array(object=resized_image)).permute(2, 0, 1).float() / 255.0
+        # Convert the resized array into a PyTorch float tensor
+        # Note: The standard division by 255.0 has been intentionally omitted to preserve raw pixel scale
+        image_tensor = torch.from_numpy(numpy.array(object=resized_image)).permute(2, 0, 1).float()
 
         return {"images": image_tensor,
                 "bounding_boxes": torch.tensor(data=resized_bounding_boxes, dtype=torch.float32),
@@ -303,6 +307,9 @@ def create_tfrecord(data_directory: str, labels_file: str, output_tensorflow_rec
         if image is None:
             continue
 
+        # Convert BGR to RGB intentionally. OpenCV's imencode assumes input is BGR and swaps channels for PNG storage.
+        # By providing an RGB array, imencode physically saves a BGR PNG file. When tf.io.decode_png reads it, 
+        # it natively returns a BGR tensor, ensuring consistency with the raw cv2.imread Native pipeline.
         image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
 
         image_annotations = image_to_annotations.get(image_identifier, [])
@@ -369,7 +376,7 @@ class TFRecordCocoDataset(IterableDataset):
 
         # Partition the dataset appropriately if multiple workers are deployed to prevent data duplication
         if worker_info is not None:
-            dataset = dataset.shard(number_of_shards=worker_info.num_workers, index=worker_info.id)
+            dataset = dataset.shard(num_shards=worker_info.num_workers, index=worker_info.id)
 
         dataset = dataset.map(map_func=parse_single_example, num_parallel_calls=tensorflow.data.AUTOTUNE)
 
@@ -479,6 +486,9 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
             if image is None:
                 continue
 
+            # Convert BGR to RGB intentionally. OpenCV's imencode assumes input is BGR and swaps channels for PNG storage.
+            # By providing an RGB array, imencode physically saves a BGR PNG file. When tf.io.decode_png reads it, 
+            # it natively returns a BGR tensor, ensuring consistency with the raw cv2.imread Native pipeline.
             image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2RGB)
 
             image_annotations = image_to_annotations.get(image_identifier, [])
@@ -540,7 +550,7 @@ class TFRecordShardedCocoDataset(IterableDataset):
         dataset = tensorflow.data.TFRecordDataset(filenames=self.tensorflow_record_files, buffer_size=262144)
 
         if worker_info is not None:
-            dataset = dataset.shard(number_of_shards=worker_info.num_workers, index=worker_info.id)
+            dataset = dataset.shard(num_shards=worker_info.num_workers, index=worker_info.id)
 
         dataset = dataset.map(map_func=parse_single_example, num_parallel_calls=tensorflow.data.AUTOTUNE)
 
@@ -602,12 +612,12 @@ def get_dataset_paths(project_base_directory: str, image_size: int, keep_ratio: 
     Returns:
         Dict[str, str]: A dictionary containing absolute paths for data, labels, and output formats.
     """
-    base_directory = os.path.join(project_base_directory, 'datasets', 'coco-2017', 'train')
+    base_directory = os.path.join(project_base_directory, 'coco-2017', 'train')
     original_data_directory = os.path.join(base_directory, 'data')
     original_labels = os.path.join(base_directory, 'labels.json')
 
     prefix = f"KAR-{image_size}-" if keep_ratio else f"{image_size}-"
-    formats_directory = os.path.join(project_base_directory, 'datasets', 'formats')
+    formats_directory = os.path.join(project_base_directory, 'formats')
     tensorflow_record_path = os.path.join(formats_directory, f'{prefix}coco-train.tfrecord')
     sharded_output_directory = os.path.join(formats_directory, f'{prefix}Sharded-Records')
     tfrecord_sharded_pattern = os.path.join(sharded_output_directory, 'coco-train-*.tfrecord')
@@ -659,13 +669,12 @@ def prepare_tfrecords(paths_dictionary: Dict[str, str], image_size: int, keep_ra
         print(f"Found existing sharded TFRecords at {sharded_output_directory}.")
 
 
-
 def benchmark_method(method_name: str, method_function: Callable, benchmark_arguments: Dict[str, Any]) -> List[float]:
     """
-    Wraps and executes a designated benchmark sequence safely.
+    Wraps and executes a designated benchmark sequence.
     
-    This function abstracts the error handling and timing mechanism away from the main logic,
-    ensuring that a single missing file or crash does not halt the entire pipeline.
+    This function abstracts the execution mechanism away from the main logic. It intentionally 
+    omits exception handling so that any dataloader failures halt execution immediately.
     
     Args:
         method_name (str): The descriptive name of the dataloader format being tested.
@@ -673,17 +682,55 @@ def benchmark_method(method_name: str, method_function: Callable, benchmark_argu
         benchmark_arguments (Dict[str, Any]): The explicit arguments to pass into the method.
         
     Returns:
-        List[float]: A list of epoch times in seconds, or an empty list if execution failed.
+        List[float]: A list of epoch times in seconds.
     """
-    try:
-        print(f"Benchmarking {method_name}...")
-        times = method_function(**benchmark_arguments)
-        if times:
-            print(f"[{method_name}] Average Time: {sum(times) / len(times):.4f} s")
-        return times
-    except Exception as error:
-        print(f"[{method_name}] Skipped due to error: {error}")
-        return []
+    print(f"Benchmarking {method_name}...")
+    times = method_function(**benchmark_arguments)
+    if times:
+        print("")
+        print_blue(f"[{method_name}] Average Time: {sum(times) / len(times):.2f} s", indent=1)
+    return times
+
+
+def save_benchmark_results(csv_file_path: str, methods_to_benchmark: List[str], results: Dict[str, List[float]], number_of_runs: int) -> None:
+    """
+    Persists the collected benchmark execution times to a CSV file for offline analysis.
+    
+    Args:
+        csv_file_path (str): The absolute or relative path where the CSV report will be written.
+        methods_to_benchmark (List[str]): The specific dataloader architectures that were actively tested.
+        results (Dict[str, List[float]]): The recorded epoch execution times mapped by dataloader strategy.
+        number_of_runs (int): The predefined number of simulated training epochs to iterate through.
+        
+    Returns:
+        None
+    """
+    with open(csv_file_path, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(methods_to_benchmark)
+
+        # Iterate across each simulated epoch to aggregate the individual run times into standardized rows
+        for _index in range(number_of_runs):
+            row = []
+            for method_name in methods_to_benchmark:
+                if _index < len(results[method_name]):
+                    value = results[method_name][_index]
+                    row.append(f"{value:.4f}")
+                else:
+                    row.append('')
+            writer.writerow(row)
+
+        # Compute and append the final average throughput times across all successful runs to conclude the benchmark report
+        average_row = []
+        for method_name in methods_to_benchmark:
+            if results[method_name]:
+                average = sum(results[method_name]) / len(results[method_name])
+                average_row.append(f"{average:.4f}")
+            else:
+                average_row.append('')
+        writer.writerow(average_row)
+
+    print(f"Results saved to {csv_file_path}")
 
 def main() -> None:
     """
@@ -695,21 +742,34 @@ def main() -> None:
     Returns:
         None
     """
-    number_of_runs = 5
+    # Define the core benchmarking parameters that govern the scale and configuration of the dataset testing
+    number_of_runs = 1
     batch_size = 20
     image_size = 1024
     keep_ratio = True
     view_images = False
-    project_base_directory = str(Path(__file__).absolute().parents[3])
 
+    # Specify the dataloader architectures that should actively be executed during the current benchmark run
+    methods_to_benchmark = [
+        'Native',
+        'TFRecord',
+        'Sharded'
+    ]
+
+    # Construct the absolute system paths required to locate the underlying dataset and to output the compiled storage formats
+    project_base_directory = str(Path(__file__).absolute().parents[3] / 'datasets')
+
+    # CSV Benchmark File
+    csv_file_path = os.path.join(project_base_directory, 'benchmark_results.csv')
+
+    # Retrieve the dynamically resolved absolute paths for the original data and generated formats
     paths_dictionary = get_dataset_paths(project_base_directory=project_base_directory, image_size=image_size,
                                          keep_ratio=keep_ratio)
 
-    # Prepare TFRecords
+    # Validate the existence of the requisite TFRecord archives, dynamically regenerating them if they are missing to guarantee smooth execution
     prepare_tfrecords(paths_dictionary=paths_dictionary, image_size=image_size, keep_ratio=keep_ratio)
 
-    # NOTE: These benchmarks can be commented out if you want to test them one by one.
-
+    # Map each dataloader strategy to its specific execution function and arguments to enable a clean, dynamic testing loop
     benchmark_argument_dictionary = {
         'Native': {
             'function': benchmark_native,
@@ -743,36 +803,20 @@ def main() -> None:
         }
     }
 
-    results = {'Native': [], 'TFRecord': [], 'Sharded': []}
+    # Initialize a tracking dictionary tailored precisely to the active methods to store the execution times of each epoch
+    results = {key: [] for key in methods_to_benchmark}
 
+    # Iterate over the predefined strategies, selectively triggering the underlying method if it is flagged for active testing
     for method_name, method_details in benchmark_argument_dictionary.items():
-        results[method_name] = benchmark_method(
-            method_name=method_name,
-            method_function=method_details['function'],
-            benchmark_arguments=method_details['arguments']
-        )
-        print("-" * 50)
+        if method_name in methods_to_benchmark:
+            results[method_name] = benchmark_method(
+                method_name=method_name,
+                method_function=method_details['function'],
+                benchmark_arguments=method_details['arguments'])
+            print("-" * 50)
 
-    csv_file_path = 'benchmark_results.csv'
-    with open(csv_file_path, 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['Native', 'TFRecord', 'Sharded'])
-
-        # Write individual run times
-        for _index in range(number_of_runs):
-            native_value = results['Native'][_index] if _index < len(results['Native']) else ''
-            tensorflow_value = results['TFRecord'][_index] if _index < len(results['TFRecord']) else ''
-            sharded_value = results['Sharded'][_index] if _index < len(results['Sharded']) else ''
-            writer.writerow([native_value, tensorflow_value, sharded_value])
-
-        # Write average times
-        native_average = sum(results['Native']) / len(results['Native']) if results['Native'] else ''
-        tensorflow_average = sum(results['TFRecord']) / len(results['TFRecord']) if results['TFRecord'] else ''
-        sharded_average = sum(results['Sharded']) / len(results['Sharded']) if results['Sharded'] else ''
-        writer.writerow([native_average, tensorflow_average, sharded_average])
-
-    print(f"Results saved to {csv_file_path}")
-
+    # Dispatch the accumulated execution results to be formalized and persisted into a CSV file
+    save_benchmark_results(csv_file_path=csv_file_path, methods_to_benchmark=methods_to_benchmark, results=results, number_of_runs=number_of_runs)
 
 if __name__ == "__main__":
     main()
