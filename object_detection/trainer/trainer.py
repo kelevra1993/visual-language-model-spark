@@ -226,12 +226,35 @@ class Trainer:
                     print_red(
                         output=f"Critical Error: Over {maximum_consecutive_errors} consecutive errors encountered "
                                f"during the fetch of the next batch. Exiting.",
-                              add_separators=True)
+                        add_separators=True)
                     print(f"Last exception: {exception}")
                     exit(1)
                 continue
 
         return data_dictionary, dataloader_iterator
+
+    def prepare_input_data(self, data_dictionary: Dict[str, Any]) -> Tuple[
+        torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
+        """
+        Extracts and casts the batched input tensors to the designated target hardware device and precision type.
+        
+        This method ensures all components of the data dictionary (images, bounding boxes, and labels)
+        are properly formatted and placed on the correct device (e.g., GPU) before executing the forward pass.
+        
+        Args:
+            data_dictionary (Dict[str, Any]): The raw dictionary output from the dataloader.
+            
+        Returns:
+            Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]: A tuple containing the casted images, 
+                bounding boxes, and labels respectively.
+        """
+        images = data_dictionary["images"].to(device=self.device, dtype=self.dtype)
+
+        bounding_boxes = [box_tensor.to(device=self.device, dtype=self.dtype) for box_tensor in
+                          data_dictionary["bounding_boxes"]]
+        labels = [label_tensor.to(device=self.device, dtype=torch.int64) for label_tensor in data_dictionary["labels"]]
+
+        return images, bounding_boxes, labels
 
     def run_benchmarking_loop(self, benchmarking_iterations: int = 1e5) -> None:
         """
@@ -250,20 +273,19 @@ class Trainer:
         validation_dataloader_iterator = iter(self.validation_dataloader)
 
         for training_iteration in tqdm(range(int(benchmarking_iterations)), desc="Benchmarking Loop"):
-
             # Get next training elements
             training_data_dictionary, training_dataloader_iterator = self.get_next_batch(
                 dataloader_iterator=training_dataloader_iterator, dataloader=self.train_dataloader)
 
-            # self.model.train()
-            # self.optimizer.zero_grad()
-            #
-            # # Forward pass For Training
-            # training_loss, _ = self.run_model_iteration(data_dictionary=training_data_dictionary,
-            #                                             writer=self.training_writer,
-            #                                             iteration=training_iteration,
-            #                                             tracker_dictionary=None)
-            #
+            self.model.train()
+            self.optimizer.zero_grad()
+
+            # Forward pass For Training
+            training_loss, _ = self.run_model_iteration(data_dictionary=training_data_dictionary,
+                                                        writer=self.training_writer,
+                                                        iteration=training_iteration,
+                                                        tracker_dictionary=None)
+
             # # Backward and Step
             # training_loss.backward()
             # self.optimizer.step()
@@ -544,43 +566,42 @@ class Trainer:
             tuple[torch.Tensor, torch.Tensor]: A tuple containing the total_loss and the model predictions.
         """
 
-        # Unpack and cast the batch to the designated target device and precision type
-        images = data_dictionary["images"].to(device=self.device, dtype=self.dtype)
-        
-        # Bounding boxes and labels are lists of tensors, move each tensor to the device
-        bounding_boxes = [box_tensor.to(device=self.device, dtype=self.dtype) for box_tensor in data_dictionary["bounding_boxes"]]
-        labels = [label_tensor.to(device=self.device, dtype=torch.int64) for label_tensor in data_dictionary["labels"]]
+        # Extract and cast the inputs to the correct hardware device and precision
+        images, bounding_boxes, labels = self.prepare_input_data(data_dictionary=data_dictionary)
 
-        # Forward pass : TODO
-        # Note: model forward pass needs to take the unpacked data, adjusting to match existing placeholder
-        model_outputs = self.model()
+        # Execute the forward pass through the object detection model
+        model_outputs = self.model(input_tensor=images,
+                                   ground_truth_bounding_boxes=bounding_boxes,
+                                   ground_truth_labels=labels)
 
-        # TODO Get total loss for backward propagations. to be tested
-        total_loss = model_outputs["total_loss"]
+        # Aggregate the individual loss components into a single total loss for backpropagation
+        total_loss = (model_outputs["region_proposal_classification_loss"] +
+                      model_outputs["region_proposal_localisation_loss"] +
+                      model_outputs["detection_classification_loss"] +
+                      model_outputs["detection_regression_loss"])
 
-        # TODO To be coded to get metric dictionary : Simple Things that are used for console logging
-        # Losses and Accuracies => Could be used for global things as well
-        metric_dictionary = {"total_loss": model_outputs}
+        # Populate the metric dictionary for TensorBoard logging and console tracking
+        metric_dictionary = {"total_loss": total_loss}
         # TODO : Think about list of True Positives
         # TODO : Think about list of False Positives
         # TODO : Think about list of True Negatives
         # TODO : Think about list of False Negatives
 
-        # Update tracker dictionary (rolling average accumulation)
-        if tracker_dictionary is not None:
-            for metric_key, metric_value in metric_dictionary.items():
-                # todo to be defined
-                if simple_metrics:
-                    # For simple metrics such as loss or accuracy
-                    tracker_dictionary[metric_key] += metric_value.item() / self.information_dump
-                else:
-                    pass
-                    # do something complicated
-
-        # Log data to tensorboard (per-iteration)
-        self.log_metrics_to_tensorboard(writer=writer,
-                                        iteration=iteration,
-                                        metric_dictionary=metric_dictionary)
+        # # Update tracker dictionary (rolling average accumulation)
+        # if tracker_dictionary is not None:
+        #     for metric_key, metric_value in metric_dictionary.items():
+        #         # todo to be defined
+        #         if simple_metrics:
+        #             # For simple metrics such as loss or accuracy
+        #             tracker_dictionary[metric_key] += metric_value.item() / self.information_dump
+        #         else:
+        #             pass
+        #             # do something complicated
+        #
+        # # Log data to tensorboard (per-iteration)
+        # self.log_metrics_to_tensorboard(writer=writer,
+        #                                 iteration=iteration,
+        #                                 metric_dictionary=metric_dictionary)
 
         return total_loss, None
 

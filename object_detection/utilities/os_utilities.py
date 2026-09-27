@@ -112,6 +112,16 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
         dtype_map = {"float32": torch.float32, "float64": torch.float64}
         experiment_configuration["dtype"] = dtype_map.get(experiment_configuration["dtype"], torch.float32)
 
+    # Convert beta values from fractions to floats
+    for section_key in ["RegionProposal", "Detector"]:
+        if section_key in model_configuration:
+            beta_value = model_configuration[section_key].get("localisation_loss_beta")
+            if isinstance(beta_value, str) and "/" in beta_value:
+                numerator, denominator = beta_value.split("/")
+                model_configuration[section_key]["localisation_loss_beta"] = float(numerator) / float(denominator)
+            elif beta_value is not None:
+                model_configuration[section_key]["localisation_loss_beta"] = float(beta_value)
+
     # Save a copy of the configuration file
     experiment_folder = experiment_configuration["experiment_folder"]
     experiment_folder.mkdir(parents=True, exist_ok=True)
