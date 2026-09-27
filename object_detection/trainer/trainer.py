@@ -91,7 +91,12 @@ class Trainer:
 
         # TODO Add more tracking to this.
         # Metric tracking
-        self.tracked_metrics_mapping = {"total_loss": f"Total Loss"}
+        self.tracked_metrics_mapping = {
+            "total_loss": "Total Loss",
+            "region_proposal_classification_loss": "RPN Classification Loss",
+            "region_proposal_localisation_loss": "RPN Regression Loss",
+            "detection_classification_loss": "Detection Classification Loss",
+            "detection_regression_loss": "Detection Regression Loss"}
 
         # Print experiment information to user so that they can know everything about the experiment
         # as well as input and output shapes of the model.
@@ -379,7 +384,8 @@ class Trainer:
             print_red(f"An Error Occurred During Training", add_separators=True)
             print(error)
         finally:
-            self.save_model(iteration=training_iteration)
+            # todo Commented just for testing so we do not save many files
+            # self.save_model(iteration=training_iteration)
             print_green(f"Model successfully saved at iteration {training_iteration}. Exiting Training.",
                         add_separators=True)
             if self.training_writer is not None:
@@ -574,36 +580,31 @@ class Trainer:
                                    ground_truth_bounding_boxes=bounding_boxes,
                                    ground_truth_labels=labels)
 
-        # Aggregate the individual loss components into a single total loss for backpropagation
-        total_loss = (model_outputs["region_proposal_classification_loss"] +
-                      model_outputs["region_proposal_localisation_loss"] +
-                      model_outputs["detection_classification_loss"] +
-                      model_outputs["detection_regression_loss"])
+        # Extract all specific losses dynamically from the model outputs using dictionary comprehension
+        metric_dictionary = {key: value for key, value in model_outputs.items() if "_loss" in key}
 
-        # Populate the metric dictionary for TensorBoard logging and console tracking
-        metric_dictionary = {"total_loss": total_loss}
+        # Aggregate the individual loss components into a single total loss for backpropagation
+        total_loss = sum(metric_dictionary.values())
+
+        # Insert the total loss into the metrics for TensorBoard logging and console tracking
+        metric_dictionary["total_loss"] = total_loss
         # TODO : Think about list of True Positives
         # TODO : Think about list of False Positives
         # TODO : Think about list of True Negatives
         # TODO : Think about list of False Negatives
 
-        # # Update tracker dictionary (rolling average accumulation)
-        # if tracker_dictionary is not None:
-        #     for metric_key, metric_value in metric_dictionary.items():
-        #         # todo to be defined
-        #         if simple_metrics:
-        #             # For simple metrics such as loss or accuracy
-        #             tracker_dictionary[metric_key] += metric_value.item() / self.information_dump
-        #         else:
-        #             pass
-        #             # do something complicated
-        #
-        # # Log data to tensorboard (per-iteration)
-        # self.log_metrics_to_tensorboard(writer=writer,
-        #                                 iteration=iteration,
-        #                                 metric_dictionary=metric_dictionary)
+        # Update tracker dictionary (rolling average accumulation)
+        if tracker_dictionary is not None:
+            for metric_key, metric_value in metric_dictionary.items():
+                if metric_key in tracker_dictionary:
+                    tracker_dictionary[metric_key] += metric_value.item() / self.information_dump
 
-        return total_loss, None
+        # Log data to tensorboard (per-iteration)
+        self.log_metrics_to_tensorboard(writer=writer,
+                                        iteration=iteration,
+                                        metric_dictionary=metric_dictionary)
+
+        return total_loss, model_outputs
 
     def save_model(self, iteration: int) -> None:
         """
@@ -772,12 +773,12 @@ class Trainer:
 
         for metric_key, display_name in self.tracked_metrics_mapping.items():
             train_value = training_tracker_dictionary[metric_key]
-            message = f"Moving Average of Train {display_name:20} : {train_value:.4f}"
+            message = f"Moving Average of Train {display_name:30} : {train_value:.4f}"
             print_blue(message)
 
             if validation_tracker_dictionary is not None:
                 validation_value = validation_tracker_dictionary[metric_key]
-                validation_message = f"Moving Average of Valid {display_name:20} : {validation_value:.4f}"
+                validation_message = f"Moving Average of Valid {display_name:30} : {validation_value:.4f}"
                 print_yellow(validation_message)
 
         duration = time.time() - training_tracker_dictionary['start_time']

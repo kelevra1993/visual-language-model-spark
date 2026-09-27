@@ -24,8 +24,8 @@ def main() -> None:
                       model_configuration=model_configuration,
                       configuration_path=experiment_configuration_path)
 
-    trainer.run_benchmarking_loop(benchmarking_iterations=1000)
-
+    # trainer.run_benchmarking_loop(benchmarking_iterations=1000)
+    trainer.run_training_loop()
 
 if __name__ == "__main__":
     main()

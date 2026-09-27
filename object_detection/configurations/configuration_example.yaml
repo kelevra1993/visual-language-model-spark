@@ -10,7 +10,7 @@ ExperimentConfiguration:
   # Number of images processed in a single forward/backward pass.
   batch_size: 20
   # Frequency (in iterations) to log performance metrics.
-  information_dump: 5000
+  information_dump: 5
   # Frequency (in iterations) to checkpoint the model weights.
   weight_saving_iterations: 20000
   # Total number of training iterations before stopping.
