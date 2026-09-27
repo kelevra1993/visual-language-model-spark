@@ -1,14 +1,12 @@
 ExperimentConfiguration:
   # Directory where experiment artifacts, weights, and logs are saved.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/poseidon_experiment"
-  # Root directory containing the dataset images.
-  data_folder: ""
-  # JSON file containing the training dataset split.
-  train_split_file: ""
-  # JSON file containing the validation dataset split.
-  validation_split_file: ""
-  # JSON file containing the test dataset split.
-  test_split_file: ""
+  # Root directory containing the training dataset images and labels.json annotation file.
+  train_data_folder: ""
+  # Root directory containing the validation dataset images and labels.json annotation file.
+  validation_data_folder: ""
+  # Root directory containing the test dataset images and labels.json annotation file.
+  test_data_folder: ""
   # Number of images processed in a single forward/backward pass.
   batch_size: 8
   # Frequency (in iterations) to log performance metrics.
@@ -39,10 +37,10 @@ Data:
   DALI:
     # Flag to enable the NVIDIA DALI hardware-accelerated pipeline.
     # Note: When activated, this overrides TFRecord and Native PyTorch loaders.
-    activated: False
+    activated: True
   TFRecord:
     # Flag to enable the TFRecord data pipeline for faster sequential batching.
-    activated: True
+    activated: False
     # Flag to indicate if the TFRecord dataset is distributed across multiple shard files.
     sharded: True
     # Total number of individual shard files the dataset is partitioned into.
