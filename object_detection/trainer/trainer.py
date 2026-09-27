@@ -45,7 +45,7 @@ class Trainer:
         self.model_configuration = model_configuration
 
         # Get specific configurations
-        self.data_configuration = model_configuration.get("Data")
+        self.data_configuration = model_configuration["Data"]
 
         # Get device and dtype
         self.device = get_device()
@@ -78,7 +78,6 @@ class Trainer:
         self.validation_writer = None
 
         # Setting up dataloaders
-        self.dataset_folder = self.experiment_configuration["dataset_folder"]
         (self.train_dataloader, self.validation_dataloader, self.test_dataloader,
          self.waiting_for_tfrecords) = self.get_trainer_data_loaders()
 
@@ -146,20 +145,17 @@ class Trainer:
             None
         """
 
-        dataset_path = Path(self.experiment_configuration["data_folder"])
-
         print_yellow("=== Experiment Launch Information ===", add_separators=True)
-        print_blue(f"- Tensorboard Directory : file://{self.tensorboard_directory.absolute()}")
-        print_blue(f"- Weights Directory     : file://{self.weights_directory.absolute()}")
-        print_blue(f"- Dataset Root Folder   : file://{dataset_path.absolute()}")
-        print_blue(f"- Configuration File    : file://{self.configuration_path.absolute()}")
-        print_blue(f"- Train Dataset         : file://{self.experiment_configuration.get('train_split_file')}")
-        print_blue(f"- Validation Dataset    : file://{self.experiment_configuration.get('validation_split_file')}")
-        print_blue(f"- Test Dataset          : file://{self.experiment_configuration.get('test_split_file')}")
-        print_blue(f"- Batch Size            : {self.batch_size}")
-        print_blue(f"- Total Iterations      : {self.training_iterations}")
-        print_blue(f"- Learning Rate         : {self.learning_rate}")
-        print_blue(f"- Resume Training       : {self.resume_training}")
+        print_blue(f"- Tensorboard Directory   : file://{self.tensorboard_directory.absolute()}")
+        print_blue(f"- Weights Directory       : file://{self.weights_directory.absolute()}")
+        print_blue(f"- Configuration File      : file://{self.configuration_path.absolute()}")
+        print_blue(f"- Train Data Folder       : file://{self.experiment_configuration['train_data_folder']}")
+        print_blue(f"- Validation Data Folder  : file://{self.experiment_configuration['validation_data_folder']}")
+        print_blue(f"- Test Data Folder        : file://{self.experiment_configuration['test_data_folder']}")
+        print_blue(f"- Batch Size              : {self.batch_size}")
+        print_blue(f"- Total Iterations        : {self.training_iterations}")
+        print_blue(f"- Learning Rate           : {self.learning_rate}")
+        print_blue(f"- Resume Training         : {self.resume_training}")
 
     def setup_tensorboard_writers(self) -> Tuple[SummaryWriter, Optional[SummaryWriter]]:
         """
@@ -257,32 +253,32 @@ class Trainer:
             training_data_dictionary, training_dataloader_iterator = self.get_next_batch(
                 dataloader_iterator=training_dataloader_iterator, dataloader=self.train_dataloader)
 
-            self.model.train()
-            self.optimizer.zero_grad()
-
-            # Forward pass For Training
-            training_loss, _ = self.run_model_iteration(data_dictionary=training_data_dictionary,
-                                                        writer=self.training_writer,
-                                                        iteration=training_iteration,
-                                                        tracker_dictionary=None)
-
-            # Backward and Step
-            training_loss.backward()
-            self.optimizer.step()
-
-            # Validation phase
-            if self.compute_validation_iteration:
-                # Get next validation elements
-                validation_data_dictionary, validation_dataloader_iterator = self.get_next_batch(
-                    dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader)
-
-                self.model.eval()
-                with torch.no_grad():
-                    # Forward pass For Validation
-                    _, _ = self.run_model_iteration(data_dictionary=validation_data_dictionary,
-                                                    writer=self.validation_writer,
-                                                    iteration=training_iteration,
-                                                    tracker_dictionary=None)
+            # self.model.train()
+            # self.optimizer.zero_grad()
+            #
+            # # Forward pass For Training
+            # training_loss, _ = self.run_model_iteration(data_dictionary=training_data_dictionary,
+            #                                             writer=self.training_writer,
+            #                                             iteration=training_iteration,
+            #                                             tracker_dictionary=None)
+            #
+            # # Backward and Step
+            # training_loss.backward()
+            # self.optimizer.step()
+            #
+            # # Validation phase
+            # if self.compute_validation_iteration:
+            #     # Get next validation elements
+            #     validation_data_dictionary, validation_dataloader_iterator = self.get_next_batch(
+            #         dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader)
+            #
+            #     self.model.eval()
+            #     with torch.no_grad():
+            #         # Forward pass For Validation
+            #         _, _ = self.run_model_iteration(data_dictionary=validation_data_dictionary,
+            #                                         writer=self.validation_writer,
+            #                                         iteration=training_iteration,
+            #                                         tracker_dictionary=None)
 
     # todo to be properly implemented !!!
     def run_training_loop(self) -> None:
@@ -416,23 +412,28 @@ class Trainer:
         keep_ratio = image_settings["keep_ratio"]
         prefix = f"KAR-{image_size}-" if keep_ratio else f"{image_size}-"
 
-        data_dir = self.experiment_configuration["data_folder"]
         is_sharded = data_configuration["TFRecord"]["sharded"]
-        num_shards = data_configuration["TFRecord"].get("number_shards", 10)
+        number_of_shards = data_configuration["TFRecord"]["number_shards"]
 
-        splits = ["Train", "Validation", "Test"]
+        # Map each split to its corresponding root folder for verification
+        split_folder_mapping = {
+            "Train": str(self.experiment_configuration["train_data_folder"]),
+            "Validation": str(self.experiment_configuration["validation_data_folder"]),
+            "Test": str(self.experiment_configuration["test_data_folder"]),
+        }
+
         all_ready = True
 
-        for split in splits:
+        for split_name, split_data_folder in split_folder_mapping.items():
             if is_sharded:
-                sharded_dir = os.path.join(data_dir, f"{prefix}Sharded-Records-{split}")
-                shards = glob.glob(os.path.join(sharded_dir, f"shard-*.tfrecord"))
-                final_shards = [f for f in shards if "Buffer-" not in f]
-                if len(final_shards) < num_shards:
+                sharded_directory = os.path.join(split_data_folder, f"{prefix}Sharded-Records-{split_name}")
+                shards = glob.glob(os.path.join(sharded_directory, f"shard-*.tfrecord"))
+                final_shards = [file_path for file_path in shards if "Buffer-" not in file_path]
+                if len(final_shards) < number_of_shards:
                     all_ready = False
                     break
             else:
-                tfrecord_path = os.path.join(data_dir, f"{prefix}{split}.tfrecord")
+                tfrecord_path = os.path.join(split_data_folder, f"{prefix}{split_name}.tfrecord")
                 if not os.path.exists(tfrecord_path) or "Buffer-" in tfrecord_path:
                     all_ready = False
                     break
