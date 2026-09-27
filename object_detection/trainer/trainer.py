@@ -767,9 +767,20 @@ class Trainer:
         Returns:
             Dict[str, Any]: A fresh training tracker dictionary for the next interval.
         """
-        print_length = 60
+        print_length = 100
+        print("=" * print_length)
+        
+        # Calculate image scale and throughput metrics
+        total_images = iterations * self.batch_size
+        interval_images = self.information_dump * self.batch_size
+        duration = time.time() - training_tracker_dictionary['start_time']
+        images_per_second = interval_images / max(duration, 0.001)
+        
+        # Display the formatted summary header
+        header = (f"| Iteration: {iterations:<6} | Total Images: {total_images:<8} "
+                  f"| Interval Images: {interval_images:<6} | Throughput: {images_per_second:.1f} imgs/sec |")
+        print(header)
         print("-" * print_length)
-        print(f"Iteration: {iterations}")
 
         for metric_key, display_name in self.tracked_metrics_mapping.items():
             train_value = training_tracker_dictionary[metric_key]
@@ -781,9 +792,9 @@ class Trainer:
                 validation_message = f"Moving Average of Valid {display_name:30} : {validation_value:.4f}"
                 print_yellow(validation_message)
 
-        duration = time.time() - training_tracker_dictionary['start_time']
-        print(f"These {self.information_dump} iterations took {duration:.2f} seconds")
         print("-" * print_length)
+        print(f"Interval of {self.information_dump} iterations took {duration:.2f} seconds.")
+        print("=" * print_length)
 
         return self.get_metric_trackers()
 
