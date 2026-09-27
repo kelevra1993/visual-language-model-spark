@@ -700,8 +700,8 @@ def create_tfrecord_sharded(data_directory: str, labels_file: str, output_direct
             os.rename(src=buffer_shard_path, dst=final_shard_path)
 
 
-def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
-                   experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
+def get_dataloader(split_name: str, split_data_folder: str, dataset_prefix: str,
+                   model_configuration: Dict[str, Any],
                    batch_size: int, number_of_workers: int) -> Tuple[DataLoader, bool]:
     """
     Instantiates and retrieves the appropriate DataLoader for designated data within the machine learning pipeline.
@@ -710,9 +710,8 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
 
     Args:
         split_name (str): The name of the split (e.g., 'Train', 'Validation', 'Test').
-        split_file (str): The absolute path to the JSON file containing the dataset annotations for this split.
+        split_data_folder (str): The root folder for this split, containing a 'data/' subfolder and a 'labels.json'.
         dataset_prefix (str): The standardized prefix identifying the preprocessing configuration.
-        experiment_configuration (Dict[str, Any]): The overall experiment configuration including data paths.
         model_configuration (Dict[str, Any]): The model-specific configuration detailing data loading preferences.
         batch_size (int): The number of samples to include in each batch.
         number_of_workers (int): The number of parallel subprocesses to allocate for data loading.
@@ -735,12 +734,14 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
     image_size = image_settings["size"]
     keep_ratio = image_settings["keep_ratio"]
 
-    data_directory = experiment_configuration["data_folder"]
+    # Derive the physical image directory and annotation file from the split folder convention
+    data_directory = os.path.join(split_data_folder, "data")
+    labels_file = os.path.join(split_data_folder, "labels.json")
 
     tfrecord_filename = f"{dataset_prefix}{split_name}.tfrecord"
-    tfrecord_path = os.path.join(data_directory, tfrecord_filename)
+    tfrecord_path = os.path.join(split_data_folder, tfrecord_filename)
 
-    sharded_directory = os.path.join(data_directory, f"{dataset_prefix}Sharded-Records-{split_name}")
+    sharded_directory = os.path.join(split_data_folder, f"{dataset_prefix}Sharded-Records-{split_name}")
     sharded_pattern = os.path.join(sharded_directory, f"shard-*.tfrecord")
 
     dataset = None
@@ -748,7 +749,7 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
 
     # If DALI is activated, bypass all other dataloaders and initialize the GPU-accelerated pipeline
     if use_dali:
-        pipeline = dali_pipeline(data_directory=data_directory, annotations_file=split_file, image_size=image_size,
+        pipeline = dali_pipeline(data_directory=data_directory, annotations_file=labels_file, image_size=image_size,
                                  keep_ratio=keep_ratio, batch_size=batch_size, num_threads=number_of_workers,
                                  device_id=0)
         pipeline.build()
@@ -785,7 +786,7 @@ def get_dataloader(split_name: str, split_file: str, dataset_prefix: str,
     # Instantiate the standard PyTorch Native dataset if TFRecords are disabled or missing,
     # ensuring training can commence immediately
     if dataset is None:
-        dataset = NativeDataset(data_directory=data_directory, labels_file=split_file, image_size=image_size,
+        dataset = NativeDataset(data_directory=data_directory, labels_file=labels_file, image_size=image_size,
                                 keep_ratio=keep_ratio)
 
     # Determine if the dataset streams data to properly configure the shuffle parameter
@@ -823,31 +824,35 @@ def get_dataloaders(experiment_configuration: Dict[str, Any],
 
     dataset_prefix = get_dataset_prefix(image_size=image_size, keep_ratio=keep_ratio)
 
+    # Map each split name to its corresponding root folder containing images and labels.json
+    split_folder_mapping = {
+        "Train": str(experiment_configuration["train_data_folder"]),
+        "Validation": str(experiment_configuration["validation_data_folder"]),
+        "Test": str(experiment_configuration["test_data_folder"]),
+    }
+
     # Get Train dataloader and fallback to native boolean indicating that the tfrecord might need to be created,
     # if we were looking for a tfrecord.
     train_loader, train_fallback = get_dataloader(
         split_name="Train",
-        split_file=experiment_configuration["train_split_file"],
+        split_data_folder=split_folder_mapping["Train"],
         dataset_prefix=dataset_prefix,
-        experiment_configuration=experiment_configuration,
         model_configuration=model_configuration,
         batch_size=batch_size, number_of_workers=number_of_workers)
 
     # Get validation dataloader
     validation_loader, validation_fallback = get_dataloader(
         split_name="Validation",
-        split_file=experiment_configuration["validation_split_file"],
+        split_data_folder=split_folder_mapping["Validation"],
         dataset_prefix=dataset_prefix,
-        experiment_configuration=experiment_configuration,
         model_configuration=model_configuration,
         batch_size=batch_size, number_of_workers=number_of_workers)
 
     # Get test dataloader
     test_loader, test_fallback = get_dataloader(
         split_name="Test",
-        split_file=experiment_configuration["test_split_file"],
+        split_data_folder=split_folder_mapping["Test"],
         dataset_prefix=dataset_prefix,
-        experiment_configuration=experiment_configuration,
         model_configuration=model_configuration,
         batch_size=batch_size, number_of_workers=number_of_workers)
 
@@ -863,16 +868,16 @@ def get_dataloaders(experiment_configuration: Dict[str, Any],
 
         # Build the exact argument list for the dedicated creator script to mirror the current configuration
         command = [sys.executable, creator_script_path,
-                   "--data_folder", experiment_configuration["data_folder"],
                    "--image_size", str(image_size),
                    "--keep_ratio", str(keep_ratio),
                    "--is_sharded", str(data_configuration["TFRecord"]["sharded"]),
                    "--number_of_shards", str(number_of_shards),
                    "--prefix", dataset_prefix,
-                   "--train_split", experiment_configuration["train_split_file"],
-                   "--validation_split", experiment_configuration["validation_split_file"],
-                   "--test_split", experiment_configuration["test_split_file"]]
+                   "--train_data_folder", split_folder_mapping["Train"],
+                   "--validation_data_folder", split_folder_mapping["Validation"],
+                   "--test_data_folder", split_folder_mapping["Test"]]
 
         subprocess.Popen(args=command, start_new_session=True)
 
     return train_loader, validation_loader, test_loader, waiting_for_tfrecords
+
