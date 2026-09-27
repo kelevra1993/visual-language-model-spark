@@ -192,40 +192,42 @@ class Trainer:
         return train_dataloader, validation_dataloader, test_dataloader, waiting_for_tfrecords
 
     @staticmethod
-    def get_next_batch(dataloader_iterator: _BaseDataLoaderIter, dataloader: DataLoader) -> Tuple[
-        torch.Tensor, torch.Tensor, _BaseDataLoaderIter]:
+    def get_next_batch(dataloader_iterator: _BaseDataLoaderIter, dataloader: DataLoader,
+                       maximum_consecutive_errors: int = 10) -> Tuple[Dict[str, Any], _BaseDataLoaderIter]:
         """
-        # todo to be changed since we will make these functions more generalizable for any type of training
-        #   thus the use of dictionaries for returns. Must be properly documented
-        Retrieves the next batch of images, labels, bounding_boxes and masks from the dataloader iterator.
-
-        If the iterator is exhausted, it re-initializes it from the dataloader.
-        If a FileNotFoundError is encountered during data loading, it continues attempting
-        to fetch the next available batch, up to a maximum of 10 consecutive failures.
+        Retrieves the next batch of elements from the dataloader iterator for the training or evaluation pipeline.
+        
+        If the iterator is exhausted, it gracefully re-initializes it from the original dataloader.
+        If an exception is encountered during data loading, it continues attempting to fetch the 
+        next available batch, up to a maximum number of consecutive failures.
 
         Args:
             dataloader_iterator (_BaseDataLoaderIter): The current iterator for the dataloader.
-            dataloader (DataLoader): The original dataloader object to reset the iterator.
+            dataloader (DataLoader): The original dataloader object used to reset the iterator.
+            maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before exiting. Defaults to 10.
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor, iter]: A tuple containing the batch of images,
-                the batch of masks, and the potentially refreshed iterator.
+            Tuple[Dict[str, Any], _BaseDataLoaderIter]: A tuple containing the batch data dictionary,
+                and the potentially refreshed dataloader iterator.
 
         Raises:
-            SystemExit: If more than 10 consecutive FileNotFoundError occur.
+            SystemExit: If more than maximum_consecutive_errors consecutive exceptions occur.
         """
-        missing_files_count = 0
+        error_counts = 0
         while True:
             try:
                 data_dictionary = next(dataloader_iterator)
                 break
             except StopIteration:
                 dataloader_iterator = iter(dataloader)
-            except FileNotFoundError:
-                missing_files_count += 1
-                if missing_files_count > 10:
-                    print_red("Critical Error: Over 10 consecutive missing files encountered. Exiting.",
+            except Exception as exception:
+                error_counts += 1
+                if error_counts > maximum_consecutive_errors:
+                    print_red(
+                        output=f"Critical Error: Over {maximum_consecutive_errors} consecutive errors encountered "
+                               f"during the fetch of the next batch. Exiting.",
                               add_separators=True)
+                    print(f"Last exception: {exception}")
                     exit(1)
                 continue
 
