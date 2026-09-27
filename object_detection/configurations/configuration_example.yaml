@@ -16,7 +16,7 @@ ExperimentConfiguration:
   # Total number of training iterations before stopping.
   number_iterations: 1e10
   # Flag to determine whether validation metrics are computed during training.
-  compute_validation_iteration: false
+  compute_validation_iteration: true
   # Base learning rate used by the optimizer.
   learning_rate: 2.0e-4
   # Global tensor data type (e.g., "float32" or "float16").
@@ -97,10 +97,10 @@ Backbone:
   # Second axis : Number of output filters per kernel per convolution Block
   convolutions:
     {
-      "1": [ 1, 64 ],
-      "2": [ 2, 64 ],
-      "3": [ 2, 64 ],
-      "4": [ 4, 64 ],
+      "1": [ 1, 16 ],
+      "2": [ 2, 16 ],
+      "3": [ 2, 32 ],
+      "4": [ 4, 32 ],
       "5": [ 5, 64 ],
       "6": [ 5, 64 ],
       "7": [ 5, 64 ],

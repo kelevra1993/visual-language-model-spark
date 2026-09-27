@@ -317,6 +317,7 @@ class Model(nn.Module):
         aggregated_detection_boxes = []
         aggregated_batch_indices = []
 
+        has_labels = False
         for detection_index_string, predictions in detection_output_dictionary.items():
             aggregated_scores.append(predictions["classification_scores"])
             aggregated_regressions.append(predictions["box_regressions"])
@@ -324,7 +325,11 @@ class Model(nn.Module):
             aggregated_batch_indices.append(predictions["sliced_batch_indices"])
             aggregated_detection_boxes.append(predictions["detection_boxes"])
 
-            if self.training:
+            # During both training and validation (when ground truth is available), we extract the targets
+            # to compute the network's loss metrics. This condition dynamically passes targets through if they exist
+            # instead of restricting them strictly to the training phase via a rigid 'self.training' check.
+            if predictions.get("sliced_labels") is not None:
+                has_labels = True
                 aggregated_labels.append(predictions["sliced_labels"])
                 aggregated_regression_targets.append(predictions["sliced_regression_targets"])
 
@@ -334,9 +339,9 @@ class Model(nn.Module):
             "detection_boxes": torch.cat(tensors=aggregated_detection_boxes, dim=0),
             "sliced_batch_indices": torch.cat(tensors=aggregated_batch_indices, dim=0),
             "sliced_proposals": torch.cat(tensors=aggregated_proposals, dim=0),
-            "sliced_labels": torch.cat(tensors=aggregated_labels, dim=0) if self.training else None,
+            "sliced_labels": torch.cat(tensors=aggregated_labels, dim=0) if has_labels else None,
             "sliced_regression_targets": torch.cat(tensors=aggregated_regression_targets,
-                                                   dim=0) if self.training else None}
+                                                   dim=0) if has_labels else None}
 
     def _rearrange_predictions_by_batch(self, batch_size: int, detection_batch_indices: torch.Tensor,
                                         prediction_tensors_dictionary: Dict[str, Optional[torch.Tensor]],
@@ -526,7 +531,7 @@ class Model(nn.Module):
         batch_indices = torch.arange(start=0, end=batch_size, device=self.device,
                                      dtype=self.dtype).view(-1, 1).expand(batch_size, num_proposals)
 
-        if self.training and ground_truth_bounding_boxes is not None:
+        if ground_truth_bounding_boxes is not None:
             # First assign targets based on ground truth bounding boxes
             # Here we consider only the filtered proposal boxes from the NMS based on all ground truth boxes
             # TODO Find out if this is the right approach.
@@ -751,10 +756,10 @@ class Model(nn.Module):
             prediction_tensors_dictionary=aggregated_detections_dictionary,
             verbose=self.verbose)
 
-        # Train -> Loss Computation :
+        # Train, Validation and Test -> Loss Computation :
         # - For Region Proposal
         # - For Detection
-        if self.training and ground_truth_bounding_boxes is not None:
+        if ground_truth_bounding_boxes is not None:
             # Region Proposal Losses
             (region_proposal_classification_loss,
              region_proposal_localisation_loss) = self._compute_region_proposal_losses(

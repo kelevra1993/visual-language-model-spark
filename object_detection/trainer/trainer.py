@@ -16,7 +16,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from model.model import Model
-from utilities.tensor_utilities import get_device
+from utilities.tensor_utilities import get_device, print_tensor_list
 from utilities.os_utilities import print_blue, print_yellow, print_red, print_green
 
 
@@ -290,19 +290,19 @@ class Trainer:
             training_loss.backward()
             self.optimizer.step()
 
-            # # Validation phase
-            # if self.compute_validation_iteration:
-            #     # Get next validation elements
-            #     validation_data_dictionary, validation_dataloader_iterator = self.get_next_batch(
-            #         dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader)
-            #
-            #     self.model.eval()
-            #     with torch.no_grad():
-            #         # Forward pass For Validation
-            #         _, _ = self.run_model_iteration(data_dictionary=validation_data_dictionary,
-            #                                         writer=self.validation_writer,
-            #                                         iteration=training_iteration,
-            #                                         tracker_dictionary=None)
+            # Validation phase
+            if self.compute_validation_iteration:
+                # Get next validation elements
+                validation_data_dictionary, validation_dataloader_iterator = self.get_next_batch(
+                    dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader)
+
+                self.model.eval()
+                with torch.no_grad():
+                    # Forward pass For Validation
+                    _, _ = self.run_model_iteration(data_dictionary=validation_data_dictionary,
+                                                    writer=self.validation_writer,
+                                                    iteration=training_iteration,
+                                                    tracker_dictionary=None)
 
     # todo to be properly implemented !!!
     def run_training_loop(self) -> None:
