@@ -310,9 +310,12 @@ class Trainer:
                                                     tracker_dictionary=None)
 
     # todo to be properly implemented !!!
-    def run_training_loop(self) -> None:
+    def run_training_loop(self, maximum_consecutive_errors: int = 5) -> None:
         """
         Executes the main training loop for the models.
+
+        Args:
+            maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before the training loop exits.
         """
         # Initialize tensorboard writers right before training starts
         self.training_writer, self.validation_writer = self.setup_tensorboard_writers()
@@ -328,11 +331,14 @@ class Trainer:
 
         # Get current training iteration
         training_iteration = self.start_iteration
-        try:
-            for training_iteration in range(self.start_iteration, self.training_iterations + self.start_iteration, 1):
+        consecutive_errors = 0
+
+        for training_iteration in range(self.start_iteration, self.training_iterations + self.start_iteration, 1):
+            try:
                 if training_iteration % self.weight_saving_iterations == 0:
                     self.save_model(iteration=training_iteration)
-                    self.run_test_evaluation(iteration=training_iteration)
+                    # todo commented out for now because it is not properly implemented
+                    # self.run_test_evaluation(iteration=training_iteration)
 
                 # Get next training elements
                 training_data_dictionary, training_dataloader_iterator = self.get_next_batch(
@@ -378,20 +384,35 @@ class Trainer:
                     if getattr(self, "waiting_for_tfrecords", False):
                         self.check_and_restart_for_tfrecords(iteration=training_iteration)
 
-        except KeyboardInterrupt:
-            print_red(f"Training Interrupted by User at iteration {training_iteration}.", add_separators=True)
-        except Exception as error:
-            print_red(f"An Error Occurred During Training", add_separators=True)
-            print(error)
-        finally:
-            # todo Commented just for testing so we do not save many files
-            # self.save_model(iteration=training_iteration)
-            print_green(f"Model successfully saved at iteration {training_iteration}. Exiting Training.",
-                        add_separators=True)
-            if self.training_writer is not None:
-                self.training_writer.close()
-            if self.compute_validation_iteration and self.validation_writer is not None:
-                self.validation_writer.close()
+                # Reset the consecutive errors counter after a fully successful iteration
+                consecutive_errors = 0
+
+            except KeyboardInterrupt:
+                print_red(f"Training Interrupted by User at iteration {training_iteration}.", add_separators=True)
+                break
+            except Exception as error:
+                # Increment error counter when an exception occurs inside the training iteration loop
+                consecutive_errors += 1
+
+                if consecutive_errors > maximum_consecutive_errors:
+                    print_red(f"Critical Error: Over {maximum_consecutive_errors} consecutive errors "
+                              f"encountered during training iterations. Exiting.", add_separators=True)
+                    print(f"Last exception: {error}")
+                    break
+                else:
+                    print_yellow(f"Error encountered during iteration {training_iteration}."
+                                 f" Continuing... (Consecutive Errors: {consecutive_errors}/{maximum_consecutive_errors})",
+                                 add_separators=True)
+                    print(f"Exception: {error}")
+                    continue
+
+        self.save_model(iteration=training_iteration)
+        print_green(f"Model successfully saved at iteration {training_iteration}. Exiting Training.",
+                    add_separators=True)
+        if self.training_writer is not None:
+            self.training_writer.close()
+        if self.compute_validation_iteration and self.validation_writer is not None:
+            self.validation_writer.close()
 
     def run_test_evaluation(self, iteration: int) -> None:
         """
@@ -769,13 +790,13 @@ class Trainer:
         """
         print_length = 100
         print("=" * print_length)
-        
+
         # Calculate image scale and throughput metrics
         total_images = iterations * self.batch_size
         interval_images = self.information_dump * self.batch_size
         duration = time.time() - training_tracker_dictionary['start_time']
         images_per_second = interval_images / max(duration, 0.001)
-        
+
         # Display the formatted summary header
         header = (f"| Iteration: {iterations:<6} | Total Images: {total_images:<8} "
                   f"| Interval Images: {interval_images:<6} | Throughput: {images_per_second:.1f} imgs/sec |")
