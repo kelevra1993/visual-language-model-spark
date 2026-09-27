@@ -535,7 +535,7 @@ def main() -> None:
     training loop with the fastest possible dataloader.
     """
     # Core execution configuration
-    number_of_runs = 2
+    number_of_runs = 20
     batch_size = 20
     image_size = 1024
     keep_ratio = True
@@ -544,7 +544,7 @@ def main() -> None:
 
     # Specify the dataloader architectures that should actively be executed during the current benchmark run
     methods_to_benchmark = [
-        # 'Native',
+        'Native',
         'TFRecord',
         'Sharded',
         'DALI'
