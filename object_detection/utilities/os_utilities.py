@@ -122,6 +122,28 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
             elif beta_value is not None:
                 model_configuration[section_key]["localisation_loss_beta"] = float(beta_value)
 
+    # Process label mapping dynamically to inject label_dictionary
+    if "Data" in model_configuration and "label_mapping" in model_configuration["Data"]:
+        label_mapping = model_configuration["Data"]["label_mapping"]
+        mode = label_mapping.get("mode", "binary")
+        model_configuration["Data"]["label_mode"] = mode
+        
+        if mode == "binary":
+            model_configuration["Data"]["label_dictionary"] = {"background": 0, "foreground": 1}
+        elif mode == "multi_class":
+            mapping_path = label_mapping.get("mapping_file_path")
+            if mapping_path and os.path.exists(mapping_path):
+                with open(mapping_path, "r") as file:
+                    raw_mapping = json.load(file)
+                    # Convert string keys to int if they are digits for easier mapping during data loading
+                    parsed_mapping = {int(k) if str(k).isdigit() else k: v for k, v in raw_mapping.items()}
+                    # Ensure background is accounted for
+                    if "background" not in parsed_mapping and 0 not in parsed_mapping.values():
+                        parsed_mapping["background"] = 0
+                    model_configuration["Data"]["label_dictionary"] = parsed_mapping
+            else:
+                raise FileNotFoundError(f"Label mapping file not found at: {mapping_path}")
+
     # Save a copy of the configuration file
     experiment_folder = experiment_configuration["experiment_folder"]
     experiment_folder.mkdir(parents=True, exist_ok=True)

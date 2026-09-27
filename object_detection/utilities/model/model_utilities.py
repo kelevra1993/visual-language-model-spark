@@ -312,6 +312,16 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
                                      (1.0 = foreground, 0.0 = background, -1.0 = ignored).
     """
 
+    # Intercept images completely lacking valid ground truth boxes (due to filtering or native empty sets)
+    # PyTorch's max() reduction will crash if it attempts to operate on a zero-length dimension.
+    # We safely bypass the IoU matrix matching and strictly assign all generated anchors to the background.
+    if ground_truth_boxes.size(0) == 0:
+        matched_ground_truth_boxes = torch.zeros_like(anchors)
+        # Background gets label 0.0, ignore gets -1.0. We can safely set all to background or ignore.
+        # Setting to background (0.0) means RPN is penalized for ANY proposal.
+        labels = torch.zeros(anchors.size(0), dtype=torch.float32, device=anchors.device)
+        return matched_ground_truth_boxes, labels
+
     # Shape: [number_of_ground_truths, number_of_anchors]
     intersection_over_union_matrix = get_intersection_over_union(boxes_1=ground_truth_boxes, boxes_2=anchors)
 
@@ -583,6 +593,14 @@ def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor,
             - target_labels (torch.Tensor): The assigned class labels for each proposal (0 for background) of shape [Num_Proposals].
     """
     # Note to self to check afterwards : ground truth boxes and labels should have the same first dimension shape which are the number of ground truth boxes in the image
+
+    # Intercept images completely lacking valid ground truth boxes (due to filtering or native empty sets)
+    # PyTorch's max() reduction will crash if it attempts to operate on a zero-length dimension.
+    # We safely bypass the IoU matrix matching and map all generated proposals strictly to the background class.
+    if ground_truth_boxes.size(0) == 0:
+        target_ground_truth_boxes = torch.zeros_like(proposals)
+        target_labels = torch.zeros(proposals.size(0), dtype=torch.int64, device=proposals.device)
+        return target_ground_truth_boxes, target_labels
 
     # Shape: [number_of_ground_truths, number_of_proposals]
     intersection_over_union_matrix = get_intersection_over_union(boxes_1=ground_truth_boxes, boxes_2=proposals)

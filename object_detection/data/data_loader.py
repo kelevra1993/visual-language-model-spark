@@ -123,7 +123,7 @@ class NativeDataset(Dataset):
     """
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
-                 shuffle: bool = True) -> None:
+                 label_mode: str, label_dictionary: Dict[str, Any], shuffle: bool = True) -> None:
         """
         Initializes the Native dataset and parses the JSON file.
 
@@ -132,11 +132,15 @@ class NativeDataset(Dataset):
             labels_file (str): The absolute path to the JSON file containing the annotations.
             image_size (int): The target height and width for the scaled images.
             keep_ratio (bool): Whether to maintain the aspect ratio during scaling by padding.
+            label_mode (str): Mode for class assignment ("binary" or "multi_class").
+            label_dictionary (Dict[str, Any]): Dictionary to map raw classes.
             shuffle (bool): Whether to randomly shuffle the dataset internally. Defaults to True.
         """
         self.data_directory = data_directory
         self.image_size = image_size
         self.keep_ratio = keep_ratio
+        self.label_mode = label_mode
+        self.label_dictionary = label_dictionary
 
         # Parse the JSON annotation file into memory for rapid preprocessing
         with open(file=labels_file, mode='r') as file_handler:
@@ -189,11 +193,21 @@ class NativeDataset(Dataset):
         bounding_boxes = []
         labels = []
         for annotation in image_annotations:
-            x_coordinate, y_coordinate, width, height = annotation['bbox']
-            bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
-            labels.append(annotation['category_id'])
+            raw_id = annotation['category_id']
+            if self.label_mode == "binary":
+                mapped_label = 1 if raw_id > 0 else 0
+            else:
+                mapped_label = self.label_dictionary.get(raw_id, self.label_dictionary.get(str(raw_id), 0))
 
-        bounding_boxes_numpy = np.array(object=bounding_boxes, dtype=np.float32)
+            if mapped_label > 0:
+                x_coordinate, y_coordinate, width, height = annotation['bbox']
+                bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
+                labels.append(mapped_label)
+
+        if len(bounding_boxes) == 0:
+            bounding_boxes_numpy = np.zeros(shape=(0, 4), dtype=np.float32)
+        else:
+            bounding_boxes_numpy = np.array(object=bounding_boxes, dtype=np.float32)
 
         # Dynamically scale the image and calculate the corresponding adjustments for the bounding boxes
         resized_image, resized_bounding_boxes = preprocess_image_and_boxes(image=image,
@@ -217,16 +231,21 @@ class TFRecordDataset(IterableDataset):
     It streams records directly from the disk using tensorflow.data for maximum efficiency.
     """
 
-    def __init__(self, tensorflow_record_path: str, buffer_size: int) -> None:
+    def __init__(self, tensorflow_record_path: str, buffer_size: int,
+                 label_mode: str, label_dictionary: Dict[str, Any]) -> None:
         """
         Initializes the TFRecord iterable dataset.
 
         Args:
             tensorflow_record_path (str): The absolute path to the TFRecord archive file.
             buffer_size (int): The number of bytes in the read buffer.
+            label_mode (str): Mode for class assignment ("binary" or "multi_class").
+            label_dictionary (Dict[str, Any]): Dictionary to map raw classes.
         """
         self.tensorflow_record_path = tensorflow_record_path
         self.buffer_size = buffer_size
+        self.label_mode = label_mode
+        self.label_dictionary = label_dictionary
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """
@@ -251,6 +270,23 @@ class TFRecordDataset(IterableDataset):
             image_numpy = image.numpy()
             boxes_numpy = bounding_boxes.numpy()
             labels_numpy = labels.numpy()
+
+            # Apply dynamic label mapping and filter out backgrounds
+            if self.label_mode == "binary":
+                labels_numpy = np.where(labels_numpy > 0, 1, 0)
+            else:
+                # Iterate through each raw label and retrieve the updated mapped class index from the dictionary.
+                # To defend against JSON parsers loading integer keys as strings, we perform a dual lookup:
+                # first attempting an integer cast, then a string cast, before finally defaulting to the background class 0.
+                mapped_labels = [self.label_dictionary.get(int(l), self.label_dictionary.get(str(l), 0)) for l in labels_numpy]
+                labels_numpy = np.array(mapped_labels, dtype=np.int64)
+
+            valid_mask = labels_numpy > 0
+            labels_numpy = labels_numpy[valid_mask]
+            boxes_numpy = boxes_numpy[valid_mask]
+
+            if boxes_numpy.shape[0] == 0:
+                boxes_numpy = np.zeros(shape=(0, 4), dtype=np.float32)
 
             # Reorder channels from height/width/channel structure to channel/height/width for PyTorch
             # No dtype/device casting here — the consumer (trainer) handles the cast per-batch for throughput
@@ -417,16 +453,21 @@ class TFRecordShardedDataset(IterableDataset):
     A PyTorch IterableDataset implementation for reading from multiple sharded TFRecord files.
     """
 
-    def __init__(self, directory_pattern: str, buffer_size: int) -> None:
+    def __init__(self, directory_pattern: str, buffer_size: int,
+                 label_mode: str, label_dictionary: Dict[str, Any]) -> None:
         """
         Initializes the sharded TFRecord iterable dataset.
 
         Args:
             directory_pattern (str): The wildcard pattern used to locate all TFRecord shards.
             buffer_size (int): The number of bytes in the read buffer.
+            label_mode (str): Mode for class assignment ("binary" or "multi_class").
+            label_dictionary (Dict[str, Any]): Dictionary to map raw classes.
         """
         self.tensorflow_record_files = sorted(glob.glob(pathname=directory_pattern))
         self.buffer_size = buffer_size
+        self.label_mode = label_mode
+        self.label_dictionary = label_dictionary
 
     def __iter__(self) -> Iterator[Dict[str, torch.Tensor]]:
         """
@@ -450,6 +491,23 @@ class TFRecordShardedDataset(IterableDataset):
             image_numpy = image.numpy()
             boxes_numpy = bounding_boxes.numpy()
             labels_numpy = labels.numpy()
+
+            # Apply dynamic label mapping and filter out backgrounds
+            if self.label_mode == "binary":
+                labels_numpy = np.where(labels_numpy > 0, 1, 0)
+            else:
+                # Iterate through each raw label and retrieve the updated mapped class index from the dictionary.
+                # To defend against JSON parsers loading integer keys as strings, we perform a dual lookup:
+                # first attempting an integer cast, then a string cast, before finally defaulting to the background class 0.
+                mapped_labels = [self.label_dictionary.get(int(l), self.label_dictionary.get(str(l), 0)) for l in labels_numpy]
+                labels_numpy = np.array(mapped_labels, dtype=np.int64)
+
+            valid_mask = labels_numpy > 0
+            labels_numpy = labels_numpy[valid_mask]
+            boxes_numpy = boxes_numpy[valid_mask]
+
+            if boxes_numpy.shape[0] == 0:
+                boxes_numpy = np.zeros(shape=(0, 4), dtype=np.float32)
 
             # No dtype/device casting here — the consumer (trainer) handles the cast per-batch for throughput
             image_tensor = torch.from_numpy(image_numpy).permute(2, 0, 1).contiguous()
@@ -528,7 +586,8 @@ class DALIDataloaderWrapper:
     with the existing model architecture and loss functions that expect variable-sized lists.
     """
 
-    def __init__(self, dali_iterator: DALIGenericIterator, image_size: int, keep_ratio: bool):
+    def __init__(self, dali_iterator: DALIGenericIterator, image_size: int, keep_ratio: bool,
+                 label_mode: str, label_dictionary: Dict[str, Any]):
         """
         Initializes the DALI wrapper.
         
@@ -536,10 +595,14 @@ class DALIDataloaderWrapper:
             dali_iterator (DALIGenericIterator): The underlying DALI hardware-accelerated iterator.
             image_size (int): The target spatial dimension images were scaled to.
             keep_ratio (bool): Whether images were padded to maintain aspect ratio.
+            label_mode (str): Mode for class assignment ("binary" or "multi_class").
+            label_dictionary (Dict[str, Any]): Dictionary to map raw classes.
         """
         self.dali_iterator = dali_iterator
         self.image_size = image_size
         self.keep_ratio = keep_ratio
+        self.label_mode = label_mode
+        self.label_dictionary = label_dictionary
 
     def __iter__(self):
         """
@@ -567,7 +630,28 @@ class DALIDataloaderWrapper:
                         labels_padded[batch_index] != -1)
 
                 valid_boxes = bounding_boxes_padded[batch_index][valid_mask].clone()
-                labels_list.append(labels_padded[batch_index][valid_mask])
+                valid_labels = labels_padded[batch_index][valid_mask]
+
+                # Apply dynamic label mapping and filter out backgrounds
+                if self.label_mode == "binary":
+                    valid_labels = torch.where(valid_labels > 0, 1, 0)
+                else:
+                    valid_labels_cpu = valid_labels.cpu().numpy()
+                    # Iterate through each raw label and retrieve the updated mapped class index from the dictionary.
+                    # To defend against JSON parsers loading integer keys as strings, we perform a dual lookup:
+                    # first attempting an integer cast, then a string cast, before finally defaulting to the background class 0.
+                    mapped_labels = [self.label_dictionary.get(int(l), self.label_dictionary.get(str(l), 0)) for l in valid_labels_cpu]
+                    valid_labels = torch.tensor(mapped_labels, dtype=torch.int64, device=valid_labels.device)
+
+                # Filter out background objects entirely
+                non_background_mask = valid_labels > 0
+                valid_labels = valid_labels[non_background_mask]
+                valid_boxes = valid_boxes[non_background_mask]
+
+                if valid_boxes.size(0) == 0:
+                    valid_boxes = torch.zeros((0, 4), dtype=torch.float32, device=valid_boxes.device)
+
+                labels_list.append(valid_labels)
 
                 # Transform bounding boxes using the centralized math in preprocess_boxes
                 original_height = shapes[batch_index][0].item()
@@ -734,6 +818,9 @@ def get_dataloader(split_name: str, split_data_folder: str, dataset_prefix: str,
     image_size = image_settings["size"]
     keep_ratio = image_settings["keep_ratio"]
 
+    label_mode = data_configuration.get("label_mode", "binary")
+    label_dictionary = data_configuration.get("label_dictionary", {"background": 0, "foreground": 1})
+
     # Derive the physical image directory and annotation file from the split folder convention
     data_directory = os.path.join(split_data_folder, "data")
     labels_file = os.path.join(split_data_folder, "labels.json")
@@ -759,7 +846,8 @@ def get_dataloader(split_name: str, split_data_folder: str, dataset_prefix: str,
                                             reader_name="Reader", auto_reset=True)
 
         # Wrap the DALI iterator so it behaves exactly like our standard PyTorch DataLoader outputs
-        loader = DALIDataloaderWrapper(dali_iterator=dali_iterator, image_size=image_size, keep_ratio=keep_ratio)
+        loader = DALIDataloaderWrapper(dali_iterator=dali_iterator, image_size=image_size, keep_ratio=keep_ratio,
+                                       label_mode=label_mode, label_dictionary=label_dictionary)
 
         # DALI handles TFRecord generation replacement, so fallback is False
         return loader, False
@@ -772,11 +860,13 @@ def get_dataloader(split_name: str, split_data_folder: str, dataset_prefix: str,
             final_shards = [file_path for file_path in final_shards if "Buffer-" not in file_path]
 
             if len(final_shards) == number_of_shards:
-                dataset = TFRecordShardedDataset(directory_pattern=sharded_pattern, buffer_size=buffer_size)
+                dataset = TFRecordShardedDataset(directory_pattern=sharded_pattern, buffer_size=buffer_size,
+                                                 label_mode=label_mode, label_dictionary=label_dictionary)
         else:
             # Verify the monolithic TFRecord exists and is not currently being written by a background process
             if os.path.exists(path=tfrecord_path) and "Buffer-" not in tfrecord_path:
-                dataset = TFRecordDataset(tensorflow_record_path=tfrecord_path, buffer_size=buffer_size)
+                dataset = TFRecordDataset(tensorflow_record_path=tfrecord_path, buffer_size=buffer_size,
+                                          label_mode=label_mode, label_dictionary=label_dictionary)
 
         # Flag the fallback state if the TFRecords were requested but could not be safely located
         if dataset is None:
@@ -787,7 +877,7 @@ def get_dataloader(split_name: str, split_data_folder: str, dataset_prefix: str,
     # ensuring training can commence immediately
     if dataset is None:
         dataset = NativeDataset(data_directory=data_directory, labels_file=labels_file, image_size=image_size,
-                                keep_ratio=keep_ratio)
+                                keep_ratio=keep_ratio, label_mode=label_mode, label_dictionary=label_dictionary)
 
     # Determine if the dataset streams data to properly configure the shuffle parameter
     is_iterable = isinstance(dataset, IterableDataset)

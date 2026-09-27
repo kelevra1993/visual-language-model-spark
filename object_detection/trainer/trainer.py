@@ -286,10 +286,10 @@ class Trainer:
                                                         iteration=training_iteration,
                                                         tracker_dictionary=None)
 
-            # # Backward and Step
-            # training_loss.backward()
-            # self.optimizer.step()
-            #
+            # Backward and Step
+            training_loss.backward()
+            self.optimizer.step()
+
             # # Validation phase
             # if self.compute_validation_iteration:
             #     # Get next validation elements

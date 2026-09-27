@@ -2,13 +2,13 @@ ExperimentConfiguration:
   # Directory where experiment artifacts, weights, and logs are saved.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/poseidon_experiment"
   # Root directory containing the training dataset images and labels.json annotation file.
-  train_data_folder: ""
+  train_data_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/datasets/coco-2017/train"
   # Root directory containing the validation dataset images and labels.json annotation file.
-  validation_data_folder: ""
+  validation_data_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/datasets/coco-2017/validation"
   # Root directory containing the test dataset images and labels.json annotation file.
-  test_data_folder: ""
+  test_data_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/datasets/coco-2017/test"
   # Number of images processed in a single forward/backward pass.
-  batch_size: 8
+  batch_size: 20
   # Frequency (in iterations) to log performance metrics.
   information_dump: 5000
   # Frequency (in iterations) to checkpoint the model weights.
@@ -25,7 +25,7 @@ ExperimentConfiguration:
   resume_training: true
   diagnosis_modes:
       # Choice to print out everything about the model
-      verbose: True
+      verbose: False
       # Choice to compute Receptive-Field
       compute_receptive_field: False
       # Choice to compute final model size
@@ -45,14 +45,18 @@ Data:
     sharded: True
     # Total number of individual shard files the dataset is partitioned into.
     number_shards: 100
+    # Buffer Size to get while reading TFRecord [Do not change if not accustomed to this]
+    buffer_size: 262144
   image_settings:
     # Target resolution to resize all input images.
     size: 1024
     # Flag to maintain the original aspect ratio when resizing.
     keep_ratio: True
-  label_dictionary: # Always start with background as 0.
-    background: 0
-    foreground: 1
+  label_mapping:
+    # "binary" maps all foreground objects to 1. "multi_class" uses a specific mapping file.
+    mode: "binary"
+    # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs.
+    mapping_file_path: null
   data_augmentation:
     # Global switch to enable or disable all data augmentation.
     activated: False
