@@ -1,22 +1,23 @@
 ExperimentConfiguration:
   # Directory where experiment artifacts, weights, and logs are saved.
-  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/poseidon_experiment"
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/poseidon_experiment_2"
   # Root directory containing the training dataset images and labels.json annotation file.
-  train_data_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/datasets/coco-2017/train"
+  train_data_folder: "/home/robert_kelevra/Data/object_detection_data/coco-2017/train"
   # Root directory containing the validation dataset images and labels.json annotation file.
-  validation_data_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/datasets/coco-2017/validation"
+  validation_data_folder: "/home/robert_kelevra/Data/object_detection_data/coco-2017/validation"
   # Root directory containing the test dataset images and labels.json annotation file.
-  test_data_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/datasets/coco-2017/test"
+  test_data_folder: "/home/robert_kelevra/Data/object_detection_data/coco-2017/test"
   # Number of images processed in a single forward/backward pass.
-  batch_size: 20
+  batch_size: 40
   # Frequency (in iterations) to log performance metrics.
-  information_dump: 100
+  information_dump: 10
   # Frequency (in iterations) to checkpoint the model weights.
-  weight_saving_iterations: 20000
+  weight_saving_iterations: 10000
   # Total number of training iterations before stopping.
   number_iterations: 1e10
-  # Flag to determine whether validation metrics are computed during training.
-  compute_validation_iteration: true
+  # Ratio controlling how often validation is run during training.
+  # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
+  validation_iteration_ratio: 0
   # Base learning rate used by the optimizer.
   learning_rate: 2.0e-4
   # Global tensor data type (e.g., "float32" or "float16").
@@ -42,7 +43,7 @@ Data:
     # Flag to enable the TFRecord data pipeline for faster sequential batching.
     activated: False
     # Flag to indicate if the TFRecord dataset is distributed across multiple shard files.
-    sharded: True
+    sharded: False
     # Total number of individual shard files the dataset is partitioned into.
     number_shards: 100
     # Buffer Size to get while reading TFRecord [Do not change if not accustomed to this]
@@ -98,12 +99,12 @@ Backbone:
   convolutions:
     {
       "1": [ 1, 16 ],
-      "2": [ 2, 16 ],
+      "2": [ 2, 32 ],
       "3": [ 2, 32 ],
       "4": [ 4, 32 ],
-      "5": [ 5, 64 ],
-      "6": [ 5, 64 ],
-      "7": [ 5, 64 ],
+      "5": [ 4, 64 ],
+      "6": [ 6, 64 ],
+      "7": [ 6, 64 ],
     }
 
   # Choice to add last max pooling layer on last* convolution layer

@@ -57,7 +57,7 @@ class Trainer:
         self.experiment_folder = self.experiment_configuration["experiment_folder"]
         self.training_iterations = self.experiment_configuration["number_iterations"]
         self.weight_saving_iterations = self.experiment_configuration["weight_saving_iterations"]
-        self.compute_validation_iteration = self.experiment_configuration["compute_validation_iteration"]
+        self.validation_iteration_ratio = self.experiment_configuration["validation_iteration_ratio"]
         self.information_dump = self.experiment_configuration["information_dump"]
         self.learning_rate = self.experiment_configuration["learning_rate"]
         self.diagnosis_modes = self.experiment_configuration["diagnosis_modes"]
@@ -65,7 +65,6 @@ class Trainer:
         self.label_dictionary = self.data_configuration["label_dictionary"]
         self.input_image_size = self.data_configuration["image_settings"]["size"]
         self.batch_size = self.experiment_configuration["batch_size"]
-        self.compute_validation_iteration = self.experiment_configuration["compute_validation_iteration"]
         self.resume_training = self.experiment_configuration["resume_training"]
 
         # Setup paths and tensorboard
@@ -100,6 +99,7 @@ class Trainer:
 
         # Print experiment information to user so that they can know everything about the experiment
         # as well as input and output shapes of the model.
+        # TODO Try to print out the number of data that we have for train, validation, and test
         self.print_experiment_information()
         self.model.print_summary()
 
@@ -161,6 +161,7 @@ class Trainer:
         print_blue(f"- Total Iterations        : {self.training_iterations}")
         print_blue(f"- Learning Rate           : {self.learning_rate}")
         print_blue(f"- Resume Training         : {self.resume_training}")
+        print_blue(f"- Validation Iter. Ratio  : {self.validation_iteration_ratio}")
 
     def setup_tensorboard_writers(self) -> Tuple[SummaryWriter, Optional[SummaryWriter]]:
         """
@@ -171,7 +172,7 @@ class Trainer:
             and the validation writer (if validation is enabled).
         """
         training_writer = SummaryWriter(log_dir=str(self.tensorboard_directory / "Train"))
-        if self.compute_validation_iteration:
+        if self.validation_iteration_ratio > 0:
             validation_writer = SummaryWriter(log_dir=str(self.tensorboard_directory / "Validation"))
         else:
             validation_writer = None
@@ -277,6 +278,9 @@ class Trainer:
         training_dataloader_iterator = iter(self.train_dataloader)
         validation_dataloader_iterator = iter(self.validation_dataloader)
 
+        # Determine whether validation is enabled based on the configured ratio
+        validation_enabled = self.validation_iteration_ratio > 0
+
         for training_iteration in tqdm(range(int(benchmarking_iterations)), desc="Benchmarking Loop"):
             # Get next training elements
             training_data_dictionary, training_dataloader_iterator = self.get_next_batch(
@@ -289,14 +293,15 @@ class Trainer:
             training_loss, _ = self.run_model_iteration(data_dictionary=training_data_dictionary,
                                                         writer=self.training_writer,
                                                         iteration=training_iteration,
-                                                        tracker_dictionary=None)
+                                                        tracker_dictionary=None,
+                                                        tracker_divisor=0)
 
             # Backward and Step
             training_loss.backward()
             self.optimizer.step()
 
-            # Validation phase
-            if self.compute_validation_iteration:
+            # Validation phase gated by validation_iteration_ratio
+            if validation_enabled and training_iteration % self.validation_iteration_ratio == 0:
                 # Get next validation elements
                 validation_data_dictionary, validation_dataloader_iterator = self.get_next_batch(
                     dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader)
@@ -307,7 +312,8 @@ class Trainer:
                     _, _ = self.run_model_iteration(data_dictionary=validation_data_dictionary,
                                                     writer=self.validation_writer,
                                                     iteration=training_iteration,
-                                                    tracker_dictionary=None)
+                                                    tracker_dictionary=None,
+                                                    tracker_divisor=0)
 
     # todo to be properly implemented !!!
     def run_training_loop(self, maximum_consecutive_errors: int = 5) -> None:
@@ -324,10 +330,18 @@ class Trainer:
         training_dataloader_iterator = iter(self.train_dataloader)
         validation_dataloader_iterator = iter(self.validation_dataloader)
 
+        # Determine whether validation is enabled based on the configured ratio
+        validation_enabled = self.validation_iteration_ratio > 0
+
         # Get Metric Trackers
         # Currently just Cross Entropy Loss
         training_trackers = self.get_metric_trackers()
-        validation_trackers = self.get_metric_trackers() if self.compute_validation_iteration else None
+        validation_trackers = self.get_metric_trackers() if validation_enabled else None
+
+        # Counter tracking how many validation forward passes occurred within the current console-log interval.
+        # This is needed to compute the correct rolling average divisor for validation metrics, since
+        # validation may run less frequently than training iterations depending on validation_iteration_ratio.
+        validation_interval_count = 0
 
         # Get current training iteration
         training_iteration = self.start_iteration
@@ -352,34 +366,47 @@ class Trainer:
                 training_loss, _ = self.run_model_iteration(data_dictionary=training_data_dictionary,
                                                             writer=self.training_writer,
                                                             iteration=training_iteration,
-                                                            tracker_dictionary=training_trackers)
+                                                            tracker_dictionary=training_trackers,
+                                                            tracker_divisor=self.information_dump)
 
                 # Backward and Step
                 training_loss.backward()
                 self.optimizer.step()
 
-                # Validation phase
-                if self.compute_validation_iteration:
+                # Validation phase gated by the configurable validation_iteration_ratio.
+                # A ratio of 1 runs validation every iteration, 2 runs every 2nd, N runs every Nth.
+                if validation_enabled and training_iteration % self.validation_iteration_ratio == 0:
+
                     self.model.eval()
                     with torch.no_grad():
                         validation_data_dictionary, validation_dataloader_iterator = self.get_next_batch(
                             dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader)
-
-                        # Forward pass For Training
+                        # Forward pass for validation — accumulates raw metric sums (divisor=1) into
+                        # validation_trackers. The actual averaging by validation_interval_count is
+                        # deferred to the console log dump so the moving average is correct.
                         _, _ = self.run_model_iteration(data_dictionary=validation_data_dictionary,
                                                         writer=self.validation_writer,
                                                         iteration=training_iteration,
-                                                        tracker_dictionary=validation_trackers)
+                                                        tracker_dictionary=validation_trackers,
+                                                        tracker_divisor=1)
+                        validation_interval_count += 1
 
                 # Console log dump
                 if training_iteration % self.information_dump == 0:
+                    # Normalize accumulated validation metrics by the actual validation count in this interval
+                    if validation_enabled and validation_trackers is not None and validation_interval_count > 0:
+                        for metric_key in self.tracked_metrics_mapping.keys():
+                            validation_trackers[metric_key] /= validation_interval_count
+
                     training_trackers = self.console_log_update_tracker(
                         iterations=training_iteration,
                         training_tracker_dictionary=training_trackers,
-                        validation_tracker_dictionary=validation_trackers)
+                        validation_tracker_dictionary=validation_trackers,
+                        validation_interval_count=validation_interval_count)
 
-                    if self.compute_validation_iteration:
+                    if validation_enabled:
                         validation_trackers = self.get_metric_trackers()
+                        validation_interval_count = 0
 
                     if getattr(self, "waiting_for_tfrecords", False):
                         self.check_and_restart_for_tfrecords(iteration=training_iteration)
@@ -411,7 +438,7 @@ class Trainer:
                     add_separators=True)
         if self.training_writer is not None:
             self.training_writer.close()
-        if self.compute_validation_iteration and self.validation_writer is not None:
+        if validation_enabled and self.validation_writer is not None:
             self.validation_writer.close()
 
     def run_test_evaluation(self, iteration: int) -> None:
@@ -577,7 +604,8 @@ class Trainer:
     # todo to be properly implemented !!!
     def run_model_iteration(self, data_dictionary: Dict[str, torch.Tensor | Any],
                             writer: Optional[SummaryWriter], iteration: int,
-                            tracker_dictionary: dict | None) -> tuple[torch.Tensor, torch.Tensor]:
+                            tracker_dictionary: dict | None,
+                            tracker_divisor: int = 0) -> tuple[torch.Tensor, torch.Tensor]:
         """
         # todo to be updated
         Executes a single forward pass of the models, computes the loss,
@@ -588,6 +616,9 @@ class Trainer:
             writer (Optional[SummaryWriter]): TensorBoard writer for logging. If None, logging is skipped.
             iteration (int): The current training iteration step.
             tracker_dictionary (Dict[str, Any] | None): Dictionary tracking rolling average metrics.
+            tracker_divisor (int): The number of iterations contributing to the rolling average within a
+                console log interval. For training this equals information_dump; for validation this equals
+                the actual number of validation runs in the interval so that the moving average is correct.
 
         Returns:
             tuple[torch.Tensor, torch.Tensor]: A tuple containing the total_loss and the model predictions.
@@ -615,10 +646,11 @@ class Trainer:
         # TODO : Think about list of False Negatives
 
         # Update tracker dictionary (rolling average accumulation)
-        if tracker_dictionary is not None:
+        # Each metric value is divided by the tracker_divisor to compute a running mean over the interval
+        if tracker_dictionary is not None and tracker_divisor > 0:
             for metric_key, metric_value in metric_dictionary.items():
                 if metric_key in tracker_dictionary:
-                    tracker_dictionary[metric_key] += metric_value.item() / self.information_dump
+                    tracker_dictionary[metric_key] += metric_value.item() / tracker_divisor
 
         # Log data to tensorboard (per-iteration)
         self.log_metrics_to_tensorboard(writer=writer,
@@ -774,16 +806,43 @@ class Trainer:
             for line in d:
                 f.write(line)
 
+    @staticmethod
+    def format_time_interval(duration_seconds: float) -> str:
+        """
+        Formats a time duration in seconds into a human-readable string with hours, minutes, and seconds.
+        
+        Args:
+            duration_seconds (float): The time duration in seconds.
+            
+        Returns:
+            str: The formatted time string.
+        """
+        hours = int(duration_seconds // 3600)
+        minutes = int((duration_seconds % 3600) // 60)
+        seconds = duration_seconds % 60
+        
+        if hours > 0:
+            return f"{hours} hours, {minutes} minutes, {seconds:.2f} seconds"
+        elif minutes > 0:
+            return f"{minutes} minutes, {seconds:.2f} seconds"
+        else:
+            return f"{seconds:.2f} seconds"
+
     def console_log_update_tracker(self, iterations: int,
                                    training_tracker_dictionary: Dict[str, Any],
-                                   validation_tracker_dictionary: Optional[Dict[str, Any]] = None):
+                                   validation_tracker_dictionary: Optional[Dict[str, Any]] = None,
+                                   validation_interval_count: int = 0):
         """
-        Prints the rolling average of metrics to the console.
+        Prints the rolling average of training and validation metrics to the console at regular intervals.
+        This method provides the primary training feedback loop, showing throughput and per-metric averages
+        so the user can monitor convergence during the object detection training pipeline.
 
         Args:
             iterations (int): Current global training iteration.
             training_tracker_dictionary (Dict[str, Any]): Rolling average trackers for training.
             validation_tracker_dictionary (Optional[Dict[str, Any]]): Rolling average trackers for validation.
+            validation_interval_count (int): The number of validation forward passes that occurred in this
+                console-log interval. Used to inform the user and to gate validation metric display.
 
         Returns:
             Dict[str, Any]: A fresh training tracker dictionary for the next interval.
@@ -808,13 +867,21 @@ class Trainer:
             message = f"Moving Average of Train {display_name:30} : {train_value:.4f}"
             print_blue(message)
 
-            if validation_tracker_dictionary is not None:
+            # Only display validation metrics if at least one validation iteration ran in this interval
+            if validation_tracker_dictionary is not None and validation_interval_count > 0:
                 validation_value = validation_tracker_dictionary[metric_key]
                 validation_message = f"Moving Average of Valid {display_name:30} : {validation_value:.4f}"
                 print_yellow(validation_message)
 
         print("-" * print_length)
-        print(f"Interval of {self.information_dump} iterations took {duration:.2f} seconds.")
+        formatted_duration = self.format_time_interval(duration_seconds=duration)
+        print(f"Interval of {self.information_dump} iterations took {formatted_duration}.")
+
+        # Show how many validation iterations contributed to the reported averages
+        if self.validation_iteration_ratio > 0:
+            print(f"Validation iterations in this interval: {validation_interval_count} "
+                  f"(ratio: every {self.validation_iteration_ratio} training iterations).")
+
         print("=" * print_length)
 
         return self.get_metric_trackers()
