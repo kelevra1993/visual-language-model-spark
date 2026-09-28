@@ -6,7 +6,7 @@ import os
 import sys
 import glob
 from pathlib import Path
-from typing import Dict, Tuple, List, Union, Any, Optional
+from typing import Dict, Tuple, List, Union, Any, Optional, Iterator
 from shutil import copyfile
 from data.data_loader import get_dataloaders
 
@@ -315,17 +315,25 @@ class Trainer:
                                                     tracker_dictionary=None,
                                                     tracker_divisor=0)
 
-    # todo to be properly implemented !!!
-    def run_training_loop(self, maximum_consecutive_errors: int = 5) -> None:
+    def initialize_training_loop_state(self) -> Tuple[
+        Iterator, Iterator, bool, Dict[str, float], Optional[Dict[str, float]], int, int]:
         """
-        Executes the main training loop for the models.
-
-        Args:
-            maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before the training loop exits.
+        Initializes and returns the state variables required for the main training loop.
+        
+        This method sets up the initial data loaders, determines the validation gating configuration,
+        and creates the metric trackers necessary for logging. Extracting this logic improves the 
+        readability of the main training loop.
+        
+        Returns:
+            Tuple: A tuple containing:
+                - training_dataloader_iterator (Iterator): Iterator for the training dataset.
+                - validation_dataloader_iterator (Iterator): Iterator for the validation dataset.
+                - validation_enabled (bool): Flag indicating if validation is enabled.
+                - training_trackers (Dict[str, float]): Dictionary for accumulating training metrics.
+                - validation_trackers (Optional[Dict[str, float]]): Dictionary for validation metrics, or None.
+                - validation_interval_count (int): Counter for the number of validation passes in the current interval.
+                - consecutive_errors (int): Counter for consecutive errors encountered during training.
         """
-        # Initialize tensorboard writers right before training starts
-        self.training_writer, self.validation_writer = self.setup_tensorboard_writers()
-
         # Get dataloader
         training_dataloader_iterator = iter(self.train_dataloader)
         validation_dataloader_iterator = iter(self.validation_dataloader)
@@ -343,9 +351,25 @@ class Trainer:
         # validation may run less frequently than training iterations depending on validation_iteration_ratio.
         validation_interval_count = 0
 
-        # Get current training iteration
-        training_iteration = self.start_iteration
         consecutive_errors = 0
+
+        return (training_dataloader_iterator, validation_dataloader_iterator, validation_enabled,
+                training_trackers, validation_trackers, validation_interval_count, consecutive_errors)
+
+    def run_training_loop(self, maximum_consecutive_errors: int = 5) -> None:
+        """
+        Executes the main training loop for the models.
+
+        Args:
+            maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before the training loop exits.
+        """
+        # Initialize tensorboard writers right before training starts
+        self.training_writer, self.validation_writer = self.setup_tensorboard_writers()
+
+        # Initialize core loop state variables, dataloader iterators, and metric trackers
+        (training_dataloader_iterator, validation_dataloader_iterator, validation_enabled,
+         training_trackers, validation_trackers, validation_interval_count,
+         consecutive_errors) = self.initialize_training_loop_state()
 
         for training_iteration in range(self.start_iteration, self.training_iterations + self.start_iteration, 1):
             try:
@@ -376,7 +400,6 @@ class Trainer:
                 # Validation phase gated by the configurable validation_iteration_ratio.
                 # A ratio of 1 runs validation every iteration, 2 runs every 2nd, N runs every Nth.
                 if validation_enabled and training_iteration % self.validation_iteration_ratio == 0:
-
                     self.model.eval()
                     with torch.no_grad():
                         validation_data_dictionary, validation_dataloader_iterator = self.get_next_batch(
@@ -820,13 +843,9 @@ class Trainer:
         hours = int(duration_seconds // 3600)
         minutes = int((duration_seconds % 3600) // 60)
         seconds = duration_seconds % 60
-        
-        if hours > 0:
-            return f"{hours} hours, {minutes} minutes, {seconds:.2f} seconds"
-        elif minutes > 0:
-            return f"{minutes} minutes, {seconds:.2f} seconds"
-        else:
-            return f"{seconds:.2f} seconds"
+
+        # Format the time into a consistent HH:MM:SS layout
+        return f"{hours:02d}:{minutes:02d}:{int(seconds):02d}"
 
     def console_log_update_tracker(self, iterations: int,
                                    training_tracker_dictionary: Dict[str, Any],
@@ -875,12 +894,12 @@ class Trainer:
 
         print("-" * print_length)
         formatted_duration = self.format_time_interval(duration_seconds=duration)
-        print(f"Interval of {self.information_dump} iterations took {formatted_duration}.")
+        print(f"Interval Of {self.information_dump} Iterations Took {formatted_duration}.")
 
         # Show how many validation iterations contributed to the reported averages
         if self.validation_iteration_ratio > 0:
-            print(f"Validation iterations in this interval: {validation_interval_count} "
-                  f"(ratio: every {self.validation_iteration_ratio} training iterations).")
+            print(f"Validation Iterations In This Interval: {validation_interval_count} "
+                  f"(Ratio: Every {self.validation_iteration_ratio} Training Iterations).")
 
         print("=" * print_length)
 
