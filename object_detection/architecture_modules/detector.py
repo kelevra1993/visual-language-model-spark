@@ -143,7 +143,9 @@ class DetectionHead(nn.Module):
 
         # 5. Prediction Heads: Output classification and regression predictions
         # Output Classification Shape: [K, number_classes]
+        # Apply softmax
         classification_scores = self.classifier(input=fully_connected_output_tensor)
+        classification_scores = torch.nn.functional.softmax(classification_scores, dim=-1)
 
         # Output Regression Shape: [K, number_classes * 4] -> reshaped to [K, number_classes, 4]
         box_regressions = self.bounding_box_regressor(input=fully_connected_output_tensor)
