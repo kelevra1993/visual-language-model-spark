@@ -543,6 +543,12 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
         desired_negatives = desired_total - possible_positives
         possible_negatives = min(negative_labels_indices.numel(), desired_negatives)
 
+        # CRITICAL FIX: If we ran out of negatives, we must over-sample positives to maintain 
+        # a uniform tensor shape for torch.stack() downstream across the batch!
+        if possible_negatives < desired_negatives:
+            shortfall = desired_negatives - possible_negatives
+            possible_positives = min(positive_labels_indices.numel(), possible_positives + shortfall)
+
         # Generate random permutations to shuffle and select the required number of indices
         random_positive_indices = torch.randperm(n=positive_labels_indices.numel(),
                                                  device=positive_labels_indices.device)[:possible_positives]
