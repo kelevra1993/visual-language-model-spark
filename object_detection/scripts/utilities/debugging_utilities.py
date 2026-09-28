@@ -400,7 +400,13 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
     Returns:
         Tuple[Dict[str, Any], torch.device, torch.dtype]: The FPN F-RCNN configuration mapping, compute device, and tensor dtype.
     """
-    configuration = {'Data': {'image_settings': {'size': 1024}, 'label_dictionary': {'background': 0, 'foreground': 1}, 'number_classes': 2},
+    configuration = {'Data': {'image_settings': {'size': 1024},
+                              'label_dictionary': {'background': 0,
+                                                   'foreground_1': 1,
+                                                   'foreground_2': 2,
+                                                   'foreground_3': 3,
+                                                   'foreground_4': 4,
+                                                   'foreground_5': 5}},
                      'Backbone': {
                          'input_channels': 3,
                          'convolutions': {'1': [2, 16],

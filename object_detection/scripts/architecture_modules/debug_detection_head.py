@@ -52,7 +52,6 @@ def debug_detection_head() -> None:
     detection_head = DetectionHead(detector_configuration=specific_configuration,
                                    number_classes=number_classes,
                                    input_channels=input_channels,
-                                   mode="training",
                                    feature_map_normalization=feature_map_normalization,
                                    input_image_size=input_image_size,
                                    feature_map_size=feature_map_size,
@@ -75,9 +74,9 @@ def debug_detection_head() -> None:
 
     # Forward Pass
     console.print(Panel(renderable="[bold green]Running Forward Pass...[/bold green]"))
-    class_scores, box_regressions = detection_head(proposal_boxes=mock_proposal_boxes,
-                                                   input_tensor=mock_feature_map,
-                                                   tensor_to_concatenate=None)
+    class_scores, box_regressions, detection_boxes = detection_head(proposal_boxes=mock_proposal_boxes,
+                                                                    input_tensor=mock_feature_map,
+                                                                    tensor_to_concatenate=None)
 
     # Analyze outputs
     console.print("[bold blue]DetectionHead Outputs:[/bold blue]")
@@ -85,6 +84,7 @@ def debug_detection_head() -> None:
     console.print(f"  - Input Proposals    : {list(mock_proposal_boxes.shape)}")
     console.print(f"  - Class Scores       : {list(class_scores.shape)}")
     console.print(f"  - Box Regressions    : {list(box_regressions.shape)}")
+    console.print(f"  - Detection Boxes    : {list(detection_boxes.shape)}")
 
 
 if __name__ == '__main__':
