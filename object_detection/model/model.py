@@ -1,6 +1,7 @@
 import torch
 from fiftyone.core.map.batcher import batch
 from torch import nn
+from torchvision.ops import nms
 from rich.console import Console
 from rich.panel import Panel
 from typing import Dict, Any, Tuple, Literal, Optional, List
@@ -9,7 +10,7 @@ from architecture_modules.region_proposer import RegionProposal, RegionProposalF
 from architecture_modules.detector import DetectionHead
 from utilities.model.model_utilities import assign_targets_to_anchors, batch_assign_targets_to_anchors, \
     turn_boxes_to_transformation_targets, apply_regression_predictions, sample_positive_and_negative_training_targets, \
-    batch_assign_targets_to_proposals
+    batch_assign_targets_to_proposals, get_box_dimensions_and_centers
 from utilities.os_utilities import print_yellow
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list, print_tensor_min_max
 
@@ -345,8 +346,7 @@ class Model(nn.Module):
 
     def _rearrange_predictions_by_batch(self, batch_size: int, detection_batch_indices: torch.Tensor,
                                         prediction_tensors_dictionary: Dict[str, Optional[torch.Tensor]],
-                                        verbose: bool = False,
-                                        ) -> Dict[str, Optional[torch.Tensor]]:
+                                        verbose: bool = False, ) -> Dict[str, Optional[torch.Tensor]]:
         """
         Re-arranges the flattened network predictions back into a batched list format.
         
@@ -392,6 +392,69 @@ class Model(nn.Module):
             for tensor_name, tensor_value in rearranged_predictions.items():
                 print_tensor_shape(tensor_value, tensor_name, indent=1)
 
+        # Create labels for each prediction
+        _, number_proposal, _ = rearranged_predictions["classification_scores"].shape
+        batch_labels = torch.arange(self.number_classes, device=rearranged_predictions["classification_scores"].device)
+        batch_labels = batch_labels.unsqueeze(dim=0).unsqueeze(dim=0)
+        rearranged_predictions["labels"] = batch_labels.expand(size=(batch_size, number_proposal, self.number_classes))
+
+        # Prepare outputs by:
+        # - Removing Background Class Predictions [note give the position]
+        rearranged_predictions["classification_scores"] = rearranged_predictions["classification_scores"][..., 1:]
+        rearranged_predictions["labels"] = rearranged_predictions["labels"][..., 1:]
+        rearranged_predictions["box_regressions"] = rearranged_predictions["box_regressions"][..., 1:, :]
+        rearranged_predictions["detection_boxes"] = rearranged_predictions["detection_boxes"][..., 1:, :]
+
+        for k, v in rearranged_predictions.items():
+            print_tensor_shape(v, k, indent=2)
+        # - Remove low scoring boxes
+        # Go through for loop to get the different boxes for the batch
+        # classification will be a list of scores, box regressions will be a list of regression boxes and same of detection boxes
+        for batch_index in range(batch_size):
+            classification_scores = rearranged_predictions["classification_scores"][batch_index].reshape(-1)
+            labels = rearranged_predictions["labels"][batch_index].reshape(-1)
+            box_regressions = rearranged_predictions["box_regressions"][batch_index].reshape(-1, 4)
+            detection_boxes = rearranged_predictions["detection_boxes"][batch_index].reshape(-1, 4)
+
+            # todo here we try to get the threshold from the configuration file.
+            kept_indices = torch.where(classification_scores > 0.18)[0]
+
+            classification_scores = classification_scores[kept_indices]
+            labels = labels[kept_indices]
+            box_regressions = box_regressions[kept_indices]
+            detection_boxes = detection_boxes[kept_indices]
+
+            print_tensor_shape(classification_scores, "classification_scores", indent=3)
+            print_tensor_shape(labels, "labels", indent=3)
+            print_tensor_shape(box_regressions, "box_regressions", indent=3)
+            print_tensor_shape(detection_boxes, "detection_boxes", indent=3)
+
+            # Remove small size boxes : Also get from configuration file
+            minimum_size = 10
+            boxes_widths, boxes_heights, _, _ = get_box_dimensions_and_centers(boxes=detection_boxes)
+            acceptable_size_booleans = (boxes_widths >= minimum_size) & (boxes_heights >= minimum_size)
+            kept_size_indices = torch.where(acceptable_size_booleans)[0]
+            # print(kept_size_indices)
+            classification_scores = classification_scores[kept_size_indices]
+            labels = labels[kept_size_indices]
+            box_regressions = box_regressions[kept_size_indices]
+            detection_boxes = detection_boxes[kept_size_indices]
+
+            # Apply Classwise NMS
+            # todo to be implemented
+            proposal_post_nms_indices = nms(boxes=boxes,
+                                            scores=scores,
+                                            iou_threshold=self.nms_iou_threshold)
+
+            print_tensor_shape(classification_scores, "classification_scores", indent=3)
+            print_tensor_shape(labels, "labels", indent=3)
+            print_tensor_shape(box_regressions, "box_regressions", indent=3)
+            print_tensor_shape(detection_boxes, "detection_boxes", indent=3)
+            exit()
+
+        for k, v in rearranged_predictions.items():
+            print_tensor_shape(v, k, indent=2)
+        exit()
         return rearranged_predictions
 
     def _compute_region_proposal_losses(self, ground_truth_bounding_boxes: List[torch.Tensor],
@@ -748,6 +811,7 @@ class Model(nn.Module):
         aggregated_detections_dictionary = self.aggregate_detection_outputs(
             detection_output_dictionary=detection_output_tensor_dictionary)
 
+        # TODO Function to be renamed
         # Package the outputs into a unified dictionary for clean extraction
         # Rearrange the flattened detections back into a batched list format
         model_output_dictionary = self._rearrange_predictions_by_batch(
