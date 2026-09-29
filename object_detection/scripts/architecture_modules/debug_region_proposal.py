@@ -1,7 +1,7 @@
 import torch
 
 from architecture_modules.region_proposer import RegionProposal
-from utilities.os_utilities import print_green, print_blue
+from utilities.os_utilities import print_color
 from utilities.model.model_utilities import apply_regression_predictions
 from scripts.utilities.debugging_utilities import print_bounding_boxes
 import numpy as np
@@ -38,8 +38,9 @@ def debug_region_proposal() -> None:
     head_configurations = [2, 64]
     feature_map_normalization = "batch"
 
-    print_blue(output=f"Prepared Region Proposal configuration for Feature Map {feature_map_size}x{feature_map_size}:",
-               add_separators=True)
+    print_color(color="blue",
+                output=f"Prepared Region Proposal configuration for Feature Map {feature_map_size}x{feature_map_size}:",
+                add_separators=True)
     print(f"Scales: {scales}")
     print(f"Aspect Ratios: {aspect_ratios}")
     print(f"Input Channels: {input_channels}")
@@ -54,7 +55,8 @@ def debug_region_proposal() -> None:
                                             dtype=dtype, device=device)
 
     # Inform the developer that the module has been instantiated
-    print_green(output="RegionProposal module successfully instantiated and ready for testing!", add_separators=True)
+    print_color(color="green",
+                output="RegionProposal module successfully instantiated and ready for testing!", add_separators=True)
 
     # -----------------------------------------------------------------------------------------
     # Forward Pass Testing
@@ -67,7 +69,7 @@ def debug_region_proposal() -> None:
                                dtype=dtype,
                                device=device)
 
-    print_blue(output="Executing forward pass with mock tensors...", add_separators=True)
+    print_color(color="blue", output="Executing forward pass with mock tensors...", add_separators=True)
 
     # Execute the forward pass
     proposal_scores, proposal_boxes_transformations, proposal_boxes = region_proposal_module(input_tensor=input_tensor)
@@ -75,7 +77,7 @@ def debug_region_proposal() -> None:
     # Extract original anchors
     original_anchors = region_proposal_module.region_proposal_anchor_object.anchors
 
-    print_blue(output="Original Anchors (First 5):", add_separators=True)
+    print_color(color="blue", output="Original Anchors (First 5):", add_separators=True)
     print_bounding_boxes(boxes=original_anchors, number_of_boxes=5, indent=1)
 
     # Apply the predicted bounding box transformations to our anchors manually for debugging
@@ -83,11 +85,11 @@ def debug_region_proposal() -> None:
         regression_predictions=proposal_boxes_transformations.detach().unsqueeze(dim=-2),
         boxes=original_anchors).squeeze(dim=-2)
 
-    print_blue(output="Region Proposal Transformed Boxes (First 5):", add_separators=True)
+    print_color(color="blue", output="Region Proposal Transformed Boxes (First 5):", add_separators=True)
     # The proposal boxes returned from the region_proposal_module (shape: B, N, 4)
     print_bounding_boxes(boxes=proposal_boxes[0], number_of_boxes=5, indent=1)
 
-    print_blue(output="Applied Regressions (First 5):", add_separators=True)
+    print_color(color="blue", output="Applied Regressions (First 5):", add_separators=True)
     # The proposal boxes returned are the applied regressions (shape: B, N, 4)
     print_bounding_boxes(boxes=applied_proposal_boxes[0], number_of_boxes=5, indent=1)
 
