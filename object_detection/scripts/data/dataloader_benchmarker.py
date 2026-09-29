@@ -123,7 +123,8 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
                     user_quit = view_input_data(images=[batch_data_dictionary["images"][batch_index]],
                                                 bounding_boxes=[batch_data_dictionary["bounding_boxes"][batch_index]],
                                                 labels=[batch_data_dictionary["labels"][batch_index]],
-                                                window_titles=["Input Data Viewer"])
+                                                window_titles=["Input Data Viewer"],
+                                                display_input_size=image_size)
                     if user_quit:
                         return 0.0
         times.append(time.time() - start_time)
