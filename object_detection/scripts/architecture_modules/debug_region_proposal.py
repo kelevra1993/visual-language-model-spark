@@ -2,8 +2,7 @@ import torch
 
 from architecture_modules.region_proposer import RegionProposal
 from utilities.os_utilities import print_green, print_blue
-from utilities.tensor_utilities import print_tensor_status, print_tensor_shape
-from utilities.model.model_utilities import get_area, apply_regression_predictions
+from utilities.model.model_utilities import apply_regression_predictions
 from scripts.utilities.debugging_utilities import print_bounding_boxes
 import numpy as np
 
@@ -34,20 +33,25 @@ def debug_region_proposal() -> None:
     feature_map_size = 6
     input_channels = 256  # Typical backbone output channel count
 
+    # Region Proposal head definition [number of layers, output channels] and normalization of its convolutions,
+    # matching the RegionProposal section of the example configuration
+    head_configurations = [2, 64]
+    feature_map_normalization = "batch"
+
     print_blue(output=f"Prepared Region Proposal configuration for Feature Map {feature_map_size}x{feature_map_size}:",
                add_separators=True)
     print(f"Scales: {scales}")
     print(f"Aspect Ratios: {aspect_ratios}")
     print(f"Input Channels: {input_channels}")
+    print(f"Head Configurations: {head_configurations}")
+    print(f"Feature Map Normalization: {feature_map_normalization}")
 
     # Instantiate the RegionProposal module with explicitly named arguments
-    region_proposal_module = RegionProposal(input_channels=input_channels,
-                                            scales=scales,
-                                            aspect_ratios=aspect_ratios,
-                                            input_image_size=input_image_size,
-                                            feature_map_size=feature_map_size,
-                                            dtype=dtype,
-                                            device=device)
+    region_proposal_module = RegionProposal(head_configurations=head_configurations, input_channels=input_channels,
+                                            scales=scales, aspect_ratios=aspect_ratios,
+                                            input_image_size=input_image_size, feature_map_size=feature_map_size,
+                                            feature_map_normalization=feature_map_normalization,
+                                            dtype=dtype, device=device)
 
     # Inform the developer that the module has been instantiated
     print_green(output="RegionProposal module successfully instantiated and ready for testing!", add_separators=True)
