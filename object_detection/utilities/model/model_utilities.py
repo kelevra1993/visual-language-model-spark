@@ -1,5 +1,6 @@
 from collections import Counter
 
+import math
 import cv2
 import numpy as np
 import torch
@@ -9,6 +10,10 @@ from torchvision.ops import nms
 
 from utilities.os_utilities import print_blue, print_green, print_red, print_yellow
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
+
+# Upper bound of the predicted log-scale width and height offsets (dw, dh) before exponentiation, as in torchvision.
+# It caps a box at 1000/16 = 62.5 times its reference size and prevents exp() from overflowing to inf.
+MAXIMUM_LOG_SCALE_OFFSET = math.log(1000.0 / 16)
 
 
 def get_area(boxes: torch.Tensor) -> torch.Tensor:
@@ -239,8 +244,9 @@ def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: to
     # Get the predictions from regression predictions using ellipsis to support arbitrary batch dims
     dx = regression_predictions[..., 0]
     dy = regression_predictions[..., 1]
-    dw = regression_predictions[..., 2]
-    dh = regression_predictions[..., 3]
+    # Clamp the log-scale offsets so that exp() stays finite, even for extreme early-training predictions
+    dw = regression_predictions[..., 2].clamp(max=MAXIMUM_LOG_SCALE_OFFSET)
+    dh = regression_predictions[..., 3].clamp(max=MAXIMUM_LOG_SCALE_OFFSET)
 
     # Apply regressions to calculate the predicted centers
     predicted_center_x = boxes_widths * dx + boxes_center_x
