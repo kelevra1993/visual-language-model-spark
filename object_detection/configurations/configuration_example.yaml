@@ -1,12 +1,12 @@
 ExperimentConfiguration:
   # Directory where experiment artifacts, weights, and logs are saved.
-  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/poseidon_experiment_2"
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/poseidon_experiment_3"
   # Root directory containing the training dataset images and labels.json annotation file.
   train_data_folder: "/home/robert_kelevra/Data/object_detection_data/coco-2017/train"
   # Root directory containing the validation dataset images and labels.json annotation file.
   validation_data_folder: "/home/robert_kelevra/Data/object_detection_data/coco-2017/validation"
   # Root directory containing the test dataset images and labels.json annotation file.
-  test_data_folder: "/home/robert_kelevra/Data/object_detection_data/coco-2017/test"
+  test_data_folder: "/home/robert_kelevra/Data/object_detection_data/coco-2017/validation"
   # Number of images processed in a single forward/backward pass.
   batch_size: 40
   # Frequency (in iterations) to log performance metrics.
@@ -28,9 +28,9 @@ ExperimentConfiguration:
       # Choice to print out everything about the model
       verbose: False
       # Choice to compute Receptive-Field
-      compute_receptive_field: False
+      compute_receptive_field: True
       # Choice to compute final model size
-      compute_model_size: False
+      compute_model_size: True
       # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
       # input images with their ground truth boxes before training. SPACE shows the next images, ENTER closes the
       # viewer and training continues. Requires a display (skipped with a warning otherwise)
@@ -91,7 +91,7 @@ Backbone:
   # Second axis : Number of output filters per kernel per convolution Block
   convolutions:
     {
-      "1": [ 1, 16 ],
+      "1": [ 2, 16 ],
       "2": [ 2, 32 ],
       "3": [ 2, 32 ],
       "4": [ 4, 32 ],
