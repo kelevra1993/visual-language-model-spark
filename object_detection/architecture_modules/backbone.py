@@ -147,7 +147,7 @@ class Backbone(nn.Module):
         and channel depths accurately align with the required downstream region proposal and detection modules.
         """
         # Initialize the rich console for formatted output, specifying a wide width to comfortably accommodate the panel
-        console = Console(width=60)
+        console = Console(width=80)
 
         # Create a dummy tensor on the appropriate device to mathematically trace the dimension transformations
         dummy_tensor = torch.zeros(size=(1, self.input_channels, self.input_image_size, self.input_image_size),
@@ -166,6 +166,12 @@ class Backbone(nn.Module):
         for index, block in enumerate(self.convolution_blocks):
             # Append the precise structural dimension information of the current block to the visual text summary
             architecture_text += f"[bold] - Convolution Block {index + 1}[/bold]\n"
+
+            # Show the convolution modules used by this block, only when it is not a plain convolution block
+            active_module_names = block.get_active_module_names()
+            if active_module_names:
+                architecture_text += f"   - Modules      : {', '.join(active_module_names)}\n"
+
             architecture_text += f"   - Input Shape  : {list(dummy_tensor.shape)}\n"
 
             # Pass the dummy tensor through the block to compute the progressively
