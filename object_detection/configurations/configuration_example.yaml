@@ -105,7 +105,7 @@ Backbone:
 
   normalization:
     # Input Normalization : Setting image range values between [-0.5:0.5]
-    input_normalization: False
+    input_normalization: True
 
     # Per Sample Input Normalization : Normalizing each image to zero mean and unit variance
     # Applied after input_normalization when both are activated
@@ -118,7 +118,7 @@ Backbone:
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
     # Shortcuts are added every two convolution layers, starting from the second convolution block
-    residual_nets: False
+    residual_nets: True
 
     # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
     # Output channels of every block using inception must be multiples of 8
@@ -182,8 +182,8 @@ Anchors:
   scales_and_ratios:
     {
       "5":{"scales":[ 32, 64, 128], "aspect_ratios":[0.5, 1.0, 2.0]},
-      "6":{"scales":[ 32, 64, 128], "aspect_ratios":[0.5, 1.0, 2.0]},
-      "7":{"scales":[ 32, 64, 128], "aspect_ratios":[0.5, 1.0, 2.0]},
+      "6":{"scales":[ 64, 128, 256], "aspect_ratios":[0.5, 1.0, 2.0]},
+      "7":{"scales":[ 128, 256, 512], "aspect_ratios":[0.5, 1.0, 2.0]},
     }
 
 Detector:
