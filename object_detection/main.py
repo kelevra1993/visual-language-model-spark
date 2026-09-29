@@ -1,5 +1,5 @@
 from pathlib import Path
-from utilities.os_utilities import load_experiment_configuration, print_yellow
+from utilities.os_utilities import load_experiment_configuration, print_color
 from utilities.tensor_utilities import get_device
 from trainer.trainer import Trainer
 
