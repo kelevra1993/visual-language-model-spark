@@ -3,7 +3,7 @@ import torch
 
 from model.model import Model
 from scripts.utilities.debugging_utilities import get_model_configuration, get_dummy_input_tensor
-from utilities.os_utilities import print_blue, print_green
+from utilities.os_utilities import print_color
 from utilities.tensor_utilities import print_tensor_shape
 
 
@@ -28,7 +28,7 @@ def debug_model_diagnostics() -> None:
     _, _, _, input_tensor = get_dummy_input_tensor(device=device, dtype=dtype)
 
     for variant_name, modules in variants.items():
-        print_blue(output=f"Model Variant : {variant_name}", add_separators=True)
+        print_color(color="blue", output=f"Model Variant : {variant_name}", add_separators=True)
 
         # Inject the variant modules and both input normalizations into a fresh copy of the configuration,
         # keeping every configuration key but disabling all module flags before enabling the variant ones
@@ -51,7 +51,8 @@ def debug_model_diagnostics() -> None:
         # Print the diagnostics displayed by the Trainer
         model.print_receptive_field_summary()
         model.print_model_size_summary()
-        print_green(output=f"Model Variant {variant_name} Successfully Built And Executed", add_separators=True)
+        print_color(color="green",
+                    output=f"Model Variant {variant_name} Successfully Built And Executed", add_separators=True)
 
 
 if __name__ == "__main__":
