@@ -28,19 +28,23 @@ def test_region_proposer() -> None:
     # Create a dictionary of configurations to test various paths of the RegionProposal
     region_proposal_configurations = {
         "basic_region_proposal": {
+            "head_configurations": [2, 64],
             "input_channels": input_channels,
             "scales": [32.0, 64.0],
             "aspect_ratios": [0.5, 1.0, 2.0],
             "input_image_size": 1024,
             "feature_map_size": feature_map_size,
+            "feature_map_normalization": "batch",
             "device": device,
             "dtype": dtype},
         "complex_region_proposal": {
+            "head_configurations": [3, 32],
             "input_channels": input_channels,
             "scales": [16.0, 32.0, 64.0, 128.0],
             "aspect_ratios": [0.5, 1.0, 2.0],
             "input_image_size": 1024,
             "feature_map_size": feature_map_size,
+            "feature_map_normalization": "layer",
             "device": device,
             "dtype": dtype}}
 
@@ -52,11 +56,12 @@ def test_region_proposer() -> None:
         region_proposal_module = RegionProposal(**configuration_dictionary)
 
         # Call the testing utility to verify the forward pass deterministically
-        # Note: RegionProposal returns (proposal_scores, proposal_boxes) so we specify two tensor names
+        # RegionProposal returns the objectness scores, the box transformations and the proposal boxes
         check_nn_module_method(
             module=region_proposal_module,
             simple_input_dictionary=simple_input_dictionary,
             output_tensor_names=[f"region_proposal_{configuration_name}_scores",
+                                 f"region_proposal_{configuration_name}_box_transformations",
                                  f"region_proposal_{configuration_name}_boxes"],
             reference_folder=Path(__file__).parent / "reference_values",
             batch_size=batch_size,
