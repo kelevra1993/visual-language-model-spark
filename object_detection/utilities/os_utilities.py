@@ -6,7 +6,6 @@ import torch
 import numpy as np
 import yaml
 
-from shutil import copyfile
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
 import inspect
@@ -68,7 +67,7 @@ def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
 def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Loads a single YAML configuration file and splits it into experiment
-    and model configurations. Once this is done, the yaml is saved to the project experiment folder.
+    and model configurations. Archiving the yaml into the experiment folder is handled by the Trainer.
 
     This function extracts the 'ExperimentConfiguration' section, processes
     its paths and types, and returns it alongside the rest of the configuration
@@ -110,12 +109,12 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
     # Convert dtype
     if "dtype" in experiment_configuration:
         dtype_map = {"float32": torch.float32, "float64": torch.float64}
-        experiment_configuration["dtype"] = dtype_map.get(experiment_configuration["dtype"], torch.float32)
+        experiment_configuration["dtype"] = dtype_map[experiment_configuration["dtype"]]
 
     # Convert beta values from fractions to floats
     for section_key in ["RegionProposal", "Detector"]:
         if section_key in model_configuration:
-            beta_value = model_configuration[section_key].get("localisation_loss_beta")
+            beta_value = model_configuration[section_key]["localisation_loss_beta"]
             if isinstance(beta_value, str) and "/" in beta_value:
                 numerator, denominator = beta_value.split("/")
                 model_configuration[section_key]["localisation_loss_beta"] = float(numerator) / float(denominator)
@@ -125,13 +124,13 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
     # Process label mapping dynamically to inject label_dictionary
     if "Data" in model_configuration and "label_mapping" in model_configuration["Data"]:
         label_mapping = model_configuration["Data"]["label_mapping"]
-        mode = label_mapping.get("mode", "binary")
+        mode = label_mapping["mode"]
         model_configuration["Data"]["label_mode"] = mode
         
         if mode == "binary":
             model_configuration["Data"]["label_dictionary"] = {"background": 0, "foreground": 1}
         elif mode == "multi_class":
-            mapping_path = label_mapping.get("mapping_file_path")
+            mapping_path = label_mapping["mapping_file_path"]
             if mapping_path and os.path.exists(mapping_path):
                 with open(mapping_path, "r") as file:
                     raw_mapping = json.load(file)
@@ -143,11 +142,6 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
                     model_configuration["Data"]["label_dictionary"] = parsed_mapping
             else:
                 raise FileNotFoundError(f"Label mapping file not found at: {mapping_path}")
-
-    # Save a copy of the configuration file
-    experiment_folder = experiment_configuration["experiment_folder"]
-    experiment_folder.mkdir(parents=True, exist_ok=True)
-    copyfile(src=str(configuration_path), dst=str(experiment_folder / "training_configuration.yaml"))
 
     return experiment_configuration, model_configuration
 
