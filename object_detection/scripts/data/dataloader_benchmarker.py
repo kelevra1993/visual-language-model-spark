@@ -8,7 +8,7 @@ import time
 import torch
 from tqdm import tqdm
 
-from utilities.os_utilities import print_blue
+from utilities.os_utilities import print_color
 from utilities.data_utilities import view_input_data
 
 from pathlib import Path
@@ -319,7 +319,7 @@ def benchmark_method(method_name: str, method_function: Callable, benchmark_argu
     times = method_function(**benchmark_arguments)
     if times:
         print("")
-        print_blue(f"[{method_name}] Average Time: {sum(times) / len(times):.2f} s", indent=1)
+        print_color(color="blue", output=f"[{method_name}] Average Time: {sum(times) / len(times):.2f} s", indent=1)
     return times
 
 
