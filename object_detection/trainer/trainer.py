@@ -2,13 +2,11 @@ import time
 import torch
 import torchvision
 
-import os
-import sys
-import glob
 from pathlib import Path
 from typing import Dict, Tuple, List, Union, Any, Optional, Iterator
 from shutil import copyfile
 from data.data_loader import get_dataloaders
+from utilities.data_utilities import view_input_data
 
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data.dataloader import _BaseDataLoaderIter
@@ -77,8 +75,7 @@ class Trainer:
         self.validation_writer = None
 
         # Setting up dataloaders
-        (self.train_dataloader, self.validation_dataloader, self.test_dataloader,
-         self.waiting_for_tfrecords) = self.get_trainer_data_loaders()
+        self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.get_trainer_data_loaders()
 
         # Initialize Model and Optimizer
         self.model = Model(configuration=self.model_configuration, device=self.device, dtype=self.dtype,
@@ -102,6 +99,16 @@ class Trainer:
         # TODO Try to print out the number of data that we have for train, validation, and test
         self.print_experiment_information()
         self.model.print_summary()
+
+        # Optional architecture diagnostics, printed before training continues
+        if self.diagnosis_modes["compute_receptive_field"]:
+            self.model.print_receptive_field_summary()
+        if self.diagnosis_modes["compute_model_size"]:
+            self.model.print_model_size_summary()
+
+        # Optional viewer of the training and validation images fed to the network, closed before training continues
+        if self.diagnosis_modes["view_input_images"]:
+            self.view_training_and_validation_images()
 
         # Restoration logic before starting any training or inference
         self.start_iteration = 1
@@ -179,23 +186,52 @@ class Trainer:
 
         return training_writer, validation_writer
 
-    def get_trainer_data_loaders(self) -> Tuple[DataLoader, DataLoader, DataLoader, bool]:
+    def get_trainer_data_loaders(self) -> Tuple[DataLoader, DataLoader, DataLoader]:
         """
-        Initializes and returns the PyTorch DataLoaders for the training, validation, and test phases.
+        Initializes and returns the loaders (DALI or Native, depending on the configuration) for the training,
+        validation, and test phases.
 
         Returns:
-            Tuple[DataLoader, DataLoader, DataLoader, bool]: A tuple containing the DataLoaders for
-                the training, validation, testing splits, and a flag indicating if it's waiting for TFRecords.
+            Tuple[DataLoader, DataLoader, DataLoader]: The loaders for the training, validation and testing splits.
         """
         print_blue("Initializing Training, Validation And Test DataLoaders...", add_separators=True)
 
-        train_dataloader, validation_dataloader, test_dataloader, waiting_for_tfrecords = get_dataloaders(
+        train_dataloader, validation_dataloader, test_dataloader = get_dataloaders(
             experiment_configuration=self.experiment_configuration,
             model_configuration=self.model_configuration,
             batch_size=self.batch_size,
             number_of_workers=4)
 
-        return train_dataloader, validation_dataloader, test_dataloader, waiting_for_tfrecords
+        return train_dataloader, validation_dataloader, test_dataloader
+
+    def view_training_and_validation_images(self) -> None:
+        """
+        Shows the training and validation images exactly as the data loaders feed them to the network, each with its
+        ground truth boxes and class names, in two windows side by side. Enabled by the 'view_input_images'
+        diagnosis mode, it lets the user check the preprocessing (resizing, padding, box rescaling and label mapping)
+        before training starts. Pressing ENTER closes the viewer and training continues.
+        """
+        print_red(output="View Of The Training And Validation Images That Are Fed To The Neural Network",
+                  add_separators=True)
+        print_green(output="Press SPACE To Navigate, Press ENTER To Stop Viewing And Start Training")
+
+        # Invert the label dictionary so that each box is captioned with its class name instead of its index
+        label_names = {class_index: str(class_name) for class_name, class_index in self.label_dictionary.items()}
+
+        # Step through the training and validation loaders together, until the user stops or either one runs out
+        for training_batch, validation_batch in zip(self.train_dataloader, self.validation_dataloader):
+            number_images = min(training_batch["images"].shape[0], validation_batch["images"].shape[0])
+
+            # Display the training and validation images at the same batch index next to each other
+            for batch_index in range(number_images):
+                user_quit = view_input_data(
+                    images=[training_batch["images"][batch_index], validation_batch["images"][batch_index]],
+                    bounding_boxes=[training_batch["bounding_boxes"][batch_index],
+                                    validation_batch["bounding_boxes"][batch_index]],
+                    labels=[training_batch["labels"][batch_index], validation_batch["labels"][batch_index]],
+                    window_titles=["Training", "Validation"], label_names=label_names)
+                if user_quit:
+                    return
 
     @staticmethod
     def get_next_batch(dataloader_iterator: _BaseDataLoaderIter, dataloader: DataLoader,
@@ -431,9 +467,6 @@ class Trainer:
                         validation_trackers = self.get_metric_trackers()
                         validation_interval_count = 0
 
-                    if getattr(self, "waiting_for_tfrecords", False):
-                        self.check_and_restart_for_tfrecords(iteration=training_iteration)
-
                 # Reset the consecutive errors counter after a fully successful iteration
                 consecutive_errors = 0
 
@@ -502,50 +535,6 @@ class Trainer:
 
         # Run sample predictions for visualization
         self.run_sample_predictions(iteration=iteration, number_samples=20)
-
-    def check_and_restart_for_tfrecords(self, iteration: int) -> None:
-        """
-        Checks if the background generation of TFRecords is complete. If so, saves the model and restarts the script.
-        """
-        data_configuration = self.model_configuration["Data"]
-        image_settings = data_configuration["image_settings"]
-        image_size = image_settings["size"]
-        keep_ratio = image_settings["keep_ratio"]
-        prefix = f"KAR-{image_size}-" if keep_ratio else f"{image_size}-"
-
-        is_sharded = data_configuration["TFRecord"]["sharded"]
-        number_of_shards = data_configuration["TFRecord"]["number_shards"]
-
-        # Map each split to its corresponding root folder for verification
-        split_folder_mapping = {
-            "Train": str(self.experiment_configuration["train_data_folder"]),
-            "Validation": str(self.experiment_configuration["validation_data_folder"]),
-            "Test": str(self.experiment_configuration["test_data_folder"]),
-        }
-
-        all_ready = True
-
-        for split_name, split_data_folder in split_folder_mapping.items():
-            if is_sharded:
-                sharded_directory = os.path.join(split_data_folder, f"{prefix}Sharded-Records-{split_name}")
-                shards = glob.glob(os.path.join(sharded_directory, f"shard-*.tfrecord"))
-                final_shards = [file_path for file_path in shards if "Buffer-" not in file_path]
-                if len(final_shards) < number_of_shards:
-                    all_ready = False
-                    break
-            else:
-                tfrecord_path = os.path.join(split_data_folder, f"{prefix}{split_name}.tfrecord")
-                if not os.path.exists(tfrecord_path) or "Buffer-" in tfrecord_path:
-                    all_ready = False
-                    break
-
-        if all_ready:
-            print_blue("\nAll TFRecords are now fully generated! Restarting to switch to high-throughput dataloader...",
-                       add_separators=True)
-            self.save_model(iteration=iteration)
-
-            # Use os.execv to restart the main process
-            os.execv(sys.executable, ['python'] + sys.argv)
 
     # todo to be properly implemented !!!
     # def run_sample_predictions(self, iteration: int, number_samples: int = 20) -> None:
