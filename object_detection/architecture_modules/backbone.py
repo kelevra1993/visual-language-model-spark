@@ -5,6 +5,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from architecture_modules.convolution_block import ConvolutionBlock
+from architecture_modules.input_normalization import InputNormalizer
 from utilities.os_utilities import print_yellow, print_blue, print_green
 
 
@@ -19,8 +20,8 @@ class Backbone(nn.Module):
     to localize and identify objects.
     """
 
-    def __init__(self, input_channels: int, convolutions: Dict[str, List[int]], modules: Dict[str, bool],
-                 last_max_pooling: bool, normalization: Dict[str, str], detection_convolution_block_indices: List[int],
+    def __init__(self, input_channels: int, convolutions: Dict[str, List[int]], modules: Dict[str, Any],
+                 last_max_pooling: bool, normalization: Dict[str, Any], detection_convolution_block_indices: List[int],
                  input_image_size: int, device: torch.device, dtype: torch.dtype) -> None:
         """
         Initializes the Backbone with the specified convolution blocks and structural parameters.
@@ -28,9 +29,12 @@ class Backbone(nn.Module):
         Args:
             input_channels (int): The number of initial input channels for the images.
             convolutions (Dict[str, List[int]]): Dictionary mapping block indices to [number_layers, output_channels].
-            modules (Dict[str, bool]): Dictionary specifying which advanced modules to use (e.g., residual).
+            modules (Dict[str, Any]): Dictionary specifying which advanced modules to use ('squeeze_and_excite',
+                'residual_nets', 'inception') and the block from which inception starts ('inception_starting_block').
+                Missing keys default to disabled modules and an inception start at block 3.
             last_max_pooling (bool): Whether to apply max pooling at the very end of the last convolution block.
-            normalization (Dict[str, str]): Dictionary containing normalization settings like feature_map_normalization.
+            normalization (Dict[str, Any]): Dictionary containing the 'feature_map_normalization' strategy and the
+                'input_normalization' / 'per_sample_normalization' input image flags.
             detection_convolution_block_indices (List[int]): A list of block indices (1-indexed) whose intermediate feature maps 
                 are explicitly captured and returned for downstream multi-scale feature enhancement.
             input_image_size (int): The spatial dimension (height and width) of the square input image, used to dynamically compute downstream tensor sizes.
@@ -52,11 +56,24 @@ class Backbone(nn.Module):
         # Set detection convolution indices
         self.detection_convolution_block_indices = detection_convolution_block_indices
 
+        # Keep the number of image channels for dummy tensor generation in summaries
+        self.input_channels = input_channels
+
         # Set the current input channels to the initial provided argument
         current_input_channels = input_channels
 
         # Extract chosen feature map normalization strategy
-        self.feature_map_normalization = normalization.get("feature_map_normalization")
+        self.feature_map_normalization = normalization["feature_map_normalization"]
+
+        # Normalize the raw [0, 255] input images before feature extraction
+        self.input_normalizer = InputNormalizer(input_normalization=normalization["input_normalization"],
+                                                per_sample_normalization=normalization["per_sample_normalization"])
+
+        # Extract the advanced architecture modules, every flag must be explicitly set in the configuration
+        self.squeeze_and_excite = bool(modules["squeeze_and_excite"])
+        self.residual_nets = bool(modules["residual_nets"])
+        self.inception = bool(modules["inception"])
+        self.inception_starting_block = int(modules["inception_starting_block"])
 
         # Count total blocks to identify the last block during iteration
         number_of_blocks = len(convolutions)
@@ -70,13 +87,21 @@ class Backbone(nn.Module):
             is_last_block = (index == number_of_blocks - 1)
             add_pooling = last_max_pooling if is_last_block else True
 
+            # Residual shortcuts start at the second block and inception at the configured starting block,
+            # so the first block always extracts plain low-level features from the raw image
+            block_number = index + 1
+            use_residual = self.residual_nets and block_number > 1
+            use_inception = self.inception and block_number >= self.inception_starting_block
+
             # Instantiate the convolution block with the explicitly provided parameters
             convolution_block = ConvolutionBlock(input_channels=current_input_channels, output_channels=output_channels,
                                                  bias=True, number_layers=number_layers,
                                                  kernel_size=3, stride=1, padding=1,
                                                  feature_map_normalization=self.feature_map_normalization,
                                                  activation=True, dropout_rate=0.0,
-                                                 add_pooling=add_pooling, device=device, dtype=dtype)
+                                                 add_pooling=add_pooling, device=device, dtype=dtype,
+                                                 squeeze_and_excite=self.squeeze_and_excite, residual=use_residual,
+                                                 inception=use_inception)
 
             # Append the constructed convolution block to the sequential module list
             self.convolution_blocks.append(convolution_block)
@@ -96,8 +121,8 @@ class Backbone(nn.Module):
                 - The final resulting feature map of shape [Batch, Out_Channels, Final_Height, Final_Width]
                 - A dictionary mapping block indices to intermediate feature maps of shape [Batch, Channels, H, W].
         """
-        # Initialize the current tensor to the input tensor before passing through the blocks
-        current_tensor = input_tensor
+        # Normalize the raw input images, then use them as the starting tensor of the feature extraction path
+        current_tensor = self.input_normalizer(input_tensor=input_tensor)
 
         # Creation of output tensor dictionary
         output_tensor_dictionary = {}
@@ -124,12 +149,8 @@ class Backbone(nn.Module):
         # Initialize the rich console for formatted output, specifying a wide width to comfortably accommodate the panel
         console = Console(width=60)
 
-        # Determine input channels from the very first convolutional layer within the first backbone block
-        first_convolutional_layer = self.convolution_blocks[0].block[0]
-        input_channels = first_convolutional_layer.in_channels
-
         # Create a dummy tensor on the appropriate device to mathematically trace the dimension transformations
-        dummy_tensor = torch.zeros(size=(1, input_channels, self.input_image_size, self.input_image_size),
+        dummy_tensor = torch.zeros(size=(1, self.input_channels, self.input_image_size, self.input_image_size),
                                    device=self.device)
 
         # Print the overarching title and the initial tensor shape to begin the structured summary
@@ -176,12 +197,8 @@ class Backbone(nn.Module):
             Dict[str, Dict[str, int]]: A dictionary mapping the stringified detection block index to 
             a dictionary containing 'feature_map_size' and 'number_channels'.
         """
-        # Determine the input channels expected by the backbone from its very first layer
-        first_convolutional_layer = self.convolution_blocks[0].block[0]
-        input_channels = first_convolutional_layer.in_channels
-
         # Instantiate a dummy input tensor of the specified shape using self.device
-        dummy_tensor = torch.zeros(size=(1, input_channels, self.input_image_size, self.input_image_size),
+        dummy_tensor = torch.zeros(size=(1, self.input_channels, self.input_image_size, self.input_image_size),
                                    device=self.device)
 
         # Dictionary to store the dynamically computed structural information for each detection block
@@ -197,3 +214,45 @@ class Backbone(nn.Module):
                                                                  "number_channels": dummy_tensor.shape[1]}
 
         return detection_information
+
+    def compute_receptive_field_information(self) -> List[Dict[str, Any]]:
+        """
+        Computes the output size, cumulative stride and receptive field of every spatial layer of the Backbone.
+
+        This diagnostic indicates which object sizes each detection block can observe, which should be compared
+        with the anchor scales assigned to that block. The recursion used for every layer is:
+            receptive_field += (kernel_size - 1) * cumulative_stride
+            cumulative_stride *= stride
+            output_size = floor((output_size + 2 * padding - kernel_size) / stride) + 1
+
+        Returns:
+            List[Dict[str, Any]]: One dictionary per spatial layer with keys 'block_number', 'name', 'output_size',
+                                  'output_channels', 'stride', 'receptive_field' and 'is_detection_block_output'.
+        """
+        receptive_field_information = []
+
+        # A single input pixel observes itself, with a unit stride over the input image
+        receptive_field = 1
+        cumulative_stride = 1
+        output_size = self.input_image_size
+
+        # Iterate through each block and accumulate the receptive field of its spatial layers
+        for block_number, block in enumerate(self.convolution_blocks, start=1):
+            block_layers = block.get_receptive_field_layers()
+
+            for layer_index, layer in enumerate(block_layers):
+                receptive_field += (layer["kernel_size"] - 1) * cumulative_stride
+                cumulative_stride *= layer["stride"]
+                output_size = (output_size + 2 * layer["padding"] - layer["kernel_size"]) // layer["stride"] + 1
+
+                # The last layer of a detection block produces the feature map sent to the detection heads
+                is_detection_block_output = (block_number in self.detection_convolution_block_indices
+                                             and layer_index == len(block_layers) - 1)
+
+                receptive_field_information.append({"block_number": block_number, "name": layer["name"],
+                                                    "output_size": output_size,
+                                                    "output_channels": block.output_channels,
+                                                    "stride": cumulative_stride, "receptive_field": receptive_field,
+                                                    "is_detection_block_output": is_detection_block_output})
+
+        return receptive_field_information
