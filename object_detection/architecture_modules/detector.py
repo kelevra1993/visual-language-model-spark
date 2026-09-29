@@ -12,7 +12,7 @@ from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 class DetectionHead(nn.Module):
     def __init__(self, detector_configuration: Dict[str, Any], number_classes: int, input_channels: int,
                  feature_map_normalization: str, input_image_size: int, feature_map_size: int, dtype: torch.dtype,
-                 device: torch.device) -> None:
+                 device: torch.device, modules: Dict[str, Any]) -> None:
         """
         Initializes the Detection Head module for a specific feature map scale.
         
@@ -29,6 +29,8 @@ class DetectionHead(nn.Module):
             feature_map_size (int): The spatial dimension (height and width) of the feature map at this scale.
             dtype (torch.dtype): The tensor data type.
             device (torch.device): The computational device.
+            modules (Dict[str, Any]): The 'Detector.modules' configuration selecting the architecture
+                modules ('squeeze_and_excite', 'residual_nets', 'inception') of the convolutional block.
         """
         super(DetectionHead, self).__init__()
 
@@ -54,7 +56,10 @@ class DetectionHead(nn.Module):
             bias=True, number_layers=self.convolution_number_layers,
             kernel_size=3, stride=1, padding=1,
             feature_map_normalization=self.feature_map_normalization,
-            activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype)
+            activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype,
+            squeeze_and_excite=bool(modules["squeeze_and_excite"]),
+            residual=bool(modules["residual_nets"]),
+            inception=bool(modules["inception"]))
 
         # Fully connected layers
         flattened_dimension = self.roi_align_pool_size * self.roi_align_pool_size * convolution_output_channels
