@@ -134,35 +134,42 @@ def test_example_configuration_is_consistent() -> None:
     (set_inception_channels, ["'Backbone.convolutions.4' has 20 output channels"]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
                            "'Detector.number_training_positives' (500) must be <="])])
-def test_inconsistent_configuration_is_rejected(tmp_path: Path, modify_function: Callable[[Dict[str, Any]], None],
+def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                modify_function: Callable[[Dict[str, Any]], None],
                                                 expected_messages: List[str]) -> None:
     """
-    Verifies that each inconsistency is rejected at loading time with a message naming the faulty key, and that
-    several inconsistencies are all reported in a single error.
+    Verifies that each inconsistency stops the loading with a short message naming the faulty key, and that
+    several inconsistencies are all printed at once.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
         modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
-        expected_messages (List[str]): Message fragments that must all appear in the raised error.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
     """
     configuration_path = write_modified_configuration(temporary_directory=tmp_path, modify_function=modify_function)
 
-    with pytest.raises(expected_exception=ValueError) as error_information:
+    with pytest.raises(expected_exception=SystemExit):
         load_experiment_configuration(configuration_path=configuration_path)
 
-    # Every expected problem must be listed in the error
+    # Every expected problem must be printed, without any traceback
+    printed_output = capsys.readouterr().out
     for expected_message in expected_messages:
-        assert expected_message in str(error_information.value)
+        assert expected_message in printed_output
+    assert "Traceback" not in printed_output
 
 
-def test_missing_configuration_key_is_reported_with_its_path(tmp_path: Path) -> None:
+def test_missing_configuration_key_is_reported_with_its_path(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that a key missing from the configuration is reported with its full dotted path.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
     """
     configuration_path = write_modified_configuration(temporary_directory=tmp_path, modify_function=remove_module_key)
 
-    with pytest.raises(expected_exception=KeyError, match="Detector.modules.residual_nets"):
+    with pytest.raises(expected_exception=SystemExit):
         load_experiment_configuration(configuration_path=configuration_path)
+
+    assert "Missing configuration key 'Detector.modules.residual_nets'." in capsys.readouterr().out
