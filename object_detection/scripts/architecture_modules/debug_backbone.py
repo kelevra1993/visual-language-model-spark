@@ -1,6 +1,6 @@
 from architecture_modules.backbone import Backbone
 from scripts.utilities.debugging_utilities import get_model_configuration, get_dummy_input_tensor
-from utilities.os_utilities import print_green, print_blue
+from utilities.os_utilities import print_color
 from utilities.tensor_utilities import print_tensor_shape
 
 
@@ -12,7 +12,7 @@ def debug_backbone() -> None:
     prints its structural summary, and performs a single forward pass with a dummy tensor
     to verify the computational graph and spatial downsampling.
     """
-    print_blue(output="Prepared Backbone configuration:", add_separators=True)
+    print_color(color="blue", output="Prepared Backbone configuration:", add_separators=True)
 
     # Fetch standard configuration and tensor generating tools via utility
     configuration, device, dtype = get_model_configuration()
@@ -30,7 +30,8 @@ def debug_backbone() -> None:
                                device=device,
                                dtype=dtype)
 
-    print_green(output="Backbone module successfully instantiated and ready for testing!", add_separators=True)
+    print_color(color="green",
+                output="Backbone module successfully instantiated and ready for testing!", add_separators=True)
 
     # Print the architectural summary
     backbone_module.print_summary()
@@ -45,7 +46,7 @@ def debug_backbone() -> None:
 
     print_tensor_shape(tensor=output_tensor, indent=1)
 
-    print_blue(output="Testing dynamic structural information computation...", add_separators=True)
+    print_color(color="blue", output="Testing dynamic structural information computation...", add_separators=True)
 
     # Compute structural information dynamically without a full forward pass
     computed_information = backbone_module.compute_detection_input_information()
@@ -61,10 +62,11 @@ def debug_backbone() -> None:
         match_status = "SUCCESS" if (
                 actual_size == expected_size and actual_channels == expected_channels) else "FAILED"
 
-        output_color_function = print_green if match_status == "SUCCESS" else print_blue
-        output_color_function(output=f"Block {block_index} | Computed Size: {expected_size} (Actual: {actual_size})"
-                                     f" | Computed Channels: {expected_channels} (Actual: {actual_channels})"
-                                     f" | {match_status}", add_separators=False)
+        output_color = "green" if match_status == "SUCCESS" else "blue"
+        print_color(color=output_color,
+                    output=f"Block {block_index} | Computed Size: {expected_size} (Actual: {actual_size})"
+                           f" | Computed Channels: {expected_channels} (Actual: {actual_channels})"
+                           f" | {match_status}", add_separators=False)
 
 
 if __name__ == "__main__":
