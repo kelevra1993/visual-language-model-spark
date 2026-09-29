@@ -20,7 +20,7 @@ ExperimentConfiguration:
   validation_iteration_ratio: 5
   # Base learning rate used by the optimizer.
   learning_rate: 2.0e-4
-  # Global tensor data type (e.g., "float32" or "float16").
+  # Global tensor data type, either "float32" or "float64".
   dtype: "float32"
   # Flag to attempt loading the most recent checkpoint to resume training.
   resume_training: true
@@ -31,23 +31,16 @@ ExperimentConfiguration:
       compute_receptive_field: False
       # Choice to compute final model size
       compute_model_size: False
-      # Choice to view what is being fed to the neural network
+      # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
+      # input images with their ground truth boxes before training. SPACE shows the next images, ENTER closes the
+      # viewer and training continues. Requires a display (skipped with a warning otherwise)
       view_input_images: False
 
 Data:
   DALI:
     # Flag to enable the NVIDIA DALI hardware-accelerated pipeline.
-    # Note: When activated, this overrides TFRecord and Native PyTorch loaders.
+    # Note: When deactivated, the Native PyTorch loader (OpenCV decoding and CPU resizing) is used instead.
     activated: True
-  TFRecord:
-    # Flag to enable the TFRecord data pipeline for faster sequential batching.
-    activated: False
-    # Flag to indicate if the TFRecord dataset is distributed across multiple shard files.
-    sharded: False
-    # Total number of individual shard files the dataset is partitioned into.
-    number_shards: 100
-    # Buffer Size to get while reading TFRecord [Do not change if not accustomed to this]
-    buffer_size: 262144
   image_settings:
     # Target resolution to resize all input images.
     size: 1024
@@ -114,19 +107,25 @@ Backbone:
     # Input Normalization : Setting image range values between [-0.5:0.5]
     input_normalization: False
 
+    # Per Sample Input Normalization : Normalizing each image to zero mean and unit variance
+    # Applied after input_normalization when both are activated
+    per_sample_normalization: False
+
     # Strategy for normalizing the feature maps in the convolution blocks.
     # Options are: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
     feature_map_normalization: "batch"
 
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    # Shortcuts are added every two convolution layers, starting from the second convolution block
     residual_nets: False
 
-    # Attention Modules : Paper "Residual Attention Network for Image Classification" https://arxiv.org/pdf/1704.06904.pdf
-    attention: False
-
     # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
+    # Output channels of every block using inception must be multiples of 8
     inception: False
+
+    # Convolution block (1-indexed) from which inception modules replace the plain convolutions
+    inception_starting_block: 3
 
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
@@ -205,10 +204,8 @@ Detector:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
     residual_nets: False
 
-    # Attention Modules : Paper "Residual Attention Network for Image Classification" https://arxiv.org/pdf/1704.06904.pdf
-    attention: False
-
     # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
+    # Output channels of the detection head convolutions must be multiples of 8
     inception: False
 
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
