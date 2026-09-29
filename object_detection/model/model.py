@@ -10,7 +10,7 @@ from architecture_modules.detector import DetectionHead
 from utilities.model.model_utilities import assign_targets_to_anchors, batch_assign_targets_to_anchors, \
     turn_boxes_to_transformation_targets, apply_regression_predictions, sample_positive_and_negative_training_targets, \
     batch_assign_targets_to_proposals, get_box_dimensions_and_centers
-from utilities.os_utilities import print_yellow
+from utilities.os_utilities import print_color
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list, print_tensor_min_max
 
 
@@ -388,7 +388,7 @@ class Model(nn.Module):
                 rearranged_predictions[tensor_name] = torch.stack(tensors=tensor_list, dim=0)
 
         if verbose:
-            print_yellow(f"Re-Arranged Detection Output Information", add_separators=True)
+            print_color(color="yellow", output=f"Re-Arranged Detection Output Information", add_separators=True)
             for tensor_name, tensor_value in rearranged_predictions.items():
                 print_tensor_shape(tensor_value, tensor_name, indent=1)
 
@@ -645,7 +645,7 @@ class Model(nn.Module):
 
         # Calculate and display the final breakdown detection input proposals for debugging
         if verbose:
-            print_yellow("Detector Information", add_separators=True)
+            print_color(color="yellow", output="Detector Information", add_separators=True)
             print_tensor_shape(detection_proposals, indent=1)
             print_tensor_shape(detection_proposals_origins, indent=1)
             if self.training:
