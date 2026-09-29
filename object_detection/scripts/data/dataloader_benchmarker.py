@@ -1,31 +1,23 @@
 import os
 
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
-
 import json
 import cv2
 import numpy as np
 import csv
 import time
 import torch
-import tensorflow
 from tqdm import tqdm
-import glob
 
 from utilities.os_utilities import print_blue
 from utilities.data_utilities import view_input_data
 
 from pathlib import Path
 from typing import List, Dict, Any, Callable
-from torch.utils.data import Dataset, DataLoader, IterableDataset
+from torch.utils.data import DataLoader
 
-from data.data_loader import NativeDataset, TFRecordDataset, TFRecordShardedDataset, collate_function, \
-    create_tfrecord, create_tfrecord_sharded, dali_pipeline, DALIDataloaderWrapper
+from data.data_loader import NativeDataset, dali_pipeline, DALIDataloaderWrapper
 
 from nvidia.dali.plugin.pytorch import DALIGenericIterator
-
-# Hide GPU from TensorFlow so it does not reserve all memory, leaving none for PyTorch
-tensorflow.config.set_visible_devices(devices=[], device_type='GPU')
 
 
 def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
@@ -49,36 +41,6 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
     # Consolidate the image tensors into a single unified batch tensor for GPU acceleration
     # Keep bounding boxes and labels as standard lists to accommodate variable object counts per image
     return {"images": torch.stack(tensors=images), "bounding_boxes": bounding_boxes, "labels": labels}
-
-
-def parse_single_example(serialized_data: tensorflow.Tensor) -> tuple[
-    tensorflow.Tensor, tensorflow.Tensor, tensorflow.Tensor]:
-    """
-    Parses a single serialized tensorflow.train.Example protobuf into distinct TensorFlow tensors.
-    
-    This function decodes the raw image bytes into pixel values and reconstructs the sparse
-    bounding boxes and labels arrays for downstream PyTorch conversion.
-    
-    Args:
-        serialized_data (tensorflow.Tensor): The raw serialized protocol buffer string from the TFRecord.
-        
-    Returns:
-        tuple[tensorflow.Tensor, tensorflow.Tensor, tensorflow.Tensor]: A tuple containing the decoded image tensor, 
-                                                                        bounding boxes tensor, and labels tensor.
-    """
-    features = tensorflow.io.parse_single_example(serialized=serialized_data, features={
-        "images": tensorflow.io.FixedLenFeature(shape=[], dtype=tensorflow.string),
-        "bounding_boxes": tensorflow.io.FixedLenFeature(shape=[], dtype=tensorflow.string),
-        "labels": tensorflow.io.FixedLenFeature(shape=[], dtype=tensorflow.string)})
-
-    image = tensorflow.io.decode_png(contents=features["images"], channels=3)
-    bounding_boxes = tensorflow.io.decode_raw(input_bytes=features["bounding_boxes"], out_type=tensorflow.float32)
-    labels = tensorflow.io.decode_raw(input_bytes=features["labels"], out_type=tensorflow.int64)
-
-    # Reshape bounding boxes back to expected multi-dimensional format
-    bounding_boxes = tensorflow.reshape(tensor=bounding_boxes, shape=[-1, 4])
-
-    return image, bounding_boxes, labels
 
 
 def clean_data(data_directory: str, labels_file: str) -> None:
@@ -158,86 +120,10 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
                 # Iterate through each item in the current batch explicitly
                 for batch_index in range(batch_data_dictionary["images"].size(0)):
                     # Dispatch the individual item to the visualization utility to render the ground truth annotations
-                    user_quit = view_input_data(image=batch_data_dictionary["images"][batch_index],
-                                                bounding_boxes=batch_data_dictionary["bounding_boxes"][batch_index],
-                                                labels=batch_data_dictionary["labels"][batch_index])
-                    if user_quit:
-                        return 0.0
-        times.append(time.time() - start_time)
-
-    return times
-
-
-def benchmark_tfrecord(tensorflow_record_path: str, number_of_runs: int, batch_size: int, view_images: bool,
-                       buffer_size: int) -> List[float]:
-    """
-    Benchmarks the Pre-Resized TFRecord dataset loader.
-    
-    This function evaluates the absolute theoretical maximum throughput of CPU decoding by 
-    combining binary archive storage with preemptive spatial scaling in the benchmark pipeline.
-    
-    Args:
-        tensorflow_record_path (str): The absolute path to the pre-resized TFRecord archive file.
-        number_of_runs (int): The number of full epoch passes to simulate.
-        batch_size (int): The number of images per batch.
-        view_images (bool): Whether to visualize the batches using OpenCV.
-        buffer_size (int): The buffer size for TFRecord loading.
-        
-    Returns:
-        float: The average time taken per run in seconds.
-    """
-    dataset = TFRecordDataset(tensorflow_record_path=tensorflow_record_path, buffer_size=buffer_size)
-    dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
-                            collate_fn=collate_function)
-    times = []
-
-    # Iteratively drain the dataloader to precisely measure the wall-clock time required for full epoch traversals
-    for _run_index in range(number_of_runs):
-        start_time = time.time()
-        for batch_data_dictionary in tqdm(iterable=dataloader, desc=f"TFRecord Epoch {_run_index + 1}", leave=False):
-            if view_images:
-                # Iterate through each item in the current batch explicitly
-                for batch_index in range(batch_data_dictionary["images"].size(0)):
-                    # Dispatch the individual item to the visualization utility to render the ground truth annotations
-                    user_quit = view_input_data(image=batch_data_dictionary["images"][batch_index],
-                                                bounding_boxes=batch_data_dictionary["bounding_boxes"][batch_index],
-                                                labels=batch_data_dictionary["labels"][batch_index])
-                    if user_quit:
-                        return 0.0
-        times.append(time.time() - start_time)
-
-    return times
-
-
-def benchmark_tfrecord_sharded(directory_pattern: str, number_of_runs: int, batch_size: int, view_images: bool,
-                               buffer_size: int) -> List[float]:
-    """
-    Benchmarks the sharded TFRecord dataset loader.
-    
-    Args:
-        directory_pattern (str): The wildcard pattern used to locate all TFRecord shards.
-        number_of_runs (int): The number of full epoch passes to simulate.
-        batch_size (int): The number of images per batch.
-        view_images (bool): Whether to visualize the batches using OpenCV.
-        buffer_size (int): The buffer size for TFRecord loading.
-        
-    Returns:
-        float: The average time taken per run in seconds.
-    """
-    dataset = TFRecordShardedDataset(directory_pattern=directory_pattern, buffer_size=buffer_size)
-    dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
-                            collate_fn=collate_function)
-    times = []
-
-    for _run_index in range(number_of_runs):
-        start_time = time.time()
-        for batch_data_dictionary in tqdm(iterable=dataloader, desc=f"TFRecord Sharded Epoch {_run_index + 1}",
-                                          leave=False):
-            if view_images:
-                for batch_index in range(batch_data_dictionary["images"].size(0)):
-                    user_quit = view_input_data(image=batch_data_dictionary["images"][batch_index],
-                                                bounding_boxes=batch_data_dictionary["bounding_boxes"][batch_index],
-                                                labels=batch_data_dictionary["labels"][batch_index])
+                    user_quit = view_input_data(images=[batch_data_dictionary["images"][batch_index]],
+                                                bounding_boxes=[batch_data_dictionary["bounding_boxes"][batch_index]],
+                                                labels=[batch_data_dictionary["labels"][batch_index]],
+                                                window_titles=["Input Data Viewer"])
                     if user_quit:
                         return 0.0
         times.append(time.time() - start_time)
@@ -387,75 +273,22 @@ def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, b
     return times
 
 
-def get_dataset_paths(project_base_directory: str, image_size: int, keep_ratio: bool) -> Dict[str, str]:
+def get_dataset_paths(project_base_directory: str) -> Dict[str, str]:
     """
-    Constructs and orchestrates the standardized filesystem paths required by the dataloader format benchmarker
-     pipeline to locate annotations and output compiled archives.
-    
+    Constructs the standardized filesystem paths the dataloader benchmarker uses to locate the COCO training
+    images and annotations shared by the Native and DALI loaders.
+
     Args:
-        project_base_directory (str): The root directory of the project.
-        image_size (int): The target image dimension used to construct file prefixes.
-        keep_ratio (bool): Whether the aspect ratio is maintained, used for prefix formatting.
-        
+        project_base_directory (str): The root datasets directory of the project.
+
     Returns:
-        Dict[str, str]: A dictionary containing absolute paths for data, labels, and output formats.
+        Dict[str, str]: A dictionary containing absolute paths for the image directory and the labels file.
     """
     base_directory = os.path.join(project_base_directory, 'coco-2017', 'train')
     original_data_directory = os.path.join(base_directory, 'data')
     original_labels = os.path.join(base_directory, 'labels.json')
 
-    prefix = f"KAR-{image_size}-" if keep_ratio else f"{image_size}-"
-    formats_directory = os.path.join(project_base_directory, 'formats')
-    tensorflow_record_path = os.path.join(formats_directory, f'{prefix}coco-train.tfrecord')
-    sharded_output_directory = os.path.join(formats_directory, f'{prefix}Sharded-Records')
-    tfrecord_sharded_pattern = os.path.join(sharded_output_directory, 'shard-*.tfrecord')
-
-    return {
-        "data_directory": original_data_directory,
-        "labels_file": original_labels,
-        "tensorflow_record_path": tensorflow_record_path,
-        "sharded_output_directory": sharded_output_directory,
-        "tfrecord_sharded_pattern": tfrecord_sharded_pattern
-    }
-
-
-def prepare_tfrecords(paths_dictionary: Dict[str, str], image_size: int, keep_ratio: bool) -> None:
-    """
-    Validates the presence of the pre-resized and sharded TFRecord archives on disk, dynamically compiling them from
-     the raw dataset if missing, in order to guarantee data availability for the benchmarking pipeline.
-    
-    Args:
-        paths_dictionary (Dict[str, str]): A dictionary containing dataset input and output paths.
-        image_size (int): The target dimension to scale images.
-        keep_ratio (bool): Whether to pad images during scaling to maintain aspect ratio.
-        
-    Returns:
-        None
-    """
-    tensorflow_record_path = paths_dictionary["tensorflow_record_path"]
-    original_data_directory = paths_dictionary["data_directory"]
-    original_labels = paths_dictionary["labels_file"]
-
-    if not os.path.exists(path=tensorflow_record_path):
-        print(f"TFRecord file not found at {tensorflow_record_path}. Generating it now...")
-        os.makedirs(name=os.path.dirname(p=tensorflow_record_path), exist_ok=True)
-        create_tfrecord(data_directory=original_data_directory, labels_file=original_labels,
-                        output_tensorflow_record=tensorflow_record_path, image_size=image_size, keep_ratio=keep_ratio)
-        print("TFRecord generation complete!")
-    else:
-        print(f"Found existing TFRecord file at {tensorflow_record_path}.")
-
-    sharded_output_directory = paths_dictionary["sharded_output_directory"]
-    tfrecord_sharded_pattern = paths_dictionary["tfrecord_sharded_pattern"]
-
-    if not os.path.exists(path=sharded_output_directory) or len(glob.glob(pathname=tfrecord_sharded_pattern)) == 0:
-        print(f"Sharded TFRecords not found at {sharded_output_directory}. Generating them now...")
-        create_tfrecord_sharded(data_directory=original_data_directory, labels_file=original_labels,
-                                output_directory=sharded_output_directory, image_size=image_size, keep_ratio=keep_ratio,
-                                number_of_shards=10)
-        print("Sharded TFRecord generation complete!")
-    else:
-        print(f"Found existing sharded TFRecords at {sharded_output_directory}.")
+    return {"data_directory": original_data_directory, "labels_file": original_labels}
 
 
 def benchmark_method(method_name: str, method_function: Callable, benchmark_arguments: Dict[str, Any]) -> List[float]:
@@ -529,7 +362,7 @@ def main() -> None:
     Serves as the primary entry point for the dataloader benchmarking suite.
     
     This function orchestrates the sequential evaluation of different data ingestion strategies 
-    (Native PyTorch vs. TFRecord variants) to experimentally determine the optimal data pipeline 
+    (Native PyTorch vs. DALI) to experimentally determine the optimal data pipeline 
     configuration for the object detection model. By executing simulated epoch loops and aggregating 
     the wall-clock times, it provides the empirical metrics necessary to configure the downstream 
     training loop with the fastest possible dataloader.
@@ -540,30 +373,21 @@ def main() -> None:
     image_size = 1024
     keep_ratio = True
     view_images = False
-    buffer_size = 262144  # 256 MB
 
     # Specify the dataloader architectures that should actively be executed during the current benchmark run
     methods_to_benchmark = [
         'Native',
-        'TFRecord',
-        'Sharded',
         'DALI'
     ]
 
-    # Construct the absolute system paths required
-    # to locate the underlying dataset and to output the compiled storage formats
+    # Construct the absolute system path required to locate the underlying dataset
     project_base_directory = str(Path(__file__).absolute().parents[3] / 'datasets')
 
     # CSV Benchmark File
     csv_file_path = os.path.join(project_base_directory, 'benchmark_results.csv')
 
-    # Retrieve the dynamically resolved absolute paths for the original data and generated formats
-    paths_dictionary = get_dataset_paths(project_base_directory=project_base_directory, image_size=image_size,
-                                         keep_ratio=keep_ratio)
-
-    # Validate the existence of the requisite TFRecord archives,
-    # dynamically regenerating them if they are missing to guarantee smooth execution
-    prepare_tfrecords(paths_dictionary=paths_dictionary, image_size=image_size, keep_ratio=keep_ratio)
+    # Retrieve the dynamically resolved absolute paths for the original data
+    paths_dictionary = get_dataset_paths(project_base_directory=project_base_directory)
 
     # Map each dataloader strategy to its specific execution function and arguments
     # to enable a clean, dynamic testing loop
@@ -573,16 +397,6 @@ def main() -> None:
                                  'labels_file': paths_dictionary["labels_file"], 'number_of_runs': number_of_runs,
                                  'batch_size': batch_size, 'image_size': image_size, 'keep_ratio': keep_ratio,
                                  'view_images': view_images}},
-        'TFRecord': {'function': benchmark_tfrecord,
-                     'arguments': {'tensorflow_record_path': paths_dictionary["tensorflow_record_path"],
-                                   'number_of_runs': number_of_runs, 'batch_size': batch_size,
-                                   'view_images': view_images,
-                                   'buffer_size': buffer_size}},
-        'Sharded': {'function': benchmark_tfrecord_sharded,
-                    'arguments': {'directory_pattern': paths_dictionary["tfrecord_sharded_pattern"],
-                                  'number_of_runs': number_of_runs, 'batch_size': batch_size,
-                                  'view_images': view_images,
-                                  'buffer_size': buffer_size}},
         'DALI': {'function': benchmark_dali,
                  'arguments': {'data_directory': paths_dictionary["data_directory"],
                                'labels_file': paths_dictionary["labels_file"], 'number_of_runs': number_of_runs,
