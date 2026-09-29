@@ -5,7 +5,7 @@
 - Prerequisites
 
 ## Description
-This repository contains an object detection pipeline built with PyTorch, supporting NVIDIA DALI and TFRecord data loading backends.
+This repository contains an object detection pipeline built with PyTorch, supporting NVIDIA DALI and native PyTorch data loading backends.
 
 ## Prerequisites
 - PyTorch
