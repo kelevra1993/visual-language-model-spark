@@ -905,7 +905,7 @@ class Model(nn.Module):
         This summary leverages rich panels to cleanly display the feature map size, the RoI Align 
         pool size, and the spatial scale used for RoI pooling across each configured Detection block.
         """
-        console = Console(width=60)
+        console = Console(width=80)
 
         # Initialize the textual representation of the architecture,
         # including the applied normalization strategy prominently
@@ -920,6 +920,12 @@ class Model(nn.Module):
             spatial_scale = detection_head.spatial_scale
 
             summary_text += f"[bold]Detection Block {index_string}[/bold]\n"
+
+            # Show the convolution modules used by this head, only when it is not a plain convolution block
+            active_module_names = detection_head.convolutional_block.get_active_module_names()
+            if active_module_names:
+                summary_text += f"  - Modules            : {', '.join(active_module_names)}\n"
+
             summary_text += f"  - Convolution Layers : {convolution_layers}\n"
             summary_text += f"  - Fully Conn. Layers : {fully_connected_layers}\n"
             summary_text += f"  - Feature Map Size   : [{feature_map_size}, {feature_map_size}]\n"
