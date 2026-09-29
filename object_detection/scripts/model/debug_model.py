@@ -7,7 +7,7 @@ import numpy as np
 from scripts.utilities.debugging_utilities import print_bounding_boxes, generate_random_bounding_boxes, \
     visualize_anchor_target_assignments, visualize_foreground_and_background_anchors, get_model_configuration, \
     get_dummy_input_tensor, get_dummy_ground_truth_boxes, get_dummy_ground_truth_labels
-from utilities.os_utilities import print_green, print_blue
+from utilities.os_utilities import print_color
 from utilities.tensor_utilities import print_tensor_status, print_tensor_shape, print_tensor_list
 
 from typing import Tuple, List, Dict, Any
@@ -24,7 +24,7 @@ def debug_model() -> None:
 
     model = Model(configuration=configuration, device=device, dtype=dtype, verbose=True)
 
-    print_green(output="Model Configuration + Instantiation Done!", add_separators=True)
+    print_color(color="green", output="Model Configuration + Instantiation Done!", add_separators=True)
     model.print_summary()
 
     batch_size, input_channels, input_image_size, input_tensor = get_dummy_input_tensor(device=device, dtype=dtype)
@@ -40,7 +40,8 @@ def debug_model() -> None:
                                                         device=device,
                                                         dtype=dtype)
 
-    print_blue(output="Visualising Ground Truths with Possitive and Negative Anchors...", add_separators=True)
+    print_color(color="blue",
+                output="Visualising Ground Truths with Possitive and Negative Anchors...", add_separators=True)
     # Only run for the first batch to visualise the ground truth iou's with proposals.
     # visualize_foreground_and_background_anchors(
     #     ground_truth_boxes=ground_truth_bounding_boxes[0],
