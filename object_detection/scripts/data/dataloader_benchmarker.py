@@ -87,7 +87,8 @@ def clean_data(data_directory: str, labels_file: str) -> None:
 
 
 def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int, batch_size: int, image_size: int,
-                     keep_ratio: bool, view_images: bool) -> List[float]:
+                     keep_ratio: bool, label_mode: str, label_dictionary: Dict[str, Any],
+                     view_images: bool) -> List[float]:
     """
     Benchmarks the Native PyTorch dataset loader.
 
@@ -101,13 +102,15 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
         batch_size (int): The number of images per batch.
         image_size (int): The target height and width for the scaled images.
         keep_ratio (bool): Whether to maintain the aspect ratio during scaling by padding.
+        label_mode (str): Mode for class assignment ("binary" or "multi_class").
+        label_dictionary (Dict[str, Any]): Dictionary mapping raw dataset classes to model classes.
         view_images (bool): Whether to visualize the batches using OpenCV.
 
     Returns:
         float: The average time taken per run in seconds.
     """
     dataset = NativeDataset(data_directory=data_directory, labels_file=labels_file, image_size=image_size,
-                            keep_ratio=keep_ratio)
+                            keep_ratio=keep_ratio, label_mode=label_mode, label_dictionary=label_dictionary)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
                             collate_fn=collate_function)
     times = []
@@ -212,7 +215,8 @@ def compare_dali_and_native(dali_image_tensor: torch.Tensor, dali_boxes: torch.T
 
 
 def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, batch_size: int, image_size: int,
-                   keep_ratio: bool, view_images: bool) -> List[float]:
+                   keep_ratio: bool, label_mode: str, label_dictionary: Dict[str, Any],
+                   view_images: bool) -> List[float]:
     """
     Benchmarks the NVIDIA DALI hardware-accelerated dataloader.
     
@@ -223,6 +227,8 @@ def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, b
         batch_size (int): The number of images per batch.
         image_size (int): The target height and width for the scaled images.
         keep_ratio (bool): Whether to maintain the aspect ratio during scaling by padding.
+        label_mode (str): Mode for class assignment ("binary" or "multi_class").
+        label_dictionary (Dict[str, Any]): Dictionary mapping raw dataset classes to model classes.
         view_images (bool): Whether to visualize the batches using OpenCV.
         
     Returns:
@@ -236,11 +242,13 @@ def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, b
                                         ['images', 'bounding_boxes', 'labels', 'shapes', 'image_ids'],
                                         reader_name="Reader",
                                         auto_reset=True)
-    dataloader = DALIDataloaderWrapper(dali_iterator=dali_iterator, image_size=image_size, keep_ratio=keep_ratio)
+    dataloader = DALIDataloaderWrapper(dali_iterator=dali_iterator, image_size=image_size, keep_ratio=keep_ratio,
+                                       label_mode=label_mode, label_dictionary=label_dictionary)
 
     if view_images:
         native_dataset = NativeDataset(data_directory=data_directory, labels_file=labels_file,
-                                       image_size=image_size, keep_ratio=keep_ratio)
+                                       image_size=image_size, keep_ratio=keep_ratio, label_mode=label_mode,
+                                       label_dictionary=label_dictionary, shuffle=False)
         image_id_to_index = {img['id']: idx for idx, img in enumerate(native_dataset.images)}
 
     times = []
@@ -369,11 +377,15 @@ def main() -> None:
     training loop with the fastest possible dataloader.
     """
     # Core execution configuration
-    number_of_runs = 20
+    number_of_runs = 2
     batch_size = 20
     image_size = 1024
     keep_ratio = True
     view_images = False
+
+    # Label mapping shared by both loaders, matching the binary mode of the configuration loader
+    label_mode = "binary"
+    label_dictionary = {"background": 0, "foreground": 1}
 
     # Specify the dataloader architectures that should actively be executed during the current benchmark run
     methods_to_benchmark = [
@@ -397,11 +409,13 @@ def main() -> None:
                    'arguments': {'data_directory': paths_dictionary["data_directory"],
                                  'labels_file': paths_dictionary["labels_file"], 'number_of_runs': number_of_runs,
                                  'batch_size': batch_size, 'image_size': image_size, 'keep_ratio': keep_ratio,
+                                 'label_mode': label_mode, 'label_dictionary': label_dictionary,
                                  'view_images': view_images}},
         'DALI': {'function': benchmark_dali,
                  'arguments': {'data_directory': paths_dictionary["data_directory"],
                                'labels_file': paths_dictionary["labels_file"], 'number_of_runs': number_of_runs,
                                'batch_size': batch_size, 'image_size': image_size, 'keep_ratio': keep_ratio,
+                               'label_mode': label_mode, 'label_dictionary': label_dictionary,
                                'view_images': view_images}}
     }
 
