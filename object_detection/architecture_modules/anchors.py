@@ -20,7 +20,7 @@ class Anchors(nn.Module):
         
         Args:
             scales (List[float]): A list of base scales for the anchors.
-            aspect_ratios (List[float]): A list of aspect ratios (width/height) for the anchors.
+            aspect_ratios (List[float]): A list of aspect ratios (height/width) for the anchors.
             input_image_size (int): The spatial resolution of the original input image.
             feature_map_size (int): The spatial resolution of the feature map at this level.
             dtype (torch.dtype): The tensor data type.
