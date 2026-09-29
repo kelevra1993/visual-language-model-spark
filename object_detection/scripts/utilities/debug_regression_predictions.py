@@ -3,7 +3,7 @@ import numpy as np
 import torch
 
 from utilities.model.model_utilities import apply_regression_predictions, add_bounding_boxes, get_area
-from utilities.os_utilities import print_green, print_blue, get_random_color
+from utilities.os_utilities import print_color, get_random_color
 from utilities.tensor_utilities import print_tensor_shape
 
 
@@ -69,9 +69,9 @@ def debug_regression_predictions() -> None:
     class_colors = [get_random_color() for _ in range(number_classes)]
 
     # 4. Visualize the results
-    print_blue(output="Visualizing regression predictions...", add_separators=True)
-    print_green(output="- GREEN boxes: Original Reference Anchors", add_separators=False)
-    print_blue(output="- RANDOM colors: Predicted/Regressed Boxes for each class", add_separators=False)
+    print_color(color="blue", output="Visualizing regression predictions...", add_separators=True)
+    print_color(color="green", output="- GREEN boxes: Original Reference Anchors", add_separators=False)
+    print_color(color="blue", output="- RANDOM colors: Predicted/Regressed Boxes for each class", add_separators=False)
 
     for original_box, original_area, predicted_classes_boxes, predicted_classes_areas in zip(
             original_boxes_array, original_areas_array, predicted_boxes_array, predicted_areas_array):
@@ -80,7 +80,8 @@ def debug_regression_predictions() -> None:
                                   input_image_size=input_image_size, color=(0, 255, 0))
 
         original_scale = np.sqrt(original_area)
-        print_green(output=f"Original Box : {original_box} :: Area: {original_area:.2f} :: Scale: {original_scale:.2f}",
+        print_color(color="green",
+                    output=f"Original Box : {original_box} :: Area: {original_area:.2f} :: Scale: {original_scale:.2f}",
                     add_separators=False)
 
         # Draw Predicted Boxes for each class in its respective random color
@@ -91,13 +92,14 @@ def debug_regression_predictions() -> None:
                                       input_image_size=input_image_size, color=class_colors[class_index])
 
             predicted_scale = np.sqrt(predicted_area)
-            print_blue(output=f"- Associated Random Box (Class {class_index}) : {predicted_box}"
-                              f" :: Area: {predicted_area:.2f} :: Scale: {predicted_scale:.2f}", add_separators=False)
+            print_color(color="blue", output=f"- Associated Random Box (Class {class_index}) : {predicted_box}"
+                                             f" :: Area: {predicted_area:.2f} :: Scale: {predicted_scale:.2f}",
+                        add_separators=False)
 
     window_name = "Regression Predictions Debugger"
     cv2.imshow(winname=window_name, mat=canvas)
 
-    print_blue(output="Press any key on the image window to close it.", add_separators=True)
+    print_color(color="blue", output="Press any key on the image window to close it.", add_separators=True)
     cv2.waitKey(delay=0)
     cv2.destroyAllWindows()
 
