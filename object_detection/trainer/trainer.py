@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from model.model import Model
 from utilities.tensor_utilities import get_device, print_tensor_list
-from utilities.os_utilities import print_blue, print_yellow, print_red, print_green
+from utilities.os_utilities import print_color
 
 
 class Trainer:
@@ -157,18 +157,22 @@ class Trainer:
             None
         """
 
-        print_yellow("=== Experiment Launch Information ===", add_separators=True)
-        print_blue(f"- Tensorboard Directory   : file://{self.tensorboard_directory.absolute()}")
-        print_blue(f"- Weights Directory       : file://{self.weights_directory.absolute()}")
-        print_blue(f"- Configuration File      : file://{self.configuration_path.absolute()}")
-        print_blue(f"- Train Data Folder       : file://{self.experiment_configuration['train_data_folder']}")
-        print_blue(f"- Validation Data Folder  : file://{self.experiment_configuration['validation_data_folder']}")
-        print_blue(f"- Test Data Folder        : file://{self.experiment_configuration['test_data_folder']}")
-        print_blue(f"- Batch Size              : {self.batch_size}")
-        print_blue(f"- Total Iterations        : {self.training_iterations}")
-        print_blue(f"- Learning Rate           : {self.learning_rate}")
-        print_blue(f"- Resume Training         : {self.resume_training}")
-        print_blue(f"- Validation Iter. Ratio  : {self.validation_iteration_ratio}")
+        print_color(color="yellow", output="=== Experiment Launch Information ===", add_separators=True)
+        print_color(color="blue", output=f"- Tensorboard Directory   : file://{self.tensorboard_directory.absolute()}")
+        print_color(color="blue", output=f"- Weights Directory       : file://{self.weights_directory.absolute()}")
+        print_color(color="blue", output=f"- Configuration File      : file://{self.configuration_path.absolute()}")
+        print_color(color="blue",
+                    output=f"- Train Data Folder       : file://{self.experiment_configuration['train_data_folder']}")
+        print_color(color="blue",
+                    output=f"- Validation Data Folder  : "
+                           f"file://{self.experiment_configuration['validation_data_folder']}")
+        print_color(color="blue",
+                    output=f"- Test Data Folder        : file://{self.experiment_configuration['test_data_folder']}")
+        print_color(color="blue", output=f"- Batch Size              : {self.batch_size}")
+        print_color(color="blue", output=f"- Total Iterations        : {self.training_iterations}")
+        print_color(color="blue", output=f"- Learning Rate           : {self.learning_rate}")
+        print_color(color="blue", output=f"- Resume Training         : {self.resume_training}")
+        print_color(color="blue", output=f"- Validation Iter. Ratio  : {self.validation_iteration_ratio}")
 
     def setup_tensorboard_writers(self) -> Tuple[SummaryWriter, Optional[SummaryWriter]]:
         """
@@ -194,7 +198,8 @@ class Trainer:
         Returns:
             Tuple[DataLoader, DataLoader, DataLoader]: The loaders for the training, validation and testing splits.
         """
-        print_blue("Initializing Training, Validation And Test DataLoaders...", add_separators=True)
+        print_color(color="blue",
+                    output="Initializing Training, Validation And Test DataLoaders...", add_separators=True)
 
         train_dataloader, validation_dataloader, test_dataloader = get_dataloaders(
             experiment_configuration=self.experiment_configuration,
@@ -211,9 +216,9 @@ class Trainer:
         diagnosis mode, it lets the user check the preprocessing (resizing, padding, box rescaling and label mapping)
         before training starts. Pressing ENTER closes the viewer and training continues.
         """
-        print_red(output="View Of The Training And Validation Images That Are Fed To The Neural Network",
-                  add_separators=True)
-        print_green(output="Press SPACE To Navigate, Press ENTER To Stop Viewing And Start Training")
+        print_color(color="red", output="View Of The Training And Validation Images That Are Fed To The Neural Network",
+                    add_separators=True)
+        print_color(color="green", output="Press SPACE To Navigate, Press ENTER To Stop Viewing And Start Training")
 
         # Invert the label dictionary so that each box is captioned with its class name instead of its index
         label_names = {class_index: str(class_name) for class_name, class_index in self.label_dictionary.items()}
@@ -266,10 +271,10 @@ class Trainer:
             except Exception as exception:
                 error_counts += 1
                 if error_counts > maximum_consecutive_errors:
-                    print_red(
-                        output=f"Critical Error: Over {maximum_consecutive_errors} consecutive errors encountered "
-                               f"during the fetch of the next batch. Exiting.",
-                        add_separators=True)
+                    print_color(color="red",
+                                output=f"Critical Error: Over {maximum_consecutive_errors} consecutive errors "
+                                       f"encountered during the fetch of the next batch. Exiting.",
+                                add_separators=True)
                     print(f"Last exception: {exception}")
                     exit(1)
                 continue
@@ -472,26 +477,31 @@ class Trainer:
                 consecutive_errors = 0
 
             except KeyboardInterrupt:
-                print_red(f"Training Interrupted by User at iteration {training_iteration}.", add_separators=True)
+                print_color(color="red",
+                            output=f"Training Interrupted by User at iteration {training_iteration}.",
+                            add_separators=True)
                 break
             except Exception as error:
                 # Increment error counter when an exception occurs inside the training iteration loop
                 consecutive_errors += 1
 
                 if consecutive_errors > maximum_consecutive_errors:
-                    print_red(f"Critical Error: Over {maximum_consecutive_errors} consecutive errors "
-                              f"encountered during training iterations. Exiting.", add_separators=True)
+                    print_color(color="red",
+                                output=f"Critical Error: Over {maximum_consecutive_errors} consecutive errors "
+                                       f"encountered during training iterations. Exiting.", add_separators=True)
                     print(f"Last exception: {error}")
                     break
                 else:
-                    print_yellow(f"Error encountered during iteration {training_iteration}."
-                                 f" Continuing... (Consecutive Errors: {consecutive_errors}/{maximum_consecutive_errors})",
-                                 add_separators=True)
+                    print_color(color="yellow", output=f"Error encountered during iteration {training_iteration}."
+                                                       f" Continuing... (Consecutive Errors: "
+                                                       f"{consecutive_errors}/{maximum_consecutive_errors})",
+                                add_separators=True)
                     print(f"Exception: {error}")
                     continue
 
         self.save_model(iteration=training_iteration)
-        print_green(f"Model successfully saved at iteration {training_iteration}. Exiting Training.",
+        print_color(color="green",
+                    output=f"Model successfully saved at iteration {training_iteration}. Exiting Training.",
                     add_separators=True)
         if self.training_writer is not None:
             self.training_writer.close()
@@ -612,7 +622,7 @@ class Trainer:
     #                 torchvision.utils.save_image(comparison_grid, output_path, nrow=number_of_columns)
     #                 samples_processed += 1
     #
-    #     print_green(f"- file://{output_directory}")
+    #     print_color(color="green", output=f"- file://{output_directory}")
 
     # todo to be properly implemented !!!
     def run_model_iteration(self, data_dictionary: Dict[str, torch.Tensor | Any],
@@ -759,14 +769,15 @@ class Trainer:
 
         # Despite trying to get the last model None was found
         if not index_iteration:
-            print_green(
-                "No Initiation Model Weights Will Be Used..."
-                "\nWe Generate A New Model That Will Be Trained From Scratch.",
-                add_separators=True)
+            print_color(color="green",
+                        output="No Initiation Model Weights Will Be Used..."
+                               "\nWe Generate A New Model That Will Be Trained From Scratch.",
+                        add_separators=True)
             return 1
         else:
             self.load_model(iteration=index_iteration)
-            print_green(f"We Loaded A Model That Was Previously Saved At Iteration {index_iteration}",
+            print_color(color="green",
+                        output=f"We Loaded A Model That Was Previously Saved At Iteration {index_iteration}",
                         add_separators=True)
             # Resume from the next iteration
             return index_iteration + 1
@@ -874,13 +885,13 @@ class Trainer:
         for metric_key, display_name in self.tracked_metrics_mapping.items():
             train_value = training_tracker_dictionary[metric_key]
             message = f"Moving Average of Train {display_name:30} : {train_value:.4f}"
-            print_blue(message)
+            print_color(color="blue", output=message)
 
             # Only display validation metrics if at least one validation iteration ran in this interval
             if validation_tracker_dictionary is not None and validation_interval_count > 0:
                 validation_value = validation_tracker_dictionary[metric_key]
                 validation_message = f"Moving Average of Valid {display_name:30} : {validation_value:.4f}"
-                print_yellow(validation_message)
+                print_color(color="yellow", output=validation_message)
 
         print("-" * print_length)
         formatted_duration = self.format_time_interval(duration_seconds=duration)
