@@ -137,7 +137,8 @@ def preprocess_image_and_boxes(image: np.ndarray, bounding_boxes: list[list[floa
 
 
 def view_input_data(images: List[torch.Tensor], bounding_boxes: List[torch.Tensor], labels: List[torch.Tensor],
-                    window_titles: List[str], label_names: Optional[Dict[int, str]] = None) -> bool:
+                    window_titles: List[str], display_input_size: int,
+                    label_names: Optional[Dict[int, str]] = None) -> bool:
     """
     Displays preprocessed input images with their ground truth boxes and labels, one window per image, so the user
     can check exactly what is fed to the neural network.
@@ -151,6 +152,8 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: List[torch.Tenso
         bounding_boxes (List[torch.Tensor]): The [N, 4] bounding boxes associated with each image.
         labels (List[torch.Tensor]): The [N] class labels associated with each image's bounding boxes.
         window_titles (List[str]): The title of the window displaying each image, also written on the image.
+        display_input_size (int): The size in pixels of the longest side of each displayed window, typically the
+            network input image size so that images are shown exactly as the network receives them.
         label_names (Optional[Dict[int, str]]): Mapping from class index to class name used for the box captions.
             Defaults to None, in which case the numeric class index is written.
 
@@ -191,8 +194,8 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: List[torch.Tenso
                     org=(10, image_height - 20), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                     fontScale=0.7, color=(150, 150, 150), thickness=2)
 
-        # Scale the window down to at most 800 pixels and place the windows next to each other
-        display_scale = min(1.0, 800 / max(image_height, image_width))
+        # Scale the window so that its longest side matches the display size and place the windows side by side
+        display_scale = display_input_size / max(image_height, image_width)
         display_width, display_height = int(image_width * display_scale), int(image_height * display_scale)
         cv2.namedWindow(winname=window_title, flags=cv2.WINDOW_NORMAL)
         cv2.resizeWindow(winname=window_title, width=display_width, height=display_height)
