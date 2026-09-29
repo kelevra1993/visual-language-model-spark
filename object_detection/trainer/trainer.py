@@ -229,7 +229,8 @@ class Trainer:
                     bounding_boxes=[training_batch["bounding_boxes"][batch_index],
                                     validation_batch["bounding_boxes"][batch_index]],
                     labels=[training_batch["labels"][batch_index], validation_batch["labels"][batch_index]],
-                    window_titles=["Training", "Validation"], label_names=label_names)
+                    window_titles=["Training", "Validation"], display_input_size=self.input_image_size,
+                    label_names=label_names)
                 if user_quit:
                     return
 
@@ -760,7 +761,7 @@ class Trainer:
         if not index_iteration:
             print_green(
                 "No Initiation Model Weights Will Be Used..."
-                "\nWe generate A New Model That Will Be Trained From Scratch.",
+                "\nWe Generate A New Model That Will Be Trained From Scratch.",
                 add_separators=True)
             return 1
         else:
