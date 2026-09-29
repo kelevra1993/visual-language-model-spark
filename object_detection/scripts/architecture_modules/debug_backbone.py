@@ -16,16 +16,16 @@ def debug_backbone() -> None:
 
     # Fetch standard configuration and tensor generating tools via utility
     configuration, device, dtype = get_model_configuration()
-    backbone_configuration = configuration.get("Backbone")
-    input_image_size = configuration.get("Data").get("image_settings").get("size")
+    backbone_configuration = configuration["Backbone"]
+    input_image_size = configuration["Data"]["image_settings"]["size"]
 
     # Instantiate the backbone module
-    backbone_module = Backbone(input_channels=backbone_configuration.get("input_channels"),
-                               convolutions=backbone_configuration.get("convolutions"),
-                               modules=backbone_configuration.get("modules"),
-                               last_max_pooling=backbone_configuration.get("last_max_pooling"),
-                               normalization=backbone_configuration.get("normalization"),
-                               detection_convolution_block_indices=backbone_configuration.get("detection_convolution_block_indices"),
+    backbone_module = Backbone(input_channels=backbone_configuration["input_channels"],
+                               convolutions=backbone_configuration["convolutions"],
+                               modules=backbone_configuration["modules"],
+                               last_max_pooling=backbone_configuration["last_max_pooling"],
+                               normalization=backbone_configuration["normalization"],
+                               detection_convolution_block_indices=backbone_configuration["detection_convolution_block_indices"],
                                input_image_size=input_image_size,
                                device=device,
                                dtype=dtype)
