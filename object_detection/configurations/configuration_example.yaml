@@ -10,14 +10,14 @@ ExperimentConfiguration:
   # Number of images processed in a single forward/backward pass.
   batch_size: 40
   # Frequency (in iterations) to log performance metrics.
-  information_dump: 10
+  information_dump: 1000
   # Frequency (in iterations) to checkpoint the model weights.
   weight_saving_iterations: 10000
   # Total number of training iterations before stopping.
   number_iterations: 1e10
   # Ratio controlling how often validation is run during training.
   # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
-  validation_iteration_ratio: 0
+  validation_iteration_ratio: 5
   # Base learning rate used by the optimizer.
   learning_rate: 2.0e-4
   # Global tensor data type (e.g., "float32" or "float16").
