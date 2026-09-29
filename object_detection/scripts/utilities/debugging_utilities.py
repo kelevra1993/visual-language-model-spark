@@ -8,7 +8,7 @@ import numpy as np
 from typing import List, Optional, Tuple, Dict, Any
 
 from utilities.model.model_utilities import get_area, get_intersection_over_union, add_bounding_boxes
-from utilities.os_utilities import print_green, print_red, print_blue
+from utilities.os_utilities import print_color
 from utilities.tensor_utilities import print_tensor_list, print_tensor_shape
 
 
@@ -226,7 +226,7 @@ def visualize_anchor_target_assignments(ground_truth_bounding_boxes: List[torch.
                 best_match_index = max_iou_indices[0].item()
                 target_ground_truth = original_ground_truth_boxes[best_match_index]
                 iou_value = max_iou_values[0].item()
-                print_red(f"{type_name} Anchor IOU Value :: {iou_value:.4f}", indent=1)
+                print_color(color="red", output=f"{type_name} Anchor IOU Value :: {iou_value:.4f}", indent=1)
 
             else:
                 # For positive anchors, use the assigned target since it might have
@@ -234,7 +234,7 @@ def visualize_anchor_target_assignments(ground_truth_bounding_boxes: List[torch.
                 iou_matrix = get_intersection_over_union(boxes_1=anchor.unsqueeze(dim=0),
                                                          boxes_2=target_ground_truth.unsqueeze(dim=0))
                 iou_value = iou_matrix[0, 0].item()
-                print_green(f"Pos. Anchor IOU Value :: {iou_value:.4f}", indent=1)
+                print_color(color="green", output=f"Pos. Anchor IOU Value :: {iou_value:.4f}", indent=1)
 
             # Always draw the true target ground truth bounding box that the anchor was measured against
             target_array = target_ground_truth.cpu().numpy().astype(dtype=np.int32)
@@ -638,7 +638,6 @@ def visualize_proposal_target_assignments(ground_truth_bounding_boxes: List[torc
     import numpy as np
     import torch
     from utilities.model.model_utilities import get_intersection_over_union, add_bounding_boxes
-    from utilities.os_utilities import print_green, print_red
 
     batch_size = batched_proposals.shape[0]
 
@@ -669,10 +668,10 @@ def visualize_proposal_target_assignments(ground_truth_bounding_boxes: List[torc
             iou_value = iou_matrix[0, 0].item()
 
             if label.item() == 0:
-                print_red(f"Background Proposal IOU Value :: {iou_value:.4f}", indent=1)
+                print_color(color="red", output=f"Background Proposal IOU Value :: {iou_value:.4f}", indent=1)
                 text_info = f"Assigned Label: 0 (Background) | IoU: {iou_value:.4f}"
             else:
-                print_green(f"Foreground Proposal IOU Value :: {iou_value:.4f}", indent=1)
+                print_color(color="green", output=f"Foreground Proposal IOU Value :: {iou_value:.4f}", indent=1)
                 text_info = f"Assigned Label: {label.item()} (Foreground) | IoU: {iou_value:.4f}"
 
             # Draw the target ground truth bounding box that the proposal was measured against
