@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 from utilities.tensor_utilities import print_tensor_list, print_tensor_shape
-from utilities.os_utilities import print_blue, print_green, print_red
+from utilities.os_utilities import print_color
 from architecture_modules.convolution_block import ChannelLayerNormalizer
 
 
@@ -45,18 +45,19 @@ def debug_layer_normalization() -> None:
     mean_across_channels = output_tensor.mean(dim=1)
     std_across_channels = output_tensor.std(dim=1, unbiased=False)
 
-    print_blue(output="Mean across the channel dimension for the first batch item (should be ~0.0):",
-               add_separators=True)
-    print_red(output="Before Normalisation : ")
+    print_color(color="blue", output="Mean across the channel dimension for the first batch item (should be ~0.0):",
+                add_separators=True)
+    print_color(color="red", output="Before Normalisation : ")
     print_tensor_list(tensor=input_tensor.mean(dim=1)[0])
-    print_green(output="After Normalisation : ")
+    print_color(color="green", output="After Normalisation : ")
     print_tensor_list(tensor=mean_across_channels[0])
 
-    print_green(output="Standard Deviation across the channel dimension for the first batch item (should be ~1.0):",
+    print_color(color="green",
+                output="Standard Deviation across the channel dimension for the first batch item (should be ~1.0):",
                 add_separators=True)
-    print_red(output="Before Normalisation : ")
+    print_color(color="red", output="Before Normalisation : ")
     print_tensor_list(tensor=input_tensor.std(dim=1, unbiased=False)[0])
-    print_green(output="After Normalisation : ")
+    print_color(color="green", output="After Normalisation : ")
     print_tensor_list(tensor=std_across_channels[0])
 
 
