@@ -11,6 +11,7 @@ wheels/
 
 # IDE files
 .idea/
+.mcp.json
 
 # Mac Files
 .DS_Store
