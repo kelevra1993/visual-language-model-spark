@@ -6,7 +6,7 @@ import numpy as np
 
 from typing import Dict, List, Optional
 
-from utilities.os_utilities import print_yellow
+from utilities.os_utilities import print_color
 
 
 def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True) -> np.ndarray:
@@ -162,7 +162,8 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: List[torch.Tenso
     """
     # Skip the viewer when no graphical display is reachable (e.g. SSH without X forwarding) instead of crashing
     if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        print_yellow(output="No display available (DISPLAY is not set). Skipping the input image viewer.")
+        print_color(color="yellow",
+                    output="No display available (DISPLAY is not set). Skipping the input image viewer.")
         return True
 
     # Iterate through each image to annotate it and show it in its own window
