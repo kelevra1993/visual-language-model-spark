@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Dict, Tuple, List, Union, Any, Optional, Iterator
 from shutil import copyfile
 from data.data_loader import get_dataloaders
+from data.augmentations import DataAugmenter
 from utilities.data_utilities import view_input_data
 
 from torch.utils.tensorboard import SummaryWriter
@@ -63,6 +64,9 @@ class Trainer:
         self.diagnosis_modes = self.experiment_configuration["diagnosis_modes"]
 
         self.label_dictionary = self.data_configuration["label_dictionary"]
+
+        # Random augmentation of the training batches, applied on their device right before the forward pass
+        self.data_augmenter = DataAugmenter(augmentation_configuration=self.data_configuration["data_augmentation"])
         self.input_image_size = self.data_configuration["image_settings"]["size"]
         self.batch_size = self.experiment_configuration["batch_size"]
         self.resume_training = self.experiment_configuration["resume_training"]
@@ -108,9 +112,10 @@ class Trainer:
         if self.diagnosis_modes["compute_model_size"]:
             self.model.print_model_size_summary()
 
-        # Optional viewer of the training and validation images fed to the network, closed before training continues
+        # Optional viewer of the training and validation images fed to the network, the program exits once it is closed
         if self.diagnosis_modes["view_input_images"]:
             self.view_training_and_validation_images()
+            exit()
 
         # Restoration logic before starting any training or inference
         self.start_iteration = 1
@@ -216,11 +221,12 @@ class Trainer:
         Shows the training and validation images exactly as the data loaders feed them to the network, each with its
         ground truth boxes and class names, in two windows side by side. Enabled by the 'view_input_images'
         diagnosis mode, it lets the user check the preprocessing (resizing, padding, box rescaling and label mapping)
-        before training starts. Pressing ENTER closes the viewer and training continues.
+        and the data augmentation, applied to the training images only. Pressing ENTER closes the viewer, after which
+        the program exits without training, so the diagnosis mode must be disabled to launch a training run.
         """
         print_color(color="red", output="View Of The Training And Validation Images That Are Fed To The Neural Network",
                     add_separators=True)
-        print_color(color="green", output="Press SPACE To Navigate, Press ENTER To Stop Viewing And Start Training")
+        print_color(color="green", output="Press SPACE To Navigate, Press ENTER To Stop Viewing And Exit")
 
         # Invert the label dictionary so that each box is captioned with its class name instead of its index
         label_names = {class_index: str(class_name) for class_name, class_index in self.label_dictionary.items()}
@@ -229,13 +235,17 @@ class Trainer:
         for training_batch, validation_batch in zip(self.train_dataloader, self.validation_dataloader):
             number_images = min(training_batch["images"].shape[0], validation_batch["images"].shape[0])
 
+            # Augment the training batch exactly as during training, so the viewer shows what the network receives
+            training_images, training_boxes, training_labels = self.data_augmenter.augment_batch(
+                images=training_batch["images"].to(dtype=torch.float32),
+                bounding_boxes=training_batch["bounding_boxes"], labels=training_batch["labels"])
+
             # Display the training and validation images at the same batch index next to each other
             for batch_index in range(number_images):
                 user_quit = view_input_data(
-                    images=[training_batch["images"][batch_index], validation_batch["images"][batch_index]],
-                    bounding_boxes=[training_batch["bounding_boxes"][batch_index],
-                                    validation_batch["bounding_boxes"][batch_index]],
-                    labels=[training_batch["labels"][batch_index], validation_batch["labels"][batch_index]],
+                    images=[training_images[batch_index], validation_batch["images"][batch_index]],
+                    bounding_boxes=[training_boxes[batch_index], validation_batch["bounding_boxes"][batch_index]],
+                    labels=[training_labels[batch_index], validation_batch["labels"][batch_index]],
                     window_titles=["Training", "Validation"], display_input_size=self.input_image_size,
                     label_names=label_names)
                 if user_quit:
@@ -335,7 +345,7 @@ class Trainer:
 
             # Forward pass For Training
             training_loss, _ = self.run_model_iteration(data_dictionary=training_data_dictionary,
-                                                        writer=self.training_writer,
+                                                        writer=self.training_writer, apply_augmentation=True,
                                                         iteration=training_iteration,
                                                         tracker_dictionary=None,
                                                         tracker_divisor=0)
@@ -354,7 +364,7 @@ class Trainer:
                 with torch.no_grad():
                     # Forward pass For Validation
                     _, _ = self.run_model_iteration(data_dictionary=validation_data_dictionary,
-                                                    writer=self.validation_writer,
+                                                    writer=self.validation_writer, apply_augmentation=False,
                                                     iteration=training_iteration,
                                                     tracker_dictionary=None,
                                                     tracker_divisor=0)
@@ -432,7 +442,7 @@ class Trainer:
 
                 # Forward pass For Training
                 training_loss, _ = self.run_model_iteration(data_dictionary=training_data_dictionary,
-                                                            writer=self.training_writer,
+                                                            writer=self.training_writer, apply_augmentation=True,
                                                             iteration=training_iteration,
                                                             tracker_dictionary=training_trackers,
                                                             tracker_divisor=self.information_dump)
@@ -452,7 +462,7 @@ class Trainer:
                         # validation_trackers. The actual averaging by validation_interval_count is
                         # deferred to the console log dump so the moving average is correct.
                         _, _ = self.run_model_iteration(data_dictionary=validation_data_dictionary,
-                                                        writer=self.validation_writer,
+                                                        writer=self.validation_writer, apply_augmentation=False,
                                                         iteration=training_iteration,
                                                         tracker_dictionary=validation_trackers,
                                                         tracker_divisor=1)
@@ -534,7 +544,8 @@ class Trainer:
                 testing_loss, test_model_outputs = self.run_model_iteration(data_dictionary=test_data_dictionary,
                                                                             writer=None,
                                                                             iteration=-1,
-                                                                            tracker_dictionary=testing_trackers)
+                                                                            tracker_dictionary=testing_trackers,
+                                                                            apply_augmentation=False)
 
                 # Aggregate metrics for the current set
                 total_metrics = self.compute_and_accumulate_metrics(model_outputs=test_model_outputs,
@@ -629,7 +640,7 @@ class Trainer:
     # todo to be properly implemented !!!
     def run_model_iteration(self, data_dictionary: Dict[str, torch.Tensor | Any],
                             writer: Optional[SummaryWriter], iteration: int,
-                            tracker_dictionary: dict | None,
+                            tracker_dictionary: dict | None, apply_augmentation: bool,
                             tracker_divisor: int = 0) -> tuple[torch.Tensor, torch.Tensor]:
         """
         # todo to be updated
@@ -641,6 +652,9 @@ class Trainer:
             writer (Optional[SummaryWriter]): TensorBoard writer for logging. If None, logging is skipped.
             iteration (int): The current training iteration step.
             tracker_dictionary (Dict[str, Any] | None): Dictionary tracking rolling average metrics.
+            apply_augmentation (bool): Whether to augment the batch, True for training batches only (validation and
+                test batches must be evaluated on the original images). Augmentation also requires
+                'Data.data_augmentation.activated'.
             tracker_divisor (int): The number of iterations contributing to the rolling average within a
                 console log interval. For training this equals information_dump; for validation this equals
                 the actual number of validation runs in the interval so that the moving average is correct.
@@ -651,6 +665,12 @@ class Trainer:
 
         # Extract and cast the inputs to the correct hardware device and precision
         images, bounding_boxes, labels = self.prepare_input_data(data_dictionary=data_dictionary)
+
+        # Randomly augment the training images, moving their boxes and dropping the ones that leave the image
+        if apply_augmentation:
+            images, bounding_boxes, labels = self.data_augmenter.augment_batch(images=images,
+                                                                               bounding_boxes=bounding_boxes,
+                                                                               labels=labels)
 
         # Execute the forward pass through the object detection model
         model_outputs = self.model(input_tensor=images,
