@@ -6,7 +6,7 @@ from rich.panel import Panel
 
 from architecture_modules.convolution_block import ConvolutionBlock
 from architecture_modules.input_normalization import InputNormalizer
-from utilities.os_utilities import print_yellow, print_blue, print_green
+from utilities.os_utilities import print_color
 
 
 class Backbone(nn.Module):
@@ -154,8 +154,8 @@ class Backbone(nn.Module):
                                    device=self.device)
 
         # Print the overarching title and the initial tensor shape to begin the structured summary
-        print_yellow(output="Backbone Architecture Summary", add_separators=True)
-        print_blue(output=f"Input image shape: {list(dummy_tensor.shape)}", add_separators=True)
+        print_color(color="yellow", output="Backbone Architecture Summary", add_separators=True)
+        print_color(color="blue", output=f"Input image shape: {list(dummy_tensor.shape)}", add_separators=True)
 
         # Initialize the textual representation of the architecture,
         # including the applied normalization strategy prominently
@@ -181,7 +181,8 @@ class Backbone(nn.Module):
         console.print(architecture_panel)
 
         # Output the final resulting feature map shape, representing what is securely passed to the downstream detector
-        print_green(output=f"Final Backbone output shape: {list(dummy_tensor.shape)}", add_separators=True)
+        print_color(color="green",
+                    output=f"Final Backbone output shape: {list(dummy_tensor.shape)}", add_separators=True)
 
     def compute_detection_input_information(self) -> Dict[str, Dict[str, int]]:
         """
