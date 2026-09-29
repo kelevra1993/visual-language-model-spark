@@ -5,7 +5,7 @@ from typing import Tuple
 
 from utilities.model.model_utilities import batch_assign_targets_to_anchors, get_intersection_over_union, \
     add_bounding_boxes
-from utilities.os_utilities import print_blue, print_green
+from utilities.os_utilities import print_color
 from scripts.utilities.debugging_utilities import print_bounding_boxes, visualize_anchor_target_assignments, \
     visualize_foreground_and_background_anchors, get_assignment_debugger_input
 from utilities.tensor_utilities import print_tensor_shape
@@ -31,15 +31,15 @@ def debug_assign_anchor_targets() -> None:
     anchors, ground_truth_boxes, _ = get_assignment_debugger_input(
         batch_size=batch_size, device=device, dtype=dtype)
 
-    print_blue(output="Prepared Anchors:", add_separators=True)
+    print_color(color="blue", output="Prepared Anchors:", add_separators=True)
     print_tensor_shape(anchors, "anchors")
     print_bounding_boxes(boxes=anchors[0], number_of_boxes=anchors[0].shape[0])
 
-    print_blue(output="Prepared Ground Truth Boxes:", add_separators=True)
+    print_color(color="blue", output="Prepared Ground Truth Boxes:", add_separators=True)
     print_tensor_shape(ground_truth_boxes, "ground_truth_boxes")
     print_bounding_boxes(boxes=ground_truth_boxes[0], number_of_boxes=ground_truth_boxes.shape[1])
 
-    print_green(output="Mock data successfully instantiated and ready for target assignment testing!",
+    print_color(color="green", output="Mock data successfully instantiated and ready for target assignment testing!",
                 add_separators=True)
 
     # Define the Intersection over Union (IoU) threshold dictionaries.
