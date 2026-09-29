@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 from architecture_modules.anchors import Anchors
-from utilities.os_utilities import print_green, print_blue
+from utilities.os_utilities import print_color
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 from utilities.model.model_utilities import visualise_anchors, get_area
 from scripts.utilities.debugging_utilities import print_bounding_boxes
@@ -38,8 +38,9 @@ def debug_anchors() -> None:
     aspect_ratios = scales_and_ratios["aspect_ratios"]
 
     # Display the configuration explicitly to assist with tracking spatial logic during debugging
-    print_blue(output=f"Prepared Anchors configuration for Feature Map {feature_map_size}x{feature_map_size}:",
-               add_separators=True)
+    print_color(color="blue",
+                output=f"Prepared Anchors configuration for Feature Map {feature_map_size}x{feature_map_size}:",
+                add_separators=True)
     print(f"Scales: {scales}")
     print(f"Aspect Ratios: {aspect_ratios}")
 
@@ -52,15 +53,16 @@ def debug_anchors() -> None:
                              device=device)
 
     # Inform the developer that the module has been instantiated and is ready for further anchor generation logic
-    print_green(output="Anchors module successfully instantiated and ready for spatial testing!", add_separators=True)
+    print_color(color="green",
+                output="Anchors module successfully instantiated and ready for spatial testing!", add_separators=True)
 
     # Print out detailed information about the generated anchors for debuggability
     generated_anchors = anchors_module.anchors
 
-    print_blue(output="Anchors Tensor Shape:", add_separators=True)
+    print_color(color="blue", output="Anchors Tensor Shape:", add_separators=True)
     print_tensor_shape(tensor=generated_anchors, name="generated_anchors")
 
-    print_blue(output="First 10 Generated Anchors [x_min, y_min, x_max, y_max]:", add_separators=True)
+    print_color(color="blue", output="First 10 Generated Anchors [x_min, y_min, x_max, y_max]:", add_separators=True)
     
     print_bounding_boxes(boxes=generated_anchors, number_of_boxes=10)
 
