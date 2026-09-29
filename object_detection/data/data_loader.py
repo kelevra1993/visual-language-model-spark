@@ -15,6 +15,7 @@ from typing import Dict, Any, Tuple, Union
 from torch.utils.data import DataLoader, Dataset
 
 from utilities.data_utilities import preprocess_image_and_boxes, preprocess_boxes
+from utilities.os_utilities import print_yellow
 
 
 def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
@@ -75,7 +76,13 @@ class NativeDataset(Dataset):
         self.images = self.data['images']
         if shuffle:
             random.shuffle(self.images)
-        self.annotations = self.data['annotations']
+        # Unlabelled splits (e.g. the COCO 2017 test set) have no 'annotations' key, their images have no boxes
+        if 'annotations' in self.data:
+            self.annotations = self.data['annotations']
+        else:
+            print_yellow(output=f"No annotations found, every image is treated as unlabelled : "
+                                f"file://{os.path.abspath(labels_file)}")
+            self.annotations = []
 
         # Map image identifiers to their respective bounding box and label collections for rapid retrieval
         self.image_to_annotations = {}
@@ -145,8 +152,10 @@ class NativeDataset(Dataset):
         # The consumer (trainer) handles the cast per-batch for maximum data pipeline throughput
         image_tensor = torch.from_numpy(np.array(object=resized_image)).permute(2, 0, 1)
 
-        return {"images": image_tensor,
-                "bounding_boxes": torch.tensor(data=resized_bounding_boxes, dtype=torch.float32),
+        # Keep the [N, 4] layout even for images without boxes, since an empty list would become a [0] tensor
+        bounding_boxes_tensor = torch.tensor(data=resized_bounding_boxes, dtype=torch.float32).reshape(-1, 4)
+
+        return {"images": image_tensor, "bounding_boxes": bounding_boxes_tensor,
                 "labels": torch.tensor(data=labels, dtype=torch.int64)}
 
 
