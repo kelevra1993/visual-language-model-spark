@@ -1,3 +1,5 @@
+import os
+import signal
 import time
 import torch
 import torchvision
@@ -684,7 +686,13 @@ class Trainer:
 
     def save_model(self, iteration: int) -> None:
         """
-        Persists the current model weights and optimizer state to disk.
+        Persists the current model weights and optimizer state to disk, then records them in the checkpoint registry
+        used to resume training.
+
+        The save cannot be interrupted: Ctrl+C is ignored until both the weight file and the registry are written,
+        since copying every GPU tensor to the CPU can take a few seconds and a second Ctrl+C during that time would
+        otherwise leave a corrupted checkpoint. The weights are first written to a temporary file and then renamed,
+        so a checkpoint on disk is always either complete or absent.
 
         Args:
             iteration (int): The current training iteration, used for naming the weight file.
@@ -693,17 +701,25 @@ class Trainer:
         model_directory.mkdir(exist_ok=True, parents=True)
 
         checkpoint_path = model_directory / f"model_{iteration:06}.pt"
+        temporary_checkpoint_path = model_directory / f"model_{iteration:06}.pt.tmp"
 
-        torch.save({
-            'iteration': iteration,
-            'model_state': self.model.state_dict(),
-            'optimizer_state': self.optimizer.state_dict()}, checkpoint_path)
+        print_color(color="yellow", output="Saving model, please wait (Ctrl+C is ignored until the save completes)...")
 
-        print(f"Checkpoint Folder : file://{model_directory}...")
+        # Ignore keyboard interrupts while saving, and restore the previous handler once the save is complete
+        previous_interrupt_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        try:
+            # Write to a temporary file, then atomically move it to its final name
+            torch.save(obj={'iteration': iteration, 'model_state': self.model.state_dict(),
+                            'optimizer_state': self.optimizer.state_dict()}, f=temporary_checkpoint_path)
+            os.replace(src=temporary_checkpoint_path, dst=checkpoint_path)
+
+            # Update the full-checkpoint registry only once the weight file is complete
+            self.dump_in_checkpoint(iteration=iteration)
+        finally:
+            signal.signal(signal.SIGINT, previous_interrupt_handler)
+
+        print(f"Checkpoint Folder : file://{model_directory}")
         print(f" - Model Saved In : model_{iteration:06}.pt")
-
-        # Update the full-checkpoint registry
-        self.dump_in_checkpoint(iteration=iteration)
 
     def log_metrics_to_tensorboard(self, writer: Optional[SummaryWriter], iteration: int,
                                    metric_dictionary: Dict[str, torch.Tensor]):
