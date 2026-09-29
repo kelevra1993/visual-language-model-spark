@@ -222,6 +222,19 @@ class ConvolutionBlock(nn.Module):
 
         return current_tensor
 
+    def get_active_module_names(self) -> List[str]:
+        """
+        Lists the architecture modules enabled in this block, so that the Backbone and Detection summaries can show
+        which convolution modules are actually used by each block.
+
+        Returns:
+            List[str]: The names of the enabled modules, empty for a plain convolution block.
+        """
+        # Map every module flag of the block to its displayed name, keeping only the enabled ones
+        module_flags = {"Inception": self.inception, "Residual Shortcuts": self.residual,
+                        "Squeeze-and-Excitation": self.squeeze_and_excite}
+        return [module_name for module_name, is_enabled in module_flags.items() if is_enabled]
+
     def get_receptive_field_layers(self) -> List[Dict[str, Any]]:
         """
         Lists the spatial operations of the block used by the Backbone to compute its receptive field.
