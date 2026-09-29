@@ -1,5 +1,5 @@
 import fiftyone as fo
-from utilities.os_utilities import print_green, print_blue, print_red
+from utilities.os_utilities import print_color
 
 
 def debug_data_retriever(dataset_name: str = "open-images-v7") -> None:
@@ -13,25 +13,29 @@ def debug_data_retriever(dataset_name: str = "open-images-v7") -> None:
     Args:
         dataset_name (str): The name of the dataset in the FiftyOne database.
     """
-    print_blue(output=f"Looking for dataset '{dataset_name}' in the local FiftyOne database...", add_separators=True)
+    print_color(color="blue",
+                output=f"Looking for dataset '{dataset_name}' in the local FiftyOne database...", add_separators=True)
 
     available_datasets = fo.list_datasets()
 
     print("Available datasets: ", available_datasets)
 
     if not available_datasets:
-        print_red(output="No datasets found in the local FiftyOne database!")
-        print_red(output="Please execute data_retriever.py first to download and register the dataset.")
+        print_color(color="red", output="No datasets found in the local FiftyOne database!")
+        print_color(color="red", output="Please execute data_retriever.py first to download and register the dataset.")
         return
 
     if dataset_name not in available_datasets:
         # Fallback to the most recently created dataset if a naming collision occurred during download
-        print_red(output=f"Dataset '{dataset_name}' not found. Falling back to the most recent dataset: '{available_datasets[-1]}'")
+        print_color(color="red",
+                    output=f"Dataset '{dataset_name}' not found. "
+                           f"Falling back to the most recent dataset: '{available_datasets[-1]}'")
         dataset_name = available_datasets[-1]
 
     dataset = fo.load_dataset(name=dataset_name)
 
-    print_green(output="Dataset loaded successfully! Launching FiftyOne visualizer...", add_separators=True)
+    print_color(color="green",
+                output="Dataset loaded successfully! Launching FiftyOne visualizer...", add_separators=True)
 
     # Launch the interactive web app and wait for the user to close it
     session = fo.launch_app(dataset=dataset)
