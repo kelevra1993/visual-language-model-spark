@@ -9,6 +9,23 @@ VALID_FEATURE_MAP_NORMALIZATIONS = ["batch", "layer", "none"]
 VALID_LABEL_MODES = ["binary", "multi_class"]
 
 
+class ConfigurationError(Exception):
+    """
+    Raised when the configuration file is incomplete or inconsistent. It carries the plain list of problems so that
+    'load_experiment_configuration' can display them as short messages instead of a full traceback.
+    """
+
+    def __init__(self, errors: List[str]) -> None:
+        """
+        Stores the configuration problems found by the checker.
+
+        Args:
+            errors (List[str]): One short description per configuration problem.
+        """
+        super(ConfigurationError, self).__init__("\n".join(errors))
+        self.errors = errors
+
+
 def get_configuration_value(configuration: Dict[str, Any], key_path: str) -> Any:
     """
     Retrieves a nested configuration value from a dotted key path (e.g. 'Backbone.modules.inception').
@@ -24,14 +41,14 @@ def get_configuration_value(configuration: Dict[str, Any], key_path: str) -> Any
         Any: The value stored at the given key path.
 
     Raises:
-        KeyError: If any key along the path is missing from the configuration.
+        ConfigurationError: If any key along the path is missing from the configuration.
     """
     current_value = configuration
 
     # Walk down the nested dictionaries one key at a time
     for key in key_path.split("."):
         if not isinstance(current_value, dict) or key not in current_value:
-            raise KeyError(f"Missing configuration key '{key_path}'.")
+            raise ConfigurationError(errors=[f"Missing configuration key '{key_path}'."])
         current_value = current_value[key]
 
     return current_value
@@ -524,8 +541,8 @@ def check_configuration(experiment_configuration: Dict[str, Any], model_configur
             Detector).
 
     Raises:
-        KeyError: If a required configuration key is missing.
-        ValueError: If one or more configuration values are inconsistent, listing all of them.
+        ConfigurationError: If a required configuration key is missing, or if one or more configuration values are
+            inconsistent, listing all of them.
     """
     errors = []
 
@@ -539,5 +556,4 @@ def check_configuration(experiment_configuration: Dict[str, Any], model_configur
     errors += check_detector_configuration(model_configuration=model_configuration)
 
     if errors:
-        error_list = "\n".join(f"  - {error}" for error in errors)
-        raise ValueError(f"The configuration file is inconsistent:\n{error_list}")
+        raise ConfigurationError(errors=errors)
