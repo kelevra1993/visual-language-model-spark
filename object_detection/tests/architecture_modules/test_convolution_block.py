@@ -26,25 +26,25 @@ def test_convolution_block():
             "input_channels": 3, "output_channels": 16, "bias": True, "number_layers": 1,
             "kernel_size": 3, "stride": 1, "padding": 1,
             "feature_map_normalization": "none", "activation": False, "dropout_rate": 0.0, "add_pooling": False,
-            "device": device, "dtype": dtype
+            "device": device, "dtype": dtype, "squeeze_and_excite": False, "residual": False, "inception": False
         },
         "batch_norm_and_activation": {
             "input_channels": 3, "output_channels": 32, "bias": False, "number_layers": 2,
             "kernel_size": 3, "stride": 1, "padding": 1,
             "feature_map_normalization": "batch", "activation": True, "dropout_rate": 0.0, "add_pooling": False,
-            "device": device, "dtype": dtype
+            "device": device, "dtype": dtype, "squeeze_and_excite": False, "residual": False, "inception": False
         },
         "layer_norm_and_activation": {
             "input_channels": 3, "output_channels": 32, "bias": False, "number_layers": 2,
             "kernel_size": 3, "stride": 1, "padding": 1,
             "feature_map_normalization": "layer", "activation": True, "dropout_rate": 0.0, "add_pooling": False,
-            "device": device, "dtype": dtype
+            "device": device, "dtype": dtype, "squeeze_and_excite": False, "residual": False, "inception": False
         },
         "deep_with_pooling_and_dropout": {
             "input_channels": 3, "output_channels": 64, "bias": False, "number_layers": 3,
             "kernel_size": 5, "stride": 2, "padding": 2,
             "feature_map_normalization": "batch", "activation": True, "dropout_rate": 0.5, "add_pooling": True,
-            "device": device, "dtype": dtype
+            "device": device, "dtype": dtype, "squeeze_and_excite": False, "residual": False, "inception": False
         }
     }
 
@@ -66,3 +66,48 @@ def test_convolution_block():
         )
 
         print(f" - {configuration_name} Test Completed Successfully.")
+
+
+def test_convolution_block_modules() -> None:
+    """
+    Verifies the ConvolutionBlock forward pass with the optional architecture modules
+    (Squeeze-and-Excitation, residual shortcuts with equal and changing channel counts, and inception)
+    against deterministic reference values.
+    """
+    # Define batch size and the deterministic input shared by every configuration
+    batch_size = 4
+    image_shape = (3, 32, 32)
+    input_tensor = create_deterministic_tensor(shape=(1,) + image_shape)
+    simple_input_dictionary = {"input_tensor": input_tensor}
+    batched_input_dictionary = {"input_tensor": input_tensor.broadcast_to(size=(batch_size,) + image_shape)}
+
+    device = torch.device(device="cpu")
+    dtype = torch.float32
+
+    # Shared structural parameters of the tested blocks
+    common_parameters = {"bias": True, "kernel_size": 3, "stride": 1, "padding": 1, "activation": True,
+                         "dropout_rate": 0.0, "add_pooling": True, "device": device, "dtype": dtype}
+
+    # Every module flag must be explicitly set, so all of them start disabled before each configuration activates one
+    disabled_module_flags = {"squeeze_and_excite": False, "residual": False, "inception": False}
+
+    # Each configuration activates one architecture module
+    convolution_configurations = {
+        "squeeze_and_excite": {"input_channels": 3, "output_channels": 16, "number_layers": 2,
+                               "feature_map_normalization": "batch", "squeeze_and_excite": True},
+        "residual_same_channels": {"input_channels": 3, "output_channels": 3, "number_layers": 4,
+                                   "feature_map_normalization": "none", "residual": True},
+        "residual_changing_channels": {"input_channels": 3, "output_channels": 16, "number_layers": 3,
+                                       "feature_map_normalization": "batch", "residual": True},
+        "inception": {"input_channels": 3, "output_channels": 32, "number_layers": 2,
+                      "feature_map_normalization": "batch", "inception": True}}
+
+    # Iterate through the defined configurations to test each module deterministically
+    for configuration_name, configuration_dictionary in convolution_configurations.items():
+        convolution_module = ConvolutionBlock(**common_parameters,
+                                              **{**disabled_module_flags, **configuration_dictionary})
+
+        check_nn_module_method(module=convolution_module, simple_input_dictionary=simple_input_dictionary,
+                               output_tensor_names=[f"convolution_block_modules_{configuration_name}"],
+                               reference_folder=Path(__file__).parent / "reference_values", batch_size=batch_size,
+                               batched_input_dictionary=batched_input_dictionary)
