@@ -17,7 +17,7 @@ ExperimentConfiguration:
   number_iterations: 1e10
   # Ratio controlling how often validation is run during training.
   # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
-  validation_iteration_ratio: 5
+  validation_iteration_ratio: 10
   # Base learning rate used by the optimizer.
   learning_rate: 2.0e-4
   # Global tensor data type, either "float32" or "float64".
@@ -32,8 +32,8 @@ ExperimentConfiguration:
       # Choice to compute final model size
       compute_model_size: True
       # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
-      # input images with their ground truth boxes before training. SPACE shows the next images, ENTER closes the
-      # viewer and training continues. Requires a display (skipped with a warning otherwise)
+      # input images with their ground truth boxes. SPACE shows the next images, ENTER closes the viewer and exits the
+      # program without training, so set it to False to train. Requires a display (skipped with a warning otherwise)
       view_input_images: False
 
 Data:
@@ -52,36 +52,43 @@ Data:
     # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs.
     mapping_file_path: null
   data_augmentation:
-    # Global switch to enable or disable all data augmentation.
-    activated: False
+    # Global switch to enable or disable all data augmentation (applied on the GPU to training batches only).
+    activated: True
+    # Probability that a training image is augmented at all. Each activated type below is then applied to that
+    # image with its own probability. For image sequences, all frames of a sequence share the same augmentation.
+    probability: 0.4
     types:
-      # Implementation of random flipping, horizontally, vertically ....
-      # Random Flip (Up to Down)
-      random_hflip: False
-      # Random Flip (Left to Right)
-      random_vflip: False
-      # Random Crop of image : 90% of image kept
-      random_crop: False
-      # Random Noise : Adding Truncated Gaussian Noise
-      random_noise: False
-      # Color-Space Augmentation, 30% of images are converted to grayscale
-      gray_scale_augment: False
-      # Random Color augmentation : 30% of images in RGB
-      random_colour_augmentation: False
-      # Random Image Blurring augmentation : 30% of images are blurred
-      random_blur: False
-      # Random Rotation : Randomly rotate images between -5° and 5° : Applied on 30% of images
-      random_rotation: False
-      # Random -90° or 90° rotation  : Randomly rotate images with -90° or 90° degrees : Applied on 30% of images
-      random_90_rotation: False
-      # Histogram Equalization applied on 30% of sequences
-      equalize_histogram_augment: False
-      # BGR Histogram Equalization: Applied on 30% of sequences
-      equalize_bgr_histogram_augment: False
-      # Image Sharpening with Laplacian of Gaussian filter: Applied on 30% of sequences
-      sharp_augment: False
-      # Contrast-limited Adaptive Histogram Equalization (CLAHE): Applied on 30% of sequences
-      clahe_augment: False
+      # Geometric augmentations : bounding boxes are moved with the image, boxes leaving the image are removed.
+      # Random Crop : crop keeping 90% to 100% of each side (same aspect ratio), resized back to the input size
+      random_crop: { activated: False, probability: 0.3 }
+      # Random Left to Right Flip (mirror)
+      random_left_right_flip: { activated: False, probability: 0.5 }
+      # Random Up to Down Flip
+      random_up_down_flip: { activated: False, probability: 0.5 }
+      # Random Rotation between -5° and 5°, boxes become the enclosing box of their rotated corners
+      random_rotation: { activated: False, probability: 0.3 }
+      # Random -90° or 90° rotation (square images only)
+      random_90_rotation: { activated: False, probability: 0.3 }
+
+      # Photometric augmentations : bounding boxes are unchanged.
+      # Brightness (+-40 intensity levels), contrast and saturation (both x0.7 to x1.0) adjustments
+      brightness_contrast_saturation: { activated: False, probability: 0.3 }
+      # Contrast-limited Adaptive Histogram Equalization (CLAHE), clip limit 2.0 on a 4x4 grid of tiles
+      clahe_augment: { activated: False, probability: 0.3 }
+      # Image Sharpening with a Laplacian of Gaussian unsharp mask (sigma 1.5, strength 3)
+      sharp_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of the luminance (Y channel of YUV)
+      equalize_histogram_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of one random channel (B, G or R) or of all three channels
+      equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
+      # Random Noise : Gaussian noise with a standard deviation of 10 intensity levels
+      random_noise: { activated: False, probability: 0.3 }
+      # Grayscale conversion, kept on three channels
+      gray_scale_augment: { activated: False, probability: 0.3 }
+      # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
+      random_colour_augmentation: { activated: False, probability: 0.3 }
+      # Random Image Blurring : 5x5 Gaussian kernel with sigma 1.5
+      random_blur: { activated: False, probability: 0.3 }
 
 Backbone:
   # Number of input channels for the initial convolution block (e.g., 3 for RGB images)
@@ -91,13 +98,13 @@ Backbone:
   # Second axis : Number of output filters per kernel per convolution Block
   convolutions:
     {
-      "1": [ 2, 16 ],
+      "1": [ 1, 16 ],
       "2": [ 2, 32 ],
       "3": [ 2, 32 ],
-      "4": [ 4, 32 ],
+      "4": [ 4, 64 ],
       "5": [ 4, 64 ],
-      "6": [ 6, 64 ],
-      "7": [ 6, 64 ],
+      "6": [ 6, 128 ],
+      "7": [ 6, 128 ],
     }
 
   # Choice to add last max pooling layer on last* convolution layer
@@ -202,7 +209,7 @@ Detector:
 
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
-    residual_nets: False
+    residual_nets: True
 
     # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
     # Output channels of the detection head convolutions must be multiples of 8
