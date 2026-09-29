@@ -2,6 +2,8 @@ import math
 
 from typing import Any, Dict, List
 
+from data.augmentations import AUGMENTATION_TYPES
+
 # Feature map normalization strategies supported by the ConvolutionBlock
 VALID_FEATURE_MAP_NORMALIZATIONS = ["batch", "layer", "none"]
 
@@ -102,6 +104,23 @@ def check_positive_integers(configuration: Dict[str, Any], key_paths: List[str],
     return errors
 
 
+def check_probability_value(value: Any, key_path: str) -> List[str]:
+    """
+    Verifies that a probability read from the configuration (e.g. of applying a data augmentation) is a number
+    within [0, 1].
+
+    Args:
+        value (Any): The probability read from the configuration.
+        key_path (str): The dotted key path of the value, used in the error message.
+
+    Returns:
+        List[str]: A single error description if the value is invalid, otherwise an empty list.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
+        return [f"'{key_path}' must be a probability within [0, 1], got {value!r}."]
+    return []
+
+
 def check_intersection_over_union_value(value: Any, key_path: str) -> List[str]:
     """
     Verifies that an intersection over union threshold is a number within [0, 1], the only range an IoU can take
@@ -173,13 +192,29 @@ def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     errors = []
 
-    # Loader and augmentation flags
-    augmentation_types = get_configuration_value(configuration=model_configuration,
-                                                 key_path="Data.data_augmentation.types")
+    # Loader flags and global augmentation settings
     errors += check_boolean_flags(configuration=model_configuration,
                                   key_paths=["Data.DALI.activated", "Data.image_settings.keep_ratio",
-                                             "Data.data_augmentation.activated"] +
-                                            [f"Data.data_augmentation.types.{name}" for name in augmentation_types])
+                                             "Data.data_augmentation.activated"])
+    errors += check_probability_value(
+        value=get_configuration_value(configuration=model_configuration, key_path="Data.data_augmentation.probability"),
+        key_path="Data.data_augmentation.probability")
+
+    # Every supported augmentation type must be configured, and no unknown type may be listed
+    augmentation_types = get_configuration_value(configuration=model_configuration,
+                                                 key_path="Data.data_augmentation.types")
+    unknown_types = sorted(set(augmentation_types) - set(AUGMENTATION_TYPES))
+    if unknown_types:
+        errors.append(f"'Data.data_augmentation.types' contains unknown augmentation types {unknown_types}, "
+                      f"supported types are {AUGMENTATION_TYPES}.")
+
+    # Each augmentation type has its own activation flag and probability
+    for augmentation_type in AUGMENTATION_TYPES:
+        key_prefix = f"Data.data_augmentation.types.{augmentation_type}"
+        errors += check_boolean_flags(configuration=model_configuration, key_paths=[f"{key_prefix}.activated"])
+        errors += check_probability_value(
+            value=get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.probability"),
+            key_path=f"{key_prefix}.probability")
 
     # Only the binary and multi-class label mappings are handled by the configuration loader
     label_mode = get_configuration_value(configuration=model_configuration, key_path="Data.label_mapping.mode")
