@@ -61,13 +61,14 @@ class RegionProposal(nn.Module):
         convolution_output_channels = head_configurations[1]
 
         # 3x3 Convolution Layers
-        # Convolutional feature extraction block
+        # Convolutional feature extraction block, kept plain since the Region Proposal has no modules configuration
         self.region_proposal_convolutional_block = ConvolutionBlock(
             input_channels=input_channels, output_channels=convolution_output_channels,
             bias=True, number_layers=self.convolution_number_layers,
             kernel_size=3, stride=1, padding=1,
             feature_map_normalization=self.feature_map_normalization,
-            activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype)
+            activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype,
+            squeeze_and_excite=False, residual=False, inception=False)
 
         self.region_proposal_last_convolution = nn.Conv2d(in_channels=convolution_output_channels,
                                                           out_channels=input_channels,
