@@ -419,9 +419,11 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
                                           '8': [2, 64],
                                           '9': [2, 64],
                                           },
-                         'modules': {},
+                         'modules': {'squeeze_and_excite': False, 'residual_nets': False, 'inception': False,
+                                     'inception_starting_block': 3},
                          'last_max_pooling': True,
-                         'normalization': {'feature_map_normalization': 'none'},
+                         'normalization': {'feature_map_normalization': 'none', 'input_normalization': False,
+                                           'per_sample_normalization': False},
                          'detection_convolution_block_indices': [5, 6, 7]},
                      'Anchors': {
                          'scales_and_ratios': {
@@ -453,6 +455,7 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
                          'number_training_positives': 128,
                          'total_training_samples': 256,
                          'localisation_loss_beta': 1 / 9,
+                         'modules': {'squeeze_and_excite': False, 'residual_nets': False, 'inception': False},
                      }}
     device = torch.device(device="cpu")
     dtype = torch.float32
@@ -501,13 +504,13 @@ def get_dummy_ground_truth_boxes(batch_size: int, input_image_size: int, configu
         List[torch.Tensor]: A list containing the generated ground truth bounding boxes for each image in the batch.
     """
     # Dynamically retrieve a unique list of all scales and ratios from the FPN anchors configuration
-    scales_and_ratios = configuration.get("Anchors", {}).get("scales_and_ratios", {})
+    scales_and_ratios = configuration["Anchors"]["scales_and_ratios"]
 
     all_scales = set()
     all_aspect_ratios = set()
     for scale_level, configuration in scales_and_ratios.items():
-        all_scales.update(configuration.get("scales", []))
-        all_aspect_ratios.update(configuration.get("aspect_ratios", []))
+        all_scales.update(configuration["scales"])
+        all_aspect_ratios.update(configuration["aspect_ratios"])
 
     scales = list(all_scales)
     aspect_ratios = list(all_aspect_ratios)
