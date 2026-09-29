@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 from json import JSONDecodeError
 
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
 import inspect
 
-from utilities.model.configuration_checker import check_configuration
+from utilities.model.configuration_checker import check_configuration, ConfigurationError
 
 # No printing of scientific notations
 np.set_printoptions(suppress=True)
@@ -84,8 +85,9 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
             - model_configuration: The remaining configuration (all other keys).
 
     Raises:
-        KeyError: If 'ExperimentConfiguration' or any other required configuration key is missing from the file.
-        ValueError: If the configuration values are inconsistent (see 'check_configuration').
+        KeyError: If 'ExperimentConfiguration' is missing from the file.
+        SystemExit: If the configuration is incomplete or inconsistent (see 'check_configuration'), after printing
+            each problem in red.
     """
     configuration = load_configuration(configuration_path)
     if "ExperimentConfiguration" not in configuration:
@@ -146,8 +148,15 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
             else:
                 raise FileNotFoundError(f"Label mapping file not found at: {mapping_path}")
 
-    # Reject incomplete or inconsistent configurations before any model or data loader is built
-    check_configuration(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
+    # Reject incomplete or inconsistent configurations before any model or data loader is built,
+    # listing each problem as a short red message rather than a full traceback
+    try:
+        check_configuration(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
+    except ConfigurationError as configuration_error:
+        print_red(output=f"Invalid Configuration File : file://{Path(configuration_path).absolute()}", add_separators=True)
+        for error in configuration_error.errors:
+            print_red(output=error, indent=1)
+        sys.exit(1)
 
     return experiment_configuration, model_configuration
 
