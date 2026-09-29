@@ -20,7 +20,7 @@ def debug_model() -> None:
     """
 
     configuration, device, dtype = get_model_configuration()
-    number_classes = len(configuration.get("Data").get("label_dictionary"))
+    number_classes = len(configuration["Data"]["label_dictionary"])
 
     model = Model(configuration=configuration, device=device, dtype=dtype, verbose=True)
 
