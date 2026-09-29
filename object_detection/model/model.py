@@ -947,7 +947,13 @@ class Model(nn.Module):
         summary_text = f"[bold]Input Image Size : {self.input_image_size}x{self.input_image_size}[/bold]\n\n"
 
         # Describe every spatial layer, adding the anchor scales below each detection block output
+        previous_block_number = None
         for layer_information in receptive_field_information:
+            # Separate consecutive blocks with an empty line so that each block stands out
+            if previous_block_number is not None and layer_information["block_number"] != previous_block_number:
+                summary_text += "\n"
+            previous_block_number = layer_information["block_number"]
+
             output_size = layer_information["output_size"]
             layer_text = (f"Block {layer_information['block_number']} - {layer_information['name']:<14} : "
                           f"Output {output_size}x{output_size}x{layer_information['output_channels']}"
@@ -964,8 +970,8 @@ class Model(nn.Module):
 
         # Squeeze-and-Excitation pools over the whole feature map, which the convolutional receptive field ignores
         if self.backbone.squeeze_and_excite:
-            summary_text += ("\n[bold yellow]Squeeze-and-Excitation adds global image context that is not "
-                             "captured by the convolutional receptive field above.[/bold yellow]")
+            summary_text += ("\n[bold yellow]Squeeze-and-Excitation adds global image context.\n"
+                             "This is not captured by the convolutional receptive field above.[/bold yellow]")
 
         panel = Panel(summary_text.rstrip("\n"), title="[bold]Backbone Receptive Field[/bold]", border_style="magenta")
         console.print(panel)
