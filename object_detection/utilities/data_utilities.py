@@ -1,6 +1,12 @@
+import os
+import sys
 import torch
 import cv2
 import numpy as np
+
+from typing import Dict, List, Optional
+
+from utilities.os_utilities import print_yellow
 
 
 def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True) -> np.ndarray:
@@ -130,48 +136,68 @@ def preprocess_image_and_boxes(image: np.ndarray, bounding_boxes: list[list[floa
     return processed_image, processed_bounding_boxes
 
 
-def view_input_data(image: torch.Tensor, bounding_boxes: torch.Tensor, labels: torch.Tensor) -> bool:
+def view_input_data(images: List[torch.Tensor], bounding_boxes: List[torch.Tensor], labels: List[torch.Tensor],
+                    window_titles: List[str], label_names: Optional[Dict[int, str]] = None) -> bool:
     """
-    Visualizes a single preprocessed image, drawing its bounding boxes and labels for manual inspection.
+    Displays preprocessed input images with their ground truth boxes and labels, one window per image, so the user
+    can check exactly what is fed to the neural network.
 
-    This function transposes the image tensor back to an OpenCV-compatible NumPy array and draws 
-    the ground truth annotations on top. It halts execution until the user presses a key.
+    It is shared by the dataloader benchmarker (a single window per image) and by the Trainer's 'view_input_images'
+    diagnosis mode (a Training and a Validation window side by side). Execution halts until the user presses
+    SPACE (next image) or ENTER (stop viewing).
 
     Args:
-        image (torch.Tensor): The preprocessed image tensor.
-        bounding_boxes (torch.Tensor): The bounding boxes associated with the image.
-        labels (torch.Tensor): The class labels associated with the bounding boxes.
+        images (List[torch.Tensor]): The preprocessed image tensors of shape [Channels, Height, Width], on CPU or GPU.
+        bounding_boxes (List[torch.Tensor]): The [N, 4] bounding boxes associated with each image.
+        labels (List[torch.Tensor]): The [N] class labels associated with each image's bounding boxes.
+        window_titles (List[str]): The title of the window displaying each image, also written on the image.
+        label_names (Optional[Dict[int, str]]): Mapping from class index to class name used for the box captions.
+            Defaults to None, in which case the numeric class index is written.
 
     Returns:
-        bool: True if the user pressed 'q' to forcefully quit the visualization loop, False otherwise.
+        bool: True if the user pressed ENTER to stop the visualization (or no display is available), False otherwise.
     """
-    # Transpose the tensor back from (C, H, W) to (H, W, C) for OpenCV compatibility and cast to uint8
-    image_numpy = image.permute(1, 2, 0).numpy().copy().astype(np.uint8)
+    # Skip the viewer when no graphical display is reachable (e.g. SSH without X forwarding) instead of crashing
+    if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        print_yellow(output="No display available (DISPLAY is not set). Skipping the input image viewer.")
+        return True
 
-    # Convert bounding boxes and labels to standard NumPy structures
-    boxes_numpy = bounding_boxes.numpy()
-    labels_numpy = labels.numpy()
+    # Iterate through each image to annotate it and show it in its own window
+    for window_index, (image, image_bounding_boxes, image_labels, window_title) in enumerate(
+            zip(images, bounding_boxes, labels, window_titles)):
+        # Move the tensor to the CPU, transpose it from (C, H, W) to (H, W, C) and cast it to a contiguous uint8 array,
+        # since OpenCV cannot draw on the non-contiguous memory layout left by the transposition
+        image_numpy = np.ascontiguousarray(image.detach().cpu().permute(1, 2, 0).numpy().astype(np.uint8))
+        boxes_numpy = image_bounding_boxes.detach().cpu().numpy()
+        labels_numpy = image_labels.detach().cpu().numpy()
 
-    # Iterate through the objects in this specific image and draw their coordinates
-    for box, label in zip(boxes_numpy, labels_numpy):
-        box_x1, box_y1, box_x2, box_y2 = map(int, box)
+        # Draw each object's bounding box rectangle and its class caption
+        for box, label in zip(boxes_numpy, labels_numpy):
+            box_x1, box_y1, box_x2, box_y2 = map(int, box)
+            caption = label_names.get(int(label), str(int(label))) if label_names else str(int(label))
+            cv2.rectangle(img=image_numpy, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0), thickness=2)
+            cv2.putText(img=image_numpy, text=caption, org=(box_x1, max(box_y1 - 10, 0)),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
 
-        # Draw the bounding box rectangle and place the class label text
-        cv2.rectangle(img=image_numpy, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0), thickness=2)
-        cv2.putText(img=image_numpy, text=str(label), org=(box_x1, max(box_y1 - 10, 0)),
-                    fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
+        # Write the window title at the top left and the instructions at the bottom left
+        # Draw solid black background blocks first to guarantee the text is visible against any image background
+        image_height, image_width, _ = image_numpy.shape
+        cv2.rectangle(img=image_numpy, pt1=(5, 5), pt2=(300, 45), color=(0, 0, 0), thickness=-1)
+        cv2.putText(img=image_numpy, text=window_title, org=(10, 35), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.9, color=(255, 255, 255), thickness=2)
+        cv2.rectangle(img=image_numpy, pt1=(5, image_height - 45), pt2=(550, image_height - 5), color=(0, 0, 0),
+                      thickness=-1)
+        cv2.putText(img=image_numpy, text="Press SPACE For Next Image, Or ENTER To Quit",
+                    org=(10, image_height - 20), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.7, color=(150, 150, 150), thickness=2)
 
-    # Overlay instructional text at the bottom left of the image to guide the user
-    # Draw a solid black background block first to guarantee the grey text is visible against any image background
-    image_height, _image_width, _ = image_numpy.shape
-    cv2.rectangle(img=image_numpy, pt1=(5, image_height - 45), pt2=(550, image_height - 5), color=(0, 0, 0),
-                  thickness=-1)
-    cv2.putText(img=image_numpy, text="Press SPACE For Next Image, Or ENTER To Quit",
-                org=(10, image_height - 20), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                fontScale=0.7, color=(150, 150, 150), thickness=2)
-
-    # Display the annotated image and wait for the user to trigger a supported hotkey
-    cv2.imshow(winname="Input Data Viewer", mat=image_numpy)
+        # Scale the window down to at most 800 pixels and place the windows next to each other
+        display_scale = min(1.0, 800 / max(image_height, image_width))
+        display_width, display_height = int(image_width * display_scale), int(image_height * display_scale)
+        cv2.namedWindow(winname=window_title, flags=cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(winname=window_title, width=display_width, height=display_height)
+        cv2.moveWindow(winname=window_title, x=window_index * (display_width + 20), y=50)
+        cv2.imshow(winname=window_title, mat=image_numpy)
 
     # Enter a polling loop to restrict progression exclusively to the Spacebar or Enter keys
     while True:
