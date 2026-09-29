@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from typing import Optional, Any
 
-from utilities.os_utilities import print_blue, print_yellow, print_green, get_variable_name
+from utilities.os_utilities import print_color, get_variable_name
 
 
 def get_device() -> torch.device:
@@ -42,7 +42,7 @@ def print_tensor_shape(tensor: torch.Tensor, name: Optional[str] = None, indent:
     if not name:
         name = get_variable_name(target_variable=tensor)
     indentation_string = (indent * 2 * " ") + "- " if indent > 0 else ""
-    print_blue(output=f"{indentation_string}Tensor {name} Is Of Shape : {list(tensor.shape)}")
+    print_color(color="blue", output=f"{indentation_string}Tensor {name} Is Of Shape : {list(tensor.shape)}")
 
 
 def print_tensor_type(tensor: torch.Tensor, name: Optional[str] = None, indent: int = 0) -> None:
@@ -61,7 +61,7 @@ def print_tensor_type(tensor: torch.Tensor, name: Optional[str] = None, indent: 
     if not name:
         name = get_variable_name(target_variable=tensor)
     indentation_string = (indent * 2 * " ") + "- " if indent > 0 else ""
-    print_yellow(output=f"{indentation_string}Tensor {name} Is Of Type : {tensor.dtype}")
+    print_color(color="yellow", output=f"{indentation_string}Tensor {name} Is Of Type : {tensor.dtype}")
 
 
 def print_tensor_average(tensor: torch.Tensor, name: Optional[str] = None, indent: int = 0) -> None:
@@ -83,7 +83,7 @@ def print_tensor_average(tensor: torch.Tensor, name: Optional[str] = None, inden
     
     # Safely compute mean as float (to handle int/bool tensors gracefully)
     average_value = tensor.float().mean().item()
-    print_yellow(output=f"{indentation_string}Tensor {name} Average Is : {average_value:.6f}")
+    print_color(color="yellow", output=f"{indentation_string}Tensor {name} Average Is : {average_value:.6f}")
 
 
 def print_tensor_min_max(tensor: torch.Tensor, name: Optional[str] = None, indent: int = 0) -> None:
@@ -102,8 +102,8 @@ def print_tensor_min_max(tensor: torch.Tensor, name: Optional[str] = None, inden
     if not name:
         name = get_variable_name(target_variable=tensor)
     indentation_string = (indent * 2 * " ") + "- " if indent > 0 else ""
-    print_yellow(output=f"{indentation_string}Tensor {name} Maximum Is : {tensor.max()}")
-    print_yellow(output=f"{indentation_string}Tensor {name} Minimum Is : {tensor.min()}")
+    print_color(color="yellow", output=f"{indentation_string}Tensor {name} Maximum Is : {tensor.max()}")
+    print_color(color="yellow", output=f"{indentation_string}Tensor {name} Minimum Is : {tensor.min()}")
 
 
 def print_tensor_device(tensor: torch.Tensor, name: Optional[str] = None, indent: int = 0) -> None:
@@ -122,7 +122,7 @@ def print_tensor_device(tensor: torch.Tensor, name: Optional[str] = None, indent
     if not name:
         name = get_variable_name(target_variable=tensor)
     indentation_string = (indent * 2 * " ") + "- " if indent > 0 else ""
-    print_green(output=f"{indentation_string}Tensor {name} Is On : {tensor.device}")
+    print_color(color="green", output=f"{indentation_string}Tensor {name} Is On : {tensor.device}")
 
 
 def print_tensor_status(tensor: torch.Tensor, name: Optional[str] = None, indent: int = 0) -> None:
@@ -140,13 +140,13 @@ def print_tensor_status(tensor: torch.Tensor, name: Optional[str] = None, indent
     if not name:
         name = get_variable_name(target_variable=tensor)
     indentation_string = (indent * 2 * " ") if indent > 0 else ""
-    print_blue(output=f"{indentation_string}" + 60*'-')
+    print_color(color="blue", output=f"{indentation_string}" + 60*'-')
     print_tensor_shape(tensor=tensor, name=name, indent=indent)
     print_tensor_type(tensor=tensor, name=name, indent=indent)
     print_tensor_average(tensor=tensor, name=name, indent=indent)
     print_tensor_min_max(tensor=tensor, name=name, indent=indent)
     print_tensor_device(tensor=tensor, name=name, indent=indent)
-    print_blue(output=f"{indentation_string}" + 60*'-')
+    print_color(color="blue", output=f"{indentation_string}" + 60*'-')
 
 
 def print_tensor_list(tensor: torch.Tensor, round: int = 4) -> None:
