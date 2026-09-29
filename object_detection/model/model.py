@@ -392,69 +392,70 @@ class Model(nn.Module):
             for tensor_name, tensor_value in rearranged_predictions.items():
                 print_tensor_shape(tensor_value, tensor_name, indent=1)
 
-        # Create labels for each prediction
-        _, number_proposal, _ = rearranged_predictions["classification_scores"].shape
-        batch_labels = torch.arange(self.number_classes, device=rearranged_predictions["classification_scores"].device)
-        batch_labels = batch_labels.unsqueeze(dim=0).unsqueeze(dim=0)
-        rearranged_predictions["labels"] = batch_labels.expand(size=(batch_size, number_proposal, self.number_classes))
-
-        # Prepare outputs by:
-        # - Removing Background Class Predictions [note give the position]
-        rearranged_predictions["classification_scores"] = rearranged_predictions["classification_scores"][..., 1:]
-        rearranged_predictions["labels"] = rearranged_predictions["labels"][..., 1:]
-        rearranged_predictions["box_regressions"] = rearranged_predictions["box_regressions"][..., 1:, :]
-        rearranged_predictions["detection_boxes"] = rearranged_predictions["detection_boxes"][..., 1:, :]
-
-        for k, v in rearranged_predictions.items():
-            print_tensor_shape(v, k, indent=2)
-        # - Remove low scoring boxes
-        # Go through for loop to get the different boxes for the batch
-        # classification will be a list of scores, box regressions will be a list of regression boxes and same of detection boxes
-        for batch_index in range(batch_size):
-            classification_scores = rearranged_predictions["classification_scores"][batch_index].reshape(-1)
-            labels = rearranged_predictions["labels"][batch_index].reshape(-1)
-            box_regressions = rearranged_predictions["box_regressions"][batch_index].reshape(-1, 4)
-            detection_boxes = rearranged_predictions["detection_boxes"][batch_index].reshape(-1, 4)
-
-            # todo here we try to get the threshold from the configuration file.
-            kept_indices = torch.where(classification_scores > 0.18)[0]
-
-            classification_scores = classification_scores[kept_indices]
-            labels = labels[kept_indices]
-            box_regressions = box_regressions[kept_indices]
-            detection_boxes = detection_boxes[kept_indices]
-
-            print_tensor_shape(classification_scores, "classification_scores", indent=3)
-            print_tensor_shape(labels, "labels", indent=3)
-            print_tensor_shape(box_regressions, "box_regressions", indent=3)
-            print_tensor_shape(detection_boxes, "detection_boxes", indent=3)
-
-            # Remove small size boxes : Also get from configuration file
-            minimum_size = 10
-            boxes_widths, boxes_heights, _, _ = get_box_dimensions_and_centers(boxes=detection_boxes)
-            acceptable_size_booleans = (boxes_widths >= minimum_size) & (boxes_heights >= minimum_size)
-            kept_size_indices = torch.where(acceptable_size_booleans)[0]
-            # print(kept_size_indices)
-            classification_scores = classification_scores[kept_size_indices]
-            labels = labels[kept_size_indices]
-            box_regressions = box_regressions[kept_size_indices]
-            detection_boxes = detection_boxes[kept_size_indices]
-
-            # Apply Classwise NMS
-            # todo to be implemented
-            proposal_post_nms_indices = nms(boxes=boxes,
-                                            scores=scores,
-                                            iou_threshold=self.nms_iou_threshold)
-
-            print_tensor_shape(classification_scores, "classification_scores", indent=3)
-            print_tensor_shape(labels, "labels", indent=3)
-            print_tensor_shape(box_regressions, "box_regressions", indent=3)
-            print_tensor_shape(detection_boxes, "detection_boxes", indent=3)
-            exit()
-
-        for k, v in rearranged_predictions.items():
-            print_tensor_shape(v, k, indent=2)
-        exit()
+        # todo work in progress.
+        # # Create labels for each prediction
+        # _, number_proposal, _ = rearranged_predictions["classification_scores"].shape
+        # batch_labels = torch.arange(self.number_classes, device=rearranged_predictions["classification_scores"].device)
+        # batch_labels = batch_labels.unsqueeze(dim=0).unsqueeze(dim=0)
+        # rearranged_predictions["labels"] = batch_labels.expand(size=(batch_size, number_proposal, self.number_classes))
+        #
+        # # Prepare outputs by:
+        # # - Removing Background Class Predictions [note give the position]
+        # rearranged_predictions["classification_scores"] = rearranged_predictions["classification_scores"][..., 1:]
+        # rearranged_predictions["labels"] = rearranged_predictions["labels"][..., 1:]
+        # rearranged_predictions["box_regressions"] = rearranged_predictions["box_regressions"][..., 1:, :]
+        # rearranged_predictions["detection_boxes"] = rearranged_predictions["detection_boxes"][..., 1:, :]
+        #
+        # for k, v in rearranged_predictions.items():
+        #     print_tensor_shape(v, k, indent=2)
+        # # - Remove low scoring boxes
+        # # Go through for loop to get the different boxes for the batch
+        # # classification will be a list of scores, box regressions will be a list of regression boxes and same of detection boxes
+        # for batch_index in range(batch_size):
+        #     classification_scores = rearranged_predictions["classification_scores"][batch_index].reshape(-1)
+        #     labels = rearranged_predictions["labels"][batch_index].reshape(-1)
+        #     box_regressions = rearranged_predictions["box_regressions"][batch_index].reshape(-1, 4)
+        #     detection_boxes = rearranged_predictions["detection_boxes"][batch_index].reshape(-1, 4)
+        #
+        #     # todo here we try to get the threshold from the configuration file.
+        #     kept_indices = torch.where(classification_scores > 0.18)[0]
+        #
+        #     classification_scores = classification_scores[kept_indices]
+        #     labels = labels[kept_indices]
+        #     box_regressions = box_regressions[kept_indices]
+        #     detection_boxes = detection_boxes[kept_indices]
+        #
+        #     print_tensor_shape(classification_scores, "classification_scores", indent=3)
+        #     print_tensor_shape(labels, "labels", indent=3)
+        #     print_tensor_shape(box_regressions, "box_regressions", indent=3)
+        #     print_tensor_shape(detection_boxes, "detection_boxes", indent=3)
+        #
+        #     # Remove small size boxes : Also get from configuration file
+        #     minimum_size = 10
+        #     boxes_widths, boxes_heights, _, _ = get_box_dimensions_and_centers(boxes=detection_boxes)
+        #     acceptable_size_booleans = (boxes_widths >= minimum_size) & (boxes_heights >= minimum_size)
+        #     kept_size_indices = torch.where(acceptable_size_booleans)[0]
+        #     # print(kept_size_indices)
+        #     classification_scores = classification_scores[kept_size_indices]
+        #     labels = labels[kept_size_indices]
+        #     box_regressions = box_regressions[kept_size_indices]
+        #     detection_boxes = detection_boxes[kept_size_indices]
+        #
+        #     # Apply Classwise NMS
+        #     # todo to be implemented
+        #     proposal_post_nms_indices = nms(boxes=boxes,
+        #                                     scores=scores,
+        #                                     iou_threshold=self.nms_iou_threshold)
+        #
+        #     print_tensor_shape(classification_scores, "classification_scores", indent=3)
+        #     print_tensor_shape(labels, "labels", indent=3)
+        #     print_tensor_shape(box_regressions, "box_regressions", indent=3)
+        #     print_tensor_shape(detection_boxes, "detection_boxes", indent=3)
+        #     exit()
+        #
+        # for k, v in rearranged_predictions.items():
+        #     print_tensor_shape(v, k, indent=2)
+        # exit()
         return rearranged_predictions
 
     def _compute_region_proposal_losses(self, ground_truth_bounding_boxes: List[torch.Tensor],
