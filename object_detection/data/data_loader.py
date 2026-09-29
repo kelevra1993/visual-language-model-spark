@@ -15,7 +15,7 @@ from typing import Dict, Any, Tuple, Union
 from torch.utils.data import DataLoader, Dataset
 
 from utilities.data_utilities import preprocess_image_and_boxes, preprocess_boxes
-from utilities.os_utilities import print_yellow
+from utilities.os_utilities import print_color
 
 
 def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
@@ -80,8 +80,8 @@ class NativeDataset(Dataset):
         if 'annotations' in self.data:
             self.annotations = self.data['annotations']
         else:
-            print_yellow(output=f"No annotations found, every image is treated as unlabelled : "
-                                f"file://{os.path.abspath(labels_file)}")
+            print_color(color="yellow", output=f"No annotations found, every image is treated as unlabelled : "
+                                               f"file://{os.path.abspath(labels_file)}")
             self.annotations = []
 
         # Map image identifiers to their respective bounding box and label collections for rapid retrieval
