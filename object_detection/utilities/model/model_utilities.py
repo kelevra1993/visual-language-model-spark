@@ -8,7 +8,7 @@ import torch
 from typing import Tuple, Dict, List
 from torchvision.ops import nms
 
-from utilities.os_utilities import print_blue, print_green, print_red, print_yellow
+from utilities.os_utilities import print_color
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
 
 # Upper bound of the predicted log-scale width and height offsets (dw, dh) before exponentiation, as in torchvision.
@@ -155,7 +155,8 @@ def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: boo
 
     if delayed:
         if not delay:
-            print_blue(output="Showing Anchors Iteratively. Press any key to continue...", add_separators=True)
+            print_color(color="blue",
+                        output="Showing Anchors Iteratively. Press any key to continue...", add_separators=True)
 
         for anchor_index, anchor in enumerate(anchors_array):
             canvas = add_bounding_boxes(bounding_boxes=anchor, image=canvas, input_image_size=input_image_size)
@@ -171,7 +172,9 @@ def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: boo
 
         # Display the final canvas with all anchors drawn simultaneously
         cv2.imshow(winname=window_name, mat=canvas)
-        print_blue(output="Showing all anchors collectively. Press any key to close the window...", add_separators=True)
+        print_color(color="blue",
+                    output="Showing all anchors collectively. Press any key to close the window...",
+                    add_separators=True)
         cv2.waitKey(delay=0)
 
     # Clean up the OpenCV windows after the visualization loop is complete
@@ -197,7 +200,8 @@ def get_box_dimensions_and_centers(boxes: torch.Tensor) -> Tuple[
     # Check that the last dimension is of shape 4 if not raise an error
     if boxes.shape[-1] != 4:
         print_tensor_shape(boxes)
-        print_red(f"Unexpected Tensor Shape For Boxes, The Last Dimension Is {boxes.shape[-1]} Instead Of 4")
+        print_color(color="red",
+                    output=f"Unexpected Tensor Shape For Boxes, The Last Dimension Is {boxes.shape[-1]} Instead Of 4")
         exit()
 
     # Get the width, height, x_center and y_center from the boxes using ellipsis to handle optional batch dimensions
@@ -571,12 +575,13 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
 
     # Calculate and display the final breakdown of sampled anchors per image in the batch for debugging
     if verbose:
-        print_yellow("Sampling Information", add_separators=True)
+        print_color(color="yellow", output="Sampling Information", add_separators=True)
         total_positives = torch.sum(input=sampled_positive_mask, dim=1)
         total_negatives = torch.sum(input=sampled_negative_mask, dim=1)
-        print_yellow(output=f"Positive Training Samples   : {total_positives.tolist()}", indent=1)
-        print_yellow(output=f"Negative Training Samples   : {total_negatives.tolist()}", indent=1)
-        print_yellow(output=f"All Batch Training Samples  : {(total_negatives + total_positives).tolist()}", indent=1)
+        print_color(color="yellow", output=f"Positive Training Samples   : {total_positives.tolist()}", indent=1)
+        print_color(color="yellow", output=f"Negative Training Samples   : {total_negatives.tolist()}", indent=1)
+        print_color(color="yellow",
+                    output=f"All Batch Training Samples  : {(total_negatives + total_positives).tolist()}", indent=1)
 
     return sampled_positive_mask, sampled_negative_mask
 
