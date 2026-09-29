@@ -20,14 +20,14 @@ def debug_detection_head() -> None:
     configuration, device, dtype = get_model_configuration()
 
     # Extract configuration specifically for scale '4' as an example
-    detector_configuration = configuration.get("Detector")
+    detector_configuration = configuration["Detector"]
     detector_head_configurations = detector_configuration["head_configurations"]
     specific_configuration = detector_head_configurations["5"]
     feature_map_normalization = detector_configuration["normalization"]["feature_map_normalization"]
 
     input_image_size = 1024
     feature_map_size = 32  # Block 5 corresponds to 32x32 feature map
-    number_classes = configuration.get("Data").get("number_classes")
+    number_classes = len(configuration["Data"]["label_dictionary"])
     input_channels = 64  # Output channels from the feature extraction layers
     batch_size = 2
 
@@ -56,7 +56,8 @@ def debug_detection_head() -> None:
                                    input_image_size=input_image_size,
                                    feature_map_size=feature_map_size,
                                    dtype=dtype,
-                                   device=device)
+                                   device=device,
+                                   modules=detector_configuration["modules"])
 
     # Get mock ground truth boxes and labels to validate our new utility function
     mock_ground_truth_boxes = get_dummy_ground_truth_boxes(batch_size=batch_size,
