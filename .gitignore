@@ -16,6 +16,8 @@ wheels/
 # Mac Files
 .DS_Store
 *.md
+# Keep the list of proposed improvements under version control
+!suggestions.md
 
 # Model data
 experiments_folder/
