@@ -44,8 +44,7 @@ def test_created_dataset_is_valid_coco_and_loads(tmp_path: Path) -> None:
         tmp_path (Path): The pytest temporary directory.
     """
     create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE,
-                             split_sizes={"train": 8, "validation": 2, "test": 2}, maximum_objects=4, seed=0,
-                             number_workers=2)
+                             split_sizes={"train": 8, "validation": 2, "test": 2}, maximum_objects=4, number_workers=2)
 
     labels = json.loads((tmp_path / "train" / "labels.json").read_text())
     assert len(labels["images"]) == 8 and len(labels["annotations"]) >= 8
