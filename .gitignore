@@ -24,3 +24,5 @@ experiments_folder/
 experiments/
 datasets/
 classifier_insipiration_code/
+# Exported models served by Triton
+object_detection/deployment/triton/served_models/
