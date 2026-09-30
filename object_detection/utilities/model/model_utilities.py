@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from typing import Tuple, Dict, List
-from torchvision.ops import nms
+from torchvision.ops import nms, batched_nms
 
 from utilities.os_utilities import print_color
 from utilities.tensor_utilities import print_tensor_shape, print_tensor_list
@@ -290,6 +290,74 @@ def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) 
     boxes = boxes.clamp(min=0, max=input_image_size)
 
     return boxes
+
+
+def postprocess_detections(classification_scores: torch.Tensor, detection_boxes: torch.Tensor,
+                           valid_proposal_mask: torch.Tensor, score_threshold: float, nms_iou_threshold: float,
+                           maximum_detections: int, input_image_size: int) -> Dict[str, torch.Tensor]:
+    """
+    Turns the raw detection head outputs into the final detections returned at inference and by the deployed
+    models: class probabilities, removal of the background class, a score threshold, per-class non-maximum
+    suppression, and a fixed number of detections per image.
+
+    Every step is vectorised over the whole batch (a single batched NMS call grouped by image and class, then a fixed
+    top-k), without data-dependent Python control flow, so that the same code can be exported to TorchScript and
+    ONNX. The outputs have a fixed size; padded entries have a score of 0, a label of 0 and an empty box.
+
+    Args:
+        classification_scores (torch.Tensor): The class logits of every proposal, shape [B, P, C] (C includes the
+            background class 0).
+        detection_boxes (torch.Tensor): The per-class decoded [x1, y1, x2, y2] boxes, shape [B, P, C, 4].
+        valid_proposal_mask (torch.Tensor): Boolean mask of shape [B, P], False for padding proposals that must never
+            produce a detection (used by the exportable inference path, which pads with placeholder proposals).
+        score_threshold (float): The minimum class probability of a returned detection.
+        nms_iou_threshold (float): The IoU above which a lower scoring box of the same class is suppressed.
+        maximum_detections (int): The fixed number K of detections returned per image.
+        input_image_size (int): The size of the square network input, used to clip the boxes to the image.
+
+    Returns:
+        Dict[str, torch.Tensor]: The final detections:
+            - "final_detection_boxes" (torch.Tensor): Shape [B, K, 4].
+            - "final_detection_scores" (torch.Tensor): Shape [B, K], sorted in decreasing order.
+            - "final_detection_labels" (torch.Tensor): Shape [B, K], int64 class indices (0 for padding).
+            - "number_detections" (torch.Tensor): Shape [B], int64 number of valid detections per image.
+    """
+    batch_size, number_proposals, number_classes = classification_scores.shape
+
+    # Class probabilities without the background class, zero for padding proposals, flattened over proposals and
+    # foreground classes
+    probabilities = torch.softmax(input=classification_scores, dim=-1)[..., 1:]
+    probabilities = (probabilities * valid_proposal_mask.unsqueeze(dim=-1)).reshape(batch_size, -1)
+    boxes = clamp_boxes_to_image_boundaries(boxes=detection_boxes[..., 1:, :],
+                                            input_image_size=input_image_size).reshape(batch_size, -1, 4)
+    labels = torch.arange(start=1, end=number_classes, device=classification_scores.device)
+    labels = labels.repeat(number_proposals).unsqueeze(dim=0).expand(batch_size, -1)
+
+    # Suppress overlapping boxes of the same class and image with a single NMS call over the whole batch
+    batch_indices = torch.arange(end=batch_size, device=classification_scores.device).unsqueeze(dim=1).expand_as(labels)
+    group_indices = batch_indices * number_classes + labels
+    kept_indices = batched_nms(boxes=boxes.reshape(-1, 4), scores=probabilities.reshape(-1),
+                               idxs=group_indices.reshape(-1), iou_threshold=nms_iou_threshold)
+
+    # Keep the NMS survivors above the score threshold, the other candidates get a score below any valid one
+    kept_mask = torch.zeros_like(input=probabilities.reshape(-1), dtype=torch.bool)
+    kept_mask[kept_indices] = True
+    valid_candidate_mask = valid_proposal_mask.unsqueeze(dim=-1).expand(-1, -1, number_classes - 1)
+    kept_mask = kept_mask.reshape(batch_size, -1) & (probabilities >= score_threshold) & \
+        valid_candidate_mask.reshape(batch_size, -1)
+    candidate_scores = torch.where(kept_mask, probabilities, torch.full_like(input=probabilities, fill_value=-1.0))
+
+    # Select the fixed number of best detections per image and zero out the padded entries
+    top_scores, top_indices = torch.topk(input=candidate_scores, k=maximum_detections, dim=1)
+    valid_mask = top_scores >= 0.0
+    final_boxes = torch.gather(input=boxes, dim=1, index=top_indices.unsqueeze(dim=-1).expand(-1, -1, 4))
+
+    final_labels = torch.gather(input=labels, dim=1, index=top_indices)
+    return {"final_detection_boxes": torch.where(valid_mask.unsqueeze(dim=-1), final_boxes,
+                                                 torch.zeros_like(input=final_boxes)),
+            "final_detection_scores": torch.where(valid_mask, top_scores, torch.zeros_like(input=top_scores)),
+            "final_detection_labels": torch.where(valid_mask, final_labels, torch.zeros_like(input=final_labels)),
+            "number_detections": valid_mask.sum(dim=1)}
 
 
 def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
