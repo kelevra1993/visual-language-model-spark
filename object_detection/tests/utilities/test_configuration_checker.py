@@ -86,6 +86,17 @@ def set_detector_samples(configuration: Dict[str, Any]) -> None:
     configuration["Detector"]["total_training_samples"] = 1000
 
 
+def set_intermediate_weight_saving(configuration: Dict[str, Any]) -> None:
+    """
+    Sets intermediate checkpoints that are not more frequent than the evaluated ones.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["intermediate_weight_saving_iterations"] = \
+        configuration["ExperimentConfiguration"]["weight_saving_iterations"]
+
+
 def set_inception_channels(configuration: Dict[str, Any]) -> None:
     """
     Enables inception on a Backbone block whose output channels are not a multiple of 8.
@@ -132,6 +143,8 @@ def test_example_configuration_is_consistent() -> None:
     (set_string_flag, ["'Backbone.modules.inception' must be True or False"]),
     (set_detector_samples, ["'Detector.total_training_samples' (1000) must be <="]),
     (set_inception_channels, ["'Backbone.convolutions.4' has 20 output channels"]),
+    (set_intermediate_weight_saving, ["'ExperimentConfiguration.intermediate_weight_saving_iterations' (10000) "
+                                      "must be smaller than"]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
                            "'Detector.number_training_positives' (500) must be <="])])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
