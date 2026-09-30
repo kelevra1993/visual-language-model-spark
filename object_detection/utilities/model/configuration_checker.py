@@ -159,6 +159,21 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any]) -> 
                                                  "ExperimentConfiguration.information_dump",
                                                  "ExperimentConfiguration.weight_saving_iterations",
                                                  "ExperimentConfiguration.number_iterations"], allow_zero=False)
+
+    # Intermediate checkpoints (saved without test evaluation) must be more frequent than the evaluated ones
+    intermediate_saving_errors = check_positive_integers(
+        configuration=configuration, key_paths=["ExperimentConfiguration.intermediate_weight_saving_iterations"],
+        allow_zero=False)
+    errors += intermediate_saving_errors
+    weight_saving_iterations = get_configuration_value(configuration=configuration,
+                                                       key_path="ExperimentConfiguration.weight_saving_iterations")
+    intermediate_weight_saving_iterations = get_configuration_value(
+        configuration=configuration, key_path="ExperimentConfiguration.intermediate_weight_saving_iterations")
+    if not intermediate_saving_errors and isinstance(weight_saving_iterations, int) and \
+            intermediate_weight_saving_iterations >= weight_saving_iterations:
+        errors.append(f"'ExperimentConfiguration.intermediate_weight_saving_iterations' "
+                      f"({intermediate_weight_saving_iterations}) must be smaller than "
+                      f"'ExperimentConfiguration.weight_saving_iterations' ({weight_saving_iterations}).")
     errors += check_positive_integers(configuration=configuration,
                                       key_paths=["ExperimentConfiguration.validation_iteration_ratio"], allow_zero=True)
 
@@ -509,6 +524,28 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
     for key_path in ["Detector.foreground_iou_threshold", "Detector.nms_iou_threshold"]:
         errors += check_intersection_over_union_value(
             value=get_configuration_value(configuration=model_configuration, key_path=key_path), key_path=key_path)
+
+    # Final detection post-processing: score threshold and fixed number of detections per image
+    errors += check_probability_value(
+        value=get_configuration_value(configuration=model_configuration, key_path="Detector.inference.score_threshold"),
+        key_path="Detector.inference.score_threshold")
+    maximum_detection_errors = check_positive_integers(configuration=model_configuration,
+                                                       key_paths=["Detector.inference.maximum_detections"],
+                                                       allow_zero=False)
+    errors += maximum_detection_errors
+
+    # The detections are selected among every (proposal, foreground class) pair kept at inference
+    maximum_detections = get_configuration_value(configuration=model_configuration,
+                                                 key_path="Detector.inference.maximum_detections")
+    inference_proposals = get_configuration_value(configuration=model_configuration,
+                                                  key_path="RegionProposal.inference.post_nms_proposals")
+    number_foreground_classes = len(get_configuration_value(configuration=model_configuration,
+                                                            key_path="Data.label_dictionary")) - 1
+    if not maximum_detection_errors and isinstance(inference_proposals, int) and \
+            maximum_detections > inference_proposals * number_foreground_classes:
+        errors.append(f"'Detector.inference.maximum_detections' ({maximum_detections}) must be <= "
+                      f"'RegionProposal.inference.post_nms_proposals' ({inference_proposals}) x the "
+                      f"{number_foreground_classes} foreground classes.")
 
     # Proposal sampling budget and regression loss of the detection stage
     sampling_errors = check_sampling_configuration(model_configuration=model_configuration, section_key="Detector")
