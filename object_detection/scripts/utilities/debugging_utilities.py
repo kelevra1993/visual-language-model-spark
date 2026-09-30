@@ -456,6 +456,8 @@ def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype
                          'total_training_samples': 256,
                          'localisation_loss_beta': 1 / 9,
                          'modules': {'squeeze_and_excite': False, 'residual_nets': False, 'inception': False},
+                         'nms_iou_threshold': 0.5,
+                         'inference': {'score_threshold': 0.5, 'maximum_detections': 100},
                      }}
     device = torch.device(device="cpu")
     dtype = torch.float32
