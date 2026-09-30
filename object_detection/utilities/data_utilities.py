@@ -111,6 +111,43 @@ def preprocess_boxes(bounding_boxes: list[list[float]], image_width: int, image_
     return processed_bounding_boxes
 
 
+def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int, image_height: int,
+                                    image_size: int, keep_ratio: bool) -> np.ndarray:
+    """
+    Maps boxes predicted on the preprocessed network input back to the original image, the exact inverse of
+    'preprocess_boxes'. Used by the inference clients, which preprocess the images before sending them to the model
+    and must report the detections in the coordinates of the images they were given.
+
+    Args:
+        bounding_boxes (np.ndarray): The [N, 4] [x1, y1, x2, y2] boxes in network input pixels.
+        image_width (int): The width of the original image.
+        image_height (int): The height of the original image.
+        image_size (int): The size of the square network input.
+        keep_ratio (bool): Whether the image was resized keeping its aspect ratio and padded to a square.
+
+    Returns:
+        np.ndarray: The [N, 4] boxes in original image pixels, clipped to the image.
+    """
+    restored_boxes = np.array(bounding_boxes, dtype=np.float64).reshape(-1, 4)
+
+    if keep_ratio:
+        # Remove the centred padding offset, then undo the single scaling factor
+        scale = image_size / max(image_height, image_width)
+        start_x = (image_size - int(round(image_width * scale))) // 2
+        start_y = (image_size - int(round(image_height * scale))) // 2
+        restored_boxes[:, 0::2] = (restored_boxes[:, 0::2] - start_x) / scale
+        restored_boxes[:, 1::2] = (restored_boxes[:, 1::2] - start_y) / scale
+    else:
+        # Undo the independent horizontal and vertical scaling factors
+        restored_boxes[:, 0::2] = restored_boxes[:, 0::2] / (image_size / image_width)
+        restored_boxes[:, 1::2] = restored_boxes[:, 1::2] / (image_size / image_height)
+
+    # Boxes predicted partly on the padding are clipped to the original image
+    restored_boxes[:, 0::2] = restored_boxes[:, 0::2].clip(min=0.0, max=image_width)
+    restored_boxes[:, 1::2] = restored_boxes[:, 1::2].clip(min=0.0, max=image_height)
+    return restored_boxes
+
+
 def preprocess_image_and_boxes(image: np.ndarray, bounding_boxes: list[list[float]], image_size,
                                keep_ratio: bool = True) -> tuple[np.ndarray, list[list[float]]]:
     """
