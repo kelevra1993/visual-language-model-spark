@@ -1,6 +1,6 @@
 ExperimentConfiguration:
   # Directory where experiment artifacts, weights, and logs are saved.
-  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/poseidon_experiment_3"
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/poseidon_experiment_4"
   # Root directory containing the training dataset images and labels.json annotation file.
   train_data_folder: "/home/robert_kelevra/Data/object_detection_data/coco-2017/train"
   # Root directory containing the validation dataset images and labels.json annotation file.
@@ -11,8 +11,11 @@ ExperimentConfiguration:
   batch_size: 40
   # Frequency (in iterations) to log performance metrics.
   information_dump: 1000
-  # Frequency (in iterations) to checkpoint the model weights.
+  # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
   weight_saving_iterations: 10000
+  # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
+  # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
+  intermediate_weight_saving_iterations: 2000
   # Total number of training iterations before stopping.
   number_iterations: 1e10
   # Ratio controlling how often validation is run during training.
@@ -218,9 +221,15 @@ Detector:
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
 
+  inference:
+    # Minimum class probability for a detection to be returned
+    score_threshold: 0.5
+    # Fixed number of detections returned per image (padded), required for exportable fixed-size outputs.
+    # Must not exceed RegionProposal.inference.post_nms_proposals x the number of foreground classes.
+    maximum_detections: 100
   # Minimum IoU required for a filtered proposal to be classified as a positive target.
   foreground_iou_threshold: 0.5
-  # IoU overlap tolerance for the final Non-Maximum Suppression pass on predictions.
+  # IoU overlap tolerance for the final per-class Non-Maximum Suppression pass on predictions.
   nms_iou_threshold: 0.8
   # Upper limit of positive (foreground) region proposals sampled per image.
   number_training_positives: 64
