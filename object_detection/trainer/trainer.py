@@ -58,6 +58,8 @@ class Trainer:
         self.experiment_folder = self.experiment_configuration["experiment_folder"]
         self.training_iterations = self.experiment_configuration["number_iterations"]
         self.weight_saving_iterations = self.experiment_configuration["weight_saving_iterations"]
+        self.intermediate_weight_saving_iterations = self.experiment_configuration[
+            "intermediate_weight_saving_iterations"]
         self.validation_iteration_ratio = self.experiment_configuration["validation_iteration_ratio"]
         self.information_dump = self.experiment_configuration["information_dump"]
         self.learning_rate = self.experiment_configuration["learning_rate"]
@@ -177,6 +179,9 @@ class Trainer:
                     output=f"- Test Data Folder        : file://{self.experiment_configuration['test_data_folder']}")
         print_color(color="blue", output=f"- Batch Size              : {self.batch_size}")
         print_color(color="blue", output=f"- Total Iterations        : {self.training_iterations}")
+        print_color(color="blue", output=f"- Save And Evaluate Every : {self.weight_saving_iterations} iterations")
+        print_color(color="blue", output=f"- Save Only Every         : {self.intermediate_weight_saving_iterations} "
+                                         f"iterations")
         print_color(color="blue", output=f"- Learning Rate           : {self.learning_rate}")
         print_color(color="blue", output=f"- Resume Training         : {self.resume_training}")
         print_color(color="blue", output=f"- Validation Iter. Ratio  : {self.validation_iteration_ratio}")
@@ -427,10 +432,14 @@ class Trainer:
 
         for training_iteration in range(self.start_iteration, self.training_iterations + self.start_iteration, 1):
             try:
+                # Save and evaluate the model at every weight saving iteration, and only save it at the more
+                # frequent intermediate weight saving iterations in between
                 if training_iteration % self.weight_saving_iterations == 0:
                     self.save_model(iteration=training_iteration)
                     # todo commented out for now because it is not properly implemented
                     # self.run_test_evaluation(iteration=training_iteration)
+                elif training_iteration % self.intermediate_weight_saving_iterations == 0:
+                    self.save_model(iteration=training_iteration)
 
                 # Get next training elements
                 training_data_dictionary, training_dataloader_iterator = self.get_next_batch(
