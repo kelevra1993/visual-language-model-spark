@@ -3551,6 +3551,7 @@ dependencies = [
     { name = "tensorboard" },
     { name = "torch" },
     { name = "torchvision" },
+    { name = "tqdm" },
     { name = "tritonclient", extra = ["grpc"] },
 ]
 
@@ -3570,6 +3571,7 @@ requires-dist = [
     { name = "tensorboard", specifier = ">=2.21.0" },
     { name = "torch", specifier = ">=2.14.0" },
     { name = "torchvision", specifier = ">=0.29.0" },
+    { name = "tqdm", specifier = ">=4.70.1" },
     { name = "tritonclient", extras = ["grpc"], specifier = ">=2.72.0" },
 ]
 

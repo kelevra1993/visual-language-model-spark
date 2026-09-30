@@ -8,7 +8,7 @@ import numpy as np
 import yaml
 
 from pathlib import Path
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional
 import inspect
 
 from utilities.model.configuration_checker import check_configuration, ConfigurationError
@@ -17,6 +17,7 @@ from utilities.model.configuration_checker import check_configuration, Configura
 np.set_printoptions(suppress=True)
 np.set_printoptions(linewidth=1000, threshold=np.inf)
 torch.set_printoptions(linewidth=1000)
+
 
 def read_json(path: str) -> dict[str, Any] | list[Any]:
     """
@@ -132,7 +133,7 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
         label_mapping = model_configuration["Data"]["label_mapping"]
         mode = label_mapping["mode"]
         model_configuration["Data"]["label_mode"] = mode
-        
+
         if mode == "binary":
             model_configuration["Data"]["label_dictionary"] = {"background": 0, "foreground": 1}
         elif mode == "multi_class":
@@ -262,5 +263,30 @@ def get_variable_name(target_variable: Any, namespace: Optional[Dict[str, Any]] 
         # Using 'is' checks for exact memory identity, not just equal value
         if value is target_variable:
             return name
-            
+
     return "Unknown_Variable"
+
+
+def get_image_paths(folder: Path) -> List[Path]:
+    """
+    Lists the images of a folder, e.g. the 'data' folder of a dataset split, to feed them to the deployed detector
+    in the inference client.
+
+    Args:
+        folder (Path): The folder holding the images, which is not searched recursively.
+
+    Returns:
+        List[Path]: The sorted image paths.
+
+    Raises:
+        FileNotFoundError: If the folder holds no image, e.g. a split folder given instead of its 'data' subfolder.
+    """
+    # Image file extensions listed by get_image_paths
+    IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff"}
+
+    image_paths = sorted(path for path in folder.iterdir() if path.suffix.lower() in IMAGE_EXTENSIONS)
+
+    # Fail loudly instead of running on nothing
+    if len(image_paths) == 0:
+        raise FileNotFoundError(f"No image found in : file://{folder.absolute()}")
+    return image_paths
