@@ -127,9 +127,11 @@ class DetectionHead(nn.Module):
         # 1. RoIAlign: Extract and pool features for each proposal
         # Input Feature Map Shape: [Batch, Channels, Height, Width]
         # Output Pooled Shape: [K, Channels, Pool_Size, Pool_Size]
+        # A sampling ratio of 0 uses an adaptive number of sampling points per bin (identical to torchvision's default
+        # of -1), and is the value the ONNX RoiAlign operator expects, so the export keeps it without warning
         pooled_features = roi_align(input=input_tensor, boxes=proposal_boxes,
                                     output_size=(self.roi_align_pool_size, self.roi_align_pool_size),
-                                    spatial_scale=self.spatial_scale, aligned=True)
+                                    spatial_scale=self.spatial_scale, sampling_ratio=0, aligned=True)
 
         # 2. Convolutional Block: Process the pooled features
         # Input Shape: [K, Channels, Pool_Size, Pool_Size]

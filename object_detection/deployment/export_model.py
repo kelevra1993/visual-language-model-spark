@@ -1,3 +1,5 @@
+import logging
+import warnings
 import numpy as np
 import onnxruntime
 import torch
@@ -16,6 +18,26 @@ OUTPUT_NAMES = ["detection_boxes", "detection_scores", "detection_labels", "numb
 
 # Triton model names of every export format
 MODEL_NAMES = {"torchscript": "object_detector_torchscript", "onnx": "object_detector_onnx"}
+
+
+def hide_known_export_warnings() -> None:
+    """
+    Hides the warnings printed by PyTorch, torchvision and the ONNX library during the export, which come from inside
+    these libraries and cannot be fixed in the project code. They are harmless for this export: the deprecation
+    notices of TorchScript and of a torchvision helper, the tracer notice raised inside torchvision's RoIAlign, and
+    the ONNX notice about an empty attribute defaulting to integers. The exports are checked against the eager model
+    anyway.
+    """
+    # Deprecation notices of torch.jit.trace / trace_method / load and of a torchvision export helper
+    warnings.filterwarnings(action="ignore", message=r"`torch\.jit\.", category=FutureWarning)
+    warnings.filterwarnings(action="ignore", message=r"`create_unbacked_symint` is deprecated", category=FutureWarning)
+
+    # Tracer notice raised by the shape assertion inside torchvision's RoIAlign
+    warnings.filterwarnings(action="ignore", message=r"Converting a tensor to a Python boolean",
+                            category=torch.jit.TracerWarning)
+
+    # The ONNX library reports the empty attribute through the logging module rather than the warnings module
+    logging.getLogger(name="onnx_ir._convenience").setLevel(level=logging.ERROR)
 
 
 def export_torchscript(detector: InferenceDetector, example_images: torch.Tensor, output_path: Path) -> None:
@@ -53,16 +75,17 @@ def export_onnx(detector: InferenceDetector, example_images: torch.Tensor, outpu
                       dynamo=True, verbose=False)
 
 
-def write_triton_configuration(model_directory: Path, model_name: str, export_format: str, image_size: int,
-                               maximum_detections: int, maximum_batch_size: int,
+def write_triton_configuration(model_directory: Path, model_name: str, model_version: int, export_format: str,
+                               image_size: int, maximum_detections: int, maximum_batch_size: int,
                                tensorrt_precision: Optional[str]) -> None:
     """
     Writes the 'config.pbtxt' describing an exported detector to Triton: platform, input and output tensors,
     dynamic batching, GPU execution and, for ONNX, the optional TensorRT accelerator.
 
     Args:
-        model_directory (Path): The model folder of the Triton repository (holding the '1' version folder).
+        model_directory (Path): The model folder of the Triton repository (holding the version folder).
         model_name (str): The Triton model name.
+        model_version (int): The version served by Triton, which is also the name of the folder holding the model file.
         export_format (str): Either 'torchscript' or 'onnx'.
         image_size (int): The size of the square network input.
         maximum_detections (int): The fixed number of detections returned per image.
@@ -93,7 +116,7 @@ def write_triton_configuration(model_directory: Path, model_name: str, export_fo
                      f'output [\n' + ",\n".join(outputs) + '\n]\n'
                      f'dynamic_batching {{ max_queue_delay_microseconds: 1000 }}\n'
                      f'instance_group [ {{ kind: KIND_GPU count: 1 }} ]\n'
-                     f'version_policy: {{ specific: {{ versions: [ 1 ] }} }}\n')
+                     f'version_policy: {{ specific: {{ versions: [ {model_version} ] }} }}\n')
 
     # Let ONNX Runtime run the supported parts of the graph with TensorRT, the other operators stay on CUDA
     if export_format == "onnx" and tensorrt_precision is not None:
@@ -164,7 +187,7 @@ def compare_detections(reference: Sequence[np.ndarray], candidate: Sequence[np.n
 
 
 def export_experiment(experiment_folder: Path, iteration: Optional[int], formats: List[str], repository: Path,
-                      maximum_batch_size: int, tensorrt_precision: Optional[str]) -> None:
+                      model_version: int, maximum_batch_size: int, tensorrt_precision: Optional[str]) -> None:
     """
     Exports a trained experiment to the Triton model repository in every requested format, writes the Triton
     configurations, and checks each export against the eager inference detector on a random batch.
@@ -174,69 +197,92 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], formats
         iteration (Optional[int]): The iteration to export, or None for the last saved one.
         formats (List[str]): The export formats, among 'torchscript' and 'onnx'.
         repository (Path): The Triton model repository.
+        model_version (int): The Triton version of the exported models, i.e. the name of their version folder.
         maximum_batch_size (int): The largest batch size of the exported models.
         tensorrt_precision (Optional[str]): 'FP16' or 'FP32' to accelerate the ONNX model with TensorRT, or None.
 
     Raises:
         RuntimeError: If an exported model does not reproduce the eager outputs.
     """
-    device = torch.device("cuda")
-    checkpoint_path = get_checkpoint_path(experiment_folder=experiment_folder, iteration=iteration)
-    model = load_trained_model(configuration_path=experiment_folder / "training_configuration.yaml",
-                               checkpoint_path=checkpoint_path, device=device)
-    detector = InferenceDetector(model=model).eval()
-    print_color(color="blue", output=f"Exporting Checkpoint : file://{checkpoint_path.absolute()}", add_separators=True)
+    # PyTorch runs GPU convolutions in reduced-precision TF32 by default (about 3 significant digits instead of 7),
+    # while ONNX Runtime computes the exported model in exact FP32, so the two differ by about 1e-3 on scores even
+    # for a correct export. TF32 is switched off so that the reference is computed at full precision too.
+    # The switch is global to the whole Python process: the previous values are saved here and restored at the end,
+    # so that code calling this function does not silently keep slower full-precision GPU computations afterwards
+    previous_cudnn_tf32, previous_matmul_tf32 = torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32
+    torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32 = False, False
+    try:
+        device = torch.device("cuda")
+        checkpoint_path = get_checkpoint_path(experiment_folder=experiment_folder, iteration=iteration)
+        model = load_trained_model(configuration_path=experiment_folder / "training_configuration.yaml",
+                                   checkpoint_path=checkpoint_path, device=device)
+        detector = InferenceDetector(model=model).eval()
+        print_color(color="blue", output=f"Exporting Checkpoint : file://{checkpoint_path.absolute()}",
+                    add_separators=True)
 
-    # Random example and check batches of different sizes, to confirm the batch dimension stays dynamic
-    image_size = detector.input_image_size
-    example_images = torch.rand(size=(2, 3, image_size, image_size), device=device) * 255.0
-    check_images = torch.rand(size=(min(3, maximum_batch_size), 3, image_size, image_size), device=device) * 255.0
-    with torch.no_grad():
-        reference_outputs = [tensor.cpu().numpy() for tensor in detector(images=check_images)]
+        # Random example and check batches of different sizes, to confirm the batch dimension stays dynamic
+        image_size = detector.input_image_size
+        example_images = torch.rand(size=(2, 3, image_size, image_size), device=device) * 255.0
+        check_images = torch.rand(size=(min(3, maximum_batch_size), 3, image_size, image_size), device=device) * 255.0
+        with torch.no_grad():
+            reference_outputs = [tensor.cpu().numpy() for tensor in detector(images=check_images)]
 
-    for export_format in formats:
-        model_directory = repository / MODEL_NAMES[export_format]
+        for export_format in formats:
+            model_directory = repository / MODEL_NAMES[export_format]
 
-        # Export the model, then run the exported file on the check batch
-        if export_format == "torchscript":
-            model_path = model_directory / "1" / "model.pt"
-            export_torchscript(detector=detector, example_images=example_images, output_path=model_path)
-            with torch.no_grad():
-                exported_outputs = [tensor.cpu().numpy() for tensor in
-                                    torch.jit.load(str(model_path), map_location=device)(check_images)]
-        else:
-            model_path = model_directory / "1" / "model.onnx"
-            export_onnx(detector=detector, example_images=example_images, output_path=model_path,
-                        maximum_batch_size=maximum_batch_size)
-            session = onnxruntime.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
-            exported_outputs = session.run(None, {"images": check_images.cpu().numpy()})
+            # Export the model, then run the exported file on the check batch
+            if export_format == "torchscript":
+                model_path = model_directory / str(model_version) / "model.pt"
+                export_torchscript(detector=detector, example_images=example_images, output_path=model_path)
+                with torch.no_grad():
+                    exported_outputs = [tensor.cpu().numpy() for tensor in
+                                        torch.jit.load(str(model_path), map_location=device)(check_images)]
+            else:
+                model_path = model_directory / str(model_version) / "model.onnx"
+                export_onnx(detector=detector, example_images=example_images, output_path=model_path,
+                            maximum_batch_size=maximum_batch_size)
+                session = onnxruntime.InferenceSession(str(model_path), providers=["CPUExecutionProvider"])
+                exported_outputs = session.run(None, {"images": check_images.cpu().numpy()})
 
-        write_triton_configuration(model_directory=model_directory, model_name=MODEL_NAMES[export_format],
-                                   export_format=export_format, image_size=image_size,
-                                   maximum_detections=detector.maximum_detections,
-                                   maximum_batch_size=maximum_batch_size, tensorrt_precision=tensorrt_precision)
+            write_triton_configuration(model_directory=model_directory, model_name=MODEL_NAMES[export_format],
+                                       model_version=model_version, export_format=export_format, image_size=image_size,
+                                       maximum_detections=detector.maximum_detections,
+                                       maximum_batch_size=maximum_batch_size, tensorrt_precision=tensorrt_precision)
 
-        mismatches = compare_detections(reference=reference_outputs, candidate=exported_outputs, box_tolerance=1e-2,
-                                        score_tolerance=1e-4)
-        if mismatches:
-            raise RuntimeError(f"The {export_format} export does not match the eager model:\n" + "\n".join(mismatches))
-        print_color(color="green", output=f"{export_format} export matches the eager model : "
-                                          f"file://{model_directory.absolute()}", indent=1)
-
+            mismatches = compare_detections(reference=reference_outputs, candidate=exported_outputs, box_tolerance=1e-2,
+                                            score_tolerance=1e-4)
+            if mismatches:
+                raise RuntimeError(f"The {export_format} Export Does Not Match The Eager Model:\n" +
+                                   "\n".join(mismatches))
+            print_color(color="green", output=f"{export_format} Export Matches The Eager Model : ", indent=1)
+            print_color(color="green", output=f"file://{model_directory.absolute()}", indent=2)
+    # 'finally' runs whether the export succeeds or raises an error (missing checkpoint, export mismatch...), so the
+    # TF32 settings are always restored, and any error still reaches the caller afterwards
+    finally:
+        torch.backends.cudnn.allow_tf32, torch.backends.cuda.matmul.allow_tf32 = (previous_cudnn_tf32,
+                                                                                   previous_matmul_tf32)
 
 if __name__ == "__main__":
     # Trained experiment to export, holding 'Weights' and 'training_configuration.yaml'
-    experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / "synthetic_shapes"
+    experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / "poseidon_experiment_4"
     # Iteration to export, None for the last one recorded in the 'full-checkpoint' registry
-    iteration = None
+    iteration = 6000
     # Export formats, among 'torchscript' and 'onnx'
     formats = ["torchscript", "onnx"]
     # Triton model repository, mounted by deployment/triton/docker-compose.yml
     repository = DEFAULT_REPOSITORY
+    # Triton version of the exported models: they are written to '<model>/<version>/' and Triton serves this version
+    model_version = 1
     # Largest batch size the exported models accept, and that Triton may send them
-    maximum_batch_size = 8
+    maximum_batch_size = 16
     # TensorRT precision of the ONNX model ('FP16' or 'FP32'), None to run it with ONNX Runtime CUDA only
-    tensorrt_precision = "FP16"
+    tensorrt_precision = "FP32"
+    # False hides the harmless library warnings printed during the export (see hide_known_export_warnings)
+    show_warnings = False
+
+    if not show_warnings:
+        hide_known_export_warnings()
 
     export_experiment(experiment_folder=experiment_folder, iteration=iteration, formats=formats, repository=repository,
-                      maximum_batch_size=maximum_batch_size, tensorrt_precision=tensorrt_precision)
+                      model_version=model_version, maximum_batch_size=maximum_batch_size,
+                      tensorrt_precision=tensorrt_precision)

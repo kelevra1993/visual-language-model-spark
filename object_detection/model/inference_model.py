@@ -39,6 +39,8 @@ class InferenceDetector(nn.Module):
 
         # Region proposal filtering and final post-processing settings of the inference mode
         self.input_image_size = model.input_image_size
+        # Number of anchors of all levels, stored as a plain number so that tracing never reads it from a tensor shape
+        self.number_anchors = model.number_anchors
         self.pre_nms_proposals = model.region_proposal_filter.inference_pre_nms_proposals
         self.post_nms_proposals = model.region_proposal_filter.inference_post_nms_proposals
         self.proposal_nms_iou_threshold = model.region_proposal_filter.nms_iou_threshold
@@ -103,11 +105,11 @@ class InferenceDetector(nn.Module):
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The kept boxes [B, P, 4], their level indices [B, P] and a
                 boolean mask [B, P] which is False for padding slots when fewer than P proposals survive.
         """
-        batch_size, number_anchors = proposal_scores.shape
+        batch_size = proposal_scores.shape[0]
 
         # Keep the best pre-NMS proposals of every image and clip them to the image
         top_scores, top_indices = torch.topk(input=torch.sigmoid(input=proposal_scores),
-                                             k=min(self.pre_nms_proposals, number_anchors), dim=1)
+                                             k=min(self.pre_nms_proposals, self.number_anchors), dim=1)
         top_boxes = clamp_boxes_to_image_boundaries(
             boxes=torch.gather(input=proposal_boxes, dim=1, index=top_indices.unsqueeze(dim=-1).expand(-1, -1, 4)),
             input_image_size=self.input_image_size)

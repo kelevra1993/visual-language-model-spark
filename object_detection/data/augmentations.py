@@ -1,13 +1,19 @@
 import random
+import warnings
 import torch
 
 from typing import Any, Dict, List, Optional, Tuple
-from kornia.color import rgb_to_yuv, yuv_to_rgb
-from kornia.enhance import equalize_clahe
 from torch.nn import functional as torch_functional
 from torchvision import tv_tensors
 from torchvision.transforms.v2 import functional as vision_functional
 from torchvision.transforms.v2 import InterpolationMode
+
+# kornia decorates some of its functions with torch.jit.script when it is imported, which recent PyTorch versions
+# report as deprecated; the notice is harmless and cannot be fixed on our side, so it is silenced for this import only
+with warnings.catch_warnings():
+    warnings.filterwarnings(action="ignore", message=r"`torch\.jit\.script` is deprecated", category=FutureWarning)
+    from kornia.color import rgb_to_yuv, yuv_to_rgb
+    from kornia.enhance import equalize_clahe
 
 # Geometric augmentations, applied first, in this order. They move the bounding boxes along with the image
 GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_left_right_flip", "random_up_down_flip", "random_rotation",
