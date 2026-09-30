@@ -103,7 +103,8 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
             experiment_configuration[key] = Path(experiment_configuration[key])
 
     # Convert numerics
-    int_keys = ["information_dump", "weight_saving_iterations", "number_iterations"]
+    int_keys = ["information_dump", "weight_saving_iterations", "intermediate_weight_saving_iterations",
+                "number_iterations"]
     for key in int_keys:
         if key in experiment_configuration:
             experiment_configuration[key] = int(float(experiment_configuration[key]))
