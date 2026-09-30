@@ -51,9 +51,9 @@ Data:
     keep_ratio: True
   label_mapping:
     # "binary" maps all foreground objects to 1. "multi_class" uses a specific mapping file.
-    mode: "binary"
+    mode: "multi_class"
     # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs.
-    mapping_file_path: null
+    mapping_file_path: "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes_large/label_mapping.json"
   data_augmentation:
     # Global switch to enable or disable all data augmentation (applied on the GPU to training batches only).
     activated: True
