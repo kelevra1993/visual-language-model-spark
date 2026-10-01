@@ -722,8 +722,6 @@ class Trainer:
         checkpoint_path = model_directory / f"model_{iteration:06}.pt"
         temporary_checkpoint_path = model_directory / f"model_{iteration:06}.pt.tmp"
 
-        print_color(color="yellow", output="Saving model, please wait (Ctrl+C is ignored until the save completes)...")
-
         # Ignore keyboard interrupts while saving, and restore the previous handler once the save is complete
         previous_interrupt_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
         try:
