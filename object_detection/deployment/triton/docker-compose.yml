@@ -24,6 +24,8 @@ services:
     volumes:
       # Local model repository : path inside the container
       - "./served_models:/served_models"
-    # Large shared memory for the batched image tensors exchanged between Triton and its backends
-    shm_size: "2g"
+    # Share the inter-process communication namespace (and so /dev/shm) of the machine, so that Triton reads the image
+    # batches the inference client writes to system shared memory instead of receiving them over gRPC. It also gives
+    # Triton and its backends the whole shared memory of the machine for the tensors they exchange
+    ipc: host
     command: tritonserver --model-repository=/served_models
