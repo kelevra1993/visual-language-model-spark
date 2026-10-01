@@ -1,3 +1,4 @@
+import math
 import os
 import signal
 import time
@@ -6,7 +7,7 @@ import torch
 from pathlib import Path
 from typing import Dict, Tuple, List, Union, Any, Optional, Iterator
 from shutil import copyfile
-from data.data_loader import get_dataloaders
+from data.data_loader import count_split_images_and_annotations, get_dataloaders
 from data.augmentations import DataAugmenter
 from utilities.data_utilities import view_input_data
 
@@ -18,7 +19,7 @@ from tqdm import tqdm
 from evaluation.mean_average_precision import AVERAGE_PRECISION_METHODS, evaluate_detections
 from model.model import Model
 from utilities.tensor_utilities import get_device, print_tensor_list
-from utilities.os_utilities import print_color
+from utilities.os_utilities import build_run_name, print_color
 
 
 class Trainer:
@@ -54,8 +55,13 @@ class Trainer:
 
         print(f"For Training We Will Be Using device: {self.device}")
 
+        # Every run trains in a folder named after its settings, inside the experiments root folder of the
+        # configuration, so that the same settings resume in the same folder and changed settings start a new one
+        self.run_name = build_run_name(experiment_configuration=self.experiment_configuration,
+                                       model_configuration=self.model_configuration)
+        self.experiment_folder = self.experiment_configuration["experiment_folder"] / self.run_name
+
         # Basic training parameters
-        self.experiment_folder = self.experiment_configuration["experiment_folder"]
         self.training_iterations = self.experiment_configuration["number_iterations"]
         self.weight_saving_iterations = self.experiment_configuration["weight_saving_iterations"]
         self.intermediate_weight_saving_iterations = self.experiment_configuration[
@@ -106,7 +112,6 @@ class Trainer:
 
         # Print experiment information to user so that they can know everything about the experiment
         # as well as input and output shapes of the model.
-        # TODO Try to print out the number of data that we have for train, validation, and test
         self.print_experiment_information()
         self.model.print_summary()
 
@@ -169,16 +174,26 @@ class Trainer:
         """
 
         print_color(color="yellow", output="=== Experiment Launch Information ===", add_separators=True)
+        print_color(color="blue", output=f"- Run Name                : {self.run_name}")
+        print_color(color="blue", output=f"- Experiment Folder       : file://{self.experiment_folder.absolute()}")
         print_color(color="blue", output=f"- Tensorboard Directory   : file://{self.tensorboard_directory.absolute()}")
         print_color(color="blue", output=f"- Weights Directory       : file://{self.weights_directory.absolute()}")
         print_color(color="blue", output=f"- Configuration File      : file://{self.configuration_path.absolute()}")
-        print_color(color="blue",
-                    output=f"- Train Data Folder       : file://{self.experiment_configuration['train_data_folder']}")
-        print_color(color="blue",
-                    output=f"- Validation Data Folder  : "
-                           f"file://{self.experiment_configuration['validation_data_folder']}")
-        print_color(color="blue",
-                    output=f"- Test Data Folder        : file://{self.experiment_configuration['test_data_folder']}")
+
+        # Print every split folder with its number of images and annotations, read from its labels.json
+        number_images_per_split = {}
+        for split_label, split_key in [("Train Data Folder", "train_data_folder"),
+                                       ("Validation Data Folder", "validation_data_folder"),
+                                       ("Test Data Folder", "test_data_folder")]:
+            number_images, number_annotations = count_split_images_and_annotations(
+                split_data_folder=self.experiment_configuration[split_key])
+            number_images_per_split[split_key] = number_images
+            print_color(color="blue", output=f"- {split_label:<23} : file://{self.experiment_configuration[split_key]} "
+                                             f"({number_images} images, {number_annotations} annotations)")
+
+        # One epoch is a full pass over the training images
+        iterations_per_epoch = math.ceil(number_images_per_split["train_data_folder"] / self.batch_size)
+        print_color(color="blue", output=f"- Iterations Per Epoch    : {iterations_per_epoch}")
         print_color(color="blue", output=f"- Batch Size              : {self.batch_size}")
         print_color(color="blue", output=f"- Total Iterations        : {self.training_iterations}")
         print_color(color="blue", output=f"- Save And Evaluate Every : {self.weight_saving_iterations} iterations")
@@ -598,13 +613,13 @@ class Trainer:
         class_names = {class_index: str(class_name) for class_name, class_index in self.label_dictionary.items()}
 
         # One line per average precision method, the area method being the headline one, then the area AP per class
-        lines = [f"Iteration {iteration} : {number_images} test images"]
+        lines = [f"Iteration {iteration} : {number_images} Test Images"]
         for method in AVERAGE_PRECISION_METHODS:
             method_results = results[method]
-            lines.append(f"  {method:<10} : mAP@0.5 {method_results['mAP@0.5']:.4f} | "
+            lines.append(f"  {method.capitalize():<10} : MAP@0.5 {method_results['mAP@0.5']:.4f} | "
                          f"mAP@0.75 {method_results['mAP@0.75']:.4f} | "
                          f"mAP@[0.5:0.95] {method_results['mAP@[0.5:0.95]']:.4f}")
-        lines.append("  AP@0.5 (area) per class : " + " | ".join(
+        lines.append("  AP@0.5 (Area) Per Class : " + " | ".join(
             f"{class_names[class_index]} {average_precision:.4f}"
             for class_index, average_precision in results["area"]["class_AP@0.5"].items()))
 
@@ -673,10 +688,6 @@ class Trainer:
 
         # Insert the total loss into the metrics for TensorBoard logging and console tracking
         metric_dictionary["total_loss"] = total_loss
-        # TODO : Think about list of True Positives
-        # TODO : Think about list of False Positives
-        # TODO : Think about list of True Negatives
-        # TODO : Think about list of False Negatives
 
         # Update tracker dictionary (rolling average accumulation)
         # Each metric value is divided by the tracker_divisor to compute a running mean over the interval

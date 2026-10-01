@@ -11,11 +11,12 @@ import json
 import os
 import torch
 
+from pathlib import Path
 from typing import Dict, Any, Tuple, Union
 from torch.utils.data import DataLoader, Dataset
 
 from utilities.data_utilities import preprocess_image_and_boxes, preprocess_boxes
-from utilities.os_utilities import print_color
+from utilities.os_utilities import print_color, read_json
 
 
 def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
@@ -378,6 +379,24 @@ def get_dataloader(split_name: str, split_data_folder: str, model_configuration:
 
     return DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=number_of_workers,
                       collate_fn=collate_function)
+
+
+def count_split_images_and_annotations(split_data_folder: str | Path) -> Tuple[int, int]:
+    """
+    Counts the images and annotations of a dataset split from its COCO 'labels.json', printed by the Trainer at
+    startup. The file is read directly because the DALI loader rounds its length up to a whole number of batches,
+    so neither loader length gives the exact number of images.
+
+    Args:
+        split_data_folder (str | Path): The root folder of the split, containing a 'labels.json'.
+
+    Returns:
+        Tuple[int, int]: The number of images, and the number of raw annotations (before label mapping, 0 for an
+            unlabelled split without an 'annotations' list).
+    """
+    labels = read_json(path=os.path.join(str(split_data_folder), "labels.json"))
+    number_annotations = len(labels["annotations"]) if "annotations" in labels else 0
+    return len(labels["images"]), number_annotations
 
 
 def get_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any], batch_size: int,
