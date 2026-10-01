@@ -1,6 +1,10 @@
 ExperimentConfiguration:
-  # Directory where experiment artifacts, weights, and logs are saved.
-  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments/poseidon_experiment_4"
+  # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (input,
+  # backbone modules, normalization and blocks, levels, anchors, heads, classes, augmentation, batch size, learning
+  # rate), so that the same settings resume in the same folder and changed settings start a new one, e.g.
+  # IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128
+  # _BIN_AUG-BS40-LR2e-4 (without the line break). The format is described in utilities/os_utilities.py.
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Root directory containing the training dataset images and labels.json annotation file.
   train_data_folder: "/home/robert_kelevra/Data/object_detection_data/coco-2017/train"
   # Root directory containing the validation dataset images and labels.json annotation file.
@@ -10,12 +14,12 @@ ExperimentConfiguration:
   # Number of images processed in a single forward/backward pass.
   batch_size: 40
   # Frequency (in iterations) to log performance metrics.
-  information_dump: 1000
+  information_dump: 1
   # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
-  weight_saving_iterations: 10000
+  weight_saving_iterations: 10
   # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
   # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
-  intermediate_weight_saving_iterations: 2000
+  intermediate_weight_saving_iterations: 5
   # Total number of training iterations before stopping.
   number_iterations: 1e10
   # Ratio controlling how often validation is run during training.
@@ -58,9 +62,9 @@ Data:
     keep_ratio: True
   label_mapping:
     # "binary" maps all foreground objects to 1. "multi_class" uses a specific mapping file.
-    mode: "multi_class"
+    mode: "binary"
     # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs.
-    mapping_file_path: "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes_large/label_mapping.json"
+    mapping_file_path: null
   data_augmentation:
     # Global switch to enable or disable all data augmentation (applied on the GPU to training batches only).
     activated: True
@@ -70,35 +74,35 @@ Data:
     types:
       # Geometric augmentations : bounding boxes are moved with the image, boxes leaving the image are removed.
       # Random Crop : crop keeping 90% to 100% of each side (same aspect ratio), resized back to the input size
-      random_crop: { activated: False, probability: 0.3 }
+      random_crop: { activated: True, probability: 0.3 }
       # Random Left to Right Flip (mirror)
-      random_left_right_flip: { activated: False, probability: 0.5 }
+      random_left_right_flip: { activated: True, probability: 0.5 }
       # Random Up to Down Flip
       random_up_down_flip: { activated: False, probability: 0.5 }
       # Random Rotation between -5° and 5°, boxes become the enclosing box of their rotated corners
-      random_rotation: { activated: False, probability: 0.3 }
+      random_rotation: { activated: True, probability: 0.3 }
       # Random -90° or 90° rotation (square images only)
       random_90_rotation: { activated: False, probability: 0.3 }
 
       # Photometric augmentations : bounding boxes are unchanged.
       # Brightness (+-40 intensity levels), contrast and saturation (both x0.7 to x1.0) adjustments
-      brightness_contrast_saturation: { activated: False, probability: 0.3 }
+      brightness_contrast_saturation: { activated: True, probability: 0.3 }
       # Contrast-limited Adaptive Histogram Equalization (CLAHE), clip limit 2.0 on a 4x4 grid of tiles
-      clahe_augment: { activated: False, probability: 0.3 }
+      clahe_augment: { activated: True, probability: 0.3 }
       # Image Sharpening with a Laplacian of Gaussian unsharp mask (sigma 1.5, strength 3)
-      sharp_augment: { activated: False, probability: 0.3 }
+      sharp_augment: { activated: True, probability: 0.3 }
       # Histogram Equalization of the luminance (Y channel of YUV)
-      equalize_histogram_augment: { activated: False, probability: 0.3 }
+      equalize_histogram_augment: { activated: True, probability: 0.3 }
       # Histogram Equalization of one random channel (B, G or R) or of all three channels
-      equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
+      equalize_bgr_histogram_augment: { activated: True, probability: 0.3 }
       # Random Noise : Gaussian noise with a standard deviation of 10 intensity levels
-      random_noise: { activated: False, probability: 0.3 }
+      random_noise: { activated: True, probability: 0.3 }
       # Grayscale conversion, kept on three channels
-      gray_scale_augment: { activated: False, probability: 0.3 }
+      gray_scale_augment: { activated: True, probability: 0.3 }
       # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
-      random_colour_augmentation: { activated: False, probability: 0.3 }
+      random_colour_augmentation: { activated: True, probability: 0.3 }
       # Random Image Blurring : 5x5 Gaussian kernel with sigma 1.5
-      random_blur: { activated: False, probability: 0.3 }
+      random_blur: { activated: True, probability: 0.3 }
 
 Backbone:
   # Number of input channels for the initial convolution block (e.g., 3 for RGB images)
@@ -154,6 +158,7 @@ Backbone:
 # Careful because here the number of proposals seems to be global
 RegionProposal:
   head_configurations:
+
     {
       "5": [2, 64 ],
       "6": [2, 64 ],
@@ -194,7 +199,6 @@ RegionProposal:
   localisation_loss_beta: 1/9
 
 Anchors:
-  # Todo : Maybe keep it as a list ? Dictionary modification is cumbersome.
   # Dictionary mapping anchor scales and aspect ratios to specific feature map indices.
   scales_and_ratios:
     {
@@ -204,7 +208,6 @@ Anchors:
     }
 
 Detector:
-  # Todo : Maybe keep it as a list ? Dictonary modification is cumbersome.
   # Master configuration parameterizing the prediction heads assigned to each feature map scale.
   head_configurations:
     {

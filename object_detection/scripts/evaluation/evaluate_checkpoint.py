@@ -13,8 +13,9 @@ if __name__ == "__main__":
     iteration = None
     # Labelled split evaluated instead of the test split of the experiment, None to keep the experiment's one
     test_data_folder = Path("/home/robert_kelevra/Data/object_detection_data/synthetic_shapes/test")
-    # Folder receiving Results.txt and Tensorboard/Test, kept apart from the experiment so that its files are untouched
-    output_folder = experiment_folder.parent / f"{experiment_folder.name}_evaluation"
+    # Root folder of the evaluations, kept apart from the experiment so that its files are untouched. Like a training
+    # run, Results.txt and Tensorboard/Test are written in a subfolder of it named after the run settings
+    output_folder = experiment_folder.parent / "evaluations"
 
     # Point the copied configuration to the output folder and to the evaluated split
     configuration_path = experiment_folder / "training_configuration.yaml"
