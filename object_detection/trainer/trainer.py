@@ -2,7 +2,6 @@ import os
 import signal
 import time
 import torch
-import torchvision
 
 from pathlib import Path
 from typing import Dict, Tuple, List, Union, Any, Optional, Iterator
@@ -16,6 +15,7 @@ from torch.utils.data.dataloader import _BaseDataLoaderIter
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from evaluation.mean_average_precision import AVERAGE_PRECISION_METHODS, evaluate_detections
 from model.model import Model
 from utilities.tensor_utilities import get_device, print_tensor_list
 from utilities.os_utilities import print_color
@@ -64,6 +64,7 @@ class Trainer:
         self.information_dump = self.experiment_configuration["information_dump"]
         self.learning_rate = self.experiment_configuration["learning_rate"]
         self.diagnosis_modes = self.experiment_configuration["diagnosis_modes"]
+        self.evaluation_score_threshold = self.experiment_configuration["evaluation"]["score_threshold"]
 
         self.label_dictionary = self.data_configuration["label_dictionary"]
 
@@ -81,6 +82,7 @@ class Trainer:
         # empty log files on disk during the Trainer instantiation.
         self.training_writer = None
         self.validation_writer = None
+        self.test_writer = None
 
         # Setting up dataloaders
         self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.get_trainer_data_loaders()
@@ -436,8 +438,10 @@ class Trainer:
                 # frequent intermediate weight saving iterations in between
                 if training_iteration % self.weight_saving_iterations == 0:
                     self.save_model(iteration=training_iteration)
-                    # todo commented out for now because it is not properly implemented
-                    # self.run_test_evaluation(iteration=training_iteration)
+                    # The checkpoint of the first iteration of a run is not evaluated: it is either the untrained
+                    # model of a new run, or the already evaluated checkpoint a resumed run starts from
+                    if training_iteration != self.start_iteration:
+                        self.run_test_evaluation(iteration=training_iteration)
                 elif training_iteration % self.intermediate_weight_saving_iterations == 0:
                     self.save_model(iteration=training_iteration)
 
@@ -531,122 +535,97 @@ class Trainer:
 
     def run_test_evaluation(self, iteration: int) -> None:
         """
-        Performs a full evaluation on the test dataset and logs results to a file.
+        Evaluates a saved checkpoint on the whole test split with the mean average precision (mAP), at every
+        weight_saving_iterations checkpoint, and reports it to the console, TensorBoard and the Results.txt file of
+        the experiment.
+
+        The model runs without ground truth, as in deployment: given ground truth, the detector would only classify
+        the proposals sampled around it for training, which would inflate the mAP. The detection score threshold is
+        lowered to the evaluation one meanwhile, so that the precision-recall curves keep their low-confidence end.
 
         Args:
-            iteration (int): The current training iteration index.
+            iteration (int): The training iteration of the evaluated checkpoint.
         """
-        # Run the model in evaluation mode
         self.model.eval()
+        model_score_threshold = self.model.detection_score_threshold
+        self.model.detection_score_threshold = self.evaluation_score_threshold
+        detections, ground_truths, evaluated_image_identifiers = [], [], set()
 
-        total_test_loss = 0.0
-        number_batches = len(self.test_dataloader)
+        # The model score threshold is always restored, even when the evaluation fails
+        try:
+            with torch.no_grad():
+                for test_data_dictionary in tqdm(self.test_dataloader, total=len(self.test_dataloader),
+                                                 desc=f"Test Evaluation Iteration {iteration}"):
+                    images, bounding_boxes, labels = self.prepare_input_data(data_dictionary=test_data_dictionary)
+                    model_outputs = self.model(input_tensor=images)
 
-        # Initialize dictionary to get all sorts of metrics
-        testing_trackers = self.get_metric_trackers()
-        total_metrics = {}
+                    # Keep the valid detections and the ground truth of every image on the CPU, both expressed in
+                    # network input pixels
+                    for image_index in range(images.shape[0]):
+                        # The DALI loader fills its last batch with images already given, which must be evaluated
+                        # only once (the Native loader gives a smaller last batch and no image identifiers)
+                        if "image_ids" in test_data_dictionary:
+                            image_identifier = int(test_data_dictionary["image_ids"][image_index])
+                            if image_identifier in evaluated_image_identifiers:
+                                continue
+                            evaluated_image_identifiers.add(image_identifier)
 
-        # TODO MAKE SURE THIS IS THE WAY TO DO IT
-        with torch.no_grad():
-            for test_data_dictionary in tqdm(self.test_dataloader, total=number_batches,
-                                             desc=f"Test Evaluation Iteration {iteration}"):
-                testing_loss, test_model_outputs = self.run_model_iteration(data_dictionary=test_data_dictionary,
-                                                                            writer=None,
-                                                                            iteration=-1,
-                                                                            tracker_dictionary=testing_trackers,
-                                                                            apply_augmentation=False)
+                        number_detections = int(model_outputs["number_detections"][image_index])
+                        detections.append({
+                            "boxes": model_outputs["final_detection_boxes"][image_index, :number_detections].cpu(),
+                            "scores": model_outputs["final_detection_scores"][image_index, :number_detections].cpu(),
+                            "labels": model_outputs["final_detection_labels"][image_index, :number_detections].cpu()})
+                        ground_truths.append({"boxes": bounding_boxes[image_index].cpu(),
+                                              "labels": labels[image_index].cpu()})
+        finally:
+            self.model.detection_score_threshold = model_score_threshold
 
-                # Aggregate metrics for the current set
-                total_metrics = self.compute_and_accumulate_metrics(model_outputs=test_model_outputs,
-                                                                    ground_truth_data_dictionary=test_data_dictionary,
-                                                                    total_metrics=total_metrics)
+        results = evaluate_detections(detections=detections, ground_truths=ground_truths,
+                                      number_classes=len(self.label_dictionary))
+        self.report_test_evaluation(iteration=iteration, results=results, number_images=len(detections))
 
-        # Log to the results to a single file, for all the saved iterations of the given architecture.
-        self.save_test_evaluation_csv(experiment_folder=self.project_root,
-                                      iteration=iteration,
-                                      loss=total_metrics)
+    def report_test_evaluation(self, iteration: int, results: Dict[str, Dict[str, Any]], number_images: int) -> None:
+        """
+        Reports the mAP of an evaluated checkpoint: printed to the console, written as scalars to the Test
+        TensorBoard writer to follow the mAP over the training, and appended to the Results.txt file of the
+        experiment, which keeps one block per evaluated checkpoint.
 
-        # Run sample predictions for visualization
-        self.run_sample_predictions(iteration=iteration, number_samples=20)
+        Args:
+            iteration (int): The training iteration of the evaluated checkpoint.
+            results (Dict[str, Dict[str, Any]]): The evaluation results, from evaluate_detections.
+            number_images (int): The number of evaluated test images.
+        """
+        class_names = {class_index: str(class_name) for class_name, class_index in self.label_dictionary.items()}
 
-    # todo to be properly implemented !!!
-    # def run_sample_predictions(self, iteration: int, number_samples: int = 20) -> None:
-    #     """
-    #     Runs inference on a subset of the test dataset and saves the predicted
-    #     segmentation masks as PNG images for visual inspection.
-    #
-    #     Args:
-    #         iteration (int): The current training iteration index.
-    #         number_samples (int): The maximum number of test samples to process.
-    #     """
-    #     print(f"\nRunning {number_samples} Sample Predictions For Iteration {iteration}...")
-    #
-    #     output_directory = self.weights_directory / f"Iteration_{iteration}" / "test_sample_predictions"
-    #     output_directory.mkdir(exist_ok=True, parents=True)
-    #
-    #     self.model.eval()
-    #     samples_processed = 0
-    #     test_dataloader_iterator = iter(self.test_dataloader)
-    #
-    #     with torch.no_grad():
-    #         while samples_processed < number_samples:
-    #             try:
-    #                 test_images, test_masks = next(test_dataloader_iterator)
-    #             except StopIteration:
-    #                 break
-    #
-    #             test_images = test_images.to(device=self.device, dtype=self.dtype)
-    #             test_masks = test_masks.to(device=self.device, dtype=self.dtype)
-    #
-    #             model_outputs = self.model(test_images)
-    #
-    #             # For mutually exclusive multi-channel classification, the channel with the max
-    #             # logit is the predicted class. This avoids a computationally expensive softmax.
-    #             max_logits = model_outputs.max(dim=1, keepdim=True).values
-    #             predicted_masks = (model_outputs == max_logits).to(self.dtype)
-    #
-    #             batch_size_current = test_images.size(0)
-    #             for sample_index in range(batch_size_current):
-    #
-    #                 if samples_processed >= number_samples:
-    #                     break
-    #
-    #                 # Extract the current input image from the batch
-    #                 input_image_tensor = test_images[sample_index:sample_index + 1]
-    #
-    #                 # Convert RGB images to grayscale by averaging across the channel dimension
-    #                 # This ensures the input image can be concatenated into the same visualization grid
-    #                 # alongside the single-channel ground truth and predicted masks without shape mismatches
-    #                 if input_image_tensor.shape[1] == 3:
-    #                     input_image_tensor = input_image_tensor.mean(dim=1, keepdim=True)
-    #
-    #                 # Create a comprehensive evaluation grid for this sample, stacking rows for each channel
-    #                 all_components = []
-    #                 for channel_index in range(test_masks.shape[1]):
-    #                     ground_truth_channel = test_masks[
-    #                         sample_index:sample_index + 1, channel_index:channel_index + 1, :, :]
-    #                     prediction_channel = predicted_masks[
-    #                         sample_index:sample_index + 1, channel_index:channel_index + 1, :, :]
-    #
-    #                     # Generate the visualization row (Ground Truth, Prediction, Error Map, Boundary Overlay)
-    #                     row_components = create_evaluation_row_for_channel(
-    #                         original_image=input_image_tensor,
-    #                         ground_truth=ground_truth_channel,
-    #                         prediction=prediction_channel)
-    #                     all_components.extend(row_components)
-    #
-    #                 comparison_grid = torch.cat(all_components, dim=0)
-    #
-    #                 # Determine the number of columns to wrap properly (5 images per channel row)
-    #                 number_of_columns = 5
-    #
-    #                 output_path = output_directory / f"sample_{samples_processed:04d}.png"
-    #                 torchvision.utils.save_image(comparison_grid, output_path, nrow=number_of_columns)
-    #                 samples_processed += 1
-    #
-    #     print_color(color="green", output=f"- file://{output_directory}")
+        # One line per average precision method, the area method being the headline one, then the area AP per class
+        lines = [f"Iteration {iteration} : {number_images} test images"]
+        for method in AVERAGE_PRECISION_METHODS:
+            method_results = results[method]
+            lines.append(f"  {method:<10} : mAP@0.5 {method_results['mAP@0.5']:.4f} | "
+                         f"mAP@0.75 {method_results['mAP@0.75']:.4f} | "
+                         f"mAP@[0.5:0.95] {method_results['mAP@[0.5:0.95]']:.4f}")
+        lines.append("  AP@0.5 (area) per class : " + " | ".join(
+            f"{class_names[class_index]} {average_precision:.4f}"
+            for class_index, average_precision in results["area"]["class_AP@0.5"].items()))
 
-    # todo to be properly implemented !!!
+        # Write the curves followed over the training to a dedicated test writer, created at the first evaluation
+        if self.test_writer is None:
+            self.test_writer = SummaryWriter(log_dir=str(self.tensorboard_directory / "Test"))
+        for method in AVERAGE_PRECISION_METHODS:
+            for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"]:
+                self.test_writer.add_scalar(f"{metric_name}/{method}", results[method][metric_name], iteration)
+        for class_index, average_precision in results["area"]["class_AP@0.5"].items():
+            self.test_writer.add_scalar(f"AP@0.5/{class_names[class_index]}", average_precision, iteration)
+        self.test_writer.flush()
+
+        # Append the block of this checkpoint to the results file of the experiment
+        results_path = Path(self.experiment_folder) / "Results.txt"
+        with open(results_path, "a") as results_file:
+            results_file.write("\n".join(lines) + "\n\n")
+
+        print_color(color="green", output="\n".join(lines), add_separators=True)
+        print_color(color="green", output=f"Results : file://{results_path.absolute()}", indent=1)
+
     def run_model_iteration(self, data_dictionary: Dict[str, torch.Tensor | Any],
                             writer: Optional[SummaryWriter], iteration: int,
                             tracker_dictionary: dict | None, apply_augmentation: bool,
@@ -963,9 +942,3 @@ class Trainer:
             tracker_dictionary[metric_key] = 0.0
 
         return tracker_dictionary
-
-    def compute_and_accumulate_metrics(self, model_outputs, ground_truth_data_dictionary, total_metrics):
-        pass
-
-    def save_test_evaluation_csv(self, iteration, loss):
-        pass

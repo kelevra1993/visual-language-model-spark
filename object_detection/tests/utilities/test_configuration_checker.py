@@ -97,6 +97,16 @@ def set_intermediate_weight_saving(configuration: Dict[str, Any]) -> None:
         configuration["ExperimentConfiguration"]["weight_saving_iterations"]
 
 
+def set_evaluation_score_threshold(configuration: Dict[str, Any]) -> None:
+    """
+    Sets an evaluation score threshold outside of [0, 1].
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["score_threshold"] = 1.5
+
+
 def set_inception_channels(configuration: Dict[str, Any]) -> None:
     """
     Enables inception on a Backbone block whose output channels are not a multiple of 8.
@@ -145,6 +155,8 @@ def test_example_configuration_is_consistent() -> None:
     (set_inception_channels, ["'Backbone.convolutions.4' has 20 output channels"]),
     (set_intermediate_weight_saving, ["'ExperimentConfiguration.intermediate_weight_saving_iterations' (10000) "
                                       "must be smaller than"]),
+    (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
+                                      "within [0, 1], got 1.5."]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
                            "'Detector.number_training_positives' (500) must be <="])])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,

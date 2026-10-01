@@ -21,6 +21,13 @@ ExperimentConfiguration:
   # Ratio controlling how often validation is run during training.
   # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
   validation_iteration_ratio: 10
+  # Test evaluation run at every weight_saving_iterations checkpoint, computing the mean average precision (mAP)
+  # on the whole test split.
+  evaluation:
+    # Minimum class probability of the detections kept for the mAP. It replaces Detector.inference.score_threshold
+    # during the evaluation only: the mAP needs the low-confidence detections too, otherwise the end of the
+    # precision-recall curve is cut off and the mAP is underestimated. Must be within [0, 1].
+    score_threshold: 0.05
   # Base learning rate used by the optimizer.
   learning_rate: 2.0e-4
   # Global tensor data type, either "float32" or "float64".

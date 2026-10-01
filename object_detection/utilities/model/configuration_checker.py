@@ -177,6 +177,12 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any]) -> 
     errors += check_positive_integers(configuration=configuration,
                                       key_paths=["ExperimentConfiguration.validation_iteration_ratio"], allow_zero=True)
 
+    # The detections kept for the test evaluation are filtered by a class probability
+    errors += check_probability_value(
+        value=get_configuration_value(configuration=configuration,
+                                      key_path="ExperimentConfiguration.evaluation.score_threshold"),
+        key_path="ExperimentConfiguration.evaluation.score_threshold")
+
     # The optimizer requires a strictly positive learning rate
     learning_rate = get_configuration_value(configuration=configuration, key_path="ExperimentConfiguration.learning_rate")
     if isinstance(learning_rate, bool) or not isinstance(learning_rate, (int, float)) or learning_rate <= 0:
