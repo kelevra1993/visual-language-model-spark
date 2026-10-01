@@ -12,8 +12,6 @@ def main() -> None:
     initializing the Trainer class to begin the model training or evaluation lifecycle.
     """
     # Define configuration path
-    # Todo will be put back after all the code has been written.
-    # experiment_configuration_path = Path(__file__).parent / "configurations" / f"{get_device()}_configuration.yaml"
     experiment_configuration_path = Path(__file__).parent / "configurations" / f"configuration_example.yaml"
 
     # Load configuration
