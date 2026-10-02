@@ -14,12 +14,12 @@ ExperimentConfiguration:
   # Number of images processed in a single forward/backward pass.
   batch_size: 40
   # Frequency (in iterations) to log performance metrics.
-  information_dump: 1
+  information_dump: 500
   # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
-  weight_saving_iterations: 10
+  weight_saving_iterations: 5000
   # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
   # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
-  intermediate_weight_saving_iterations: 5
+  intermediate_weight_saving_iterations: 2500
   # Total number of training iterations before stopping.
   number_iterations: 1e10
   # Ratio controlling how often validation is run during training.
