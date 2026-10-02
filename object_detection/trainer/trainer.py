@@ -617,8 +617,8 @@ class Trainer:
         for method in AVERAGE_PRECISION_METHODS:
             method_results = results[method]
             lines.append(f"  {method.capitalize():<10} : MAP@0.5 {method_results['mAP@0.5']:.4f} | "
-                         f"mAP@0.75 {method_results['mAP@0.75']:.4f} | "
-                         f"mAP@[0.5:0.95] {method_results['mAP@[0.5:0.95]']:.4f}")
+                         f"MAP@0.75 {method_results['mAP@0.75']:.4f} | "
+                         f"MAP@[0.5:0.95] {method_results['mAP@[0.5:0.95]']:.4f}")
         lines.append("  AP@0.5 (Area) Per Class : " + " | ".join(
             f"{class_names[class_index]} {average_precision:.4f}"
             for class_index, average_precision in results["area"]["class_AP@0.5"].items()))
@@ -735,7 +735,8 @@ class Trainer:
         finally:
             signal.signal(signal.SIGINT, previous_interrupt_handler)
 
-        print(f"Checkpoint Folder : file://{model_directory}")
+        print(f"Checkpoint Folder :")
+        print(f" - file://{model_directory}")
         print(f" - Model Saved In : model_{iteration:06}.pt")
 
     def log_metrics_to_tensorboard(self, writer: Optional[SummaryWriter], iteration: int,
