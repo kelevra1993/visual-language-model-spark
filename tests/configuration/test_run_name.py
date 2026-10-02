@@ -11,7 +11,7 @@ EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "c
                               "configuration_example.yaml")
 
 # Run name of the reference settings set by get_reference_configurations
-REFERENCE_RUN_NAME = ("IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_"
+REFERENCE_RUN_NAME = ("DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_"
                       "DSE-DRES-DBN-D7.2x64.256.128_BIN_AUG-BS40-LR2e-4")
 
 
@@ -25,6 +25,9 @@ def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=EXAMPLE_CONFIGURATION_PATH)
+
+    # Task of the run, giving the first section of the name
+    experiment_configuration["task"] = "object_detection"
 
     # Input normalization, resizing mode and size
     model_configuration["Backbone"]["normalization"].update({"input_normalization": True,
@@ -190,7 +193,7 @@ def test_reference_run_name() -> None:
     (disable_squeeze_and_excite, REFERENCE_RUN_NAME.replace("_SE-RES-BN-", "_RES-BN-")),
     (enable_inception, REFERENCE_RUN_NAME.replace("_SE-RES-BN-", "_SE-RES-INC3-BN-").replace(
         "DSE-DRES-DBN", "DSE-DRES-DINC-DBN")),
-    (change_input_settings, REFERENCE_RUN_NAME.replace("IN-KAR-1024_", "PSN-1024_")),
+    (change_input_settings, REFERENCE_RUN_NAME.replace("_IN-KAR-1024_", "_PSN-1024_")),
     (change_feature_map_normalizations, REFERENCE_RUN_NAME.replace("-BN-B", "-LN-B").replace(
         "RBN", "RNN").replace("DBN", "DLN")),
     (widen_last_block, REFERENCE_RUN_NAME.replace("6x128.6x128", "6x128.6x256")),

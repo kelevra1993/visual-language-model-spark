@@ -1,8 +1,12 @@
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 
 # Run name code of every feature map normalization strategy
 NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN"}
+
+# Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
+TASK_CODES = {"object_detection": "DET", "classification": "CLS", "sequence_classification": "M2O",
+              "sequence_labelling": "M2M"}
 
 
 def join_level_tokens(level_tokens: List[str]) -> str:
@@ -20,53 +24,47 @@ def join_level_tokens(level_tokens: List[str]) -> str:
     return level_tokens[0] if len(set(level_tokens)) == 1 else "+".join(level_tokens)
 
 
-def build_run_name(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> str:
+def build_input_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Builds the name of the folder a training run is saved in, from the settings that define the run, so that a run
-    always trains in a folder matching its configuration: the same settings resume in the same folder, and changed
-    settings, in particular every setting changing the model size, start a new one instead of mixing with a folder
-    whose saved configuration no longer matches.
-
-    The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
-    is off, e.g. 'IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
-    DSE-DRES-DBN-D7.2x64.256.128_BIN_AUG-BS40-LR2e-4' (without the line break):
-    - input: IN (input normalization), PSN (per-sample normalization), KAR (keep aspect ratio), the input size;
-    - backbone: modules (SE, RES, INC<starting block>), feature map normalization (BN, LN or NN), then
-      B<layers>x<filters> of every block;
-    - L<blocks feeding the detection heads>;
-    - anchors: A<anchors per position>.<smallest scale>-<largest scale>;
-    - region proposal heads: R<normalization>, then R<layers>x<filters>;
-    - detector heads: modules (DSE, DRES, DINC), D<normalization>, then D<RoIAlign pool size>.<layers>x<filters>
-      .<fully connected sizes>;
-    - classes: BIN or MC<foreground classes>;
-    - training: AUG, BS<batch size>, LR<learning rate>.
-    Per-level settings are written once when identical on every level, otherwise joined with '+' in level order.
+    Builds the input section of the run name, shared by every task: IN (input normalization), PSN (per-sample
+    normalization), KAR (keep aspect ratio), then the input size.
 
     Args:
-        experiment_configuration (Dict[str, Any]): The processed experiment configuration.
-        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
+        model_configuration (Dict[str, Any]): The processed model configuration.
 
     Returns:
-        str: The run name.
+        List[str]: The tokens of the section.
     """
-    data_configuration = model_configuration["Data"]
-    backbone_configuration = model_configuration["Backbone"]
-    region_proposal_configuration = model_configuration["RegionProposal"]
-    detector_configuration = model_configuration["Detector"]
-    level_names = [str(index) for index in backbone_configuration["detection_convolution_block_indices"]]
+    backbone_normalization = model_configuration["Backbone"]["normalization"]
+    image_settings = model_configuration["Data"]["image_settings"]
 
-    # Input: normalization of the pixel values, resizing mode and input size
+    # Normalization of the pixel values, resizing mode and input size
     input_tokens = []
-    if backbone_configuration["normalization"]["input_normalization"]:
+    if backbone_normalization["input_normalization"]:
         input_tokens.append("IN")
-    if backbone_configuration["normalization"]["per_sample_normalization"]:
+    if backbone_normalization["per_sample_normalization"]:
         input_tokens.append("PSN")
-    if data_configuration["image_settings"]["keep_ratio"]:
+    if image_settings["keep_ratio"]:
         input_tokens.append("KAR")
-    input_tokens.append(str(data_configuration["image_settings"]["size"]))
+    input_tokens.append(str(image_settings["size"]))
+    return input_tokens
 
-    # Backbone: modules, feature map normalization, then the layers and filters of every block in order
+
+def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Builds the backbone section of the run name, shared by every task: the modules (SE, RES, INC<starting block>),
+    the feature map normalization (BN, LN or NN), then B<layers>x<filters> of every block in order.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration.
+
+    Returns:
+        List[str]: The tokens of the section.
+    """
+    backbone_configuration = model_configuration["Backbone"]
     backbone_modules = backbone_configuration["modules"]
+
+    # Modules and feature map normalization of the convolution blocks
     backbone_tokens = []
     if backbone_modules["squeeze_and_excite"]:
         backbone_tokens.append("SE")
@@ -76,9 +74,51 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
         backbone_tokens.append(f"INC{backbone_modules['inception_starting_block']}")
     backbone_tokens.append(NORMALIZATION_CODES[
         str(backbone_configuration["normalization"]["feature_map_normalization"]).lower().strip()])
+
+    # Layers and filters of every block, in order
     convolutions = backbone_configuration["convolutions"]
     backbone_tokens.append("B" + ".".join(f"{convolutions[block][0]}x{convolutions[block][1]}"
                                           for block in sorted(convolutions, key=int)))
+    return backbone_tokens
+
+
+def build_training_tokens(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Builds the training section of the run name, shared by every task: AUG when augmenting, the batch size and the
+    learning rate in short scientific notation (e.g. 2e-4, 1.5e-3).
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration.
+        model_configuration (Dict[str, Any]): The processed model configuration.
+
+    Returns:
+        List[str]: The tokens of the section.
+    """
+    training_tokens = ["AUG"] if model_configuration["Data"]["data_augmentation"]["activated"] else []
+    training_tokens.append(f"BS{experiment_configuration['batch_size']}")
+    mantissa, exponent = f"{experiment_configuration['learning_rate']:e}".split("e")
+    training_tokens.append(f"LR{mantissa.rstrip('0').rstrip('.')}e{int(exponent)}")
+    return training_tokens
+
+
+def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
+    """
+    Builds the sections of the run name specific to object detection: L<blocks feeding the detection heads>, the
+    anchors A<anchors per position>.<smallest scale>-<largest scale>, the region proposal heads (R<normalization>,
+    R<layers>x<filters>), the detector heads (modules DSE, DRES, DINC, D<normalization>, D<RoIAlign pool size>
+    .<layers>x<filters>.<fully connected sizes>) and the classes (BIN or MC<foreground classes>). Per-level settings
+    are written once when identical on every level, otherwise joined with '+' in level order.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
+
+    Returns:
+        List[List[str]]: The tokens of every section.
+    """
+    data_configuration = model_configuration["Data"]
+    region_proposal_configuration = model_configuration["RegionProposal"]
+    detector_configuration = model_configuration["Detector"]
+    level_names = [str(index) for index in model_configuration["Backbone"]["detection_convolution_block_indices"]]
 
     # Detection levels, and the number of anchors per position (scales x ratios) with the range of anchor scales
     levels_token = "L" + "".join(level_names)
@@ -120,12 +160,38 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
     else:
         classes_token = f"MC{len(data_configuration['label_dictionary']) - 1}"
 
-    # Training: augmentation, batch size and learning rate in short scientific notation (e.g. 2e-4, 1.5e-3)
-    training_tokens = ["AUG"] if data_configuration["data_augmentation"]["activated"] else []
-    training_tokens.append(f"BS{experiment_configuration['batch_size']}")
-    mantissa, exponent = f"{experiment_configuration['learning_rate']:e}".split("e")
-    training_tokens.append(f"LR{mantissa.rstrip('0').rstrip('.')}e{int(exponent)}")
+    return [[levels_token], [anchors_token], region_proposal_tokens, detector_tokens, [classes_token]]
 
-    sections = [input_tokens, backbone_tokens, [levels_token], [anchors_token], region_proposal_tokens,
-                detector_tokens, [classes_token], training_tokens]
+
+# Builder of the task-specific sections of the run name, placed between the backbone and training sections
+TASK_RUN_NAME_SECTIONS: Dict[str, Callable[[Dict[str, Any]], List[List[str]]]] = {
+    "object_detection": build_detection_sections}
+
+
+def build_run_name(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> str:
+    """
+    Builds the name of the folder a training run is saved in, from the settings that define the run, so that a run
+    always trains in a folder matching its configuration: the same settings resume in the same folder, and changed
+    settings, in particular every setting changing the model size, start a new one instead of mixing with a folder
+    whose saved configuration no longer matches.
+
+    The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
+    is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
+    DSE-DRES-DBN-D7.2x64.256.128_BIN_AUG-BS40-LR2e-4' (without the line break): the task code (DET, CLS, M2O or M2M),
+    the input and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the sections of
+    the task (e.g. build_detection_sections), then the training section (build_training_tokens).
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration, with its task.
+        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
+
+    Returns:
+        str: The run name.
+    """
+    task = experiment_configuration["task"]
+    sections = ([[TASK_CODES[task]], build_input_tokens(model_configuration=model_configuration),
+                 build_backbone_tokens(model_configuration=model_configuration)] +
+                TASK_RUN_NAME_SECTIONS[task](model_configuration=model_configuration) +
+                [build_training_tokens(experiment_configuration=experiment_configuration,
+                                       model_configuration=model_configuration)])
     return "_".join("-".join(section) for section in sections)

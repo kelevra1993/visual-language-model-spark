@@ -52,6 +52,11 @@ class BaseTrainer(ABC):
             model_configuration (Dict[str, Any]): The processed model sections (Data, Backbone and the task sections).
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
+        # A trainer only trains the task it implements, a configuration of another task is a mistake
+        if experiment_configuration["task"] != self.TASK_NAME:
+            raise ValueError(f"{type(self).__name__} trains the task {self.TASK_NAME!r}, but the configuration is for "
+                             f"the task {experiment_configuration['task']!r}.")
+
         # Load Training Configuration containing all the training parameters
         self.experiment_configuration = experiment_configuration
         self.model_configuration = model_configuration

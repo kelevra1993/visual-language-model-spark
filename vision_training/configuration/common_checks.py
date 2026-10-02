@@ -12,12 +12,14 @@ from vision_training.data.augmentations import AUGMENTATION_TYPES
 VALID_LABEL_MODES = ["binary", "multi_class"]
 
 
-def check_experiment_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
+def check_experiment_configuration(experiment_configuration: Dict[str, Any], valid_tasks: List[str]) -> List[str]:
     """
-    Verifies the training loop settings of the 'ExperimentConfiguration' section consumed by the Trainer.
+    Verifies the task and the training loop settings of the 'ExperimentConfiguration' section consumed by the
+    trainers.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
+        valid_tasks (List[str]): The tasks that can be trained, i.e. those with registered configuration checks.
 
     Returns:
         List[str]: The description of every inconsistency found.
@@ -26,6 +28,11 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any]) -> 
 
     # Nest the section under its name so that every reported key path matches its location in the YAML file
     configuration = {"ExperimentConfiguration": experiment_configuration}
+
+    # Task trained by the configuration, selecting the trainer, the model and the task-specific checks
+    task = get_configuration_value(configuration=configuration, key_path="ExperimentConfiguration.task")
+    if task not in valid_tasks:
+        errors.append(f"'ExperimentConfiguration.task' must be one of {valid_tasks}, got {task!r}.")
 
     # Counts driving the training loop, logging and checkpointing
     errors += check_positive_integers(configuration=configuration,
@@ -50,12 +57,6 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any]) -> 
                       f"'ExperimentConfiguration.weight_saving_iterations' ({weight_saving_iterations}).")
     errors += check_positive_integers(configuration=configuration,
                                       key_paths=["ExperimentConfiguration.validation_iteration_ratio"], allow_zero=True)
-
-    # The detections kept for the test evaluation are filtered by a class probability
-    errors += check_probability_value(
-        value=get_configuration_value(configuration=configuration,
-                                      key_path="ExperimentConfiguration.evaluation.score_threshold"),
-        key_path="ExperimentConfiguration.evaluation.score_threshold")
 
     # The optimizer requires a strictly positive learning rate
     learning_rate = get_configuration_value(configuration=configuration, key_path="ExperimentConfiguration.learning_rate")

@@ -3,7 +3,7 @@ import torch
 from pathlib import Path
 
 from vision_training.trainers.checkpointing import get_checkpoint_path
-from vision_training.trainers.detection_trainer import DetectionTrainer
+from vision_training.core.task_registry import get_trainer_class
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.utilities.os_utilities import print_color
 
@@ -26,8 +26,9 @@ if __name__ == "__main__":
     if test_data_folder is not None:
         experiment_configuration["test_data_folder"] = test_data_folder
 
-    trainer = DetectionTrainer(experiment_configuration=experiment_configuration,
-                               model_configuration=model_configuration, configuration_path=configuration_path)
+    trainer_class = get_trainer_class(task=experiment_configuration["task"])
+    trainer = trainer_class(experiment_configuration=experiment_configuration,
+                            model_configuration=model_configuration, configuration_path=configuration_path)
 
     # Load the weights of the evaluated checkpoint into the model of the trainer
     checkpoint_path = get_checkpoint_path(experiment_folder=experiment_folder, iteration=iteration)

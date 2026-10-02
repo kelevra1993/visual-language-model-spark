@@ -282,3 +282,44 @@ def check_sampling_configuration(model_configuration: Dict[str, Any], section_ke
                       f"got {localisation_loss_beta!r}.")
 
     return errors
+
+
+def check_detection_evaluation_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the 'ExperimentConfiguration.evaluation' settings of the object detection task: the score threshold of
+    the detections kept for the mean average precision must be a probability.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    # Nest the section under its name so that every reported key path matches its location in the YAML file
+    configuration = {"ExperimentConfiguration": experiment_configuration}
+    return check_probability_value(
+        value=get_configuration_value(configuration=configuration,
+                                      key_path="ExperimentConfiguration.evaluation.score_threshold"),
+        key_path="ExperimentConfiguration.evaluation.score_threshold")
+
+
+def check_detection_configuration(experiment_configuration: Dict[str, Any],
+                                  model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Runs every check specific to the object detection task: its evaluation settings, its detection levels, anchors,
+    region proposal and detector sections.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration.
+        model_configuration (Dict[str, Any]): The processed model sections.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    errors += check_detection_evaluation_configuration(experiment_configuration=experiment_configuration)
+    errors += check_detection_levels(model_configuration=model_configuration)
+    errors += check_anchors_configuration(model_configuration=model_configuration)
+    errors += check_region_proposal_configuration(model_configuration=model_configuration)
+    errors += check_detector_configuration(model_configuration=model_configuration)
+    return errors

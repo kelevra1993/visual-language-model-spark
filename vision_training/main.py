@@ -1,14 +1,13 @@
 from pathlib import Path
 from vision_training.configuration.configuration_loader import load_experiment_configuration
-from vision_training.trainers.detection_trainer import DetectionTrainer
+from vision_training.core.task_registry import get_trainer_class
 
 
 def main() -> None:
     """
-    Entry point for the object detection training pipeline.
-    This function orchestrates the setup phase by determining the appropriate hardware device,
-    loading the user-specified experiment and model configurations from the YAML file, and 
-    initializing the Trainer class to begin the model training or evaluation lifecycle.
+    Entry point of the training pipeline, for every task.
+    This function loads the user-specified experiment and model configurations from the YAML file, and initializes
+    the trainer of the task of the configuration ('ExperimentConfiguration.task') to begin the model training.
     """
     # Define configuration path
     experiment_configuration_path = (Path(__file__).parent / "configurations" / "object_detection" /
@@ -18,10 +17,11 @@ def main() -> None:
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=experiment_configuration_path)
 
-    # Initialize Trainer
-    trainer = DetectionTrainer(experiment_configuration=experiment_configuration,
-                               model_configuration=model_configuration,
-                               configuration_path=experiment_configuration_path)
+    # Initialize the trainer of the task of the configuration
+    trainer_class = get_trainer_class(task=experiment_configuration["task"])
+    trainer = trainer_class(experiment_configuration=experiment_configuration,
+                            model_configuration=model_configuration,
+                            configuration_path=experiment_configuration_path)
 
     # trainer.run_benchmarking_loop(benchmarking_iterations=1000)
     trainer.run_training_loop()

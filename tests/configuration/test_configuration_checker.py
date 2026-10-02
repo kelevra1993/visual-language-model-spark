@@ -109,6 +109,26 @@ def set_evaluation_score_threshold(configuration: Dict[str, Any]) -> None:
     configuration["ExperimentConfiguration"]["evaluation"]["score_threshold"] = 1.5
 
 
+def set_unknown_task(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a task that no trainer implements.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["task"] = "segmentation"
+
+
+def remove_task_key(configuration: Dict[str, Any]) -> None:
+    """
+    Removes the task of the configuration, as in the configurations written before the task-aware configuration.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    del configuration["ExperimentConfiguration"]["task"]
+
+
 def set_inception_channels(configuration: Dict[str, Any]) -> None:
     """
     Enables inception on a Backbone block whose output channels are not a multiple of 8.
@@ -157,6 +177,7 @@ def test_example_configuration_is_consistent() -> None:
     (set_inception_channels, ["'Backbone.convolutions.4' has 20 output channels"]),
     (set_intermediate_weight_saving, ["'ExperimentConfiguration.intermediate_weight_saving_iterations' (10000) "
                                       "must be smaller than"]),
+    (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection'], got 'segmentation'."]),
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
@@ -200,3 +221,20 @@ def test_missing_configuration_key_is_reported_with_its_path(tmp_path: Path, cap
         load_experiment_configuration(configuration_path=configuration_path)
 
     assert "Missing configuration key 'Detector.modules.residual_nets'." in capsys.readouterr().out
+
+
+def test_missing_task_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a configuration without task, written before the task-aware configuration, is rejected with the
+    path of the missing key (scripts/configuration/migrate_configuration.py adds it to the runs of that time).
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration_path = write_modified_configuration(temporary_directory=tmp_path, modify_function=remove_task_key)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    assert "Missing configuration key 'ExperimentConfiguration.task'." in capsys.readouterr().out
