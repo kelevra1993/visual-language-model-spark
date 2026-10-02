@@ -1,8 +1,12 @@
+import copy
 import os
 import torch
 from torch import nn
-from typing import List, Dict, Union, Optional, Tuple
+from typing import Any, List, Dict, Union, Optional, Tuple
 from pathlib import Path
+
+from model.model import Model
+from scripts.utilities.debugging_utilities import get_model_configuration
 
 
 def check_nn_module_method(module: nn.Module, simple_input_dictionary: Dict[str, torch.Tensor],
@@ -121,3 +125,29 @@ def create_deterministic_tensor(shape: Tuple[int, ...], dtype: torch.dtype = tor
     # Generate a linearly spaced 1D tensor and reshape it to the requested dimensions
     deterministic_tensor = torch.linspace(start=-total_elements, end=total_elements, steps=total_elements, dtype=dtype)
     return deterministic_tensor.reshape(shape=shape)
+
+
+def build_test_model(dtype: torch.dtype) -> Model:
+    """
+    Builds a small untrained detector from the debug configuration, shared by the detector tests (export path and
+    behaviour baseline), with 512 pixel inputs (the smallest size fitting its 9 pooling blocks) and a score threshold
+    of zero so that the compared outputs always contain detections. The weights are drawn from a fixed seed, so every
+    call returns exactly the same detector.
+
+    Args:
+        dtype (torch.dtype): The precision of the parameters: float32 like the exported models, or float64 for the
+            behaviour baseline, whose recorded values must not depend on float32 rounding.
+
+    Returns:
+        Model: The detector in evaluation mode, on the CPU.
+    """
+    torch.manual_seed(seed=0)
+    configuration, device, _ = get_model_configuration()
+    configuration: Dict[str, Any] = copy.deepcopy(x=configuration)
+    configuration["Data"]["image_settings"]["size"] = 512
+    configuration["Detector"]["inference"]["score_threshold"] = 0.0
+
+    # Move the model to its device and precision after building it, as the Trainer does, since a few layers (the
+    # region proposal output layers) are created in the default float32 precision
+    model = Model(configuration=configuration, device=device, dtype=dtype)
+    return model.to(device=device, dtype=dtype).eval()

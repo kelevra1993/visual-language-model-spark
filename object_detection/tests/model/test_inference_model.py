@@ -1,31 +1,10 @@
-import copy
 import torch
 
 from pathlib import Path
-from typing import Any, Dict
 
-from model.model import Model
 from model.inference_model import InferenceDetector
-from scripts.utilities.debugging_utilities import get_model_configuration
+from object_detection.tests.utilities.testing_utilities import build_test_model
 from utilities.model.model_utilities import postprocess_detections
-
-DEVICE = torch.device(device="cpu")
-
-
-def build_test_model() -> Model:
-    """
-    Builds a small untrained detector from the debug configuration, with 512 pixel inputs (the smallest size fitting
-    its 9 pooling blocks) and a score threshold of zero so that the compared outputs always contain detections.
-
-    Returns:
-        Model: The detector in evaluation mode, on the CPU.
-    """
-    torch.manual_seed(seed=0)
-    configuration, _, dtype = get_model_configuration()
-    configuration: Dict[str, Any] = copy.deepcopy(configuration)
-    configuration["Data"]["image_settings"]["size"] = 512
-    configuration["Detector"]["inference"]["score_threshold"] = 0.0
-    return Model(configuration=configuration, device=DEVICE, dtype=dtype).eval()
 
 
 def test_postprocess_detections_threshold_nms_and_padding() -> None:
@@ -57,7 +36,7 @@ def test_inference_detector_matches_the_eager_model() -> None:
     Verifies that the export-friendly inference detector reproduces exactly the detections of the eager Model in
     evaluation mode, on the same weights and images.
     """
-    model = build_test_model()
+    model = build_test_model(dtype=torch.float32)
     detector = InferenceDetector(model=model).eval()
     images = torch.rand(size=(2, 3, 512, 512)) * 255.0
 
@@ -79,7 +58,7 @@ def test_torchscript_round_trip(tmp_path: Path) -> None:
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
-    detector = InferenceDetector(model=build_test_model()).eval()
+    detector = InferenceDetector(model=build_test_model(dtype=torch.float32)).eval()
     model_path = tmp_path / "model.pt"
 
     with torch.no_grad():

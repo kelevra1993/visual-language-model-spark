@@ -88,13 +88,14 @@ def set_detector_samples(configuration: Dict[str, Any]) -> None:
 
 def set_intermediate_weight_saving(configuration: Dict[str, Any]) -> None:
     """
-    Sets intermediate checkpoints that are not more frequent than the evaluated ones.
+    Sets intermediate checkpoints that are not more frequent than the evaluated ones. Both values are set
+    explicitly so that the expected message does not depend on the saving values of the example configuration.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
     """
-    configuration["ExperimentConfiguration"]["intermediate_weight_saving_iterations"] = \
-        configuration["ExperimentConfiguration"]["weight_saving_iterations"]
+    configuration["ExperimentConfiguration"]["weight_saving_iterations"] = 10000
+    configuration["ExperimentConfiguration"]["intermediate_weight_saving_iterations"] = 10000
 
 
 def set_evaluation_score_threshold(configuration: Dict[str, Any]) -> None:
