@@ -18,6 +18,8 @@ wheels/
 *.md
 # Keep the list of proposed improvements under version control
 !suggestions.md
+# Keep the plan of the major refactoring under version control
+!major_refactoring.md
 
 # Model data
 experiments_folder/
