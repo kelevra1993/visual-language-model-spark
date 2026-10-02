@@ -21,7 +21,8 @@ class SequenceClassificationTrainer(ClassificationTrainer):
     tracked on every batch and the evaluation of the checkpoints are those of the classification task, a window
     being classified as a whole like an image.
 
-    The sequence labelling trainer extends it, with one class per frame.
+    The sequence labelling trainer extends it with one class per frame, and the sequence comparison trainer with one
+    class per pair of sequences.
     """
 
     TASK_NAME = "sequence_classification"
@@ -153,6 +154,24 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         """
         return f"Class : {self.get_label_caption(label=label)}"
 
+    def build_sample_frame_grid(self, frames: torch.Tensor, sequence_mask: torch.Tensor,
+                                label: torch.Tensor) -> torch.Tensor:
+        """
+        Lays out the real frames of a sample on the grid shown by the input viewer, each frame with its caption. The
+        sequence comparison trainer overrides it to stack the grids of the two members of a pair.
+
+        Args:
+            frames (torch.Tensor): The [T, 3, H, W] frames of the sample.
+            sequence_mask (torch.Tensor): The [T] booleans, True for the real frames.
+            label (torch.Tensor): The label of the sample.
+
+        Returns:
+            torch.Tensor: The [3, height, width] uint8 grid.
+        """
+        return build_frame_grid(frames=frames, sequence_mask=sequence_mask,
+                                frame_captions=self.get_frame_captions(label=label, sequence_mask=sequence_mask),
+                                number_columns=FRAME_GRID_COLUMNS)
+
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
         """
@@ -170,10 +189,8 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         frame_grids, captions = [], []
         for batch in [training_batch, validation_batch]:
             label, sequence_mask = batch["labels"][sample_index], batch["sequence_mask"][sample_index]
-            frame_grids.append(build_frame_grid(frames=batch["images"][sample_index], sequence_mask=sequence_mask,
-                                                frame_captions=self.get_frame_captions(label=label,
-                                                                                       sequence_mask=sequence_mask),
-                                                number_columns=FRAME_GRID_COLUMNS))
+            frame_grids.append(self.build_sample_frame_grid(frames=batch["images"][sample_index],
+                                                            sequence_mask=sequence_mask, label=label))
             captions.append(self.get_window_caption(label=label))
         return view_input_data(images=frame_grids, bounding_boxes=None, labels=None,
                                window_titles=["Training", "Validation"], display_input_size=FRAME_GRID_DISPLAY_SIZE,

@@ -3,7 +3,8 @@ import json
 from pathlib import Path
 from typing import Dict
 
-from vision_training.utilities.os_utilities import get_image_paths, print_color
+from vision_training.data.label_mapping import write_label_mapping
+from vision_training.utilities.os_utilities import get_image_paths, link_folder, print_color
 
 
 def create_class_folder_manifests(split_folders: Dict[str, str], output_folder: str) -> None:
@@ -34,13 +35,7 @@ def create_class_folder_manifests(split_folders: Dict[str, str], output_folder: 
         output_split_folder.mkdir(parents=True, exist_ok=True)
 
         # Link the class folders of the split as its data folder, so that the images are read where they are
-        data_link = output_split_folder / "data"
-        if data_link.is_symlink():
-            data_link.unlink()
-        elif data_link.exists():
-            raise FileExistsError(f"The data folder of the split already exists and is not a link to the class "
-                                  f"folders : file://{data_link}")
-        data_link.symlink_to(target=Path(split_folder).absolute(), target_is_directory=True)
+        link_folder(link_path=output_split_folder / "data", target_folder=Path(split_folder))
 
         # One sample per image of every class folder of the split, named relative to the data folder
         samples = []
@@ -57,10 +52,7 @@ def create_class_folder_manifests(split_folders: Dict[str, str], output_folder: 
         print_color(color="green", output=f"{split_name} split : {len(samples)} images : file://{labels_path}")
 
     # Class index of every category, from 0 since the classifiers predict no background class
-    label_mapping_path = Path(output_folder).absolute() / "label_mapping.json"
-    label_mapping_path.write_text(data=json.dumps(obj={str(category["id"]): category["id"] - 1
-                                                       for category in categories}, indent=4))
-    print_color(color="green", output=f"Label Mapping File : file://{label_mapping_path}", add_separators=True)
+    write_label_mapping(categories=categories, output_folder=output_folder)
 
 
 if __name__ == "__main__":

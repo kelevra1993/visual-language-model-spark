@@ -162,3 +162,24 @@ def get_image_paths(folder: Path) -> List[Path]:
     if len(image_paths) == 0:
         raise FileNotFoundError(f"No image found in : file://{folder.absolute()}")
     return image_paths
+
+
+def link_folder(link_path: Path, target_folder: Path) -> None:
+    """
+    Points 'link_path' to 'target_folder' with a symbolic link, replacing a previous link, so that the manifests built
+    from an existing dataset (class folders, pair lists) read its images where they are instead of copying them into
+    the 'data' folder of every split.
+
+    Args:
+        link_path (Path): The path of the link, e.g. the 'data' folder of a split.
+        target_folder (Path): The folder the link points to.
+
+    Raises:
+        FileExistsError: If 'link_path' exists and is not a symbolic link, so that a real folder is never replaced.
+    """
+    if link_path.is_symlink():
+        link_path.unlink()
+    elif link_path.exists():
+        raise FileExistsError(f"The data folder of the split already exists and is not a link to the dataset "
+                              f"images : file://{link_path.absolute()}")
+    link_path.symlink_to(target=target_folder.absolute(), target_is_directory=True)

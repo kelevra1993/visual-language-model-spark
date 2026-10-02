@@ -5,10 +5,12 @@ general trainer can sum the losses, evaluate every test sample once and report t
 task.
 
 Batch dictionary, produced by the loaders and moved to the device by the 'prepare_batch' hook of the trainer:
-- "images": float BGR pixels in [0, 255], [B, C, H, W] for the image tasks, [B, T, C, H, W] for the sequence tasks.
+- "images": float BGR pixels in [0, 255], [B, C, H, W] for the image tasks, [B, T, C, H, W] for the sequence tasks,
+  [B, 2T, C, H, W] for the sequence comparison task (the before window then the after window of every pair).
 - "labels": the targets of the task (one [N_i] tensor per image for detection, [B] for classification, ...).
 - "bounding_boxes": one [N_i, 4] tensor of [x1, y1, x2, y2] boxes per image, object detection only.
-- "sequence_mask": [B, T] booleans, True for the real frames of padded sequences, sequence tasks only.
+- "sequence_mask": [B, T] booleans, True for the real frames of padded sequences, sequence tasks only ([B, 2T] for the
+  pairs, the real frames coming first within each member window).
 - "sample_identifiers": [B] identifiers of the samples, used to evaluate every test sample exactly once.
 
 Model output dictionary:
@@ -56,7 +58,9 @@ class SequenceBatch(TypedDict):
     """
     Batch of the sequence tasks, on the device and in the precision of the model: [B, T, C, H, W] frames padded with
     black frames, the [B, T] sequence mask (True for the real frames, which come first), and one int64 class index
-    per sequence ([B], many to one) or per frame ([B, T] with -100 on the frames without class, many to many).
+    per sequence ([B], many to one) or per frame ([B, T] with -100 on the frames without class, many to many). For the
+    sequence comparison task, the frames and the mask hold the before window followed by the after window of every
+    pair ([B, 2T, C, H, W] and [B, 2T], the real frames first within each window), with one class index per pair.
     """
     images: torch.Tensor
     sequence_mask: torch.Tensor

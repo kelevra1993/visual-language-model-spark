@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 from vision_training.data.sequence.sequence_dataset import compute_window_starts
+from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, compute_member_frame_indices
 from vision_training.utilities.os_utilities import read_json
 
 
@@ -62,3 +63,32 @@ def count_split_sequences(split_data_folder: str | Path, sequence_settings: Dict
             sequence_length=sequence_settings["sequence_length"], window_stride=sequence_settings["window_stride"],
             short_sequences=sequence_settings["short_sequences"]))
     return len(labels["sequences"]), number_frames, number_windows
+
+
+def count_split_pairs(split_data_folder: str | Path, sequence_settings: Dict[str, Any]) -> Tuple[int, int, int]:
+    """
+    Counts the pairs, frames and kept pairs of a sequence comparison split from its 'labels.json' manifest, printed by
+    the sequence comparison trainer at startup. A pair is kept, as in the sequence pair dataset, when both of its
+    members keep frames after the frame stride (compute_member_frame_indices); the kept pairs are the samples of an
+    epoch.
+
+    Args:
+        split_data_folder (str | Path): The root folder of the split, containing a 'labels.json'.
+        sequence_settings (Dict[str, Any]): The 'Data.sequence_settings' section.
+
+    Returns:
+        Tuple[int, int, int]: The number of pairs, of frames of both members, and of kept pairs (before label mapping).
+    """
+    labels = read_json(path=os.path.join(str(split_data_folder), "labels.json"))
+    number_frames, number_kept_pairs = 0, 0
+    for pair in labels["pairs"]:
+        # Frames of both members, and whether every member keeps frames
+        member_frame_indices = []
+        for member_name in PAIR_MEMBERS:
+            number_frames += len(pair[member_name])
+            member_frame_indices.append(compute_member_frame_indices(
+                number_frames=len(pair[member_name][::sequence_settings["frame_stride"]]),
+                sequence_length=sequence_settings["sequence_length"],
+                short_sequences=sequence_settings["short_sequences"]))
+        number_kept_pairs += int(all(len(frame_indices) > 0 for frame_indices in member_frame_indices))
+    return len(labels["pairs"]), number_frames, number_kept_pairs

@@ -1,0 +1,270 @@
+# Configuration of the synthetic object loss pairs dataset (a before and an after sequence of independent views of the
+# same 2 to 4 objects, labelled with whether the after member lost one of them), created with
+# vision_training/data/synthetic/create_synthetic_dataset.py and its task set to "sequence_comparison". A single member
+# does not give the class, only the comparison of the numbers of objects of the two members, so the model learns the
+# task only by comparing them.
+ExperimentConfiguration:
+  # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
+  # "sequence_comparison" trains the sequence comparator (one class per pair of a before and an after sequence), and
+  # requires the Data.sequence_settings, TemporalModel, Fusion and ClassificationHead sections.
+  task: "sequence_comparison"
+  # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
+  # backbone modules, normalization and blocks, member window, temporal module, fusion, classification head, classes,
+  # augmentation, batch size, learning rate), so that the same settings resume in the same folder and changed settings
+  # start a new one, e.g. CMP_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64-DO0.2_MC2_AUG-BS16-
+  # LR1e-3 (without the line break). The format is described in vision_training/configuration/run_name.py.
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
+  # Root directory containing the training pairs (frames in data/<pair name>/before/ and .../after/) and labels.json
+  # manifest.
+  train_data_folder: "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs/train"
+  # Root directory containing the validation pairs and labels.json manifest.
+  validation_data_folder: "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs/validation"
+  # Root directory containing the test pairs and labels.json manifest.
+  test_data_folder: "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs/test"
+  # Number of pairs processed in a single forward/backward pass. A step runs the backbone on up to
+  # 2 x batch_size x sequence_length frames (both members of every pair).
+  batch_size: 16
+  # Frequency (in iterations) to log performance metrics.
+  information_dump: 100
+  # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
+  weight_saving_iterations: 500
+  # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
+  # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
+  intermediate_weight_saving_iterations: 250
+  # Total number of training iterations before stopping.
+  number_iterations: 1e10
+  # Ratio controlling how often validation is run during training.
+  # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
+  validation_iteration_ratio: 10
+  # Test evaluation run at every weight_saving_iterations checkpoint on every pair of the test split: accuracy,
+  # balanced accuracy, macro F1, top-k accuracy, precision / recall / F1 of every class, and the confusion matrix and
+  # class thresholds saved in <run folder>/Evaluation/Iteration_<iteration>/.
+  evaluation:
+    # Number of most probable classes among which the true class must be for the top-k accuracy. Must be a positive
+    # integer, values above the number of classes counting every sample as right (1 with the 2 classes of this
+    # dataset, any larger value giving 100 %).
+    top_k: 1
+    # Precision that the score threshold of every class must reach, the threshold keeping the most samples of the
+    # class (highest recall) at that precision being saved for deployment. Must be within [0, 1].
+    target_precision: 0.99
+  # Base learning rate used by the optimizer.
+  learning_rate: 1.0e-3
+  # Global tensor data type, either "float32" or "float64".
+  dtype: "float32"
+  # Flag to attempt loading the most recent checkpoint to resume training.
+  resume_training: true
+  diagnosis_modes:
+      # Choice to print out everything about the model
+      verbose: False
+      # Choice to compute Receptive-Field
+      compute_receptive_field: True
+      # Choice to compute final model size
+      compute_model_size: True
+      # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
+      # frames of the before member of a pair above those of its after member, captioned with the class of the pair.
+      # SPACE shows the next pairs, ENTER closes the viewer and exits the program without training, so set it to False
+      # to train. Requires a display (skipped with a warning otherwise)
+      view_input_images: False
+
+Optimization:
+  # Optimizer of the model parameters: "adam", "adamw" (Adam with the weight decay decoupled from the gradients) or
+  # "sgd" (stochastic gradient descent with Nesterov momentum 0.9), at ExperimentConfiguration.learning_rate.
+  optimizer: "adam"
+  # Weight decay of the optimizer, 0 to disable.
+  weight_decay: 0.0
+  # Learning rate schedule after the warm-up: "constant", or "cosine" (decay to minimum_learning_rate_ratio times the
+  # learning rate over decay_iterations, constant afterwards).
+  learning_rate_schedule: "constant"
+  # Iterations of the linear warm-up of the learning rate from 0, 0 to disable.
+  warmup_iterations: 0
+  # Iterations of the cosine decay, counted after the warm-up (cosine schedule only).
+  decay_iterations: 100000
+  # Learning rate at the end of the cosine decay, as a fraction of the learning rate (cosine schedule only).
+  minimum_learning_rate_ratio: 0.01
+  # Maximum norm of all the gradients together, clipped before every step, null to disable.
+  gradient_clipping_norm: null
+  # Runs the training and validation forward passes in bfloat16 (faster and lighter on recent GPUs), the weights and
+  # the test evaluation staying in float32. Requires ExperimentConfiguration.dtype "float32".
+  mixed_precision: False
+
+Data:
+  DALI:
+    # Flag to enable the NVIDIA DALI hardware-accelerated pipeline, only available for the object detection task.
+    # It must stay False here: the comparison task reads its frames with the Native PyTorch loader (OpenCV decoding
+    # and CPU resizing).
+    activated: False
+  image_settings:
+    # Target resolution to resize all the frames.
+    size: 128
+    # Flag to maintain the original aspect ratio when resizing.
+    keep_ratio: True
+  sequence_settings:
+    # Maximum number of frames of a member of a pair (its before or after sequence), each member being fed as one
+    # window: a longer member keeps evenly spaced frames covering it, a shorter one is padded.
+    sequence_length: 8
+    # Keeps one frame every frame_stride frames of a member, before choosing its window frames (1 keeps every frame).
+    frame_stride: 1
+    # Members shorter than sequence_length: "pad" (padded with black frames, ignored by the model through the sequence
+    # mask) or "skip" (their pair is left out). An empty member always leaves its pair out.
+    short_sequences: "pad"
+  label_mapping:
+    # Must be "multi_class" for the sequence tasks: the mapping file gives the class index of every category of the
+    # labels.json manifests, the classes being indexed 0 to K-1 (no background class).
+    mode: "multi_class"
+    # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs.
+    mapping_file_path: "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs/label_mapping.json"
+  data_augmentation:
+    # Global switch to enable or disable all data augmentation (applied on the GPU to training batches only).
+    activated: True
+    # Probability that a training pair is augmented at all. Each activated type below is then applied to that pair
+    # with its own probability, all the frames of both members sharing the same augmentation.
+    probability: 0.4
+    types:
+      # Geometric augmentations. The flips and 90° rotations keep every object, while a crop or a small rotation can
+      # cut an object at the border and change the number of objects of a frame, so they stay off for this dataset.
+      # Random Crop : crop keeping 90% to 100% of each side (same aspect ratio), resized back to the input size
+      random_crop: { activated: False, probability: 0.3 }
+      # Random Left to Right Flip (mirror)
+      random_left_right_flip: { activated: True, probability: 0.5 }
+      # Random Up to Down Flip
+      random_up_down_flip: { activated: True, probability: 0.5 }
+      # Random Rotation between -5° and 5°
+      random_rotation: { activated: False, probability: 0.3 }
+      # Random -90° or 90° rotation (square images only)
+      random_90_rotation: { activated: True, probability: 0.3 }
+
+      # Photometric augmentations. The grayscale conversion stays off: an object can then match the luminance of the
+      # background and disappear.
+      # Brightness (+-40 intensity levels), contrast and saturation (both x0.7 to x1.0) adjustments
+      brightness_contrast_saturation: { activated: True, probability: 0.3 }
+      # Contrast-limited Adaptive Histogram Equalization (CLAHE), clip limit 2.0 on a 4x4 grid of tiles
+      clahe_augment: { activated: False, probability: 0.3 }
+      # Image Sharpening with a Laplacian of Gaussian unsharp mask (sigma 1.5, strength 3)
+      sharp_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of the luminance (Y channel of YUV)
+      equalize_histogram_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of one random channel (B, G or R) or of all three channels
+      equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
+      # Random Noise : Gaussian noise with a standard deviation of 10 intensity levels
+      random_noise: { activated: True, probability: 0.3 }
+      # Grayscale conversion, kept on three channels
+      gray_scale_augment: { activated: False, probability: 0.3 }
+      # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
+      random_colour_augmentation: { activated: True, probability: 0.3 }
+      # Random Image Blurring : 5x5 Gaussian kernel with sigma 1.5
+      random_blur: { activated: False, probability: 0.3 }
+
+Backbone:
+  # Number of input channels for the initial convolution block (e.g., 3 for RGB images)
+  input_channels : 3
+
+  # First axis : Number of convolution Kernel maps per Convolution Block
+  # Second axis : Number of output filters per kernel per convolution Block
+  convolutions:
+    {
+      "1": [ 1, 16 ],
+      "2": [ 2, 32 ],
+      "3": [ 2, 32 ],
+      "4": [ 2, 64 ],
+      "5": [ 2, 64 ],
+    }
+
+  # Choice to add last max pooling layer on last* convolution layer
+  last_max_pooling: False
+
+  normalization:
+    # Input Normalization : Setting image range values between [-0.5:0.5]
+    input_normalization: True
+
+    # Per Sample Input Normalization : Normalizing each image to zero mean and unit variance
+    # Applied after input_normalization when both are activated
+    per_sample_normalization: False
+
+    # Strategy for normalizing the feature maps in the convolution blocks.
+    # Options are: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    feature_map_normalization: "batch"
+
+  modules:
+    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    # Shortcuts are added every two convolution layers, starting from the second convolution block
+    residual_nets: True
+
+    # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
+    # Output channels of every block using inception must be multiples of 8
+    inception: False
+
+    # Convolution block (1-indexed) from which inception modules replace the plain convolutions
+    inception_starting_block: 3
+
+    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    squeeze_and_excite: True
+
+  # Backbone blocks branching out to the object detection heads. Must be [] for the sequence tasks, whose frame
+  # vectors are pooled from the final feature map of the backbone.
+  detection_convolution_block_indices: []
+
+  # Backbone of another training run (of any task) initialising this run instead of random weights. Its settings
+  # defining the layers (input_channels, convolutions, modules, normalization, last_max_pooling) must be identical to
+  # the ones above, the detection blocks and the image size may differ.
+  pretrained:
+    # Run folder whose trained backbone initialises this run, null to start from random weights. A run resuming
+    # from its own checkpoints does not load it again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded backbone fixed (no gradient, batch normalization statistics frozen) so that only the heads of
+    # the task learn. Requires an experiment_folder.
+    freeze: False
+    # Multiplies the learning rate of the loaded backbone, e.g. 0.1 to fine-tune it ten times slower than the heads.
+    learning_rate_multiplier: 1.0
+
+TemporalModel:
+  # Module summarising the frame vectors of a member of a pair into one vector, shared by both members:
+  # "mean_pooling", "max_pooling" or "attention_pooling" (order-blind poolings), or "gru", "lstm", "transformer" or
+  # "temporal_convolution" (modules modelling the order of the frames). The views of a synthetic member are
+  # independent, so the order-blind mean pooling suits this dataset.
+  type: "mean_pooling"
+  # Size of the recurrent state (GRU, LSTM), model size (transformer, a multiple of number_heads), channels
+  # (temporal convolution) or hidden units of the frame scoring network (attention pooling).
+  hidden_size: 128
+  # Number of stacked layers (GRU, LSTM, transformer, temporal convolution).
+  number_layers: 1
+  # Number of attention heads of every transformer layer.
+  number_heads: 4
+  # Odd number of frames covered by a kernel of the temporal convolution, whose dilation doubles at every layer.
+  kernel_size: 3
+  # Dropout between the stacked layers (GRU, LSTM), of the attention and feed forward layers (transformer) or after
+  # every convolution (temporal convolution), within [0, 1).
+  dropout_rate: 0.0
+  # Reads the members in both directions (GRU, LSTM).
+  bidirectional: True
+  # Every frame only sees the frames before it (transformer, temporal convolution). Must be False for the comparison
+  # task, which summarises whole members.
+  causal: False
+
+Fusion:
+  # Combination of the vectors of the before member (a) and of the after member (b) given to the classification head:
+  # "concatenation" ([a, b]), "difference" ([a, b, b - a], the difference making the change between the members
+  # explicit) or "cross_attention" (the frames of each member first attend to the frames of the other member, before
+  # the temporal module, then [a, b, b - a]).
+  type: "difference"
+  # Number of attention heads of the cross attention, the channels of the last backbone block being a multiple of it.
+  number_heads: 4
+  # Dropout of the cross attention weights, within [0, 1).
+  dropout_rate: 0.0
+
+ClassificationHead:
+  # Global pooling reducing the final backbone feature map of every frame to one feature vector, "average" or "max".
+  # The average keeps the number of objects of a frame, which the maximum discards.
+  global_pooling: "average"
+  # Units of the hidden fully connected layers between the fused vector of a pair and the class logits, [] for none.
+  fully_connected: [64]
+  # Dropout applied before every fully connected layer, within [0, 1), 0 to disable.
+  dropout_rate: 0.2
+  # Must be "multi_class" for the sequence tasks: one class per pair (softmax).
+  output_mode: "multi_class"
+  # Label smoothing of the classification loss, within [0, 1), 0 to disable.
+  label_smoothing: 0.0
+  # Weighting of the classes in the loss: "none" (every sample weighs the same) or "balanced" (every class weighs the
+  # same, the weights being inversely proportional to the number of training pairs of each class).
+  class_weighting: "none"

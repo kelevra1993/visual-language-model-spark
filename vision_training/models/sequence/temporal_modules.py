@@ -13,19 +13,22 @@ POOLING_TEMPORAL_TYPES = ["mean_pooling", "max_pooling", "attention_pooling"]
 ORDERED_TEMPORAL_TYPES = ["gru", "lstm", "transformer", "temporal_convolution"]
 
 
-def print_temporal_module_summary(temporal_configuration: Dict[str, Any], output_features: int) -> None:
+def print_sequence_module_summary(title: str, module_configuration: Dict[str, Any], output_features: int,
+                                  border_style: str) -> None:
     """
-    Prints the temporal module settings in the architecture summary of the sequence models, with the number of
-    features of the vectors it gives to the classification head.
+    Prints the settings of a module of the sequence models in their architecture summary (the temporal module, the
+    fusion of the members of a pair), with the number of features of the vectors it gives to the next module.
 
     Args:
-        temporal_configuration (Dict[str, Any]): The 'TemporalModel' section.
-        output_features (int): The number of features of the output vectors of the temporal module.
+        title (str): The title of the panel, e.g. "Temporal Module".
+        module_configuration (Dict[str, Any]): The configuration section of the module, e.g. 'TemporalModel'.
+        output_features (int): The number of features of the output vectors of the module.
+        border_style (str): The colour of the panel border.
     """
     summary_text = "\n".join(f"[bold]{key_name.replace('_', ' ').title():<18}[/bold] : {key_value}"
-                             for key_name, key_value in temporal_configuration.items())
+                             for key_name, key_value in module_configuration.items())
     summary_text += f"\n[bold]{'Output Features':<18}[/bold] : {output_features}"
-    Console(width=80).print(Panel(summary_text, title="[bold]Temporal Module[/bold]", border_style="blue"))
+    Console(width=80).print(Panel(summary_text, title=f"[bold]{title}[/bold]", border_style=border_style))
 
 
 def compute_masked_mean(features: torch.Tensor, sequence_mask: Optional[torch.Tensor]) -> torch.Tensor:

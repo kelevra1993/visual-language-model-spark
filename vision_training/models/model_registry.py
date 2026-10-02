@@ -3,6 +3,7 @@ from typing import Dict, Type
 from vision_training.models.classification.image_classifier import ImageClassifier
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.sequence.sequence_classifier import SequenceClassifier
+from vision_training.models.sequence.sequence_comparator import SequenceComparator
 from vision_training.models.sequence.sequence_labeller import SequenceLabeller
 from vision_training.models.task_model import TaskModel
 
@@ -11,4 +12,5 @@ from vision_training.models.task_model import TaskModel
 TASK_MODEL_CLASSES: Dict[str, Type[TaskModel]] = {"object_detection": TwoStageDetector,
                                                   "classification": ImageClassifier,
                                                   "sequence_classification": SequenceClassifier,
-                                                  "sequence_labelling": SequenceLabeller}
+                                                  "sequence_labelling": SequenceLabeller,
+                                                  "sequence_comparison": SequenceComparator}

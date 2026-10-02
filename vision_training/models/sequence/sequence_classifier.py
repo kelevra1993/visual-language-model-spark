@@ -8,8 +8,7 @@ from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.classification.classification_head import (ClassificationHead, build_global_pooling,
                                                                        print_classification_head_summary)
 from vision_training.models.sequence.frame_encoder import encode_frames
-from vision_training.models.sequence.temporal_modules import (build_temporal_module,
-                                                              print_temporal_module_summary)
+from vision_training.models.sequence.temporal_modules import build_temporal_module, print_sequence_module_summary
 from vision_training.models.task_model import TaskModel
 
 
@@ -101,8 +100,8 @@ class SequenceClassifier(TaskModel):
         Prints the backbone summary, then the temporal module and the classification head.
         """
         self.backbone.print_summary()
-        print_temporal_module_summary(temporal_configuration=self.temporal_configuration,
-                                      output_features=self.temporal_module.output_features)
+        print_sequence_module_summary(title="Temporal Module", module_configuration=self.temporal_configuration,
+                                      output_features=self.temporal_module.output_features, border_style="blue")
         print_classification_head_summary(head_configuration=self.head_configuration,
                                           number_classes=self.number_classes)
 

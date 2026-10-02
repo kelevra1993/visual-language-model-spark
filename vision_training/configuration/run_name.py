@@ -6,11 +6,14 @@ NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN"}
 
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
 TASK_CODES = {"object_detection": "DET", "classification": "CLS", "sequence_classification": "M2O",
-              "sequence_labelling": "M2M"}
+              "sequence_labelling": "M2M", "sequence_comparison": "CMP"}
 
 # Run name code of every temporal module type of the sequence tasks
 TEMPORAL_TYPE_CODES = {"mean_pooling": "MEAN", "max_pooling": "MAX", "attention_pooling": "ATT", "gru": "GRU",
                        "lstm": "LSTM", "transformer": "TRF", "temporal_convolution": "TCN"}
+
+# Run name code of every fusion of the members of a pair (sequence comparison task)
+FUSION_TYPE_CODES = {"concatenation": "FCAT", "difference": "FDIF", "cross_attention": "FXA"}
 
 
 def join_level_tokens(level_tokens: List[str]) -> str:
@@ -239,28 +242,40 @@ def build_classification_sections(model_configuration: Dict[str, Any]) -> List[L
     return [head_tokens, [classes_token]]
 
 
-def build_sequence_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
+def build_window_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Builds the sections of the run name specific to the sequence tasks: the window T<frames per window> (followed by
-    S<frame stride> when frames are skipped), the temporal module (MEAN, MAX, ATT<hidden size>, GRU or LSTM<layers>x
-    <hidden size> with BI when bidirectional, TRF<layers>x<hidden size>.<heads> or TCN<layers>x<hidden size>.<kernel
-    size> with CAU when causal, and TDO<dropout> when the module uses a dropout), then the classification head and
-    classes sections, e.g. 'T16_GRU2x256-BI_HAVG.256-DO0.5_MC4'.
+    Builds the token of the run name describing the windows of frames fed to the sequence models: T<frames per window>
+    (frames per member of a pair for the comparison task), followed by S<frame stride> when frames are skipped, e.g.
+    'T16S2'.
 
     Args:
-        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
+        model_configuration (Dict[str, Any]): The processed model configuration.
 
     Returns:
-        List[List[str]]: The tokens of every section.
+        List[str]: The window token.
     """
     sequence_settings = model_configuration["Data"]["sequence_settings"]
-    temporal_configuration = model_configuration["TemporalModel"]
-    temporal_type = temporal_configuration["type"]
-
-    # Frames per window, and the frame stride when frames are skipped
     sequence_token = f"T{sequence_settings['sequence_length']}"
     if sequence_settings["frame_stride"] > 1:
         sequence_token += f"S{sequence_settings['frame_stride']}"
+    return [sequence_token]
+
+
+def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Builds the tokens of the run name describing the temporal module of the sequence models: MEAN, MAX, ATT<hidden
+    size>, GRU or LSTM<layers>x<hidden size> with BI when bidirectional, TRF<layers>x<hidden size>.<heads> or
+    TCN<layers>x<hidden size>.<kernel size> with CAU when causal, and TDO<dropout> when the module uses a dropout,
+    e.g. 'GRU2x256-BI'.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration.
+
+    Returns:
+        List[str]: The tokens of the temporal module.
+    """
+    temporal_configuration = model_configuration["TemporalModel"]
+    temporal_type = temporal_configuration["type"]
 
     # Temporal module with the settings its type uses
     temporal_code = TEMPORAL_TYPE_CODES[temporal_type]
@@ -279,14 +294,73 @@ def build_sequence_sections(model_configuration: Dict[str, Any]) -> List[List[st
     if temporal_type not in ["mean_pooling", "max_pooling", "attention_pooling"] and \
             temporal_configuration["dropout_rate"] > 0:
         temporal_tokens.append(f"TDO{temporal_configuration['dropout_rate']:g}")
+    return temporal_tokens
 
-    return [[sequence_token], temporal_tokens] + build_classification_sections(model_configuration=model_configuration)
+
+def build_sequence_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
+    """
+    Builds the sections of the run name specific to the sequence tasks: the window (build_window_tokens), the temporal
+    module (build_temporal_tokens), then the classification head and classes sections, e.g.
+    'T16_GRU2x256-BI_HAVG.256-DO0.5_MC4'.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
+
+    Returns:
+        List[List[str]]: The tokens of every section.
+    """
+    return ([build_window_tokens(model_configuration=model_configuration),
+             build_temporal_tokens(model_configuration=model_configuration)] +
+            build_classification_sections(model_configuration=model_configuration))
+
+
+def build_fusion_tokens(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Builds the tokens of the run name describing the fusion of the members of a pair in the sequence comparison model:
+    FCAT (concatenation), FDIF (difference) or FXA<heads> (cross attention), the latter followed by FDO<dropout> when
+    its attention uses a dropout, e.g. 'FXA4-FDO0.1'.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration.
+
+    Returns:
+        List[str]: The tokens of the fusion.
+    """
+    fusion_configuration = model_configuration["Fusion"]
+    fusion_type = fusion_configuration["type"]
+    if fusion_type != "cross_attention":
+        return [FUSION_TYPE_CODES[fusion_type]]
+
+    # Cross attention with its number of heads, and its dropout when used
+    fusion_tokens = [f"{FUSION_TYPE_CODES[fusion_type]}{fusion_configuration['number_heads']}"]
+    if fusion_configuration["dropout_rate"] > 0:
+        fusion_tokens.append(f"FDO{fusion_configuration['dropout_rate']:g}")
+    return fusion_tokens
+
+
+def build_sequence_comparison_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
+    """
+    Builds the sections of the run name specific to the sequence comparison task: the member windows
+    (build_window_tokens), the temporal module (build_temporal_tokens), the fusion of the members
+    (build_fusion_tokens), then the classification head and classes sections, e.g. 'T8_MEAN_FDIF_HAVG.64-DO0.2_MC2'.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
+
+    Returns:
+        List[List[str]]: The tokens of every section.
+    """
+    return ([build_window_tokens(model_configuration=model_configuration),
+             build_temporal_tokens(model_configuration=model_configuration),
+             build_fusion_tokens(model_configuration=model_configuration)] +
+            build_classification_sections(model_configuration=model_configuration))
 
 
 # Builder of the task-specific sections of the run name, placed between the backbone and training sections
 TASK_RUN_NAME_SECTIONS: Dict[str, Callable[[Dict[str, Any]], List[List[str]]]] = {
     "object_detection": build_detection_sections, "classification": build_classification_sections,
-    "sequence_classification": build_sequence_sections, "sequence_labelling": build_sequence_sections}
+    "sequence_classification": build_sequence_sections, "sequence_labelling": build_sequence_sections,
+    "sequence_comparison": build_sequence_comparison_sections}
 
 
 def build_run_name(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> str:
@@ -298,9 +372,9 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
 
     The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
     is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
-    DSE-DRES-DBN-D7.2x64.256.128_BIN_AUG-BS40-LR2e-4' (without the line break): the task code (DET, CLS, M2O or M2M),
-    the input and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the sections of
-    the task (e.g. build_detection_sections), then the training section (build_training_tokens).
+    DSE-DRES-DBN-D7.2x64.256.128_BIN_AUG-BS40-LR2e-4' (without the line break): the task code (DET, CLS, M2O, M2M or
+    CMP), the input and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the
+    sections of the task (e.g. build_detection_sections), then the training section (build_training_tokens).
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration, with its task.

@@ -5,40 +5,45 @@ from vision_training.configuration.classification_checks import (check_classific
                                                                  check_classification_head_configuration)
 from vision_training.configuration.configuration_values import (check_boolean_flags, check_positive_integers,
                                                                 get_configuration_value)
+from vision_training.models.sequence.member_fusion import FUSION_TYPES
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES
 
 # Handling of the sequences shorter than one window: padded with black frames, or left out
 VALID_SHORT_SEQUENCES = ["pad", "skip"]
 
 
-def check_sequence_settings(model_configuration: Dict[str, Any]) -> List[str]:
+def check_sequence_settings(model_configuration: Dict[str, Any], cuts_windows: bool) -> List[str]:
     """
-    Verifies the 'Data.sequence_settings' section of the sequence tasks, which cuts the sequences into the windows of
-    frames fed to the models, and that the classification head predicts one class per sequence or per frame (the
-    sequence manifests give a single category per sequence or per frame).
+    Verifies the 'Data.sequence_settings' section of the sequence tasks, which gives the windows of frames fed to the
+    models (cut from the sequences, or one window per member of a pair), and that the classification head predicts
+    one class per sequence, per frame or per pair (the manifests give a single category per sequence, per frame or
+    per pair).
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
+        cuts_windows (bool): Whether the task cuts the sequences into windows (sequence classification and labelling),
+            which needs 'window_stride'. The comparison task feeds one window per member and does not read it.
 
     Returns:
         List[str]: The description of every inconsistency found.
     """
-    # Frames per window, frames skipped between two kept frames, and frames between the starts of two windows
-    errors = check_positive_integers(configuration=model_configuration,
-                                     key_paths=["Data.sequence_settings.sequence_length",
-                                                "Data.sequence_settings.frame_stride",
-                                                "Data.sequence_settings.window_stride"], allow_zero=False)
+    # Frames per window, frames skipped between two kept frames, and frames between the starts of two windows when the
+    # sequences are cut into windows
+    key_paths = ["Data.sequence_settings.sequence_length", "Data.sequence_settings.frame_stride"]
+    if cuts_windows:
+        key_paths.append("Data.sequence_settings.window_stride")
+    errors = check_positive_integers(configuration=model_configuration, key_paths=key_paths, allow_zero=False)
     short_sequences = get_configuration_value(configuration=model_configuration,
                                               key_path="Data.sequence_settings.short_sequences")
     if short_sequences not in VALID_SHORT_SEQUENCES:
         errors.append(f"'Data.sequence_settings.short_sequences' must be one of {VALID_SHORT_SEQUENCES}, "
                       f"got {short_sequences!r}.")
 
-    # One class per sequence or per frame
+    # One class per sequence, per frame or per pair
     output_mode = get_configuration_value(configuration=model_configuration, key_path="ClassificationHead.output_mode")
     if output_mode != "multi_class":
         errors.append(f"'ClassificationHead.output_mode' must be 'multi_class' for the sequence tasks, the manifests "
-                      f"giving one category per sequence or per frame, got {output_mode!r}.")
+                      f"giving one category per sequence, per frame or per pair, got {output_mode!r}.")
     return errors
 
 
@@ -89,8 +94,8 @@ def check_temporal_model_configuration(model_configuration: Dict[str, Any], vali
     causal = get_configuration_value(configuration=model_configuration, key_path="TemporalModel.causal")
     bidirectional = get_configuration_value(configuration=model_configuration, key_path="TemporalModel.bidirectional")
     if not flag_errors and causal and not allow_causal:
-        errors.append("'TemporalModel.causal' must be False for the sequence classification task, which classifies a "
-                      "whole sequence (causal modules are for the sequence labelling task).")
+        errors.append("'TemporalModel.causal' must be False for this task, which summarises whole sequences (causal "
+                      "modules are for the sequence labelling task).")
     if not flag_errors and causal and bidirectional:
         errors.append("'TemporalModel.bidirectional' must be False when 'TemporalModel.causal' is True: reading the "
                       "sequence backwards looks at the future frames.")
@@ -115,7 +120,7 @@ def check_sequence_classification_configuration(experiment_configuration: Dict[s
     errors += check_classification_data_configuration(model_configuration=model_configuration)
     errors += check_classification_head_configuration(model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration)
-    errors += check_sequence_settings(model_configuration=model_configuration)
+    errors += check_sequence_settings(model_configuration=model_configuration, cuts_windows=True)
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=POOLING_TEMPORAL_TYPES + ORDERED_TEMPORAL_TYPES,
                                                  allow_causal=False)
@@ -140,7 +145,72 @@ def check_sequence_labelling_configuration(experiment_configuration: Dict[str, A
     errors += check_classification_data_configuration(model_configuration=model_configuration)
     errors += check_classification_head_configuration(model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration)
-    errors += check_sequence_settings(model_configuration=model_configuration)
+    errors += check_sequence_settings(model_configuration=model_configuration, cuts_windows=True)
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=ORDERED_TEMPORAL_TYPES, allow_causal=True)
+    return errors
+
+
+def check_fusion_configuration(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the 'Fusion' section of the sequence comparison task, which combines the before and after members of a
+    pair: its type, the number of heads and the dropout of the cross attention (all required whatever the type), and
+    that the cross attention can split the frame vectors between its heads.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model sections.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    fusion_type = get_configuration_value(configuration=model_configuration, key_path="Fusion.type")
+    if fusion_type not in FUSION_TYPES:
+        errors.append(f"'Fusion.type' must be one of {FUSION_TYPES}, got {fusion_type!r}.")
+
+    # Heads and dropout of the cross attention
+    head_errors = check_positive_integers(configuration=model_configuration, key_paths=["Fusion.number_heads"],
+                                          allow_zero=False)
+    errors += head_errors
+    dropout_rate = get_configuration_value(configuration=model_configuration, key_path="Fusion.dropout_rate")
+    if isinstance(dropout_rate, bool) or not isinstance(dropout_rate, (int, float)) or not 0.0 <= dropout_rate < 1.0:
+        errors.append(f"'Fusion.dropout_rate' must be a number within [0, 1), got {dropout_rate!r}.")
+
+    # The cross attention splits the frame vectors, as wide as the last backbone block, between its heads (a
+    # malformed block being reported by the backbone check)
+    convolutions = get_configuration_value(configuration=model_configuration, key_path="Backbone.convolutions")
+    if fusion_type == "cross_attention" and not head_errors and isinstance(convolutions, dict) and convolutions:
+        last_block = list(convolutions.values())[-1]
+        number_heads = get_configuration_value(configuration=model_configuration, key_path="Fusion.number_heads")
+        if isinstance(last_block, list) and len(last_block) == 2 and isinstance(last_block[1], int) and \
+                not isinstance(last_block[1], bool) and last_block[1] % number_heads != 0:
+            errors.append(f"The channels of the last backbone block ({last_block[1]}) must be a multiple of "
+                          f"'Fusion.number_heads' ({number_heads}) for the cross attention.")
+    return errors
+
+
+def check_sequence_comparison_configuration(experiment_configuration: Dict[str, Any],
+                                            model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Runs every check specific to the sequence comparison task: the data settings, classification head and evaluation
+    settings shared with the classification task, the sequence settings of the member windows (no window stride, a
+    member being one window), a temporal module summarising a member (any type, not causal), and the fusion of the
+    members.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration.
+        model_configuration (Dict[str, Any]): The processed model sections.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    errors += check_classification_data_configuration(model_configuration=model_configuration)
+    errors += check_classification_head_configuration(model_configuration=model_configuration)
+    errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration)
+    errors += check_sequence_settings(model_configuration=model_configuration, cuts_windows=False)
+    errors += check_temporal_model_configuration(model_configuration=model_configuration,
+                                                 valid_types=POOLING_TEMPORAL_TYPES + ORDERED_TEMPORAL_TYPES,
+                                                 allow_causal=False)
+    errors += check_fusion_configuration(model_configuration=model_configuration)
     return errors

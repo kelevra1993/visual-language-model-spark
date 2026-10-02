@@ -27,7 +27,7 @@ from vision_training.utilities.tensor_utilities import get_device
 class BaseTrainer(ABC):
     """
     General training pipeline shared by every task of the repository (object detection, classification, sequence
-    classification and sequence labelling).
+    classification, sequence labelling and sequence comparison).
 
     It owns everything that does not depend on the task: the run folder named after the settings, the training loop
     with its validation passes and checkpoint schedule, the metric tracking (console and TensorBoard), the checkpoints
@@ -39,7 +39,8 @@ class BaseTrainer(ABC):
     # Name of the task trained by the subclass, stored in its checkpoints
     TASK_NAME = ""
 
-    # Kind of sample of a batch, "Images" for the image tasks or "Sequences" for the sequence tasks
+    # Kind of sample of a batch, "Images" for the image tasks, "Sequences" for the sequence tasks or "Pairs" for the
+    # sequence comparison task
     SAMPLE_NAME = "Images"
 
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],

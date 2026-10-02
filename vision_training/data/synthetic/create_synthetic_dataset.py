@@ -4,8 +4,9 @@ import cv2
 import numpy as np
 
 from multiprocessing import Pool
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
 from vision_training.utilities.os_utilities import print_color
 
 # Shape classes of the synthetic dataset and their COCO category identifiers
@@ -38,10 +39,31 @@ MOVEMENT_DIRECTIONS = {"moving_left": (-1, 0), "moving_right": (1, 0), "moving_u
 # Maximum number of shape changes of a synthetic sequence labelling sample
 MAXIMUM_SHAPE_CHANGES = 3
 
-# Categories of the synthetic dataset of every task, and the tasks whose samples are sequences of frames
+# Classes of the synthetic sequence comparison dataset: the after member of a pair lost one of the objects of its
+# before member, or shows all of them
+PAIR_CATEGORIES = {"loss_of_object": 1, "same_number_of_objects": 2}
+
+# Minimum number of objects of the before member of a pair, and minimum number of frames of every member
+PAIR_MINIMUM_OBJECTS = 2
+PAIR_MINIMUM_FRAMES = 2
+
+# Minimum gap in pixels between two objects of a pair frame, so that every object is countable, and number of
+# attempts at drawing a frame where every object fits
+MINIMUM_OBJECT_GAP = 2
+MAXIMUM_FRAME_ATTEMPTS = 20
+
+# Categories of the synthetic dataset of every task, and the tasks whose samples are sequences of frames (one sequence,
+# or a pair of sequences)
 TASK_CATEGORIES = {"object_detection": SHAPE_CATEGORIES, "classification": SHAPE_CATEGORIES,
-                   "sequence_classification": MOVEMENT_CATEGORIES, "sequence_labelling": SHAPE_CATEGORIES}
-SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling"]
+                   "sequence_classification": MOVEMENT_CATEGORIES, "sequence_labelling": SHAPE_CATEGORIES,
+                   "sequence_comparison": PAIR_CATEGORIES}
+SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison"]
+
+# Key of the samples in the manifest of every sequence task, and name of the samples of every task in the console
+TASK_MANIFEST_KEYS = {"sequence_classification": "sequences", "sequence_labelling": "sequences",
+                      "sequence_comparison": "pairs"}
+TASK_SAMPLE_NAMES = {"object_detection": "images", "classification": "images", "sequence_classification": "sequences",
+                     "sequence_labelling": "sequences", "sequence_comparison": "pairs"}
 
 
 def draw_square_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
@@ -204,6 +226,74 @@ def draw_background(image_size: int, random_generator: np.random.Generator) -> T
     return image, background_colour
 
 
+def draw_shape_descriptor(minimum_size: int, maximum_size: int, background_colour: np.ndarray,
+                          random_generator: np.random.Generator) -> Dict[str, Any]:
+    """
+    Draws one synthetic object of random class, size and colour, its pixels drawn once on a canvas of their own so
+    that the same object can be pasted at any position of an image or of the frames of a sequence. Shared by the
+    images of the detection and classification datasets, the moving shape of the sequence classification dataset and
+    the objects of the comparison pairs.
+
+    Args:
+        minimum_size (int): The minimum size of the shape in pixels.
+        maximum_size (int): The maximum size of the shape in pixels.
+        background_colour (np.ndarray): The [3] uint8 BGR background colour the object must contrast with.
+        random_generator (np.random.Generator): The random generator of the object.
+
+    Returns:
+        Dict[str, Any]: The 'shape_name' of the object, the [size + 1, size + 1] uint8 'mask' of its pixels and its
+            [3] uint8 BGR 'colour'.
+    """
+    shape_names = list(SHAPE_CATEGORIES)
+    shape_name = shape_names[int(random_generator.integers(low=0, high=len(shape_names)))]
+    size = int(random_generator.integers(low=minimum_size, high=maximum_size + 1))
+
+    # Pixels of the shape centred on its own canvas, then a colour visible on the background
+    mask = np.zeros(shape=(size + 1, size + 1), dtype=np.uint8)
+    SHAPE_DRAWING_FUNCTIONS[shape_name](mask=mask, center_x=size // 2, center_y=size // 2, size=size,
+                                        random_generator=random_generator)
+    colour = draw_contrasting_colour(background_colour=background_colour, random_generator=random_generator)
+    return {"shape_name": shape_name, "mask": mask, "colour": colour}
+
+
+def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxes: List[List[int]],
+                maximum_intersection_over_union: float, minimum_gap: int,
+                random_generator: np.random.Generator) -> Optional[List[int]]:
+    """
+    Pastes a synthetic object at a random position of an image where it overlaps every object already placed by at
+    most 'maximum_intersection_over_union', its box being grown by 'minimum_gap' pixels on every side for that test,
+    trying up to 50 positions. Shared by the detection images, which tolerate some overlap between objects, and the
+    frames of the comparison pairs, whose objects must not touch so that every object stays countable.
+
+    Args:
+        image (np.ndarray): The [H, W, 3] uint8 BGR image drawn in place.
+        shape_descriptor (Dict[str, Any]): The 'mask' and 'colour' of the object (draw_shape_descriptor).
+        placed_boxes (List[List[int]]): The tight [x1, y1, x2, y2] boxes of the objects already in the image.
+        maximum_intersection_over_union (float): The largest overlap allowed with every placed box.
+        minimum_gap (int): The number of pixels the box of the object is grown by on every side for the overlap test.
+        random_generator (np.random.Generator): The random generator of the positions.
+
+    Returns:
+        Optional[List[int]]: The tight [x1, y1, x2, y2] box of the pasted object, or None when no position fits.
+    """
+    mask = shape_descriptor["mask"]
+    canvas_height, canvas_width = mask.shape
+    image_height, image_width = image.shape[:2]
+    shape_box = get_mask_bounding_box(mask=mask)
+
+    # Try random positions of the shape canvas until the grown box of the shape is far enough from every placed box
+    for _ in range(MAXIMUM_PLACEMENT_ATTEMPTS):
+        left = int(random_generator.integers(low=0, high=image_width - canvas_width + 1))
+        top = int(random_generator.integers(low=0, high=image_height - canvas_height + 1))
+        box = [left + shape_box[0], top + shape_box[1], left + shape_box[2], top + shape_box[3]]
+        grown_box = [box[0] - minimum_gap, box[1] - minimum_gap, box[2] + minimum_gap, box[3] + minimum_gap]
+        if all(get_intersection_over_union(first_box=grown_box, second_box=placed_box) <=
+               maximum_intersection_over_union for placed_box in placed_boxes):
+            image[top:top + canvas_height, left:left + canvas_width][mask > 0] = shape_descriptor["colour"]
+            return box
+    return None
+
+
 def generate_image(image_size: int, maximum_objects: int, random_generator: np.random.Generator) -> Tuple[
         np.ndarray, List[Tuple[int, List[int]]]]:
     """
@@ -222,30 +312,20 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
     """
     # Half of the images have a black background, the other half a random colour
     image, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
-
-    minimum_size, maximum_size = 32, max(33, image_size // 3)
-    shape_names = list(SHAPE_CATEGORIES)
     objects = []
 
-    # Place every object at a random position, retrying when it overlaps an existing object too much
+    # Place every object at a random position, an object overlapping the placed ones too much at every attempt being
+    # left out
     for _ in range(int(random_generator.integers(low=1, high=maximum_objects + 1))):
-        shape_name = shape_names[int(random_generator.integers(low=0, high=len(shape_names)))]
-
-        for _ in range(MAXIMUM_PLACEMENT_ATTEMPTS):
-            size = int(random_generator.integers(low=minimum_size, high=maximum_size + 1))
-            center_x, center_y = random_generator.integers(low=size // 2, high=image_size - size // 2, size=2)
-
-            mask = np.zeros(shape=(image_size, image_size), dtype=np.uint8)
-            SHAPE_DRAWING_FUNCTIONS[shape_name](mask=mask, center_x=int(center_x), center_y=int(center_y), size=size,
-                                                random_generator=random_generator)
-            box = get_mask_bounding_box(mask=mask)
-
-            if all(get_intersection_over_union(first_box=box, second_box=existing_box) <=
-                   MAXIMUM_OBJECT_INTERSECTION_OVER_UNION for _, existing_box in objects):
-                image[mask > 0] = draw_contrasting_colour(background_colour=background_colour,
-                                                          random_generator=random_generator)
-                objects.append((SHAPE_CATEGORIES[shape_name], box))
-                break
+        shape_descriptor = draw_shape_descriptor(minimum_size=32, maximum_size=max(33, image_size // 3),
+                                                 background_colour=background_colour,
+                                                 random_generator=random_generator)
+        box = place_shape(image=image, shape_descriptor=shape_descriptor,
+                          placed_boxes=[existing_box for _, existing_box in objects],
+                          maximum_intersection_over_union=MAXIMUM_OBJECT_INTERSECTION_OVER_UNION, minimum_gap=0,
+                          random_generator=random_generator)
+        if box is not None:
+            objects.append((SHAPE_CATEGORIES[shape_descriptor["shape_name"]], box))
 
     return image, objects
 
@@ -359,16 +439,14 @@ def generate_moving_shape_sequence(image_size: int, number_frames: int, random_g
         Tuple[List[np.ndarray], int]: The [H, W, 3] uint8 BGR frames and the category identifier of the movement.
     """
     background, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
-    shape_names, direction_names = list(SHAPE_CATEGORIES), list(MOVEMENT_CATEGORIES)
-    shape_name = shape_names[int(random_generator.integers(low=0, high=len(shape_names)))]
+    direction_names = list(MOVEMENT_CATEGORIES)
     direction_name = direction_names[int(random_generator.integers(low=0, high=len(direction_names)))]
 
     # Draw the shape once on its own canvas, its pixels then being moved from frame to frame
-    size = int(random_generator.integers(low=max(8, image_size // 8), high=max(9, image_size // 4) + 1))
-    shape_mask = np.zeros(shape=(size + 1, size + 1), dtype=np.uint8)
-    SHAPE_DRAWING_FUNCTIONS[shape_name](mask=shape_mask, center_x=size // 2, center_y=size // 2, size=size,
-                                        random_generator=random_generator)
-    colour = draw_contrasting_colour(background_colour=background_colour, random_generator=random_generator)
+    shape_descriptor = draw_shape_descriptor(minimum_size=max(8, image_size // 8), maximum_size=max(9, image_size // 4),
+                                             background_colour=background_colour, random_generator=random_generator)
+    shape_mask, colour = shape_descriptor["mask"], shape_descriptor["colour"]
+    size = shape_mask.shape[0] - 1
 
     # Straight path covering 30 to 60 % of the free span of the image along the movement axis, starting from the far
     # end for the leftward and upward movements
@@ -434,43 +512,162 @@ def generate_changing_shape_sequence(image_size: int, number_frames: int,
     return frames, frame_category_ids
 
 
+def draw_shapes_frame(background: np.ndarray, shape_descriptors: List[Dict[str, Any]],
+                      random_generator: np.random.Generator) -> np.ndarray:
+    """
+    Draws one frame of a member of a comparison pair: every given object pasted at a random position of the
+    background, without overlap and with a gap of 2 pixels between two objects, so that the frame shows exactly its
+    number of objects. The whole frame is drawn again when an object does not fit, up to 20 times.
+
+    Args:
+        background (np.ndarray): The [H, W, 3] uint8 BGR background shared by the frames of the pair.
+        shape_descriptors (List[Dict[str, Any]]): The objects of the frame (draw_shape_descriptor).
+        random_generator (np.random.Generator): The random generator of the positions.
+
+    Returns:
+        np.ndarray: The [H, W, 3] uint8 BGR frame.
+
+    Raises:
+        RuntimeError: If the objects never all fit, e.g. too many objects for the image size.
+    """
+    for _ in range(MAXIMUM_FRAME_ATTEMPTS):
+        frame = background.copy()
+        placed_boxes = []
+
+        # Place the objects one after the other, starting the frame again as soon as one does not fit
+        for shape_descriptor in shape_descriptors:
+            box = place_shape(image=frame, shape_descriptor=shape_descriptor, placed_boxes=placed_boxes,
+                              maximum_intersection_over_union=0.0, minimum_gap=MINIMUM_OBJECT_GAP,
+                              random_generator=random_generator)
+            if box is None:
+                break
+            placed_boxes.append(box)
+        if len(placed_boxes) == len(shape_descriptors):
+            return frame
+    raise RuntimeError(f"{len(shape_descriptors)} objects never fitted without overlap in a {background.shape[0]} "
+                       f"pixel frame after {MAXIMUM_FRAME_ATTEMPTS} attempts.")
+
+
+def generate_object_loss_pair(image_size: int, number_frames: int, maximum_objects: int,
+                              random_generator: np.random.Generator) -> Tuple[Dict[str, List[np.ndarray]], int]:
+    """
+    Generates one synthetic sequence comparison sample: a before member and an after member, two sequences of
+    independent views of the same objects (2 to 'maximum_objects' shapes of fixed class, size and colour, placed at
+    random positions in every frame, over a background shared by the pair). The after member lost one of the objects
+    (class 'loss_of_object') or shows all of them (class 'same_number_of_objects'), with the same probability. A single
+    member does not give the class, only the comparison of the numbers of objects of the two members, and every frame
+    shows exactly its number of objects.
+
+    Args:
+        image_size (int): The height and width of the square frames in pixels.
+        number_frames (int): The maximum number of frames of a member, at least 2, every member having 2 to
+            number_frames frames.
+        maximum_objects (int): The maximum number of objects of the before member, at least 2.
+        random_generator (np.random.Generator): The random generator of the pair.
+
+    Returns:
+        Tuple[Dict[str, List[np.ndarray]], int]: The [H, W, 3] uint8 BGR frames of the 'before' and 'after' members,
+            and the category identifier of the pair.
+
+    Raises:
+        ValueError: If number_frames or maximum_objects is below 2.
+    """
+    if number_frames < PAIR_MINIMUM_FRAMES or maximum_objects < PAIR_MINIMUM_OBJECTS:
+        raise ValueError(f"The comparison pairs need members of at least {PAIR_MINIMUM_FRAMES} frames and "
+                         f"{PAIR_MINIMUM_OBJECTS} objects, got number_frames {number_frames} and maximum_objects "
+                         f"{maximum_objects}.")
+    background, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
+
+    # Objects of the before member, drawn once so that both members show the same objects
+    number_objects = int(random_generator.integers(low=PAIR_MINIMUM_OBJECTS, high=maximum_objects + 1))
+    before_descriptors = [draw_shape_descriptor(minimum_size=max(8, image_size // 8),
+                                                maximum_size=max(9, image_size // 5),
+                                                background_colour=background_colour,
+                                                random_generator=random_generator) for _ in range(number_objects)]
+
+    # The after member loses one of the objects for half of the pairs
+    category_name = "loss_of_object" if random_generator.random() < 0.5 else "same_number_of_objects"
+    after_descriptors = list(before_descriptors)
+    if category_name == "loss_of_object":
+        after_descriptors.pop(int(random_generator.integers(low=0, high=number_objects)))
+
+    # Independent views of the objects of every member, each member with its own number of frames
+    member_frames = {}
+    for member_name, member_descriptors in zip(PAIR_MEMBERS, [before_descriptors, after_descriptors]):
+        member_length = int(random_generator.integers(low=PAIR_MINIMUM_FRAMES, high=number_frames + 1))
+        member_frames[member_name] = [draw_shapes_frame(background=background, shape_descriptors=member_descriptors,
+                                                        random_generator=random_generator)
+                                      for _ in range(member_length)]
+    return member_frames, PAIR_CATEGORIES[category_name]
+
+
+def save_frames(data_folder: str, frame_folder: str, frames: List[np.ndarray]) -> List[str]:
+    """
+    Saves the frames of a sequence, or of a member of a pair, in order in their own folder
+    '<data folder>/<frame folder>/', for the manifests of every sequence task.
+
+    Args:
+        data_folder (str): The data folder of the split.
+        frame_folder (str): The folder of the frames, relative to the data folder.
+        frames (List[np.ndarray]): The [H, W, 3] uint8 BGR frames, in order.
+
+    Returns:
+        List[str]: The paths of the saved frames, relative to the data folder.
+    """
+    os.makedirs(name=os.path.join(data_folder, frame_folder), exist_ok=True)
+    frame_files = [f"{frame_folder}/{frame_index:06d}.png" for frame_index in range(len(frames))]
+    for frame_file, frame in zip(frame_files, frames):
+        cv2.imwrite(filename=os.path.join(data_folder, frame_file), img=frame)
+    return frame_files
+
+
 def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    Generates and saves one chunk of sequences of a split, run by a worker process, the frames of every sequence in
-    its own folder '<data folder>/<split>_<index>/'. Each chunk draws its sequences with its own random generator,
-    seeded from the operating system, so every generation creates a different dataset.
+    Generates and saves one chunk of sequences (or pairs of sequences) of a split, run by a worker process, the frames
+    of every sequence in its own folder '<data folder>/<split>_<index>/', and those of a pair in its member folders
+    '<data folder>/<split>_<index>/before/' and '.../after/'. Each chunk draws its samples with its own random
+    generator, seeded from the operating system, so every generation creates a different dataset.
 
     Args:
         chunk (Dict[str, Any]): The chunk description: 'data_folder', 'split_name', 'first_index',
-            'number_sequences', 'image_size', 'number_frames' and 'task'.
+            'number_sequences', 'image_size', 'number_frames', 'maximum_objects' and 'task'.
 
     Returns:
-        List[Dict[str, Any]]: For every sequence, its 'index', 'name', 'frames' (paths relative to the data folder)
-            and 'category_id' (sequence classification) or 'frame_category_ids' (sequence labelling).
+        List[Dict[str, Any]]: For every sample, its 'index', 'name', its 'frames' (or the frames of its 'before' and
+            'after' members, paths relative to the data folder) and 'category_id' (sequence classification and
+            comparison) or 'frame_category_ids' (sequence labelling).
     """
     random_generator = np.random.default_rng()
     sequence_records = []
 
     for sequence_index in range(chunk["first_index"], chunk["first_index"] + chunk["number_sequences"]):
-        # A shape crossing the frames labelled with its direction, or a shape changing class labelled per frame
-        if chunk["task"] == "sequence_classification":
+        sequence_name = f"{chunk['split_name']}_{sequence_index:06d}"
+
+        # A shape crossing the frames labelled with its direction, a shape changing class labelled per frame, or two
+        # members labelled with the comparison of their numbers of objects, the frames saved in their folders
+        if chunk["task"] == "sequence_comparison":
+            member_frames, category_identifier = generate_object_loss_pair(
+                image_size=chunk["image_size"], number_frames=chunk["number_frames"],
+                maximum_objects=chunk["maximum_objects"], random_generator=random_generator)
+            sequence_frames = {member_name: save_frames(data_folder=chunk["data_folder"],
+                                                        frame_folder=f"{sequence_name}/{member_name}", frames=frames)
+                               for member_name, frames in member_frames.items()}
+            sequence_labels = {"category_id": category_identifier}
+        elif chunk["task"] == "sequence_classification":
             frames, category_identifier = generate_moving_shape_sequence(image_size=chunk["image_size"],
                                                                          number_frames=chunk["number_frames"],
                                                                          random_generator=random_generator)
+            sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
+                                                     frames=frames)}
             sequence_labels = {"category_id": category_identifier}
         else:
             frames, frame_category_ids = generate_changing_shape_sequence(image_size=chunk["image_size"],
                                                                           number_frames=chunk["number_frames"],
                                                                           random_generator=random_generator)
+            sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
+                                                     frames=frames)}
             sequence_labels = {"frame_category_ids": frame_category_ids}
-
-        # Save the frames in the folder of the sequence, in order
-        sequence_name = f"{chunk['split_name']}_{sequence_index:06d}"
-        os.makedirs(name=os.path.join(chunk["data_folder"], sequence_name), exist_ok=True)
-        frame_files = [f"{sequence_name}/{frame_index:06d}.png" for frame_index in range(len(frames))]
-        for frame_file, frame in zip(frame_files, frames):
-            cv2.imwrite(filename=os.path.join(chunk["data_folder"], frame_file), img=frame)
-        sequence_records.append({"index": sequence_index, "name": sequence_name, "frames": frame_files,
+        sequence_records.append({"index": sequence_index, "name": sequence_name, **sequence_frames,
                                  **sequence_labels})
 
     return sequence_records
@@ -481,27 +678,27 @@ def build_sequence_labels(sequence_records: List[Dict[str, Any]], split_name: st
     """
     Assembles the 'labels.json' manifest of a synthetic sequence split, read by the sequence loader: every sequence
     with its ordered frames and its category (sequence classification) or the category of every frame (sequence
-    labelling).
+    labelling), or every pair with the ordered frames of its before and after members and its category (sequence
+    comparison, under the 'pairs' key).
 
     Args:
-        sequence_records (List[Dict[str, Any]]): The 'index', 'name', 'frames' and 'category_id' or
-            'frame_category_ids' of every sequence.
+        sequence_records (List[Dict[str, Any]]): The 'index', 'name', frames ('frames', or 'before' and 'after') and
+            'category_id' or 'frame_category_ids' of every sample.
         split_name (str): The name of the split, written in the description.
-        task (str): The sequence task of the dataset, giving its categories.
+        task (str): The sequence task of the dataset, giving its categories and its manifest key.
 
     Returns:
-        Tuple[Dict[str, Any], Dict[str, int]]: The manifest and the number of sequences (or frames) of every class.
+        Tuple[Dict[str, Any], Dict[str, int]]: The manifest and the number of samples (or frames) of every class.
     """
     categories = TASK_CATEGORIES[task]
     category_names = {category_identifier: name for name, category_identifier in categories.items()}
     class_counts = {category_name: 0 for category_name in categories}
 
-    # One entry per sequence, with its frames in order and its category, or the category of every frame
+    # One entry per sample, with its frames in order and its category, or the category of every frame
     sequences = []
     for record in sequence_records:
-        sequence = {"id": record["index"] + 1, "name": record["name"], "frames": record["frames"]}
+        sequence = {"id": record["index"] + 1, **{key: value for key, value in record.items() if key != "index"}}
         label_key = "category_id" if "category_id" in record else "frame_category_ids"
-        sequence[label_key] = record[label_key]
         for category_identifier in ([record["category_id"]] if label_key == "category_id" else
                                     record["frame_category_ids"]):
             class_counts[category_names[category_identifier]] += 1
@@ -510,7 +707,7 @@ def build_sequence_labels(sequence_records: List[Dict[str, Any]], split_name: st
     labels = {"info": {"description": f"Synthetic {task.replace('_', ' ')} dataset, {split_name} split"},
               "categories": [{"id": category_identifier, "name": name}
                              for name, category_identifier in categories.items()],
-              "sequences": sequences}
+              TASK_MANIFEST_KEYS[task]: sequences}
     return labels, class_counts
 
 
@@ -520,30 +717,34 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
     Generates one split of the synthetic dataset in the folder layout the loaders of the task read: the images (or
     the frame folders of the sequences) in '<split_folder>/data' and their labels in '<split_folder>/labels.json'
     (COCO annotations for object detection, a samples manifest with one shape per image for classification, a
-    sequences manifest for the sequence tasks).
+    sequences manifest for the sequence tasks, a pairs manifest for the sequence comparison).
 
     Args:
         split_folder (str): The folder of the split.
         split_name (str): The name of the split, used in the file names ('train', 'validation' or 'test').
-        number_samples (int): The number of images, or of sequences for the sequence tasks, of the split.
+        number_samples (int): The number of images, of sequences or of pairs of the split.
         image_size (int): The height and width of the images in pixels.
-        maximum_objects (int): The maximum number of objects per image (object detection only, the classification
-            images holding a single shape).
-        number_frames (int): The number of frames of every sequence (sequence tasks only).
+        maximum_objects (int): The maximum number of objects per image (object detection, the classification images
+            holding a single shape) or per before member of a pair (sequence comparison).
+        number_frames (int): The number of frames of every sequence, or the maximum number of frames of a member of a
+            pair (sequence tasks only).
         number_workers (int): The number of worker processes generating the images.
-        task (str): "object_detection", "classification", "sequence_classification" or "sequence_labelling".
+        task (str): "object_detection", "classification", "sequence_classification", "sequence_labelling" or
+            "sequence_comparison".
 
     Returns:
-        Dict[str, int]: The number of labels (objects, images, sequences or frames) of every class in the split.
+        Dict[str, int]: The number of labels (objects, images, sequences, frames or pairs) of every class in the split.
     """
     data_folder = os.path.join(split_folder, "data")
     os.makedirs(name=data_folder, exist_ok=True)
 
-    # Sequences: split them into fixed-size chunks shared among the worker processes, then assemble their manifest
+    # Sequences and pairs: split them into fixed-size chunks shared among the worker processes, then assemble their
+    # manifest
     if task in SEQUENCE_TASKS:
         chunks = [{"data_folder": data_folder, "split_name": split_name, "first_index": first_index,
                    "number_sequences": min(SEQUENCES_PER_TASK, number_samples - first_index),
-                   "image_size": image_size, "number_frames": number_frames, "task": task}
+                   "image_size": image_size, "number_frames": number_frames, "maximum_objects": maximum_objects,
+                   "task": task}
                   for first_index in range(0, number_samples, SEQUENCES_PER_TASK)]
         with Pool(processes=number_workers) as pool:
             sequence_records = [record for chunk_records in pool.map(generate_sequence_chunk, chunks)
@@ -580,20 +781,24 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
     'label_mapping.json' file used by the 'multi_class' label mapping mode of the configuration. The dataset is a
     trivial task used to check that a model learns (it should overfit it within minutes): several shapes per image
     to detect, a single shape per image to classify, a shape crossing the frames of a sequence whose movement
-    direction is classified, or a shape changing class during a sequence whose every frame is classified.
+    direction is classified, a shape changing class during a sequence whose every frame is classified, or a pair of
+    sequences of the same objects whose after member may have lost one of them.
 
     Args:
         output_folder (str): The root folder of the dataset.
         image_size (int): The height and width of the images in pixels.
-        split_sizes (Dict[str, int]): The number of images, or of sequences for the sequence tasks, of every split,
-            keyed by split name.
-        maximum_objects (int): The maximum number of objects per image (object detection only).
-        number_frames (int): The number of frames of every sequence (sequence tasks only).
+        split_sizes (Dict[str, int]): The number of images, of sequences or of pairs of every split, keyed by split
+            name.
+        maximum_objects (int): The maximum number of objects per image (object detection) or per before member of a
+            pair (sequence comparison).
+        number_frames (int): The number of frames of every sequence, or the maximum number of frames of a member of a
+            pair (sequence tasks only).
         number_workers (int): The number of worker processes generating the images.
-        task (str): "object_detection", "classification", "sequence_classification" or "sequence_labelling".
+        task (str): "object_detection", "classification", "sequence_classification", "sequence_labelling" or
+            "sequence_comparison".
     """
     # Generate every split in its own folder
-    sample_name = "sequences" if task in SEQUENCE_TASKS else "images"
+    sample_name = TASK_SAMPLE_NAMES[task]
     for split_name, number_samples in split_sizes.items():
         split_folder = os.path.abspath(os.path.join(output_folder, split_name))
         print_color(color="blue", output=f"Generating {number_samples} {split_name} {sample_name}...")
@@ -615,30 +820,37 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
 
 if __name__ == "__main__":
     # Task of the dataset: "object_detection" (several shapes per image), "classification" (one shape per image),
-    # "sequence_classification" (one shape crossing the frames, labelled with its movement direction) or
-    # "sequence_labelling" (one shape changing class during the sequence, labelled per frame)
+    # "sequence_classification" (one shape crossing the frames, labelled with its movement direction),
+    # "sequence_labelling" (one shape changing class during the sequence, labelled per frame) or "sequence_comparison"
+    # (a before and an after sequence of the same objects, labelled with whether the after member lost one of them)
     task = "object_detection"
     # Root folder of the created dataset of every task, the ones expected by the synthetic configurations of
     # vision_training/configurations/. Existing images and labels of the same splits are overwritten
     output_folders = {"object_detection": "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes",
                       "classification": "/home/robert_kelevra/Data/classifier_data/synthetic_shapes",
                       "sequence_classification": "/home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes",
-                      "sequence_labelling": "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes"}
+                      "sequence_labelling": "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes",
+                      "sequence_comparison": "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs"}
     # Height and width of the square images in pixels, for every task
     image_sizes = {"object_detection": 1024, "classification": 256, "sequence_classification": 128,
-                   "sequence_labelling": 128}
-    # Number of images (or sequences) of every split, all of them labelled, for every task
+                   "sequence_labelling": 128, "sequence_comparison": 128}
+    # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task
     split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
                    "classification": {"train": 4000, "validation": 500, "test": 500},
                    "sequence_classification": {"train": 2000, "validation": 200, "test": 200},
-                   "sequence_labelling": {"train": 2000, "validation": 200, "test": 200}}
-    # Maximum number of shapes drawn in one image (at least one is always drawn), object detection only
-    maximum_objects = 6
-    # Number of frames of every sequence, sequence tasks only
-    number_frames = 8
+                   "sequence_labelling": {"train": 2000, "validation": 200, "test": 200},
+                   "sequence_comparison": {"train": 2000, "validation": 200, "test": 200}}
+    # Maximum number of shapes drawn in one image (at least one is always drawn, object detection) or in the before
+    # member of a pair (at least two, sequence comparison), for every task (unused by the other tasks)
+    maximum_objects = {"object_detection": 6, "classification": 1, "sequence_classification": 1,
+                       "sequence_labelling": 1, "sequence_comparison": 4}
+    # Number of frames of every sequence, or maximum number of frames of a member of a pair (at least two), for every
+    # task (unused by the image tasks)
+    number_frames = {"object_detection": 1, "classification": 1, "sequence_classification": 8,
+                     "sequence_labelling": 8, "sequence_comparison": 6}
     # Number of worker processes generating the images
     number_workers = 8
 
     create_synthetic_dataset(output_folder=output_folders[task], image_size=image_sizes[task],
-                             split_sizes=split_sizes[task], maximum_objects=maximum_objects,
-                             number_frames=number_frames, number_workers=number_workers, task=task)
+                             split_sizes=split_sizes[task], maximum_objects=maximum_objects[task],
+                             number_frames=number_frames[task], number_workers=number_workers, task=task)

@@ -8,8 +8,9 @@ from pathlib import Path
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset
 from vision_training.data.synthetic.create_synthetic_dataset import (MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS,
-                                                                     SHAPE_CATEGORIES, SHAPE_DRAWING_FUNCTIONS,
-                                                                     create_synthetic_dataset, get_mask_bounding_box)
+                                                                     PAIR_CATEGORIES, SHAPE_CATEGORIES,
+                                                                     SHAPE_DRAWING_FUNCTIONS, create_synthetic_dataset,
+                                                                     draw_shapes_frame, get_mask_bounding_box)
 
 IMAGE_SIZE = 256
 
@@ -185,3 +186,69 @@ def test_created_sequence_labelling_dataset_labels_every_frame(tmp_path: Path) -
         for frame_index in range(1, 6):
             same_class = frame_category_ids[frame_index] == frame_category_ids[frame_index - 1]
             assert np.array_equal(frames[frame_index], frames[frame_index - 1]) == same_class
+
+
+def count_frame_objects(frame: np.ndarray) -> int:
+    """
+    Counts the objects of a synthetic frame: the 8-connected groups of the pixels differing from the background colour,
+    the most frequent colour of the frame.
+
+    Args:
+        frame (np.ndarray): The [H, W, 3] uint8 BGR frame.
+
+    Returns:
+        int: The number of objects of the frame.
+    """
+    colours, counts = np.unique(frame.reshape(-1, 3), axis=0, return_counts=True)
+    object_mask = np.any(frame != colours[np.argmax(counts)], axis=-1).astype(np.uint8)
+    number_components, _ = cv2.connectedComponents(image=object_mask, connectivity=8)
+    return number_components - 1
+
+
+def test_created_sequence_comparison_dataset_loses_an_object_in_the_after_member(tmp_path: Path) -> None:
+    """
+    Verifies the sequence comparison mode of the generator: every split gets a manifest of pairs with the ordered frames
+    of their before and after members (2 to 4 frames each), the label mapping gives the two classes 0 and 1, every
+    frame of a before member shows the same 2 to 3 separate objects, and every frame of its after member shows one
+    object less for the pairs labelled 'loss_of_object' and the same number of objects otherwise.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=64,
+                             split_sizes={"train": 12, "validation": 2, "test": 2}, maximum_objects=3,
+                             number_frames=4, number_workers=2, task="sequence_comparison")
+
+    labels = json.loads((tmp_path / "train" / "labels.json").read_text())
+    assert [category["name"] for category in labels["categories"]] == list(PAIR_CATEGORIES)
+    assert json.loads((tmp_path / "label_mapping.json").read_text()) == {"1": 0, "2": 1}
+    assert len(labels["pairs"]) == 12
+
+    # Number of objects of every frame of both members, the same in every frame of a member
+    for pair in labels["pairs"]:
+        member_object_counts = {}
+        for member_name in ["before", "after"]:
+            assert 2 <= len(pair[member_name]) <= 4
+            frame_object_counts = {count_frame_objects(frame=cv2.imread(filename=str(tmp_path / "train" / "data" /
+                                                                                     frame_file)))
+                                   for frame_file in pair[member_name]}
+            assert len(frame_object_counts) == 1
+            member_object_counts[member_name] = frame_object_counts.pop()
+        assert 2 <= member_object_counts["before"] <= 3
+        expected_lost_objects = 1 if pair["category_id"] == PAIR_CATEGORIES["loss_of_object"] else 0
+        assert member_object_counts["before"] - member_object_counts["after"] == expected_lost_objects
+
+
+def test_pair_frames_fail_loudly_when_objects_do_not_fit() -> None:
+    """
+    Verifies that a pair frame whose objects can never all fit without overlap stops the generation, instead of showing
+    a wrong number of objects: two squares of 20 pixels cannot be 2 pixels apart in a 32 pixel frame.
+    """
+    square_mask = np.zeros(shape=(21, 21), dtype=np.uint8)
+    square_mask[:20, :20] = 255
+    shape_descriptors = [{"shape_name": "square", "mask": square_mask, "colour": np.full(shape=3, fill_value=255,
+                                                                                         dtype=np.uint8)}] * 2
+
+    with pytest.raises(expected_exception=RuntimeError, match="never fitted"):
+        draw_shapes_frame(background=np.zeros(shape=(32, 32, 3), dtype=np.uint8), shape_descriptors=shape_descriptors,
+                          random_generator=np.random.default_rng())

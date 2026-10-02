@@ -1,7 +1,10 @@
 import json
 import os
 
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from vision_training.utilities.os_utilities import print_color
 
 # Tasks whose model predicts a background class at index 0 (the object detector); the models of the other tasks only
 # predict the dataset classes, indexed from 0
@@ -73,3 +76,23 @@ def get_class_names(categories: List[Dict[str, Any]], label_dictionary: Dict[Any
             category_names.setdefault(label_dictionary[category["id"]], []).append(category["name"])
     return {class_index: "+".join(category_names.get(class_index, [str(class_index)]))
             for class_index in range(len(set(label_dictionary.values())))}
+
+
+def write_label_mapping(categories: List[Dict[str, Any]], output_folder: str | Path) -> Path:
+    """
+    Writes the 'label_mapping.json' file of the 'multi_class' label mapping mode for manifests whose categories are
+    numbered from 1, as built from existing datasets (class folders, pair lists): every category maps to its
+    identifier minus 1, the classification-like models predicting no background class.
+
+    Args:
+        categories (List[Dict[str, Any]]): The 'id' and 'name' of every category, numbered from 1.
+        output_folder (str | Path): The folder receiving 'label_mapping.json'.
+
+    Returns:
+        Path: The absolute path of the written file.
+    """
+    label_mapping_path = Path(output_folder).absolute() / "label_mapping.json"
+    label_mapping_path.write_text(data=json.dumps(obj={str(category["id"]): category["id"] - 1
+                                                       for category in categories}, indent=4))
+    print_color(color="green", output=f"Label Mapping File : file://{label_mapping_path}", add_separators=True)
+    return label_mapping_path

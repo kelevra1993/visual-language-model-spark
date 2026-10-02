@@ -493,6 +493,97 @@ def test_sequence_labelling_run_name() -> None:
         "M2O_", "M2M_").replace("_GRU1x128-BI_", "_TCN3x128.3-CAU_")
 
 
+# Run name of the sequence comparison reference settings set by get_sequence_comparison_reference_configurations
+SEQUENCE_COMPARISON_REFERENCE_RUN_NAME = ("CMP_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64-"
+                                          "DO0.2_MC2_AUG-BS16-LR1e-3")
+
+
+def get_sequence_comparison_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Builds the sequence comparison reference settings from the sequence reference settings: the comparison task,
+    member windows without window stride, a mean pooling, the difference fusion and 2 classes.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: The experiment and model configurations of the reference settings.
+    """
+    experiment_configuration, model_configuration = get_sequence_reference_configurations()
+    experiment_configuration["task"] = "sequence_comparison"
+    del model_configuration["Data"]["sequence_settings"]["window_stride"]
+    model_configuration["TemporalModel"]["type"] = "mean_pooling"
+    model_configuration["Fusion"] = {"type": "difference", "number_heads": 4, "dropout_rate": 0.0}
+    model_configuration["Data"]["label_dictionary"] = {1: 0, 2: 1}
+    return experiment_configuration, model_configuration
+
+
+def use_concatenation(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Concatenates the member vectors without their difference.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Fusion"]["type"] = "concatenation"
+
+
+def use_cross_attention(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Fuses the members with the cross attention of 4 heads, without dropout.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Fusion"]["type"] = "cross_attention"
+
+
+def use_cross_attention_with_dropout(experiment_configuration: Dict[str, Any],
+                                     model_configuration: Dict[str, Any]) -> None:
+    """
+    Fuses the members with the cross attention of 4 heads, with a dropout of its attention weights.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Fusion"].update({"type": "cross_attention", "dropout_rate": 0.1})
+
+
+def skip_member_frames(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Keeps one frame every two of every member.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Data"]["sequence_settings"]["frame_stride"] = 2
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
+    (None, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME),
+    (use_concatenation, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_FDIF_", "_FCAT_")),
+    (use_cross_attention, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_FDIF_", "_FXA4_")),
+    (use_cross_attention_with_dropout, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_FDIF_", "_FXA4-FDO0.1_")),
+    (skip_member_frames, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_T8_", "_T8S2_"))])
+def test_sequence_comparison_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
+                                       expected_run_name: str) -> None:
+    """
+    Verifies the run names of the sequence comparison task: the CMP task code, the member window section, the
+    temporal module section, the fusion section, then the classification head and classes sections.
+
+    Args:
+        modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the settings, or
+            None for the reference settings.
+        expected_run_name (str): The expected run name of the settings.
+    """
+    experiment_configuration, model_configuration = get_sequence_comparison_reference_configurations()
+    if modify_function is not None:
+        modify_function(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == expected_run_name
+
+
 @pytest.mark.parametrize(argnames=("freeze", "learning_rate_multiplier", "expected_tokens"), argvalues=[
     (False, 1.0, "-PT_"), (True, 1.0, "-PT-FRZ_"), (False, 0.1, "-PT-BLR0.1_"), (True, 0.1, "-PT-FRZ_")])
 def test_pretrained_backbone_run_names(freeze: bool, learning_rate_multiplier: float, expected_tokens: str) -> None:

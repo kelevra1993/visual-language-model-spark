@@ -123,3 +123,25 @@ def get_sequence_model_configuration(temporal_type: str) -> Tuple[Dict[str, Any]
                                       'kernel_size': 3, 'dropout_rate': 0.0, 'bidirectional': False, 'causal': False}
 
     return configuration, device, dtype
+
+
+def get_sequence_comparison_model_configuration(temporal_type: str, fusion_type: str) -> Tuple[
+        Dict[str, Any], torch.device, torch.dtype]:
+    """
+    Supplies a small sequence comparison model configuration dictionary, with its device and dtype, shared by the
+    comparison model tests: the sequence model configuration with member windows of 4 frames (no window stride, a
+    member being one window) and the fusion of the members, its cross attention splitting the 32 channels of the last
+    backbone block between 2 heads.
+
+    Args:
+        temporal_type (str): The type of the temporal module.
+        fusion_type (str): The type of the fusion of the members.
+
+    Returns:
+        Tuple[Dict[str, Any], torch.device, torch.dtype]: The comparison model configuration, compute device and dtype.
+    """
+    configuration, device, dtype = get_sequence_model_configuration(temporal_type=temporal_type)
+    del configuration['Data']['sequence_settings']['window_stride']
+    configuration['Fusion'] = {'type': fusion_type, 'number_heads': 2, 'dropout_rate': 0.0}
+
+    return configuration, device, dtype

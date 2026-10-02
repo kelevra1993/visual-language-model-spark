@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 from torch.utils.data import Dataset
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
@@ -42,6 +42,37 @@ def compute_window_starts(number_frames: int, sequence_length: int, window_strid
     if window_starts[-1] != number_frames - sequence_length:
         window_starts.append(number_frames - sequence_length)
     return window_starts
+
+
+def read_window_frames(data_directory: str, frame_files: List[str], sequence_length: int, image_size: int,
+                       keep_ratio: bool) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Reads the frames of one window, resized and padded like the images of the other tasks, into the fixed-size frame
+    tensor fed to the sequence models: the real frames first, in order, then black padding frames up to the sequence
+    length, marked as padding by the returned mask. Shared by the sequence dataset (one window per sample) and the
+    sequence pair dataset (one window per member of a pair).
+
+    Args:
+        data_directory (str): The folder the frame paths are relative to.
+        frame_files (List[str]): The paths of the real frames of the window, at most sequence_length of them.
+        sequence_length (int): The number of frames of the returned window.
+        image_size (int): The size of the square network input.
+        keep_ratio (bool): Whether to keep the aspect ratio of the frames, padding them.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: The uint8 [sequence_length, 3, image_size, image_size] BGR frames (black
+            padding frames last) and the [sequence_length] boolean mask, True for the real frames.
+    """
+    frames = torch.zeros(size=(sequence_length, 3, image_size, image_size), dtype=torch.uint8)
+    sequence_mask = torch.zeros(size=(sequence_length,), dtype=torch.bool)
+
+    # Read the real frames in order, the remaining ones staying black padding frames
+    for frame_index, frame_file in enumerate(frame_files):
+        image = cv2.imread(filename=os.path.join(data_directory, frame_file))
+        resized_image = preprocess_image(image=image, image_size=image_size, keep_ratio=keep_ratio)
+        frames[frame_index] = torch.from_numpy(np.ascontiguousarray(resized_image)).permute(2, 0, 1)
+        sequence_mask[frame_index] = True
+    return frames, sequence_mask
 
 
 class SequenceDataset(Dataset):
@@ -141,15 +172,11 @@ class SequenceDataset(Dataset):
                 window identifier.
         """
         window = self.windows[window_index]
-        frames = torch.zeros(size=(self.sequence_length, 3, self.image_size, self.image_size), dtype=torch.uint8)
-        sequence_mask = torch.zeros(size=(self.sequence_length,), dtype=torch.bool)
 
-        # Read the real frames in order, the remaining ones staying black padding frames
-        for frame_index, frame_file in enumerate(window["frames"]):
-            image = cv2.imread(filename=os.path.join(self.data_directory, frame_file))
-            resized_image = preprocess_image(image=image, image_size=self.image_size, keep_ratio=self.keep_ratio)
-            frames[frame_index] = torch.from_numpy(np.ascontiguousarray(resized_image)).permute(2, 0, 1)
-            sequence_mask[frame_index] = True
+        # Real frames in order, followed by the black padding frames
+        frames, sequence_mask = read_window_frames(data_directory=self.data_directory, frame_files=window["frames"],
+                                                   sequence_length=self.sequence_length, image_size=self.image_size,
+                                                   keep_ratio=self.keep_ratio)
 
         # One class per window, or one class per frame ignored on the padding frames
         if self.label_type == "sequence":

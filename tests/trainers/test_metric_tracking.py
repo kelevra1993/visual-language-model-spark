@@ -61,17 +61,18 @@ def test_time_interval_format() -> None:
 
 @pytest.mark.parametrize(argnames=("sample_name", "frames_per_sample", "expected_fragments"), argvalues=[
     ("Images", None, ["Total Images", "imgs/sec"]),
-    ("Sequences", 16, ["Total Sequences", "seqs/sec", "frames/sec"])])
+    ("Sequences", 16, ["Total Sequences", "seqs/sec", "frames/sec"]),
+    ("Pairs", 8, ["Total Pairs", "pairs/sec", "frames/sec"])])
 def test_interval_summary_header(capsys: pytest.CaptureFixture, sample_name: str, frames_per_sample: int | None,
                                  expected_fragments: list) -> None:
     """
-    Verifies that the console summary counts images for the image tasks, and sequences with their frame throughput
-    for the sequence tasks, and that it returns fresh trackers for the next interval.
+    Verifies that the console summary counts images for the image tasks, sequences (or pairs of sequences) with their
+    frame throughput for the sequence tasks, and that it returns fresh trackers for the next interval.
 
     Args:
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
-        sample_name (str): "Images" or "Sequences".
-        frames_per_sample (int | None): The number of frames of a sequence, or None for images.
+        sample_name (str): "Images", "Sequences" or "Pairs".
+        frames_per_sample (int | None): The number of frames of a sequence (or of a pair), or None for images.
         expected_fragments (list): Text fragments that must appear in the summary.
     """
     tracker = build_metric_tracker(sample_name=sample_name, frames_per_sample=frames_per_sample)

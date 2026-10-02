@@ -183,7 +183,8 @@ def test_example_configuration_is_consistent() -> None:
     (set_intermediate_weight_saving, ["'ExperimentConfiguration.intermediate_weight_saving_iterations' (10000) "
                                       "must be smaller than"]),
     (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'classification', "
-                        "'sequence_classification', 'sequence_labelling'], got 'segmentation'."]),
+                        "'sequence_classification', 'sequence_labelling', 'sequence_comparison'], got "
+                        "'segmentation'."]),
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
@@ -466,7 +467,8 @@ def test_sequence_classification_configurations_are_consistent(tmp_path: Path, c
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (set_causal_temporal_model, ["'TemporalModel.causal' must be False for the sequence classification task",
+    (set_causal_temporal_model, ["'TemporalModel.causal' must be False for this task, which summarises whole "
+                                 "sequences",
                                  "'TemporalModel.bidirectional' must be False when 'TemporalModel.causal' is True"]),
     (set_invalid_transformer_and_settings, ["'TemporalModel.hidden_size' (100) must be a multiple of "
                                             "'TemporalModel.number_heads' (8) for the transformer.",
@@ -570,6 +572,119 @@ def test_inconsistent_sequence_labelling_configuration_is_rejected(
     for expected_message in expected_messages:
         assert expected_message in printed_output
     assert "'TemporalModel.causal' must be False" not in printed_output
+
+
+def set_unknown_fusion(configuration: Dict[str, Any]) -> None:
+    """
+    Uses a fusion of the members that does not exist, with a dropout of 1.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence comparison configuration, modified in place.
+    """
+    configuration["Fusion"].update({"type": "sum", "dropout_rate": 1.0})
+
+
+def set_cross_attention_heads_not_dividing_channels(configuration: Dict[str, Any]) -> None:
+    """
+    Splits the 64 channels of the last backbone block between 3 cross attention heads.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence comparison configuration, modified in place.
+    """
+    configuration["Fusion"].update({"type": "cross_attention", "number_heads": 3})
+
+
+def set_causal_comparison(configuration: Dict[str, Any]) -> None:
+    """
+    Summarises the members of a pair with a causal transformer.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence comparison configuration, modified in place.
+    """
+    configuration["TemporalModel"].update({"type": "transformer", "causal": True, "bidirectional": False})
+
+
+def remove_window_stride(configuration: Dict[str, Any]) -> None:
+    """
+    Removes the window stride from the sequence settings.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
+    """
+    del configuration["Data"]["sequence_settings"]["window_stride"]
+
+
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
+                                                                   "configuration_synthetic_pairs.yaml"])
+def test_sequence_comparison_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
+    """
+    Verifies that the sequence comparison configurations shipped with the repository pass every consistency check,
+    without the window stride that the comparison task does not use.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_name (str): The file name of the sequence comparison configuration.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_comparison",
+                                                  configuration_name=configuration_name, modify_function=None)
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=configuration_path)
+    assert experiment_configuration["task"] == "sequence_comparison"
+    assert "window_stride" not in model_configuration["Data"]["sequence_settings"]
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (set_unknown_fusion, ["'Fusion.type' must be one of ['concatenation', 'difference', 'cross_attention'], got "
+                          "'sum'.", "'Fusion.dropout_rate' must be a number within [0, 1), got 1.0."]),
+    (set_cross_attention_heads_not_dividing_channels, ["The channels of the last backbone block (64) must be a "
+                                                       "multiple of 'Fusion.number_heads' (3) for the cross "
+                                                       "attention."]),
+    (set_causal_comparison, ["'TemporalModel.causal' must be False for this task, which summarises whole "
+                             "sequences"])])
+def test_inconsistent_sequence_comparison_configuration_is_rejected(
+        tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
+        expected_messages: List[str]) -> None:
+    """
+    Verifies that every inconsistency of the fusion of the members, and a causal temporal module summarising them,
+    stops the loading of a sequence comparison configuration with a short message naming the faulty key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_comparison",
+                                                  configuration_name="configuration_synthetic_pairs.yaml",
+                                                  modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
+    assert "Traceback" not in printed_output
+
+
+def test_sequence_classification_still_requires_the_window_stride(tmp_path: Path,
+                                                                  capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the sequence classification task, which cuts its sequences into windows, still requires the window
+    stride that the sequence comparison task does not read.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_classification",
+                                                  configuration_name="configuration_synthetic_sequences.yaml",
+                                                  modify_function=remove_window_stride)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    assert "Missing configuration key 'Data.sequence_settings.window_stride'." in capsys.readouterr().out
 
 
 def freeze_random_backbone(configuration: Dict[str, Any]) -> None:

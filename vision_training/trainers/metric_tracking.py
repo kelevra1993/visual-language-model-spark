@@ -6,8 +6,9 @@ from typing import Any, Dict, Optional
 
 from vision_training.utilities.os_utilities import print_color
 
-# Throughput unit printed for each kind of sample: single images for the image tasks, sequences for the sequence tasks
-THROUGHPUT_UNITS = {"Images": "imgs/sec", "Sequences": "seqs/sec"}
+# Throughput unit printed for each kind of sample: single images for the image tasks, sequences for the sequence tasks,
+# pairs of sequences for the sequence comparison task
+THROUGHPUT_UNITS = {"Images": "imgs/sec", "Sequences": "seqs/sec", "Pairs": "pairs/sec"}
 
 
 class MetricTracker:
@@ -28,9 +29,10 @@ class MetricTracker:
             information_dump (int): The number of iterations of a console log interval.
             batch_size (int): The number of samples of a batch.
             validation_iteration_ratio (int): How often a validation batch is evaluated (0 for never).
-            sample_name (str): "Images" for the image tasks, "Sequences" for the sequence tasks.
-            frames_per_sample (Optional[int]): The number of frames of a sequence, to also print the frame throughput,
-                or None for the image tasks.
+            sample_name (str): "Images" for the image tasks, "Sequences" for the sequence tasks, "Pairs" for the
+                sequence comparison task.
+            frames_per_sample (Optional[int]): The number of frames of a sequence (or of a pair), to also print the
+                frame throughput, or None for the image tasks.
         """
         self.tracked_metrics_mapping = tracked_metrics_mapping
         self.information_dump = information_dump
