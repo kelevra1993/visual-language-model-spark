@@ -2,24 +2,34 @@ import numpy as np
 import torch
 
 from torch import nn
-from typing import Any, Dict, List, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 
 from vision_training.models.classification.inference_classifier import InferenceClassifier
 from vision_training.models.detection.inference_detector import InferenceDetector
+from vision_training.models.sequence.inference_sequence_comparator import InferenceSequenceComparator
 from vision_training.models.sequence.inference_sequence_model import InferenceSequenceModel
 from vision_training.models.task_model import TaskModel
 
 # Inference model of every task, wrapping the trained model for deployment and local inference
 INFERENCE_MODEL_CLASSES = {"object_detection": InferenceDetector, "classification": InferenceClassifier,
                            "sequence_classification": InferenceSequenceModel,
-                           "sequence_labelling": InferenceSequenceModel}
+                           "sequence_labelling": InferenceSequenceModel,
+                           "sequence_comparison": InferenceSequenceComparator}
 
 # Triton model name of every task, followed by '_<export format>' in the model repository
 TASK_MODEL_NAMES = {"object_detection": "object_detector", "classification": "image_classifier",
-                    "sequence_classification": "sequence_classifier", "sequence_labelling": "sequence_labeller"}
+                    "sequence_classification": "sequence_classifier", "sequence_labelling": "sequence_labeller",
+                    "sequence_comparison": "sequence_comparator"}
 
 # Tasks whose inputs are windows of frames [B, T, 3, H, W] instead of images [B, 3, H, W]
-SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling"]
+SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison"]
+
+# Names of the inputs of the inference model of every task, in the order of the arguments of its forward method:
+# they name the inputs of the ONNX exports, and match the argument names kept by the TorchScript exports, which the
+# Triton PyTorch backend uses to pass every input to its argument
+TASK_INPUT_NAMES = {"object_detection": ["images"], "classification": ["images"],
+                    "sequence_classification": ["images"], "sequence_labelling": ["images"],
+                    "sequence_comparison": ["before_images", "after_images"]}
 
 
 def build_inference_model(task: str, model: TaskModel) -> nn.Module:
@@ -129,12 +139,76 @@ def compare_probabilities(reference: Sequence[np.ndarray], candidate: Sequence[n
     return []
 
 
+def build_input_specification(input_name: str, image_size: int, sequence_length: Optional[int],
+                              input_index: int) -> Dict[str, Any]:
+    """
+    Describes one input of an exported model, read by the export (names and dynamic dimensions), the Triton
+    configuration (one input line) and the checks of the exports (random batches): one image per sample for the image
+    tasks, or one window of up to sequence length frames per sample for the sequence tasks. The batches the exports
+    are checked on hold one frame less than the traced ones for the first input, and one more frame less for every
+    following input, so that the inputs of the comparison model are checked with different numbers of frames.
+
+    Args:
+        input_name (str): The name of the input, from TASK_INPUT_NAMES.
+        image_size (int): The side of the square network input in pixels.
+        sequence_length (Optional[int]): The largest number of frames of a window, the sequence length of the
+            training, or None for the image tasks.
+        input_index (int): The position of the input among the inputs of the model.
+
+    Returns:
+        Dict[str, Any]: The 'name', 'dimensions' (without the batch one, -1 for the number of frames, which may change
+            from one request to the next), Triton 'data_type', 'dynamic_frames' flag, 'maximum_frames' (1 for the
+            image tasks), and the 'example_shape' and 'check_shape' of the batches traced at export and checked after.
+    """
+    image_dimensions = [3, image_size, image_size]
+
+    # Images: traced on batches of 2 images and checked on batches of 3
+    if sequence_length is None:
+        return {"name": input_name, "dimensions": image_dimensions, "data_type": "TYPE_FP32", "dynamic_frames": False,
+                "maximum_frames": 1, "example_shape": [2] + image_dimensions, "check_shape": [3] + image_dimensions}
+
+    # Windows of frames: traced with the sequence length and checked with fewer frames, a different number per input
+    check_frames = max(1, sequence_length - 1 - input_index)
+    return {"name": input_name, "dimensions": [-1] + image_dimensions, "data_type": "TYPE_FP32",
+            "dynamic_frames": True, "maximum_frames": sequence_length,
+            "example_shape": [2, sequence_length] + image_dimensions,
+            "check_shape": [3, check_frames] + image_dimensions}
+
+
+def create_random_inputs(specification: Dict[str, Any], shape_name: str, maximum_batch_size: int,
+                         device: torch.device, generator: Optional[torch.Generator]) -> Dict[str, torch.Tensor]:
+    """
+    Draws random float BGR inputs in [0, 255] for every input of an export specification, the batches traced at
+    export or the batches the exports are compared with the eager model on, their batch size capped at the largest
+    batch size of the exports. The inputs are keyed by name, in the order of the forward arguments of the inference
+    model, so that they are passed by name to the eager and TorchScript models and to ONNX Runtime.
+
+    Args:
+        specification (Dict[str, Any]): The export specification, from get_export_specification.
+        shape_name (str): "example_shape" for the traced batches, "check_shape" for the checked batches.
+        maximum_batch_size (int): The largest batch size of the exports.
+        device (torch.device): The device of the inputs.
+        generator (Optional[torch.Generator]): The random generator on the device of the inputs, or None for the
+            global one.
+
+    Returns:
+        Dict[str, torch.Tensor]: The random batch of every input, keyed by input name.
+    """
+    random_inputs = {}
+    for input_specification in specification["inputs"]:
+        shape = input_specification[shape_name]
+        random_inputs[input_specification["name"]] = torch.rand(
+            size=[min(shape[0], maximum_batch_size)] + shape[1:], generator=generator, device=device) * 255.0
+    return random_inputs
+
+
 def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str, Any]:
     """
     Describes how the inference model of a task is exported and served, so that the export, the Triton configuration
-    and the throughput measurement are written once for every task: the input, which is always named 'images', the
-    outputs in the order the inference model returns them, the batches used to trace and check the exports, and how
-    the exported outputs are compared with the eager ones.
+    and the throughput measurement are written once for every task: the inputs in the order of the forward arguments
+    of the inference model ('images', or 'before_images' and 'after_images' for the comparison), the outputs in the
+    order the inference model returns them, the batches used to trace and check the exports, and how the exported
+    outputs are compared with the eager ones.
 
     Args:
         task (str): The task of the inference model.
@@ -143,26 +217,22 @@ def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str,
     Returns:
         Dict[str, Any]: The specification:
             - 'model_name' (str): the Triton model name, followed by '_<export format>' in the repository;
-            - 'input_dimensions' (List[int]): the dimensions of 'images' without the batch one, -1 for the number of
-              frames of the sequence tasks, which may change from one request to the next;
-            - 'dynamic_frames' (bool): whether the second dimension of 'images' is a number of frames;
-            - 'maximum_frames' (int): the largest number of frames, the sequence length of the training (1 for the
-              image tasks);
+            - 'inputs' (List[Dict[str, Any]]): the description of every input (see build_input_specification);
             - 'outputs' (List[Dict[str, Any]]): the 'name', 'dimensions' (without the batch one), Triton 'data_type'
               and 'reshape_to_scalar' flag of every output;
-            - 'example_shape' and 'check_shape' (List[int]): the shapes of the batch traced at export, and of the
-              batch of another size (and another number of frames) the exports are checked on;
             - 'compare_outputs' (Callable) and 'comparison_tolerances' (Dict[str, float]): the comparison of the
               exported outputs with the eager ones, and its tolerances.
     """
-    image_size = inference_model.input_image_size
-    image_dimensions = [3, image_size, image_size]
+    # Inputs of the task, windows of frames for the sequence tasks and images otherwise
+    sequence_length = inference_model.sequence_length if task in SEQUENCE_TASKS else None
+    inputs = [build_input_specification(input_name=input_name, image_size=inference_model.input_image_size,
+                                        sequence_length=sequence_length, input_index=input_index)
+              for input_index, input_name in enumerate(TASK_INPUT_NAMES[task])]
 
     # Object detection: a fixed number of detections per image, compared independently of the order of tied scores
     if task == "object_detection":
         maximum_detections = inference_model.maximum_detections
-        return {"model_name": TASK_MODEL_NAMES[task], "input_dimensions": image_dimensions, "dynamic_frames": False,
-                "maximum_frames": 1,
+        return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs,
                 "outputs": [{"name": "detection_boxes", "dimensions": [maximum_detections, 4], "data_type": "TYPE_FP32",
                              "reshape_to_scalar": False},
                             {"name": "detection_scores", "dimensions": [maximum_detections], "data_type": "TYPE_FP32",
@@ -171,28 +241,14 @@ def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str,
                              "data_type": "TYPE_INT64", "reshape_to_scalar": False},
                             {"name": "number_detections", "dimensions": [1], "data_type": "TYPE_INT64",
                              "reshape_to_scalar": True}],
-                "example_shape": [2] + image_dimensions, "check_shape": [3] + image_dimensions,
                 "compare_outputs": compare_detections,
                 "comparison_tolerances": {"box_tolerance": 1e-2, "score_tolerance": 1e-4}}
 
-    # Classification: the class probabilities of every image
+    # Classification and sequence tasks: the class probabilities of every image, window or pair, or of every frame
+    # for the sequence labeller
     number_classes = inference_model.number_classes
-    if task not in SEQUENCE_TASKS:
-        return {"model_name": TASK_MODEL_NAMES[task], "input_dimensions": image_dimensions, "dynamic_frames": False,
-                "maximum_frames": 1,
-                "outputs": [{"name": "class_probabilities", "dimensions": [number_classes], "data_type": "TYPE_FP32",
-                             "reshape_to_scalar": False}],
-                "example_shape": [2] + image_dimensions, "check_shape": [3] + image_dimensions,
-                "compare_outputs": compare_probabilities, "comparison_tolerances": {"tolerance": 1e-4}}
-
-    # Sequence tasks: windows of any number of frames up to the sequence length, checked with one frame less than
-    # traced, and the class probabilities of every window or of every frame
-    sequence_length = inference_model.sequence_length
     output_dimensions = [-1, number_classes] if task == "sequence_labelling" else [number_classes]
-    return {"model_name": TASK_MODEL_NAMES[task], "input_dimensions": [-1] + image_dimensions, "dynamic_frames": True,
-            "maximum_frames": sequence_length,
+    return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs,
             "outputs": [{"name": "class_probabilities", "dimensions": output_dimensions, "data_type": "TYPE_FP32",
                          "reshape_to_scalar": False}],
-            "example_shape": [2, sequence_length] + image_dimensions,
-            "check_shape": [3, max(1, sequence_length - 1)] + image_dimensions,
             "compare_outputs": compare_probabilities, "comparison_tolerances": {"tolerance": 1e-4}}

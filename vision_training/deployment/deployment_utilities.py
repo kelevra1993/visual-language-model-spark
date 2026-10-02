@@ -10,8 +10,9 @@ from torch import nn
 from tqdm import tqdm
 from typing import Any, Dict, List, Optional, Tuple
 
-from vision_training.deployment.export_specifications import (SEQUENCE_TASKS, build_inference_model,
-                                                              convert_outputs_to_numpy, get_export_specification)
+from vision_training.deployment.export_specifications import (SEQUENCE_TASKS, TASK_INPUT_NAMES,
+                                                              build_inference_model, convert_outputs_to_numpy,
+                                                              get_export_specification)
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.models.model_loading import load_trained_model
 from vision_training.data.preprocessing import preprocess_image
@@ -19,12 +20,30 @@ from vision_training.utilities.os_utilities import get_image_paths
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 
 
-def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[np.ndarray]:
+def build_frame_window(images: List[np.ndarray], window_start: int, sequence_length: int) -> np.ndarray:
+    """
+    Builds one window of consecutive images of the inference folder for the sequence models, cycling back to the
+    first image at the end of the folder, so that any folder gives as many full windows as it holds images.
+
+    Args:
+        images (List[np.ndarray]): The preprocessed [3, H, W] images of the folder, in order.
+        window_start (int): The index of the first image of the window, which may go past the end of the folder.
+        sequence_length (int): The number of frames of the window.
+
+    Returns:
+        np.ndarray: The [T, 3, H, W] window.
+    """
+    return np.stack([images[(window_start + frame_index) % len(images)] for frame_index in range(sequence_length)])
+
+
+def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[Dict[str, np.ndarray]]:
     """
     Reads and preprocesses the images of the inference folder exactly like the data loaders (resize and centred
     padding to the square network input), so that every deployed model receives the same kind of input as in
-    training, and turns them into the unit sent to the models of the run: one image, or for the sequence tasks one
-    window of consecutive images of the folder (cycling through them) as long as the windows of the training.
+    training, and turns them into the requests sent to the models of the run, keyed by input name: one image, or for
+    the sequence tasks one window of consecutive images of the folder (cycling through them) as long as the windows
+    of the training. For the comparison, the after window starts one window later than the before window, so that the
+    two members of every pair hold different images.
 
     Args:
         image_folder (Path): The folder holding the images.
@@ -32,11 +51,14 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[n
             resizing mode and the sequence length.
 
     Returns:
-        List[np.ndarray]: One float32 BGR batch in [0, 255] per image of the folder: [1, 3, image_size, image_size],
-            or [1, T, 3, image_size, image_size] for the sequence tasks.
+        List[Dict[str, np.ndarray]]: One request per image of the folder, the float32 BGR batch in [0, 255] of every
+            input of the task: {'images': [1, 3, image_size, image_size]}, {'images': [1, T, 3, image_size,
+            image_size]} for the sequence classification and labelling, and the 'before_images' and 'after_images'
+            windows for the comparison.
     """
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=experiment_folder / "training_configuration.yaml")
+    task = experiment_configuration["task"]
     image_size = model_configuration["Data"]["image_settings"]["size"]
     keep_ratio = model_configuration["Data"]["image_settings"]["keep_ratio"]
 
@@ -47,12 +69,14 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[n
                                  keep_ratio=keep_ratio)
         images.append(image.transpose(2, 0, 1).astype(np.float32))
 
-    # Every image becomes a batch of one element, or starts a window of one element for the sequence tasks
-    if experiment_configuration["task"] not in SEQUENCE_TASKS:
-        return [image[None] for image in images]
+    # Every image becomes a batch of one element, or starts a window of one element for the sequence tasks, every
+    # further input starting one window later
+    if task not in SEQUENCE_TASKS:
+        return [{"images": image[None]} for image in images]
     sequence_length = model_configuration["Data"]["sequence_settings"]["sequence_length"]
-    return [np.stack([images[(window_start + frame_index) % len(images)]
-                      for frame_index in range(sequence_length)])[None] for window_start in range(len(images))]
+    return [{input_name: build_frame_window(images=images, window_start=window_start + input_index * sequence_length,
+                                            sequence_length=sequence_length)[None]
+             for input_index, input_name in enumerate(TASK_INPUT_NAMES[task])} for window_start in range(len(images))]
 
 
 def load_local_inference_model(experiment_folder: Path, iteration: Optional[int]) -> Tuple[nn.Module,
@@ -102,14 +126,14 @@ def get_triton_output_names(client: triton_client.InferenceServerClient, model_n
 def create_triton_input_shared_memory(client: triton_client.InferenceServerClient, byte_size: int) -> Tuple[
         Any, str]:
     """
-    Creates a system shared memory region holding one input batch and registers it with Triton, so that the images
-    are written once to memory shared with the server instead of being copied into every gRPC request (12 MB per
-    image of 1024 pixels, times the number of frames of a window for the sequence models). Triton must share the
-    memory of the machine ('ipc: host' in deployment/triton/docker-compose.yml).
+    Creates a system shared memory region holding the inputs of one request and registers it with Triton, so that the
+    images are written once to memory shared with the server instead of being copied into every gRPC request (12 MB
+    per image of 1024 pixels, times the number of frames of a window for the sequence models, times two windows for
+    the comparison). Triton must share the memory of the machine ('ipc: host' in deployment/triton/docker-compose.yml).
 
     Args:
         client (triton_client.InferenceServerClient): The gRPC client of the Triton server.
-        byte_size (int): The size of the input batch in bytes.
+        byte_size (int): The size of all the inputs of a request in bytes.
 
     Returns:
         Tuple[Any, str]: The handle of the region, used to write the images, and its name registered with Triton.
@@ -137,82 +161,96 @@ def release_triton_input_shared_memory(client: triton_client.InferenceServerClie
     shared_memory.destroy_shared_memory_region(shm_handle=shared_memory_handle)
 
 
-def run_triton_inference(batch: np.ndarray, client: triton_client.InferenceServerClient, model_name: str,
-                         output_names: List[str], shared_memory_handle: Optional[Any],
+def run_triton_inference(inputs: Dict[str, np.ndarray], client: triton_client.InferenceServerClient,
+                         model_name: str, output_names: List[str], shared_memory_handle: Optional[Any],
                          region_name: Optional[str]) -> List[np.ndarray]:
     """
-    Sends a preprocessed batch to a model served by Triton over gRPC and returns its outputs. With a shared memory
-    region, the batch is written to it and the request only tells Triton where to read it.
+    Sends the preprocessed inputs of a request to a model served by Triton over gRPC and returns its outputs. With a
+    shared memory region, the inputs are written to it one after the other, and the request only tells Triton where
+    to read each of them.
 
     Args:
-        batch (np.ndarray): The float32 [B, 3, H, W] (or [B, T, 3, H, W]) batch.
+        inputs (Dict[str, np.ndarray]): The float32 [B, 3, H, W] (or [B, T, 3, H, W]) batch of every input, keyed by
+            the input name of the served model.
         client (triton_client.InferenceServerClient): The gRPC client of the Triton server.
         model_name (str): The Triton model name.
         output_names (List[str]): The served output names, from get_triton_output_names.
-        shared_memory_handle (Optional[Any]): The handle of the input shared memory region, None to send the batch
+        shared_memory_handle (Optional[Any]): The handle of the input shared memory region, None to send the inputs
             inside the request.
         region_name (Optional[str]): The name of the input shared memory region registered with Triton, None to send
-            the batch inside the request.
+            the inputs inside the request.
 
     Returns:
         List[np.ndarray]: The outputs, in the order of output_names.
     """
-    inference_input = triton_client.InferInput(name="images", shape=list(batch.shape), datatype="FP32")
-    if shared_memory_handle is None or region_name is None:
-        inference_input.set_data_from_numpy(batch)
-    else:
-        # Write the batch at the start of the region and point the request to it
-        shared_memory.set_shared_memory_region(shm_handle=shared_memory_handle, input_values=[batch])
-        inference_input.set_shared_memory(region_name=region_name, byte_size=batch.nbytes)
+    # One input per name, sent inside the request or written to the shared memory region after the previous inputs
+    inference_inputs = []
+    byte_offset = 0
+    for input_name, input_batch in inputs.items():
+        inference_input = triton_client.InferInput(name=input_name, shape=list(input_batch.shape), datatype="FP32")
+        if shared_memory_handle is None or region_name is None:
+            inference_input.set_data_from_numpy(input_batch)
+        else:
+            # Write the input right after the previous one in the region and point the request to it
+            shared_memory.set_shared_memory_region(shm_handle=shared_memory_handle, input_values=[input_batch],
+                                                   offset=byte_offset)
+            inference_input.set_shared_memory(region_name=region_name, byte_size=input_batch.nbytes,
+                                              offset=byte_offset)
+            byte_offset += input_batch.nbytes
+        inference_inputs.append(inference_input)
 
-    result = client.infer(model_name=model_name, inputs=[inference_input],
+    result = client.infer(model_name=model_name, inputs=inference_inputs,
                           outputs=[triton_client.InferRequestedOutput(name=name) for name in output_names])
     return [result.as_numpy(name=name) for name in output_names]
 
 
-def run_local_inference(batch: np.ndarray, inference_model: nn.Module) -> List[np.ndarray]:
+def run_local_inference(inputs: Dict[str, np.ndarray], inference_model: nn.Module) -> List[np.ndarray]:
     """
-    Runs a preprocessed batch through the inference model in this process, without Triton.
+    Runs the preprocessed inputs of a request through the inference model in this process, without Triton, every
+    input being passed to the forward argument of the same name.
 
     Args:
-        batch (np.ndarray): The float32 [B, 3, H, W] (or [B, T, 3, H, W]) batch.
+        inputs (Dict[str, np.ndarray]): The float32 [B, 3, H, W] (or [B, T, 3, H, W]) batch of every input, keyed by
+            input name.
         inference_model (nn.Module): The inference model on the GPU.
 
     Returns:
         List[np.ndarray]: The outputs of the inference model, in the order of its export specification.
     """
     with torch.no_grad():
-        outputs = inference_model(images=torch.from_numpy(batch).to(device=torch.device("cuda")))
+        outputs = inference_model(**{input_name: torch.from_numpy(input_batch).to(device=torch.device("cuda"))
+                                     for input_name, input_batch in inputs.items()})
     return convert_outputs_to_numpy(outputs=outputs)
 
 
-def measure_local_throughput(inputs: List[np.ndarray], inference_model: nn.Module, number_iterations: int,
+def measure_local_throughput(inputs: List[Dict[str, np.ndarray]], inference_model: nn.Module, number_iterations: int,
                              number_warmup_iterations: int) -> None:
     """
-    Measures the raw throughput of the local inference model, one image (or window) per call, the tqdm bar showing
-    the calls per second. The first calls are left out, while CUDA is still initialising.
+    Measures the raw throughput of the local inference model, one image (or window, or pair of windows) per call, the
+    tqdm bar showing the calls per second. The first calls are left out, while CUDA is still initialising.
 
     Args:
-        inputs (List[np.ndarray]): The preprocessed [1, 3, H, W] images (or [1, T, 3, H, W] windows), sent in turn.
+        inputs (List[Dict[str, np.ndarray]]): The requests, from load_inference_inputs, sent in turn.
         inference_model (nn.Module): The inference model on the GPU.
         number_iterations (int): The number of timed calls.
         number_warmup_iterations (int): The number of untimed calls made first.
     """
     for iteration_index in range(number_warmup_iterations):
-        run_local_inference(batch=inputs[iteration_index % len(inputs)], inference_model=inference_model)
+        run_local_inference(inputs=inputs[iteration_index % len(inputs)], inference_model=inference_model)
 
     for iteration_index in tqdm(range(number_iterations), desc="local", unit="sample"):
-        run_local_inference(batch=inputs[iteration_index % len(inputs)], inference_model=inference_model)
+        run_local_inference(inputs=inputs[iteration_index % len(inputs)], inference_model=inference_model)
 
 
-def measure_triton_throughput(inputs: List[np.ndarray], model_name: str, output_names: List[str], url: str,
+def measure_triton_throughput(inputs: List[Dict[str, np.ndarray]], model_name: str, output_names: List[str], url: str,
                               use_shared_memory: bool, number_iterations: int, number_warmup_iterations: int) -> None:
     """
-    Measures the raw throughput of a model served by Triton, one image (or window) per request, the tqdm bar showing
-    the requests per second. The first requests are left out, while TensorRT and CUDA are still initialising.
+    Measures the raw throughput of a model served by Triton, one image (or window, or pair of windows) per request,
+    the tqdm bar showing the requests per second. The first requests are left out, while TensorRT and CUDA are still
+    initialising.
 
     Args:
-        inputs (List[np.ndarray]): The preprocessed [1, 3, H, W] images (or [1, T, 3, H, W] windows), sent in turn.
+        inputs (List[Dict[str, np.ndarray]]): The requests, from load_inference_inputs, sent in turn.
         model_name (str): The Triton model name, e.g. 'object_detector_torchscript' or 'image_classifier_onnx'.
         output_names (List[str]): The output names of the export specification of the model, in order.
         url (str): The Triton gRPC address, e.g. 'localhost:8001'.
@@ -224,21 +262,22 @@ def measure_triton_throughput(inputs: List[np.ndarray], model_name: str, output_
     client = triton_client.InferenceServerClient(url=url)
     served_output_names = get_triton_output_names(client=client, model_name=model_name, output_names=output_names)
 
-    # One shared memory region sized for one input serves every request, when shared memory is used
+    # One shared memory region sized for all the inputs of one request serves every request, when shared memory is
+    # used
     shared_memory_handle, region_name = None, None
     if use_shared_memory:
-        shared_memory_handle, region_name = create_triton_input_shared_memory(client=client,
-                                                                              byte_size=inputs[0].nbytes)
+        shared_memory_handle, region_name = create_triton_input_shared_memory(
+            client=client, byte_size=sum(input_batch.nbytes for input_batch in inputs[0].values()))
 
     # The region is always released, even when a request fails
     try:
         for iteration_index in range(number_warmup_iterations):
-            run_triton_inference(batch=inputs[iteration_index % len(inputs)], client=client, model_name=model_name,
+            run_triton_inference(inputs=inputs[iteration_index % len(inputs)], client=client, model_name=model_name,
                                  output_names=served_output_names, shared_memory_handle=shared_memory_handle,
                                  region_name=region_name)
 
         for iteration_index in tqdm(range(number_iterations), desc=model_name, unit="sample"):
-            run_triton_inference(batch=inputs[iteration_index % len(inputs)], client=client, model_name=model_name,
+            run_triton_inference(inputs=inputs[iteration_index % len(inputs)], client=client, model_name=model_name,
                                  output_names=served_output_names, shared_memory_handle=shared_memory_handle,
                                  region_name=region_name)
     finally:

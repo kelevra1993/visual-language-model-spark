@@ -19,17 +19,17 @@ def write_triton_configuration(model_directory: Path, model_name: str, model_ver
                                specification: Dict[str, Any], maximum_batch_size: int,
                                tensorrt_precision: Optional[str]) -> None:
     """
-    Writes the 'config.pbtxt' describing an exported model to Triton, for every task: platform, 'images' input and
-    outputs of the export specification, dynamic batching, GPU execution and, for ONNX, the optional TensorRT
-    accelerator.
+    Writes the 'config.pbtxt' describing an exported model to Triton, for every task: platform, inputs ('images', or
+    'before_images' and 'after_images' for the comparison) and outputs of the export specification, dynamic
+    batching, GPU execution and, for ONNX, the optional TensorRT accelerator.
 
     Args:
         model_directory (Path): The model folder of the Triton repository (holding the version folder).
         model_name (str): The Triton model name.
         model_version (int): The version served by Triton, which is also the name of the folder holding the model file.
         export_format (str): Either 'torchscript' or 'onnx'.
-        specification (Dict[str, Any]): The export specification of the task, giving the input dimensions and the
-            outputs (see get_export_specification).
+        specification (Dict[str, Any]): The export specification of the task, giving the inputs and the outputs (see
+            get_export_specification).
         maximum_batch_size (int): The largest batch size Triton may send to the model.
         tensorrt_precision (Optional[str]): 'FP16' or 'FP32' to accelerate the ONNX model with TensorRT, or None.
     """
@@ -41,6 +41,11 @@ def write_triton_configuration(model_directory: Path, model_name: str, model_ver
         platform = "onnxruntime_onnx"
         output_names = [output["name"] for output in specification["outputs"]]
 
+    # One line per input, in the order of the forward arguments of the model, whose names the inputs carry
+    inputs = [f'  {{ name: "{input_specification["name"]}" data_type: {input_specification["data_type"]} '
+              f'dims: {format_dimensions(dimensions=input_specification["dimensions"])} }}'
+              for input_specification in specification["inputs"]]
+
     # One line per output, a single value per sample being exposed as [1] and reshaped to a scalar for the model
     outputs = []
     for output_name, output in zip(output_names, specification["outputs"]):
@@ -51,8 +56,7 @@ def write_triton_configuration(model_directory: Path, model_name: str, model_ver
     configuration = (f'name: "{model_name}"\n'
                      f'platform: "{platform}"\n'
                      f'max_batch_size: {maximum_batch_size}\n'
-                     f'input [\n  {{ name: "images" data_type: TYPE_FP32 '
-                     f'dims: {format_dimensions(dimensions=specification["input_dimensions"])} }}\n]\n'
+                     f'input [\n' + ",\n".join(inputs) + '\n]\n'
                      f'output [\n' + ",\n".join(outputs) + '\n]\n'
                      f'dynamic_batching {{ max_queue_delay_microseconds: 1000 }}\n'
                      f'instance_group [ {{ kind: KIND_GPU count: 1 }} ]\n'
