@@ -23,10 +23,12 @@ dependencies = [
 ]
 
 [tool.pytest.ini_options]
+# Every import is package-qualified (vision_training..., tests..., scripts...), resolved from the repository root
 pythonpath = [
-  ".",
-  "object_detection"
+  "."
 ]
+# Import the test files by their path, so that two test files can share a name in different folders
+addopts = "--import-mode=importlib"
 
 [dependency-groups]
 dev = []

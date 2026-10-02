@@ -1,0 +1,253 @@
+# Configuration of the synthetic shapes dataset (squares, circles, triangles, rectangles), created with
+# vision_training/data/synthetic/create_synthetic_dataset.py. It is a trivial detection task, used to check that the
+# detector learns.
+ExperimentConfiguration:
+  # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (input,
+  # backbone modules, normalization and blocks, levels, anchors, heads, classes, augmentation, batch size, learning
+  # rate), so that the same settings resume in the same folder and changed settings start a new one, e.g.
+  # IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128
+  # _BIN_AUG-BS40-LR2e-4 (without the line break). The format is described in vision_training/utilities/os_utilities.py.
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
+  # Root directory containing the training dataset images and labels.json annotation file.
+  train_data_folder: "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes/train"
+  # Root directory containing the validation dataset images and labels.json annotation file.
+  validation_data_folder: "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes/validation"
+  # Root directory containing the test dataset images and labels.json annotation file.
+  test_data_folder: "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes/test"
+  # Number of images processed in a single forward/backward pass.
+  batch_size: 40
+  # Frequency (in iterations) to log performance metrics.
+  information_dump: 1000
+  # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
+  weight_saving_iterations: 10000
+  # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
+  # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
+  intermediate_weight_saving_iterations: 2000
+  # Total number of training iterations before stopping.
+  number_iterations: 1e10
+  # Ratio controlling how often validation is run during training.
+  # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
+  validation_iteration_ratio: 10
+  # Test evaluation run at every weight_saving_iterations checkpoint, computing the mean average precision (mAP)
+  # on the whole test split.
+  evaluation:
+    # Minimum class probability of the detections kept for the mAP. It replaces Detector.inference.score_threshold
+    # during the evaluation only: the mAP needs the low-confidence detections too, otherwise the end of the
+    # precision-recall curve is cut off and the mAP is underestimated. Must be within [0, 1].
+    score_threshold: 0.05
+  # Base learning rate used by the optimizer.
+  learning_rate: 2.0e-4
+  # Global tensor data type, either "float32" or "float64".
+  dtype: "float32"
+  # Flag to attempt loading the most recent checkpoint to resume training.
+  resume_training: true
+  diagnosis_modes:
+      # Choice to print out everything about the model
+      verbose: False
+      # Choice to compute Receptive-Field
+      compute_receptive_field: True
+      # Choice to compute final model size
+      compute_model_size: True
+      # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
+      # input images with their ground truth boxes. SPACE shows the next images, ENTER closes the viewer and exits the
+      # program without training, so set it to False to train. Requires a display (skipped with a warning otherwise)
+      view_input_images: False
+
+Data:
+  DALI:
+    # Flag to enable the NVIDIA DALI hardware-accelerated pipeline.
+    # Note: When deactivated, the Native PyTorch loader (OpenCV decoding and CPU resizing) is used instead.
+    activated: True
+  image_settings:
+    # Target resolution to resize all input images.
+    size: 1024
+    # Flag to maintain the original aspect ratio when resizing.
+    keep_ratio: True
+  label_mapping:
+    # "binary" maps all foreground objects to 1. "multi_class" uses a specific mapping file.
+    mode: "multi_class"
+    # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs.
+    mapping_file_path: "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes/label_mapping.json"
+  data_augmentation:
+    # Global switch to enable or disable all data augmentation (applied on the GPU to training batches only).
+    activated: True
+    # Probability that a training image is augmented at all. Each activated type below is then applied to that
+    # image with its own probability. For image sequences, all frames of a sequence share the same augmentation.
+    probability: 0.4
+    types:
+      # Geometric augmentations : bounding boxes are moved with the image, boxes leaving the image are removed.
+      # Random Crop : crop keeping 90% to 100% of each side (same aspect ratio), resized back to the input size
+      random_crop: { activated: False, probability: 0.3 }
+      # Random Left to Right Flip (mirror)
+      random_left_right_flip: { activated: False, probability: 0.5 }
+      # Random Up to Down Flip
+      random_up_down_flip: { activated: False, probability: 0.5 }
+      # Random Rotation between -5° and 5°, boxes become the enclosing box of their rotated corners
+      random_rotation: { activated: False, probability: 0.3 }
+      # Random -90° or 90° rotation (square images only)
+      random_90_rotation: { activated: False, probability: 0.3 }
+
+      # Photometric augmentations : bounding boxes are unchanged.
+      # Brightness (+-40 intensity levels), contrast and saturation (both x0.7 to x1.0) adjustments
+      brightness_contrast_saturation: { activated: False, probability: 0.3 }
+      # Contrast-limited Adaptive Histogram Equalization (CLAHE), clip limit 2.0 on a 4x4 grid of tiles
+      clahe_augment: { activated: False, probability: 0.3 }
+      # Image Sharpening with a Laplacian of Gaussian unsharp mask (sigma 1.5, strength 3)
+      sharp_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of the luminance (Y channel of YUV)
+      equalize_histogram_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of one random channel (B, G or R) or of all three channels
+      equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
+      # Random Noise : Gaussian noise with a standard deviation of 10 intensity levels
+      random_noise: { activated: False, probability: 0.3 }
+      # Grayscale conversion, kept on three channels
+      gray_scale_augment: { activated: False, probability: 0.3 }
+      # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
+      random_colour_augmentation: { activated: False, probability: 0.3 }
+      # Random Image Blurring : 5x5 Gaussian kernel with sigma 1.5
+      random_blur: { activated: False, probability: 0.3 }
+
+Backbone:
+  # Number of input channels for the initial convolution block (e.g., 3 for RGB images)
+  input_channels : 3
+
+  # First axis : Number of convolution Kernel maps per Convolution Block
+  # Second axis : Number of output filters per kernel per convolution Block
+  convolutions:
+    {
+      "1": [ 1, 16 ],
+      "2": [ 2, 32 ],
+      "3": [ 2, 32 ],
+      "4": [ 4, 64 ],
+      "5": [ 4, 64 ],
+      "6": [ 6, 128 ],
+      "7": [ 6, 128 ],
+    }
+
+  # Choice to add last max pooling layer on last* convolution layer
+  last_max_pooling: False
+
+  normalization:
+    # Input Normalization : Setting image range values between [-0.5:0.5]
+    input_normalization: True
+
+    # Per Sample Input Normalization : Normalizing each image to zero mean and unit variance
+    # Applied after input_normalization when both are activated
+    per_sample_normalization: False
+
+    # Strategy for normalizing the feature maps in the convolution blocks.
+    # Options are: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    feature_map_normalization: "batch"
+
+  modules:
+    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    # Shortcuts are added every two convolution layers, starting from the second convolution block
+    residual_nets: True
+
+    # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
+    # Output channels of every block using inception must be multiples of 8
+    inception: False
+
+    # Convolution block (1-indexed) from which inception modules replace the plain convolutions
+    inception_starting_block: 3
+
+    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    squeeze_and_excite: True
+
+  # TODO See if we cannot just keep all of this in one place ?
+  # Backbone spatial resolution block indices to branch out to the object detection heads.
+  detection_convolution_block_indices: [5, 6, 7]
+
+# Careful because here the number of proposals seems to be global
+RegionProposal:
+  head_configurations:
+    {
+      "5": [2, 64 ],
+      "6": [2, 64 ],
+      "7": [2, 64 ],
+    }
+  normalization:
+    # Options: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    feature_map_normalization: "batch"
+  training:
+    # Raw proposals to keep per image BEFORE Non-Maximum Suppression during training [Just top k proposals].
+    pre_nms_proposals: 1000
+    # Filtered proposals to keep per image AFTER Non-Maximum Suppression during training.
+    post_nms_proposals: 500
+  inference:
+    # Raw proposals to keep per image BEFORE Non-Maximum Suppression during inference [Just top k proposals].
+    pre_nms_proposals: 500
+    # Filtered proposals to keep per image AFTER Non-Maximum Suppression during inference.
+    post_nms_proposals: 250
+  foreground_iou_threshold:
+    # Minimum IoU required for an anchor to be a positive foreground match.
+    min: 0.5
+    # Maximum IoU limit for matching (capped at 1.0).
+    max: 1.0
+  background_iou_threshold:
+    # Minimum IoU required for an anchor to be a strict background sample.
+    min: 0.1
+    # Maximum IoU allowed for an anchor to be a strict background sample.
+    max: 0.3
+  # IoU threshold for Non-Maximum Suppression to eliminate redundant overlapping proposals.
+  nms_iou_threshold: 0.5
+  # Force assign best-overlapping anchors as foreground even if below the min threshold.
+  strict_fallback_assignment: False
+  # Exact number of strictly positive foreground anchors sampled for loss calculation per image.
+  number_training_positives: 128
+  # Combined budget of positive and negative anchor samples evaluated per image.
+  total_training_samples: 256
+  # Beta scaling parameter for Smooth L1 Loss during bounding box regression.
+  localisation_loss_beta: 1/9
+
+Anchors:
+  # Todo : Maybe keep it as a list ? Dictionary modification is cumbersome.
+  # Dictionary mapping anchor scales and aspect ratios to specific feature map indices.
+  scales_and_ratios:
+    {
+      "5":{"scales":[ 32, 64, 128], "aspect_ratios":[0.5, 1.0, 2.0]},
+      "6":{"scales":[ 64, 128, 256], "aspect_ratios":[0.5, 1.0, 2.0]},
+      "7":{"scales":[ 128, 256, 512], "aspect_ratios":[0.5, 1.0, 2.0]},
+    }
+
+Detector:
+  # Todo : Maybe keep it as a list ? Dictonary modification is cumbersome.
+  # Master configuration parameterizing the prediction heads assigned to each feature map scale.
+  head_configurations:
+    {
+      "5": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
+      "6": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
+      "7": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
+    }
+
+  normalization:
+    # Options: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    feature_map_normalization: "batch"
+
+  modules:
+    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    residual_nets: True
+
+    # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
+    # Output channels of the detection head convolutions must be multiples of 8
+    inception: False
+
+    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    squeeze_and_excite: True
+
+  inference:
+    # Minimum class probability for a detection to be returned
+    score_threshold: 0.5
+    # Fixed number of detections returned per image (padded), required for exportable fixed-size outputs.
+    # Must not exceed RegionProposal.inference.post_nms_proposals x the number of foreground classes.
+    maximum_detections: 100
+  # Minimum IoU required for a filtered proposal to be classified as a positive target.
+  foreground_iou_threshold: 0.5
+  # IoU overlap tolerance for the final per-class Non-Maximum Suppression pass on predictions.
+  nms_iou_threshold: 0.8
+  # Upper limit of positive (foreground) region proposals sampled per image.
+  number_training_positives: 64
+  # Total budget of positive and negative region proposals sampled per image.
+  total_training_samples: 128
+  # Beta scalar for the Smooth L1 Loss bounding box regression transition.
+  localisation_loss_beta: 1/9
