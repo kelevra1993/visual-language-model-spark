@@ -164,7 +164,7 @@ class DALIDataloaderWrapper:
                 bounding_boxes_list.append(valid_boxes)
 
             yield {"images": images, "bounding_boxes": bounding_boxes_list, "labels": labels_list,
-                   "image_ids": image_ids}
+                   "sample_identifiers": image_ids}
 
     def __len__(self) -> int:
         """

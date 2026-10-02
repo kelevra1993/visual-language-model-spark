@@ -24,15 +24,18 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
         batch (List[Dict[str, torch.Tensor]]): A list of dictionaries containing individual (image, boxes, labels).
 
     Returns:
-        Dict[str, Any]: A dictionary containing the batched images, list of bounding boxes, and list of labels.
+        Dict[str, Any]: A dictionary containing the batched images, list of bounding boxes, list of labels, and the
+            tensor of COCO image identifiers ('sample_identifiers').
     """
     images = [item["images"] for item in batch]
     bounding_boxes = [item["bounding_boxes"] for item in batch]
     labels = [item["labels"] for item in batch]
+    sample_identifiers = torch.tensor(data=[item["sample_identifiers"] for item in batch], dtype=torch.int64)
 
     # Consolidate the image tensors into a single unified batch tensor for GPU acceleration
     # Keep bounding boxes and labels as standard lists to accommodate variable object counts per image
-    return {"images": torch.stack(tensors=images), "bounding_boxes": bounding_boxes, "labels": labels}
+    return {"images": torch.stack(tensors=images), "bounding_boxes": bounding_boxes, "labels": labels,
+            "sample_identifiers": sample_identifiers}
 
 
 class CocoDetectionDataset(Dataset):
@@ -103,7 +106,8 @@ class CocoDetectionDataset(Dataset):
             _index (int): The index of the image metadata to fetch.
 
         Returns:
-            dict: A dictionary containing the preprocessed image tensor, bounding boxes tensor, and labels tensor.
+            dict: A dictionary containing the preprocessed image tensor, bounding boxes tensor, labels tensor, and
+                the COCO identifier of the image ('sample_identifiers').
         """
         image_information = self.images[_index]
         image_identifier = image_information['id']
@@ -150,4 +154,4 @@ class CocoDetectionDataset(Dataset):
         bounding_boxes_tensor = torch.tensor(data=resized_bounding_boxes, dtype=torch.float32).reshape(-1, 4)
 
         return {"images": image_tensor, "bounding_boxes": bounding_boxes_tensor,
-                "labels": torch.tensor(data=labels, dtype=torch.int64)}
+                "labels": torch.tensor(data=labels, dtype=torch.int64), "sample_identifiers": image_identifier}

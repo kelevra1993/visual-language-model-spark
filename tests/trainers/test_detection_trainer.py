@@ -5,7 +5,7 @@ import yaml
 from pathlib import Path
 
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
-from vision_training.trainers.trainer import Trainer
+from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
@@ -58,19 +58,19 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     return configuration_path
 
 
-def build_trainer(configuration_path: Path) -> Trainer:
+def build_trainer(configuration_path: Path) -> DetectionTrainer:
     """
-    Loads a configuration file and builds the Trainer from it, exactly like main.py does.
+    Loads a configuration file and builds the DetectionTrainer from it, exactly like main.py does.
 
     Args:
         configuration_path (Path): The configuration file of the run.
 
     Returns:
-        Trainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
+        DetectionTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
     """
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=configuration_path)
-    return Trainer(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
+    return DetectionTrainer(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                    configuration_path=configuration_path)
 
 

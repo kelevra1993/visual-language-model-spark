@@ -262,7 +262,7 @@ def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, b
                     dali_image_tensor = batch_data_dictionary["images"][batch_index].cpu()
                     dali_boxes = batch_data_dictionary["bounding_boxes"][batch_index].cpu()
                     dali_labels = batch_data_dictionary["labels"][batch_index].cpu()
-                    image_id = batch_data_dictionary["image_ids"][batch_index].item()
+                    image_id = batch_data_dictionary["sample_identifiers"][batch_index].item()
 
                     native_data = native_dataset[image_id_to_index[image_id]]
                     native_image_tensor = native_data["images"].cpu()

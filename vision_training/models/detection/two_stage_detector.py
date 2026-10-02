@@ -4,6 +4,7 @@ from rich.console import Console
 from rich.panel import Panel
 from typing import Dict, Any, Tuple, Optional, List
 from vision_training.models.backbones.backbone import Backbone
+from vision_training.models.task_model import TaskModel
 from vision_training.models.detection.region_proposer import RegionProposal, RegionProposalFilter
 from vision_training.models.detection.detection_head import DetectionHead
 from vision_training.models.detection.target_assignment import (turn_boxes_to_transformation_targets,
@@ -15,7 +16,7 @@ from vision_training.utilities.os_utilities import print_color
 from vision_training.utilities.tensor_utilities import print_tensor_shape
 
 
-class TwoStageDetector(nn.Module):
+class TwoStageDetector(TaskModel):
     """
     Constructs the overall object detection model by combining the backbone,
     region proposal, and detector modules based on the configuration.
@@ -789,79 +790,25 @@ class TwoStageDetector(nn.Module):
         panel = Panel(summary_text, title="[bold]Detection Architecture[/bold]", border_style="green")
         console.print(panel)
 
-    def print_receptive_field_summary(self) -> None:
+    def get_detection_block_annotations(self) -> Dict[str, str]:
         """
-        Prints the receptive field of every spatial layer of the Backbone, highlighting the detection blocks.
+        Gives the anchor scales assigned to every detection block, printed below the block in the receptive field
+        summary of TaskModel, since anchors much larger than the receptive field cannot be fully observed by their
+        feature map cell.
 
-        This diagnostic (enabled by 'diagnosis_modes.compute_receptive_field') shows, for each detection block
-        feeding the Region Proposal and Detection heads, the receptive field next to the anchor scales assigned
-        to it. Anchors much larger than the receptive field cannot be fully observed by their feature map cell.
+        Returns:
+            Dict[str, str]: The anchor scales line of every detection block, keyed by block number.
         """
-        console = Console(width=100)
+        return {block_string: f"Detection Block {block_string} Anchor Scales : {anchor_configuration['scales']}"
+                for block_string, anchor_configuration in self.anchors_configuration["scales_and_ratios"].items()}
 
-        receptive_field_information = self.backbone.compute_receptive_field_information()
-
-        summary_text = f"[bold]Input Image Size : {self.input_image_size}x{self.input_image_size}[/bold]\n\n"
-
-        # Describe every spatial layer, adding the anchor scales below each detection block output
-        previous_block_number = None
-        for layer_information in receptive_field_information:
-            # Separate consecutive blocks with an empty line so that each block stands out
-            if previous_block_number is not None and layer_information["block_number"] != previous_block_number:
-                summary_text += "\n"
-            previous_block_number = layer_information["block_number"]
-
-            output_size = layer_information["output_size"]
-            layer_text = (f"Block {layer_information['block_number']} - {layer_information['name']:<14} : "
-                          f"Output {output_size}x{output_size}x{layer_information['output_channels']}"
-                          f" | Stride {layer_information['stride']}"
-                          f" | Receptive Field {layer_information['receptive_field']}")
-
-            if layer_information["is_detection_block_output"]:
-                block_string = str(layer_information["block_number"])
-                anchor_scales = self.anchors_configuration["scales_and_ratios"][block_string]["scales"]
-                summary_text += f"[bold green]{layer_text}[/bold green]\n"
-                summary_text += f"[bold green]  - Detection Block {block_string} Anchor Scales : {anchor_scales}[/bold green]\n"
-            else:
-                summary_text += f"{layer_text}\n"
-
-        # Squeeze-and-Excitation pools over the whole feature map, which the convolutional receptive field ignores
-        if self.backbone.squeeze_and_excite:
-            summary_text += ("\n[bold yellow]Squeeze-and-Excitation adds global image context.\n"
-                             "This is not captured by the convolutional receptive field above.[/bold yellow]")
-
-        panel = Panel(summary_text.rstrip("\n"), title="[bold]Backbone Receptive Field[/bold]", border_style="magenta")
-        console.print(panel)
-
-    def print_model_size_summary(self) -> None:
+    def get_size_components(self) -> Dict[str, nn.Module]:
         """
-        Prints the parameter count and memory size of every component of the TwoStageDetector.
+        Lists the components of the detector whose size is reported by the model size summary of TaskModel: the
+        backbone, the region proposal heads, the detection heads and the whole detector.
 
-        This diagnostic (enabled by 'diagnosis_modes.compute_model_size') reports the size of the backbone,
-        the region proposal heads, the detection heads and the whole TwoStageDetector. Sizes include parameters and
-        buffers (e.g. batch normalization running statistics) and are expressed in megabytes (1 MB = 1e6 bytes).
+        Returns:
+            Dict[str, nn.Module]: The display name and module of every component.
         """
-        console = Console(width=60)
-
-        components = {"Backbone": self.backbone,
-                      "Region Proposal Heads": self.region_proposer_dictionary,
-                      "Detection Heads": self.detector_heads_dictionary,
-                      "Total Model": self}
-
-        summary_text = ""
-
-        # Measure every component by summing the element counts and byte sizes of its tensors
-        for component_name, component in components.items():
-            number_parameters = sum(parameter.numel() for parameter in component.parameters())
-            number_trainable_parameters = sum(parameter.numel() for parameter in component.parameters()
-                                              if parameter.requires_grad)
-            total_bytes = (sum(parameter.numel() * parameter.element_size() for parameter in component.parameters())
-                           + sum(buffer.numel() * buffer.element_size() for buffer in component.buffers()))
-
-            summary_text += f"[bold]{component_name}[/bold]\n"
-            summary_text += f"  - Parameters           : {number_parameters:,}\n"
-            summary_text += f"  - Trainable Parameters : {number_trainable_parameters:,}\n"
-            summary_text += f"  - Estimated Size       : {total_bytes / 1e6:.2f} MB\n\n"
-
-        panel = Panel(summary_text.rstrip("\n"), title="[bold]Model Size[/bold]", border_style="cyan")
-        console.print(panel)
+        return {"Backbone": self.backbone, "Region Proposal Heads": self.region_proposer_dictionary,
+                "Detection Heads": self.detector_heads_dictionary, "Total Model": self}

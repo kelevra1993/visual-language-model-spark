@@ -1,6 +1,6 @@
 from pathlib import Path
 from vision_training.configuration.configuration_loader import load_experiment_configuration
-from vision_training.trainers.trainer import Trainer
+from vision_training.trainers.detection_trainer import DetectionTrainer
 
 
 def main() -> None:
@@ -15,12 +15,13 @@ def main() -> None:
                                      "configuration_example.yaml")
 
     # Load configuration
-    experiment_configuration, model_configuration = load_experiment_configuration(experiment_configuration_path)
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=experiment_configuration_path)
 
     # Initialize Trainer
-    trainer = Trainer(experiment_configuration=experiment_configuration,
-                      model_configuration=model_configuration,
-                      configuration_path=experiment_configuration_path)
+    trainer = DetectionTrainer(experiment_configuration=experiment_configuration,
+                               model_configuration=model_configuration,
+                               configuration_path=experiment_configuration_path)
 
     # trainer.run_benchmarking_loop(benchmarking_iterations=1000)
     trainer.run_training_loop()
