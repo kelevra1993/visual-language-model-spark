@@ -149,9 +149,10 @@ class Backbone(nn.Module):
         # Initialize the rich console for formatted output, specifying a wide width to comfortably accommodate the panel
         console = Console(width=80)
 
-        # Create a dummy tensor on the appropriate device to mathematically trace the dimension transformations
+        # Create a dummy tensor on the appropriate device and in the precision of the weights (float32 or float64) to
+        # mathematically trace the dimension transformations
         dummy_tensor = torch.zeros(size=(1, self.input_channels, self.input_image_size, self.input_image_size),
-                                   device=self.device)
+                                   device=self.device, dtype=self.dtype)
 
         # Print the overarching title and the initial tensor shape to begin the structured summary
         print_color(color="yellow", output="Backbone Architecture Summary", add_separators=True)
@@ -204,9 +205,10 @@ class Backbone(nn.Module):
             Dict[str, Dict[str, int]]: A dictionary mapping the stringified detection block index to 
             a dictionary containing 'feature_map_size' and 'number_channels'.
         """
-        # Instantiate a dummy input tensor of the specified shape using self.device
+        # Instantiate a dummy input tensor of the specified shape on self.device, in the precision of the weights so
+        # that float64 models can be built as well as float32 ones
         dummy_tensor = torch.zeros(size=(1, self.input_channels, self.input_image_size, self.input_image_size),
-                                   device=self.device)
+                                   device=self.device, dtype=self.dtype)
 
         # Dictionary to store the dynamically computed structural information for each detection block
         detection_information = {}
