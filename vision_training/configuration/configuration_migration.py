@@ -11,6 +11,17 @@ EXPERIMENT_SECTION_HEADER = "ExperimentConfiguration:\n"
 TASK_KEY_COMMENT = ("  # Task trained by this configuration, selecting the trainer, the model and the checks of "
                     "the task sections.\n")
 
+# Section header under which the pretrained backbone settings are inserted, and the settings of a run trained from
+# random weights
+BACKBONE_SECTION_HEADER = "Backbone:\n"
+PRETRAINED_BACKBONE_BLOCK = ("  # Backbone of another training run initialising this run, null to start from random "
+                             "weights.\n"
+                             "  pretrained:\n"
+                             "    experiment_folder: null\n"
+                             "    iteration: null\n"
+                             "    freeze: False\n"
+                             "    learning_rate_multiplier: 1.0\n")
+
 
 def add_task_to_configuration(configuration_path: Path, task: str) -> bool:
     """
@@ -40,12 +51,43 @@ def add_task_to_configuration(configuration_path: Path, task: str) -> bool:
     return True
 
 
+def add_pretrained_backbone_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades a configuration file written before the backbone transfer by inserting its 'Backbone.pretrained'
+    settings, those of a run trained from random weights, right below the section header. The settings are inserted
+    as text, so that every comment of the file is kept, and a file that already has them is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the settings were added, False if the file already had them.
+
+    Raises:
+        ValueError: If the file has no 'Backbone:' section header.
+    """
+    text = configuration_path.read_text()
+    if "pretrained" in yaml.safe_load(stream=text)["Backbone"]:
+        return False
+    if BACKBONE_SECTION_HEADER not in text.splitlines(keepends=True):
+        raise ValueError(f"No '{BACKBONE_SECTION_HEADER.strip()}' section header in "
+                         f"file://{configuration_path.absolute()}")
+
+    # Insert the settings below the header line, the only line made of the header alone
+    lines = text.splitlines(keepends=True)
+    header_index = lines.index(BACKBONE_SECTION_HEADER)
+    configuration_path.write_text(data="".join(lines[:header_index + 1] + [PRETRAINED_BACKBONE_BLOCK] +
+                                               lines[header_index + 1:]))
+    return True
+
+
 def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path:
     """
     Upgrades a run trained before the task-aware configuration so that it can be resumed, evaluated and exported with
-    the current code: its saved configuration gets its task, and its folder is renamed to the run name the current
-    code builds from that configuration (the task code being now the first section of the run names). The
-    configuration is fully checked on the way, any other missing key being reported by the configuration checker.
+    the current code: its saved configuration gets its task and its 'Backbone.pretrained' settings (those of a run
+    trained from random weights), and its folder is renamed to the run name the current code builds from that
+    configuration (the task code being now the first section of the run names). The configuration is fully checked
+    on the way, any other missing key being reported by the configuration checker.
 
     Args:
         run_folder (Path): The run folder, holding 'training_configuration.yaml', 'Weights' and 'Tensorboard'.
@@ -64,6 +106,9 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
         print_color(color="green", output=f"Task {task!r} Added To : file://{configuration_path.absolute()}")
     else:
         print_color(color="blue", output=f"Task Already Set In : file://{configuration_path.absolute()}")
+    if add_pretrained_backbone_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Pretrained Backbone Settings Added To : "
+                                          f"file://{configuration_path.absolute()}")
 
     # The run name the current code gives to this configuration
     experiment_configuration, model_configuration = load_experiment_configuration(

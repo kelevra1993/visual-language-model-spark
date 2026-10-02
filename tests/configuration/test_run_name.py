@@ -491,3 +491,24 @@ def test_sequence_labelling_run_name() -> None:
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME.replace(
         "M2O_", "M2M_").replace("_GRU1x128-BI_", "_TCN3x128.3-CAU_")
+
+
+@pytest.mark.parametrize(argnames=("freeze", "learning_rate_multiplier", "expected_tokens"), argvalues=[
+    (False, 1.0, "-PT_"), (True, 1.0, "-PT-FRZ_"), (False, 0.1, "-PT-BLR0.1_"), (True, 0.1, "-PT-FRZ_")])
+def test_pretrained_backbone_run_names(freeze: bool, learning_rate_multiplier: float, expected_tokens: str) -> None:
+    """
+    Verifies the tokens of a transferred backbone at the end of the backbone section: PT, then FRZ when it is frozen
+    or BLR<multiplier> when it learns at another speed than the heads (a frozen backbone does not learn at all).
+
+    Args:
+        freeze (bool): Whether the transferred backbone is frozen.
+        learning_rate_multiplier (float): The learning rate multiplier of the transferred backbone.
+        expected_tokens (str): The expected end of the backbone section.
+    """
+    experiment_configuration, model_configuration = get_classification_reference_configurations()
+    model_configuration["Backbone"]["pretrained"] = {"experiment_folder": "/runs/source", "iteration": None,
+                                                     "freeze": freeze,
+                                                     "learning_rate_multiplier": learning_rate_multiplier}
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == CLASSIFICATION_REFERENCE_RUN_NAME.replace(
+        "2x64.2x128_", f"2x64.2x128{expected_tokens}")

@@ -163,6 +163,11 @@ class Backbone(nn.Module):
         architecture_text = (f"[bold]Normalization Strategy:[/bold]"
                              f" {str(object=self.feature_map_normalization).capitalize()}\n\n")
 
+        # Trace the shapes in evaluation mode and without gradients, so that the summary leaves the batch normalization
+        # statistics untouched (they may be those of a backbone transferred from another run), then restore the mode
+        was_training = self.training
+        self.eval()
+
         # Iterate through each block to sequentially simulate the forward pass and thoroughly record spatial mutations
         for index, block in enumerate(self.convolution_blocks):
             # Append the precise structural dimension information of the current block to the visual text summary
@@ -177,8 +182,10 @@ class Backbone(nn.Module):
 
             # Pass the dummy tensor through the block to compute the progressively
             # downsampled spatial and channel dimensions
-            dummy_tensor = block(input_tensor=dummy_tensor)
+            with torch.no_grad():
+                dummy_tensor = block(input_tensor=dummy_tensor)
             architecture_text += f"   - Output Shape : {list(dummy_tensor.shape)}\n\n"
+        self.train(mode=was_training)
 
         # Construct the rich panel wrapping the comprehensive textual summary for an elegant terminal visualization
         architecture_panel = Panel(renderable=architecture_text.strip(), title="Backbone Architecture",

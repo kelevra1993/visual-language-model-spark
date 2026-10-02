@@ -15,6 +15,7 @@ from vision_training.configuration.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
 from vision_training.evaluation.evaluation_report import report_evaluation_results
+from vision_training.models.backbones.backbone_transfer import freeze_backbone, load_pretrained_backbone
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import get_last_checkpoint_iteration, load_checkpoint, save_checkpoint
 from vision_training.trainers.metric_tracking import MetricTracker
@@ -108,9 +109,11 @@ class BaseTrainer(ABC):
                     output="Initializing Training, Validation And Test DataLoaders...", add_separators=True)
         self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.build_dataloaders()
 
-        # Initialize Model and Optimizer
+        # Initialize Model and Optimizer, the backbone being possibly initialised by the one of another run
+        self.pretrained_configuration = self.model_configuration["Backbone"]["pretrained"]
         self.model = self.build_model()
         self.model.to(device=self.device, dtype=self.dtype)
+        self.pretrained_backbone_path = self.initialise_backbone()
         self.optimizer = self.build_optimizer()
 
         # Metric tracking of the losses and batch metrics chosen by the task
@@ -300,18 +303,35 @@ class BaseTrainer(ABC):
 
     def build_optimizer(self) -> torch.optim.Optimizer:
         """
-        Builds the optimizer of the model parameters.
+        Builds the optimizer of the model parameters. A backbone loaded from another run gets its own parameter group
+        when 'Backbone.pretrained.learning_rate_multiplier' is not 1, so that it is fine-tuned at another speed than
+        the new heads; otherwise every parameter shares a single group, the layout of the checkpoints of the runs
+        without transfer.
 
         Returns:
             torch.optim.Optimizer: An Adam optimizer at the configured learning rate.
         """
-        return torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+        learning_rate_multiplier = self.pretrained_configuration["learning_rate_multiplier"]
+        if self.pretrained_configuration["experiment_folder"] is None or learning_rate_multiplier == 1.0:
+            return torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+
+        # The heads keep the configured learning rate, the transferred backbone learns at the multiplied one
+        backbone_parameters = list(self.model.backbone.parameters())
+        backbone_parameter_identifiers = {id(parameter) for parameter in backbone_parameters}
+        head_parameters = [parameter for parameter in self.model.parameters()
+                           if id(parameter) not in backbone_parameter_identifiers]
+        return torch.optim.Adam([{"params": head_parameters},
+                                 {"params": backbone_parameters, "lr": self.learning_rate * learning_rate_multiplier}],
+                                lr=self.learning_rate)
 
     def set_training_mode(self) -> None:
         """
-        Puts the model in training mode before every training step.
+        Puts the model in training mode before every training step, except a frozen transferred backbone, kept in
+        evaluation mode so that its batch normalization statistics stay those of its source run.
         """
         self.model.train()
+        if self.pretrained_configuration["freeze"]:
+            self.model.backbone.eval()
 
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -356,6 +376,32 @@ class BaseTrainer(ABC):
     # Generic pipeline
     # ------------------------------------------------------------------------------------------------------------------
 
+    def initialise_backbone(self) -> Optional[Path]:
+        """
+        Loads the trained backbone of another run into the model when 'Backbone.pretrained.experiment_folder' is set,
+        and freezes it when asked. A run resuming from its own checkpoints does not load it, its checkpoint holding
+        the backbone it was training, but stays frozen.
+
+        Returns:
+            Optional[Path]: The checkpoint file the backbone was loaded from, or None when it was not loaded.
+        """
+        if self.pretrained_configuration["experiment_folder"] is None:
+            return None
+
+        # Load the source backbone for a new run only
+        pretrained_backbone_path = None
+        if self.resume_training and get_last_checkpoint_iteration(weights_directory=self.weights_directory):
+            print_color(color="yellow", output="The run resumes from its own checkpoint, the pretrained backbone is "
+                                               "not loaded again.")
+        else:
+            pretrained_backbone_path = load_pretrained_backbone(
+                backbone=self.model.backbone, backbone_configuration=self.model_configuration["Backbone"],
+                input_image_size=self.input_image_size, device=self.device)
+
+        if self.pretrained_configuration["freeze"]:
+            freeze_backbone(backbone=self.model.backbone)
+        return pretrained_backbone_path
+
     def setup_training_paths(self, initial_configuration_path: Path) -> tuple[Path, Path, Path]:
         """
         Sets up the directory structure and persistent files for training outputs.
@@ -399,6 +445,10 @@ class BaseTrainer(ABC):
         print_color(color="blue", output=f"- Tensorboard Directory   : file://{self.tensorboard_directory.absolute()}")
         print_color(color="blue", output=f"- Weights Directory       : file://{self.weights_directory.absolute()}")
         print_color(color="blue", output=f"- Configuration File      : file://{self.configuration_path.absolute()}")
+        if self.pretrained_configuration["experiment_folder"] is not None:
+            print_color(color="blue", output=f"- Pretrained Backbone     : "
+                                             f"file://{Path(self.pretrained_configuration['experiment_folder'])} "
+                                             f"(frozen: {self.pretrained_configuration['freeze']})")
 
         # Print every split folder with its number of samples, described by the task
         number_samples_per_split = {}
@@ -811,15 +861,18 @@ class BaseTrainer(ABC):
 
     def save_model(self, iteration: int) -> None:
         """
-        Saves a checkpoint of the model and optimizer, with the task and the run name, and records it in the
-        checkpoint registry of the run used to resume the training.
+        Saves a checkpoint of the model and optimizer, with the task, the run name and the run folder of the
+        pretrained backbone (None without transfer), and records it in the checkpoint registry of the run used to
+        resume the training.
 
         Args:
             iteration (int): The current training iteration, used for naming the weight file.
         """
+        # Task, run name and source run of the pretrained backbone, stored with the weights
+        metadata = {"task": self.TASK_NAME, "run_name": self.run_name,
+                    "pretrained_backbone": self.pretrained_configuration["experiment_folder"]}
         model_directory = save_checkpoint(weights_directory=self.weights_directory, iteration=iteration,
-                                          model=self.model, optimizer=self.optimizer,
-                                          metadata={"task": self.TASK_NAME, "run_name": self.run_name})
+                                          model=self.model, optimizer=self.optimizer, metadata=metadata)
 
         print("Checkpoint Folder :")
         print(f" - file://{model_directory}")

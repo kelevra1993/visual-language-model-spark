@@ -570,3 +570,51 @@ def test_inconsistent_sequence_labelling_configuration_is_rejected(
     for expected_message in expected_messages:
         assert expected_message in printed_output
     assert "'TemporalModel.causal' must be False" not in printed_output
+
+
+def freeze_random_backbone(configuration: Dict[str, Any]) -> None:
+    """
+    Freezes the backbone without loading one from another run, and multiplies its learning rate by zero.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Backbone"]["pretrained"].update({"freeze": True, "learning_rate_multiplier": 0})
+
+
+def set_invalid_pretrained_run(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the pretrained backbone a number instead of a run folder path, and a checkpoint iteration of zero.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Backbone"]["pretrained"].update({"experiment_folder": 5, "iteration": 0})
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (freeze_random_backbone, ["'Backbone.pretrained.freeze' must be False when 'Backbone.pretrained.experiment_folder' "
+                              "is null", "'Backbone.pretrained.learning_rate_multiplier' must be > 0, got 0."]),
+    (set_invalid_pretrained_run, ["'Backbone.pretrained.experiment_folder' must be null or the path of a run "
+                                  "folder, got 5.", "'Backbone.pretrained.iteration' must be an integer >= 1, got 0."])])
+def test_inconsistent_pretrained_backbone_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                      modify_function: Callable[[Dict[str, Any]], None],
+                                                      expected_messages: List[str]) -> None:
+    """
+    Verifies that inconsistent pretrained backbone settings stop the loading with a short message naming the faulty
+    key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
+    """
+    configuration_path = write_modified_configuration(temporary_directory=tmp_path, modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output

@@ -163,6 +163,21 @@ Backbone:
   # Backbone spatial resolution block indices to branch out to the object detection heads.
   detection_convolution_block_indices: [5, 6, 7]
 
+  # Backbone of another training run (of any task) initialising this run instead of random weights. Its settings
+  # defining the layers (input_channels, convolutions, modules, normalization, last_max_pooling) must be identical to
+  # the ones above, the detection blocks and the image size may differ.
+  pretrained:
+    # Run folder whose trained backbone initialises this run, null to start from random weights. A run resuming
+    # from its own checkpoints does not load it again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded backbone fixed (no gradient, batch normalization statistics frozen) so that only the heads of
+    # the task learn. Requires an experiment_folder.
+    freeze: False
+    # Multiplies the learning rate of the loaded backbone, e.g. 0.1 to fine-tune it ten times slower than the heads.
+    learning_rate_multiplier: 1.0
+
 # Careful because here the number of proposals seems to be global
 RegionProposal:
   head_configurations:

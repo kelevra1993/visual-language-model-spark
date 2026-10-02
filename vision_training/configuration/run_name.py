@@ -57,7 +57,9 @@ def build_input_tokens(model_configuration: Dict[str, Any]) -> List[str]:
 def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the backbone section of the run name, shared by every task: the modules (SE, RES, INC<starting block>),
-    the feature map normalization (BN, LN or NN), then B<layers>x<filters> of every block in order.
+    the feature map normalization (BN, LN or NN), B<layers>x<filters> of every block in order, then PT when the
+    backbone is initialised by the one of another run, followed by BLR<learning rate multiplier> when it learns at
+    another speed than the heads, or FRZ when it is frozen.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -83,6 +85,15 @@ def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     convolutions = backbone_configuration["convolutions"]
     backbone_tokens.append("B" + ".".join(f"{convolutions[block][0]}x{convolutions[block][1]}"
                                           for block in sorted(convolutions, key=int)))
+
+    # Backbone transferred from another run, frozen or learning at its own speed
+    pretrained_configuration = backbone_configuration["pretrained"]
+    if pretrained_configuration["experiment_folder"] is not None:
+        backbone_tokens.append("PT")
+        if pretrained_configuration["freeze"]:
+            backbone_tokens.append("FRZ")
+        elif pretrained_configuration["learning_rate_multiplier"] != 1.0:
+            backbone_tokens.append(f"BLR{pretrained_configuration['learning_rate_multiplier']:g}")
     return backbone_tokens
 
 

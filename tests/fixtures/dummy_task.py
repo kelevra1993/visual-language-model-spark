@@ -294,7 +294,7 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
     """
     Builds the experiment and model settings read by the general trainer for the dummy task: batches of 2 samples,
     saves at iterations 2 (intermediate) and 4 (with test evaluation), a console summary and a validation batch every 2
-    iterations, and no augmentation.
+    iterations, no augmentation and no pretrained backbone.
 
     Args:
         experiment_folder (Path): The experiments root folder of the run.
@@ -316,5 +316,7 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
     model_configuration = {"Data": {"label_dictionary": {"negative": 0, "positive": 1},
                                     "image_settings": {"size": DUMMY_IMAGE_SIZE},
                                     "data_augmentation": {"activated": False, "probability": 0.0,
-                                                          "types": augmentation_types}}}
+                                                          "types": augmentation_types}},
+                           "Backbone": {"pretrained": {"experiment_folder": None, "iteration": None, "freeze": False,
+                                                       "learning_rate_multiplier": 1.0}}}
     return experiment_configuration, model_configuration

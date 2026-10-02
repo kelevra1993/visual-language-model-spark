@@ -26,6 +26,9 @@ if __name__ == "__main__":
     if test_data_folder is not None:
         experiment_configuration["test_data_folder"] = test_data_folder
 
+    # The weights come from the evaluated checkpoint, so the pretrained backbone the run started from is not loaded
+    model_configuration["Backbone"]["pretrained"].update({"experiment_folder": None, "freeze": False})
+
     trainer_class = get_trainer_class(task=experiment_configuration["task"])
     trainer = trainer_class(experiment_configuration=experiment_configuration,
                             model_configuration=model_configuration, configuration_path=configuration_path)

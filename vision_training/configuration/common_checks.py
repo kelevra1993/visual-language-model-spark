@@ -206,4 +206,47 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
                     errors.append(f"'Backbone.convolutions.{block_number}' has {output_channels} output channels, "
                                   f"inception modules require a multiple of 8.")
 
+    errors += check_pretrained_backbone_configuration(model_configuration=model_configuration)
+    return errors
+
+
+def check_pretrained_backbone_configuration(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the 'Backbone.pretrained' settings, which initialise the backbone with the one of another run: the source
+    run folder or null, the checkpoint iteration or null for the last one, the freeze flag, only meaningful with a
+    source run, and the learning rate multiplier of the transferred backbone. The source run itself is only read when
+    a new training starts, so that a trained run can still be evaluated and exported once its source run is gone.
+
+    Args:
+        model_configuration (Dict[str, Any]): The model configuration containing the 'Backbone' section.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    experiment_folder = get_configuration_value(configuration=model_configuration,
+                                                key_path="Backbone.pretrained.experiment_folder")
+    iteration = get_configuration_value(configuration=model_configuration, key_path="Backbone.pretrained.iteration")
+
+    # The source run is given by the path of its folder
+    if experiment_folder is not None and not isinstance(experiment_folder, str):
+        errors.append(f"'Backbone.pretrained.experiment_folder' must be null or the path of a run folder, "
+                      f"got {experiment_folder!r}.")
+    if iteration is not None:
+        errors += check_positive_integers(configuration=model_configuration,
+                                          key_paths=["Backbone.pretrained.iteration"], allow_zero=False)
+
+    # A random backbone is never frozen
+    freeze_errors = check_boolean_flags(configuration=model_configuration, key_paths=["Backbone.pretrained.freeze"])
+    errors += freeze_errors
+    if not freeze_errors and experiment_folder is None and get_configuration_value(
+            configuration=model_configuration, key_path="Backbone.pretrained.freeze"):
+        errors.append("'Backbone.pretrained.freeze' must be False when 'Backbone.pretrained.experiment_folder' is "
+                      "null: only a transferred backbone can be frozen.")
+
+    learning_rate_multiplier = get_configuration_value(configuration=model_configuration,
+                                                       key_path="Backbone.pretrained.learning_rate_multiplier")
+    if isinstance(learning_rate_multiplier, bool) or not isinstance(learning_rate_multiplier, (int, float)) or \
+            learning_rate_multiplier <= 0:
+        errors.append(f"'Backbone.pretrained.learning_rate_multiplier' must be > 0, got {learning_rate_multiplier!r}.")
     return errors
