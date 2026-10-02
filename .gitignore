@@ -20,6 +20,8 @@ wheels/
 !suggestions.md
 # Keep the plan of the major refactoring under version control
 !major_refactoring.md
+# Keep the plan of the sequence comparison task under version control
+!implementation_comparison.md
 
 # Model data
 experiments_folder/
