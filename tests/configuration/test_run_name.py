@@ -477,3 +477,17 @@ def test_sequence_run_names(modify_function: Callable[[Dict[str, Any], Dict[str,
         modify_function(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == expected_run_name
+
+
+def test_sequence_labelling_run_name() -> None:
+    """
+    Verifies the run name of the sequence labelling task: the M2M task code followed by the same sections as the
+    sequence classification task, here with a causal temporal convolution.
+    """
+    experiment_configuration, model_configuration = get_sequence_reference_configurations()
+    experiment_configuration["task"] = "sequence_labelling"
+    model_configuration["TemporalModel"].update({"type": "temporal_convolution", "number_layers": 3, "kernel_size": 3,
+                                                 "bidirectional": False, "causal": True})
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME.replace(
+        "M2O_", "M2M_").replace("_GRU1x128-BI_", "_TCN3x128.3-CAU_")

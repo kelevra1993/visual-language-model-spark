@@ -120,3 +120,27 @@ def check_sequence_classification_configuration(experiment_configuration: Dict[s
                                                  valid_types=POOLING_TEMPORAL_TYPES + ORDERED_TEMPORAL_TYPES,
                                                  allow_causal=False)
     return errors
+
+
+def check_sequence_labelling_configuration(experiment_configuration: Dict[str, Any],
+                                           model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Runs every check specific to the sequence labelling task (many to many): the data settings, classification head
+    and evaluation settings shared with the classification task, the sequence settings, and a temporal module keeping
+    one vector per frame (the order-blind poolings summarise a whole sequence), possibly causal.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration.
+        model_configuration (Dict[str, Any]): The processed model sections.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    errors += check_classification_data_configuration(model_configuration=model_configuration)
+    errors += check_classification_head_configuration(model_configuration=model_configuration)
+    errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration)
+    errors += check_sequence_settings(model_configuration=model_configuration)
+    errors += check_temporal_model_configuration(model_configuration=model_configuration,
+                                                 valid_types=ORDERED_TEMPORAL_TYPES, allow_causal=True)
+    return errors

@@ -4,11 +4,13 @@ from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.trainers.classification_trainer import ClassificationTrainer
 from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.trainers.sequence_classification_trainer import SequenceClassificationTrainer
+from vision_training.trainers.sequence_labelling_trainer import SequenceLabellingTrainer
 
 # Trainer class of every task, keyed by the value of 'ExperimentConfiguration.task'
 TASK_TRAINER_CLASSES: Dict[str, Type[BaseTrainer]] = {"object_detection": DetectionTrainer,
                                                       "classification": ClassificationTrainer,
-                                                      "sequence_classification": SequenceClassificationTrainer}
+                                                      "sequence_classification": SequenceClassificationTrainer,
+                                                      "sequence_labelling": SequenceLabellingTrainer}
 
 
 def get_trainer_class(task: str) -> Type[BaseTrainer]:

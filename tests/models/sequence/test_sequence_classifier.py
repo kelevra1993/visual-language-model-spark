@@ -25,8 +25,9 @@ def test_sequence_classifier_outputs_and_padding_frames(temporal_type: str) -> N
 
     with torch.no_grad():
         outputs = model(input_tensor=frames, sequence_mask=sequence_mask)
+        # White padding frames instead of noise ones, whose pooled features would clearly differ if they were used
         noisy_frames = frames.clone()
-        noisy_frames[1, 2:] = torch.rand(size=(2, 3, 64, 64)) * 255.0
+        noisy_frames[1, 2:] = 255.0
         noisy_outputs = model(input_tensor=noisy_frames, sequence_mask=sequence_mask)
         loss_outputs = model(input_tensor=frames, sequence_mask=sequence_mask, labels=torch.tensor(data=[0, 2]))
 

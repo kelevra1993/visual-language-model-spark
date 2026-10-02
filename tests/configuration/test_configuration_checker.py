@@ -183,7 +183,7 @@ def test_example_configuration_is_consistent() -> None:
     (set_intermediate_weight_saving, ["'ExperimentConfiguration.intermediate_weight_saving_iterations' (10000) "
                                       "must be smaller than"]),
     (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'classification', "
-                        "'sequence_classification'", "got 'segmentation'."]),
+                        "'sequence_classification', 'sequence_labelling'], got 'segmentation'."]),
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
@@ -502,3 +502,71 @@ def test_inconsistent_sequence_classification_configuration_is_rejected(
     for expected_message in expected_messages:
         assert expected_message in printed_output
     assert "Traceback" not in printed_output
+
+
+def use_pooling_for_labelling(configuration: Dict[str, Any]) -> None:
+    """
+    Uses an order-blind pooling, which summarises a whole sequence, for the sequence labelling task.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence labelling configuration, modified in place.
+    """
+    configuration["TemporalModel"]["type"] = "mean_pooling"
+
+
+def set_causal_bidirectional_recurrent_model(configuration: Dict[str, Any]) -> None:
+    """
+    Makes the recurrent module of the synthetic sequence labelling configuration both causal and bidirectional.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence labelling configuration, modified in place.
+    """
+    configuration["TemporalModel"].update({"causal": True, "bidirectional": True})
+
+
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
+                                                                   "configuration_synthetic_sequences.yaml"])
+def test_sequence_labelling_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
+    """
+    Verifies that the sequence labelling configurations shipped with the repository pass every consistency check,
+    the example one with a causal transformer.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_name (str): The file name of the sequence labelling configuration.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_labelling",
+                                                  configuration_name=configuration_name, modify_function=None)
+    experiment_configuration, _ = load_experiment_configuration(configuration_path=configuration_path)
+    assert experiment_configuration["task"] == "sequence_labelling"
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (use_pooling_for_labelling, ["'TemporalModel.type' must be one of ['gru', 'lstm', 'transformer', "
+                                 "'temporal_convolution'] for this task, got 'mean_pooling'."]),
+    (set_causal_bidirectional_recurrent_model, ["'TemporalModel.bidirectional' must be False when "
+                                                "'TemporalModel.causal' is True"])])
+def test_inconsistent_sequence_labelling_configuration_is_rejected(
+        tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
+        expected_messages: List[str]) -> None:
+    """
+    Verifies that the temporal modules unable to keep one vector per frame, and causal modules reading the sequence
+    backwards, are rejected for the sequence labelling task, without rejecting the causal flag itself.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_labelling",
+                                                  configuration_name="configuration_synthetic_sequences.yaml",
+                                                  modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
+    assert "'TemporalModel.causal' must be False" not in printed_output

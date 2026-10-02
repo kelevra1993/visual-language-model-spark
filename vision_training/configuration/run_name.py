@@ -245,7 +245,7 @@ def build_sequence_sections(model_configuration: Dict[str, Any]) -> List[List[st
 # Builder of the task-specific sections of the run name, placed between the backbone and training sections
 TASK_RUN_NAME_SECTIONS: Dict[str, Callable[[Dict[str, Any]], List[List[str]]]] = {
     "object_detection": build_detection_sections, "classification": build_classification_sections,
-    "sequence_classification": build_sequence_sections}
+    "sequence_classification": build_sequence_sections, "sequence_labelling": build_sequence_sections}
 
 
 def build_run_name(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> str:

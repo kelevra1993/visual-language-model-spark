@@ -192,12 +192,38 @@ class ClassificationTrainer(BaseTrainer):
         accumulator["probabilities"].append(predictions["class_probabilities"][sample_indices].detach().cpu().double())
         accumulator["labels"].append(batch["labels"][sample_indices].detach().cpu())
 
+    def describe_evaluated_samples(self, accumulator: Dict[str, Any]) -> str:
+        """
+        Describes the evaluated test samples in the first line of the report. The sequence labelling trainer
+        overrides it to count the windows and their labelled frames.
+
+        Args:
+            accumulator (Dict[str, Any]): The accumulated class probabilities and labels of the test split.
+
+        Returns:
+            str: The number of evaluated samples, e.g. '400 Test Images'.
+        """
+        return f"{sum(len(labels) for labels in accumulator['labels'])} Test {self.SAMPLE_NAME}"
+
+    def compute_extra_headline_metrics(self, accumulator: Dict[str, Any]) -> Dict[str, float]:
+        """
+        Computes the metrics of the task reported after the classification metrics, none for the classification
+        task. The sequence labelling trainer overrides it to add the sequence exact match.
+
+        Args:
+            accumulator (Dict[str, Any]): The accumulated predictions and labels of the test split.
+
+        Returns:
+            Dict[str, float]: The extra metrics, keyed by display name.
+        """
+        return {}
+
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
-        Computes the classification metrics of the test split and formats them for the report: the headline metrics,
-        the precision, recall and F1 of every class, and the threshold of every class reaching the target precision
-        with the recall it keeps. The confusion matrix (multi-class mode) and the thresholds are saved in the
-        evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/'.
+        Computes the classification metrics of the test split and formats them for the report: the headline metrics
+        (with the extra metrics of the task), the precision, recall and F1 of every class, and the threshold of every
+        class reaching the target precision with the recall it keeps. The confusion matrix (multi-class mode) and the
+        thresholds are saved in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/'.
 
         Args:
             accumulator (Dict[str, Any]): The class probabilities and labels of the test split.
@@ -233,6 +259,9 @@ class ClassificationTrainer(BaseTrainer):
                                 "Macro F1": metrics["macro_f1"]}
             positive_masks = labels >= 0.5
 
+        # Extra metrics of the task, e.g. the sequence exact match of the sequence labelling task
+        headline_metrics.update(self.compute_extra_headline_metrics(accumulator=accumulator))
+
         # Threshold of every class reaching the target precision, saved for the deployment of the checkpoint
         class_thresholds = find_class_thresholds(probabilities=probabilities, positive_masks=positive_masks,
                                                  target_precision=self.target_precision)
@@ -246,7 +275,7 @@ class ClassificationTrainer(BaseTrainer):
         files["Class Thresholds"] = thresholds_path
 
         # Headline line, then one line for the per-class metrics and one for the per-class thresholds
-        lines = [f"Iteration {iteration} : {len(labels)} Test {self.SAMPLE_NAME}",
+        lines = [f"Iteration {iteration} : {self.describe_evaluated_samples(accumulator=accumulator)}",
                  "  " + " | ".join(f"{metric_name} {metric_value:.4f}"
                                    for metric_name, metric_value in headline_metrics.items()),
                  "  Precision / Recall / F1 Per Class : " + " | ".join(

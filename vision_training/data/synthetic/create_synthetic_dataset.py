@@ -35,10 +35,13 @@ SEQUENCES_PER_TASK = 20
 MOVEMENT_CATEGORIES = {"moving_left": 1, "moving_right": 2, "moving_up": 3, "moving_down": 4}
 MOVEMENT_DIRECTIONS = {"moving_left": (-1, 0), "moving_right": (1, 0), "moving_up": (0, -1), "moving_down": (0, 1)}
 
+# Maximum number of shape changes of a synthetic sequence labelling sample
+MAXIMUM_SHAPE_CHANGES = 3
+
 # Categories of the synthetic dataset of every task, and the tasks whose samples are sequences of frames
 TASK_CATEGORIES = {"object_detection": SHAPE_CATEGORIES, "classification": SHAPE_CATEGORIES,
-                   "sequence_classification": MOVEMENT_CATEGORIES}
-SEQUENCE_TASKS = ["sequence_classification"]
+                   "sequence_classification": MOVEMENT_CATEGORIES, "sequence_labelling": SHAPE_CATEGORIES}
+SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling"]
 
 
 def draw_square_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
@@ -388,6 +391,49 @@ def generate_moving_shape_sequence(image_size: int, number_frames: int, random_g
     return frames, MOVEMENT_CATEGORIES[direction_name]
 
 
+def generate_changing_shape_sequence(image_size: int, number_frames: int,
+                                     random_generator: np.random.Generator) -> Tuple[List[np.ndarray], List[int]]:
+    """
+    Generates one synthetic sequence labelling sample: a shape of fixed position, size and colour, over a background
+    shared by every frame, whose class changes one to three times during the sequence, every frame being labelled
+    with the class of the shape it shows.
+
+    Args:
+        image_size (int): The height and width of the square frames in pixels.
+        number_frames (int): The number of frames of the sequence, at least 2.
+        random_generator (np.random.Generator): The random generator of the sequence.
+
+    Returns:
+        Tuple[List[np.ndarray], List[int]]: The [H, W, 3] uint8 BGR frames and the category identifier of every frame.
+    """
+    background, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
+    colour = draw_contrasting_colour(background_colour=background_colour, random_generator=random_generator)
+    size = int(random_generator.integers(low=max(8, image_size // 6), high=max(9, image_size // 3) + 1))
+    center_x, center_y = random_generator.integers(low=size // 2 + 1, high=image_size - size // 2 - 1, size=2)
+
+    # Frames from which the shape changes class, each change giving a class different from the previous one
+    number_changes = int(random_generator.integers(low=1, high=min(MAXIMUM_SHAPE_CHANGES, number_frames - 1) + 1))
+    change_frames = set(random_generator.choice(a=np.arange(start=1, stop=number_frames), size=number_changes,
+                                                replace=False).tolist())
+    shape_names = list(SHAPE_CATEGORIES)
+
+    # Draw the mask of every class segment once, so that a triangle or a rectangle keeps its shape until it changes
+    frames, frame_category_ids, shape_name, mask = [], [], None, None
+    for frame_index in range(number_frames):
+        if frame_index == 0 or frame_index in change_frames:
+            other_shape_names = [name for name in shape_names if name != shape_name]
+            shape_name = other_shape_names[int(random_generator.integers(low=0, high=len(other_shape_names)))]
+            mask = np.zeros(shape=(image_size, image_size), dtype=np.uint8)
+            SHAPE_DRAWING_FUNCTIONS[shape_name](mask=mask, center_x=int(center_x), center_y=int(center_y), size=size,
+                                                random_generator=random_generator)
+        frame = background.copy()
+        frame[mask > 0] = colour
+        frames.append(frame)
+        frame_category_ids.append(SHAPE_CATEGORIES[shape_name])
+
+    return frames, frame_category_ids
+
+
 def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Generates and saves one chunk of sequences of a split, run by a worker process, the frames of every sequence in
@@ -396,19 +442,27 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     Args:
         chunk (Dict[str, Any]): The chunk description: 'data_folder', 'split_name', 'first_index',
-            'number_sequences', 'image_size' and 'number_frames'.
+            'number_sequences', 'image_size', 'number_frames' and 'task'.
 
     Returns:
         List[Dict[str, Any]]: For every sequence, its 'index', 'name', 'frames' (paths relative to the data folder)
-            and 'category_id'.
+            and 'category_id' (sequence classification) or 'frame_category_ids' (sequence labelling).
     """
     random_generator = np.random.default_rng()
     sequence_records = []
 
     for sequence_index in range(chunk["first_index"], chunk["first_index"] + chunk["number_sequences"]):
-        frames, category_identifier = generate_moving_shape_sequence(image_size=chunk["image_size"],
-                                                                     number_frames=chunk["number_frames"],
-                                                                     random_generator=random_generator)
+        # A shape crossing the frames labelled with its direction, or a shape changing class labelled per frame
+        if chunk["task"] == "sequence_classification":
+            frames, category_identifier = generate_moving_shape_sequence(image_size=chunk["image_size"],
+                                                                         number_frames=chunk["number_frames"],
+                                                                         random_generator=random_generator)
+            sequence_labels = {"category_id": category_identifier}
+        else:
+            frames, frame_category_ids = generate_changing_shape_sequence(image_size=chunk["image_size"],
+                                                                          number_frames=chunk["number_frames"],
+                                                                          random_generator=random_generator)
+            sequence_labels = {"frame_category_ids": frame_category_ids}
 
         # Save the frames in the folder of the sequence, in order
         sequence_name = f"{chunk['split_name']}_{sequence_index:06d}"
@@ -417,7 +471,7 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
         for frame_file, frame in zip(frame_files, frames):
             cv2.imwrite(filename=os.path.join(chunk["data_folder"], frame_file), img=frame)
         sequence_records.append({"index": sequence_index, "name": sequence_name, "frames": frame_files,
-                                 "category_id": category_identifier})
+                                 **sequence_labels})
 
     return sequence_records
 
@@ -426,26 +480,32 @@ def build_sequence_labels(sequence_records: List[Dict[str, Any]], split_name: st
         Dict[str, Any], Dict[str, int]]:
     """
     Assembles the 'labels.json' manifest of a synthetic sequence split, read by the sequence loader: every sequence
-    with its ordered frames and its category.
+    with its ordered frames and its category (sequence classification) or the category of every frame (sequence
+    labelling).
 
     Args:
-        sequence_records (List[Dict[str, Any]]): The 'index', 'name', 'frames' and 'category_id' of every sequence.
+        sequence_records (List[Dict[str, Any]]): The 'index', 'name', 'frames' and 'category_id' or
+            'frame_category_ids' of every sequence.
         split_name (str): The name of the split, written in the description.
         task (str): The sequence task of the dataset, giving its categories.
 
     Returns:
-        Tuple[Dict[str, Any], Dict[str, int]]: The manifest and the number of sequences of every class.
+        Tuple[Dict[str, Any], Dict[str, int]]: The manifest and the number of sequences (or frames) of every class.
     """
     categories = TASK_CATEGORIES[task]
     category_names = {category_identifier: name for name, category_identifier in categories.items()}
     class_counts = {category_name: 0 for category_name in categories}
 
-    # One entry per sequence, with its frames in order and its category
+    # One entry per sequence, with its frames in order and its category, or the category of every frame
     sequences = []
     for record in sequence_records:
-        sequences.append({"id": record["index"] + 1, "name": record["name"], "frames": record["frames"],
-                          "category_id": record["category_id"]})
-        class_counts[category_names[record["category_id"]]] += 1
+        sequence = {"id": record["index"] + 1, "name": record["name"], "frames": record["frames"]}
+        label_key = "category_id" if "category_id" in record else "frame_category_ids"
+        sequence[label_key] = record[label_key]
+        for category_identifier in ([record["category_id"]] if label_key == "category_id" else
+                                    record["frame_category_ids"]):
+            class_counts[category_names[category_identifier]] += 1
+        sequences.append(sequence)
 
     labels = {"info": {"description": f"Synthetic {task.replace('_', ' ')} dataset, {split_name} split"},
               "categories": [{"id": category_identifier, "name": name}
@@ -471,10 +531,10 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
             images holding a single shape).
         number_frames (int): The number of frames of every sequence (sequence tasks only).
         number_workers (int): The number of worker processes generating the images.
-        task (str): "object_detection", "classification" or "sequence_classification".
+        task (str): "object_detection", "classification", "sequence_classification" or "sequence_labelling".
 
     Returns:
-        Dict[str, int]: The number of labels (objects, images or sequences) of every class in the split.
+        Dict[str, int]: The number of labels (objects, images, sequences or frames) of every class in the split.
     """
     data_folder = os.path.join(split_folder, "data")
     os.makedirs(name=data_folder, exist_ok=True)
@@ -483,7 +543,7 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
     if task in SEQUENCE_TASKS:
         chunks = [{"data_folder": data_folder, "split_name": split_name, "first_index": first_index,
                    "number_sequences": min(SEQUENCES_PER_TASK, number_samples - first_index),
-                   "image_size": image_size, "number_frames": number_frames}
+                   "image_size": image_size, "number_frames": number_frames, "task": task}
                   for first_index in range(0, number_samples, SEQUENCES_PER_TASK)]
         with Pool(processes=number_workers) as pool:
             sequence_records = [record for chunk_records in pool.map(generate_sequence_chunk, chunks)
@@ -519,8 +579,8 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
     Creates the whole synthetic shapes dataset of a task: the train, validation and test splits, all labelled, and the
     'label_mapping.json' file used by the 'multi_class' label mapping mode of the configuration. The dataset is a
     trivial task used to check that a model learns (it should overfit it within minutes): several shapes per image
-    to detect, a single shape per image to classify, or a shape crossing the frames of a sequence whose movement
-    direction is classified.
+    to detect, a single shape per image to classify, a shape crossing the frames of a sequence whose movement
+    direction is classified, or a shape changing class during a sequence whose every frame is classified.
 
     Args:
         output_folder (str): The root folder of the dataset.
@@ -530,7 +590,7 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         maximum_objects (int): The maximum number of objects per image (object detection only).
         number_frames (int): The number of frames of every sequence (sequence tasks only).
         number_workers (int): The number of worker processes generating the images.
-        task (str): "object_detection", "classification" or "sequence_classification".
+        task (str): "object_detection", "classification", "sequence_classification" or "sequence_labelling".
     """
     # Generate every split in its own folder
     sample_name = "sequences" if task in SEQUENCE_TASKS else "images"
@@ -554,20 +614,24 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
 
 
 if __name__ == "__main__":
-    # Task of the dataset: "object_detection" (several shapes per image), "classification" (one shape per image) or
-    # "sequence_classification" (one shape crossing the frames, labelled with its movement direction)
+    # Task of the dataset: "object_detection" (several shapes per image), "classification" (one shape per image),
+    # "sequence_classification" (one shape crossing the frames, labelled with its movement direction) or
+    # "sequence_labelling" (one shape changing class during the sequence, labelled per frame)
     task = "object_detection"
     # Root folder of the created dataset of every task, the ones expected by the synthetic configurations of
     # vision_training/configurations/. Existing images and labels of the same splits are overwritten
     output_folders = {"object_detection": "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes",
                       "classification": "/home/robert_kelevra/Data/classifier_data/synthetic_shapes",
-                      "sequence_classification": "/home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes"}
+                      "sequence_classification": "/home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes",
+                      "sequence_labelling": "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes"}
     # Height and width of the square images in pixels, for every task
-    image_sizes = {"object_detection": 1024, "classification": 256, "sequence_classification": 128}
+    image_sizes = {"object_detection": 1024, "classification": 256, "sequence_classification": 128,
+                   "sequence_labelling": 128}
     # Number of images (or sequences) of every split, all of them labelled, for every task
     split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
                    "classification": {"train": 4000, "validation": 500, "test": 500},
-                   "sequence_classification": {"train": 2000, "validation": 200, "test": 200}}
+                   "sequence_classification": {"train": 2000, "validation": 200, "test": 200},
+                   "sequence_labelling": {"train": 2000, "validation": 200, "test": 200}}
     # Maximum number of shapes drawn in one image (at least one is always drawn), object detection only
     maximum_objects = 6
     # Number of frames of every sequence, sequence tasks only

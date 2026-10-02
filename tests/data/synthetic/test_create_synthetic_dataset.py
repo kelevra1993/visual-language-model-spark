@@ -155,3 +155,33 @@ def test_created_sequence_dataset_moves_its_shapes_in_the_labelled_direction(tmp
         direction_x, direction_y = MOVEMENT_DIRECTIONS[category_names[sequence["category_id"]]]
         assert displacement @ np.array([direction_x, direction_y]) > 5.0
         assert abs(displacement @ np.array([direction_y, direction_x])) < 1.0
+
+
+def test_created_sequence_labelling_dataset_labels_every_frame(tmp_path: Path) -> None:
+    """
+    Verifies the sequence labelling mode of the generator: every sequence lists the shape category of every frame,
+    the shape changes class at least once, the frames of the same class segment are identical and two consecutive
+    segments differ, and the label mapping gives the four shapes the classes 0 to 3.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=64,
+                             split_sizes={"train": 10, "validation": 2, "test": 2}, maximum_objects=1,
+                             number_frames=6, number_workers=2, task="sequence_labelling")
+
+    labels = json.loads((tmp_path / "train" / "labels.json").read_text())
+    assert [category["name"] for category in labels["categories"]] == list(SHAPE_CATEGORIES)
+    assert json.loads((tmp_path / "label_mapping.json").read_text()) == {"1": 0, "2": 1, "3": 2, "4": 3}
+
+    for sequence in labels["sequences"]:
+        frame_category_ids = sequence["frame_category_ids"]
+        assert len(frame_category_ids) == len(sequence["frames"]) == 6
+        assert len(set(frame_category_ids)) >= 2 and set(frame_category_ids) <= set(SHAPE_CATEGORIES.values())
+
+        # Identical frames within a class segment, different frames across a change of class
+        frames = [cv2.imread(filename=str(tmp_path / "train" / "data" / frame_file))
+                  for frame_file in sequence["frames"]]
+        for frame_index in range(1, 6):
+            same_class = frame_category_ids[frame_index] == frame_category_ids[frame_index - 1]
+            assert np.array_equal(frames[frame_index], frames[frame_index - 1]) == same_class
