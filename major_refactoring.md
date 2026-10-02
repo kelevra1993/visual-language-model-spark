@@ -21,6 +21,7 @@
 18. Backward Compatibility
 19. Risks
 20. Decisions Taken
+21. Implementation Notes
 
 ---
 
@@ -907,3 +908,58 @@ and it's removed when the phase is done. Commits are by feature, without attribu
 7. **Run name task code:** `DET` / `CLS` / `M2O` / `M2M` at the start of every run name; existing detection run
    folders get a one-off `DET_` prefix, done when no training is running.
 8. **Phase order:** backbone transfer after the sequence tasks (Phase 8), as planned.
+
+---
+
+## 21. Implementation Notes
+
+Every phase is implemented, one commit per feature. This section lists what differs from the plan above, and what
+is left out.
+
+### Differences from the plan
+1. **Frame encoder:** `encode_frames` is a function of `models/sequence/frame_encoder.py`, not a module, so that every
+   sequence model keeps its backbone under `self.backbone`, the attribute the backbone transfer reads.
+2. **Sequence collate:** there is no `sequence_collate.py`. The dataset pads every window to the sequence length with
+   black frames and returns its sequence mask, so the default collate stacks the batches.
+3. **Sequence tasks:** one class per sequence or per frame only (`ClassificationHead.output_mode: "multi_class"`); the
+   sequence manifests have no multi-label form.
+4. **Backbone learning rate:** the multiplier is `Backbone.pretrained.learning_rate_multiplier`, next to the transfer it
+   applies to, instead of `Optimization.backbone_learning_rate_multiplier`.
+5. **Learning rate location:** `ExperimentConfiguration.learning_rate` stays where it is; the `Optimization` section
+   only holds the new settings (optimizer, weight decay, warm-up and cosine schedule, gradient clipping, bfloat16 mixed
+   precision). Its defaults reproduce the previous training (Adam at a constant learning rate) and add no run name
+   token, so the existing run names do not change.
+6. **Export of the sequence models:** the inference models take windows of real frames only (`images` `[B, T, 3, H, W]`,
+   no mask input) and run the path of the models without sequence mask, whose operations keep fixed shapes. The
+   number of frames is dynamic, up to the sequence length of the training. No TensorRT shape profile is written:
+   ONNX Runtime builds an engine per input shape and caches it.
+7. **Source run of a transfer:** the configuration checker only checks the type of
+   `Backbone.pretrained.experiment_folder`. The source run is read when a new training starts, so that a transferred
+   run can still be evaluated and exported once its source run is deleted.
+8. **Backbone summary:** its dummy forward pass now runs in evaluation mode without gradients, so that printing the
+   summary no longer changes the batch normalization statistics (it shifted those of a transferred backbone).
+
+### Left out
+- Segment metrics of the sequence labelling task (edit score, segment F1), optional in section 8.4.
+- DALI loaders for the classification and sequence tasks: they use the Native loaders.
+- `torch.compile` in `BaseTrainer`: the compiled model prefixes the state dictionary keys, which would change the
+  checkpoint format.
+- README sections per task, and the removal of `classifier_insipiration_code/`, which need your go-ahead.
+
+### Migration of the runs trained before
+`scripts/configuration/migrate_configuration.py` upgrades the saved configuration of a run trained before the task,
+the backbone transfer and the optimization settings (it adds `task`, `Backbone.pretrained` and `Optimization` with the
+values of that time) and renames its folder with the `DET_` prefix when `rename_folder` is True. A folder must not be
+renamed while a training writes into it.
+
+### Acceptance results (synthetic datasets)
+| Phase | Check | Result |
+|---|---|---|
+| 5 | Classification of the synthetic shapes | 100 % test accuracy at iteration 1000 (98.25 % at 500) |
+| 6 | Movement direction, GRU vs order-blind mean pooling | 100 % vs 25.75 % (chance 25 %) at iteration 1500 |
+| 7 | Changing shapes, unidirectional GRU / causal transformer | 99.31 % / 96.72 % frame accuracy at iteration 1000 |
+| 7 | Causal modules | no-look-ahead tests pass at module and model level |
+| 8 | Classification backbone initialising a detector | first 50 iterations equal, then 9 to 12 % lower losses |
+| 9 | Exports of the classification and sequence models | match the eager models, load in Triton, served outputs match |
+| 10 | Phase 5 training with warm-up and cosine decay | 100 % test accuracy at iterations 500, 1000 and 1500 (constant learning rate: 98.25 %, 100 %, 94 %) |
+
