@@ -110,26 +110,31 @@ def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: boo
     cv2.destroyAllWindows()
 
 
-def view_input_data(images: List[torch.Tensor], bounding_boxes: List[torch.Tensor], labels: List[torch.Tensor],
-                    window_titles: List[str], display_input_size: int,
-                    label_names: Optional[Dict[int, str]] = None) -> bool:
+def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[torch.Tensor]],
+                    labels: Optional[List[torch.Tensor]], window_titles: List[str], display_input_size: int,
+                    label_names: Optional[Dict[int, str]] = None, captions: Optional[List[str]] = None) -> bool:
     """
-    Displays preprocessed input images with their ground truth boxes and labels, one window per image, so the user
-    can check exactly what is fed to the neural network.
+    Displays preprocessed input images with their ground truth boxes and labels, or with a caption describing their
+    target, one window per image, so the user can check exactly what is fed to the neural network.
 
-    It is shared by the dataloader benchmarker (a single window per image) and by the Trainer's 'view_input_images'
-    diagnosis mode (a Training and a Validation window side by side). Execution halts until the user presses
-    SPACE (next image) or ENTER (stop viewing).
+    It is shared by the dataloader benchmarker (a single window per image) and by the trainers' 'view_input_images'
+    diagnosis mode (a Training and a Validation window side by side): the object detection trainer draws the boxes,
+    the classification trainer writes the class of every image as its caption. Execution halts until the user
+    presses SPACE (next image) or ENTER (stop viewing).
 
     Args:
         images (List[torch.Tensor]): The preprocessed image tensors of shape [Channels, Height, Width], on CPU or GPU.
-        bounding_boxes (List[torch.Tensor]): The [N, 4] bounding boxes associated with each image.
-        labels (List[torch.Tensor]): The [N] class labels associated with each image's bounding boxes.
+        bounding_boxes (Optional[List[torch.Tensor]]): The [N, 4] bounding boxes associated with each image, or None
+            for the tasks without boxes.
+        labels (Optional[List[torch.Tensor]]): The [N] class labels associated with each image's bounding boxes, or
+            None for the tasks without boxes.
         window_titles (List[str]): The title of the window displaying each image, also written on the image.
         display_input_size (int): The size in pixels of the longest side of each displayed window, typically the
             network input image size so that images are shown exactly as the network receives them.
         label_names (Optional[Dict[int, str]]): Mapping from class index to class name used for the box captions.
             Defaults to None, in which case the numeric class index is written.
+        captions (Optional[List[str]]): A text written below the title of each image (e.g. its class). Defaults to
+            None, in which case no caption is written.
 
     Returns:
         bool: True if the user pressed ENTER to stop the visualization (or no display is available), False otherwise.
@@ -141,28 +146,39 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: List[torch.Tenso
         return True
 
     # Iterate through each image to annotate it and show it in its own window
-    for window_index, (image, image_bounding_boxes, image_labels, window_title) in enumerate(
-            zip(images, bounding_boxes, labels, window_titles)):
+    for window_index, (image, window_title) in enumerate(zip(images, window_titles)):
         # Move the tensor to the CPU, transpose it from (C, H, W) to (H, W, C) and cast it to a contiguous uint8 array,
         # since OpenCV cannot draw on the non-contiguous memory layout left by the transposition
         image_numpy = np.ascontiguousarray(image.detach().cpu().permute(1, 2, 0).numpy().astype(np.uint8))
-        boxes_numpy = image_bounding_boxes.detach().cpu().numpy()
-        labels_numpy = image_labels.detach().cpu().numpy()
 
-        # Draw each object's bounding box rectangle and its class caption
-        for box, label in zip(boxes_numpy, labels_numpy):
-            box_x1, box_y1, box_x2, box_y2 = map(int, box)
-            caption = label_names.get(int(label), str(int(label))) if label_names else str(int(label))
-            cv2.rectangle(img=image_numpy, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0), thickness=2)
-            cv2.putText(img=image_numpy, text=caption, org=(box_x1, max(box_y1 - 10, 0)),
-                        fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
+        # Draw each object's bounding box rectangle and its class caption, for the tasks with boxes
+        if bounding_boxes is not None:
+            boxes_numpy = bounding_boxes[window_index].detach().cpu().numpy()
+            labels_numpy = labels[window_index].detach().cpu().numpy()
+            for box, label in zip(boxes_numpy, labels_numpy):
+                box_x1, box_y1, box_x2, box_y2 = map(int, box)
+                caption = label_names.get(int(label), str(int(label))) if label_names else str(int(label))
+                cv2.rectangle(img=image_numpy, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0),
+                              thickness=2)
+                cv2.putText(img=image_numpy, text=caption, org=(box_x1, max(box_y1 - 10, 0)),
+                            fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
 
-        # Write the window title at the top left and the instructions at the bottom left
+        # Write the window title at the top left
         # Draw solid black background blocks first to guarantee the text is visible against any image background
         image_height, image_width, _ = image_numpy.shape
         cv2.rectangle(img=image_numpy, pt1=(5, 5), pt2=(300, 45), color=(0, 0, 0), thickness=-1)
         cv2.putText(img=image_numpy, text=window_title, org=(10, 35), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
                     fontScale=0.9, color=(255, 255, 255), thickness=2)
+
+        # Write the caption of the image below its title, sized to the caption length
+        if captions is not None:
+            caption_width = cv2.getTextSize(text=captions[window_index], fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                                            fontScale=0.7, thickness=2)[0][0]
+            cv2.rectangle(img=image_numpy, pt1=(5, 50), pt2=(caption_width + 15, 85), color=(0, 0, 0), thickness=-1)
+            cv2.putText(img=image_numpy, text=captions[window_index], org=(10, 77), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                        fontScale=0.7, color=(0, 255, 0), thickness=2)
+
+        # Write the navigation instructions at the bottom left
         cv2.rectangle(img=image_numpy, pt1=(5, image_height - 45), pt2=(550, image_height - 5), color=(0, 0, 0),
                       thickness=-1)
         cv2.putText(img=image_numpy, text="Press SPACE For Next Image, Or ENTER To Quit",

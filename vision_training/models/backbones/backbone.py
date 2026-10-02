@@ -265,3 +265,28 @@ class Backbone(nn.Module):
                                                     "is_detection_block_output": is_detection_block_output})
 
         return receptive_field_information
+
+
+def build_backbone(backbone_configuration: Dict[str, Any], input_image_size: int, device: torch.device,
+                   dtype: torch.dtype) -> Backbone:
+    """
+    Builds the Backbone of a task model from the 'Backbone' configuration section. Every task model (detector,
+    classifiers, sequence models) builds its feature extractor through this function, so that their backbones are
+    identical for identical settings and a backbone trained for one task can initialise another one.
+
+    Args:
+        backbone_configuration (Dict[str, Any]): The 'Backbone' configuration section (blocks, modules, normalization
+            and the blocks feeding task heads).
+        input_image_size (int): The size of the square input images, used to compute the feature map sizes.
+        device (torch.device): The device of the parameters.
+        dtype (torch.dtype): The precision of the parameters.
+
+    Returns:
+        Backbone: The feature extractor.
+    """
+    return Backbone(input_channels=backbone_configuration["input_channels"],
+                    convolutions=backbone_configuration["convolutions"], modules=backbone_configuration["modules"],
+                    last_max_pooling=backbone_configuration["last_max_pooling"],
+                    normalization=backbone_configuration["normalization"],
+                    detection_convolution_block_indices=backbone_configuration["detection_convolution_block_indices"],
+                    input_image_size=input_image_size, device=device, dtype=dtype)

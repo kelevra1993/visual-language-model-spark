@@ -142,7 +142,7 @@ def get_variable_name(target_variable: Any, namespace: Optional[Dict[str, Any]] 
 def get_image_paths(folder: Path) -> List[Path]:
     """
     Lists the images of a folder, e.g. the 'data' folder of a dataset split, to feed them to the deployed detector
-    in the inference client.
+    in the inference client, or a class folder whose images are listed in a classification manifest.
 
     Args:
         folder (Path): The folder holding the images, which is not searched recursively.

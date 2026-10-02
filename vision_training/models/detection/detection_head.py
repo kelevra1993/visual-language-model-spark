@@ -1,10 +1,11 @@
 import torch
 
-from typing import List, Dict, Tuple, Any, Optional
+from typing import Dict, Tuple, Any, Optional
 from torchvision.ops import roi_align
 from torch import nn
 
 from vision_training.models.components.convolution_block import ConvolutionBlock
+from vision_training.models.components.fully_connected_block import build_fully_connected_block
 from vision_training.models.detection.box_operations import apply_regression_predictions
 
 
@@ -62,9 +63,9 @@ class DetectionHead(nn.Module):
 
         # Fully connected layers
         flattened_dimension = self.roi_align_pool_size * self.roi_align_pool_size * convolution_output_channels
-        self.fully_connected_block = self._build_fully_connected_block(
-            input_dimension=flattened_dimension,
-            dimensions=self.fully_connected_dimensions)
+        self.fully_connected_block = build_fully_connected_block(input_dimension=flattened_dimension,
+                                                                 dimensions=self.fully_connected_dimensions,
+                                                                 dropout_rate=0.0, device=self.device, dtype=self.dtype)
 
         # Final task-specific output layers
         # Object classification layer (outputs un-normalized logits for number_classes)
@@ -75,28 +76,6 @@ class DetectionHead(nn.Module):
         self.bounding_box_regressor = nn.Linear(in_features=detector_configuration["fully_connected"][-1],
                                                 out_features=self.number_classes * 4,
                                                 device=self.device, dtype=self.dtype)
-
-    def _build_fully_connected_block(self, input_dimension: int, dimensions: List[int]) -> nn.Sequential:
-        """
-        Builds the fully connected layers for the Detection Head.
-        
-        Args:
-            input_dimension (int): The flattened input dimension.
-            dimensions (List[int]): The sequence of output dimensions for each FC layer.
-            
-        Returns:
-            nn.Sequential: The constructed sequence of FC and ReLU layers.
-        """
-        fully_connected_layers = []
-        current_dimension = input_dimension
-
-        for next_dimension in dimensions:
-            fully_connected_layers.append(nn.Linear(in_features=current_dimension, out_features=next_dimension,
-                                                    device=self.device, dtype=self.dtype))
-            fully_connected_layers.append(nn.ReLU(inplace=True))
-            current_dimension = next_dimension
-
-        return nn.Sequential(*fully_connected_layers)
 
     def forward(self, proposal_boxes: torch.Tensor, input_tensor: torch.Tensor,
                 tensor_to_concatenate: Optional[torch.Tensor] = None) -> Tuple[

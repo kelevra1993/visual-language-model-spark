@@ -38,6 +38,16 @@ class EvaluationResults(TypedDict):
     files: Dict[str, Path]
 
 
+class ClassificationBatch(TypedDict):
+    """
+    Batch of the classification task, on the device and in the precision of the model: one int64 class index per
+    image ([B]), or one float multi-hot vector per image ([B, K]) in multi-label mode.
+    """
+    images: torch.Tensor
+    labels: torch.Tensor
+    sample_identifiers: torch.Tensor
+
+
 class DetectionBatch(TypedDict):
     """
     Batch of the object detection task, on the device and in the precision of the model.

@@ -27,6 +27,11 @@ def check_detection_levels(model_configuration: Dict[str, Any]) -> List[str]:
                                                       key_path="Backbone.detection_convolution_block_indices")
     expected_levels = sorted(str(index) for index in detection_block_indices)
 
+    # The detector needs at least one detection block feeding its heads
+    if not detection_block_indices:
+        errors.append("'Backbone.detection_convolution_block_indices' must list at least one block for the object "
+                      "detection task.")
+
     # Compare the levels of every per-level dictionary with the Backbone detection blocks
     for key_path in ["Anchors.scales_and_ratios", "RegionProposal.head_configurations",
                      "Detector.head_configurations"]:

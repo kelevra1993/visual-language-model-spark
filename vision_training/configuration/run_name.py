@@ -163,9 +163,40 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     return [[levels_token], [anchors_token], region_proposal_tokens, detector_tokens, [classes_token]]
 
 
+def build_classification_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
+    """
+    Builds the sections of the run name describing the classification head, shared by the classification-like tasks:
+    the head H<global pooling AVG or MAX>.<fully connected sizes> with the dropout DO<rate>, LS<label smoothing> when
+    smoothing and CWB when the classes are balanced in the loss, then the classes MC<classes> (one class per sample)
+    or ML<classes> (several classes per sample), e.g. 'HAVG.256-DO0.5_MC4'.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
+
+    Returns:
+        List[List[str]]: The tokens of every section.
+    """
+    head_configuration = model_configuration["ClassificationHead"]
+
+    # Pooling and hidden layers, dropout, then the label smoothing and class weighting of the loss when used
+    pooling_code = {"average": "AVG", "max": "MAX"}[head_configuration["global_pooling"]]
+    head_tokens = ["H" + ".".join([pooling_code] + [str(size) for size in head_configuration["fully_connected"]]),
+                   f"DO{head_configuration['dropout_rate']:g}"]
+    if head_configuration["label_smoothing"] > 0:
+        head_tokens.append(f"LS{head_configuration['label_smoothing']:g}")
+    if head_configuration["class_weighting"] == "balanced":
+        head_tokens.append("CWB")
+
+    # Classes, without background class
+    output_code = "MC" if head_configuration["output_mode"] == "multi_class" else "ML"
+    classes_token = f"{output_code}{len(set(model_configuration['Data']['label_dictionary'].values()))}"
+
+    return [head_tokens, [classes_token]]
+
+
 # Builder of the task-specific sections of the run name, placed between the backbone and training sections
 TASK_RUN_NAME_SECTIONS: Dict[str, Callable[[Dict[str, Any]], List[List[str]]]] = {
-    "object_detection": build_detection_sections}
+    "object_detection": build_detection_sections, "classification": build_classification_sections}
 
 
 def build_run_name(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> str:

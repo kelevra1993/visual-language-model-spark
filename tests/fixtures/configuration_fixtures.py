@@ -74,3 +74,32 @@ def get_detection_model_configuration() -> Tuple[Dict[str, Any], torch.device, t
     dtype = torch.float32
 
     return configuration, device, dtype
+
+
+def get_classification_model_configuration(output_mode: str) -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
+    """
+    Supplies a small image classifier configuration dictionary, with its device and dtype, shared by the
+    classification model tests: 64 pixel images, 4 backbone blocks, one hidden layer and 3 classes.
+
+    Args:
+        output_mode (str): "multi_class" (one class per image) or "multi_label" (several classes per image).
+
+    Returns:
+        Tuple[Dict[str, Any], torch.device, torch.dtype]: The classifier configuration, compute device and dtype.
+    """
+    configuration = {'Data': {'image_settings': {'size': 64}, 'label_dictionary': {1: 0, 2: 1, 3: 2}},
+                     'Backbone': {'input_channels': 3,
+                                  'convolutions': {'1': [1, 8], '2': [1, 16], '3': [2, 16], '4': [2, 32]},
+                                  'modules': {'squeeze_and_excite': True, 'residual_nets': True, 'inception': False,
+                                              'inception_starting_block': 3},
+                                  'last_max_pooling': False,
+                                  'normalization': {'feature_map_normalization': 'batch', 'input_normalization': True,
+                                                    'per_sample_normalization': False},
+                                  'detection_convolution_block_indices': []},
+                     'ClassificationHead': {'global_pooling': 'average', 'fully_connected': [16], 'dropout_rate': 0.0,
+                                            'output_mode': output_mode, 'label_smoothing': 0.0,
+                                            'class_weighting': 'none'}}
+    device = torch.device(device="cpu")
+    dtype = torch.float32
+
+    return configuration, device, dtype

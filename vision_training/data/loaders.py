@@ -5,6 +5,7 @@ from typing import Any, Dict, Tuple, Union
 from torch.utils.data import DataLoader
 
 from vision_training.data.detection.coco_dali_pipeline import DALIDataloaderWrapper, dali_pipeline
+from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
 
 
@@ -98,3 +99,37 @@ def get_dataloaders(experiment_configuration: Dict[str, Any], model_configuratio
                                  number_of_workers=number_of_workers)
 
     return train_loader, validation_loader, test_loader
+
+
+def get_classification_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
+                                   batch_size: int, number_of_workers: int) -> Tuple[DataLoader, DataLoader,
+                                                                                     DataLoader]:
+    """
+    Initializes the training, validation and testing loaders of the classification task, read from the
+    'labels.json' manifest of every split with the Native loader (OpenCV decoding and CPU resizing).
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
+        model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label dictionary
+            and the output mode of the classification head.
+        batch_size (int): The number of samples of a batch.
+        number_of_workers (int): The number of parallel loading processes.
+
+    Returns:
+        Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
+    """
+    data_configuration = model_configuration["Data"]
+    loaders = []
+
+    # Build the loader of every split with the same settings
+    for split_key in ["train_data_folder", "validation_data_folder", "test_data_folder"]:
+        split_data_folder = str(experiment_configuration[split_key])
+        dataset = ClassificationDataset(data_directory=os.path.join(split_data_folder, "data"),
+                                        labels_file=os.path.join(split_data_folder, "labels.json"),
+                                        image_size=data_configuration["image_settings"]["size"],
+                                        keep_ratio=data_configuration["image_settings"]["keep_ratio"],
+                                        label_dictionary=data_configuration["label_dictionary"],
+                                        output_mode=model_configuration["ClassificationHead"]["output_mode"])
+        loaders.append(DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=number_of_workers))
+
+    return loaders[0], loaders[1], loaders[2]

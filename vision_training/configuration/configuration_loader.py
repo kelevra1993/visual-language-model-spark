@@ -103,10 +103,13 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
         label_mapping = model_configuration["Data"]["label_mapping"]
         model_configuration["Data"]["label_mode"] = label_mapping["mode"]
 
-        # An unknown mode gives no dictionary, the configuration checker then reports the mode
-        label_dictionary = build_label_dictionary(label_mapping_configuration=label_mapping)
-        if label_dictionary is not None:
-            model_configuration["Data"]["label_dictionary"] = label_dictionary
+        # The dictionary depends on the task; a missing task, an unknown mode or a mode the task does not support
+        # give no dictionary, the configuration checker then reports the problem
+        if "task" in experiment_configuration:
+            label_dictionary = build_label_dictionary(label_mapping_configuration=label_mapping,
+                                                      task=experiment_configuration["task"])
+            if label_dictionary is not None:
+                model_configuration["Data"]["label_dictionary"] = label_dictionary
 
     # Reject incomplete or inconsistent configurations before any model or data loader is built,
     # listing each problem as a short red message rather than a full traceback

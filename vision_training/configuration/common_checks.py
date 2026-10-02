@@ -172,10 +172,11 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
         errors.append(f"'Backbone.normalization.feature_map_normalization' must be one of "
                       f"{VALID_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
 
-    # Detection blocks must exist in the Backbone and be listed from the finest to the coarsest level
+    # Blocks feeding task heads (detection levels) must exist in the Backbone and be listed from the finest to the
+    # coarsest level; the tasks whose heads use the final feature map list none
     detection_block_indices = get_configuration_value(configuration=model_configuration,
                                                       key_path="Backbone.detection_convolution_block_indices")
-    if not detection_block_indices or any(index not in range(1, number_blocks + 1) for index in detection_block_indices):
+    if any(index not in range(1, number_blocks + 1) for index in detection_block_indices):
         errors.append(f"'Backbone.detection_convolution_block_indices' must be block numbers between 1 and "
                       f"{number_blocks}, got {detection_block_indices!r}.")
     elif detection_block_indices != sorted(set(detection_block_indices)):

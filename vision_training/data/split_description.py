@@ -22,3 +22,18 @@ def count_split_images_and_annotations(split_data_folder: str | Path) -> Tuple[i
     labels = read_json(path=os.path.join(str(split_data_folder), "labels.json"))
     number_annotations = len(labels["annotations"]) if "annotations" in labels else 0
     return len(labels["images"]), number_annotations
+
+
+def count_split_samples(split_data_folder: str | Path) -> Tuple[int, int]:
+    """
+    Counts the samples and categories of a classification split from its 'labels.json' manifest, printed by the
+    trainer at startup.
+
+    Args:
+        split_data_folder (str | Path): The root folder of the split, containing a 'labels.json'.
+
+    Returns:
+        Tuple[int, int]: The number of samples (before label mapping) and the number of categories of the manifest.
+    """
+    labels = read_json(path=os.path.join(str(split_data_folder), "labels.json"))
+    return len(labels["samples"]), len(labels["categories"])

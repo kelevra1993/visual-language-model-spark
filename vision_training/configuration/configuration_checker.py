@@ -1,5 +1,6 @@
 from typing import Any, Callable, Dict, List
 
+from vision_training.configuration.classification_checks import check_classification_configuration
 from vision_training.configuration.common_checks import (check_backbone_configuration,
                                                          check_data_configuration,
                                                          check_experiment_configuration)
@@ -9,7 +10,7 @@ from vision_training.configuration.detection_checks import check_detection_confi
 # Checks of the sections specific to every task, run after the checks of the sections common to every task. The keys
 # are the tasks that can be trained, i.e. the valid values of 'ExperimentConfiguration.task'
 TASK_CONFIGURATION_CHECKS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], List[str]]] = {
-    "object_detection": check_detection_configuration}
+    "object_detection": check_detection_configuration, "classification": check_classification_configuration}
 
 
 def check_configuration(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:

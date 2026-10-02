@@ -1,4 +1,5 @@
 import copy
+import json
 import pytest
 import yaml
 
@@ -9,6 +10,10 @@ from vision_training.configuration.configuration_loader import load_experiment_c
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
+
+# Configurations of the classification task, checked with a label mapping file written by the tests
+CLASSIFICATION_CONFIGURATIONS_FOLDER = (Path(__file__).parents[2] / "vision_training" / "configurations" /
+                                        "classification")
 
 
 def write_modified_configuration(temporary_directory: Path,
@@ -177,7 +182,8 @@ def test_example_configuration_is_consistent() -> None:
     (set_inception_channels, ["'Backbone.convolutions.4' has 20 output channels"]),
     (set_intermediate_weight_saving, ["'ExperimentConfiguration.intermediate_weight_saving_iterations' (10000) "
                                       "must be smaller than"]),
-    (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection'], got 'segmentation'."]),
+    (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'classification'",
+                        "got 'segmentation'."]),
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
@@ -238,3 +244,160 @@ def test_missing_task_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture)
         load_experiment_configuration(configuration_path=configuration_path)
 
     assert "Missing configuration key 'ExperimentConfiguration.task'." in capsys.readouterr().out
+
+
+def write_classification_configuration(temporary_directory: Path, configuration_name: str,
+                                       modify_function: Callable[[Dict[str, Any]], None] | None) -> Path:
+    """
+    Writes a copy of a classification configuration whose label mapping file (giving the classes 0 to 3) is written
+    in the temporary directory, the mapping files of the shipped configurations only existing once their datasets
+    are created, then altered by the given function.
+
+    Args:
+        temporary_directory (Path): The pytest temporary directory receiving the configuration and the mapping file.
+        configuration_name (str): The file name of the classification configuration.
+        modify_function (Callable[[Dict[str, Any]], None] | None): Function altering the raw configuration in place,
+            or None to keep it.
+
+    Returns:
+        Path: The path of the written configuration file.
+    """
+    configuration = yaml.safe_load(stream=(CLASSIFICATION_CONFIGURATIONS_FOLDER / configuration_name).read_text())
+    mapping_path = temporary_directory / "label_mapping.json"
+    mapping_path.write_text(data=json.dumps(obj={"1": 0, "2": 1, "3": 2, "4": 3}))
+    configuration["Data"]["label_mapping"]["mapping_file_path"] = str(mapping_path)
+    if modify_function is not None:
+        modify_function(configuration=configuration)
+
+    configuration_path = temporary_directory / "classification_configuration.yaml"
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+    return configuration_path
+
+
+def activate_dali(configuration: Dict[str, Any]) -> None:
+    """
+    Activates the DALI loaders, which only read the object detection format.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["Data"]["DALI"]["activated"] = True
+
+
+def use_binary_labels(configuration: Dict[str, Any]) -> None:
+    """
+    Uses the binary label mapping, which only makes sense next to the background class of the object detector.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["Data"]["label_mapping"]["mode"] = "binary"
+
+
+def add_detection_block(configuration: Dict[str, Any]) -> None:
+    """
+    Lists a detection block, although the classification head uses the final feature map.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["Backbone"]["detection_convolution_block_indices"] = [3]
+
+
+def set_invalid_head(configuration: Dict[str, Any]) -> None:
+    """
+    Sets an unknown pooling, a hidden layer without unit, a dropout of 1, and unknown output mode and class weighting.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"].update({"global_pooling": "median", "fully_connected": [0], "dropout_rate": 1.0,
+                                                "output_mode": "multi", "class_weighting": "inverse"})
+
+
+def set_invalid_classification_evaluation(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a top-k accuracy of zero classes and a target precision above 1.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"].update({"top_k": 0, "target_precision": 1.5})
+
+
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
+                                                                   "configuration_synthetic_shapes.yaml"])
+def test_classification_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
+    """
+    Verifies that the classification configurations shipped with the repository pass every consistency check, and
+    that their label dictionary has no background class.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_name (str): The file name of the classification configuration.
+    """
+    configuration_path = write_classification_configuration(temporary_directory=tmp_path,
+                                                            configuration_name=configuration_name,
+                                                            modify_function=None)
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=configuration_path)
+    assert experiment_configuration["task"] == "classification"
+    assert model_configuration["Data"]["label_dictionary"] == {1: 0, 2: 1, 3: 2, 4: 3}
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (activate_dali, ["'Data.DALI.activated' must be False"]),
+    (use_binary_labels, ["'Data.label_mapping.mode' must be 'multi_class' for the classification tasks"]),
+    (add_detection_block, ["'Backbone.detection_convolution_block_indices' must be [] for the classification tasks"]),
+    (set_invalid_head, ["'ClassificationHead.global_pooling' must be one of ['average', 'max'], got 'median'.",
+                        "'ClassificationHead.fully_connected' must be a list of positive integers, got [0].",
+                        "'ClassificationHead.dropout_rate' must be a number within [0, 1), got 1.0.",
+                        "'ClassificationHead.output_mode' must be one of ['multi_class', 'multi_label']",
+                        "'ClassificationHead.class_weighting' must be one of ['none', 'balanced']"]),
+    (set_invalid_classification_evaluation, ["'ExperimentConfiguration.evaluation.top_k' must be an integer >= 1",
+                                             "'ExperimentConfiguration.evaluation.target_precision' must be a "
+                                             "probability within [0, 1], got 1.5."])])
+def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                               modify_function: Callable[[Dict[str, Any]], None],
+                                                               expected_messages: List[str]) -> None:
+    """
+    Verifies that every inconsistency of the classification sections stops the loading with a short message naming
+    the faulty key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
+    """
+    configuration_path = write_classification_configuration(temporary_directory=tmp_path,
+                                                            configuration_name="configuration_synthetic_shapes.yaml",
+                                                            modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
+    assert "Traceback" not in printed_output
+
+
+def test_classification_classes_must_be_contiguous(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a label mapping file whose class indices have a gap is rejected, the classifiers predicting the
+    classes 0 to K-1.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration_path = write_classification_configuration(temporary_directory=tmp_path,
+                                                            configuration_name="configuration_synthetic_shapes.yaml",
+                                                            modify_function=None)
+    (tmp_path / "label_mapping.json").write_text(data=json.dumps(obj={"1": 0, "2": 2}))
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    assert "indexed 0 to K-1 without gaps, got [0, 2]." in capsys.readouterr().out

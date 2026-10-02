@@ -1,5 +1,6 @@
 import copy
 import pytest
+import yaml
 
 from pathlib import Path
 from typing import Any, Callable, Dict, Tuple
@@ -13,6 +14,13 @@ EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "c
 # Run name of the reference settings set by get_reference_configurations
 REFERENCE_RUN_NAME = ("DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_"
                       "DSE-DRES-DBN-D7.2x64.256.128_BIN_AUG-BS40-LR2e-4")
+
+CLASSIFICATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
+                                     "classification" / "configuration_synthetic_shapes.yaml")
+
+# Run name of the classification reference settings set by get_classification_reference_configurations
+CLASSIFICATION_REFERENCE_RUN_NAME = ("CLS_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128-DO0.2_MC4_"
+                                     "AUG-BS64-LR1e-3")
 
 
 def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -215,5 +223,113 @@ def test_changed_settings_change_run_name(modify_function: Callable[[Dict[str, A
     """
     experiment_configuration, model_configuration = get_reference_configurations()
     modify_function(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == expected_run_name
+
+
+def get_classification_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Reads the synthetic shapes classification configuration and sets every setting used by the run name explicitly,
+    so that the expected names do not change when the configuration is edited. The label dictionary is set directly,
+    the label mapping file of the configuration only existing once the synthetic dataset is created.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: The experiment and model configurations of the reference settings.
+    """
+    model_configuration = yaml.safe_load(stream=CLASSIFICATION_CONFIGURATION_PATH.read_text())
+    experiment_configuration = model_configuration.pop("ExperimentConfiguration")
+
+    # Task, input and backbone of the run
+    experiment_configuration["task"] = "classification"
+    model_configuration["Data"]["image_settings"].update({"size": 256, "keep_ratio": True})
+    model_configuration["Backbone"]["normalization"].update({"input_normalization": True,
+                                                             "per_sample_normalization": False,
+                                                             "feature_map_normalization": "batch"})
+    model_configuration["Backbone"]["modules"].update({"squeeze_and_excite": True, "residual_nets": True,
+                                                       "inception": False})
+    model_configuration["Backbone"]["convolutions"] = {"1": [1, 16], "2": [2, 32], "3": [2, 32], "4": [2, 64],
+                                                       "5": [2, 64], "6": [2, 128]}
+
+    # Classification head and classes
+    model_configuration["ClassificationHead"] = {"global_pooling": "average", "fully_connected": [128],
+                                                 "dropout_rate": 0.2, "output_mode": "multi_class",
+                                                 "label_smoothing": 0.0, "class_weighting": "none"}
+    model_configuration["Data"]["label_dictionary"] = {1: 0, 2: 1, 3: 2, 4: 3}
+
+    # Augmentation, batch size and learning rate
+    model_configuration["Data"]["data_augmentation"]["activated"] = True
+    experiment_configuration["batch_size"] = 64
+    experiment_configuration["learning_rate"] = 1.0e-3
+    return experiment_configuration, model_configuration
+
+
+def use_max_pooling_and_two_hidden_layers(experiment_configuration: Dict[str, Any],
+                                          model_configuration: Dict[str, Any]) -> None:
+    """
+    Pools the final feature map with its maximum, and adds a second hidden layer to the head.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["ClassificationHead"].update({"global_pooling": "max", "fully_connected": [256, 64]})
+
+
+def remove_hidden_layers_and_dropout(experiment_configuration: Dict[str, Any],
+                                     model_configuration: Dict[str, Any]) -> None:
+    """
+    Classifies the pooled features directly, without hidden layer nor dropout.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["ClassificationHead"].update({"fully_connected": [], "dropout_rate": 0.0})
+
+
+def smooth_labels_and_balance_classes(experiment_configuration: Dict[str, Any],
+                                      model_configuration: Dict[str, Any]) -> None:
+    """
+    Smooths the labels of the loss and balances its classes.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["ClassificationHead"].update({"label_smoothing": 0.1, "class_weighting": "balanced"})
+
+
+def use_multi_label_outputs(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Predicts any number of classes per image, among 5 classes.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["ClassificationHead"]["output_mode"] = "multi_label"
+    model_configuration["Data"]["label_dictionary"] = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4}
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
+    (None, CLASSIFICATION_REFERENCE_RUN_NAME),
+    (use_max_pooling_and_two_hidden_layers, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128-", "_HMAX.256.64-")),
+    (remove_hidden_layers_and_dropout, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128-DO0.2_", "_HAVG-DO0_")),
+    (smooth_labels_and_balance_classes, CLASSIFICATION_REFERENCE_RUN_NAME.replace("-DO0.2_", "-DO0.2-LS0.1-CWB_")),
+    (use_multi_label_outputs, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_MC4_", "_ML5_"))])
+def test_classification_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
+                                  expected_run_name: str) -> None:
+    """
+    Verifies the run names of the classification task: the CLS task code, the shared input and backbone sections, the
+    classification head and classes sections, and that changing a head setting changes its token.
+
+    Args:
+        modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the settings, or
+            None for the reference settings.
+        expected_run_name (str): The expected run name of the settings.
+    """
+    experiment_configuration, model_configuration = get_classification_reference_configurations()
+    if modify_function is not None:
+        modify_function(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == expected_run_name

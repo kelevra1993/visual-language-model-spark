@@ -4,6 +4,7 @@ import pytest
 
 from pathlib import Path
 
+from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset
 from vision_training.data.synthetic.create_synthetic_dataset import (SHAPE_CATEGORIES, SHAPE_DRAWING_FUNCTIONS,
                                                              create_synthetic_dataset, get_mask_bounding_box)
@@ -44,7 +45,8 @@ def test_created_dataset_is_valid_coco_and_loads(tmp_path: Path) -> None:
         tmp_path (Path): The pytest temporary directory.
     """
     create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE,
-                             split_sizes={"train": 8, "validation": 2, "test": 2}, maximum_objects=4, number_workers=2)
+                             split_sizes={"train": 8, "validation": 2, "test": 2}, maximum_objects=4, number_workers=2,
+                             task="object_detection")
 
     labels = json.loads((tmp_path / "train" / "labels.json").read_text())
     assert len(labels["images"]) == 8 and len(labels["annotations"]) >= 8
@@ -73,3 +75,35 @@ def test_created_dataset_is_valid_coco_and_loads(tmp_path: Path) -> None:
         assert sample["bounding_boxes"].shape[0] == sample["labels"].shape[0] > 0
         loaded_labels |= set(sample["labels"].tolist())
     assert loaded_labels <= {1, 2, 3, 4}
+
+
+def test_created_classification_dataset_has_one_shape_per_image(tmp_path: Path) -> None:
+    """
+    Verifies the classification mode of the generator: every split gets a manifest with one sample per image, labelled
+    with the category of its single shape, a label mapping giving the classes 0 to 3, and the classification dataset
+    loads it with its class names.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE,
+                             split_sizes={"train": 12, "validation": 2, "test": 2}, maximum_objects=4,
+                             number_workers=2, task="classification")
+
+    labels = json.loads((tmp_path / "train" / "labels.json").read_text())
+    assert len(labels["samples"]) == 12
+    assert [category["name"] for category in labels["categories"]] == list(SHAPE_CATEGORIES)
+    assert all(sample["category_id"] in SHAPE_CATEGORIES.values() for sample in labels["samples"])
+    assert all((tmp_path / "train" / "data" / sample["file_name"]).is_file() for sample in labels["samples"])
+
+    # The classifier predicts no background class: the four categories become the classes 0 to 3
+    label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
+    assert label_mapping == {"1": 0, "2": 1, "3": 2, "4": 3}
+
+    dataset = ClassificationDataset(data_directory=str(tmp_path / "train" / "data"),
+                                    labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
+                                    keep_ratio=True, label_dictionary={int(category): class_index for category,
+                                                                       class_index in label_mapping.items()},
+                                    output_mode="multi_class")
+    assert dataset.class_names == {0: "square", 1: "circle", 2: "triangle", 3: "rectangle"}
+    assert sum(dataset.get_class_counts()) == 12

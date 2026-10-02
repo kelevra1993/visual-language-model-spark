@@ -219,13 +219,13 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
     return image, objects
 
 
-def generate_image_task(task: Dict[str, Any]) -> List[Dict[str, Any]]:
+def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Generates and saves one chunk of images of a split, run by a worker process. Each chunk draws its images with its
     own random generator, seeded from the operating system, so every generation creates a different dataset.
 
     Args:
-        task (Dict[str, Any]): The chunk description: 'data_folder', 'split_name', 'first_index', 'number_images',
+        chunk (Dict[str, Any]): The chunk description: 'data_folder', 'split_name', 'first_index', 'number_images',
             'image_size' and 'maximum_objects'.
 
     Returns:
@@ -234,48 +234,34 @@ def generate_image_task(task: Dict[str, Any]) -> List[Dict[str, Any]]:
     random_generator = np.random.default_rng()
     image_records = []
 
-    for image_index in range(task["first_index"], task["first_index"] + task["number_images"]):
-        image, objects = generate_image(image_size=task["image_size"], maximum_objects=task["maximum_objects"],
+    for image_index in range(chunk["first_index"], chunk["first_index"] + chunk["number_images"]):
+        image, objects = generate_image(image_size=chunk["image_size"], maximum_objects=chunk["maximum_objects"],
                                         random_generator=random_generator)
-        file_name = f"{task['split_name']}_{image_index:06d}.png"
-        cv2.imwrite(filename=os.path.join(task["data_folder"], file_name), img=image)
+        file_name = f"{chunk['split_name']}_{image_index:06d}.png"
+        cv2.imwrite(filename=os.path.join(chunk["data_folder"], file_name), img=image)
         image_records.append({"index": image_index, "file_name": file_name, "objects": objects})
 
     return image_records
 
 
-def generate_split(split_folder: str, split_name: str, number_images: int, image_size: int, maximum_objects: int,
-                   number_workers: int) -> Dict[str, int]:
+def build_detection_labels(image_records: List[Dict[str, Any]], image_size: int, split_name: str) -> Tuple[
+        Dict[str, Any], Dict[str, int]]:
     """
-    Generates one split of the synthetic dataset in the folder layout both data loaders read: the images in
-    '<split_folder>/data' and their COCO annotations in '<split_folder>/labels.json'.
+    Assembles the COCO annotation file of a synthetic object detection split, read by both detection loaders.
 
     Args:
-        split_folder (str): The folder of the split.
-        split_name (str): The name of the split, used in the file names ('train', 'validation' or 'test').
-        number_images (int): The number of images of the split.
+        image_records (List[Dict[str, Any]]): The 'index', 'file_name' and (category, box) 'objects' of every image.
         image_size (int): The height and width of the images in pixels.
-        maximum_objects (int): The maximum number of objects per image.
-        number_workers (int): The number of worker processes generating the images.
+        split_name (str): The name of the split, written in the description.
 
     Returns:
-        Dict[str, int]: The number of objects of every shape class in the split.
+        Tuple[Dict[str, Any], Dict[str, int]]: The COCO labels and the number of objects of every shape class.
     """
-    data_folder = os.path.join(split_folder, "data")
-    os.makedirs(name=data_folder, exist_ok=True)
-
-    # Split the images into fixed-size chunks shared among the worker processes
-    tasks = [{"data_folder": data_folder, "split_name": split_name, "first_index": first_index,
-              "number_images": min(IMAGES_PER_TASK, number_images - first_index), "image_size": image_size,
-              "maximum_objects": maximum_objects} for first_index in range(0, number_images, IMAGES_PER_TASK)]
-
-    with Pool(processes=number_workers) as pool:
-        image_records = [record for chunk in pool.map(generate_image_task, tasks) for record in chunk]
-
-    # Assemble the COCO annotation file of the split
     images, annotations = [], []
     class_counts = {shape_name: 0 for shape_name in SHAPE_CATEGORIES}
     category_names = {category_identifier: name for name, category_identifier in SHAPE_CATEGORIES.items()}
+
+    # One image entry per image, one annotation per object with its [x, y, width, height] box
     for record in image_records:
         image_identifier = record["index"] + 1
         images.append({"id": image_identifier, "file_name": record["file_name"], "width": image_size,
@@ -290,6 +276,80 @@ def generate_split(split_folder: str, split_name: str, number_images: int, image
               "images": images, "annotations": annotations,
               "categories": [{"id": category_identifier, "name": name, "supercategory": "shape"}
                              for name, category_identifier in SHAPE_CATEGORIES.items()]}
+    return labels, class_counts
+
+
+def build_classification_labels(image_records: List[Dict[str, Any]], split_name: str) -> Tuple[
+        Dict[str, Any], Dict[str, int]]:
+    """
+    Assembles the 'labels.json' manifest of a synthetic classification split, read by the classification loader:
+    every image holds a single shape, whose category is the label of the image.
+
+    Args:
+        image_records (List[Dict[str, Any]]): The 'index', 'file_name' and single (category, box) 'objects' of every
+            image.
+        split_name (str): The name of the split, written in the description.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, int]]: The manifest and the number of images of every shape class.
+    """
+    class_counts = {shape_name: 0 for shape_name in SHAPE_CATEGORIES}
+    category_names = {category_identifier: name for name, category_identifier in SHAPE_CATEGORIES.items()}
+
+    # One sample per image, labelled with the category of its single shape
+    samples = []
+    for record in image_records:
+        category_identifier = record["objects"][0][0]
+        samples.append({"id": record["index"] + 1, "file_name": record["file_name"],
+                        "category_id": category_identifier})
+        class_counts[category_names[category_identifier]] += 1
+
+    labels = {"info": {"description": f"Synthetic shapes classification dataset, {split_name} split"},
+              "categories": [{"id": category_identifier, "name": name}
+                             for name, category_identifier in SHAPE_CATEGORIES.items()],
+              "samples": samples}
+    return labels, class_counts
+
+
+def generate_split(split_folder: str, split_name: str, number_images: int, image_size: int, maximum_objects: int,
+                   number_workers: int, task: str) -> Dict[str, int]:
+    """
+    Generates one split of the synthetic dataset in the folder layout the loaders of the task read: the images in
+    '<split_folder>/data' and their labels in '<split_folder>/labels.json' (COCO annotations for object detection,
+    a samples manifest with one shape per image for classification).
+
+    Args:
+        split_folder (str): The folder of the split.
+        split_name (str): The name of the split, used in the file names ('train', 'validation' or 'test').
+        number_images (int): The number of images of the split.
+        image_size (int): The height and width of the images in pixels.
+        maximum_objects (int): The maximum number of objects per image (object detection only, the classification
+            images holding a single shape).
+        number_workers (int): The number of worker processes generating the images.
+        task (str): "object_detection" or "classification".
+
+    Returns:
+        Dict[str, int]: The number of objects of every shape class in the split.
+    """
+    data_folder = os.path.join(split_folder, "data")
+    os.makedirs(name=data_folder, exist_ok=True)
+
+    # Split the images into fixed-size chunks shared among the worker processes, a classification image holding a
+    # single shape
+    chunks = [{"data_folder": data_folder, "split_name": split_name, "first_index": first_index,
+               "number_images": min(IMAGES_PER_TASK, number_images - first_index), "image_size": image_size,
+               "maximum_objects": maximum_objects if task == "object_detection" else 1}
+              for first_index in range(0, number_images, IMAGES_PER_TASK)]
+
+    with Pool(processes=number_workers) as pool:
+        image_records = [record for chunk_records in pool.map(generate_image_chunk, chunks) for record in chunk_records]
+
+    # Assemble the labels of the split in the format of the task
+    if task == "object_detection":
+        labels, class_counts = build_detection_labels(image_records=image_records, image_size=image_size,
+                                                      split_name=split_name)
+    else:
+        labels, class_counts = build_classification_labels(image_records=image_records, split_name=split_name)
     with open(os.path.join(split_folder, "labels.json"), "w") as labels_file:
         json.dump(labels, labels_file)
 
@@ -297,18 +357,20 @@ def generate_split(split_folder: str, split_name: str, number_images: int, image
 
 
 def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: Dict[str, int], maximum_objects: int,
-                             number_workers: int) -> None:
+                             number_workers: int, task: str) -> None:
     """
-    Creates the whole synthetic shapes dataset: the train, validation and test splits, all labelled, and the
+    Creates the whole synthetic shapes dataset of a task: the train, validation and test splits, all labelled, and the
     'label_mapping.json' file used by the 'multi_class' label mapping mode of the configuration. The dataset is a
-    trivial detection task used to check that the detector learns (it should overfit it within minutes).
+    trivial task used to check that a model learns (it should overfit it within minutes): several shapes per image
+    to detect, or a single shape per image to classify.
 
     Args:
         output_folder (str): The root folder of the dataset.
         image_size (int): The height and width of the images in pixels.
         split_sizes (Dict[str, int]): The number of images of every split, keyed by split name.
-        maximum_objects (int): The maximum number of objects per image.
+        maximum_objects (int): The maximum number of objects per image (object detection only).
         number_workers (int): The number of worker processes generating the images.
+        task (str): "object_detection" or "classification".
     """
     # Generate every split in its own folder
     for split_name, number_images in split_sizes.items():
@@ -316,31 +378,37 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         print_color(color="blue", output=f"Generating {number_images} {split_name} images...")
         class_counts = generate_split(split_folder=split_folder, split_name=split_name, number_images=number_images,
                                       image_size=image_size, maximum_objects=maximum_objects,
-                                      number_workers=number_workers)
+                                      number_workers=number_workers, task=task)
         print_color(color="green", output=f"{split_name} split : file://{split_folder}", indent=1)
         print_color(color="green", output=f"Objects per class : {class_counts}", indent=1)
 
-    # Map every raw category identifier to itself, for the multi-class label mapping mode
+    # Map every raw category identifier to its class index: itself for the detector (index 0 being its background),
+    # from 0 for the classifier
+    class_index_offset = 0 if task == "object_detection" else 1
     label_mapping_path = os.path.abspath(os.path.join(output_folder, "label_mapping.json"))
     with open(label_mapping_path, "w") as label_mapping_file:
-        json.dump({str(category_identifier): category_identifier for category_identifier in SHAPE_CATEGORIES.values()},
-                  label_mapping_file, indent=4)
+        json.dump({str(category_identifier): category_identifier - class_index_offset
+                   for category_identifier in SHAPE_CATEGORIES.values()}, label_mapping_file, indent=4)
     print_color(color="green", output=f"Label Mapping File : file://{label_mapping_path}", add_separators=True)
 
 
 if __name__ == "__main__":
-    # Root folder of the created dataset, the one expected by
-    # vision_training/configurations/object_detection/configuration_synthetic_shapes.yaml.
-    # Existing images and annotations of the same splits are overwritten
-    output_folder = "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes"
-    # Height and width of the square images in pixels
-    image_size = 1024
-    # Number of images of every split, all of them labelled
-    split_sizes = {"train": 100, "validation": 100, "test": 100}
-    # Maximum number of shapes drawn in one image (at least one is always drawn)
+    # Task of the dataset: "object_detection" (several shapes per image) or "classification" (one shape per image)
+    task = "object_detection"
+    # Root folder of the created dataset of every task, the ones expected by the configuration_synthetic_shapes.yaml
+    # files of vision_training/configurations/. Existing images and labels of the same splits are overwritten
+    output_folders = {"object_detection": "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes",
+                      "classification": "/home/robert_kelevra/Data/classifier_data/synthetic_shapes"}
+    # Height and width of the square images in pixels, for every task
+    image_sizes = {"object_detection": 1024, "classification": 256}
+    # Number of images of every split, all of them labelled, for every task
+    split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
+                   "classification": {"train": 4000, "validation": 500, "test": 500}}
+    # Maximum number of shapes drawn in one image (at least one is always drawn), object detection only
     maximum_objects = 6
     # Number of worker processes generating the images
     number_workers = 8
 
-    create_synthetic_dataset(output_folder=output_folder, image_size=image_size, split_sizes=split_sizes,
-                             maximum_objects=maximum_objects, number_workers=number_workers)
+    create_synthetic_dataset(output_folder=output_folders[task], image_size=image_sizes[task],
+                             split_sizes=split_sizes[task], maximum_objects=maximum_objects,
+                             number_workers=number_workers, task=task)
