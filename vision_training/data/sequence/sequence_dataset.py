@@ -96,7 +96,7 @@ class SequenceDataset(Dataset):
                     continue
                 frame_labels = [label_dictionary[sequence["category_id"]]] * len(frames)
             else:
-                frame_labels = [label_dictionary.get(category, IGNORED_LABEL_INDEX)
+                frame_labels = [label_dictionary[category] if category in label_dictionary else IGNORED_LABEL_INDEX
                                 for category in sequence["frame_category_ids"][::sequence_settings["frame_stride"]]]
 
             window_starts = compute_window_starts(number_frames=len(frames), sequence_length=self.sequence_length,

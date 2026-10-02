@@ -2,7 +2,8 @@ import yaml
 
 from pathlib import Path
 
-from vision_training.configuration.configuration_migration import (add_pretrained_backbone_to_configuration,
+from vision_training.configuration.configuration_migration import (add_optimization_section_to_configuration,
+                                                                   add_pretrained_backbone_to_configuration,
                                                                    add_task_to_configuration, migrate_run_folder)
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
@@ -11,9 +12,10 @@ EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "c
 
 def write_old_run_folder(temporary_directory: Path) -> Path:
     """
-    Writes a run folder as trained before the task-aware configuration and the backbone transfer: an old-style name,
-    and a saved configuration without task nor pretrained backbone settings (a copy of the example configuration,
-    with binary labels so that no mapping file is needed).
+    Writes a run folder as trained before the task-aware configuration, the backbone transfer and the optimization
+    settings: an old-style name, and a saved configuration without task, pretrained backbone settings nor
+    optimization section (a copy of the example configuration, with binary labels so that no mapping file is
+    needed).
 
     Args:
         temporary_directory (Path): The pytest temporary directory, used as the experiments root folder.
@@ -24,6 +26,7 @@ def write_old_run_folder(temporary_directory: Path) -> Path:
     configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
     del configuration["ExperimentConfiguration"]["task"]
     del configuration["Backbone"]["pretrained"]
+    del configuration["Optimization"]
     configuration["Data"]["label_mapping"] = {"mode": "binary", "mapping_file_path": None}
 
     run_folder = temporary_directory / "IN-KAR-1024_old_run_name"
@@ -87,3 +90,21 @@ def test_pretrained_backbone_settings_are_added_once(tmp_path: Path) -> None:
                                             "learning_rate_multiplier": 1.0}
     assert {key: value for key, value in backbone_after.items() if key != "pretrained"} == backbone_before
     assert add_pretrained_backbone_to_configuration(configuration_path=configuration_path) is False
+
+
+def test_optimization_section_is_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that the optimization section of a run trained with plain Adam at a constant learning rate is appended
+    to a configuration written before it, and that a configuration which already has it is left untouched.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_old_run_folder(temporary_directory=tmp_path) / "training_configuration.yaml"
+
+    assert add_optimization_section_to_configuration(configuration_path=configuration_path) is True
+    assert yaml.safe_load(stream=configuration_path.read_text())["Optimization"] == {
+        "optimizer": "adam", "weight_decay": 0.0, "learning_rate_schedule": "constant", "warmup_iterations": 0,
+        "decay_iterations": 100000, "minimum_learning_rate_ratio": 0.01, "gradient_clipping_norm": None,
+        "mixed_precision": False}
+    assert add_optimization_section_to_configuration(configuration_path=configuration_path) is False

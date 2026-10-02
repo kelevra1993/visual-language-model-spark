@@ -97,10 +97,25 @@ def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     return backbone_tokens
 
 
+def format_scientific(value: float) -> str:
+    """
+    Writes a number in the short scientific notation of the run names, without trailing zeros, e.g. 2e-4 or 1.5e-3.
+
+    Args:
+        value (float): The number.
+
+    Returns:
+        str: The short scientific notation.
+    """
+    mantissa, exponent = f"{value:e}".split("e")
+    return f"{mantissa.rstrip('0').rstrip('.')}e{int(exponent)}"
+
 def build_training_tokens(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the training section of the run name, shared by every task: AUG when augmenting, the batch size and the
-    learning rate in short scientific notation (e.g. 2e-4, 1.5e-3).
+    learning rate in short scientific notation (e.g. 2e-4, 1.5e-3), then the optimization settings that differ from
+    plain Adam at a constant learning rate: ADAMW or SGD, WD<weight decay>, WU<warm-up iterations>, COS<decay
+    iterations> for the cosine schedule, GC<gradient clipping norm> and BF16 for mixed precision.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -111,9 +126,24 @@ def build_training_tokens(experiment_configuration: Dict[str, Any], model_config
     """
     training_tokens = ["AUG"] if model_configuration["Data"]["data_augmentation"]["activated"] else []
     training_tokens.append(f"BS{experiment_configuration['batch_size']}")
-    mantissa, exponent = f"{experiment_configuration['learning_rate']:e}".split("e")
-    training_tokens.append(f"LR{mantissa.rstrip('0').rstrip('.')}e{int(exponent)}")
+    training_tokens.append(f"LR{format_scientific(value=experiment_configuration['learning_rate'])}")
+
+    # Optimization settings, written only when they differ from plain Adam at a constant learning rate
+    optimization_configuration = model_configuration["Optimization"]
+    if optimization_configuration["optimizer"] != "adam":
+        training_tokens.append(optimization_configuration["optimizer"].upper())
+    if optimization_configuration["weight_decay"] > 0:
+        training_tokens.append(f"WD{format_scientific(value=optimization_configuration['weight_decay'])}")
+    if optimization_configuration["warmup_iterations"] > 0:
+        training_tokens.append(f"WU{optimization_configuration['warmup_iterations']}")
+    if optimization_configuration["learning_rate_schedule"] == "cosine":
+        training_tokens.append(f"COS{optimization_configuration['decay_iterations']}")
+    if optimization_configuration["gradient_clipping_norm"] is not None:
+        training_tokens.append(f"GC{optimization_configuration['gradient_clipping_norm']:g}")
+    if optimization_configuration["mixed_precision"]:
+        training_tokens.append("BF16")
     return training_tokens
+
 
 
 def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:

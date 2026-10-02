@@ -596,7 +596,8 @@ def set_invalid_pretrained_run(configuration: Dict[str, Any]) -> None:
     (freeze_random_backbone, ["'Backbone.pretrained.freeze' must be False when 'Backbone.pretrained.experiment_folder' "
                               "is null", "'Backbone.pretrained.learning_rate_multiplier' must be > 0, got 0."]),
     (set_invalid_pretrained_run, ["'Backbone.pretrained.experiment_folder' must be null or the path of a run "
-                                  "folder, got 5.", "'Backbone.pretrained.iteration' must be an integer >= 1, got 0."])])
+                                  "folder, got 5.",
+                                  "'Backbone.pretrained.iteration' must be an integer >= 1, got 0."])])
 def test_inconsistent_pretrained_backbone_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                       modify_function: Callable[[Dict[str, Any]], None],
                                                       expected_messages: List[str]) -> None:
@@ -617,4 +618,46 @@ def test_inconsistent_pretrained_backbone_is_rejected(tmp_path: Path, capsys: py
 
     printed_output = capsys.readouterr().out
     for expected_message in expected_messages:
+        assert expected_message in printed_output
+
+
+def set_invalid_optimization(configuration: Dict[str, Any]) -> None:
+    """
+    Sets an unknown optimizer and schedule, a negative weight decay, an empty decay, a minimum learning rate above
+    the learning rate, a zero clipping norm, and mixed precision with float64 weights.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Optimization"].update({"optimizer": "rmsprop", "learning_rate_schedule": "step",
+                                          "weight_decay": -0.1, "decay_iterations": 0,
+                                          "minimum_learning_rate_ratio": 1.5, "gradient_clipping_norm": 0,
+                                          "mixed_precision": True})
+    configuration["ExperimentConfiguration"]["dtype"] = "float64"
+
+
+def test_inconsistent_optimization_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that every inconsistency of the 'Optimization' section is reported with the faulty key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration_path = write_modified_configuration(temporary_directory=tmp_path,
+                                                      modify_function=set_invalid_optimization)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in ["'Optimization.optimizer' must be one of ['adam', 'adamw', 'sgd'], got 'rmsprop'.",
+                             "'Optimization.learning_rate_schedule' must be one of ['constant', 'cosine'], "
+                             "got 'step'.",
+                             "'Optimization.weight_decay' must be >= 0, got -0.1.",
+                             "'Optimization.decay_iterations' must be an integer >= 1, got 0.",
+                             "'Optimization.minimum_learning_rate_ratio' must be a probability within [0, 1], got 1.5.",
+                             "'Optimization.gradient_clipping_norm' must be null or > 0, got 0.",
+                             "'Optimization.mixed_precision' requires 'ExperimentConfiguration.dtype' to be "
+                             "\"float32\"."]:
         assert expected_message in printed_output

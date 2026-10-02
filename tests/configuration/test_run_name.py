@@ -512,3 +512,18 @@ def test_pretrained_backbone_run_names(freeze: bool, learning_rate_multiplier: f
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == CLASSIFICATION_REFERENCE_RUN_NAME.replace(
         "2x64.2x128_", f"2x64.2x128{expected_tokens}")
+
+
+def test_optimization_run_name_tokens() -> None:
+    """
+    Verifies the optimization tokens at the end of the training section, written only for the settings that differ
+    from plain Adam at a constant learning rate.
+    """
+    experiment_configuration, model_configuration = get_classification_reference_configurations()
+    model_configuration["Optimization"] = {"optimizer": "adamw", "weight_decay": 1e-4,
+                                           "learning_rate_schedule": "cosine", "warmup_iterations": 500,
+                                           "decay_iterations": 20000, "minimum_learning_rate_ratio": 0.01,
+                                           "gradient_clipping_norm": 1.0, "mixed_precision": True}
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == CLASSIFICATION_REFERENCE_RUN_NAME.replace(
+        "_AUG-BS64-LR1e-3", "_AUG-BS64-LR1e-3-ADAMW-WD1e-4-WU500-COS20000-GC1-BF16")

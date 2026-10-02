@@ -22,6 +22,19 @@ PRETRAINED_BACKBONE_BLOCK = ("  # Backbone of another training run initialising 
                              "    freeze: False\n"
                              "    learning_rate_multiplier: 1.0\n")
 
+# Optimization section of a run trained with plain Adam at a constant learning rate, the training of every run
+# written before the section existed
+OPTIMIZATION_SECTION = ("\n# Optimization of a run trained with Adam at a constant learning rate.\n"
+                        "Optimization:\n"
+                        "  optimizer: \"adam\"\n"
+                        "  weight_decay: 0.0\n"
+                        "  learning_rate_schedule: \"constant\"\n"
+                        "  warmup_iterations: 0\n"
+                        "  decay_iterations: 100000\n"
+                        "  minimum_learning_rate_ratio: 0.01\n"
+                        "  gradient_clipping_norm: null\n"
+                        "  mixed_precision: False\n")
+
 
 def add_task_to_configuration(configuration_path: Path, task: str) -> bool:
     """
@@ -81,12 +94,32 @@ def add_pretrained_backbone_to_configuration(configuration_path: Path) -> bool:
     return True
 
 
+def add_optimization_section_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades a configuration file written before the 'Optimization' section by appending the section of a run
+    trained with plain Adam at a constant learning rate, the only optimization of the code of that time. The section
+    is appended as text, so that every comment of the file is kept, and a file that already has it is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the section was added, False if the file already had it.
+    """
+    text = configuration_path.read_text()
+    if "Optimization" in yaml.safe_load(stream=text):
+        return False
+    configuration_path.write_text(data=text.rstrip("\n") + "\n" + OPTIMIZATION_SECTION)
+    return True
+
+
 def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path:
     """
     Upgrades a run trained before the task-aware configuration so that it can be resumed, evaluated and exported with
-    the current code: its saved configuration gets its task and its 'Backbone.pretrained' settings (those of a run
-    trained from random weights), and its folder is renamed to the run name the current code builds from that
-    configuration (the task code being now the first section of the run names). The configuration is fully checked
+    the current code: its saved configuration gets its task, its 'Backbone.pretrained' settings (those of a run
+    trained from random weights) and its 'Optimization' section (plain Adam at a constant learning rate), and its
+    folder is renamed to the run name the current code builds from that configuration (the task code being now the
+    first section of the run names). The configuration is fully checked
     on the way, any other missing key being reported by the configuration checker.
 
     Args:
@@ -109,6 +142,8 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     if add_pretrained_backbone_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Pretrained Backbone Settings Added To : "
                                           f"file://{configuration_path.absolute()}")
+    if add_optimization_section_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Optimization Section Added To : file://{configuration_path.absolute()}")
 
     # The run name the current code gives to this configuration
     experiment_configuration, model_configuration = load_experiment_configuration(

@@ -98,6 +98,17 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
             elif beta_value is not None:
                 model_configuration[section_key]["localisation_loss_beta"] = float(beta_value)
 
+    # Convert the optimization numbers that YAML reads as text when written without a dot (e.g. 1e-4 or 1e5), the
+    # values of other types being left for the configuration checker to report
+    if "Optimization" in model_configuration:
+        optimization_configuration = model_configuration["Optimization"]
+        for key in ["weight_decay", "minimum_learning_rate_ratio", "gradient_clipping_norm"]:
+            if key in optimization_configuration and isinstance(optimization_configuration[key], str):
+                optimization_configuration[key] = float(optimization_configuration[key])
+        for key in ["warmup_iterations", "decay_iterations"]:
+            if key in optimization_configuration and isinstance(optimization_configuration[key], (str, float)):
+                optimization_configuration[key] = int(float(optimization_configuration[key]))
+
     # Process label mapping dynamically to inject label_dictionary
     if "Data" in model_configuration and "label_mapping" in model_configuration["Data"]:
         label_mapping = model_configuration["Data"]["label_mapping"]

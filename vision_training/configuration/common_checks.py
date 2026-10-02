@@ -1,3 +1,5 @@
+import torch
+
 from typing import Any, Dict, List
 
 from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
@@ -10,6 +12,10 @@ from vision_training.data.augmentations import AUGMENTATION_TYPES
 
 # Label mapping modes handled by the configuration loader
 VALID_LABEL_MODES = ["binary", "multi_class"]
+
+# Optimizers and learning rate schedules of the 'Optimization' section
+VALID_OPTIMIZERS = ["adam", "adamw", "sgd"]
+VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
 
 
 def check_experiment_configuration(experiment_configuration: Dict[str, Any], valid_tasks: List[str]) -> List[str]:
@@ -249,4 +255,62 @@ def check_pretrained_backbone_configuration(model_configuration: Dict[str, Any])
     if isinstance(learning_rate_multiplier, bool) or not isinstance(learning_rate_multiplier, (int, float)) or \
             learning_rate_multiplier <= 0:
         errors.append(f"'Backbone.pretrained.learning_rate_multiplier' must be > 0, got {learning_rate_multiplier!r}.")
+    return errors
+
+
+def check_optimization_configuration(experiment_configuration: Dict[str, Any],
+                                     model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the 'Optimization' section shared by every task: the optimizer, its weight decay, the learning rate
+    schedule (warm-up, cosine decay and its minimum), the gradient clipping and the mixed precision, which runs the
+    forward passes in bfloat16 and therefore requires float32 weights.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration, giving the dtype.
+        model_configuration (Dict[str, Any]): The model configuration containing the 'Optimization' section.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    optimizer = get_configuration_value(configuration=model_configuration, key_path="Optimization.optimizer")
+    if optimizer not in VALID_OPTIMIZERS:
+        errors.append(f"'Optimization.optimizer' must be one of {VALID_OPTIMIZERS}, got {optimizer!r}.")
+    learning_rate_schedule = get_configuration_value(configuration=model_configuration,
+                                                     key_path="Optimization.learning_rate_schedule")
+    if learning_rate_schedule not in VALID_LEARNING_RATE_SCHEDULES:
+        errors.append(f"'Optimization.learning_rate_schedule' must be one of {VALID_LEARNING_RATE_SCHEDULES}, "
+                      f"got {learning_rate_schedule!r}.")
+
+    # Weight decay and schedule lengths
+    weight_decay = get_configuration_value(configuration=model_configuration, key_path="Optimization.weight_decay")
+    if isinstance(weight_decay, bool) or not isinstance(weight_decay, (int, float)) or weight_decay < 0:
+        errors.append(f"'Optimization.weight_decay' must be >= 0, got {weight_decay!r}.")
+    errors += check_positive_integers(configuration=model_configuration, key_paths=["Optimization.warmup_iterations"],
+                                      allow_zero=True)
+    errors += check_positive_integers(configuration=model_configuration, key_paths=["Optimization.decay_iterations"],
+                                      allow_zero=False)
+    errors += check_probability_value(
+        value=get_configuration_value(configuration=model_configuration,
+                                      key_path="Optimization.minimum_learning_rate_ratio"),
+        key_path="Optimization.minimum_learning_rate_ratio")
+
+    # Gradient clipping, disabled with null
+    gradient_clipping_norm = get_configuration_value(configuration=model_configuration,
+                                                     key_path="Optimization.gradient_clipping_norm")
+    if gradient_clipping_norm is not None and (isinstance(gradient_clipping_norm, bool) or
+                                               not isinstance(gradient_clipping_norm, (int, float)) or
+                                               gradient_clipping_norm <= 0):
+        errors.append(f"'Optimization.gradient_clipping_norm' must be null or > 0, got {gradient_clipping_norm!r}.")
+
+    # Mixed precision computes in bfloat16 from float32 weights
+    mixed_precision_errors = check_boolean_flags(configuration=model_configuration,
+                                                 key_paths=["Optimization.mixed_precision"])
+    errors += mixed_precision_errors
+    mixed_precision = get_configuration_value(configuration=model_configuration,
+                                              key_path="Optimization.mixed_precision")
+    dtype = get_configuration_value(configuration={"ExperimentConfiguration": experiment_configuration},
+                                    key_path="ExperimentConfiguration.dtype")
+    if not mixed_precision_errors and mixed_precision and dtype != torch.float32:
+        errors.append("'Optimization.mixed_precision' requires 'ExperimentConfiguration.dtype' to be \"float32\".")
     return errors

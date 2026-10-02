@@ -18,6 +18,7 @@ from vision_training.evaluation.evaluation_report import report_evaluation_resul
 from vision_training.models.backbones.backbone_transfer import freeze_backbone, load_pretrained_backbone
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import get_last_checkpoint_iteration, load_checkpoint, save_checkpoint
+from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
 from vision_training.trainers.metric_tracking import MetricTracker
 from vision_training.utilities.os_utilities import print_color
 from vision_training.utilities.tensor_utilities import get_device
@@ -111,10 +112,15 @@ class BaseTrainer(ABC):
 
         # Initialize Model and Optimizer, the backbone being possibly initialised by the one of another run
         self.pretrained_configuration = self.model_configuration["Backbone"]["pretrained"]
+        self.optimization_configuration = self.model_configuration["Optimization"]
+        self.mixed_precision = self.optimization_configuration["mixed_precision"]
         self.model = self.build_model()
         self.model.to(device=self.device, dtype=self.dtype)
         self.pretrained_backbone_path = self.initialise_backbone()
         self.optimizer = self.build_optimizer()
+
+        # Learning rate of every parameter group before the schedule, which multiplies it at every step
+        self.base_learning_rates = [parameter_group["lr"] for parameter_group in self.optimizer.param_groups]
 
         # Metric tracking of the losses and batch metrics chosen by the task
         self.tracked_metrics_mapping = self.get_tracked_metrics()
@@ -303,26 +309,35 @@ class BaseTrainer(ABC):
 
     def build_optimizer(self) -> torch.optim.Optimizer:
         """
-        Builds the optimizer of the model parameters. A backbone loaded from another run gets its own parameter group
-        when 'Backbone.pretrained.learning_rate_multiplier' is not 1, so that it is fine-tuned at another speed than
-        the new heads; otherwise every parameter shares a single group, the layout of the checkpoints of the runs
-        without transfer.
+        Builds the optimizer of 'Optimization.optimizer' with its weight decay: Adam (weight decay added to the
+        gradients), AdamW (weight decay decoupled from the gradients) or SGD with Nesterov momentum 0.9. A backbone
+        loaded from another run gets its own parameter group when 'Backbone.pretrained.learning_rate_multiplier' is
+        not 1, so that it is fine-tuned at another speed than the new heads; otherwise every parameter shares a single
+        group, the layout of the checkpoints of the runs without transfer.
 
         Returns:
-            torch.optim.Optimizer: An Adam optimizer at the configured learning rate.
+            torch.optim.Optimizer: The optimizer at the configured learning rate.
         """
+        # One group for every parameter, or the heads and the transferred backbone at the multiplied learning rate
         learning_rate_multiplier = self.pretrained_configuration["learning_rate_multiplier"]
         if self.pretrained_configuration["experiment_folder"] is None or learning_rate_multiplier == 1.0:
-            return torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
+            parameter_groups = [{"params": list(self.model.parameters())}]
+        else:
+            backbone_parameters = list(self.model.backbone.parameters())
+            backbone_parameter_identifiers = {id(parameter) for parameter in backbone_parameters}
+            head_parameters = [parameter for parameter in self.model.parameters()
+                               if id(parameter) not in backbone_parameter_identifiers]
+            parameter_groups = [{"params": head_parameters},
+                                {"params": backbone_parameters, "lr": self.learning_rate * learning_rate_multiplier}]
 
-        # The heads keep the configured learning rate, the transferred backbone learns at the multiplied one
-        backbone_parameters = list(self.model.backbone.parameters())
-        backbone_parameter_identifiers = {id(parameter) for parameter in backbone_parameters}
-        head_parameters = [parameter for parameter in self.model.parameters()
-                           if id(parameter) not in backbone_parameter_identifiers]
-        return torch.optim.Adam([{"params": head_parameters},
-                                 {"params": backbone_parameters, "lr": self.learning_rate * learning_rate_multiplier}],
-                                lr=self.learning_rate)
+        optimizer_name = self.optimization_configuration["optimizer"]
+        weight_decay = self.optimization_configuration["weight_decay"]
+        if optimizer_name == "adamw":
+            return torch.optim.AdamW(params=parameter_groups, lr=self.learning_rate, weight_decay=weight_decay)
+        if optimizer_name == "sgd":
+            return torch.optim.SGD(params=parameter_groups, lr=self.learning_rate, momentum=0.9, nesterov=True,
+                                   weight_decay=weight_decay)
+        return torch.optim.Adam(params=parameter_groups, lr=self.learning_rate, weight_decay=weight_decay)
 
     def set_training_mode(self) -> None:
         """
@@ -375,6 +390,31 @@ class BaseTrainer(ABC):
     # ------------------------------------------------------------------------------------------------------------------
     # Generic pipeline
     # ------------------------------------------------------------------------------------------------------------------
+
+    def step_optimizer(self, iteration: int) -> None:
+        """
+        Updates the model parameters after the backward pass of a training step: the gradients are clipped to
+        'Optimization.gradient_clipping_norm' when it is set, the learning rate of every parameter group is set to
+        its value of the schedule at this iteration, then the optimizer steps. The learning rate of the first group
+        is written to TensorBoard.
+
+        Args:
+            iteration (int): The training iteration, giving the learning rate of the schedule.
+        """
+        # Clip the norm of all the gradients together, when asked
+        if self.optimization_configuration["gradient_clipping_norm"] is not None:
+            torch.nn.utils.clip_grad_norm_(parameters=self.model.parameters(),
+                                           max_norm=self.optimization_configuration["gradient_clipping_norm"])
+
+        # Learning rate of the schedule, relative to the learning rate of every parameter group
+        learning_rate_factor = compute_learning_rate_factor(iteration=iteration,
+                                                            optimization_configuration=self.optimization_configuration)
+        for parameter_group, base_learning_rate in zip(self.optimizer.param_groups, self.base_learning_rates):
+            parameter_group["lr"] = base_learning_rate * learning_rate_factor
+        self.optimizer.step()
+
+        if self.training_writer is not None:
+            self.training_writer.add_scalar("Learning Rate", self.optimizer.param_groups[0]["lr"], iteration)
 
     def initialise_backbone(self) -> Optional[Path]:
         """
@@ -470,6 +510,14 @@ class BaseTrainer(ABC):
         print_color(color="blue", output=f"- Save Only Every         : {self.intermediate_weight_saving_iterations} "
                                          f"iterations")
         print_color(color="blue", output=f"- Learning Rate           : {self.learning_rate}")
+        print_color(color="blue", output=f"- Optimizer               : {self.optimization_configuration['optimizer']} "
+                                         f"(weight decay {self.optimization_configuration['weight_decay']})")
+        print_color(color="blue", output=f"- Learning Rate Schedule  : "
+                                         f"{self.optimization_configuration['learning_rate_schedule']} (warm-up "
+                                         f"{self.optimization_configuration['warmup_iterations']} iterations)")
+        print_color(color="blue", output=f"- Gradient Clipping Norm  : "
+                                         f"{self.optimization_configuration['gradient_clipping_norm']}")
+        print_color(color="blue", output=f"- Mixed Precision         : {self.mixed_precision}")
         print_color(color="blue", output=f"- Resume Training         : {self.resume_training}")
         print_color(color="blue", output=f"- Validation Iter. Ratio  : {self.validation_iteration_ratio}")
 
@@ -590,7 +638,7 @@ class BaseTrainer(ABC):
 
             # Backward and Step
             training_loss.backward()
-            self.optimizer.step()
+            self.step_optimizer(iteration=training_iteration)
 
             # Validation phase gated by validation_iteration_ratio
             if validation_enabled and training_iteration % self.validation_iteration_ratio == 0:
@@ -690,7 +738,7 @@ class BaseTrainer(ABC):
 
                 # Backward and Step
                 training_loss.backward()
-                self.optimizer.step()
+                self.step_optimizer(iteration=training_iteration)
 
                 # Validation phase gated by the configurable validation_iteration_ratio.
                 # A ratio of 1 runs validation every iteration, 2 runs every 2nd, N runs every Nth.
@@ -789,8 +837,10 @@ class BaseTrainer(ABC):
         if apply_augmentation:
             batch = self.augment_batch(batch=batch)
 
-        # Execute the forward pass through the model of the task, with the targets so that it returns its losses
-        model_outputs = self.forward_pass(batch=batch)
+        # Execute the forward pass through the model of the task, with the targets so that it returns its losses, in
+        # bfloat16 when mixed precision is enabled
+        with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16, enabled=self.mixed_precision):
+            model_outputs = self.forward_pass(batch=batch)
 
         # Extract all the losses of the model, and sum them into the total loss used for backpropagation
         metric_dictionary = {key: value for key, value in model_outputs.items() if key.endswith(LOSS_KEY_SUFFIX)}

@@ -3,7 +3,8 @@ from typing import Any, Callable, Dict, List
 from vision_training.configuration.classification_checks import check_classification_configuration
 from vision_training.configuration.common_checks import (check_backbone_configuration,
                                                          check_data_configuration,
-                                                         check_experiment_configuration)
+                                                         check_experiment_configuration,
+                                                         check_optimization_configuration)
 from vision_training.configuration.configuration_values import ConfigurationError
 from vision_training.configuration.detection_checks import check_detection_configuration
 from vision_training.configuration.sequence_checks import (check_sequence_classification_configuration,
@@ -22,7 +23,8 @@ def check_configuration(experiment_configuration: Dict[str, Any], model_configur
     Verifies that a loaded configuration file is complete and consistent before any model or data loader is built.
     It is run by 'load_experiment_configuration', so an inconsistent file is rejected at startup with the full list
     of problems instead of failing later inside model construction or, worse, training silently with wrong values.
-    The sections common to every task (experiment, data, backbone) are checked first, then the sections of the task.
+    The sections common to every task (experiment, data, backbone, optimization) are checked first, then the sections
+    of the task.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
@@ -39,6 +41,8 @@ def check_configuration(experiment_configuration: Dict[str, Any], model_configur
                                              valid_tasks=list(TASK_CONFIGURATION_CHECKS))
     errors += check_data_configuration(model_configuration=model_configuration)
     errors += check_backbone_configuration(model_configuration=model_configuration)
+    errors += check_optimization_configuration(experiment_configuration=experiment_configuration,
+                                               model_configuration=model_configuration)
 
     # Then the checks of the sections of the task, when the task itself is valid
     task = experiment_configuration["task"]

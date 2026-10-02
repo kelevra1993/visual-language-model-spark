@@ -65,6 +65,27 @@ ExperimentConfiguration:
       # a warning otherwise)
       view_input_images: False
 
+Optimization:
+  # Optimizer of the model parameters: "adam", "adamw" (Adam with the weight decay decoupled from the gradients) or
+  # "sgd" (stochastic gradient descent with Nesterov momentum 0.9), at ExperimentConfiguration.learning_rate.
+  optimizer: "adam"
+  # Weight decay of the optimizer, 0 to disable.
+  weight_decay: 0.0
+  # Learning rate schedule after the warm-up: "constant", or "cosine" (decay to minimum_learning_rate_ratio times the
+  # learning rate over decay_iterations, constant afterwards).
+  learning_rate_schedule: "constant"
+  # Iterations of the linear warm-up of the learning rate from 0, 0 to disable.
+  warmup_iterations: 0
+  # Iterations of the cosine decay, counted after the warm-up (cosine schedule only).
+  decay_iterations: 100000
+  # Learning rate at the end of the cosine decay, as a fraction of the learning rate (cosine schedule only).
+  minimum_learning_rate_ratio: 0.01
+  # Maximum norm of all the gradients together, clipped before every step, null to disable.
+  gradient_clipping_norm: null
+  # Runs the training and validation forward passes in bfloat16 (faster and lighter on recent GPUs), the weights and
+  # the test evaluation staying in float32. Requires ExperimentConfiguration.dtype "float32".
+  mixed_precision: False
+
 Data:
   DALI:
     # Flag to enable the NVIDIA DALI hardware-accelerated pipeline, only available for the object detection task.
