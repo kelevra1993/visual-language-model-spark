@@ -1,8 +1,9 @@
-# Triton Inference Server serving the exported detectors of the model repository.
+# Triton Inference Server serving the exported models of the model repository, of every task.
 # The repository is filled by vision_training/deployment/export_model.py (one folder per model, holding its
-# config.pbtxt and a version folder "1" with the exported model file):
+# config.pbtxt and a version folder "1" with the exported model file), e.g. for the object detector:
 #   served_models/object_detector_torchscript/1/model.pt    (TorchScript, PyTorch libtorch backend)
 #   served_models/object_detector_onnx/1/model.onnx         (ONNX, ONNX Runtime backend accelerated by TensorRT)
+# and likewise image_classifier_*, sequence_classifier_* and sequence_labeller_* for the other tasks.
 # Start it from this folder with "docker compose up", keep it running, and query it with
 # vision_training/deployment/run_inference.py.
 # Explicit project name, so that this server never collides with another compose project in a folder also

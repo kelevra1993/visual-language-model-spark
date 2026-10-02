@@ -43,6 +43,7 @@ class SequenceClassifier(TaskModel):
         self.output_mode = self.head_configuration["output_mode"]
         self.label_smoothing = self.head_configuration["label_smoothing"]
         self.number_classes = len(set(configuration["Data"]["label_dictionary"].values()))
+        self.sequence_length = configuration["Data"]["sequence_settings"]["sequence_length"]
 
         # Shared feature extractor applied to every frame, and the pooling of its final feature map
         backbone_configuration = configuration["Backbone"]
@@ -55,7 +56,7 @@ class SequenceClassifier(TaskModel):
         # Summary of the frame vectors of a sequence, then the class logits
         self.temporal_module = build_temporal_module(
             temporal_configuration=self.temporal_configuration, input_features=frame_features,
-            maximum_length=configuration["Data"]["sequence_settings"]["sequence_length"], keep_time_axis=False,
+            maximum_length=self.sequence_length, keep_time_axis=False,
             device=device, dtype=dtype)
         self.classification_head = ClassificationHead(input_features=self.temporal_module.output_features,
                                                       fully_connected=self.head_configuration["fully_connected"],
@@ -66,14 +67,15 @@ class SequenceClassifier(TaskModel):
         self.register_buffer(name="class_weights",
                              tensor=torch.ones(size=(self.number_classes,), device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, sequence_mask: torch.Tensor,
+    def forward(self, input_tensor: torch.Tensor, sequence_mask: Optional[torch.Tensor] = None,
                 labels: Optional[torch.Tensor] = None) -> Dict[str, Any]:
         """
         Classifies a batch of sequences, and computes the classification loss when the labels are given.
 
         Args:
             input_tensor (torch.Tensor): The [B, T, 3, H, W] float BGR frames in [0, 255].
-            sequence_mask (torch.Tensor): The [B, T] booleans, True for the real frames, which come first.
+            sequence_mask (Optional[torch.Tensor]): The [B, T] booleans, True for the real frames, which come first, or
+                None when every frame is real (deployment windows).
             labels (Optional[torch.Tensor]): The [B] class indices, or None.
 
         Returns:

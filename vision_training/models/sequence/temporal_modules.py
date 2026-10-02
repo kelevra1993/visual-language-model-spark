@@ -3,7 +3,7 @@ import torch
 from rich.console import Console
 from rich.panel import Panel
 from torch import nn
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 # Temporal modules summarising a sequence into one vector without keeping its time axis, many to one only
 POOLING_TEMPORAL_TYPES = ["mean_pooling", "max_pooling", "attention_pooling"]
@@ -28,17 +28,20 @@ def print_temporal_module_summary(temporal_configuration: Dict[str, Any], output
     Console(width=80).print(Panel(summary_text, title="[bold]Temporal Module[/bold]", border_style="blue"))
 
 
-def compute_masked_mean(features: torch.Tensor, sequence_mask: torch.Tensor) -> torch.Tensor:
+def compute_masked_mean(features: torch.Tensor, sequence_mask: Optional[torch.Tensor]) -> torch.Tensor:
     """
     Averages per-frame vectors over the real frames of every sequence, the padding frames being left out.
 
     Args:
         features (torch.Tensor): The [B, T, F] per-frame vectors.
-        sequence_mask (torch.Tensor): The [B, T] booleans, True for the real frames.
+        sequence_mask (Optional[torch.Tensor]): The [B, T] booleans, True for the real frames, or None when every
+            frame is real.
 
     Returns:
         torch.Tensor: The [B, F] mean vectors.
     """
+    if sequence_mask is None:
+        return features.mean(dim=1)
     frame_weights = sequence_mask.to(dtype=features.dtype).unsqueeze(dim=-1)
     return (features * frame_weights).sum(dim=1) / frame_weights.sum(dim=1).clamp(min=1.0)
 
@@ -59,13 +62,15 @@ class MaskedMeanPooling(nn.Module):
         super(MaskedMeanPooling, self).__init__()
         self.output_features = input_features
 
-    def forward(self, frame_features: torch.Tensor, sequence_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, frame_features: torch.Tensor,
+                sequence_mask: Optional[torch.Tensor]) -> torch.Tensor:
         """
         Averages the vectors of the real frames.
 
         Args:
             frame_features (torch.Tensor): The [B, T, F] frame vectors.
-            sequence_mask (torch.Tensor): The [B, T] booleans, True for the real frames.
+            sequence_mask (Optional[torch.Tensor]): The [B, T] booleans, True for the real frames, or None when every
+                frame is real.
 
         Returns:
             torch.Tensor: The [B, F] sequence vectors.
@@ -89,17 +94,21 @@ class MaskedMaxPooling(nn.Module):
         super(MaskedMaxPooling, self).__init__()
         self.output_features = input_features
 
-    def forward(self, frame_features: torch.Tensor, sequence_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, frame_features: torch.Tensor,
+                sequence_mask: Optional[torch.Tensor]) -> torch.Tensor:
         """
         Takes the maximum of every feature over the real frames.
 
         Args:
             frame_features (torch.Tensor): The [B, T, F] frame vectors.
-            sequence_mask (torch.Tensor): The [B, T] booleans, True for the real frames.
+            sequence_mask (Optional[torch.Tensor]): The [B, T] booleans, True for the real frames, or None when every
+                frame is real.
 
         Returns:
             torch.Tensor: The [B, F] sequence vectors.
         """
+        if sequence_mask is None:
+            return frame_features.max(dim=1).values
         masked_features = frame_features.masked_fill(mask=~sequence_mask.unsqueeze(dim=-1), value=float("-inf"))
         return masked_features.max(dim=1).values
 
@@ -127,19 +136,23 @@ class AttentionPooling(nn.Module):
             nn.Linear(in_features=input_features, out_features=hidden_size, device=device, dtype=dtype), nn.Tanh(),
             nn.Linear(in_features=hidden_size, out_features=1, device=device, dtype=dtype))
 
-    def forward(self, frame_features: torch.Tensor, sequence_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, frame_features: torch.Tensor,
+                sequence_mask: Optional[torch.Tensor]) -> torch.Tensor:
         """
         Averages the vectors of the real frames, weighted by the softmax of their scores.
 
         Args:
             frame_features (torch.Tensor): The [B, T, F] frame vectors.
-            sequence_mask (torch.Tensor): The [B, T] booleans, True for the real frames.
+            sequence_mask (Optional[torch.Tensor]): The [B, T] booleans, True for the real frames, or None when every
+                frame is real.
 
         Returns:
             torch.Tensor: The [B, F] sequence vectors.
         """
         frame_scores = self.frame_scoring(input=frame_features).squeeze(dim=-1)
-        frame_weights = torch.softmax(input=frame_scores.masked_fill(mask=~sequence_mask, value=float("-inf")), dim=1)
+        if sequence_mask is not None:
+            frame_scores = frame_scores.masked_fill(mask=~sequence_mask, value=float("-inf"))
+        frame_weights = torch.softmax(input=frame_scores, dim=1)
         return (frame_weights.unsqueeze(dim=-1) * frame_features).sum(dim=1)
 
 
@@ -178,28 +191,36 @@ class RecurrentTemporalModule(nn.Module):
                                                  dropout=dropout_rate if number_layers > 1 else 0.0,
                                                  bidirectional=bidirectional, device=device, dtype=dtype)
 
-    def forward(self, frame_features: torch.Tensor, sequence_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, frame_features: torch.Tensor,
+                sequence_mask: Optional[torch.Tensor]) -> torch.Tensor:
         """
         Reads the real frames of every sequence in order.
 
         Args:
             frame_features (torch.Tensor): The [B, T, F] frame vectors.
-            sequence_mask (torch.Tensor): The [B, T] booleans, True for the real frames, which come first.
+            sequence_mask (Optional[torch.Tensor]): The [B, T] booleans, True for the real frames, which come first, or
+                None when every frame is real.
 
         Returns:
             torch.Tensor: The [B, output_features] sequence vectors, or the [B, T, output_features] frame vectors
                 (zeros on the padding frames) when keeping the time axis.
         """
-        sequence_lengths = sequence_mask.sum(dim=1).cpu()
-        packed_features = nn.utils.rnn.pack_padded_sequence(input=frame_features, lengths=sequence_lengths,
-                                                            batch_first=True, enforce_sorted=False)
-        packed_outputs, final_state = self.recurrent_network(input=packed_features)
+        # Every frame is real: read the whole tensor, without packing (the path of the exported models)
+        if sequence_mask is None:
+            frame_outputs, final_state = self.recurrent_network(input=frame_features)
+            if self.keep_time_axis:
+                return frame_outputs
+        else:
+            sequence_lengths = sequence_mask.sum(dim=1).cpu()
+            packed_features = nn.utils.rnn.pack_padded_sequence(input=frame_features, lengths=sequence_lengths,
+                                                                batch_first=True, enforce_sorted=False)
+            packed_outputs, final_state = self.recurrent_network(input=packed_features)
 
-        # One output per frame, back in the padded layout
-        if self.keep_time_axis:
-            frame_outputs, _ = nn.utils.rnn.pad_packed_sequence(sequence=packed_outputs, batch_first=True,
-                                                                total_length=frame_features.shape[1])
-            return frame_outputs
+            # One output per frame, back in the padded layout
+            if self.keep_time_axis:
+                frame_outputs, _ = nn.utils.rnn.pad_packed_sequence(sequence=packed_outputs, batch_first=True,
+                                                                    total_length=frame_features.shape[1])
+                return frame_outputs
 
         # Final state of the last layer in every direction, the LSTM state also holding its cell state
         hidden_state = final_state[0] if isinstance(final_state, tuple) else final_state
@@ -251,13 +272,15 @@ class TransformerTemporalModule(nn.Module):
         self.encoder = nn.TransformerEncoder(encoder_layer=encoder_layer, num_layers=number_layers,
                                              enable_nested_tensor=False)
 
-    def forward(self, frame_features: torch.Tensor, sequence_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, frame_features: torch.Tensor,
+                sequence_mask: Optional[torch.Tensor]) -> torch.Tensor:
         """
         Encodes the frames of every sequence, each frame attending to the real frames it may see.
 
         Args:
             frame_features (torch.Tensor): The [B, T, F] frame vectors.
-            sequence_mask (torch.Tensor): The [B, T] booleans, True for the real frames.
+            sequence_mask (Optional[torch.Tensor]): The [B, T] booleans, True for the real frames, or None when every
+                frame is real.
 
         Returns:
             torch.Tensor: The [B, hidden_size] sequence vectors, or the [B, T, hidden_size] frame vectors when keeping
@@ -272,7 +295,11 @@ class TransformerTemporalModule(nn.Module):
             attention_mask = torch.triu(input=torch.ones(size=(sequence_length, sequence_length), dtype=torch.bool,
                                                          device=frame_features.device), diagonal=1)
 
-        encoded_frames = self.encoder(src=frame_tokens, mask=attention_mask, src_key_padding_mask=~sequence_mask)
+        # Telling the encoder whether the mask is causal spares it a comparison of the mask values, which the ONNX
+        # export cannot trace
+        encoded_frames = self.encoder(src=frame_tokens, mask=attention_mask,
+                                      src_key_padding_mask=None if sequence_mask is None else ~sequence_mask,
+                                      is_causal=self.causal)
         if self.keep_time_axis:
             return encoded_frames
         return compute_masked_mean(features=encoded_frames, sequence_mask=sequence_mask)
@@ -315,20 +342,27 @@ class TemporalConvolutionModule(nn.Module):
             for layer_index, dilation in enumerate(self.dilations)])
         self.dropout = nn.Dropout(p=dropout_rate)
 
-    def forward(self, frame_features: torch.Tensor, sequence_mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, frame_features: torch.Tensor,
+                sequence_mask: Optional[torch.Tensor]) -> torch.Tensor:
         """
         Convolves the frame vectors of every sequence over time.
 
         Args:
             frame_features (torch.Tensor): The [B, T, F] frame vectors.
-            sequence_mask (torch.Tensor): The [B, T] booleans, True for the real frames.
+            sequence_mask (Optional[torch.Tensor]): The [B, T] booleans, True for the real frames, or None when every
+                frame is real.
 
         Returns:
             torch.Tensor: The [B, hidden_size] sequence vectors, or the [B, T, hidden_size] frame vectors (zeros on
                 the padding frames) when keeping the time axis.
         """
         features = frame_features.transpose(1, 2)
-        frame_weights = sequence_mask.to(dtype=features.dtype).unsqueeze(dim=1)
+
+        # Weight of every frame, 1 for the real frames and 0 for the padding frames, all ones without mask
+        if sequence_mask is None:
+            frame_weights = torch.ones_like(input=features[:, :1])
+        else:
+            frame_weights = sequence_mask.to(dtype=features.dtype).unsqueeze(dim=1)
 
         # Pad every convolution so that it keeps the number of frames, on the past side only when causal
         for convolution, dilation in zip(self.convolutions, self.dilations):
