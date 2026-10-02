@@ -5,7 +5,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
-from vision_training.utilities.os_utilities import load_experiment_configuration
+from vision_training.configuration.configuration_loader import load_experiment_configuration
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")

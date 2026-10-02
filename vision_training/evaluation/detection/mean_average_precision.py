@@ -2,7 +2,7 @@ import torch
 
 from typing import Any, Dict, List, Tuple
 
-from vision_training.utilities.model.model_utilities import get_intersection_over_union
+from vision_training.models.detection.box_operations import get_intersection_over_union
 
 # Methods computing the average precision from a precision-recall curve
 AVERAGE_PRECISION_METHODS = ["area", "11_point", "101_point"]

@@ -7,7 +7,9 @@ import torch
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-from vision_training.models.detection.inference_detector import InferenceDetector, get_checkpoint_path, load_trained_model
+from vision_training.models.detection.inference_detector import InferenceDetector
+from vision_training.trainers.checkpointing import get_checkpoint_path
+from vision_training.models.model_loading import load_trained_model
 from vision_training.utilities.os_utilities import print_color
 
 # Default Triton model repository, mounted by deployment/triton/docker-compose.yml

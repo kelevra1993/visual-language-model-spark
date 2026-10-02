@@ -1,28 +1,24 @@
-from textwrap import indent
 
-import torch
-import yaml
-from vision_training.models.detection.two_stage_detector import Model
-import numpy as np
-from scripts.models.detection.detection_debugging_utilities import print_bounding_boxes, generate_random_bounding_boxes, \
-    visualize_anchor_target_assignments, visualize_foreground_and_background_anchors, get_model_configuration, \
-    get_dummy_input_tensor, get_dummy_ground_truth_boxes, get_dummy_ground_truth_labels
+from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from scripts.models.detection.detection_debugging_utilities import (get_dummy_input_tensor,
+                                                                    get_dummy_ground_truth_boxes,
+                                                                    get_dummy_ground_truth_labels)
+from tests.fixtures.configuration_fixtures import get_detection_model_configuration
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.tensor_utilities import print_tensor_status, print_tensor_shape, print_tensor_list
+from vision_training.utilities.tensor_utilities import print_tensor_shape
 
-from typing import Tuple, List, Dict, Any
 
 
 def debug_model() -> None:
     """
-    Instantiates the complete Model and runs a dummy forward pass to verify
+    Instantiates the complete TwoStageDetector and runs a dummy forward pass to verify
     the outputs of the backbone and subsequently the region proposals.
     """
 
-    configuration, device, dtype = get_model_configuration()
+    configuration, device, dtype = get_detection_model_configuration()
     number_classes = len(configuration["Data"]["label_dictionary"])
 
-    model = Model(configuration=configuration, device=device, dtype=dtype, verbose=True)
+    model = TwoStageDetector(configuration=configuration, device=device, dtype=dtype, verbose=True)
 
     print_color(color="green", output="Model Configuration + Instantiation Done!", add_separators=True)
     model.print_summary()

@@ -1,12 +1,11 @@
 import torch
 
-from typing import List, Union, Dict, Literal, Tuple, Any, Optional
+from typing import List, Dict, Tuple, Any, Optional
 from torchvision.ops import roi_align
 from torch import nn
 
 from vision_training.models.components.convolution_block import ConvolutionBlock
-from vision_training.utilities.model.model_utilities import batch_assign_targets_to_proposals, apply_regression_predictions
-from vision_training.utilities.tensor_utilities import print_tensor_shape, print_tensor_list
+from vision_training.models.detection.box_operations import apply_regression_predictions
 
 
 class DetectionHead(nn.Module):

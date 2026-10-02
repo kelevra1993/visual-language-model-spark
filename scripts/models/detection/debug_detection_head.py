@@ -4,10 +4,9 @@ from rich.console import Console
 from rich.panel import Panel
 
 from vision_training.models.detection.detection_head import DetectionHead
-from scripts.models.detection.detection_debugging_utilities import (get_model_configuration,
-                                                   get_dummy_ground_truth_boxes,
-                                                   get_dummy_ground_truth_labels)
-from vision_training.utilities.tensor_utilities import print_tensor_list
+from tests.fixtures.configuration_fixtures import get_detection_model_configuration
+from scripts.models.detection.detection_debugging_utilities import (get_dummy_ground_truth_boxes,
+                                                                    get_dummy_ground_truth_labels)
 
 
 def debug_detection_head() -> None:
@@ -17,7 +16,7 @@ def debug_detection_head() -> None:
     console = Console()
 
     # Fetch parameters
-    configuration, device, dtype = get_model_configuration()
+    configuration, device, dtype = get_detection_model_configuration()
 
     # Extract configuration specifically for scale '4' as an example
     detector_configuration = configuration["Detector"]

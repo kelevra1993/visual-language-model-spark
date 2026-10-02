@@ -1,21 +1,20 @@
-import torch
-from vision_training.models.detection.two_stage_detector import Model
-from scripts.models.detection.detection_debugging_utilities import get_model_configuration
+from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from tests.fixtures.configuration_fixtures import get_detection_model_configuration
 
 def debug_model_summary() -> None:
     """
-    Executes a simulated instantiation to print out the full Model architecture summary.
+    Executes a simulated instantiation to print out the full TwoStageDetector architecture summary.
     
     This function acts as a standalone utility in the model architecture pipeline, allowing
-    developers to quickly inspect the constructed Model configuration (including the backbone,
+    developers to quickly inspect the constructed TwoStageDetector configuration (including the backbone,
     detection, and region proposal components) without initiating a full training loop.
     
     Args:
         None
     """
-    configuration, device, dtype = get_model_configuration()
+    configuration, device, dtype = get_detection_model_configuration()
 
-    model = Model(configuration=configuration,
+    model = TwoStageDetector(configuration=configuration,
                   device=device,
                   dtype=dtype)
 

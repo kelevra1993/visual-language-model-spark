@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from typing import Any, Dict
 
-from vision_training.data.data_loader import count_split_images_and_annotations
+from vision_training.data.split_description import count_split_images_and_annotations
 
 
 @pytest.mark.parametrize(argnames=("labels", "expected_counts"), argvalues=[

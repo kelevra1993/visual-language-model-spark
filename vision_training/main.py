@@ -1,6 +1,5 @@
 from pathlib import Path
-from vision_training.utilities.os_utilities import load_experiment_configuration, print_color
-from vision_training.utilities.tensor_utilities import get_device
+from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.trainers.trainer import Trainer
 
 

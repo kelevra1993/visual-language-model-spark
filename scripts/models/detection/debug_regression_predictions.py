@@ -2,9 +2,9 @@ import cv2
 import numpy as np
 import torch
 
-from vision_training.utilities.model.model_utilities import apply_regression_predictions, add_bounding_boxes, get_area
+from vision_training.models.detection.box_operations import apply_regression_predictions, get_area
+from vision_training.utilities.visualization import add_bounding_boxes
 from vision_training.utilities.os_utilities import print_color, get_random_color
-from vision_training.utilities.tensor_utilities import print_tensor_shape
 
 
 def debug_regression_predictions() -> None:

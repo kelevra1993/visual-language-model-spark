@@ -1,13 +1,12 @@
 import torch
 
-from pathlib import Path
 from torch import nn
 from torchvision.ops import batched_nms
 from typing import Optional, Tuple
 
-from vision_training.models.detection.two_stage_detector import Model
-from vision_training.utilities.model.model_utilities import clamp_boxes_to_image_boundaries, postprocess_detections
-from vision_training.utilities.os_utilities import load_experiment_configuration
+from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from vision_training.models.detection.box_operations import clamp_boxes_to_image_boundaries
+from vision_training.models.detection.postprocessing import postprocess_detections
 
 
 class InferenceDetector(nn.Module):
@@ -15,18 +14,18 @@ class InferenceDetector(nn.Module):
     Inference-only version of the trained detector, used for deployment (TorchScript and ONNX exports served by
     Triton) and for local inference.
 
-    It reuses the submodules of the trained Model (no weight is duplicated) but replaces the data-dependent parts of
-    its forward pass by batched, fixed-shape operations: proposals are filtered for the whole batch at once, padding
-    proposals are masked instead of randomly duplicated, and no ground truth, target or loss code is involved. It
-    returns a fixed number of detections per image.
+    It reuses the submodules of the trained TwoStageDetector (no weight is duplicated) but replaces the
+    data-dependent parts of its forward pass by batched, fixed-shape operations: proposals are filtered for the whole
+    batch at once, padding proposals are masked instead of randomly duplicated, and no ground truth, target or loss
+    code is involved. It returns a fixed number of detections per image.
     """
 
-    def __init__(self, model: Model) -> None:
+    def __init__(self, model: TwoStageDetector) -> None:
         """
-        Wraps the submodules and inference settings of a trained Model.
+        Wraps the submodules and inference settings of a trained TwoStageDetector.
 
         Args:
-            model (Model): The trained detector, whose submodules and configuration are reused.
+            model (TwoStageDetector): The trained detector, whose submodules and configuration are reused.
         """
         super(InferenceDetector, self).__init__()
 
@@ -177,56 +176,3 @@ class InferenceDetector(nn.Module):
         number_classes = classification_scores.shape[-1]
         return (classification_scores.reshape(batch_size, number_proposals, number_classes),
                 detection_boxes.reshape(batch_size, number_proposals, number_classes, 4))
-
-
-def get_checkpoint_path(experiment_folder: Path, iteration: Optional[int]) -> Path:
-    """
-    Finds the weight file of a trained experiment, as saved by the Trainer in '<experiment>/Weights'.
-
-    Args:
-        experiment_folder (Path): The experiment folder holding 'Weights' and 'training_configuration.yaml'.
-        iteration (Optional[int]): The iteration to load, or None for the last one recorded in the 'full-checkpoint'
-            registry.
-
-    Returns:
-        Path: The path of the checkpoint file.
-
-    Raises:
-        FileNotFoundError: If no checkpoint exists for the requested iteration.
-    """
-    weights_directory = experiment_folder / "Weights"
-
-    # The first line of the registry names the last saved iteration, e.g. 'model_checkpoint_path: "Iteration_2000"'
-    if iteration is None:
-        registry_path = weights_directory / "full-checkpoint"
-        if not registry_path.exists():
-            raise FileNotFoundError(f"No checkpoint registry found : file://{registry_path.absolute()}")
-        iteration = int(registry_path.read_text().splitlines()[0].split('"')[1].split("_")[-1])
-
-    checkpoint_path = weights_directory / f"Iteration_{iteration}" / f"model_{iteration:06}.pt"
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(f"No checkpoint found : file://{checkpoint_path.absolute()}")
-    return checkpoint_path
-
-
-def load_trained_model(configuration_path: Path, checkpoint_path: Path, device: torch.device) -> Model:
-    """
-    Rebuilds a trained detector from its saved training configuration and checkpoint, in evaluation mode, as the
-    starting point of every deployment and inference script.
-
-    Args:
-        configuration_path (Path): The 'training_configuration.yaml' saved in the experiment folder.
-        checkpoint_path (Path): The checkpoint file written by the Trainer.
-        device (torch.device): The device on which to load the model.
-
-    Returns:
-        Model: The trained detector in evaluation mode.
-    """
-    experiment_configuration, model_configuration = load_experiment_configuration(
-        configuration_path=configuration_path)
-
-    model = Model(configuration=model_configuration, device=device, dtype=experiment_configuration["dtype"])
-    checkpoint = torch.load(f=checkpoint_path, map_location=device, weights_only=True)
-    model.load_state_dict(state_dict=checkpoint["model_state"])
-
-    return model.to(device=device).eval()

@@ -9,13 +9,14 @@ import torch
 from tqdm import tqdm
 
 from vision_training.utilities.os_utilities import print_color
-from vision_training.data.preprocessing import view_input_data
+from vision_training.utilities.visualization import view_input_data
 
 from pathlib import Path
 from typing import List, Dict, Any, Callable
 from torch.utils.data import DataLoader
 
-from vision_training.data.data_loader import NativeDataset, dali_pipeline, DALIDataloaderWrapper
+from vision_training.data.detection.coco_dataset import CocoDetectionDataset
+from vision_training.data.detection.coco_dali_pipeline import dali_pipeline, DALIDataloaderWrapper
 
 from nvidia.dali.plugin.pytorch import DALIGenericIterator
 
@@ -109,7 +110,7 @@ def benchmark_native(data_directory: str, labels_file: str, number_of_runs: int,
     Returns:
         float: The average time taken per run in seconds.
     """
-    dataset = NativeDataset(data_directory=data_directory, labels_file=labels_file, image_size=image_size,
+    dataset = CocoDetectionDataset(data_directory=data_directory, labels_file=labels_file, image_size=image_size,
                             keep_ratio=keep_ratio, label_mode=label_mode, label_dictionary=label_dictionary)
     dataloader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=False, num_workers=4,
                             collate_fn=collate_function)
@@ -246,7 +247,7 @@ def benchmark_dali(data_directory: str, labels_file: str, number_of_runs: int, b
                                        label_mode=label_mode, label_dictionary=label_dictionary)
 
     if view_images:
-        native_dataset = NativeDataset(data_directory=data_directory, labels_file=labels_file,
+        native_dataset = CocoDetectionDataset(data_directory=data_directory, labels_file=labels_file,
                                        image_size=image_size, keep_ratio=keep_ratio, label_mode=label_mode,
                                        label_dictionary=label_dictionary, shuffle=False)
         image_id_to_index = {img['id']: idx for idx, img in enumerate(native_dataset.images)}

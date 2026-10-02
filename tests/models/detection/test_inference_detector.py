@@ -4,7 +4,7 @@ from pathlib import Path
 
 from vision_training.models.detection.inference_detector import InferenceDetector
 from tests.testing_utilities import build_test_model
-from vision_training.utilities.model.model_utilities import postprocess_detections
+from vision_training.models.detection.postprocessing import postprocess_detections
 
 
 def test_postprocess_detections_threshold_nms_and_padding() -> None:
@@ -33,8 +33,8 @@ def test_postprocess_detections_threshold_nms_and_padding() -> None:
 
 def test_inference_detector_matches_the_eager_model() -> None:
     """
-    Verifies that the export-friendly inference detector reproduces exactly the detections of the eager Model in
-    evaluation mode, on the same weights and images.
+    Verifies that the export-friendly inference detector reproduces exactly the detections of the eager
+    TwoStageDetector in evaluation mode, on the same weights and images.
     """
     model = build_test_model(dtype=torch.float32)
     detector = InferenceDetector(model=model).eval()

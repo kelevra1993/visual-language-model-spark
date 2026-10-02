@@ -1,7 +1,7 @@
 # Definition of the convolution block
 import torch
 from torch import nn
-from typing import Union, Tuple, Optional, List, Dict, Any
+from typing import List, Dict, Any
 
 from vision_training.models.components.inception import InceptionConvolution
 from vision_training.models.components.squeeze_and_excitation import SqueezeAndExcitation

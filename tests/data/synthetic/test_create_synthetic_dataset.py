@@ -4,7 +4,7 @@ import pytest
 
 from pathlib import Path
 
-from vision_training.data.data_loader import NativeDataset
+from vision_training.data.detection.coco_dataset import CocoDetectionDataset
 from vision_training.data.synthetic.create_synthetic_dataset import (SHAPE_CATEGORIES, SHAPE_DRAWING_FUNCTIONS,
                                                              create_synthetic_dataset, get_mask_bounding_box)
 
@@ -64,7 +64,7 @@ def test_created_dataset_is_valid_coco_and_loads(tmp_path: Path) -> None:
                         label_mapping.items()}
     label_dictionary["background"] = 0
 
-    dataset = NativeDataset(data_directory=str(tmp_path / "train" / "data"),
+    dataset = CocoDetectionDataset(data_directory=str(tmp_path / "train" / "data"),
                             labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
                             keep_ratio=True, label_mode="multi_class", label_dictionary=label_dictionary)
     loaded_labels = set()

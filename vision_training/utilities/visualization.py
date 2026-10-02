@@ -1,0 +1,189 @@
+import os
+import sys
+import cv2
+import numpy as np
+import torch
+
+from typing import Dict, List, Optional, Tuple
+
+from vision_training.utilities.os_utilities import print_color
+
+
+def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_image_size: int,
+                       color: Tuple[int, int, int] = (0, 255, 0)) -> np.ndarray:
+    """
+    Draws one or more bounding boxes onto the provided image canvas.
+    
+    This function processes bounding box coordinates, clamps them to the image boundaries
+    to prevent out-of-bounds drawing errors, and renders the rectangles using OpenCV. 
+    It supports both single bounding boxes [4] and batches of bounding boxes [N, 4].
+    
+    Args:
+        bounding_boxes (np.ndarray): The [x_min, y_min, x_max, y_max] coordinates. Shape (4,) or (N, 4).
+        image (np.ndarray): The image canvas on which to draw the bounding boxes.
+        input_image_size (int): The spatial size (height and width) of the image to clamp coordinates.
+        color (Tuple[int, int, int]): The BGR color tuple for the bounding boxes. Defaults to green (0, 255, 0).
+        
+    Returns:
+        np.ndarray: The updated image canvas containing the newly drawn bounding boxes.
+    """
+    # Standardize shape to [N, 4] for consistent iteration
+    if bounding_boxes.ndim == 1:
+        bounding_boxes = bounding_boxes.reshape((1, 4))
+
+    for box in bounding_boxes:
+        x_min, y_min, x_max, y_max = box
+
+        # Ensure coordinates are within image boundaries for clean visualization
+        x_min = max(0, int(x_min))
+        y_min = max(0, int(y_min))
+        x_max = min(input_image_size, int(x_max))
+        y_max = min(input_image_size, int(y_max))
+
+        # Draw the bounding box on the canvas using the provided color
+        cv2.rectangle(img=image, pt1=(x_min, y_min), pt2=(x_max, y_max), color=color, thickness=2)
+
+    return image
+
+
+def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: bool = False, delay: int = 0,
+                      random_ratio: float = 1.0) -> None:
+    """
+    Visualizes the generated bounding box anchors on a black canvas using OpenCV.
+    
+    This utility function is critical for debugging the spatial configuration of anchors,
+    ensuring they are placed and scaled correctly relative to the input image dimensions.
+    It provides an interactive visual feedback loop during architecture development.
+    
+    Args:
+        input_image_size (int): The height and width of the square input image.
+        anchors (torch.Tensor): A tensor containing the [x_min, y_min, x_max, y_max] bounding boxes.
+        delayed (bool): If True, renders and pauses at each anchor sequentially for step-by-step inspection.
+        delay (int): The duration in milliseconds to pause during step-by-step inspection (0 means wait for key).
+        random_ratio (float): The fraction of anchors to randomly sample and visualize (default is 1.0 for all).
+    """
+    # Create a completely black background image of the specified size with 3 channels (RGB)
+    canvas = np.zeros(shape=(input_image_size, input_image_size, 3), dtype=np.uint8)
+
+    # Convert the PyTorch tensor to a NumPy array for OpenCV compatibility
+    anchors_array = anchors.cpu().numpy().astype(dtype=np.int32)
+
+    # Randomly sample a fraction of the anchors for visualization if requested
+    if random_ratio < 1.0:
+        total_anchors = len(anchors_array)
+        number_to_sample = int(total_anchors * random_ratio)
+
+        # Select random indices without replacement, then sort them to preserve the original generation sequence
+        sampled_indices = np.random.choice(a=total_anchors, size=number_to_sample, replace=False)
+        sampled_indices.sort()
+
+        anchors_array = anchors_array[sampled_indices]
+
+    # Determine the window name for the OpenCV display
+    window_name = "Anchors Visualization"
+
+    if delayed:
+        if not delay:
+            print_color(color="blue",
+                        output="Showing Anchors Iteratively. Press any key to continue...", add_separators=True)
+
+        for anchor_index, anchor in enumerate(anchors_array):
+            canvas = add_bounding_boxes(bounding_boxes=anchor, image=canvas, input_image_size=input_image_size)
+
+            # Display the updated canvas containing the newly drawn anchor
+            cv2.imshow(winname=window_name, mat=canvas)
+
+            # Pause execution for the specified delay or until the user presses a key
+            cv2.waitKey(delay=delay)
+    else:
+        # Draw all anchors collectively on the canvas without a loop
+        canvas = add_bounding_boxes(bounding_boxes=anchors_array, image=canvas, input_image_size=input_image_size)
+
+        # Display the final canvas with all anchors drawn simultaneously
+        cv2.imshow(winname=window_name, mat=canvas)
+        print_color(color="blue",
+                    output="Showing all anchors collectively. Press any key to close the window...",
+                    add_separators=True)
+        cv2.waitKey(delay=0)
+
+    # Clean up the OpenCV windows after the visualization loop is complete
+    cv2.destroyAllWindows()
+
+
+def view_input_data(images: List[torch.Tensor], bounding_boxes: List[torch.Tensor], labels: List[torch.Tensor],
+                    window_titles: List[str], display_input_size: int,
+                    label_names: Optional[Dict[int, str]] = None) -> bool:
+    """
+    Displays preprocessed input images with their ground truth boxes and labels, one window per image, so the user
+    can check exactly what is fed to the neural network.
+
+    It is shared by the dataloader benchmarker (a single window per image) and by the Trainer's 'view_input_images'
+    diagnosis mode (a Training and a Validation window side by side). Execution halts until the user presses
+    SPACE (next image) or ENTER (stop viewing).
+
+    Args:
+        images (List[torch.Tensor]): The preprocessed image tensors of shape [Channels, Height, Width], on CPU or GPU.
+        bounding_boxes (List[torch.Tensor]): The [N, 4] bounding boxes associated with each image.
+        labels (List[torch.Tensor]): The [N] class labels associated with each image's bounding boxes.
+        window_titles (List[str]): The title of the window displaying each image, also written on the image.
+        display_input_size (int): The size in pixels of the longest side of each displayed window, typically the
+            network input image size so that images are shown exactly as the network receives them.
+        label_names (Optional[Dict[int, str]]): Mapping from class index to class name used for the box captions.
+            Defaults to None, in which case the numeric class index is written.
+
+    Returns:
+        bool: True if the user pressed ENTER to stop the visualization (or no display is available), False otherwise.
+    """
+    # Skip the viewer when no graphical display is reachable (e.g. SSH without X forwarding) instead of crashing
+    if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        print_color(color="yellow",
+                    output="No display available (DISPLAY is not set). Skipping the input image viewer.")
+        return True
+
+    # Iterate through each image to annotate it and show it in its own window
+    for window_index, (image, image_bounding_boxes, image_labels, window_title) in enumerate(
+            zip(images, bounding_boxes, labels, window_titles)):
+        # Move the tensor to the CPU, transpose it from (C, H, W) to (H, W, C) and cast it to a contiguous uint8 array,
+        # since OpenCV cannot draw on the non-contiguous memory layout left by the transposition
+        image_numpy = np.ascontiguousarray(image.detach().cpu().permute(1, 2, 0).numpy().astype(np.uint8))
+        boxes_numpy = image_bounding_boxes.detach().cpu().numpy()
+        labels_numpy = image_labels.detach().cpu().numpy()
+
+        # Draw each object's bounding box rectangle and its class caption
+        for box, label in zip(boxes_numpy, labels_numpy):
+            box_x1, box_y1, box_x2, box_y2 = map(int, box)
+            caption = label_names.get(int(label), str(int(label))) if label_names else str(int(label))
+            cv2.rectangle(img=image_numpy, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0), thickness=2)
+            cv2.putText(img=image_numpy, text=caption, org=(box_x1, max(box_y1 - 10, 0)),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
+
+        # Write the window title at the top left and the instructions at the bottom left
+        # Draw solid black background blocks first to guarantee the text is visible against any image background
+        image_height, image_width, _ = image_numpy.shape
+        cv2.rectangle(img=image_numpy, pt1=(5, 5), pt2=(300, 45), color=(0, 0, 0), thickness=-1)
+        cv2.putText(img=image_numpy, text=window_title, org=(10, 35), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.9, color=(255, 255, 255), thickness=2)
+        cv2.rectangle(img=image_numpy, pt1=(5, image_height - 45), pt2=(550, image_height - 5), color=(0, 0, 0),
+                      thickness=-1)
+        cv2.putText(img=image_numpy, text="Press SPACE For Next Image, Or ENTER To Quit",
+                    org=(10, image_height - 20), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.7, color=(150, 150, 150), thickness=2)
+
+        # Scale the window so that its longest side matches the display size and place the windows side by side
+        display_scale = display_input_size / max(image_height, image_width)
+        display_width, display_height = int(image_width * display_scale), int(image_height * display_scale)
+        cv2.namedWindow(winname=window_title, flags=cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(winname=window_title, width=display_width, height=display_height)
+        cv2.moveWindow(winname=window_title, x=window_index * (display_width + 20), y=50)
+        cv2.imshow(winname=window_title, mat=image_numpy)
+
+    # Enter a polling loop to restrict progression exclusively to the Spacebar or Enter keys
+    while True:
+        pressed_key = cv2.waitKey(delay=0) & 0xFF
+        if pressed_key == 13:  # 13 represents the Enter/Return key
+            cv2.destroyAllWindows()
+            return True
+        if pressed_key == ord(' '):
+            break
+
+    return False

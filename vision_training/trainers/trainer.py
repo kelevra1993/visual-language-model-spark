@@ -5,11 +5,12 @@ import time
 import torch
 
 from pathlib import Path
-from typing import Dict, Tuple, List, Union, Any, Optional, Iterator
+from typing import Dict, Tuple, List, Any, Optional, Iterator
 from shutil import copyfile
-from vision_training.data.data_loader import count_split_images_and_annotations, get_dataloaders
+from vision_training.data.split_description import count_split_images_and_annotations
+from vision_training.data.loaders import get_dataloaders
 from vision_training.data.augmentations import DataAugmenter
-from vision_training.data.preprocessing import view_input_data
+from vision_training.utilities.visualization import view_input_data
 
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data.dataloader import _BaseDataLoaderIter
@@ -17,9 +18,10 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from vision_training.evaluation.detection.mean_average_precision import AVERAGE_PRECISION_METHODS, evaluate_detections
-from vision_training.models.detection.two_stage_detector import Model
-from vision_training.utilities.tensor_utilities import get_device, print_tensor_list
-from vision_training.utilities.os_utilities import build_run_name, print_color
+from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from vision_training.utilities.tensor_utilities import get_device
+from vision_training.configuration.run_name import build_run_name
+from vision_training.utilities.os_utilities import print_color
 
 
 class Trainer:
@@ -94,7 +96,7 @@ class Trainer:
         self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.get_trainer_data_loaders()
 
         # Initialize Model and Optimizer
-        self.model = Model(configuration=self.model_configuration, device=self.device, dtype=self.dtype,
+        self.model = TwoStageDetector(configuration=self.model_configuration, device=self.device, dtype=self.dtype,
                            verbose=self.diagnosis_modes["verbose"])
         self.model.to(device=self.device, dtype=self.dtype)
 

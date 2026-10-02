@@ -4,7 +4,8 @@ import pytest
 from pathlib import Path
 from typing import Any, Callable, Dict, Tuple
 
-from vision_training.utilities.os_utilities import build_run_name, load_experiment_configuration
+from vision_training.configuration.run_name import build_run_name
+from vision_training.configuration.configuration_loader import load_experiment_configuration
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")

@@ -1,5 +1,6 @@
 from vision_training.models.backbones.backbone import Backbone
-from scripts.models.detection.detection_debugging_utilities import get_model_configuration, get_dummy_input_tensor
+from tests.fixtures.configuration_fixtures import get_detection_model_configuration
+from scripts.models.detection.detection_debugging_utilities import get_dummy_input_tensor
 from vision_training.utilities.os_utilities import print_color
 from vision_training.utilities.tensor_utilities import print_tensor_shape
 
@@ -15,7 +16,7 @@ def debug_backbone() -> None:
     print_color(color="blue", output="Prepared Backbone configuration:", add_separators=True)
 
     # Fetch standard configuration and tensor generating tools via utility
-    configuration, device, dtype = get_model_configuration()
+    configuration, device, dtype = get_detection_model_configuration()
     backbone_configuration = configuration["Backbone"]
     input_image_size = configuration["Data"]["image_settings"]["size"]
 

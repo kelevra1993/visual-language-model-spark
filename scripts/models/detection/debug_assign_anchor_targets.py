@@ -1,13 +1,11 @@
-import cv2
-import numpy as np
 import torch
-from typing import Tuple
 
-from vision_training.utilities.model.model_utilities import batch_assign_targets_to_anchors, get_intersection_over_union, \
-    add_bounding_boxes
+from vision_training.models.detection.target_assignment import batch_assign_targets_to_anchors
 from vision_training.utilities.os_utilities import print_color
-from scripts.models.detection.detection_debugging_utilities import print_bounding_boxes, visualize_anchor_target_assignments, \
-    visualize_foreground_and_background_anchors, get_assignment_debugger_input
+from scripts.models.detection.detection_debugging_utilities import (print_bounding_boxes,
+                                                                    visualize_anchor_target_assignments,
+                                                                    visualize_foreground_and_background_anchors,
+                                                                    get_assignment_debugger_input)
 from vision_training.utilities.tensor_utilities import print_tensor_shape
 
 

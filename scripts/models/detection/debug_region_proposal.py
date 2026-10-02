@@ -2,9 +2,8 @@ import torch
 
 from vision_training.models.detection.region_proposer import RegionProposal
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.model.model_utilities import apply_regression_predictions
+from vision_training.models.detection.box_operations import apply_regression_predictions
 from scripts.models.detection.detection_debugging_utilities import print_bounding_boxes
-import numpy as np
 
 
 def debug_region_proposal() -> None:

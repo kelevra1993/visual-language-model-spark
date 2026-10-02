@@ -1,10 +1,9 @@
 import torch
-import numpy as np
 
 from vision_training.models.detection.anchors import Anchors
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.tensor_utilities import print_tensor_shape, print_tensor_list
-from vision_training.utilities.model.model_utilities import visualise_anchors, get_area
+from vision_training.utilities.tensor_utilities import print_tensor_shape
+from vision_training.utilities.visualization import visualise_anchors
 from scripts.models.detection.detection_debugging_utilities import print_bounding_boxes
 
 

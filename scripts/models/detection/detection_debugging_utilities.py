@@ -7,9 +7,9 @@ import torch
 import numpy as np
 from typing import List, Optional, Tuple, Dict, Any
 
-from vision_training.utilities.model.model_utilities import get_area, get_intersection_over_union, add_bounding_boxes
+from vision_training.models.detection.box_operations import get_area, get_intersection_over_union
+from vision_training.utilities.visualization import add_bounding_boxes
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.tensor_utilities import print_tensor_list, print_tensor_shape
 
 
 def print_bounding_boxes(boxes: torch.Tensor, number_of_boxes: int = 5, indent: int = 0) -> None:
@@ -393,78 +393,6 @@ def visualize_foreground_and_background_anchors(ground_truth_boxes: torch.Tensor
     cv2.destroyAllWindows()
 
 
-def get_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
-    """
-    Supplies the default configuration dictionary, device, and dtype for testing the object detection Model pipeline.
-    
-    Returns:
-        Tuple[Dict[str, Any], torch.device, torch.dtype]: The FPN F-RCNN configuration mapping, compute device, and tensor dtype.
-    """
-    configuration = {'Data': {'image_settings': {'size': 1024},
-                              'label_dictionary': {'background': 0,
-                                                   'foreground_1': 1,
-                                                   'foreground_2': 2,
-                                                   'foreground_3': 3,
-                                                   'foreground_4': 4,
-                                                   'foreground_5': 5}},
-                     'Backbone': {
-                         'input_channels': 3,
-                         'convolutions': {'1': [2, 16],
-                                          '2': [2, 32],
-                                          '3': [2, 32],
-                                          '4': [2, 64],
-                                          '5': [2, 64],
-                                          '6': [2, 64],
-                                          '7': [2, 64],
-                                          '8': [2, 64],
-                                          '9': [2, 64],
-                                          },
-                         'modules': {'squeeze_and_excite': False, 'residual_nets': False, 'inception': False,
-                                     'inception_starting_block': 3},
-                         'last_max_pooling': True,
-                         'normalization': {'feature_map_normalization': 'none', 'input_normalization': False,
-                                           'per_sample_normalization': False},
-                         'detection_convolution_block_indices': [5, 6, 7]},
-                     'Anchors': {
-                         'scales_and_ratios': {
-                             '5': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
-                             '6': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
-                             '7': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]}
-                         }},
-                     'RegionProposal': {
-                         'head_configurations': {'5': [2, 128], '6': [2, 128], '7': [2, 128]},
-                         'normalization': {'feature_map_normalization': 'batch'},
-                         'nms_iou_threshold': 0.7,
-                         'training': {'pre_nms_proposals': 500, 'post_nms_proposals': 250},
-                         'inference': {'pre_nms_proposals': 100, 'post_nms_proposals': 50},
-                         'foreground_iou_threshold': {"min": 0.35, "max": 1.0},
-                         'background_iou_threshold': {"min": 0.2, "max": 0.3},
-                         'strict_fallback_assignment': False,
-                         'number_training_positives': 128,
-                         'total_training_samples': 256,
-                         'localisation_loss_beta': 1 / 9
-                     },
-                     'Detector': {
-                         'head_configurations': {
-                             '5': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]},
-                             '6': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]},
-                             '7': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]}
-                         },
-                         'normalization': {'feature_map_normalization': 'batch'},
-                         'foreground_iou_threshold': 0.3,
-                         'number_training_positives': 128,
-                         'total_training_samples': 256,
-                         'localisation_loss_beta': 1 / 9,
-                         'modules': {'squeeze_and_excite': False, 'residual_nets': False, 'inception': False},
-                         'nms_iou_threshold': 0.5,
-                         'inference': {'score_threshold': 0.5, 'maximum_detections': 100},
-                     }}
-    device = torch.device(device="cpu")
-    dtype = torch.float32
-
-    return configuration, device, dtype
-
-
 def get_dummy_input_tensor(device: torch.device, dtype: torch.dtype) -> Tuple[int, int, int, torch.Tensor]:
     """
     Generates a dummy batched input image tensor to feed the object detection model during debugging.
@@ -638,8 +566,8 @@ def visualize_proposal_target_assignments(ground_truth_bounding_boxes: List[torc
     """
     import cv2
     import numpy as np
-    import torch
-    from vision_training.utilities.model.model_utilities import get_intersection_over_union, add_bounding_boxes
+    from vision_training.models.detection.box_operations import get_intersection_over_union
+    from vision_training.utilities.visualization import add_bounding_boxes
 
     batch_size = batched_proposals.shape[0]
 

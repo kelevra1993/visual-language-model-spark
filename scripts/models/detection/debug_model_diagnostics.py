@@ -1,22 +1,25 @@
 import copy
 import torch
 
-from vision_training.models.detection.two_stage_detector import Model
-from scripts.models.detection.detection_debugging_utilities import get_model_configuration, get_dummy_input_tensor
+from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from tests.fixtures.configuration_fixtures import get_detection_model_configuration
+from scripts.models.detection.detection_debugging_utilities import get_dummy_input_tensor
 from vision_training.utilities.os_utilities import print_color
 from vision_training.utilities.tensor_utilities import print_tensor_shape
 
 
 def debug_model_diagnostics() -> None:
     """
-    Builds the Model with each architecture module variant and prints its receptive field and size diagnostics.
+    Builds the TwoStageDetector with each architecture module variant and prints its receptive field and size
+    diagnostics.
 
     This standalone utility exercises the optional architecture modules (squeeze-and-excite, residual shortcuts,
     inception, input and per-sample normalization) in the backbone and detection heads.
-    For every variant it instantiates the Model, runs a forward pass on a dummy batch, and prints the receptive
-    field and model size summaries that the Trainer displays when the matching 'diagnosis_modes' are enabled.
+    For every variant it instantiates the TwoStageDetector, runs a forward pass on a dummy batch, and prints the
+    receptive field and model size summaries that the Trainer displays when the matching 'diagnosis_modes' are
+    enabled.
     """
-    base_configuration, device, dtype = get_model_configuration()
+    base_configuration, device, dtype = get_detection_model_configuration()
 
     # Every variant toggles one architecture module in both the Backbone and the Detector
     variants = {"Plain": {},
@@ -39,7 +42,7 @@ def debug_model_diagnostics() -> None:
         configuration["Backbone"]["normalization"]["per_sample_normalization"] = True
         configuration["Detector"]["modules"] = {**configuration["Detector"]["modules"], **disabled_modules, **modules}
 
-        model = Model(configuration=configuration, device=device, dtype=dtype)
+        model = TwoStageDetector(configuration=configuration, device=device, dtype=dtype)
         model.eval()
 
         # Run an inference forward pass to verify the variant builds a valid computational graph

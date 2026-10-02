@@ -1,13 +1,13 @@
 import torch
 
 from torch import nn
-from typing import List, Union, Dict, Tuple, Any, Literal
+from typing import List, Dict, Tuple, Any
 from torchvision.ops import nms
 
 from vision_training.models.detection.anchors import Anchors
 from vision_training.models.components.convolution_block import ConvolutionBlock
-from vision_training.utilities.tensor_utilities import print_tensor_shape
-from vision_training.utilities.model.model_utilities import apply_regression_predictions, clamp_boxes_to_image_boundaries
+from vision_training.models.detection.box_operations import (apply_regression_predictions,
+                                                             clamp_boxes_to_image_boundaries)
 
 
 class RegionProposal(nn.Module):

@@ -2,18 +2,20 @@ import torch
 from torch import nn
 from rich.console import Console
 from rich.panel import Panel
-from typing import Dict, Any, Tuple, Literal, Optional, List
+from typing import Dict, Any, Tuple, Optional, List
 from vision_training.models.backbones.backbone import Backbone
 from vision_training.models.detection.region_proposer import RegionProposal, RegionProposalFilter
 from vision_training.models.detection.detection_head import DetectionHead
-from vision_training.utilities.model.model_utilities import assign_targets_to_anchors, batch_assign_targets_to_anchors, \
-    turn_boxes_to_transformation_targets, apply_regression_predictions, sample_positive_and_negative_training_targets, \
-    batch_assign_targets_to_proposals, get_box_dimensions_and_centers, postprocess_detections
+from vision_training.models.detection.target_assignment import (turn_boxes_to_transformation_targets,
+                                                                sample_positive_and_negative_training_targets,
+                                                                batch_assign_targets_to_proposals)
+from vision_training.models.detection.postprocessing import postprocess_detections
+from vision_training.losses.detection_losses import compute_detection_losses, compute_region_proposal_losses
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.tensor_utilities import print_tensor_shape, print_tensor_list, print_tensor_min_max
+from vision_training.utilities.tensor_utilities import print_tensor_shape
 
 
-class Model(nn.Module):
+class TwoStageDetector(nn.Module):
     """
     Constructs the overall object detection model by combining the backbone,
     region proposal, and detector modules based on the configuration.
@@ -22,7 +24,7 @@ class Model(nn.Module):
     def __init__(self, configuration: Dict[str, Any], verbose: bool = False,
                  device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
-        Initializes the Model components.
+        Initializes the TwoStageDetector components.
         
         Args:
             configuration (Dict[str, Any]): The complete configuration dictionary for the experiment.
@@ -30,7 +32,7 @@ class Model(nn.Module):
             device (torch.device): The device for parameter allocation.
             dtype (torch.dtype): The data type for parameter allocation.
         """
-        super(Model, self).__init__()
+        super(TwoStageDetector, self).__init__()
 
         # Assign device and dtype globally for the model
         self.device = device
@@ -398,109 +400,6 @@ class Model(nn.Module):
 
         return rearranged_predictions
 
-    def _compute_region_proposal_losses(self, ground_truth_bounding_boxes: List[torch.Tensor],
-                                        aggregated_proposals_dictionary: Dict[str, torch.Tensor]) -> Tuple[
-        torch.Tensor, torch.Tensor]:
-        """
-        Computes the Region Proposal Network classification and localisation losses.
-
-        This isolated logic extracts positive and negative target anchors, compares the predicted
-        logits and regressed box offsets against the true targets, and generates the two loss
-        components used to train the region proposer.
-
-        Args:
-            ground_truth_bounding_boxes (List[torch.Tensor]): The batched ground truth boxes.
-            aggregated_proposals_dictionary (Dict[str, torch.Tensor]): The aggregated anchor and prediction tensor.
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: The scalar classification loss and localisation loss.
-        """
-
-        # First assign targets based on ground truth bounding boxes
-        # Here we consider absolutely all anchors targets based on all ground truth boxes
-        region_proposal_anchor_targets, region_proposal_anchor_labels = batch_assign_targets_to_anchors(
-            batched_ground_truth_boxes=ground_truth_bounding_boxes,
-            batched_anchors=aggregated_proposals_dictionary["anchors"],
-            background_iou_threshold=self.region_proposal_configuration['background_iou_threshold'],
-            foreground_iou_threshold=self.region_proposal_configuration['foreground_iou_threshold'],
-            strict_fallback_assignment=self.region_proposal_configuration['strict_fallback_assignment'])
-
-        # Compute region proposal regression targets
-        region_proposal_regression_targets = turn_boxes_to_transformation_targets(
-            ground_truth_boxes=region_proposal_anchor_targets,
-            predicted_boxes=aggregated_proposals_dictionary["anchors"])
-
-        # Get training samples for region proposal network
-        sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
-            labels=region_proposal_anchor_labels,
-            desired_positives=self.region_proposal_configuration['number_training_positives'],
-            desired_total=self.region_proposal_configuration['total_training_samples'])
-
-        # Compute the classification loss: Simple binary cross entropy loss
-        # We use the variant 'with_logits' since the classification scores are raw, un-sigmoid network outputs.
-        # Computed over both the sampled positive (foreground) and sampled negative (background) anchors.
-        sampled_mask = sampled_positive_mask | sampled_negative_mask
-
-        region_proposal_classification_loss = torch.nn.functional.binary_cross_entropy_with_logits(
-            input=aggregated_proposals_dictionary["classification_scores"][sampled_mask],
-            target=region_proposal_anchor_labels[sampled_mask],
-            reduction="mean")
-
-        # Compute the localization loss: Smooth L1 Loss (Huber Loss)
-        # We only compute regression loss on the positively sampled anchors, as background anchors have no target.
-        # We explicitly use reduction="sum" and divide by the total number of positive anchors instead of using
-        # reduction="mean". This ensures the loss is averaged per bounding box rather than per individual
-        # coordinate, aligning perfectly with standard Region Proposal Network normalization practices.
-        # The positive count is clamped to a minimum of 1 so that a batch without any positive anchor
-        # (e.g. images without ground truth boxes) yields a zero loss instead of a NaN from a 0/0 division.
-        region_proposal_localisation_loss = torch.nn.functional.smooth_l1_loss(
-            input=aggregated_proposals_dictionary["bounding_box_regressions"][sampled_positive_mask],
-            target=region_proposal_regression_targets[sampled_positive_mask],
-            beta=self.region_proposal_configuration['localisation_loss_beta'],
-            reduction="sum") / torch.sum(input=sampled_positive_mask).clamp(min=1)
-
-        return region_proposal_classification_loss, region_proposal_localisation_loss
-
-    def _compute_detection_losses(self, aggregated_detections_dictionary: Dict[str, Optional[torch.Tensor]]) -> Tuple[
-        torch.Tensor, torch.Tensor]:
-        """
-        Computes the final Detection Head classification and localisation losses.
-
-        Args:
-            aggregated_detections_dictionary (Dict[str, Optional[torch.Tensor]]): The aggregated predictions 
-                                                                                 and targets from all detection heads.
-                - "classification_scores" (torch.Tensor): Shape [total_proposals, number_classes]
-                - "box_regressions" (torch.Tensor): Shape [total_proposals, number_classes, 4]
-                - "sliced_proposals" (torch.Tensor): Shape [total_proposals, 5]
-                - "sliced_labels" (torch.Tensor): Shape [total_proposals]
-                - "sliced_regression_targets" (torch.Tensor): Shape [total_proposals, 4]
-
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: The classification loss and the bounding box regression loss (scalar tensors).
-        """
-        # Compute the Classification Loss (Cross Entropy)
-        # This evaluates all sampled proposals (both foreground and background). 
-        # The background proposals (label 0) will naturally train the network to suppress false positives.
-        detection_classification_loss = torch.nn.functional.cross_entropy(
-            input=aggregated_detections_dictionary["classification_scores"],
-            target=aggregated_detections_dictionary["sliced_labels"])
-
-        # Filter out background proposals: Bounding box regressions are ONLY trained on positive, foreground samples.
-        sampled_positive_indices = torch.where(aggregated_detections_dictionary["sliced_labels"] > 0)[0]
-        foreground_classes = aggregated_detections_dictionary["sliced_labels"][sampled_positive_indices].long()
-
-        # Compute the Localisation Loss (Smooth L1 / Huber Loss)
-        # The detector outputs regression predictions for EVERY class [K, number_classes, 4]. 
-        # We use advanced indexing `[sampled_positive_indices, foreground_classes]` to pluck out ONLY the 4 
-        # coordinate regressions that correspond to the specific ground truth class of each proposal.
-        detection_localisation_loss = torch.nn.functional.smooth_l1_loss(
-            input=aggregated_detections_dictionary["box_regressions"][sampled_positive_indices, foreground_classes],
-            target=aggregated_detections_dictionary["sliced_regression_targets"][sampled_positive_indices],
-            beta=self.detector_configuration['localisation_loss_beta'],
-            reduction="sum") / max(1, sampled_positive_indices.numel())
-
-        return detection_classification_loss, detection_localisation_loss
-
     def _prepare_detector_inputs(self,
                                  filtered_boxes: torch.Tensor,
                                  filtered_origins: torch.Tensor,
@@ -691,7 +590,7 @@ class Model(nn.Module):
                 ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
                 ground_truth_labels: Optional[List[torch.Tensor]] = None, ) -> Dict[str, Any]:
         """
-        Executes the forward pass of the Model.
+        Executes the forward pass of the TwoStageDetector.
         
         Args:
             input_tensor (torch.Tensor): The raw input image tensor of shape [Batch, Channels, Height, Width].
@@ -779,13 +678,15 @@ class Model(nn.Module):
         if ground_truth_bounding_boxes is not None:
             # Region Proposal Losses
             (region_proposal_classification_loss,
-             region_proposal_localisation_loss) = self._compute_region_proposal_losses(
+             region_proposal_localisation_loss) = compute_region_proposal_losses(
                 ground_truth_bounding_boxes=ground_truth_bounding_boxes,
-                aggregated_proposals_dictionary=aggregated_proposals_dictionary)
+                aggregated_proposals_dictionary=aggregated_proposals_dictionary,
+                region_proposal_configuration=self.region_proposal_configuration)
 
             # Detection Losses
-            (detection_classification_loss, detection_regression_loss) = self._compute_detection_losses(
-                aggregated_detections_dictionary=aggregated_detections_dictionary)
+            (detection_classification_loss, detection_regression_loss) = compute_detection_losses(
+                aggregated_detections_dictionary=aggregated_detections_dictionary,
+                localisation_loss_beta=self.detector_configuration["localisation_loss_beta"])
 
             # todo Consider adding the ground truth bounding boxes as well ?
             #  so that the network also learns not to modify some boxes ?
@@ -802,7 +703,7 @@ class Model(nn.Module):
 
     def print_summary(self) -> None:
         """
-        Prints a structural summary of the overarching Model architecture.
+        Prints a structural summary of the overarching TwoStageDetector architecture.
         
         This method delegates to the underlying Backbone to print its layer-by-layer 
         spatial dimension summary, then prints the Region Proposal summary, and finally 
@@ -934,11 +835,11 @@ class Model(nn.Module):
 
     def print_model_size_summary(self) -> None:
         """
-        Prints the parameter count and memory size of every component of the Model.
+        Prints the parameter count and memory size of every component of the TwoStageDetector.
 
         This diagnostic (enabled by 'diagnosis_modes.compute_model_size') reports the size of the backbone,
-        the region proposal heads, the detection heads and the whole Model. Sizes include parameters and buffers
-        (e.g. batch normalization running statistics) and are expressed in megabytes (1 MB = 1e6 bytes).
+        the region proposal heads, the detection heads and the whole TwoStageDetector. Sizes include parameters and
+        buffers (e.g. batch normalization running statistics) and are expressed in megabytes (1 MB = 1e6 bytes).
         """
         console = Console(width=60)
 

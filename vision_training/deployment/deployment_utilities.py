@@ -9,9 +9,12 @@ from pathlib import Path
 from tqdm import tqdm
 from typing import Any, List, Optional, Tuple
 
-from vision_training.models.detection.inference_detector import InferenceDetector, get_checkpoint_path, load_trained_model
+from vision_training.models.detection.inference_detector import InferenceDetector
+from vision_training.trainers.checkpointing import get_checkpoint_path
+from vision_training.models.model_loading import load_trained_model
 from vision_training.data.preprocessing import preprocess_image
-from vision_training.utilities.os_utilities import get_image_paths, load_experiment_configuration
+from vision_training.utilities.os_utilities import get_image_paths
+from vision_training.configuration.configuration_loader import load_experiment_configuration
 
 # Names of the detector outputs, in the order returned by the exported models
 OUTPUT_NAMES = ["detection_boxes", "detection_scores", "detection_labels", "number_detections"]

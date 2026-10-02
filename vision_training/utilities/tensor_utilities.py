@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from typing import Optional, Any
+from typing import Optional
 
 from vision_training.utilities.os_utilities import print_color, get_variable_name
 

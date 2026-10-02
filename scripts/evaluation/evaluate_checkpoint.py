@@ -2,9 +2,10 @@ import torch
 
 from pathlib import Path
 
-from vision_training.models.detection.inference_detector import get_checkpoint_path
+from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.trainers.trainer import Trainer
-from vision_training.utilities.os_utilities import load_experiment_configuration, print_color
+from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.utilities.os_utilities import print_color
 
 if __name__ == "__main__":
     # Trained experiment whose configuration and checkpoint are evaluated, it is only read

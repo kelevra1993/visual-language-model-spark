@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 
 from vision_training.utilities.tensor_utilities import print_tensor_list, print_tensor_shape
 from vision_training.utilities.os_utilities import print_color

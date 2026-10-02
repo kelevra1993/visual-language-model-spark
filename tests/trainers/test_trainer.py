@@ -6,7 +6,7 @@ from pathlib import Path
 
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.trainer import Trainer
-from vision_training.utilities.os_utilities import load_experiment_configuration
+from vision_training.configuration.configuration_loader import load_experiment_configuration
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                                 "configuration_synthetic_shapes.yaml")

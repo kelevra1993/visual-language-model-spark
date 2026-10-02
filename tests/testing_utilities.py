@@ -5,8 +5,8 @@ from torch import nn
 from typing import Any, List, Dict, Union, Optional, Tuple
 from pathlib import Path
 
-from vision_training.models.detection.two_stage_detector import Model
-from scripts.models.detection.detection_debugging_utilities import get_model_configuration
+from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from tests.fixtures.configuration_fixtures import get_detection_model_configuration
 
 
 def check_nn_module_method(module: nn.Module, simple_input_dictionary: Dict[str, torch.Tensor],
@@ -127,7 +127,7 @@ def create_deterministic_tensor(shape: Tuple[int, ...], dtype: torch.dtype = tor
     return deterministic_tensor.reshape(shape=shape)
 
 
-def build_test_model(dtype: torch.dtype) -> Model:
+def build_test_model(dtype: torch.dtype) -> TwoStageDetector:
     """
     Builds a small untrained detector from the debug configuration, shared by the detector tests (export path and
     behaviour baseline), with 512 pixel inputs (the smallest size fitting its 9 pooling blocks) and a score threshold
@@ -139,15 +139,15 @@ def build_test_model(dtype: torch.dtype) -> Model:
             behaviour baseline, whose recorded values must not depend on float32 rounding.
 
     Returns:
-        Model: The detector in evaluation mode, on the CPU.
+        TwoStageDetector: The detector in evaluation mode, on the CPU.
     """
     torch.manual_seed(seed=0)
-    configuration, device, _ = get_model_configuration()
+    configuration, device, _ = get_detection_model_configuration()
     configuration: Dict[str, Any] = copy.deepcopy(x=configuration)
     configuration["Data"]["image_settings"]["size"] = 512
     configuration["Detector"]["inference"]["score_threshold"] = 0.0
 
     # Move the model to its device and precision after building it, as the Trainer does, since a few layers (the
     # region proposal output layers) are created in the default float32 precision
-    model = Model(configuration=configuration, device=device, dtype=dtype)
+    model = TwoStageDetector(configuration=configuration, device=device, dtype=dtype)
     return model.to(device=device, dtype=dtype).eval()
