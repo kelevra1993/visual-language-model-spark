@@ -1,7 +1,7 @@
 import json
 import os
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # Tasks whose model predicts a background class at index 0 (the object detector); the models of the other tasks only
 # predict the dataset classes, indexed from 0
@@ -51,3 +51,25 @@ def build_label_dictionary(label_mapping_configuration: Dict[str, Any], task: st
         raise FileNotFoundError(f"Label mapping file not found at: {mapping_path}")
 
     return None
+
+
+def get_class_names(categories: List[Dict[str, Any]], label_dictionary: Dict[Any, int]) -> Dict[int, str]:
+    """
+    Names the classes predicted by the classification and sequence models after the categories of a 'labels.json'
+    manifest, for the evaluation reports, the confusion matrices and the viewer captions. The names of the categories
+    merged into one class by the label dictionary are joined with '+', and a class named by no category keeps its
+    index as name.
+
+    Args:
+        categories (List[Dict[str, Any]]): The 'id' and 'name' of every category of the manifest.
+        label_dictionary (Dict[Any, int]): The class index of every raw category identifier.
+
+    Returns:
+        Dict[int, str]: The name of every class index.
+    """
+    category_names = {}
+    for category in categories:
+        if category["id"] in label_dictionary:
+            category_names.setdefault(label_dictionary[category["id"]], []).append(category["name"])
+    return {class_index: "+".join(category_names.get(class_index, [str(class_index)]))
+            for class_index in range(len(set(label_dictionary.values())))}

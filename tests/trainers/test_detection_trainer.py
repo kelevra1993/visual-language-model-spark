@@ -88,7 +88,7 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     dataset_folder = tmp_path / "synthetic_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
                              split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=4,
-                             number_workers=2, task="object_detection")
+                             number_frames=1, number_workers=2, task="object_detection")
 
     # First run: saves at iterations 2 (intermediate), 4 (with test evaluation) and 5 (end of the run)
     trainer = build_trainer(configuration_path=write_smoke_configuration(

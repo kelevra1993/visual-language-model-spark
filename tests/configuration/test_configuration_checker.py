@@ -11,9 +11,9 @@ from vision_training.configuration.configuration_loader import load_experiment_c
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
 
-# Configurations of the classification task, checked with a label mapping file written by the tests
-CLASSIFICATION_CONFIGURATIONS_FOLDER = (Path(__file__).parents[2] / "vision_training" / "configurations" /
-                                        "classification")
+# Folder of the configurations of every task, checked with a label mapping file written by the tests for the tasks
+# whose mapping file only exists once their dataset is created
+CONFIGURATIONS_FOLDER = Path(__file__).parents[2] / "vision_training" / "configurations"
 
 
 def write_modified_configuration(temporary_directory: Path,
@@ -182,8 +182,8 @@ def test_example_configuration_is_consistent() -> None:
     (set_inception_channels, ["'Backbone.convolutions.4' has 20 output channels"]),
     (set_intermediate_weight_saving, ["'ExperimentConfiguration.intermediate_weight_saving_iterations' (10000) "
                                       "must be smaller than"]),
-    (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'classification'",
-                        "got 'segmentation'."]),
+    (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'classification', "
+                        "'sequence_classification'", "got 'segmentation'."]),
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
@@ -246,30 +246,31 @@ def test_missing_task_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture)
     assert "Missing configuration key 'ExperimentConfiguration.task'." in capsys.readouterr().out
 
 
-def write_classification_configuration(temporary_directory: Path, configuration_name: str,
-                                       modify_function: Callable[[Dict[str, Any]], None] | None) -> Path:
+def write_task_configuration(temporary_directory: Path, task_folder: str, configuration_name: str,
+                             modify_function: Callable[[Dict[str, Any]], None] | None) -> Path:
     """
-    Writes a copy of a classification configuration whose label mapping file (giving the classes 0 to 3) is written
-    in the temporary directory, the mapping files of the shipped configurations only existing once their datasets
-    are created, then altered by the given function.
+    Writes a copy of a configuration of a classification or sequence task whose label mapping file (giving the
+    classes 0 to 3) is written in the temporary directory, the mapping files of the shipped configurations only
+    existing once their datasets are created, then altered by the given function.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the mapping file.
-        configuration_name (str): The file name of the classification configuration.
+        task_folder (str): The folder of the configurations of the task, e.g. "classification".
+        configuration_name (str): The file name of the configuration.
         modify_function (Callable[[Dict[str, Any]], None] | None): Function altering the raw configuration in place,
             or None to keep it.
 
     Returns:
         Path: The path of the written configuration file.
     """
-    configuration = yaml.safe_load(stream=(CLASSIFICATION_CONFIGURATIONS_FOLDER / configuration_name).read_text())
+    configuration = yaml.safe_load(stream=(CONFIGURATIONS_FOLDER / task_folder / configuration_name).read_text())
     mapping_path = temporary_directory / "label_mapping.json"
     mapping_path.write_text(data=json.dumps(obj={"1": 0, "2": 1, "3": 2, "4": 3}))
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(mapping_path)
     if modify_function is not None:
         modify_function(configuration=configuration)
 
-    configuration_path = temporary_directory / "classification_configuration.yaml"
+    configuration_path = temporary_directory / f"{task_folder}_configuration.yaml"
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))
     return configuration_path
 
@@ -336,9 +337,8 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
         tmp_path (Path): The pytest temporary directory.
         configuration_name (str): The file name of the classification configuration.
     """
-    configuration_path = write_classification_configuration(temporary_directory=tmp_path,
-                                                            configuration_name=configuration_name,
-                                                            modify_function=None)
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
+                                                  configuration_name=configuration_name, modify_function=None)
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=configuration_path)
     assert experiment_configuration["task"] == "classification"
@@ -370,9 +370,9 @@ def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, c
         modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
         expected_messages (List[str]): Message fragments that must all appear in the printed output.
     """
-    configuration_path = write_classification_configuration(temporary_directory=tmp_path,
-                                                            configuration_name="configuration_synthetic_shapes.yaml",
-                                                            modify_function=modify_function)
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=modify_function)
 
     with pytest.raises(expected_exception=SystemExit):
         load_experiment_configuration(configuration_path=configuration_path)
@@ -392,12 +392,113 @@ def test_classification_classes_must_be_contiguous(tmp_path: Path, capsys: pytes
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
     """
-    configuration_path = write_classification_configuration(temporary_directory=tmp_path,
-                                                            configuration_name="configuration_synthetic_shapes.yaml",
-                                                            modify_function=None)
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=None)
     (tmp_path / "label_mapping.json").write_text(data=json.dumps(obj={"1": 0, "2": 2}))
 
     with pytest.raises(expected_exception=SystemExit):
         load_experiment_configuration(configuration_path=configuration_path)
 
     assert "indexed 0 to K-1 without gaps, got [0, 2]." in capsys.readouterr().out
+
+
+def set_causal_temporal_model(configuration: Dict[str, Any]) -> None:
+    """
+    Makes the bidirectional temporal module of the synthetic sequences configuration causal.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
+    """
+    configuration["TemporalModel"]["causal"] = True
+
+
+def set_invalid_transformer_and_settings(configuration: Dict[str, Any]) -> None:
+    """
+    Uses a transformer whose model size is not a multiple of its heads, empty windows, an unknown handling of the
+    short sequences and several classes per sequence.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
+    """
+    configuration["TemporalModel"].update({"type": "transformer", "hidden_size": 100, "number_heads": 8})
+    configuration["Data"]["sequence_settings"].update({"sequence_length": 0, "short_sequences": "repeat"})
+    configuration["ClassificationHead"]["output_mode"] = "multi_label"
+
+
+def set_even_temporal_kernel(configuration: Dict[str, Any]) -> None:
+    """
+    Uses a temporal convolution with kernels of an even number of frames.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
+    """
+    configuration["TemporalModel"].update({"type": "temporal_convolution", "kernel_size": 4})
+
+
+def set_unknown_temporal_type(configuration: Dict[str, Any]) -> None:
+    """
+    Uses a temporal module type that does not exist.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
+    """
+    configuration["TemporalModel"]["type"] = "rnn"
+
+
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
+                                                                   "configuration_synthetic_sequences.yaml"])
+def test_sequence_classification_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
+    """
+    Verifies that the sequence classification configurations shipped with the repository pass every consistency
+    check.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_name (str): The file name of the sequence classification configuration.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_classification",
+                                                  configuration_name=configuration_name, modify_function=None)
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=configuration_path)
+    assert experiment_configuration["task"] == "sequence_classification"
+    assert model_configuration["Data"]["label_dictionary"] == {1: 0, 2: 1, 3: 2, 4: 3}
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (set_causal_temporal_model, ["'TemporalModel.causal' must be False for the sequence classification task",
+                                 "'TemporalModel.bidirectional' must be False when 'TemporalModel.causal' is True"]),
+    (set_invalid_transformer_and_settings, ["'TemporalModel.hidden_size' (100) must be a multiple of "
+                                            "'TemporalModel.number_heads' (8) for the transformer.",
+                                            "'Data.sequence_settings.sequence_length' must be an integer >= 1",
+                                            "'Data.sequence_settings.short_sequences' must be one of ['pad', 'skip']",
+                                            "'ClassificationHead.output_mode' must be 'multi_class' for the sequence "
+                                            "tasks"]),
+    (set_even_temporal_kernel, ["'TemporalModel.kernel_size' must be odd for the temporal convolution, got 4."]),
+    (set_unknown_temporal_type, ["'TemporalModel.type' must be one of ['mean_pooling', 'max_pooling', "
+                                 "'attention_pooling', 'gru', 'lstm', 'transformer', 'temporal_convolution'] for "
+                                 "this task, got 'rnn'."])])
+def test_inconsistent_sequence_classification_configuration_is_rejected(
+        tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
+        expected_messages: List[str]) -> None:
+    """
+    Verifies that every inconsistency of the sequence sections stops the loading with a short message naming the
+    faulty key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_classification",
+                                                  configuration_name="configuration_synthetic_sequences.yaml",
+                                                  modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
+    assert "Traceback" not in printed_output

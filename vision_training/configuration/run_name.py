@@ -8,6 +8,10 @@ NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN"}
 TASK_CODES = {"object_detection": "DET", "classification": "CLS", "sequence_classification": "M2O",
               "sequence_labelling": "M2M"}
 
+# Run name code of every temporal module type of the sequence tasks
+TEMPORAL_TYPE_CODES = {"mean_pooling": "MEAN", "max_pooling": "MAX", "attention_pooling": "ATT", "gru": "GRU",
+                       "lstm": "LSTM", "transformer": "TRF", "temporal_convolution": "TCN"}
+
 
 def join_level_tokens(level_tokens: List[str]) -> str:
     """
@@ -194,9 +198,54 @@ def build_classification_sections(model_configuration: Dict[str, Any]) -> List[L
     return [head_tokens, [classes_token]]
 
 
+def build_sequence_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
+    """
+    Builds the sections of the run name specific to the sequence tasks: the window T<frames per window> (followed by
+    S<frame stride> when frames are skipped), the temporal module (MEAN, MAX, ATT<hidden size>, GRU or LSTM<layers>x
+    <hidden size> with BI when bidirectional, TRF<layers>x<hidden size>.<heads> or TCN<layers>x<hidden size>.<kernel
+    size> with CAU when causal, and TDO<dropout> when the module uses a dropout), then the classification head and
+    classes sections, e.g. 'T16_GRU2x256-BI_HAVG.256-DO0.5_MC4'.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
+
+    Returns:
+        List[List[str]]: The tokens of every section.
+    """
+    sequence_settings = model_configuration["Data"]["sequence_settings"]
+    temporal_configuration = model_configuration["TemporalModel"]
+    temporal_type = temporal_configuration["type"]
+
+    # Frames per window, and the frame stride when frames are skipped
+    sequence_token = f"T{sequence_settings['sequence_length']}"
+    if sequence_settings["frame_stride"] > 1:
+        sequence_token += f"S{sequence_settings['frame_stride']}"
+
+    # Temporal module with the settings its type uses
+    temporal_code = TEMPORAL_TYPE_CODES[temporal_type]
+    layers_and_size = f"{temporal_configuration['number_layers']}x{temporal_configuration['hidden_size']}"
+    if temporal_type in ["mean_pooling", "max_pooling"]:
+        temporal_tokens = [temporal_code]
+    elif temporal_type == "attention_pooling":
+        temporal_tokens = [f"{temporal_code}{temporal_configuration['hidden_size']}"]
+    elif temporal_type in ["gru", "lstm"]:
+        temporal_tokens = [temporal_code + layers_and_size] + (
+            ["BI"] if temporal_configuration["bidirectional"] else [])
+    else:
+        type_parameter = temporal_configuration["number_heads" if temporal_type == "transformer" else "kernel_size"]
+        temporal_tokens = [f"{temporal_code}{layers_and_size}.{type_parameter}"] + (
+            ["CAU"] if temporal_configuration["causal"] else [])
+    if temporal_type not in ["mean_pooling", "max_pooling", "attention_pooling"] and \
+            temporal_configuration["dropout_rate"] > 0:
+        temporal_tokens.append(f"TDO{temporal_configuration['dropout_rate']:g}")
+
+    return [[sequence_token], temporal_tokens] + build_classification_sections(model_configuration=model_configuration)
+
+
 # Builder of the task-specific sections of the run name, placed between the backbone and training sections
 TASK_RUN_NAME_SECTIONS: Dict[str, Callable[[Dict[str, Any]], List[List[str]]]] = {
-    "object_detection": build_detection_sections, "classification": build_classification_sections}
+    "object_detection": build_detection_sections, "classification": build_classification_sections,
+    "sequence_classification": build_sequence_sections}
 
 
 def build_run_name(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> str:

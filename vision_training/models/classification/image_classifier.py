@@ -1,13 +1,12 @@
 import torch
 
-from rich.console import Console
-from rich.panel import Panel
 from torch import nn
 from typing import Any, Dict, Optional
 
 from vision_training.losses.classification_losses import compute_classification_loss, convert_logits_to_probabilities
 from vision_training.models.backbones.backbone import build_backbone
-from vision_training.models.classification.classification_head import ClassificationHead, build_global_pooling
+from vision_training.models.classification.classification_head import (ClassificationHead, build_global_pooling,
+                                                                       print_classification_head_summary)
 from vision_training.models.task_model import TaskModel
 
 
@@ -71,7 +70,7 @@ class ImageClassifier(TaskModel):
             Dict[str, Any]: The 'class_logits' and 'class_probabilities' [B, K], plus 'classification_loss' with labels.
         """
         final_feature_map, _ = self.backbone(input_tensor=input_tensor)
-        class_logits = self.classification_head(features=self.global_pooling(final_feature_map))
+        class_logits = self.classification_head(features=self.global_pooling(input=final_feature_map))
 
         outputs = {"class_logits": class_logits,
                    "class_probabilities": convert_logits_to_probabilities(class_logits=class_logits,
@@ -89,13 +88,8 @@ class ImageClassifier(TaskModel):
         number of classes.
         """
         self.backbone.print_summary()
-
-        summary_text = (f"[bold]Global Pooling[/bold]     : {self.head_configuration['global_pooling']}\n"
-                        f"[bold]Hidden Layers[/bold]      : {self.head_configuration['fully_connected']}\n"
-                        f"[bold]Dropout Rate[/bold]       : {self.head_configuration['dropout_rate']}\n"
-                        f"[bold]Output Mode[/bold]        : {self.output_mode}\n"
-                        f"[bold]Number Of Classes[/bold]  : {self.number_classes}")
-        Console(width=80).print(Panel(summary_text, title="[bold]Classification Head[/bold]", border_style="green"))
+        print_classification_head_summary(head_configuration=self.head_configuration,
+                                          number_classes=self.number_classes)
 
     def get_size_components(self) -> Dict[str, nn.Module]:
         """

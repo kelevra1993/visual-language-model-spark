@@ -1,7 +1,9 @@
 import torch
 
+from rich.console import Console
+from rich.panel import Panel
 from torch import nn
-from typing import List
+from typing import Any, Dict, List
 
 from vision_training.models.components.fully_connected_block import build_fully_connected_block
 
@@ -21,6 +23,23 @@ def build_global_pooling(global_pooling: str) -> nn.Sequential:
         nn.Sequential: The pooling, mapping [B, C, H, W] feature maps to [B, C] vectors.
     """
     return nn.Sequential(GLOBAL_POOLING_LAYERS[global_pooling](output_size=1), nn.Flatten(start_dim=1))
+
+
+def print_classification_head_summary(head_configuration: Dict[str, Any], number_classes: int) -> None:
+    """
+    Prints the classification head settings in the architecture summary of the classification and sequence models:
+    pooling, hidden layers, dropout, output mode and number of classes.
+
+    Args:
+        head_configuration (Dict[str, Any]): The 'ClassificationHead' section.
+        number_classes (int): The number of predicted classes.
+    """
+    summary_text = (f"[bold]Global Pooling[/bold]     : {head_configuration['global_pooling']}\n"
+                    f"[bold]Hidden Layers[/bold]      : {head_configuration['fully_connected']}\n"
+                    f"[bold]Dropout Rate[/bold]       : {head_configuration['dropout_rate']}\n"
+                    f"[bold]Output Mode[/bold]        : {head_configuration['output_mode']}\n"
+                    f"[bold]Number Of Classes[/bold]  : {number_classes}")
+    Console(width=80).print(Panel(summary_text, title="[bold]Classification Head[/bold]", border_style="green"))
 
 
 class ClassificationHead(nn.Module):
@@ -65,4 +84,4 @@ class ClassificationHead(nn.Module):
         Returns:
             torch.Tensor: The [..., number_classes] class logits.
         """
-        return self.classifier(self.dropout(self.fully_connected_block(features)))
+        return self.classifier(input=self.dropout(input=self.fully_connected_block(input=features)))

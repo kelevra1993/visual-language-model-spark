@@ -203,3 +203,44 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[to
             break
 
     return False
+
+
+def build_frame_grid(frames: torch.Tensor, sequence_mask: torch.Tensor, frame_captions: Optional[List[str]],
+                     number_columns: int) -> torch.Tensor:
+    """
+    Lays out the real frames of a sequence in reading order on a grid, each numbered and optionally captioned (e.g.
+    with its class), so that the input viewer of the sequence trainers shows a whole sequence in one window.
+
+    Args:
+        frames (torch.Tensor): The [T, 3, H, W] frames of the sequence, on CPU or GPU.
+        sequence_mask (torch.Tensor): The [T] booleans, True for the real frames (padding frames are not shown).
+        frame_captions (Optional[List[str]]): A text written on every frame, or None to only number them.
+        number_columns (int): The number of frames per row of the grid.
+
+    Returns:
+        torch.Tensor: The [3, rows x H, columns x W] uint8 grid, gray between the frames.
+    """
+    real_frames = frames[sequence_mask.to(device=frames.device)].detach().cpu()
+    number_frames, _, frame_height, frame_width = real_frames.shape
+    number_rows = (number_frames + number_columns - 1) // number_columns
+
+    # Gray canvas with a 4 pixel gap around every frame
+    gap = 4
+    grid = np.full(shape=(number_rows * (frame_height + gap) + gap, number_columns * (frame_width + gap) + gap, 3),
+                   fill_value=128, dtype=np.uint8)
+    for frame_index in range(number_frames):
+        frame_numpy = np.ascontiguousarray(real_frames[frame_index].permute(1, 2, 0).numpy().astype(np.uint8))
+
+        # Number of the frame, followed by its caption when given
+        frame_text = str(frame_index) if frame_captions is None else f"{frame_index} {frame_captions[frame_index]}"
+        cv2.rectangle(img=frame_numpy, pt1=(0, 0), pt2=(min(frame_width - 1, 12 + 9 * len(frame_text)), 20),
+                      color=(0, 0, 0), thickness=-1)
+        cv2.putText(img=frame_numpy, text=frame_text, org=(4, 15), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45,
+                    color=(0, 255, 0), thickness=1)
+
+        # Place the frame in its cell, row by row
+        top = gap + (frame_index // number_columns) * (frame_height + gap)
+        left = gap + (frame_index % number_columns) * (frame_width + gap)
+        grid[top:top + frame_height, left:left + frame_width] = frame_numpy
+
+    return torch.from_numpy(grid).permute(2, 0, 1)

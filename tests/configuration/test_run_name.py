@@ -333,3 +333,147 @@ def test_classification_run_names(modify_function: Callable[[Dict[str, Any], Dic
         modify_function(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == expected_run_name
+
+
+SEQUENCE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
+                               "sequence_classification" / "configuration_synthetic_sequences.yaml")
+
+# Run name of the sequence reference settings set by get_sequence_reference_configurations
+SEQUENCE_REFERENCE_RUN_NAME = ("M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HAVG.64-DO0.2_MC4_"
+                               "AUG-BS16-LR1e-3")
+
+
+def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Reads the synthetic sequences configuration and sets every setting used by the run name explicitly, so that the
+    expected names do not change when the configuration is edited. The label dictionary is set directly, the label
+    mapping file of the configuration only existing once the synthetic dataset is created.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: The experiment and model configurations of the reference settings.
+    """
+    model_configuration = yaml.safe_load(stream=SEQUENCE_CONFIGURATION_PATH.read_text())
+    experiment_configuration = model_configuration.pop("ExperimentConfiguration")
+
+    # Task, input and backbone of the run
+    experiment_configuration["task"] = "sequence_classification"
+    model_configuration["Data"]["image_settings"].update({"size": 128, "keep_ratio": True})
+    model_configuration["Backbone"]["normalization"].update({"input_normalization": True,
+                                                             "per_sample_normalization": False,
+                                                             "feature_map_normalization": "batch"})
+    model_configuration["Backbone"]["modules"].update({"squeeze_and_excite": True, "residual_nets": True,
+                                                       "inception": False})
+    model_configuration["Backbone"]["convolutions"] = {"1": [1, 16], "2": [2, 32], "3": [2, 32], "4": [2, 64],
+                                                       "5": [2, 64]}
+
+    # Windows, temporal module, classification head and classes
+    model_configuration["Data"]["sequence_settings"] = {"sequence_length": 8, "frame_stride": 1, "window_stride": 8,
+                                                        "short_sequences": "pad"}
+    model_configuration["TemporalModel"] = {"type": "gru", "hidden_size": 128, "number_layers": 1, "number_heads": 4,
+                                            "kernel_size": 3, "dropout_rate": 0.0, "bidirectional": True,
+                                            "causal": False}
+    model_configuration["ClassificationHead"] = {"global_pooling": "average", "fully_connected": [64],
+                                                 "dropout_rate": 0.2, "output_mode": "multi_class",
+                                                 "label_smoothing": 0.0, "class_weighting": "none"}
+    model_configuration["Data"]["label_dictionary"] = {1: 0, 2: 1, 3: 2, 4: 3}
+
+    # Augmentation, batch size and learning rate
+    model_configuration["Data"]["data_augmentation"]["activated"] = True
+    experiment_configuration["batch_size"] = 16
+    experiment_configuration["learning_rate"] = 1.0e-3
+    return experiment_configuration, model_configuration
+
+
+def skip_frames(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Cuts windows of 16 frames, keeping one frame every two.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Data"]["sequence_settings"].update({"sequence_length": 16, "frame_stride": 2})
+
+
+def use_deep_unidirectional_lstm(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Uses a unidirectional LSTM of 3 layers of 64 units, with a dropout between its layers.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["TemporalModel"].update({"type": "lstm", "hidden_size": 64, "number_layers": 3,
+                                                 "dropout_rate": 0.1, "bidirectional": False})
+
+
+def use_causal_transformer(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Uses a causal transformer of 2 layers with 8 heads.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["TemporalModel"].update({"type": "transformer", "number_layers": 2, "number_heads": 8,
+                                                 "bidirectional": False, "causal": True})
+
+
+def use_temporal_convolution(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Uses a temporal convolution of 4 layers with kernels of 5 frames.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["TemporalModel"].update({"type": "temporal_convolution", "number_layers": 4,
+                                                 "kernel_size": 5})
+
+
+def use_attention_pooling(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Uses the attention pooling, whose only setting is the hidden size of its scoring network (its dropout is unused).
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["TemporalModel"].update({"type": "attention_pooling", "dropout_rate": 0.3})
+
+
+def use_mean_pooling(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Uses the mean pooling, which has no setting.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["TemporalModel"]["type"] = "mean_pooling"
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
+    (None, SEQUENCE_REFERENCE_RUN_NAME),
+    (skip_frames, SEQUENCE_REFERENCE_RUN_NAME.replace("_T8_", "_T16S2_")),
+    (use_deep_unidirectional_lstm, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_LSTM3x64-TDO0.1_")),
+    (use_causal_transformer, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_TRF2x128.8-CAU_")),
+    (use_temporal_convolution, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_TCN4x128.5_")),
+    (use_attention_pooling, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_ATT128_")),
+    (use_mean_pooling, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_MEAN_"))])
+def test_sequence_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
+                            expected_run_name: str) -> None:
+    """
+    Verifies the run names of the sequence classification task: the M2O task code, the window section, the temporal
+    module section with the settings its type uses, then the classification head and classes sections.
+
+    Args:
+        modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the settings, or
+            None for the reference settings.
+        expected_run_name (str): The expected run name of the settings.
+    """
+    experiment_configuration, model_configuration = get_sequence_reference_configurations()
+    if modify_function is not None:
+        modify_function(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == expected_run_name

@@ -26,6 +26,10 @@ LOSS_KEY_SUFFIX = "_loss"
 # Batch key of the sample identifiers, used to evaluate every test sample exactly once
 SAMPLE_IDENTIFIERS_KEY = "sample_identifiers"
 
+# Label of the frames without class in the sequence labelling batches (padding frames, frames of unmapped
+# categories), ignored by its loss and metrics
+IGNORED_LABEL_INDEX = -100
+
 
 class EvaluationResults(TypedDict):
     """
@@ -44,6 +48,18 @@ class ClassificationBatch(TypedDict):
     image ([B]), or one float multi-hot vector per image ([B, K]) in multi-label mode.
     """
     images: torch.Tensor
+    labels: torch.Tensor
+    sample_identifiers: torch.Tensor
+
+
+class SequenceBatch(TypedDict):
+    """
+    Batch of the sequence tasks, on the device and in the precision of the model: [B, T, C, H, W] frames padded with
+    black frames, the [B, T] sequence mask (True for the real frames, which come first), and one int64 class index
+    per sequence ([B], many to one) or per frame ([B, T] with -100 on the frames without class, many to many).
+    """
+    images: torch.Tensor
+    sequence_mask: torch.Tensor
     labels: torch.Tensor
     sample_identifiers: torch.Tensor
 

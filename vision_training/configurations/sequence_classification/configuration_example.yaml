@@ -1,0 +1,219 @@
+# Template configuration of a sequence classification dataset (one class per sequence), stored like every sequence
+# dataset as one folder of frames per sequence in <split>/data/<sequence name>/ and a <split>/labels.json manifest
+# listing the categories and the sequences with their ordered frames and category_id. The data folders below are to be
+# pointed to an actual dataset.
+ExperimentConfiguration:
+  # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
+  # "sequence_classification" trains the sequence classifier (one class per sequence, many to one), and requires
+  # the Data.sequence_settings, TemporalModel and ClassificationHead sections.
+  task: "sequence_classification"
+  # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
+  # backbone modules, normalization and blocks, window, temporal module, classification head, classes, augmentation,
+  # batch size, learning rate), so that the same settings resume in the same folder and changed settings start a new
+  # one, e.g. M2O_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64_T16_GRU2x256-BI_HAVG.256-DO0.5_MC4_AUG-BS8-LR2e-4.
+  # The format is described in vision_training/configuration/run_name.py.
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
+  # Root directory containing the training sequences (frames in data/<sequence name>/) and labels.json manifest.
+  train_data_folder: "/home/robert_kelevra/Data/sequence_data/sequence_classification/train"
+  # Root directory containing the validation sequences and labels.json manifest.
+  validation_data_folder: "/home/robert_kelevra/Data/sequence_data/sequence_classification/validation"
+  # Root directory containing the test sequences and labels.json manifest.
+  test_data_folder: "/home/robert_kelevra/Data/sequence_data/sequence_classification/test"
+  # Number of sequences (windows of Data.sequence_settings.sequence_length frames) processed in a single
+  # forward/backward pass. A step runs the backbone on up to batch_size x sequence_length frames.
+  batch_size: 8
+  # Frequency (in iterations) to log performance metrics.
+  information_dump: 500
+  # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
+  weight_saving_iterations: 10000
+  # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
+  # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
+  intermediate_weight_saving_iterations: 2500
+  # Total number of training iterations before stopping.
+  number_iterations: 1e10
+  # Ratio controlling how often validation is run during training.
+  # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
+  validation_iteration_ratio: 10
+  # Test evaluation run at every weight_saving_iterations checkpoint on every window of the test split: accuracy,
+  # balanced accuracy, macro F1, top-k accuracy, precision / recall / F1 of every class, and the confusion matrix and
+  # class thresholds saved in <run folder>/Evaluation/Iteration_<iteration>/.
+  evaluation:
+    # Number of most probable classes among which the true class must be for the top-k accuracy. Must be a positive
+    # integer, values above the number of classes counting every sample as right.
+    top_k: 3
+    # Precision that the score threshold of every class must reach, the threshold keeping the most samples of the
+    # class (highest recall) at that precision being saved for deployment. Must be within [0, 1].
+    target_precision: 0.99
+  # Base learning rate used by the optimizer.
+  learning_rate: 2.0e-4
+  # Global tensor data type, either "float32" or "float64".
+  dtype: "float32"
+  # Flag to attempt loading the most recent checkpoint to resume training.
+  resume_training: true
+  diagnosis_modes:
+      # Choice to print out everything about the model
+      verbose: False
+      # Choice to compute Receptive-Field
+      compute_receptive_field: True
+      # Choice to compute final model size
+      compute_model_size: True
+      # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
+      # frames of a sequence on a grid, captioned with its class. SPACE shows the next sequences, ENTER closes the
+      # viewer and exits the program without training, so set it to False to train. Requires a display (skipped with
+      # a warning otherwise)
+      view_input_images: False
+
+Data:
+  DALI:
+    # Flag to enable the NVIDIA DALI hardware-accelerated pipeline, only available for the object detection task.
+    # It must stay False here: the sequence tasks read their frames with the Native PyTorch loader (OpenCV decoding
+    # and CPU resizing).
+    activated: False
+  image_settings:
+    # Target resolution to resize all the frames.
+    size: 256
+    # Flag to maintain the original aspect ratio when resizing.
+    keep_ratio: True
+  sequence_settings:
+    # Number of frames of the windows fed to the model, cut from the sequences of the manifests.
+    sequence_length: 16
+    # Keeps one frame every frame_stride frames of a sequence, before cutting it into windows (1 keeps every frame).
+    frame_stride: 1
+    # Number of frames between the starts of two consecutive windows of a sequence (sequence_length for windows that
+    # do not overlap). A last window ending on the last frame is added when the stride does not reach it.
+    window_stride: 8
+    # Sequences shorter than sequence_length: "pad" (one window padded with black frames, ignored by the model
+    # through the sequence mask) or "skip" (left out).
+    short_sequences: "pad"
+  label_mapping:
+    # Must be "multi_class" for the sequence tasks: the mapping file gives the class index of every category of the
+    # labels.json manifests, the classes being indexed 0 to K-1 (no background class).
+    mode: "multi_class"
+    # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs.
+    mapping_file_path: "/home/robert_kelevra/Data/sequence_data/sequence_classification/label_mapping.json"
+  data_augmentation:
+    # Global switch to enable or disable all data augmentation (applied on the GPU to training batches only).
+    activated: True
+    # Probability that a training sequence is augmented at all. Each activated type below is then applied to that
+    # sequence with its own probability, all the frames of a sequence sharing the same augmentation.
+    probability: 0.4
+    types:
+      # Geometric augmentations. The flips and 90° rotations change the direction of a movement, so they must stay
+      # off when the class depends on a direction.
+      # Random Crop : crop keeping 90% to 100% of each side (same aspect ratio), resized back to the input size
+      random_crop: { activated: True, probability: 0.3 }
+      # Random Left to Right Flip (mirror)
+      random_left_right_flip: { activated: False, probability: 0.5 }
+      # Random Up to Down Flip
+      random_up_down_flip: { activated: False, probability: 0.5 }
+      # Random Rotation between -5° and 5°
+      random_rotation: { activated: True, probability: 0.3 }
+      # Random -90° or 90° rotation (square images only)
+      random_90_rotation: { activated: False, probability: 0.3 }
+
+      # Photometric augmentations.
+      # Brightness (+-40 intensity levels), contrast and saturation (both x0.7 to x1.0) adjustments
+      brightness_contrast_saturation: { activated: True, probability: 0.3 }
+      # Contrast-limited Adaptive Histogram Equalization (CLAHE), clip limit 2.0 on a 4x4 grid of tiles
+      clahe_augment: { activated: False, probability: 0.3 }
+      # Image Sharpening with a Laplacian of Gaussian unsharp mask (sigma 1.5, strength 3)
+      sharp_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of the luminance (Y channel of YUV)
+      equalize_histogram_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of one random channel (B, G or R) or of all three channels
+      equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
+      # Random Noise : Gaussian noise with a standard deviation of 10 intensity levels
+      random_noise: { activated: True, probability: 0.3 }
+      # Grayscale conversion, kept on three channels
+      gray_scale_augment: { activated: False, probability: 0.3 }
+      # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
+      random_colour_augmentation: { activated: True, probability: 0.3 }
+      # Random Image Blurring : 5x5 Gaussian kernel with sigma 1.5
+      random_blur: { activated: False, probability: 0.3 }
+
+Backbone:
+  # Number of input channels for the initial convolution block (e.g., 3 for RGB images)
+  input_channels : 3
+
+  # First axis : Number of convolution Kernel maps per Convolution Block
+  # Second axis : Number of output filters per kernel per convolution Block
+  convolutions:
+    {
+      "1": [ 1, 16 ],
+      "2": [ 2, 32 ],
+      "3": [ 2, 32 ],
+      "4": [ 4, 64 ],
+      "5": [ 4, 64 ],
+    }
+
+  # Choice to add last max pooling layer on last* convolution layer
+  last_max_pooling: False
+
+  normalization:
+    # Input Normalization : Setting image range values between [-0.5:0.5]
+    input_normalization: True
+
+    # Per Sample Input Normalization : Normalizing each image to zero mean and unit variance
+    # Applied after input_normalization when both are activated
+    per_sample_normalization: False
+
+    # Strategy for normalizing the feature maps in the convolution blocks.
+    # Options are: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    feature_map_normalization: "batch"
+
+  modules:
+    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    # Shortcuts are added every two convolution layers, starting from the second convolution block
+    residual_nets: True
+
+    # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
+    # Output channels of every block using inception must be multiples of 8
+    inception: False
+
+    # Convolution block (1-indexed) from which inception modules replace the plain convolutions
+    inception_starting_block: 3
+
+    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    squeeze_and_excite: True
+
+  # Backbone blocks branching out to the object detection heads. Must be [] for the sequence tasks, whose frame
+  # vectors are pooled from the final feature map of the backbone.
+  detection_convolution_block_indices: []
+
+TemporalModel:
+  # Module summarising the frame vectors of a sequence into one vector:
+  # "mean_pooling", "max_pooling" or "attention_pooling" (order-blind poolings), or "gru", "lstm", "transformer" or
+  # "temporal_convolution" (modules modelling the order of the frames).
+  type: "gru"
+  # Size of the recurrent state (GRU, LSTM), model size (transformer, a multiple of number_heads), channels
+  # (temporal convolution) or hidden units of the frame scoring network (attention pooling).
+  hidden_size: 256
+  # Number of stacked layers (GRU, LSTM, transformer, temporal convolution).
+  number_layers: 2
+  # Number of attention heads of every transformer layer.
+  number_heads: 4
+  # Odd number of frames covered by a kernel of the temporal convolution, whose dilation doubles at every layer.
+  kernel_size: 3
+  # Dropout between the stacked layers (GRU, LSTM), of the attention and feed forward layers (transformer) or after
+  # every convolution (temporal convolution), within [0, 1).
+  dropout_rate: 0.0
+  # Reads the sequence in both directions (GRU, LSTM).
+  bidirectional: True
+  # Every frame only sees the frames before it (transformer, temporal convolution). Must be False for the sequence
+  # classification task, which classifies whole sequences.
+  causal: False
+
+ClassificationHead:
+  # Global pooling reducing the final backbone feature map of every frame to one feature vector, "average" or "max".
+  global_pooling: "average"
+  # Units of the hidden fully connected layers between the sequence vector and the class logits, [] for none.
+  fully_connected: [256]
+  # Dropout applied before every fully connected layer, within [0, 1), 0 to disable.
+  dropout_rate: 0.5
+  # Must be "multi_class" for the sequence tasks: one class per sequence (softmax).
+  output_mode: "multi_class"
+  # Label smoothing of the classification loss, within [0, 1), 0 to disable.
+  label_smoothing: 0.0
+  # Weighting of the classes in the loss: "none" (every sample weighs the same) or "balanced" (every class weighs the
+  # same, the weights being inversely proportional to the number of training windows of each class).
+  class_weighting: "none"

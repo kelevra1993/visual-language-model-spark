@@ -98,7 +98,7 @@ def test_global_pooling_and_head_shapes(global_pooling: str, expected_vector: Li
         expected_vector (List[float]): The expected pooled vector of the test feature map.
     """
     feature_map = torch.arange(start=1.0, end=9.0).reshape(1, 2, 2, 2)
-    pooled_features = build_global_pooling(global_pooling=global_pooling)(feature_map)
+    pooled_features = build_global_pooling(global_pooling=global_pooling)(input=feature_map)
     assert torch.equal(input=pooled_features, other=torch.tensor(data=[expected_vector]))
 
     head = ClassificationHead(input_features=2, fully_connected=[], dropout_rate=0.0, number_classes=5,

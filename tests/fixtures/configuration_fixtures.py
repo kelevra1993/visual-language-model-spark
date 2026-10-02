@@ -103,3 +103,23 @@ def get_classification_model_configuration(output_mode: str) -> Tuple[Dict[str, 
     dtype = torch.float32
 
     return configuration, device, dtype
+
+
+def get_sequence_model_configuration(temporal_type: str) -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
+    """
+    Supplies a small sequence model configuration dictionary, with its device and dtype, shared by the sequence model
+    tests: the image classifier configuration with windows of 4 frames and a small temporal module.
+
+    Args:
+        temporal_type (str): The type of the temporal module.
+
+    Returns:
+        Tuple[Dict[str, Any], torch.device, torch.dtype]: The sequence model configuration, compute device and dtype.
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    configuration['Data']['sequence_settings'] = {'sequence_length': 4, 'frame_stride': 1, 'window_stride': 4,
+                                                  'short_sequences': 'pad'}
+    configuration['TemporalModel'] = {'type': temporal_type, 'hidden_size': 16, 'number_layers': 1, 'number_heads': 2,
+                                      'kernel_size': 3, 'dropout_rate': 0.0, 'bidirectional': False, 'causal': False}
+
+    return configuration, device, dtype

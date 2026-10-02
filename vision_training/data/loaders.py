@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 from vision_training.data.detection.coco_dali_pipeline import DALIDataloaderWrapper, dali_pipeline
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
+from vision_training.data.sequence.sequence_dataset import SequenceDataset
 
 
 def get_dataloader(split_name: str, split_data_folder: str, model_configuration: Dict[str, Any], batch_size: int,
@@ -130,6 +131,42 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
                                         keep_ratio=data_configuration["image_settings"]["keep_ratio"],
                                         label_dictionary=data_configuration["label_dictionary"],
                                         output_mode=model_configuration["ClassificationHead"]["output_mode"])
+        loaders.append(DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=number_of_workers))
+
+    return loaders[0], loaders[1], loaders[2]
+
+
+def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
+                             batch_size: int, number_of_workers: int, label_type: str) -> Tuple[DataLoader, DataLoader,
+                                                                                                DataLoader]:
+    """
+    Initializes the training, validation and testing loaders of the sequence tasks, read from the 'labels.json'
+    manifest of every split with the Native loader (OpenCV decoding and CPU resizing). Every window of frames is
+    padded to the sequence length, so the default collate stacks them into [B, T, C, H, W] batches.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
+        model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label dictionary
+            and the sequence settings.
+        batch_size (int): The number of sequences of a batch.
+        number_of_workers (int): The number of parallel loading processes.
+        label_type (str): "sequence" (one class per sequence) or "frame" (one class per frame).
+
+    Returns:
+        Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
+    """
+    data_configuration = model_configuration["Data"]
+    loaders = []
+
+    # Build the loader of every split with the same settings
+    for split_key in ["train_data_folder", "validation_data_folder", "test_data_folder"]:
+        split_data_folder = str(experiment_configuration[split_key])
+        dataset = SequenceDataset(data_directory=os.path.join(split_data_folder, "data"),
+                                  labels_file=os.path.join(split_data_folder, "labels.json"),
+                                  image_size=data_configuration["image_settings"]["size"],
+                                  keep_ratio=data_configuration["image_settings"]["keep_ratio"],
+                                  label_dictionary=data_configuration["label_dictionary"],
+                                  sequence_settings=data_configuration["sequence_settings"], label_type=label_type)
         loaders.append(DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=number_of_workers))
 
     return loaders[0], loaders[1], loaders[2]

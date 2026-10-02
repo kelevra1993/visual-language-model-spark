@@ -8,6 +8,7 @@ import torch
 from torch.utils.data import Dataset
 from typing import Any, Dict, List
 
+from vision_training.data.label_mapping import get_class_names
 from vision_training.data.preprocessing import preprocess_image
 from vision_training.utilities.os_utilities import print_color
 
@@ -59,14 +60,8 @@ class ClassificationDataset(Dataset):
         if shuffle:
             random.shuffle(self.samples)
 
-        # Name of every class, taken from the categories of the manifest, joined with '+' when the label dictionary
-        # merges several categories into one class, and the class index when no category names it
-        category_names = {}
-        for category in manifest["categories"]:
-            if category["id"] in label_dictionary:
-                category_names.setdefault(label_dictionary[category["id"]], []).append(category["name"])
-        self.class_names = {class_index: "+".join(category_names.get(class_index, [str(class_index)]))
-                            for class_index in range(self.number_classes)}
+        # Name of every class, taken from the categories of the manifest
+        self.class_names = get_class_names(categories=manifest["categories"], label_dictionary=label_dictionary)
 
     def __len__(self) -> int:
         """

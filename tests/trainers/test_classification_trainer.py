@@ -88,7 +88,7 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     dataset_folder = tmp_path / "synthetic_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
                              split_sizes={"train": 16, "validation": 8, "test": 6}, maximum_objects=1,
-                             number_workers=2, task="classification")
+                             number_frames=1, number_workers=2, task="classification")
     head_settings = {"class_weighting": "balanced", "label_smoothing": 0.1}
 
     # First run: saves at iterations 2 (intermediate), 4 (with test evaluation) and 5 (end of the run)
@@ -145,7 +145,7 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     dataset_folder = tmp_path / "synthetic_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
                              split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
-                             number_workers=2, task="classification")
+                             number_frames=1, number_workers=2, task="classification")
 
     # Rewrite every manifest in the multi-label format
     for split_name in ["train", "validation", "test"]:
