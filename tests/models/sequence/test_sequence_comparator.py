@@ -186,3 +186,61 @@ def test_a_single_mask_is_rejected() -> None:
 
     with pytest.raises(expected_exception=ValueError, match="given together"):
         model(before_images=frames, after_images=frames, before_mask=torch.ones(size=(1, 4), dtype=torch.bool))
+
+
+def build_sequence_normalization_comparator(normalization_scope: str) -> SequenceComparator:
+    """
+    Builds a float64 comparator in evaluation mode whose backbone uses sequence normalization, with the given scope of
+    its statistics.
+
+    Args:
+        normalization_scope (str): "member" or "pair".
+
+    Returns:
+        SequenceComparator: The comparator.
+    """
+    torch.manual_seed(seed=0)
+    configuration, device, _ = get_sequence_comparison_model_configuration(temporal_type="gru",
+                                                                           fusion_type="difference")
+    configuration["Backbone"]["normalization"]["feature_map_normalization"] = "sequence"
+    configuration["Fusion"]["sequence_normalization_scope"] = normalization_scope
+    return SequenceComparator(configuration=configuration, device=device, dtype=torch.float64).eval()
+
+
+@pytest.mark.parametrize(argnames=("normalization_scope", "members_share_statistics"),
+                         argvalues=[("member", False), ("pair", True)])
+def test_sequence_normalization_scope_of_the_pairs(normalization_scope: str, members_share_statistics: bool) -> None:
+    """
+    Verifies the scopes of the sequence normalization of the comparator: with the member scope, the frame vectors of
+    the before member do not depend on the after member, with the pair scope they do; and for both scopes the path
+    without masks, where the members may have different numbers of frames, gives the predictions of the masked path,
+    whose padding frames stay out of the statistics.
+
+    Args:
+        normalization_scope (str): "member" or "pair".
+        members_share_statistics (bool): Whether the after member changes the frame vectors of the before member.
+    """
+    model = build_sequence_normalization_comparator(normalization_scope=normalization_scope)
+    random_generator = torch.Generator().manual_seed(1)
+    before_images = torch.rand(size=(2, 4, 3, 64, 64), generator=random_generator, dtype=torch.float64) * 255.0
+    after_images = torch.rand(size=(2, 4, 3, 64, 64), generator=random_generator, dtype=torch.float64) * 255.0
+    full_mask = torch.ones(size=(2, 4), dtype=torch.bool)
+
+    # Frame vectors of the before members, with the after members changed or not
+    with torch.no_grad():
+        before_features, _ = model.encode_members(before_images=before_images, after_images=after_images,
+                                                  before_mask=full_mask, after_mask=full_mask)
+        changed_before_features, _ = model.encode_members(before_images=before_images,
+                                                          after_images=after_images * 0.5, before_mask=full_mask,
+                                                          after_mask=full_mask)
+    assert torch.allclose(input=before_features, other=changed_before_features) != members_share_statistics
+
+    # Mask-free path with 3 before and 2 after real frames against the masked path of the padded members
+    before_mask = torch.tensor(data=[[True, True, True, False]] * 2)
+    after_mask = torch.tensor(data=[[True, True, False, False]] * 2)
+    with torch.no_grad():
+        masked_probabilities = model(before_images=before_images, after_images=after_images, before_mask=before_mask,
+                                     after_mask=after_mask)["class_probabilities"]
+        mask_free_probabilities = model(before_images=before_images[:, :3],
+                                        after_images=after_images[:, :2])["class_probabilities"]
+    assert torch.allclose(input=mask_free_probabilities, other=masked_probabilities, atol=1e-9)

@@ -202,7 +202,9 @@ Backbone:
     per_sample_normalization: False
 
     # Strategy for normalizing the feature maps in the convolution blocks.
-    # Options are: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    # Options are "batch" (Batch Normalization), "layer" (Layer Normalization over channels), "none" (no
+    # normalization) or "sequence" (Batch Normalization with the statistics of each window, at training
+    # and at inference alike, a window being normalised by its own frames).
     feature_map_normalization: "batch"
 
   modules:

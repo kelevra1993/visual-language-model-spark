@@ -1,9 +1,11 @@
 # Definition of the convolution block
 import torch
 from torch import nn
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
+from vision_training.core.contracts import SequenceGrouping
 from vision_training.models.components.inception import InceptionConvolution
+from vision_training.models.components.sequence_normalization import SequenceBatchNormalization
 from vision_training.models.components.squeeze_and_excitation import SqueezeAndExcitation
 
 
@@ -70,7 +72,8 @@ class ConvolutionBlock(nn.Module):
         kernel_size (int): The size of the square convolving kernel.
         stride (int): The stride of the convolution.
         padding (int): The padding added to both sides of the input.
-        feature_map_normalization (str): Strategy for normalization ("batch", "layer", or "none").
+        feature_map_normalization (str): Strategy for normalization ("batch", "layer", "sequence" (batch normalization
+            with the statistics of each sequence, backbone of the sequence models only) or "none").
         activation (bool): Whether to apply a ReLU activation function after each convolution.
         dropout_rate (float): The probability of an element to be zeroed in the dropout layer.
         add_pooling (bool): Whether to apply a max pooling layer at the very end of the block.
@@ -102,7 +105,7 @@ class ConvolutionBlock(nn.Module):
 
         # Validate the requested normalization strategy
         normalization_strategy = str(feature_map_normalization).lower().strip()
-        valid_strategies = ["batch", "layer", "none", "null"]
+        valid_strategies = ["batch", "layer", "sequence", "none", "null"]
         if normalization_strategy not in valid_strategies:
             raise ValueError(f"Invalid feature_map_normalization: {feature_map_normalization}."
                              f" Must be one of {valid_strategies}.")
@@ -147,6 +150,8 @@ class ConvolutionBlock(nn.Module):
                 layers.append(nn.BatchNorm2d(num_features=output_channels, device=device, dtype=dtype))
             elif normalization_strategy == "layer":
                 layers.append(ChannelLayerNormalizer(channels=output_channels, device=device, dtype=dtype))
+            elif normalization_strategy == "sequence":
+                layers.append(SequenceBatchNormalization(num_features=output_channels, device=device, dtype=dtype))
 
             # Conditionally apply the activation function to introduce non-linearity to the network
             if activation:
@@ -178,7 +183,7 @@ class ConvolutionBlock(nn.Module):
         # Group all constructed layers into a module list, iterated layer by layer in the forward pass
         self.block = nn.ModuleList(modules=layers)
 
-    def forward(self, input_tensor: torch.Tensor) -> torch.Tensor:
+    def forward(self, input_tensor: torch.Tensor, sequence_grouping: Optional[SequenceGrouping] = None) -> torch.Tensor:
         """
         Processes the input tensor through the sequence of convolutional layers to extract features.
 
@@ -187,6 +192,8 @@ class ConvolutionBlock(nn.Module):
 
         Args:
             input_tensor (torch.Tensor): The input feature map to be processed by the network of shape [Batch, Channels, Height, Width].
+            sequence_grouping (Optional[SequenceGrouping]): The sequence of every frame of the batch, read by the
+                sequence normalization layers only, or None (the whole batch as one sequence for these layers).
 
         Returns:
             torch.Tensor: The resulting feature map after passing through the convolutional block of shape [Batch, Out_Channels, Out_Height, Out_Width].
@@ -200,9 +207,14 @@ class ConvolutionBlock(nn.Module):
             if self.residual and layer_index % 2 == self.residual_parity:
                 shortcut_tensor = current_tensor
 
-            # Apply the convolution, normalization and activation modules of this layer
+            # Apply the convolution, normalization and activation modules of this layer, the sequence normalization
+            # receiving the sequence of every frame
             for module_index in module_indices:
-                current_tensor = self.block[module_index](current_tensor)
+                if isinstance(self.block[module_index], SequenceBatchNormalization):
+                    current_tensor = self.block[module_index](input_tensor=current_tensor,
+                                                              sequence_grouping=sequence_grouping)
+                else:
+                    current_tensor = self.block[module_index](current_tensor)
 
             # Add the residual shortcut after the activation, closing a pair of layers
             if self.residual and layer_index % 2 == (1 - self.residual_parity) and layer_index != 0:

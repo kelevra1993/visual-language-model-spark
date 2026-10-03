@@ -217,3 +217,58 @@ def test_inference_comparator_matches_the_training_path_on_full_windows(temporal
         inference_probabilities = build_inference_model(task="sequence_comparison", model=model)(
             before_images=before_frames, after_images=after_frames)
     assert torch.allclose(input=inference_probabilities, other=masked_probabilities, atol=1e-6)
+
+
+@pytest.mark.parametrize(argnames=("task", "normalization_scope"), argvalues=[
+    ("sequence_classification", None), ("sequence_comparison", "member"), ("sequence_comparison", "pair")])
+def test_sequence_normalization_exports_match_the_eager_model(tmp_path: Path, task: str,
+                                                              normalization_scope: Optional[str]) -> None:
+    """
+    Verifies the exports of the sequence models whose backbone uses sequence normalization: the statistics of every
+    window (or of every pair, with the pair scope of the comparator) are computed in the exported graphs too, which
+    reproduce the eager probabilities on batches of another size and with other numbers of frames than traced, the
+    before and after windows of the comparator having different numbers of frames.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task (str): "sequence_classification" or "sequence_comparison".
+        normalization_scope (Optional[str]): The scope of the statistics of the comparator, None for the classifier.
+    """
+    hide_known_export_warnings()
+    torch.manual_seed(seed=0)
+    if task == "sequence_comparison":
+        configuration, device, dtype = get_sequence_comparison_model_configuration(temporal_type="gru",
+                                                                                   fusion_type="difference")
+        configuration["Fusion"]["sequence_normalization_scope"] = normalization_scope
+    else:
+        configuration, device, dtype = get_sequence_model_configuration(temporal_type="gru")
+    configuration["Backbone"]["normalization"]["feature_map_normalization"] = "sequence"
+    model = TASK_MODEL_CLASSES[task](configuration=configuration, device=device, dtype=dtype).eval()
+    inference_model = build_inference_model(task=task, model=model)
+    specification = get_export_specification(task=task, inference_model=inference_model)
+    example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
+                                          maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                          generator=torch.Generator().manual_seed(1))
+    check_inputs = create_random_inputs(specification=specification, shape_name="check_shape",
+                                        maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
+                                        generator=torch.Generator().manual_seed(2))
+    with torch.no_grad():
+        reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
+
+    # TorchScript export, run with the inputs passed by name
+    export_torchscript(inference_model=inference_model, example_inputs=example_inputs,
+                       output_path=tmp_path / "model.pt")
+    with torch.no_grad():
+        torchscript_outputs = convert_outputs_to_numpy(
+            outputs=torch.jit.load(str(tmp_path / "model.pt"))(**check_inputs))
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=torchscript_outputs,
+                                            **specification["comparison_tolerances"]) == []
+
+    # ONNX export with dynamic batch and frames
+    export_onnx(inference_model=inference_model, example_inputs=example_inputs, output_path=tmp_path / "model.onnx",
+                specification=specification, maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE)
+    session = onnxruntime.InferenceSession(str(tmp_path / "model.onnx"), providers=["CPUExecutionProvider"])
+    onnx_outputs = session.run(None, {input_name: input_batch.numpy()
+                                      for input_name, input_batch in check_inputs.items()})
+    assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
+                                            **specification["comparison_tolerances"]) == []

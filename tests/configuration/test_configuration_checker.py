@@ -173,6 +173,16 @@ def test_example_configuration_is_consistent() -> None:
     load_experiment_configuration(configuration_path=EXAMPLE_CONFIGURATION_PATH)
 
 
+def use_sequence_normalization(configuration: Dict[str, Any]) -> None:
+    """
+    Uses the sequence normalization in the backbone, refused for the detector, which has no sequences.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["Backbone"]["normalization"]["feature_map_normalization"] = "sequence"
+
+
 def augment_detection_frames(configuration: Dict[str, Any]) -> None:
     """
     Turns the sequence augmentations on in the detection configuration, with a shuffling probability above 1.
@@ -185,6 +195,8 @@ def augment_detection_frames(configuration: Dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (use_sequence_normalization, ["'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for "
+                                     "this task, whose samples have no frames."]),
     (augment_detection_frames, ["'Data.data_augmentation.shuffle_frames.activated' must be False for this task, "
                                 "whose samples have no frames.",
                                 "'Data.data_augmentation.independent_frames' must be False for this task",
@@ -639,6 +651,34 @@ def set_causal_comparison(configuration: Dict[str, Any]) -> None:
     configuration["TemporalModel"].update({"type": "transformer", "causal": True, "bidirectional": False})
 
 
+def set_unknown_normalization_scope(configuration: Dict[str, Any]) -> None:
+    """
+    Uses sequence normalization with a scope of the statistics that does not exist.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence comparison configuration, modified in place.
+    """
+    configuration["Backbone"]["normalization"]["feature_map_normalization"] = "sequence"
+    configuration["Fusion"]["sequence_normalization_scope"] = "batch"
+
+
+def test_sequence_normalization_is_accepted_for_the_sequence_tasks(tmp_path: Path) -> None:
+    """
+    Verifies that the sequence normalization of the backbone passes the checks of the sequence tasks, with both scopes
+    of the comparison task.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    for task_folder, configuration_name in [("sequence_classification", "configuration_synthetic_sequences.yaml"),
+                                            ("sequence_comparison", "configuration_synthetic_pairs.yaml")]:
+        configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
+                                                      configuration_name=configuration_name,
+                                                      modify_function=use_sequence_normalization)
+        _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+        assert model_configuration["Backbone"]["normalization"]["feature_map_normalization"] == "sequence"
+
+
 def remove_window_stride(configuration: Dict[str, Any]) -> None:
     """
     Removes the window stride from the sequence settings.
@@ -675,7 +715,9 @@ def test_sequence_comparison_configurations_are_consistent(tmp_path: Path, confi
                                                        "multiple of 'Fusion.number_heads' (3) for the cross "
                                                        "attention."]),
     (set_causal_comparison, ["'TemporalModel.causal' must be False for this task, which summarises whole "
-                             "sequences"])])
+                             "sequences"]),
+    (set_unknown_normalization_scope, ["'Fusion.sequence_normalization_scope' must be one of ['member', 'pair'], "
+                                       "got 'batch'."])])
 def test_inconsistent_sequence_comparison_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:

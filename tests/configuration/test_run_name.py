@@ -515,7 +515,8 @@ def get_sequence_comparison_reference_configurations() -> Tuple[Dict[str, Any], 
     experiment_configuration["task"] = "sequence_comparison"
     del model_configuration["Data"]["sequence_settings"]["window_stride"]
     model_configuration["TemporalModel"]["type"] = "mean_pooling"
-    model_configuration["Fusion"] = {"type": "difference", "number_heads": 4, "dropout_rate": 0.0}
+    model_configuration["Fusion"] = {"type": "difference", "number_heads": 4, "dropout_rate": 0.0,
+                                     "sequence_normalization_scope": "member"}
     model_configuration["Data"]["label_dictionary"] = {1: 0, 2: 1}
     return experiment_configuration, model_configuration
 
@@ -671,6 +672,31 @@ def test_sequence_augmentation_run_name_tokens(augmentation_activated: bool, shu
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME.replace(
         "_AUG-BS16-", expected_tokens)
+
+
+@pytest.mark.parametrize(argnames=("feature_map_normalization", "normalization_scope", "expected_sections"),
+                         argvalues=[("sequence", "member", ("-SN-B1x16", "_FDIF_")),
+                                    ("sequence", "pair", ("-SN-B1x16", "_FDIF-SNP_")),
+                                    ("batch", "pair", ("-BN-B1x16", "_FDIF_"))])
+def test_sequence_normalization_run_name_tokens(feature_map_normalization: str, normalization_scope: str,
+                                                expected_sections: Tuple[str, str]) -> None:
+    """
+    Verifies the tokens of the sequence normalization of a comparison model: SN instead of BN in the backbone section,
+    and SNP in the fusion section when both members of a pair share the statistics, the scope being ignored with
+    batch normalization.
+
+    Args:
+        feature_map_normalization (str): The feature map normalization of the backbone.
+        normalization_scope (str): The scope of the statistics of the sequence normalization.
+        expected_sections (Tuple[str, str]): The expected normalization of the backbone section and fusion section.
+    """
+    experiment_configuration, model_configuration = get_sequence_comparison_reference_configurations()
+    model_configuration["Backbone"]["normalization"]["feature_map_normalization"] = feature_map_normalization
+    model_configuration["Fusion"]["sequence_normalization_scope"] = normalization_scope
+    expected_run_name = SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("-BN-B1x16", expected_sections[0]).replace(
+        "_FDIF_", expected_sections[1])
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == expected_run_name
 
 
 def test_optimization_run_name_tokens() -> None:

@@ -20,6 +20,10 @@ TRANSFERABLE_COMPONENTS = {"Backbone": "backbone", "TemporalModel": "temporal_mo
 # on the image size, so both may differ
 ARCHITECTURE_BACKBONE_KEYS = ["input_channels", "convolutions", "modules", "normalization", "last_max_pooling"]
 
+# Feature map normalizations holding the same tensors (scale, shift and running statistics), so that a backbone moves
+# between batch normalization and sequence normalization through the transfer
+BATCH_STATISTICS_NORMALIZATIONS = ["batch", "sequence"]
+
 # Temporal module settings defining its weights, for every type that has weights. The dropout only acts in training
 # and the causal flag only changes which frames attend to each other, so neither changes the weights. The number of
 # heads of the transformer does not change the shape of its weights, but it splits them differently between the heads
@@ -51,11 +55,30 @@ def get_component_name(section_name: str) -> str:
     return TRANSFERABLE_COMPONENTS[section_name].replace("_", " ")
 
 
+def get_weight_normalization(normalization_configuration: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Gives the normalization settings of a backbone as far as its weights are concerned: batch and sequence
+    normalization holding the same tensors, both are named "batch", so that a backbone moves between them through the
+    transfer.
+
+    Args:
+        normalization_configuration (Dict[str, Any]): The 'Backbone.normalization' settings.
+
+    Returns:
+        Dict[str, Any]: A copy of the settings, sequence normalization written as batch normalization.
+    """
+    feature_map_normalization = normalization_configuration["feature_map_normalization"]
+    if feature_map_normalization in BATCH_STATISTICS_NORMALIZATIONS:
+        feature_map_normalization = "batch"
+    return {**normalization_configuration, "feature_map_normalization": feature_map_normalization}
+
+
 def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any],
                                    target_backbone_configuration: Dict[str, Any]) -> List[str]:
     """
     Lists the differences between the architecture-defining settings of two backbones, so that a backbone is only
-    transferred between runs whose backbones have exactly the same layers.
+    transferred between runs whose backbones have exactly the same layers. Batch and sequence normalization count as
+    the same layers, holding the same tensors.
 
     Args:
         source_backbone_configuration (Dict[str, Any]): The 'Backbone' section of the source run.
@@ -67,9 +90,16 @@ def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any]
     differences = []
     for key_name in ARCHITECTURE_BACKBONE_KEYS:
         source_value = source_backbone_configuration[key_name] if key_name in source_backbone_configuration else None
-        if source_value != target_backbone_configuration[key_name]:
-            differences.append(f"'Backbone.{key_name}' is {source_value!r} in the source run and "
-                               f"{target_backbone_configuration[key_name]!r} in this run.")
+        target_value = target_backbone_configuration[key_name]
+
+        # Normalization layers compared by their tensors, batch and sequence normalization being the same
+        compared_source_value, compared_target_value = source_value, target_value
+        if key_name == "normalization" and source_value is not None:
+            compared_source_value = get_weight_normalization(normalization_configuration=source_value)
+            compared_target_value = get_weight_normalization(normalization_configuration=target_value)
+        if compared_source_value != compared_target_value:
+            differences.append(f"'Backbone.{key_name}' is {source_value!r} in the source run and {target_value!r} in "
+                               f"this run.")
     return differences
 
 
@@ -258,6 +288,11 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
         if source_image_size != target_image_size:
             print_color(color="yellow", output=f"The pretrained backbone was trained on {source_image_size} pixel "
                                                f"images, this run uses {target_image_size} pixel images.")
+        source_normalization = source_configuration["Backbone"]["normalization"]["feature_map_normalization"]
+        target_normalization = model_configuration["Backbone"]["normalization"]["feature_map_normalization"]
+        if source_normalization != target_normalization:
+            print_color(color="yellow", output=f"The pretrained backbone was trained with {source_normalization!r} "
+                                               f"normalization, this run uses {target_normalization!r} normalization.")
     if section_name == "TemporalModel" and model_configuration["TemporalModel"]["type"] in CAUSAL_TEMPORAL_TYPES:
         source_causal = source_configuration["TemporalModel"]["causal"]
         target_causal = model_configuration["TemporalModel"]["causal"]

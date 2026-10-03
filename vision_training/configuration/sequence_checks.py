@@ -6,7 +6,7 @@ from vision_training.configuration.classification_checks import (check_classific
 from vision_training.configuration.common_checks import check_pretrained_configuration
 from vision_training.configuration.configuration_values import (check_boolean_flags, check_positive_integers,
                                                                 get_configuration_value)
-from vision_training.models.sequence.member_fusion import FUSION_TYPES
+from vision_training.models.sequence.member_fusion import FUSION_TYPES, SEQUENCE_NORMALIZATION_SCOPES
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES
 
 # Handling of the sequences shorter than one window: padded with black frames, or left out
@@ -166,8 +166,9 @@ def check_sequence_labelling_configuration(experiment_configuration: Dict[str, A
 def check_fusion_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Fusion' section of the sequence comparison task, which combines the before and after members of a
-    pair: its type, the number of heads and the dropout of the cross attention (all required whatever the type), and
-    that the cross attention can split the frame vectors between its heads.
+    pair: its type, the number of heads and the dropout of the cross attention (all required whatever the type), that
+    the cross attention can split the frame vectors between its heads, and the frames sharing the statistics of the
+    sequence normalization (required whatever the normalization of the backbone).
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -187,6 +188,11 @@ def check_fusion_configuration(model_configuration: Dict[str, Any]) -> List[str]
     dropout_rate = get_configuration_value(configuration=model_configuration, key_path="Fusion.dropout_rate")
     if isinstance(dropout_rate, bool) or not isinstance(dropout_rate, (int, float)) or not 0.0 <= dropout_rate < 1.0:
         errors.append(f"'Fusion.dropout_rate' must be a number within [0, 1), got {dropout_rate!r}.")
+    normalization_scope = get_configuration_value(configuration=model_configuration,
+                                                  key_path="Fusion.sequence_normalization_scope")
+    if normalization_scope not in SEQUENCE_NORMALIZATION_SCOPES:
+        errors.append(f"'Fusion.sequence_normalization_scope' must be one of {SEQUENCE_NORMALIZATION_SCOPES}, "
+                      f"got {normalization_scope!r}.")
 
     # The cross attention splits the frame vectors, as wide as the last backbone block, between its heads (a
     # malformed block being reported by the backbone check)

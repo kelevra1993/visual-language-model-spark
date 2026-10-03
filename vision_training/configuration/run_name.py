@@ -2,7 +2,7 @@ from typing import Any, Callable, Dict, List
 
 
 # Run name code of every feature map normalization strategy
-NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN"}
+NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN", "sequence": "SN"}
 
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
 TASK_CODES = {"object_detection": "DET", "classification": "CLS", "sequence_classification": "M2O",
@@ -366,7 +366,8 @@ def build_fusion_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the tokens of the run name describing the fusion of the members of a pair in the sequence comparison model:
     FCAT (concatenation), FDIF (difference) or FXA<heads> (cross attention), the latter followed by FDO<dropout> when
-    its attention uses a dropout, e.g. 'FXA4-FDO0.1'.
+    its attention uses a dropout, then SNP when both members share the statistics of the sequence normalization of the
+    backbone, e.g. 'FXA4-FDO0.1' or 'FDIF-SNP'.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -376,13 +377,19 @@ def build_fusion_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     fusion_configuration = model_configuration["Fusion"]
     fusion_type = fusion_configuration["type"]
-    if fusion_type != "cross_attention":
-        return [FUSION_TYPE_CODES[fusion_type]]
 
-    # Cross attention with its number of heads, and its dropout when used
-    fusion_tokens = [f"{FUSION_TYPE_CODES[fusion_type]}{fusion_configuration['number_heads']}"]
-    if fusion_configuration["dropout_rate"] > 0:
-        fusion_tokens.append(f"FDO{fusion_configuration['dropout_rate']:g}")
+    # Cross attention with its number of heads, and its dropout when used, or the type of the other fusions
+    if fusion_type == "cross_attention":
+        fusion_tokens = [f"{FUSION_TYPE_CODES[fusion_type]}{fusion_configuration['number_heads']}"]
+        if fusion_configuration["dropout_rate"] > 0:
+            fusion_tokens.append(f"FDO{fusion_configuration['dropout_rate']:g}")
+    else:
+        fusion_tokens = [FUSION_TYPE_CODES[fusion_type]]
+
+    # Statistics of the sequence normalization shared by both members of a pair
+    if model_configuration["Backbone"]["normalization"]["feature_map_normalization"] == "sequence" and \
+            fusion_configuration["sequence_normalization_scope"] == "pair":
+        fusion_tokens.append("SNP")
     return fusion_tokens
 
 

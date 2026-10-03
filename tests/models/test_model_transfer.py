@@ -500,3 +500,33 @@ def test_pretrained_settings_are_disabled() -> None:
     assert configuration["Backbone"]["pretrained"] == {**NO_BACKBONE_TRANSFER, "learning_rate_multiplier": 0.5}
     assert configuration["TemporalModel"]["pretrained"] == {**NO_TRANSFER, "iteration": 4}
     assert configuration["ClassificationHead"]["pretrained"] == NO_TRANSFER
+
+
+@pytest.mark.parametrize(argnames=("source_normalization", "target_normalization"),
+                         argvalues=[("batch", "sequence"), ("sequence", "batch")])
+def test_backbone_moves_between_batch_and_sequence_normalization(tmp_path: Path, source_normalization: str,
+                                                                 target_normalization: str) -> None:
+    """
+    Verifies that a backbone trained with batch normalization initialises a run with sequence normalization, and back,
+    both layers holding the same tensors, the difference being reported.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        source_normalization (str): The feature map normalization of the source run.
+        target_normalization (str): The feature map normalization of the run receiving the backbone.
+    """
+    configuration, _, _ = get_sequence_model_configuration(temporal_type="gru")
+    configuration["Backbone"]["normalization"]["feature_map_normalization"] = source_normalization
+    source_model = build_sequence_model(task="sequence_classification", configuration=configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "source_run", configuration=configuration, model=source_model)
+
+    target_configuration = copy.deepcopy(configuration)
+    target_configuration["Backbone"]["normalization"]["feature_map_normalization"] = target_normalization
+    target_model = build_sequence_model(task="sequence_classification", configuration=target_configuration, seed=1)
+    load_pretrained_component(component=target_model.backbone, section_name="Backbone",
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="Backbone",
+                                                                      source_folder=tmp_path / "source_run"),
+                              device=torch.device("cpu"))
+    for tensor_name, tensor_value in source_model.backbone.state_dict().items():
+        assert torch.equal(input=target_model.backbone.state_dict()[tensor_name], other=tensor_value), tensor_name

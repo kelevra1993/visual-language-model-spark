@@ -1,9 +1,10 @@
 import torch
 from torch import nn
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 from rich.console import Console
 from rich.panel import Panel
 
+from vision_training.core.contracts import SequenceGrouping
 from vision_training.models.components.convolution_block import ConvolutionBlock
 from vision_training.models.components.input_normalization import InputNormalizer
 from vision_training.utilities.os_utilities import print_color
@@ -109,12 +110,15 @@ class Backbone(nn.Module):
             # Update the input channels for the subsequent convolution block
             current_input_channels = output_channels
 
-    def forward(self, input_tensor: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def forward(self, input_tensor: torch.Tensor,
+                sequence_grouping: Optional[SequenceGrouping] = None) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
         Processes the input tensor through the sequence of convolution blocks.
-        
+
         Args:
             input_tensor (torch.Tensor): The input image tensor to be processed of shape [Batch, Channels, Height, Width].
+            sequence_grouping (Optional[SequenceGrouping]): The sequence of every frame of the batch, given by the frame
+                encoder of the sequence models to the sequence normalization layers, or None for a batch of images.
             
         Returns:
             Tuple[torch.Tensor, Dict[str, torch.Tensor]]: A tuple containing:
@@ -129,7 +133,7 @@ class Backbone(nn.Module):
 
         # Iterate through each convolution block and sequentially process the feature map
         for block_index, block in enumerate(self.convolution_blocks, start=1):
-            current_tensor = block(input_tensor=current_tensor)
+            current_tensor = block(input_tensor=current_tensor, sequence_grouping=sequence_grouping)
 
             # Check if the current block is designated as an detection and save its output
             if block_index in self.detection_convolution_block_indices:

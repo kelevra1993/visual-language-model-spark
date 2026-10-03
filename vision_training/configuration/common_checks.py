@@ -2,7 +2,7 @@ import torch
 
 from typing import Any, Dict, List
 
-from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
+from vision_training.configuration.configuration_values import (BACKBONE_FEATURE_MAP_NORMALIZATIONS,
                                                                 check_boolean_flags,
                                                                 check_positive_integers,
                                                                 check_probability_value,
@@ -146,13 +146,14 @@ def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     return errors
 
 
-def check_image_task_augmentations(model_configuration: Dict[str, Any]) -> List[str]:
+def check_image_task_sequence_settings(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Refuses the sequence augmentations for the image tasks (classification, object detection), whose samples have no
-    frames to shuffle or to augment one by one.
+    Refuses the settings of the sequences for the image tasks (classification, object detection), whose samples have
+    no frames: the frame shuffling and the per-frame augmentation draws, and the sequence normalization of the
+    backbone.
 
     Args:
-        model_configuration (Dict[str, Any]): The model configuration containing the 'Data' section.
+        model_configuration (Dict[str, Any]): The model configuration containing the 'Data' and 'Backbone' sections.
 
     Returns:
         List[str]: The description of every inconsistency found.
@@ -161,6 +162,10 @@ def check_image_task_augmentations(model_configuration: Dict[str, Any]) -> List[
     for key_path in ["Data.data_augmentation.shuffle_frames.activated", "Data.data_augmentation.independent_frames"]:
         if get_configuration_value(configuration=model_configuration, key_path=key_path) is True:
             errors.append(f"'{key_path}' must be False for this task, whose samples have no frames.")
+    if get_configuration_value(configuration=model_configuration,
+                               key_path="Backbone.normalization.feature_map_normalization") == "sequence":
+        errors.append("'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for this task, whose "
+                      "samples have no frames.")
     return errors
 
 
@@ -206,9 +211,9 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
     # Feature map normalization strategy of the convolution blocks
     feature_map_normalization = get_configuration_value(configuration=model_configuration,
                                                         key_path="Backbone.normalization.feature_map_normalization")
-    if feature_map_normalization not in VALID_FEATURE_MAP_NORMALIZATIONS:
+    if feature_map_normalization not in BACKBONE_FEATURE_MAP_NORMALIZATIONS:
         errors.append(f"'Backbone.normalization.feature_map_normalization' must be one of "
-                      f"{VALID_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
+                      f"{BACKBONE_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
 
     # Blocks feeding task heads (detection levels) must exist in the Backbone and be listed from the finest to the
     # coarsest level; the tasks whose heads use the final feature map list none

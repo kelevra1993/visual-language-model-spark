@@ -1,8 +1,10 @@
 from typing import Any, Dict, List
 
 
-# Feature map normalization strategies supported by the ConvolutionBlock
+# Feature map normalization strategies supported by the ConvolutionBlock, and those of the backbone, which also accepts
+# the sequence normalization (batch normalization with the statistics of each sequence, sequence tasks only)
 VALID_FEATURE_MAP_NORMALIZATIONS = ["batch", "layer", "none"]
+BACKBONE_FEATURE_MAP_NORMALIZATIONS = VALID_FEATURE_MAP_NORMALIZATIONS + ["sequence"]
 
 
 class ConfigurationError(Exception):

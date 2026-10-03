@@ -20,7 +20,7 @@ Model output dictionary:
 import torch
 
 from pathlib import Path
-from typing import Dict, List, TypedDict
+from typing import Dict, List, Optional, TypedDict
 
 # Key suffix of the losses returned by the models, all summed into the total loss by the trainer
 LOSS_KEY_SUFFIX = "_loss"
@@ -31,6 +31,19 @@ SAMPLE_IDENTIFIERS_KEY = "sample_identifiers"
 # Label of the frames without class in the sequence labelling batches (padding frames, frames of unmapped
 # categories), ignored by its loss and metrics
 IGNORED_LABEL_INDEX = -100
+
+
+class SequenceGrouping(TypedDict):
+    """
+    Grouping of the frames of a batch of images into sequences, given by the frame encoder of the sequence models to
+    the sequence normalization layers of the backbone, which compute their statistics over the frames of each
+    sequence. Either 'frames_per_sequence' is set (consecutive groups of the same number of frames, the frames of a
+    [B, T] batch flattened in order, the path without masks of the deployment), or 'frame_sequence_indices' and
+    'number_sequences' are (the group of every frame, for groups of any size, the path with masks of the training).
+    """
+    frames_per_sequence: Optional[int]
+    frame_sequence_indices: Optional[torch.Tensor]
+    number_sequences: Optional[int]
 
 
 class EvaluationResults(TypedDict):

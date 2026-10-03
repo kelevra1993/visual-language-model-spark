@@ -202,7 +202,9 @@ Backbone:
     per_sample_normalization: False
 
     # Strategy for normalizing the feature maps in the convolution blocks.
-    # Options are: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
+    # Options are "batch" (Batch Normalization), "layer" (Layer Normalization over channels), "none" (no
+    # normalization) or "sequence" (Batch Normalization with the statistics of each window, at training
+    # and at inference alike, a window being normalised by its own frames).
     feature_map_normalization: "batch"
 
   modules:
@@ -295,6 +297,11 @@ Fusion:
   number_heads: 4
   # Dropout of the cross attention weights, within [0, 1).
   dropout_rate: 0.0
+  # Frames sharing the statistics of the sequence normalization of the backbone
+  # (Backbone.normalization.feature_map_normalization "sequence", ignored otherwise): "member" (every member
+  # window normalised by its own frames, removing for instance a change of lighting between the two visits)
+  # or "pair" (both members normalised together, the global differences between them staying visible).
+  sequence_normalization_scope: "member"
 
 ClassificationHead:
   # Global pooling reducing the final backbone feature map of every frame to one feature vector, "average" or "max".

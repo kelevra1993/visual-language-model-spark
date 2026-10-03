@@ -6,12 +6,15 @@ from pathlib import Path
 from vision_training.configuration.configuration_migration import (
     add_evaluation_outputs_to_configuration, add_freeze_normalization_parameters_to_configuration,
     add_optimization_section_to_configuration, add_pretrained_settings_to_configuration,
-    add_sequence_augmentation_to_configuration, add_task_to_configuration, migrate_run_folder)
+    add_sequence_augmentation_to_configuration, add_sequence_normalization_scope_to_configuration,
+    add_task_to_configuration, migrate_run_folder)
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
 SEQUENCE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                "sequence_classification" / "configuration_synthetic_sequences.yaml")
+COMPARISON_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
+                                 "sequence_comparison" / "configuration_synthetic_pairs.yaml")
 
 # Pretrained backbone settings written by the migration of the backbone transfer, before the normalization flag existed
 OLD_PRETRAINED_BACKBONE_BLOCK = ("  # Backbone of another training run initialising this run, null to start from "
@@ -276,6 +279,33 @@ def test_sequence_augmentation_is_added_once(tmp_path: Path) -> None:
     assert augmentation_settings["independent_frames"] is False
     assert augmentation_settings["shuffle_frames"] == {"activated": False, "probability": 0.5}
     assert add_sequence_augmentation_to_configuration(configuration_path=configuration_path) is False
+
+
+def test_sequence_normalization_scope_is_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that the scope of the sequence normalization of the comparison task is added, every member normalised by
+    its own frames as in the runs written before it, that a configuration which already has it is left untouched,
+    and that a configuration without fusion section is not changed.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration = yaml.safe_load(stream=COMPARISON_CONFIGURATION_PATH.read_text())
+    del configuration["Fusion"]["sequence_normalization_scope"]
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+
+    assert add_sequence_normalization_scope_to_configuration(configuration_path=configuration_path) is True
+    fusion_settings = yaml.safe_load(stream=configuration_path.read_text())["Fusion"]
+    assert fusion_settings == {**configuration["Fusion"], "sequence_normalization_scope": "member"}
+    assert add_sequence_normalization_scope_to_configuration(configuration_path=configuration_path) is False
+
+    # A configuration of another task keeps its settings
+    sequence_text = SEQUENCE_CONFIGURATION_PATH.read_text()
+    sequence_path = tmp_path / "sequence_configuration.yaml"
+    sequence_path.write_text(data=sequence_text)
+    assert add_sequence_normalization_scope_to_configuration(configuration_path=sequence_path) is False
+    assert sequence_path.read_text() == sequence_text
 
 
 def test_optimization_section_is_added_once(tmp_path: Path) -> None:

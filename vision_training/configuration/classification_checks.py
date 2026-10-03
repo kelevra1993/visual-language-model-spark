@@ -1,6 +1,6 @@
 from typing import Any, Dict, List
 
-from vision_training.configuration.common_checks import (check_image_task_augmentations,
+from vision_training.configuration.common_checks import (check_image_task_sequence_settings,
                                                          check_pretrained_configuration)
 from vision_training.configuration.configuration_values import (check_boolean_flags, check_positive_integers,
                                                                 check_probability_value, get_configuration_value)
@@ -151,7 +151,7 @@ def check_classification_evaluation_configuration(experiment_configuration: Dict
 def check_classification_configuration(experiment_configuration: Dict[str, Any],
                                        model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Runs every check specific to the classification task: its data settings, without the sequence augmentations,
+    Runs every check specific to the classification task: its data settings, without the sequence settings,
     its classification head and its evaluation settings.
 
     Args:
@@ -163,7 +163,7 @@ def check_classification_configuration(experiment_configuration: Dict[str, Any],
     """
     errors = []
     errors += check_classification_data_configuration(model_configuration=model_configuration)
-    errors += check_image_task_augmentations(model_configuration=model_configuration)
+    errors += check_image_task_sequence_settings(model_configuration=model_configuration)
     errors += check_classification_head_configuration(model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)

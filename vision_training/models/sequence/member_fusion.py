@@ -8,6 +8,10 @@ from typing import Optional, Tuple
 # the two members
 FUSION_TYPES = ["concatenation", "difference", "cross_attention"]
 
+# Frames sharing the statistics of the sequence normalization of the backbone in the comparison model: the frames of
+# each member window, or the frames of both members of a pair
+SEQUENCE_NORMALIZATION_SCOPES = ["member", "pair"]
+
 
 class MemberFusion(nn.Module):
     """

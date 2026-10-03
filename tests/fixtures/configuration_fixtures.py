@@ -142,6 +142,7 @@ def get_sequence_comparison_model_configuration(temporal_type: str, fusion_type:
     """
     configuration, device, dtype = get_sequence_model_configuration(temporal_type=temporal_type)
     del configuration['Data']['sequence_settings']['window_stride']
-    configuration['Fusion'] = {'type': fusion_type, 'number_heads': 2, 'dropout_rate': 0.0}
+    configuration['Fusion'] = {'type': fusion_type, 'number_heads': 2, 'dropout_rate': 0.0,
+                               'sequence_normalization_scope': 'member'}
 
     return configuration, device, dtype

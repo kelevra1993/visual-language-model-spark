@@ -66,6 +66,13 @@ SEQUENCE_AUGMENTATION_LINES = ("    # Draws the photometric augmentations frame 
                                "    # Shuffles the real frames of the training windows (sequence tasks only).\n"
                                "    shuffle_frames: { activated: False, probability: 0.5 }\n")
 
+# Header of the fusion section of the comparison configurations, and the scope of the sequence normalization inserted
+# below it, every member normalised by its own frames, the only behaviour of the runs written before it existed
+FUSION_SECTION_HEADER = "Fusion:\n"
+SEQUENCE_NORMALIZATION_SCOPE_LINES = ("  # Frames sharing the statistics of the sequence normalization of the "
+                                      "backbone.\n"
+                                      "  sequence_normalization_scope: \"member\"\n")
+
 # Optimization section of a run trained with plain Adam at a constant learning rate, the training of every run
 # written before the section existed
 OPTIMIZATION_SECTION = ("\n# Optimization of a run trained with Adam at a constant learning rate.\n"
@@ -259,6 +266,37 @@ def add_sequence_augmentation_to_configuration(configuration_path: Path) -> bool
     return True
 
 
+def add_sequence_normalization_scope_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades the configuration file of a comparison run written before the sequence normalization by inserting
+    'Fusion.sequence_normalization_scope', every member normalised by its own frames, right below the header of its
+    fusion section. The setting is inserted as text, so that every comment of the file is kept, and a file that
+    already has it, or that has no fusion section (the other tasks), is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the setting was added, False if the file already had it or is not a comparison run.
+
+    Raises:
+        ValueError: If the fusion section exists but its header is not a line of its own.
+    """
+    text = configuration_path.read_text()
+    configuration = yaml.safe_load(stream=text)
+    if "Fusion" not in configuration or "sequence_normalization_scope" in configuration["Fusion"]:
+        return False
+    lines = text.splitlines(keepends=True)
+    if FUSION_SECTION_HEADER not in lines:
+        raise ValueError(f"No 'Fusion:' section header in file://{configuration_path.absolute()}")
+
+    # Insert the setting below the header line
+    header_index = lines.index(FUSION_SECTION_HEADER)
+    configuration_path.write_text(data="".join(lines[:header_index + 1] + [SEQUENCE_NORMALIZATION_SCOPE_LINES] +
+                                               lines[header_index + 1:]))
+    return True
+
+
 def add_optimization_section_to_configuration(configuration_path: Path) -> bool:
     """
     Upgrades a configuration file written before the 'Optimization' section by appending the section of a run
@@ -284,11 +322,11 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     the current code: its saved configuration gets its task, the 'pretrained' settings of its backbone, temporal
     module and classification head (those of a run trained from random weights), the
     'Backbone.pretrained.freeze_normalization_parameters' flag (off), the evaluation outputs of the classification-like
-    tasks (no predictions file nor error images), the sequence augmentations (off) and its 'Optimization' section
-    (plain Adam at a constant learning rate), and its folder is renamed to the run name the current code builds from
-    that configuration (the task code
-    being now the first section of the run names). The configuration is fully checked on the way, any other missing
-    key being reported by the configuration checker.
+    tasks (no predictions file nor error images), the sequence augmentations (off), the scope of the sequence
+    normalization of the comparison task (per member) and its 'Optimization' section (plain Adam at a constant
+    learning rate), and its folder is renamed to the run name the current code builds from that configuration (the
+    task code being now the first section of the run names). The configuration is fully checked on the way, any
+    other missing key being reported by the configuration checker.
 
     Args:
         run_folder (Path): The run folder, holding 'training_configuration.yaml', 'Weights' and 'Tensorboard'.
@@ -319,6 +357,9 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
                                           f"file://{configuration_path.absolute()}")
     if add_sequence_augmentation_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Sequence Augmentation Settings Added To : "
+                                          f"file://{configuration_path.absolute()}")
+    if add_sequence_normalization_scope_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Sequence Normalization Scope Added To : "
                                           f"file://{configuration_path.absolute()}")
     if add_optimization_section_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Optimization Section Added To : file://{configuration_path.absolute()}")

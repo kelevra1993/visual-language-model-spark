@@ -25,7 +25,10 @@ class SequenceComparator(TaskModel):
     With sequence masks (training and evaluation, both members padded to the same number of frames), the two members
     are encoded and summarised together as one batch, so that the batch normalization statistics are computed over the
     frames of both members. Without masks (deployment, every frame real), each member is encoded and summarised on its
-    own, so that the two members may have different numbers of frames.
+    own, so that the two members may have different numbers of frames. With sequence normalization in the backbone,
+    every member window is normalised by its own frames ('Fusion.sequence_normalization_scope: "member"'), or both
+    members of a pair together ('"pair"'), in which case the two members are encoded along one frame axis without
+    masks.
 
     Outputs: 'class_logits' [B, K] and 'class_probabilities' [B, K], plus 'classification_loss' when labels are given.
     """
@@ -53,6 +56,11 @@ class SequenceComparator(TaskModel):
         self.label_smoothing = self.head_configuration["label_smoothing"]
         self.number_classes = len(set(configuration["Data"]["label_dictionary"].values()))
         self.sequence_length = configuration["Data"]["sequence_settings"]["sequence_length"]
+
+        # Frames sharing the statistics of the sequence normalization of the backbone: each member, or each pair
+        self.sequence_normalization = (configuration["Backbone"]["normalization"]["feature_map_normalization"] ==
+                                       "sequence")
+        self.normalization_scope = self.fusion_configuration["sequence_normalization_scope"]
 
         # Shared feature extractor applied to every frame of both members, and the pooling of its final feature map
         backbone_configuration = configuration["Backbone"]
@@ -86,7 +94,9 @@ class SequenceComparator(TaskModel):
         """
         Turns every frame of both members into a feature vector: the two members as one batch when masks are given,
         so that the batch normalization statistics are computed over the frames of both members, or member by member
-        without masks, for members of different numbers of frames.
+        without masks, for members of different numbers of frames. The sequence normalization groups the frames of
+        each member, or of both members of a pair with the pair scope, for which the two members are encoded along one
+        frame axis without masks.
 
         Args:
             before_images (torch.Tensor): The [B, T1, 3, H, W] frames of the before members.
@@ -100,6 +110,14 @@ class SequenceComparator(TaskModel):
         Raises:
             ValueError: If the two members have different numbers of frames while masks are given.
         """
+        # Every frame real and both members normalised together: the two members along one frame axis, then split
+        if before_mask is None and self.sequence_normalization and self.normalization_scope == "pair":
+            pair_features = encode_frames(backbone=self.backbone, global_pooling=self.global_pooling,
+                                          input_tensor=torch.cat(tensors=[before_images, after_images], dim=1),
+                                          sequence_mask=None)
+            number_before_frames = before_images.shape[1]
+            return pair_features[:, :number_before_frames], pair_features[:, number_before_frames:]
+
         # Every frame real: each member encoded on its own, whatever its number of frames
         if before_mask is None:
             before_features = encode_frames(backbone=self.backbone, global_pooling=self.global_pooling,
@@ -112,9 +130,16 @@ class SequenceComparator(TaskModel):
         if before_images.shape[1] != after_images.shape[1]:
             raise ValueError(f"With sequence masks, both members must be padded to the same number of frames, got "
                              f"{before_images.shape[1]} and {after_images.shape[1]}.")
+        # The before member of a pair and its after member, B rows later, form one normalization group with the pair
+        # scope, each member its own group otherwise
+        batch_size = before_images.shape[0]
+        sequence_groups = None
+        if self.normalization_scope == "pair":
+            sequence_groups = torch.arange(2 * batch_size, device=before_images.device) % batch_size
         frame_features = encode_frames(backbone=self.backbone, global_pooling=self.global_pooling,
                                        input_tensor=torch.cat(tensors=[before_images, after_images], dim=0),
-                                       sequence_mask=torch.cat(tensors=[before_mask, after_mask], dim=0))
+                                       sequence_mask=torch.cat(tensors=[before_mask, after_mask], dim=0),
+                                       sequence_groups=sequence_groups)
         before_features, after_features = frame_features.chunk(chunks=2, dim=0)
         return before_features, after_features
 
