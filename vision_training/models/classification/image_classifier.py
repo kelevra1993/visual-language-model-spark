@@ -1,3 +1,9 @@
+"""
+Model of the image classification task: ImageClassifier chains the shared Backbone, a global pooling and the
+classification head, and returns the class logits, probabilities and loss. Registered in model_registry.py for the
+"classification" task and wrapped by inference_classifier.py for the exports.
+"""
+
 import torch
 
 from torch import nn

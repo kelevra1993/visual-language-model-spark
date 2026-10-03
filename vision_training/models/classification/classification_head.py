@@ -1,3 +1,9 @@
+"""
+Classification head of the classification-like tasks: the global pooling turning the last backbone feature map into
+one vector, the fully connected head giving the class logits and its summary panel. Used by the image classifier and
+by the sequence classifier, labeller and comparator.
+"""
+
 import torch
 
 from rich.console import Console

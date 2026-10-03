@@ -1,3 +1,9 @@
+"""
+Inference-only wrapper of the trained ImageClassifier returning the class probabilities of preprocessed images,
+without labels nor loss. Built by vision_training/deployment/export_specifications.py for the TorchScript and ONNX
+exports served by Triton.
+"""
+
 import torch
 
 from torch import nn
