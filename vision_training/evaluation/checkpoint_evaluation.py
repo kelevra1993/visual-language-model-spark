@@ -1,3 +1,9 @@
+"""
+Evaluation of several checkpoints of a trained run on the test split, one after the other, writing
+'Evaluation/evaluation_summary.csv' with one row per iteration and printing the best iteration according to the
+headline metric of the task. Called by scripts/evaluation/evaluate_checkpoint.py with iteration "all".
+"""
+
 import csv
 import torch
 

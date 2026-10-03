@@ -1,3 +1,9 @@
+"""
+Reporting of the evaluation results of a checkpoint, for every task: scalars written to the Test TensorBoard
+writer, lines appended to the Results.txt file of the run and printed, extra files printed as links. Called by the
+base trainer after every evaluation.
+"""
+
 from pathlib import Path
 from torch.utils.tensorboard import SummaryWriter
 
