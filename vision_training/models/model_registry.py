@@ -1,3 +1,9 @@
+"""
+Registry of the model class of every task, keyed by 'ExperimentConfiguration.task' (object detection, classification,
+sequence classification, labelling and comparison). Read by the trainers and by model_loading.py to rebuild a run from
+its saved configuration.
+"""
+
 from typing import Dict, Type
 
 from vision_training.models.classification.image_classifier import ImageClassifier

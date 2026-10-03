@@ -1,3 +1,10 @@
+"""
+Transfer of trained components between runs: the architecture checks of the backbone, temporal module and
+classification head, the loading of a pretrained component from the checkpoint of another run, and the freezing of
+components, normalization parameters and batch statistics. Used by the base trainer and by
+scripts/evaluation/evaluate_checkpoint.py.
+"""
+
 import torch
 
 from pathlib import Path

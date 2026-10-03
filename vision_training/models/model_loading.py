@@ -1,3 +1,9 @@
+"""
+Rebuilds a trained task model in evaluation mode from the configuration and checkpoint saved in its run folder,
+choosing the model class from the task through model_registry.py. Used by the deployment exports and the evaluation
+and inference scripts.
+"""
+
 import torch
 
 from pathlib import Path
