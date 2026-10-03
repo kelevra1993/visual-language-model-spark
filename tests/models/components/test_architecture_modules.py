@@ -1,3 +1,9 @@
+"""
+Tests of the building blocks of vision_training/models/components and of the backbone: squeeze and excitation, inception
+convolution, input normalization strategies, convolution block keys, residual shortcuts, backbone shapes and receptive
+field.
+"""
+
 import pytest
 import torch
 

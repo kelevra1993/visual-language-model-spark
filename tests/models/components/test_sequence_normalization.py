@@ -1,3 +1,8 @@
+"""
+Tests of SequenceBatchNormalization of vision_training/models/components/sequence_normalization.py: the statistics are
+those of each sequence, a frame depends on its sequence only and the running statistics are kept but not used.
+"""
+
 import torch
 
 from torch import nn

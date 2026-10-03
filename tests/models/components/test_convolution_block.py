@@ -1,3 +1,8 @@
+"""
+Tests of ConvolutionBlock of vision_training/models/components/convolution_block.py against the reference outputs,
+through check_nn_module_method of tests/testing_utilities.py.
+"""
+
 import torch
 from pathlib import Path
 from vision_training.models.components.convolution_block import ConvolutionBlock
