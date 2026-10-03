@@ -137,7 +137,7 @@ class SequenceDataset(Dataset):
             for window_start in window_starts:
                 window_end = window_start + self.sequence_length
                 self.windows.append({"identifier": len(self.windows), "sequence_identifier": sequence["id"],
-                                     "frames": frames[window_start:window_end],
+                                     "sequence_name": sequence["name"], "frames": frames[window_start:window_end],
                                      "frame_labels": frame_labels[window_start:window_end]})
         if number_left_out_sequences > 0:
             print_color(color="yellow", output=f"{number_left_out_sequences} sequences of unmapped categories or "
@@ -145,6 +145,9 @@ class SequenceDataset(Dataset):
                                                f"file://{os.path.abspath(labels_file)}")
         if shuffle:
             random.shuffle(self.windows)
+
+        # Every window by identifier, to name the evaluated windows and frames in the evaluation outputs
+        self.window_records = {window["identifier"]: window for window in self.windows}
 
         # Name of every class, taken from the categories of the manifest
         self.class_names = get_class_names(categories=manifest["categories"], label_dictionary=label_dictionary)
@@ -187,6 +190,35 @@ class SequenceDataset(Dataset):
 
         return {"images": frames, "sequence_mask": sequence_mask, "labels": label,
                 "sample_identifiers": window["identifier"]}
+
+    def describe_sample(self, sample_identifier: int) -> Dict[str, str]:
+        """
+        Names an evaluated window in the predictions file written at every evaluation, from its identifier in the
+        batches: its sequence, and its first and last real frames, a sequence being cut into several windows.
+
+        Args:
+            sample_identifier (int): The identifier of the window, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            Dict[str, str]: The 'sequence', 'first_frame' and 'last_frame' columns, the frames given relative to the
+                'data' folder.
+        """
+        window = self.window_records[sample_identifier]
+        return {"sequence": window["sequence_name"], "first_frame": window["frames"][0],
+                "last_frame": window["frames"][-1]}
+
+    def get_window_frame_names(self, sample_identifier: int) -> List[str]:
+        """
+        Lists the real frames of an evaluated window, in order, so that the predictions of the sequence labelling task
+        name every frame they classify.
+
+        Args:
+            sample_identifier (int): The identifier of the window, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            List[str]: The paths of the real frames of the window relative to the 'data' folder.
+        """
+        return self.window_records[sample_identifier]["frames"]
 
     def get_class_counts(self) -> List[int]:
         """

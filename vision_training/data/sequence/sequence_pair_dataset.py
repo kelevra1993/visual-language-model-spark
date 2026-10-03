@@ -120,14 +120,17 @@ class SequencePairDataset(Dataset):
             if any(len(frames) == 0 for frames in member_frames.values()):
                 number_left_out_pairs += 1
                 continue
-            self.pairs.append({"identifier": len(self.pairs), "pair_identifier": pair["id"], **member_frames,
-                               "label": label_dictionary[pair["category_id"]]})
+            self.pairs.append({"identifier": len(self.pairs), "pair_identifier": pair["id"], "name": pair["name"],
+                               **member_frames, "label": label_dictionary[pair["category_id"]]})
         if number_left_out_pairs > 0:
             print_color(color="yellow", output=f"{number_left_out_pairs} pairs of unmapped categories, with an empty "
                                                f"member or with a member shorter than {self.sequence_length} frames "
                                                f"left out : file://{os.path.abspath(labels_file)}")
         if shuffle:
             random.shuffle(self.pairs)
+
+        # Every pair by identifier, to name the evaluated pairs in the evaluation outputs
+        self.pair_records = {pair["identifier"]: pair for pair in self.pairs}
 
         # Name of every class, taken from the categories of the manifest
         self.class_names = get_class_names(categories=manifest["categories"], label_dictionary=label_dictionary)
@@ -168,6 +171,19 @@ class SequencePairDataset(Dataset):
         return {"images": torch.cat(tensors=member_frames, dim=0),
                 "sequence_mask": torch.cat(tensors=member_masks, dim=0),
                 "labels": torch.tensor(data=pair["label"], dtype=torch.int64), "sample_identifiers": pair["identifier"]}
+
+    def describe_sample(self, sample_identifier: int) -> Dict[str, str]:
+        """
+        Names an evaluated pair in the predictions file written at every evaluation, from its identifier in the
+        batches.
+
+        Args:
+            sample_identifier (int): The identifier of the pair, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            Dict[str, str]: The 'pair' column, the name of the pair in the manifest.
+        """
+        return {"pair": self.pair_records[sample_identifier]["name"]}
 
     def get_class_counts(self) -> List[int]:
         """

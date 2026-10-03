@@ -8,6 +8,7 @@ from vision_training.configuration.configuration_loader import load_experiment_c
 from vision_training.data.split_description import count_split_pairs
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
+from tests.fixtures.evaluation_checks import check_predictions_file
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                 "sequence_comparison" / "configuration_synthetic_pairs.yaml")
@@ -110,7 +111,10 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_thresholds.json",
                                                                          "confusion_matrix.csv",
-                                                                         "confusion_matrix.png"]
+                                                                         "confusion_matrix.png", "predictions.csv"]
+    rows = check_predictions_file(evaluation_folder=evaluation_folder, results_lines=results_lines, expected_rows=6,
+                                  class_names=trainer.class_names, identification_columns=["pair"])
+    assert sorted(row["pair"] for row in rows) == [f"test_{pair_index:06d}" for pair_index in range(6)]
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(

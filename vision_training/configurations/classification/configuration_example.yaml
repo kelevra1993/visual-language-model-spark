@@ -41,6 +41,11 @@ ExperimentConfiguration:
     # Precision that the score threshold of every class must reach, the threshold keeping the most samples of the
     # class (highest recall) at that precision being saved for deployment. Must be within [0, 1].
     target_precision: 0.99
+    # Saves 'predictions.csv' in the evaluation folder of every evaluated checkpoint: one row per test sample (one per
+    # labelled frame for sequence labelling) with its name, its true and predicted classes and the probability of
+    # every class, to study the errors and the thresholds again without running the model. Its size grows with the
+    # number of test samples times the number of classes, False to skip it on large test sets.
+    save_predictions: True
   # Base learning rate used by the optimizer.
   learning_rate: 5.0e-4
   # Global tensor data type, either "float32" or "float64".

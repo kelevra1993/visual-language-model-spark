@@ -319,12 +319,13 @@ def set_invalid_head(configuration: Dict[str, Any]) -> None:
 
 def set_invalid_classification_evaluation(configuration: Dict[str, Any]) -> None:
     """
-    Sets a top-k accuracy of zero classes and a target precision above 1.
+    Sets a top-k accuracy of zero classes, a target precision above 1 and the predictions setting as a quoted string.
 
     Args:
         configuration (Dict[str, Any]): The raw classification configuration, modified in place.
     """
-    configuration["ExperimentConfiguration"]["evaluation"].update({"top_k": 0, "target_precision": 1.5})
+    configuration["ExperimentConfiguration"]["evaluation"].update({"top_k": 0, "target_precision": 1.5,
+                                                                   "save_predictions": "yes"})
 
 
 @pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
@@ -357,7 +358,9 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
                         "'ClassificationHead.class_weighting' must be one of ['none', 'balanced']"]),
     (set_invalid_classification_evaluation, ["'ExperimentConfiguration.evaluation.top_k' must be an integer >= 1",
                                              "'ExperimentConfiguration.evaluation.target_precision' must be a "
-                                             "probability within [0, 1], got 1.5."])])
+                                             "probability within [0, 1], got 1.5.",
+                                             "'ExperimentConfiguration.evaluation.save_predictions' must be True or "
+                                             "False, got 'yes'."])])
 def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                modify_function: Callable[[Dict[str, Any]], None],
                                                                expected_messages: List[str]) -> None:

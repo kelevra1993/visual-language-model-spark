@@ -33,7 +33,8 @@ def test_multi_class_manifest_loading(tmp_path: Path, capsys: pytest.CaptureFixt
     """
     Verifies that the dataset reads a multi-class manifest: the images are resized to the network input, the raw
     categories become class indices, the samples of unmapped categories are left out with a warning, the class names
-    come from the categories (joined when the label dictionary merges two categories) and the class counts match.
+    come from the categories (joined when the label dictionary merges two categories), the class counts match, and a
+    sample is named by its file name from its identifier.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -58,6 +59,7 @@ def test_multi_class_manifest_loading(tmp_path: Path, capsys: pytest.CaptureFixt
     assert sample["images"].shape == (3, 64, 64) and sample["images"].dtype == torch.uint8
     assert sample["labels"].dtype == torch.int64 and int(sample["labels"]) == 1
     assert sample["sample_identifiers"] == 2
+    assert dataset.describe_sample(sample_identifier=sample["sample_identifiers"]) == {"sample": "b.png"}
 
 
 def test_multi_label_manifest_loading(tmp_path: Path) -> None:

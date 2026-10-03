@@ -74,8 +74,8 @@ def test_pairs_are_read_as_before_then_after_members(tmp_path: Path, capsys: pyt
     """
     Verifies the samples of the sequence pair dataset: the before window followed by the after window along the frame
     axis, a longer member reduced to evenly spaced frames, a shorter one padded with black frames marked by the
-    sequence mask, the frame stride applied before, the class of the pair, distinct identifiers, the class names and
-    counts, and the pairs of unmapped categories left out with a warning.
+    sequence mask, the frame stride applied before, the class of the pair, distinct identifiers naming the pairs, the
+    class names and counts, and the pairs of unmapped categories left out with a warning.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -102,6 +102,7 @@ def test_pairs_are_read_as_before_then_after_members(tmp_path: Path, capsys: pyt
     assert first_sample["sequence_mask"].tolist() == [True] * 6 + [False] * 2
     assert first_sample["labels"].dtype == torch.int64 and int(first_sample["labels"]) == 0
     assert [dataset[pair_index]["sample_identifiers"] for pair_index in range(2)] == [0, 1]
+    assert dataset.describe_sample(sample_identifier=1) == {"pair": "pair_b"}
 
     # With a frame stride of 2, the before member keeps frames 0, 2 and 4, then is padded
     strided_dataset = SequencePairDataset(data_directory=str(tmp_path / "data"),

@@ -9,6 +9,7 @@ from typing import Any, Dict
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.classification_trainer import ClassificationTrainer
+from tests.fixtures.evaluation_checks import check_predictions_file, read_predictions_file
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "classification" /
                                 "configuration_synthetic_shapes.yaml")
@@ -18,7 +19,7 @@ SMOKE_IMAGE_SIZE = 64
 
 
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int,
-                              head_settings: Dict[str, Any]) -> Path:
+                              head_settings: Dict[str, Any], evaluation_settings: Dict[str, Any]) -> Path:
     """
     Writes a copy of the synthetic shapes classification configuration adapted to a quick training smoke test: the
     generated dataset, 64 pixel images, batches of 4 images and a saving schedule that triggers an intermediate save,
@@ -29,6 +30,7 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
         dataset_folder (Path): The root folder of the generated synthetic dataset.
         number_iterations (int): The number of training iterations of the run.
         head_settings (Dict[str, Any]): The 'ClassificationHead' settings replaced for the test.
+        evaluation_settings (Dict[str, Any]): The 'ExperimentConfiguration.evaluation' settings replaced for the test.
 
     Returns:
         Path: The path of the written configuration file.
@@ -46,6 +48,7 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
                                      "validation_iteration_ratio": 2, "resume_training": True})
     experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": True, "compute_model_size": True,
                                                         "view_input_images": False})
+    experiment_configuration["evaluation"].update(evaluation_settings)
 
     # Small images, the generated label mapping, and the head settings of the test
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
@@ -93,7 +96,8 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
 
     # First run: saves at iterations 2 (intermediate), 4 (with test evaluation) and 5 (end of the run)
     trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5, head_settings=head_settings))
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5, head_settings=head_settings,
+        evaluation_settings={}))
     assert trainer.run_name.startswith("CLS_") and "-LS0.1-CWB_MC4_" in trainer.run_name
     assert trainer.class_names == ["square", "circle", "triangle", "rectangle"]
     class_counts = torch.tensor(data=trainer.train_dataloader.dataset.get_class_counts(), dtype=torch.float32)
@@ -110,14 +114,18 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_thresholds.json",
                                                                          "confusion_matrix.csv",
-                                                                         "confusion_matrix.png"]
+                                                                         "confusion_matrix.png", "predictions.csv"]
+    rows = check_predictions_file(evaluation_folder=evaluation_folder, results_lines=results_lines, expected_rows=6,
+                                  class_names=trainer.class_names, identification_columns=["sample"])
+    assert all(row["sample"].endswith(".png") for row in rows)
     class_thresholds = json.loads((evaluation_folder / "class_thresholds.json").read_text())
     assert list(class_thresholds["classes"]) == trainer.class_names
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings=head_settings))
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings=head_settings,
+        evaluation_settings={}))
     assert resumed_trainer.experiment_folder == trainer.experiment_folder
     assert resumed_trainer.start_iteration == 6
     saved_model_state = torch.load(f=weights_directory / "Iteration_5" / "model_000005.pt", map_location="cpu",
@@ -157,7 +165,7 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
 
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5,
-        head_settings={"output_mode": "multi_label"}))
+        head_settings={"output_mode": "multi_label"}, evaluation_settings={}))
     assert "_ML4_" in trainer.run_name
     trainer.run_training_loop()
 
@@ -165,8 +173,36 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     assert results_lines[0] == "Iteration 4 : 4 Test Images"
     assert results_lines[1].startswith("  Subset Accuracy ")
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
-    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_thresholds.json"]
+    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_thresholds.json", "predictions.csv"]
+    multi_label_rows = read_predictions_file(evaluation_folder=evaluation_folder)
+    assert len(multi_label_rows) == 4
+    assert list(multi_label_rows[0])[:4] == ["sample", "true_classes", "predicted_classes", "correct"]
+    assert all(row["true_classes"] in trainer.class_names for row in multi_label_rows)
 
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_predictions_file_can_be_turned_off(tmp_path: Path) -> None:
+    """
+    Verifies that the evaluation writes no predictions file when 'evaluation.save_predictions' is False, for the large
+    test sets whose file would be too big.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
+                             number_frames=1, number_workers=2, task="classification")
+
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4, head_settings={},
+        evaluation_settings={"save_predictions": False}))
+    trainer.run_training_loop()
+
+    evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
+    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_thresholds.json",
+                                                                         "confusion_matrix.csv",
+                                                                         "confusion_matrix.png"]

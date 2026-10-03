@@ -4,8 +4,9 @@ import yaml
 from pathlib import Path
 
 from vision_training.configuration.configuration_migration import (
-    add_freeze_normalization_parameters_to_configuration, add_optimization_section_to_configuration,
-    add_pretrained_settings_to_configuration, add_task_to_configuration, migrate_run_folder)
+    add_evaluation_outputs_to_configuration, add_freeze_normalization_parameters_to_configuration,
+    add_optimization_section_to_configuration, add_pretrained_settings_to_configuration, add_task_to_configuration,
+    migrate_run_folder)
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -189,6 +190,7 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     """
     configuration = yaml.safe_load(stream=SEQUENCE_CONFIGURATION_PATH.read_text())
     del configuration["ExperimentConfiguration"]["task"]
+    del configuration["ExperimentConfiguration"]["evaluation"]["save_predictions"]
     for section_name in ["Backbone", "TemporalModel", "ClassificationHead"]:
         del configuration[section_name]["pretrained"]
     del configuration["Optimization"]
@@ -205,8 +207,36 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     assert migrated_configuration["Backbone"]["pretrained"] == RANDOM_PRETRAINED_BACKBONE_SETTINGS
     for section_name in ["TemporalModel", "ClassificationHead"]:
         assert migrated_configuration[section_name]["pretrained"] == RANDOM_PRETRAINED_SETTINGS
+    assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["save_predictions"] is False
     assert migrate_run_folder(run_folder=renamed_folder, task="sequence_classification",
                               rename_folder=True) == renamed_folder
+
+
+def test_evaluation_outputs_are_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that the predictions setting of the classification-like tasks is added, off as in the runs written
+    before it, right after the target precision, that a configuration which already has it is left untouched, and that
+    a detection configuration, whose evaluation has no target precision, is not changed.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration = yaml.safe_load(stream=SEQUENCE_CONFIGURATION_PATH.read_text())
+    del configuration["ExperimentConfiguration"]["evaluation"]["save_predictions"]
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+
+    assert add_evaluation_outputs_to_configuration(configuration_path=configuration_path) is True
+    evaluation_settings = yaml.safe_load(stream=configuration_path.read_text())["ExperimentConfiguration"]["evaluation"]
+    assert list(evaluation_settings.items())[-1] == ("save_predictions", False)
+    assert add_evaluation_outputs_to_configuration(configuration_path=configuration_path) is False
+
+    # The detection configuration keeps its evaluation settings
+    detection_text = EXAMPLE_CONFIGURATION_PATH.read_text()
+    detection_path = tmp_path / "detection_configuration.yaml"
+    detection_path.write_text(data=detection_text)
+    assert add_evaluation_outputs_to_configuration(configuration_path=detection_path) is False
+    assert detection_path.read_text() == detection_text
 
 
 def test_optimization_section_is_added_once(tmp_path: Path) -> None:

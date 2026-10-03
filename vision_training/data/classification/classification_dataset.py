@@ -60,6 +60,9 @@ class ClassificationDataset(Dataset):
         if shuffle:
             random.shuffle(self.samples)
 
+        # Every kept sample by identifier, to name the evaluated samples in the evaluation outputs
+        self.sample_records = {sample["identifier"]: sample for sample in self.samples}
+
         # Name of every class, taken from the categories of the manifest
         self.class_names = get_class_names(categories=manifest["categories"], label_dictionary=label_dictionary)
 
@@ -96,6 +99,19 @@ class ClassificationDataset(Dataset):
             label = torch.tensor(data=sample["class_indices"][0], dtype=torch.int64)
 
         return {"images": image_tensor, "labels": label, "sample_identifiers": sample["identifier"]}
+
+    def describe_sample(self, sample_identifier: int) -> Dict[str, str]:
+        """
+        Names an evaluated sample in the predictions file written at every evaluation, from its identifier in the
+        batches.
+
+        Args:
+            sample_identifier (int): The identifier of the sample, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            Dict[str, str]: The 'sample' column, the file name of the image relative to the 'data' folder.
+        """
+        return {"sample": self.sample_records[sample_identifier]["file_name"]}
 
     def get_class_counts(self) -> List[int]:
         """

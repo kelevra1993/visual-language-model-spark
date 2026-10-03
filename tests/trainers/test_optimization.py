@@ -101,7 +101,7 @@ def test_mixed_precision_training(tmp_path: Path, capsys: pytest.CaptureFixture)
                              split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
                              number_frames=1, number_workers=2, task="classification")
     configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
-                                                   number_iterations=5, head_settings={})
+                                                   number_iterations=5, head_settings={}, evaluation_settings={})
     configuration = yaml.safe_load(stream=configuration_path.read_text())
     configuration["Optimization"]["mixed_precision"] = True
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))

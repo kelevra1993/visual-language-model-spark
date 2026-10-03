@@ -1,8 +1,8 @@
 from typing import Any, Dict, List
 
 from vision_training.configuration.common_checks import check_pretrained_configuration
-from vision_training.configuration.configuration_values import (check_positive_integers, check_probability_value,
-                                                                get_configuration_value)
+from vision_training.configuration.configuration_values import (check_boolean_flags, check_positive_integers,
+                                                                check_probability_value, get_configuration_value)
 
 # Global pooling of the final feature map before the classification head
 VALID_GLOBAL_POOLINGS = ["average", "max"]
@@ -108,7 +108,8 @@ def check_classification_head_configuration(model_configuration: Dict[str, Any])
 def check_classification_evaluation_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'ExperimentConfiguration.evaluation' settings of the classification-like tasks: the k of the top-k
-    accuracy, and the precision targeted by the per-class threshold finder.
+    accuracy, the precision targeted by the per-class threshold finder, and whether the predictions of every test
+    sample are saved.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -125,6 +126,8 @@ def check_classification_evaluation_configuration(experiment_configuration: Dict
                                                key_path="ExperimentConfiguration.evaluation.target_precision")
     errors += check_probability_value(value=target_precision,
                                       key_path="ExperimentConfiguration.evaluation.target_precision")
+    errors += check_boolean_flags(configuration=configuration,
+                                  key_paths=["ExperimentConfiguration.evaluation.save_predictions"])
     return errors
 
 

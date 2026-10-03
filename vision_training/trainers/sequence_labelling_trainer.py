@@ -2,7 +2,7 @@ import torch
 
 from typing import Any, Dict, List, Optional
 
-from vision_training.core.contracts import IGNORED_LABEL_INDEX
+from vision_training.core.contracts import IGNORED_LABEL_INDEX, SAMPLE_IDENTIFIERS_KEY
 from vision_training.evaluation.sequence.sequence_metrics import compute_frame_accuracy, compute_sequence_exact_matches
 from vision_training.trainers.sequence_classification_trainer import SequenceClassificationTrainer
 
@@ -40,22 +40,26 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
 
     def create_evaluation_accumulator(self) -> Dict[str, Any]:
         """
-        Creates the lists of class probabilities and labels of the labelled frames, and of the exact matches of the
-        windows, filled during the evaluation of the test split.
+        Creates the lists of class probabilities and labels of the labelled frames, of the window and position of
+        every labelled frame, and of the exact matches of the windows, filled during the evaluation of the test split.
 
         Returns:
-            Dict[str, Any]: The empty 'probabilities', 'labels' and 'exact_matches' lists.
+            Dict[str, Any]: The empty 'probabilities', 'labels', 'frame_window_identifiers', 'frame_positions' and
+                'exact_matches' lists.
         """
-        return {"probabilities": [], "labels": [], "exact_matches": []}
+        return {"probabilities": [], "labels": [], "frame_window_identifiers": [], "frame_positions": [],
+                "exact_matches": []}
 
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
         """
         Keeps the class probabilities and the labels of the labelled frames of the kept windows of a test batch on the
-        CPU, and whether every labelled frame of each window is right.
+        CPU, with the window and the position of every labelled frame, which name the frames in the predictions file,
+        and whether every labelled frame of each window is right.
 
         Args:
-            accumulator (Dict[str, Any]): The 'probabilities', 'labels' and 'exact_matches' lists, extended in place.
+            accumulator (Dict[str, Any]): The 'probabilities', 'labels', 'frame_window_identifiers', 'frame_positions'
+                and 'exact_matches' lists, extended in place.
             batch (Dict[str, Any]): The prepared test batch.
             predictions (Dict[str, Any]): The sequence labeller outputs.
             sample_indices (List[int]): The indices of the windows to keep.
@@ -65,8 +69,44 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
         labelled_frames = labels != IGNORED_LABEL_INDEX
         accumulator["probabilities"].append(probabilities[labelled_frames].cpu().double())
         accumulator["labels"].append(labels[labelled_frames].cpu())
+
+        # Window and position of every labelled frame, in the order of the frames kept above
+        window_identifiers = batch[SAMPLE_IDENTIFIERS_KEY][sample_indices].to(device=labels.device)
+        frame_positions = torch.arange(labels.shape[1], device=labels.device).expand(labels.shape[0], -1)
+        accumulator["frame_window_identifiers"].append(
+            window_identifiers[:, None].expand(-1, labels.shape[1])[labelled_frames].cpu())
+        accumulator["frame_positions"].append(frame_positions[labelled_frames].cpu())
         accumulator["exact_matches"].append(compute_sequence_exact_matches(
             predicted_labels=probabilities.argmax(dim=-1), labels=labels).cpu())
+
+    def build_prediction_rows(self, accumulator: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Builds the rows of the predictions file, one per labelled frame of the evaluated test windows: its sequence and
+        its frame file, followed by its prediction.
+
+        Args:
+            accumulator (Dict[str, Any]): The class probabilities and labels of the labelled frames, with their windows
+                and positions.
+
+        Returns:
+            List[Dict[str, Any]]: The rows of the predictions file, in the order of the evaluation.
+        """
+        probabilities = torch.cat(tensors=accumulator["probabilities"], dim=0)
+        labels = torch.cat(tensors=accumulator["labels"], dim=0)
+        window_identifiers = torch.cat(tensors=accumulator["frame_window_identifiers"], dim=0)
+        frame_positions = torch.cat(tensors=accumulator["frame_positions"], dim=0)
+        test_dataset = self.test_dataloader.dataset
+
+        # The sequence and the file of every frame, then its prediction
+        rows = []
+        for row_index in range(len(labels)):
+            window_identifier = int(window_identifiers[row_index])
+            frame_names = test_dataset.get_window_frame_names(sample_identifier=window_identifier)
+            row = {"sequence": test_dataset.describe_sample(sample_identifier=window_identifier)["sequence"],
+                   "frame": frame_names[int(frame_positions[row_index])]}
+            row.update(self.describe_prediction(probabilities=probabilities[row_index], label=labels[row_index]))
+            rows.append(row)
+        return rows
 
     def describe_evaluated_samples(self, accumulator: Dict[str, Any]) -> str:
         """

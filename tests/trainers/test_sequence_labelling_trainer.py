@@ -7,6 +7,7 @@ from pathlib import Path
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.sequence_labelling_trainer import SequenceLabellingTrainer
+from tests.fixtures.evaluation_checks import check_predictions_file
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                 "sequence_labelling" / "configuration_synthetic_sequences.yaml")
@@ -108,7 +109,11 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_thresholds.json",
                                                                          "confusion_matrix.csv",
-                                                                         "confusion_matrix.png"]
+                                                                         "confusion_matrix.png", "predictions.csv"]
+    rows = check_predictions_file(evaluation_folder=evaluation_folder, results_lines=results_lines, expected_rows=24,
+                                  class_names=trainer.class_names, identification_columns=["sequence", "frame"])
+    # The 3 test sequences of 6 frames give 18 distinct frames, frames 2 and 3 of each sequence being in both windows
+    assert len({(row["sequence"], row["frame"]) for row in rows}) == 3 * 6
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
