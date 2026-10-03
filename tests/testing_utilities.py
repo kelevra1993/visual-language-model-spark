@@ -1,3 +1,9 @@
+"""
+Shared helpers of the model tests: checking an nn.Module method against reference outputs, creating deterministic
+tensors and building the small seeded detector used by the detector baseline and inference tests and by the debug
+scripts under scripts/models.
+"""
+
 import copy
 import os
 import torch
