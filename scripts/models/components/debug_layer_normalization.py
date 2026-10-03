@@ -1,3 +1,9 @@
+"""
+When run, applies the ChannelLayerNormalizer of vision_training.models.components.convolution_block to a random
+tensor and prints the mean and standard deviation over the channel dimension before and after it, to check that it
+normalizes the channels of every pixel and not the spatial dimensions.
+"""
+
 import torch
 
 from vision_training.utilities.tensor_utilities import print_tensor_list, print_tensor_shape
