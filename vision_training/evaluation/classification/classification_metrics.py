@@ -1,3 +1,9 @@
+"""
+Metrics of the classification-like tasks: confusion matrix, per-class precision, recall and F1, accuracy, top-k
+accuracy and the multi-label metrics. Used by the classification trainer, from which the sequence classification
+and comparison trainers inherit, to evaluate a checkpoint on the test split.
+"""
+
 import torch
 
 from typing import Any, Dict

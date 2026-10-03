@@ -1,3 +1,9 @@
+"""
+Search of the per-class score thresholds reaching a target precision ('ExperimentConfiguration.evaluation'), for
+deployments that only accept a prediction above a per-class threshold. Used by the classification trainer at every
+evaluation.
+"""
+
 import torch
 
 from typing import List, Optional, Tuple

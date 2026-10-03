@@ -1,3 +1,8 @@
+"""
+Drawing and saving of the confusion matrix of an evaluated checkpoint, as a CSV table and as an image in the
+evaluation folder of the checkpoint. Used by the classification trainer and the trainers inheriting from it.
+"""
+
 import csv
 import cv2
 import numpy as np
