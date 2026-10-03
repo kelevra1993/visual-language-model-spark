@@ -105,7 +105,7 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5, head_settings=head_settings,
         evaluation_settings={"error_dumps": {"activated": True, "maximum_per_class_pair": 1}}))
-    assert trainer.run_name.startswith("CLS_") and "-LS0.1-CWB_MC4_" in trainer.run_name
+    assert trainer.run_name.startswith("CLS_") and trainer.run_name.endswith("-LS0.1-CWB_MC4")
     assert trainer.class_names == ["square", "circle", "triangle", "rectangle"]
     class_counts = torch.tensor(data=trainer.train_dataloader.dataset.get_class_counts(), dtype=torch.float32)
     expected_class_weights = class_counts.sum() / (4 * class_counts.clamp(min=1.0))
@@ -174,7 +174,7 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5,
         head_settings={"output_mode": "multi_label"}, evaluation_settings={}))
-    assert "_ML4_" in trainer.run_name
+    assert trainer.run_name.endswith("_ML4")
     trainer.run_training_loop()
 
     results_lines = (trainer.experiment_folder / "Results.txt").read_text().splitlines()

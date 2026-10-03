@@ -5,6 +5,7 @@ to an old configuration, and migrate_run_folder renames old run folders after th
 """
 
 import json
+import pytest
 import yaml
 
 from pathlib import Path
@@ -41,9 +42,9 @@ RANDOM_PRETRAINED_BACKBONE_SETTINGS = {"experiment_folder": None, "iteration": N
 def write_old_run_folder(temporary_directory: Path) -> Path:
     """
     Writes a run folder as trained before the task-aware configuration, the backbone transfer and the optimization
-    settings: an old-style name, and a saved configuration without task, pretrained backbone settings nor
-    optimization section (a copy of the example configuration, with binary labels so that no mapping file is
-    needed).
+    settings: an old-style name (without task code, with the augmentation, batch size and learning rate tokens no
+    longer written), and a saved configuration without task, pretrained backbone settings nor optimization section
+    (a copy of the example configuration, with binary labels so that no mapping file is needed).
 
     Args:
         temporary_directory (Path): The pytest temporary directory, used as the experiments root folder.
@@ -58,7 +59,7 @@ def write_old_run_folder(temporary_directory: Path) -> Path:
     del configuration["Data"]["loading"]
     configuration["Data"]["label_mapping"] = {"mode": "binary", "mapping_file_path": None}
 
-    run_folder = temporary_directory / "IN-KAR-1024_old_run_name"
+    run_folder = temporary_directory / "IN-KAR-1024_old_run_name_AUG-BS40-LR2e-4"
     run_folder.mkdir()
     (run_folder / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=configuration))
     return run_folder
@@ -83,8 +84,9 @@ def test_task_is_added_once(tmp_path: Path) -> None:
 def test_run_folder_is_renamed_after_its_settings(tmp_path: Path) -> None:
     """
     Verifies that migrating an old run upgrades its configuration, leaves its folder in place unless renaming is
-    asked, renames it to the name the current code builds (starting with the task code), and that migrating it again
-    changes nothing.
+    asked, renames it to the name the current code builds (starting with the task code, without the augmentation,
+    batch size and learning rate tokens), that migrating it again changes nothing, and that another old run differing
+    only by its learning rate is refused instead of being merged into the renamed folder.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -95,10 +97,21 @@ def test_run_folder_is_renamed_after_its_settings(tmp_path: Path) -> None:
     assert run_folder.exists()
 
     renamed_folder = migrate_run_folder(run_folder=run_folder, task="object_detection", rename_folder=True)
-    assert renamed_folder.name.startswith("DET_")
+    assert renamed_folder.name.startswith("DET_") and renamed_folder.name.endswith("_BIN")
+    assert not any(token in renamed_folder.name for token in ["AUG", "BS40", "LR2e-4"])
     assert renamed_folder.exists() and not run_folder.exists()
 
     assert migrate_run_folder(run_folder=renamed_folder, task="object_detection", rename_folder=True) == renamed_folder
+
+    # Another old run with the same settings except its learning rate now has the same name, so it is not renamed
+    other_run_folder = write_old_run_folder(temporary_directory=tmp_path)
+    other_configuration_path = other_run_folder / "training_configuration.yaml"
+    other_configuration = yaml.safe_load(stream=other_configuration_path.read_text())
+    other_configuration["ExperimentConfiguration"]["learning_rate"] = 1e-3
+    other_configuration_path.write_text(data=yaml.safe_dump(data=other_configuration))
+    with pytest.raises(expected_exception=FileExistsError):
+        migrate_run_folder(run_folder=other_run_folder, task="object_detection", rename_folder=True)
+    assert other_run_folder.exists()
 
 
 def test_pretrained_settings_are_added_once(tmp_path: Path) -> None:

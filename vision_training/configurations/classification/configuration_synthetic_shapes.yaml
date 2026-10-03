@@ -6,10 +6,11 @@ ExperimentConfiguration:
   # "classification" trains the image classifier, and requires the ClassificationHead section.
   task: "classification"
   # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
-  # backbone modules, normalization and blocks, classification head, classes, augmentation, batch size, learning
-  # rate), so that the same settings resume in the same folder and changed settings start a new one, e.g.
-  # CLS_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128-DO0.2_MC4_AUG-BS64-LR1e-3. The format is
-  # described in vision_training/configuration/run_name.py.
+  # backbone modules, normalization and blocks, classification head, classes, optimizer and weight decay unless plain
+  # Adam), so that the same settings resume in the same folder and changed settings start a new one, e.g.
+  # CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128-DO0.2_MC4. The augmentation, batch size, learning
+  # rate and its schedule, gradient clipping and mixed precision give no token, so that a run can be resumed in its
+  # folder with changed values. The format is described in vision_training/configuration/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Root directory containing the training dataset images and labels.json manifest.
   train_data_folder: "/home/robert_kelevra/Data/classifier_data/synthetic_shapes/train"
@@ -72,7 +73,7 @@ ExperimentConfiguration:
       # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
       # input images captioned with their class. SPACE shows the next images, ENTER closes the viewer and exits the
       # program without training, so set it to False to train. Requires a display (skipped with a warning otherwise)
-      view_input_images: True
+      view_input_images: False
 
 Optimization:
   # Optimizer of the model parameters: "adam", "adamw" (Adam with the weight decay decoupled from the gradients) or

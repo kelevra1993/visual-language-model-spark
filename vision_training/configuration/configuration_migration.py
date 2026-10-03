@@ -1,8 +1,8 @@
 """
 Migration of configuration files and run folders written by older versions of the code: inserts as text, keeping
 the comments, the keys and sections added since (task, pretrained settings, evaluation outputs, sequence settings,
-Optimization), and renames the run folder to its current run name. Called by
-scripts/configuration/migrate_configuration.py.
+Optimization), and renames the run folder to its current run name (without the training tokens no longer written
+in the run names). Called by scripts/configuration/migrate_configuration.py.
 """
 
 import yaml
@@ -368,9 +368,11 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     'Backbone.pretrained.freeze_normalization_parameters' flag (off), the evaluation outputs of the classification-like
     tasks (no predictions file nor error images), the sequence augmentations (off), the scope of the sequence
     normalization of the comparison task (per member), its 'Optimization' section (plain Adam at a constant
-    learning rate) and its loading settings (4 worker processes), and its folder is renamed to the run name the current code builds from that configuration (the
-    task code being now the first section of the run names). The configuration is fully checked on the way, any
-    other missing key being reported by the configuration checker.
+    learning rate) and its loading settings (4 worker processes), and its folder is renamed to the run name the
+    current code builds from that configuration (the task code being now the first section of the run names, and the
+    augmentation, batch size, learning rate, schedule, gradient clipping and mixed precision tokens being no longer
+    written). The configuration is fully checked on the way, any other missing key being reported by the configuration
+    checker. Two old folders differing only by these settings get the same new name, the second one being refused.
 
     Args:
         run_folder (Path): The run folder, holding 'training_configuration.yaml', 'Weights' and 'Tensorboard'.

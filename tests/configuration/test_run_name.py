@@ -1,7 +1,8 @@
 """
 Tests of build_run_name of vision_training/configuration/run_name.py on the reference configurations of every task: the
-reference run names are fixed, and every changed setting (architecture, inputs, heads, temporal modules, fusions,
-transfers, augmentations, normalization, optimization) changes the run name with its token.
+reference run names are fixed, every changed setting (architecture, inputs, heads, temporal modules, fusions,
+transfers, normalization, optimizer, weight decay) changes the run name with its token, and the training settings that
+can change between two resumptions (augmentation, batch size, learning rate, schedule, clipping, mixed precision) keep it.
 """
 
 import copy
@@ -19,14 +20,13 @@ EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "c
 
 # Run name of the reference settings set by get_reference_configurations
 REFERENCE_RUN_NAME = ("DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_"
-                      "DSE-DRES-DBN-D7.2x64.256.128_BIN_AUG-BS40-LR2e-4")
+                      "DSE-DRES-DBN-D7.2x64.256.128_BIN")
 
 CLASSIFICATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                      "classification" / "configuration_synthetic_shapes.yaml")
 
 # Run name of the classification reference settings set by get_classification_reference_configurations
-CLASSIFICATION_REFERENCE_RUN_NAME = ("CLS_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128-DO0.2_MC4_"
-                                     "AUG-BS64-LR1e-3")
+CLASSIFICATION_REFERENCE_RUN_NAME = "CLS_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128-DO0.2_MC4"
 
 # Pretrained settings of a temporal module or classification head trained from random weights
 NO_TRANSFER_SETTINGS = {"experiment_folder": None, "iteration": None, "freeze": False, "learning_rate_multiplier": 1.0}
@@ -182,7 +182,8 @@ def use_multi_class_labels(experiment_configuration: Dict[str, Any], model_confi
 
 def change_training_settings(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
-    Turns off data augmentation, and trains with another batch size and learning rate.
+    Changes every training setting that can change between two resumptions of a run: turns off data augmentation,
+    and trains with another batch size, learning rate and schedule, gradient clipping and mixed precision.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
@@ -191,12 +192,16 @@ def change_training_settings(experiment_configuration: Dict[str, Any], model_con
     model_configuration["Data"]["data_augmentation"]["activated"] = False
     experiment_configuration["batch_size"] = 16
     experiment_configuration["learning_rate"] = 1.5e-3
+    model_configuration["Optimization"].update({"learning_rate_schedule": "cosine", "warmup_iterations": 500,
+                                                "decay_iterations": 20000, "gradient_clipping_norm": 1.0,
+                                                "mixed_precision": True})
 
 
 def test_reference_run_name() -> None:
     """
-    Verifies the run name of the reference settings, and that the same settings always give the same name, which
-    lets a run resume in its own folder.
+    Verifies the run name of the reference settings, that the same settings always give the same name, which lets a
+    run resume in its own folder, and that the training settings that can change between two resumptions (augmentation,
+    batch size, learning rate and schedule, gradient clipping, mixed precision) keep that name.
     """
     experiment_configuration, model_configuration = get_reference_configurations()
     run_name = build_run_name(experiment_configuration=experiment_configuration,
@@ -204,6 +209,11 @@ def test_reference_run_name() -> None:
     assert run_name == REFERENCE_RUN_NAME
     assert build_run_name(experiment_configuration=copy.deepcopy(experiment_configuration),
                           model_configuration=copy.deepcopy(model_configuration)) == run_name
+
+    # Changed training settings resume in the same folder
+    change_training_settings(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == run_name
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
@@ -217,8 +227,7 @@ def test_reference_run_name() -> None:
     (change_detection_levels, REFERENCE_RUN_NAME.replace("_L567_A9.32-512_", "_L67_A9.64-512_")),
     (differ_heads_per_level, REFERENCE_RUN_NAME.replace("A9.32-512", "A12+9+9.16-512").replace(
         "R2x64", "R2x64+2x64+3x128").replace("D7.2x64.256.128", "D14.2x64.512+7.2x64.256.128+7.2x64.256.128")),
-    (use_multi_class_labels, REFERENCE_RUN_NAME.replace("_BIN_", "_MC4_")),
-    (change_training_settings, REFERENCE_RUN_NAME.replace("_AUG-BS40-LR2e-4", "_BS16-LR1.5e-3"))])
+    (use_multi_class_labels, REFERENCE_RUN_NAME.replace("_BIN", "_MC4"))])
 def test_changed_settings_change_run_name(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None],
                                           expected_run_name: str) -> None:
     """
@@ -326,7 +335,7 @@ def use_multi_label_outputs(experiment_configuration: Dict[str, Any], model_conf
     (use_max_pooling_and_two_hidden_layers, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128-", "_HMAX.256.64-")),
     (remove_hidden_layers_and_dropout, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128-DO0.2_", "_HAVG-DO0_")),
     (smooth_labels_and_balance_classes, CLASSIFICATION_REFERENCE_RUN_NAME.replace("-DO0.2_", "-DO0.2-LS0.1-CWB_")),
-    (use_multi_label_outputs, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_MC4_", "_ML5_"))])
+    (use_multi_label_outputs, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_MC4", "_ML5"))])
 def test_classification_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                   expected_run_name: str) -> None:
     """
@@ -349,8 +358,7 @@ SEQUENCE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "
                                "sequence_classification" / "configuration_synthetic_sequences.yaml")
 
 # Run name of the sequence reference settings set by get_sequence_reference_configurations
-SEQUENCE_REFERENCE_RUN_NAME = ("M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HAVG.64-DO0.2_MC4_"
-                               "AUG-BS16-LR1e-3")
+SEQUENCE_REFERENCE_RUN_NAME = "M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HAVG.64-DO0.2_MC4"
 
 
 def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -506,7 +514,7 @@ def test_sequence_labelling_run_name() -> None:
 
 # Run name of the sequence comparison reference settings set by get_sequence_comparison_reference_configurations
 SEQUENCE_COMPARISON_REFERENCE_RUN_NAME = ("CMP_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64-"
-                                          "DO0.2_MC2_AUG-BS16-LR1e-3")
+                                          "DO0.2_MC2")
 
 
 def get_sequence_comparison_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -653,31 +661,25 @@ def test_pretrained_temporal_module_and_head_run_names(section_name: str, freeze
         original_section, expected_section)
 
 
-@pytest.mark.parametrize(argnames=("augmentation_activated", "shuffle_frames", "independent_frames",
-                                   "expected_tokens"), argvalues=[(True, True, False, "_AUG-SHUF-BS16-"),
-                                                                  (True, False, True, "_AUG-IND-BS16-"),
-                                                                  (True, True, True, "_AUG-SHUF-IND-BS16-"),
-                                                                  (False, True, True, "_BS16-")])
-def test_sequence_augmentation_run_name_tokens(augmentation_activated: bool, shuffle_frames: bool,
-                                               independent_frames: bool, expected_tokens: str) -> None:
+@pytest.mark.parametrize(argnames=("augmentation_activated", "shuffle_frames", "independent_frames"),
+                         argvalues=[(True, True, False), (True, False, True), (True, True, True), (False, True, True)])
+def test_sequence_augmentation_keeps_run_name(augmentation_activated: bool, shuffle_frames: bool,
+                                              independent_frames: bool) -> None:
     """
-    Verifies the tokens of the sequence augmentations after AUG in the training section: SHUF when the frames of the
-    windows are shuffled, IND when the photometric augmentations are drawn frame by frame, neither when the
-    augmentation is off.
+    Verifies that the sequence augmentations (frames of the windows shuffled, photometric augmentations drawn frame by
+    frame) give no token, so that a sequence run can be resumed in its folder with other augmentation settings.
 
     Args:
         augmentation_activated (bool): Whether the data augmentation is on.
         shuffle_frames (bool): Whether the frames of the windows are shuffled.
         independent_frames (bool): Whether the photometric augmentations are drawn frame by frame.
-        expected_tokens (str): The expected start of the training section.
     """
     experiment_configuration, model_configuration = get_sequence_reference_configurations()
     model_configuration["Data"]["data_augmentation"].update({
         "activated": augmentation_activated, "independent_frames": independent_frames,
         "shuffle_frames": {"activated": shuffle_frames, "probability": 0.5}})
     assert build_run_name(experiment_configuration=experiment_configuration,
-                          model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME.replace(
-        "_AUG-BS16-", expected_tokens)
+                          model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME
 
 
 @pytest.mark.parametrize(argnames=("feature_map_normalization", "normalization_scope", "expected_sections"),
@@ -707,8 +709,8 @@ def test_sequence_normalization_run_name_tokens(feature_map_normalization: str, 
 
 def test_optimization_run_name_tokens() -> None:
     """
-    Verifies the optimization tokens at the end of the training section, written only for the settings that differ
-    from plain Adam at a constant learning rate.
+    Verifies the optimizer section at the end of the run name, written only for an optimizer other than Adam or a
+    weight decay, the schedule, gradient clipping and mixed precision giving no token.
     """
     experiment_configuration, model_configuration = get_classification_reference_configurations()
     model_configuration["Optimization"] = {"optimizer": "adamw", "weight_decay": 1e-4,
@@ -717,4 +719,4 @@ def test_optimization_run_name_tokens() -> None:
                                            "gradient_clipping_norm": 1.0, "mixed_precision": True}
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == CLASSIFICATION_REFERENCE_RUN_NAME.replace(
-        "_AUG-BS64-LR1e-3", "_AUG-BS64-LR1e-3-ADAMW-WD1e-4-WU500-COS20000-GC1-BF16")
+        "_MC4", "_MC4_ADAMW-WD1e-4")

@@ -1,6 +1,6 @@
 """
 Building of the run names: the name of the folder a training run is saved in, made of short tokens describing the
-settings of the run (task, input, backbone, training, task sections). Called by the base trainer to create or
+settings of the run (task, input, backbone, task and optimizer sections). Called by the base trainer to create or
 resume a run folder, and by configuration_migration.py to rename migrated run folders.
 """
 
@@ -153,48 +153,28 @@ def format_scientific(value: float) -> str:
     mantissa, exponent = f"{value:e}".split("e")
     return f"{mantissa.rstrip('0').rstrip('.')}e{int(exponent)}"
 
-def build_training_tokens(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> List[str]:
+def build_optimizer_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Builds the training section of the run name, shared by every task: AUG when augmenting, followed by SHUF when the
-    frames of the windows are shuffled and IND when the photometric augmentations are drawn frame by frame, the batch
-    size and the learning rate in short scientific notation (e.g. 2e-4, 1.5e-3), then the optimization settings that
-    differ from plain Adam at a constant learning rate: ADAMW or SGD, WD<weight decay>, WU<warm-up iterations>,
-    COS<decay iterations> for the cosine schedule, GC<gradient clipping norm> and BF16 for mixed precision.
+    Builds the optimizer section of the run name, shared by every task, left out with plain Adam without weight decay:
+    ADAMW or SGD, whose state cannot be resumed by another optimizer, then WD<weight decay>. The other training settings
+    (augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision) give no token, so
+    that a run can be resumed in its folder with changed values.
 
     Args:
-        experiment_configuration (Dict[str, Any]): The processed experiment configuration.
         model_configuration (Dict[str, Any]): The processed model configuration.
 
     Returns:
-        List[str]: The tokens of the section.
+        List[str]: The tokens of the section, empty with plain Adam without weight decay.
     """
-    augmentation_configuration = model_configuration["Data"]["data_augmentation"]
-    training_tokens = ["AUG"] if augmentation_configuration["activated"] else []
-
-    # Sequence augmentations, only applied when augmenting: shuffled frames, and photometric draws per frame
-    if augmentation_configuration["activated"] and augmentation_configuration["shuffle_frames"]["activated"]:
-        training_tokens.append("SHUF")
-    if augmentation_configuration["activated"] and augmentation_configuration["independent_frames"]:
-        training_tokens.append("IND")
-    training_tokens.append(f"BS{experiment_configuration['batch_size']}")
-    training_tokens.append(f"LR{format_scientific(value=experiment_configuration['learning_rate'])}")
-
-    # Optimization settings, written only when they differ from plain Adam at a constant learning rate
     optimization_configuration = model_configuration["Optimization"]
-    if optimization_configuration["optimizer"] != "adam":
-        training_tokens.append(optimization_configuration["optimizer"].upper())
-    if optimization_configuration["weight_decay"] > 0:
-        training_tokens.append(f"WD{format_scientific(value=optimization_configuration['weight_decay'])}")
-    if optimization_configuration["warmup_iterations"] > 0:
-        training_tokens.append(f"WU{optimization_configuration['warmup_iterations']}")
-    if optimization_configuration["learning_rate_schedule"] == "cosine":
-        training_tokens.append(f"COS{optimization_configuration['decay_iterations']}")
-    if optimization_configuration["gradient_clipping_norm"] is not None:
-        training_tokens.append(f"GC{optimization_configuration['gradient_clipping_norm']:g}")
-    if optimization_configuration["mixed_precision"]:
-        training_tokens.append("BF16")
-    return training_tokens
 
+    # Optimizer and weight decay, written only when they differ from plain Adam without weight decay
+    optimizer_tokens = []
+    if optimization_configuration["optimizer"] != "adam":
+        optimizer_tokens.append(optimization_configuration["optimizer"].upper())
+    if optimization_configuration["weight_decay"] > 0:
+        optimizer_tokens.append(f"WD{format_scientific(value=optimization_configuration['weight_decay'])}")
+    return optimizer_tokens
 
 
 def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
@@ -429,13 +409,14 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
     Builds the name of the folder a training run is saved in, from the settings that define the run, so that a run
     always trains in a folder matching its configuration: the same settings resume in the same folder, and changed
     settings, in particular every setting changing the model size, start a new one instead of mixing with a folder
-    whose saved configuration no longer matches.
+    whose saved configuration no longer matches. The training settings that can change between two resumptions of a
+    run (augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision) give no token.
 
     The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
     is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
-    DSE-DRES-DBN-D7.2x64.256.128_BIN_AUG-BS40-LR2e-4' (without the line break): the task code (DET, CLS, M2O, M2M or
-    CMP), the input and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the
-    sections of the task (e.g. build_detection_sections), then the training section (build_training_tokens).
+    DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, CLS, M2O, M2M or CMP), the input
+    and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the sections of the task
+    (e.g. build_detection_sections), then the optimizer section (build_optimizer_tokens), left out when empty.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration, with its task.
@@ -447,7 +428,10 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
     task = experiment_configuration["task"]
     sections = ([[TASK_CODES[task]], build_input_tokens(model_configuration=model_configuration),
                  build_backbone_tokens(model_configuration=model_configuration)] +
-                TASK_RUN_NAME_SECTIONS[task](model_configuration=model_configuration) +
-                [build_training_tokens(experiment_configuration=experiment_configuration,
-                                       model_configuration=model_configuration)])
+                TASK_RUN_NAME_SECTIONS[task](model_configuration=model_configuration))
+
+    # Optimizer section, only written when the run does not use plain Adam without weight decay
+    optimizer_tokens = build_optimizer_tokens(model_configuration=model_configuration)
+    if optimizer_tokens:
+        sections.append(optimizer_tokens)
     return "_".join("-".join(section) for section in sections)

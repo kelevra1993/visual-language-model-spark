@@ -95,8 +95,9 @@ def test_optimizer_schedule_and_clipping_in_training(tmp_path: Path, optimizer_n
 
 def test_mixed_precision_training(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies a short classification training with mixed precision: the run name carries BF16, the forward passes run
-    in bfloat16 without failing any iteration, and the test evaluation, in float32, is written to Results.txt.
+    Verifies a short classification training with mixed precision: the run name carries no token for it (a run can
+    be resumed with or without mixed precision), the forward passes run in bfloat16 without failing any iteration, and
+    the test evaluation, in float32, is written to Results.txt.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -113,7 +114,7 @@ def test_mixed_precision_training(tmp_path: Path, capsys: pytest.CaptureFixture)
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))
 
     trainer = build_trainer(configuration_path=configuration_path)
-    assert trainer.run_name.endswith("-BF16")
+    assert "BF16" not in trainer.run_name and trainer.run_name.endswith("_MC4")
     trainer.run_training_loop()
 
     assert (trainer.experiment_folder / "Results.txt").read_text().startswith("Iteration 4 : 4 Test Images")

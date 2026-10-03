@@ -1,7 +1,8 @@
 """
 When run, migrates an old run folder trained before the task-aware configuration and the backbone transfer to the
 current configuration format through vision_training.configuration.configuration_migration.migrate_run_folder, and
-prints (or applies) the new folder name given by the current run name.
+prints (or applies) the new folder name given by the current run name, e.g. without the augmentation, batch size and
+learning rate tokens of the older run names.
 """
 
 from pathlib import Path

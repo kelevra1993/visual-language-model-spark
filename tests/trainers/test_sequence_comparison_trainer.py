@@ -109,7 +109,7 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5))
     assert trainer.run_name.startswith("CMP_") and "_T4_GRU1x128-BI_FXA4_" in trainer.run_name
-    assert "_AUG-SHUF-BS2-" in trainer.run_name
+    assert "AUG" not in trainer.run_name and "SHUF" not in trainer.run_name
     assert trainer.class_names == ["loss_of_object", "same_number_of_objects"]
     trainer.run_training_loop()
 
