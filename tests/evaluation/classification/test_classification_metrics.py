@@ -1,3 +1,9 @@
+"""
+Tests of the classification evaluation of vision_training/evaluation/classification: the confusion matrix and metrics
+against hand-computed values, the top-k accuracy, the multi-label metrics, the class thresholds of threshold_finder.py
+and the confusion matrix files.
+"""
+
 import csv
 import cv2
 import pytest
