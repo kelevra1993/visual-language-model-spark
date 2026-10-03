@@ -1,3 +1,10 @@
+"""
+Trainer of the image classification task: the data loaders of the 'labels.json' manifests, the classifier, the
+accuracy tracked on every batch, and the evaluation of the checkpoints on the test split (classification metrics,
+confusion matrix, class thresholds, error images and the predictions file). Registered for the classification task and
+extended by the sequence classification trainer.
+"""
+
 import csv
 import json
 import cv2

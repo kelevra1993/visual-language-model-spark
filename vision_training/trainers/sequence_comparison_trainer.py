@@ -1,3 +1,9 @@
+"""
+Trainer of the sequence comparison task (CMP): pairs of sequences stored as the before window followed by the after
+window of every pair, split again into the two members just before the sequence comparator, the rest being the
+sequence classification trainer. Registered for the sequence comparison task in the task registry.
+"""
+
 import torch
 
 from pathlib import Path

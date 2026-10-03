@@ -1,3 +1,9 @@
+"""
+Learning rate schedule of the 'Optimization' section: the factor of the learning rate at an iteration (linear warm-up,
+then constant or cosine decay), computed from the iteration alone so that a resumed run continues it. Applied by the
+general trainer at every optimizer step.
+"""
+
 import math
 
 from typing import Any, Dict

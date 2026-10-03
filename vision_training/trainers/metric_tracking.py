@@ -1,3 +1,8 @@
+"""
+Metric tracking of the general trainer: the rolling averages of the training and validation losses and batch metrics
+over every console interval, the console summary printed at every information dump and the TensorBoard curves.
+"""
+
 import time
 import torch
 

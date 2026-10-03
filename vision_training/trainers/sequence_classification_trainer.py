@@ -1,3 +1,10 @@
+"""
+Trainer of the sequence classification task (M2O): the loaders of the frame windows cut from the sequences of the
+'labels.json' manifests, the sequence classifier, the sequence augmentations and the frame grids of the input viewer and
+error images, the losses and evaluation being those of the classification trainer. Registered in the task registry and
+extended by the sequence labelling and sequence comparison trainers.
+"""
+
 import numpy as np
 import torch
 

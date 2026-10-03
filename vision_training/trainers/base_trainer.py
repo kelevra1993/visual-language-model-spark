@@ -1,3 +1,10 @@
+"""
+General trainer shared by every task: the run folder, the training loop with its validation passes, the optimizer
+and learning rate schedule, the checkpoints and the resume, the evaluation of the saved checkpoints on the test split
+and the input batch viewer. The task trainers subclass it and implement its abstract hooks, and vision_training/main.py
+builds them through the task registry.
+"""
+
 import math
 import torch
 

@@ -1,3 +1,9 @@
+"""
+Trainer of the object detection task: the COCO-format loaders (DALI or Native), the two-stage detector with its four
+losses, the geometric augmentations moving the bounding boxes, and the evaluation of the checkpoints on the test split
+with the mean average precision. Registered for the object detection task in the task registry.
+"""
+
 import torch
 
 from contextlib import contextmanager

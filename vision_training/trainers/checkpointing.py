@@ -1,3 +1,10 @@
+"""
+Checkpoint files of the training runs: the 'Weights/Iteration_<iteration>' layout, the registry of saved
+iterations, the save protected from keyboard interrupts and the load. Used by the general trainer to save and resume,
+and by the checkpoint evaluation, the model transfer, the exports and scripts/evaluation/evaluate_checkpoint.py to
+find and read the weights of a run.
+"""
+
 import os
 import signal
 import torch

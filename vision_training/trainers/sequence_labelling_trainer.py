@@ -1,3 +1,9 @@
+"""
+Trainer of the sequence labelling task (M2M): one class per frame of the windows, the accuracy and the evaluation of
+the checkpoints counting only the labelled frames (frame metrics, error frames, predictions file and the share of fully
+correct windows), the loaders being those of the sequence classification trainer. Registered in the task registry.
+"""
+
 import cv2
 import numpy as np
 import torch
