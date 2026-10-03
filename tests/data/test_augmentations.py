@@ -1,3 +1,9 @@
+"""
+Tests of DataAugmenter of vision_training/data/augmentations.py: geometric augmentations moving and removing boxes,
+photometric augmentations keeping boxes and pixel range, images without boxes, shared or per-frame draws of the sequence
+frames, frame shuffling and the rejected inputs.
+"""
+
 import random
 import pytest
 import torch

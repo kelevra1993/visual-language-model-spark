@@ -1,3 +1,8 @@
+"""
+Tests of count_split_images_and_annotations of vision_training/data/split_description.py, counting the images and
+annotations of a detection split from its labels.json.
+"""
+
 import json
 import pytest
 

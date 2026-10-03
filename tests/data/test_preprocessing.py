@@ -1,3 +1,8 @@
+"""
+Tests of vision_training/data/preprocessing.py: restore_boxes_to_original_image inverts preprocess_boxes, bringing the
+detected boxes back to the original image coordinates.
+"""
+
 import numpy as np
 import pytest
 
