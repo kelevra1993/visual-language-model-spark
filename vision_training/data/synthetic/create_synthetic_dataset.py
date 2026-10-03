@@ -17,13 +17,19 @@ from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
 from vision_training.utilities.os_utilities import print_color
 
 # Shape classes of the synthetic dataset and their COCO category identifiers
-SHAPE_CATEGORIES = {"square": 1, "circle": 2, "triangle": 3, "rectangle": 4}
+SHAPE_CATEGORIES = {"square": 1, "circle": 2, "triangle": 3, "rectangle": 4, "pentagon": 5, "hexagon": 6,
+                    "plus_sign": 7, "star": 8, "octagon": 9}
 
 # Rectangles are elongated to exercise the 0.5 and 2.0 anchor aspect ratios (ratio of the long to the short side)
 RECTANGLE_ASPECT_RATIO_RANGE = (1.5, 3.0)
 
 # Minimum area of a triangle, relative to the area of the square region its vertices are drawn in
 MINIMUM_TRIANGLE_AREA_FRACTION = 0.15
+
+# Ratio of the inner to the outer radius of the five-pointed stars, and width of the arms of the plus signs relative
+# to their length
+STAR_INNER_RADIUS_RATIO = 0.45
+PLUS_SIGN_ARM_WIDTH_RATIO = 0.35
 
 # Maximum overlap allowed between two objects of the same image, and number of placement attempts per object
 MAXIMUM_OBJECT_INTERSECTION_OVER_UNION = 0.3
@@ -50,9 +56,12 @@ MAXIMUM_SHAPE_CHANGES = 3
 # before member, or shows all of them
 PAIR_CATEGORIES = {"loss_of_object": 1, "same_number_of_objects": 2}
 
-# Minimum number of objects of the before member of a pair, and minimum number of frames of every member
+# Minimum number of objects of the before member of a pair
 PAIR_MINIMUM_OBJECTS = 2
-PAIR_MINIMUM_FRAMES = 2
+
+# Minimum number of frames of a sequence or of a member of a pair: a movement, a change of class or a comparison of
+# the numbers of objects needs two frames
+MINIMUM_SEQUENCE_FRAMES = 2
 
 # Minimum gap in pixels between two objects of a pair frame, so that every object is countable, and number of
 # attempts at drawing a frame where every object fits
@@ -76,7 +85,7 @@ TASK_SAMPLE_NAMES = {"object_detection": "images", "classification": "images", "
 def draw_square_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
                      ) -> None:
     """
-    Draws a filled axis-aligned square of side 'size' on a binary mask, one of the four synthetic shape classes.
+    Draws a filled axis-aligned square of side 'size' on a binary mask, one of the synthetic shape classes.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -93,7 +102,7 @@ def draw_square_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, 
 def draw_circle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
                      ) -> None:
     """
-    Draws a filled circle of diameter 'size' on a binary mask, one of the four synthetic shape classes.
+    Draws a filled circle of diameter 'size' on a binary mask, one of the synthetic shape classes.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -109,7 +118,7 @@ def draw_triangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int
                        random_generator: np.random.Generator) -> None:
     """
     Draws a filled triangle with three random vertices inside a 'size' x 'size' square on a binary mask, one of the
-    four synthetic shape classes. Vertices are redrawn until the triangle is not too flat to be recognisable.
+    synthetic shape classes. Vertices are redrawn until the triangle is not too flat to be recognisable.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -136,7 +145,7 @@ def draw_rectangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: in
                         random_generator: np.random.Generator) -> None:
     """
     Draws a filled axis-aligned rectangle whose long side is 'size' and whose aspect ratio is between 1.5 and 3,
-    either horizontal or vertical, on a binary mask. One of the four synthetic shape classes.
+    either horizontal or vertical, on a binary mask. One of the synthetic shape classes.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -153,9 +162,131 @@ def draw_rectangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: in
                   color=255, thickness=-1)
 
 
+def fill_radial_polygon(mask: np.ndarray, center_x: int, center_y: int, size: int, vertex_radii: List[float],
+                        random_generator: np.random.Generator) -> None:
+    """
+    Fills on a binary mask a polygon whose vertices are evenly spaced around its centre, at the given fractions of the
+    outer radius 'size' / 2, starting from a random angle: a regular polygon when every radius is 1, a star when the
+    radii alternate between 1 and a smaller one. Shared by the pentagons, hexagons, octagons and stars.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle the outer vertices lie on, in pixels.
+        vertex_radii (List[float]): The radius of every vertex in turn, as a fraction of the outer radius.
+        random_generator (np.random.Generator): The random generator drawing the rotation of the shape.
+    """
+    # Angles of the vertices, evenly spaced from a random rotation of the shape
+    outer_radius = size / 2
+    start_angle = random_generator.uniform(low=0.0, high=2 * np.pi)
+    angles = start_angle + 2 * np.pi * np.arange(len(vertex_radii)) / len(vertex_radii)
+
+    # Vertices at their radius around the centre, kept inside the 'size' x 'size' square of the shape
+    radii = outer_radius * np.array(vertex_radii)
+    vertices = np.stack([center_x + radii * np.cos(angles), center_y + radii * np.sin(angles)], axis=-1)
+    points = np.clip(np.round(vertices), a_min=[center_x - size // 2, center_y - size // 2],
+                     a_max=[center_x + size // 2, center_y + size // 2]).astype(np.int32).reshape(-1, 1, 2)
+    cv2.fillPoly(img=mask, pts=[points], color=255)
+
+
+def draw_pentagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                       random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled regular pentagon inscribed in a circle of diameter 'size', at a random rotation, on a binary mask.
+    One of the synthetic shape classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle the vertices lie on, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the rotation.
+    """
+    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 5,
+                        random_generator=random_generator)
+
+
+def draw_hexagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                      random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled regular hexagon inscribed in a circle of diameter 'size', at a random rotation, on a binary mask.
+    One of the synthetic shape classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle the vertices lie on, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the rotation.
+    """
+    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 6,
+                        random_generator=random_generator)
+
+
+def draw_octagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                      random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled regular octagon inscribed in a circle of diameter 'size', at a random rotation, on a binary mask.
+    One of the synthetic shape classes, close to the circle at small sizes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle the vertices lie on, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the rotation.
+    """
+    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 8,
+                        random_generator=random_generator)
+
+
+def draw_star_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                   random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled five-pointed star whose points lie on a circle of diameter 'size' and whose inner vertices lie at
+    0.45 of that radius, at a random rotation, on a binary mask. One of the synthetic shape classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle the points lie on, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the rotation.
+    """
+    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                        vertex_radii=[1.0, STAR_INNER_RADIUS_RATIO] * 5, random_generator=random_generator)
+
+
+def draw_plus_sign_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                        random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled axis-aligned plus sign whose two arms are 'size' long and 0.35 of that wide, on a binary mask. One
+    of the synthetic shape classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The length of the arms in pixels.
+        random_generator (np.random.Generator): Unused, kept so that every shape shares the same signature.
+    """
+    half_size = size // 2
+    arm_width = max(2, int(round(size * PLUS_SIGN_ARM_WIDTH_RATIO)))
+    half_width = arm_width // 2
+
+    # Horizontal arm, then vertical arm, crossing at the centre
+    cv2.rectangle(img=mask, pt1=(center_x - half_size, center_y - half_width),
+                  pt2=(center_x - half_size + size - 1, center_y - half_width + arm_width - 1), color=255, thickness=-1)
+    cv2.rectangle(img=mask, pt1=(center_x - half_width, center_y - half_size),
+                  pt2=(center_x - half_width + arm_width - 1, center_y - half_size + size - 1), color=255, thickness=-1)
+
+
 # Drawing function of every shape class
 SHAPE_DRAWING_FUNCTIONS = {"square": draw_square_mask, "circle": draw_circle_mask, "triangle": draw_triangle_mask,
-                           "rectangle": draw_rectangle_mask}
+                           "rectangle": draw_rectangle_mask, "pentagon": draw_pentagon_mask,
+                           "hexagon": draw_hexagon_mask, "plus_sign": draw_plus_sign_mask, "star": draw_star_mask,
+                           "octagon": draw_octagon_mask}
 
 
 def get_mask_bounding_box(mask: np.ndarray) -> List[int]:
@@ -305,8 +436,9 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
         np.ndarray, List[Tuple[int, List[int]]]]:
     """
     Generates one synthetic detection image: a random-colour or black background with 1 to 'maximum_objects' shapes
-    (squares, circles, triangles, rectangles) of random colours, sizes from 32 pixels to a third of the image side,
-    overlapping each other by at most an intersection over union of 0.3.
+    (squares, circles, triangles, rectangles, pentagons, hexagons, plus signs, stars, octagons) of random colours,
+    sizes from 32 pixels to a third of the image side, overlapping each other by at most an intersection over union of
+    0.3.
 
     Args:
         image_size (int): The height and width of the square image in pixels.
@@ -555,7 +687,7 @@ def draw_shapes_frame(background: np.ndarray, shape_descriptors: List[Dict[str, 
                        f"pixel frame after {MAXIMUM_FRAME_ATTEMPTS} attempts.")
 
 
-def generate_object_loss_pair(image_size: int, number_frames: int, maximum_objects: int,
+def generate_object_loss_pair(image_size: int, minimum_frames: int, maximum_frames: int, maximum_objects: int,
                               random_generator: np.random.Generator) -> Tuple[Dict[str, List[np.ndarray]], int]:
     """
     Generates one synthetic sequence comparison sample: a before member and an after member, two sequences of
@@ -563,12 +695,13 @@ def generate_object_loss_pair(image_size: int, number_frames: int, maximum_objec
     random positions in every frame, over a background shared by the pair). The after member lost one of the objects
     (class 'loss_of_object') or shows all of them (class 'same_number_of_objects'), with the same probability. A single
     member does not give the class, only the comparison of the numbers of objects of the two members, and every frame
-    shows exactly its number of objects.
+    shows exactly its number of objects. Each member draws its own number of frames, e.g. 5 before frames and 12
+    after frames.
 
     Args:
         image_size (int): The height and width of the square frames in pixels.
-        number_frames (int): The maximum number of frames of a member, at least 2, every member having 2 to
-            number_frames frames.
+        minimum_frames (int): The minimum number of frames of a member, at least 2.
+        maximum_frames (int): The maximum number of frames of a member, at least minimum_frames.
         maximum_objects (int): The maximum number of objects of the before member, at least 2.
         random_generator (np.random.Generator): The random generator of the pair.
 
@@ -577,12 +710,11 @@ def generate_object_loss_pair(image_size: int, number_frames: int, maximum_objec
             and the category identifier of the pair.
 
     Raises:
-        ValueError: If number_frames or maximum_objects is below 2.
+        ValueError: If maximum_objects is below 2.
     """
-    if number_frames < PAIR_MINIMUM_FRAMES or maximum_objects < PAIR_MINIMUM_OBJECTS:
-        raise ValueError(f"The comparison pairs need members of at least {PAIR_MINIMUM_FRAMES} frames and "
-                         f"{PAIR_MINIMUM_OBJECTS} objects, got number_frames {number_frames} and maximum_objects "
-                         f"{maximum_objects}.")
+    if maximum_objects < PAIR_MINIMUM_OBJECTS:
+        raise ValueError(f"The comparison pairs need at least {PAIR_MINIMUM_OBJECTS} objects in their before member, "
+                         f"got maximum_objects {maximum_objects}.")
     background, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
 
     # Objects of the before member, drawn once so that both members show the same objects
@@ -601,7 +733,7 @@ def generate_object_loss_pair(image_size: int, number_frames: int, maximum_objec
     # Independent views of the objects of every member, each member with its own number of frames
     member_frames = {}
     for member_name, member_descriptors in zip(PAIR_MEMBERS, [before_descriptors, after_descriptors]):
-        member_length = int(random_generator.integers(low=PAIR_MINIMUM_FRAMES, high=number_frames + 1))
+        member_length = int(random_generator.integers(low=minimum_frames, high=maximum_frames + 1))
         member_frames[member_name] = [draw_shapes_frame(background=background, shape_descriptors=member_descriptors,
                                                         random_generator=random_generator)
                                       for _ in range(member_length)]
@@ -632,12 +764,13 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Generates and saves one chunk of sequences (or pairs of sequences) of a split, run by a worker process, the frames
     of every sequence in its own folder '<data folder>/<split>_<index>/', and those of a pair in its member folders
-    '<data folder>/<split>_<index>/before/' and '.../after/'. Each chunk draws its samples with its own random
+    '<data folder>/<split>_<index>/before/' and '.../after/'. Every sequence, and every member of a pair, has its own
+    number of frames between 'minimum_frames' and 'maximum_frames'. Each chunk draws its samples with its own random
     generator, seeded from the operating system, so every generation creates a different dataset.
 
     Args:
         chunk (Dict[str, Any]): The chunk description: 'data_folder', 'split_name', 'first_index',
-            'number_sequences', 'image_size', 'number_frames', 'maximum_objects' and 'task'.
+            'number_sequences', 'image_size', 'minimum_frames', 'maximum_frames', 'maximum_objects' and 'task'.
 
     Returns:
         List[Dict[str, Any]]: For every sample, its 'index', 'name', its 'frames' (or the frames of its 'before' and
@@ -650,26 +783,30 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     for sequence_index in range(chunk["first_index"], chunk["first_index"] + chunk["number_sequences"]):
         sequence_name = f"{chunk['split_name']}_{sequence_index:06d}"
 
+        # Number of frames of the sequence, the members of a pair drawing their own
+        number_frames = int(random_generator.integers(low=chunk["minimum_frames"], high=chunk["maximum_frames"] + 1))
+
         # A shape crossing the frames labelled with its direction, a shape changing class labelled per frame, or two
         # members labelled with the comparison of their numbers of objects, the frames saved in their folders
         if chunk["task"] == "sequence_comparison":
             member_frames, category_identifier = generate_object_loss_pair(
-                image_size=chunk["image_size"], number_frames=chunk["number_frames"],
-                maximum_objects=chunk["maximum_objects"], random_generator=random_generator)
+                image_size=chunk["image_size"], minimum_frames=chunk["minimum_frames"],
+                maximum_frames=chunk["maximum_frames"], maximum_objects=chunk["maximum_objects"],
+                random_generator=random_generator)
             sequence_frames = {member_name: save_frames(data_folder=chunk["data_folder"],
                                                         frame_folder=f"{sequence_name}/{member_name}", frames=frames)
                                for member_name, frames in member_frames.items()}
             sequence_labels = {"category_id": category_identifier}
         elif chunk["task"] == "sequence_classification":
             frames, category_identifier = generate_moving_shape_sequence(image_size=chunk["image_size"],
-                                                                         number_frames=chunk["number_frames"],
+                                                                         number_frames=number_frames,
                                                                          random_generator=random_generator)
             sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
                                                      frames=frames)}
             sequence_labels = {"category_id": category_identifier}
         else:
             frames, frame_category_ids = generate_changing_shape_sequence(image_size=chunk["image_size"],
-                                                                          number_frames=chunk["number_frames"],
+                                                                          number_frames=number_frames,
                                                                           random_generator=random_generator)
             sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
                                                      frames=frames)}
@@ -719,7 +856,7 @@ def build_sequence_labels(sequence_records: List[Dict[str, Any]], split_name: st
 
 
 def generate_split(split_folder: str, split_name: str, number_samples: int, image_size: int, maximum_objects: int,
-                   number_frames: int, number_workers: int, task: str) -> Dict[str, int]:
+                   minimum_frames: int, maximum_frames: int, number_workers: int, task: str) -> Dict[str, int]:
     """
     Generates one split of the synthetic dataset in the folder layout the loaders of the task read: the images (or
     the frame folders of the sequences) in '<split_folder>/data' and their labels in '<split_folder>/labels.json'
@@ -733,8 +870,10 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         image_size (int): The height and width of the images in pixels.
         maximum_objects (int): The maximum number of objects per image (object detection, the classification images
             holding a single shape) or per before member of a pair (sequence comparison).
-        number_frames (int): The number of frames of every sequence, or the maximum number of frames of a member of a
-            pair (sequence tasks only).
+        minimum_frames (int): The minimum number of frames of a sequence or of a member of a pair (sequence tasks
+            only).
+        maximum_frames (int): The maximum number of frames of a sequence or of a member of a pair (sequence tasks
+            only).
         number_workers (int): The number of worker processes generating the images.
         task (str): "object_detection", "classification", "sequence_classification", "sequence_labelling" or
             "sequence_comparison".
@@ -750,8 +889,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
     if task in SEQUENCE_TASKS:
         chunks = [{"data_folder": data_folder, "split_name": split_name, "first_index": first_index,
                    "number_sequences": min(SEQUENCES_PER_TASK, number_samples - first_index),
-                   "image_size": image_size, "number_frames": number_frames, "maximum_objects": maximum_objects,
-                   "task": task}
+                   "image_size": image_size, "minimum_frames": minimum_frames, "maximum_frames": maximum_frames,
+                   "maximum_objects": maximum_objects, "task": task}
                   for first_index in range(0, number_samples, SEQUENCES_PER_TASK)]
         with Pool(processes=number_workers) as pool:
             sequence_records = [record for chunk_records in pool.map(generate_sequence_chunk, chunks)
@@ -782,14 +921,15 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
 
 
 def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: Dict[str, int], maximum_objects: int,
-                             number_frames: int, number_workers: int, task: str) -> None:
+                             minimum_frames: int, maximum_frames: int, number_workers: int, task: str) -> None:
     """
     Creates the whole synthetic shapes dataset of a task: the train, validation and test splits, all labelled, and the
     'label_mapping.json' file used by the 'multi_class' label mapping mode of the configuration. The dataset is a
     trivial task used to check that a model learns (it should overfit it within minutes): several shapes per image
     to detect, a single shape per image to classify, a shape crossing the frames of a sequence whose movement
     direction is classified, a shape changing class during a sequence whose every frame is classified, or a pair of
-    sequences of the same objects whose after member may have lost one of them.
+    sequences of the same objects whose after member may have lost one of them. Every sequence, and every member of a
+    pair, has its own number of frames between minimum_frames and maximum_frames.
 
     Args:
         output_folder (str): The root folder of the dataset.
@@ -798,12 +938,22 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
             name.
         maximum_objects (int): The maximum number of objects per image (object detection) or per before member of a
             pair (sequence comparison).
-        number_frames (int): The number of frames of every sequence, or the maximum number of frames of a member of a
-            pair (sequence tasks only).
+        minimum_frames (int): The minimum number of frames of a sequence or of a member of a pair, at least 2
+            (sequence tasks only).
+        maximum_frames (int): The maximum number of frames of a sequence or of a member of a pair, at least
+            minimum_frames (sequence tasks only).
         number_workers (int): The number of worker processes generating the images.
         task (str): "object_detection", "classification", "sequence_classification", "sequence_labelling" or
             "sequence_comparison".
+
+    Raises:
+        ValueError: If the frame range of a sequence task starts below 2 or is empty.
     """
+    # A movement, a change of class or a comparison needs two frames, in a range that holds at least one length
+    if task in SEQUENCE_TASKS and not MINIMUM_SEQUENCE_FRAMES <= minimum_frames <= maximum_frames:
+        raise ValueError(f"The sequences need {MINIMUM_SEQUENCE_FRAMES} <= minimum_frames <= maximum_frames, got "
+                         f"minimum_frames {minimum_frames} and maximum_frames {maximum_frames}.")
+
     # Generate every split in its own folder
     sample_name = TASK_SAMPLE_NAMES[task]
     for split_name, number_samples in split_sizes.items():
@@ -811,7 +961,8 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         print_color(color="blue", output=f"Generating {number_samples} {split_name} {sample_name}...")
         class_counts = generate_split(split_folder=split_folder, split_name=split_name, number_samples=number_samples,
                                       image_size=image_size, maximum_objects=maximum_objects,
-                                      number_frames=number_frames, number_workers=number_workers, task=task)
+                                      minimum_frames=minimum_frames, maximum_frames=maximum_frames,
+                                      number_workers=number_workers, task=task)
         print_color(color="green", output=f"{split_name} split : file://{split_folder}", indent=1)
         print_color(color="green", output=f"Labels per class : {class_counts}", indent=1)
 
@@ -839,8 +990,8 @@ if __name__ == "__main__":
                       "sequence_labelling": "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes",
                       "sequence_comparison": "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs"}
     # Height and width of the square images in pixels, for every task
-    image_sizes = {"object_detection": 1024, "classification": 256, "sequence_classification": 128,
-                   "sequence_labelling": 128, "sequence_comparison": 128}
+    image_sizes = {"object_detection": 1024, "classification": 512, "sequence_classification": 512,
+                   "sequence_labelling": 512, "sequence_comparison": 512}
     # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task
     split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
                    "classification": {"train": 4000, "validation": 500, "test": 500},
@@ -850,14 +1001,17 @@ if __name__ == "__main__":
     # Maximum number of shapes drawn in one image (at least one is always drawn, object detection) or in the before
     # member of a pair (at least two, sequence comparison), for every task (unused by the other tasks)
     maximum_objects = {"object_detection": 6, "classification": 1, "sequence_classification": 1,
-                       "sequence_labelling": 1, "sequence_comparison": 4}
-    # Number of frames of every sequence, or maximum number of frames of a member of a pair (at least two), for every
-    # task (unused by the image tasks)
-    number_frames = {"object_detection": 1, "classification": 1, "sequence_classification": 8,
-                     "sequence_labelling": 8, "sequence_comparison": 6}
+                       "sequence_labelling": 1, "sequence_comparison": 6}
+    # Minimum and maximum number of frames of a sequence or of a member of a pair, every sequence and every member
+    # drawing its own number of frames in that range (at least two, unused by the image tasks)
+    minimum_frames = {"object_detection": 1, "classification": 1, "sequence_classification": 2,
+                      "sequence_labelling": 2, "sequence_comparison": 2}
+    maximum_frames = {"object_detection": 1, "classification": 1, "sequence_classification": 12,
+                      "sequence_labelling": 12, "sequence_comparison": 12}
     # Number of worker processes generating the images
     number_workers = 8
 
     create_synthetic_dataset(output_folder=output_folders[task], image_size=image_sizes[task],
                              split_sizes=split_sizes[task], maximum_objects=maximum_objects[task],
-                             number_frames=number_frames[task], number_workers=number_workers, task=task)
+                             minimum_frames=minimum_frames[task], maximum_frames=maximum_frames[task],
+                             number_workers=number_workers, task=task)

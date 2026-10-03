@@ -47,15 +47,15 @@ def test_shape_boxes_are_tight(shape_name: str) -> None:
 def test_created_dataset_is_valid_coco_and_loads(tmp_path: Path) -> None:
     """
     Verifies that the created dataset has the folder layout and COCO annotations expected by the data loaders:
-    every image listed with its size, boxes inside the images, the four shape categories, a label mapping for the
-    multi-class mode, and that the Native dataset loads it with labels 1 to 4.
+    every image listed with its size, boxes inside the images, every shape category, a label mapping for the
+    multi-class mode, and that the Native dataset loads it with the category identifiers as labels.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
     create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE,
-                             split_sizes={"train": 8, "validation": 2, "test": 2}, maximum_objects=4, number_frames=1,
-                             number_workers=2, task="object_detection")
+                             split_sizes={"train": 8, "validation": 2, "test": 2}, maximum_objects=4, minimum_frames=1,
+                             maximum_frames=1, number_workers=2, task="object_detection")
 
     labels = json.loads((tmp_path / "train" / "labels.json").read_text())
     assert len(labels["images"]) == 8 and len(labels["annotations"]) >= 8
@@ -83,13 +83,13 @@ def test_created_dataset_is_valid_coco_and_loads(tmp_path: Path) -> None:
         sample = dataset[index]
         assert sample["bounding_boxes"].shape[0] == sample["labels"].shape[0] > 0
         loaded_labels |= set(sample["labels"].tolist())
-    assert loaded_labels <= {1, 2, 3, 4}
+    assert loaded_labels <= set(SHAPE_CATEGORIES.values())
 
 
 def test_created_classification_dataset_has_one_shape_per_image(tmp_path: Path) -> None:
     """
     Verifies the classification mode of the generator: every split gets a manifest with one sample per image, labelled
-    with the category of its single shape, a label mapping giving the classes 0 to 3, and the classification dataset
+    with the category of its single shape, a label mapping giving the classes 0 to 8, and the classification dataset
     loads it with its class names.
 
     Args:
@@ -97,7 +97,7 @@ def test_created_classification_dataset_has_one_shape_per_image(tmp_path: Path) 
     """
     create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE,
                              split_sizes={"train": 12, "validation": 2, "test": 2}, maximum_objects=4,
-                             number_frames=1, number_workers=2, task="classification")
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
 
     labels = json.loads((tmp_path / "train" / "labels.json").read_text())
     assert len(labels["samples"]) == 12
@@ -105,16 +105,17 @@ def test_created_classification_dataset_has_one_shape_per_image(tmp_path: Path) 
     assert all(sample["category_id"] in SHAPE_CATEGORIES.values() for sample in labels["samples"])
     assert all((tmp_path / "train" / "data" / sample["file_name"]).is_file() for sample in labels["samples"])
 
-    # The classifier predicts no background class: the four categories become the classes 0 to 3
+    # The classifier predicts no background class: the nine categories become the classes 0 to 8
     label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
-    assert label_mapping == {"1": 0, "2": 1, "3": 2, "4": 3}
+    assert label_mapping == {str(category_identifier): category_identifier - 1
+                             for category_identifier in SHAPE_CATEGORIES.values()}
 
     dataset = ClassificationDataset(data_directory=str(tmp_path / "train" / "data"),
                                     labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
                                     keep_ratio=True, label_dictionary={int(category): class_index for category,
                                                                        class_index in label_mapping.items()},
                                     output_mode="multi_class")
-    assert dataset.class_names == {0: "square", 1: "circle", 2: "triangle", 3: "rectangle"}
+    assert dataset.class_names == {class_index: shape_name for class_index, shape_name in enumerate(SHAPE_CATEGORIES)}
     assert sum(dataset.get_class_counts()) == 12
 
 
@@ -137,25 +138,29 @@ def get_shape_centroid(frame: np.ndarray) -> np.ndarray:
 def test_created_sequence_dataset_moves_its_shapes_in_the_labelled_direction(tmp_path: Path) -> None:
     """
     Verifies the sequence classification mode of the generator: every split gets a manifest of sequences with their
-    ordered frames, the label mapping gives the four directions the classes 0 to 3, and the shape of every sequence
-    moves in the direction of its label between its first and its last frame.
+    ordered frames, 3 to 6 frames whose number varies from sequence to sequence, the label mapping gives the four
+    directions the classes 0 to 3, and the shape of every sequence moves in the direction of its label between its
+    first and its last frame.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
     create_synthetic_dataset(output_folder=str(tmp_path), image_size=64,
                              split_sizes={"train": 12, "validation": 2, "test": 2}, maximum_objects=1,
-                             number_frames=6, number_workers=2, task="sequence_classification")
+                             minimum_frames=3, maximum_frames=6, number_workers=2, task="sequence_classification")
 
     labels = json.loads((tmp_path / "train" / "labels.json").read_text())
     assert [category["name"] for category in labels["categories"]] == list(MOVEMENT_CATEGORIES)
     assert json.loads((tmp_path / "label_mapping.json").read_text()) == {"1": 0, "2": 1, "3": 2, "4": 3}
     assert len(labels["sequences"]) == 12
 
+    # Every sequence draws its own number of frames in the requested range
+    sequence_lengths = [len(sequence["frames"]) for sequence in labels["sequences"]]
+    assert all(3 <= sequence_length <= 6 for sequence_length in sequence_lengths) and len(set(sequence_lengths)) > 1
+
     # Displacement of the shape between the first and the last frame, along the direction of the label
     category_names = {category_identifier: name for name, category_identifier in MOVEMENT_CATEGORIES.items()}
     for sequence in labels["sequences"]:
-        assert len(sequence["frames"]) == 6
         frames = [cv2.imread(filename=str(tmp_path / "train" / "data" / frame_file))
                   for frame_file in sequence["frames"]]
         displacement = get_shape_centroid(frame=frames[-1]) - get_shape_centroid(frame=frames[0])
@@ -167,29 +172,33 @@ def test_created_sequence_dataset_moves_its_shapes_in_the_labelled_direction(tmp
 def test_created_sequence_labelling_dataset_labels_every_frame(tmp_path: Path) -> None:
     """
     Verifies the sequence labelling mode of the generator: every sequence lists the shape category of every frame,
-    the shape changes class at least once, the frames of the same class segment are identical and two consecutive
-    segments differ, and the label mapping gives the four shapes the classes 0 to 3.
+    2 to 6 frames whose number varies from sequence to sequence, the shape changes class at least once, the frames of
+    the same class segment are identical and two consecutive segments differ, and the label mapping gives the nine
+    shapes the classes 0 to 8.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
     create_synthetic_dataset(output_folder=str(tmp_path), image_size=64,
                              split_sizes={"train": 10, "validation": 2, "test": 2}, maximum_objects=1,
-                             number_frames=6, number_workers=2, task="sequence_labelling")
+                             minimum_frames=2, maximum_frames=6, number_workers=2, task="sequence_labelling")
 
     labels = json.loads((tmp_path / "train" / "labels.json").read_text())
     assert [category["name"] for category in labels["categories"]] == list(SHAPE_CATEGORIES)
-    assert json.loads((tmp_path / "label_mapping.json").read_text()) == {"1": 0, "2": 1, "3": 2, "4": 3}
+    assert json.loads((tmp_path / "label_mapping.json").read_text()) == {
+        str(category_identifier): category_identifier - 1 for category_identifier in SHAPE_CATEGORIES.values()}
+    sequence_lengths = [len(sequence["frames"]) for sequence in labels["sequences"]]
+    assert all(2 <= sequence_length <= 6 for sequence_length in sequence_lengths) and len(set(sequence_lengths)) > 1
 
     for sequence in labels["sequences"]:
         frame_category_ids = sequence["frame_category_ids"]
-        assert len(frame_category_ids) == len(sequence["frames"]) == 6
+        assert len(frame_category_ids) == len(sequence["frames"])
         assert len(set(frame_category_ids)) >= 2 and set(frame_category_ids) <= set(SHAPE_CATEGORIES.values())
 
         # Identical frames within a class segment, different frames across a change of class
         frames = [cv2.imread(filename=str(tmp_path / "train" / "data" / frame_file))
                   for frame_file in sequence["frames"]]
-        for frame_index in range(1, 6):
+        for frame_index in range(1, len(frames)):
             same_class = frame_category_ids[frame_index] == frame_category_ids[frame_index - 1]
             assert np.array_equal(frames[frame_index], frames[frame_index - 1]) == same_class
 
@@ -223,7 +232,7 @@ def test_created_sequence_comparison_dataset_loses_an_object_in_the_after_member
     """
     create_synthetic_dataset(output_folder=str(tmp_path), image_size=64,
                              split_sizes={"train": 12, "validation": 2, "test": 2}, maximum_objects=3,
-                             number_frames=4, number_workers=2, task="sequence_comparison")
+                             minimum_frames=2, maximum_frames=4, number_workers=2, task="sequence_comparison")
 
     labels = json.loads((tmp_path / "train" / "labels.json").read_text())
     assert [category["name"] for category in labels["categories"]] == list(PAIR_CATEGORIES)
@@ -258,3 +267,20 @@ def test_pair_frames_fail_loudly_when_objects_do_not_fit() -> None:
     with pytest.raises(expected_exception=RuntimeError, match="never fitted"):
         draw_shapes_frame(background=np.zeros(shape=(32, 32, 3), dtype=np.uint8), shape_descriptors=shape_descriptors,
                           random_generator=np.random.default_rng())
+
+
+@pytest.mark.parametrize(argnames=("minimum_frames", "maximum_frames"), argvalues=[(1, 4), (5, 4)])
+def test_sequence_frame_range_is_checked(tmp_path: Path, minimum_frames: int, maximum_frames: int) -> None:
+    """
+    Verifies that a sequence dataset is refused when its sequences could have a single frame, which shows no movement,
+    no change of class and no comparison, or when its frame range is empty.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        minimum_frames (int): The minimum number of frames of a sequence.
+        maximum_frames (int): The maximum number of frames of a sequence.
+    """
+    with pytest.raises(expected_exception=ValueError, match="minimum_frames"):
+        create_synthetic_dataset(output_folder=str(tmp_path), image_size=64, split_sizes={"train": 2},
+                                 maximum_objects=1, minimum_frames=minimum_frames, maximum_frames=maximum_frames,
+                                 number_workers=1, task="sequence_classification")

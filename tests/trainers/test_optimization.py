@@ -106,7 +106,7 @@ def test_mixed_precision_training(tmp_path: Path, capsys: pytest.CaptureFixture)
     dataset_folder = tmp_path / "synthetic_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
                              split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
-                             number_frames=1, number_workers=2, task="classification")
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
     configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
                                                    number_iterations=5, head_settings={}, evaluation_settings={})
     configuration = yaml.safe_load(stream=configuration_path.read_text())
@@ -114,7 +114,7 @@ def test_mixed_precision_training(tmp_path: Path, capsys: pytest.CaptureFixture)
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))
 
     trainer = build_trainer(configuration_path=configuration_path)
-    assert "BF16" not in trainer.run_name and trainer.run_name.endswith("_MC4")
+    assert "BF16" not in trainer.run_name and trainer.run_name.endswith("_MC9")
     trainer.run_training_loop()
 
     assert (trainer.experiment_folder / "Results.txt").read_text().startswith("Iteration 4 : 4 Test Images")

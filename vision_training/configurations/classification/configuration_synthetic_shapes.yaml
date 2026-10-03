@@ -1,6 +1,7 @@
-# Configuration of the synthetic shapes classification dataset (one square, circle, triangle or rectangle per image),
-# created with vision_training/data/synthetic/create_synthetic_dataset.py and its task set to "classification". It is
-# a trivial classification task, used to check that the classifier learns.
+# Configuration of the synthetic shapes classification dataset (one square, circle, triangle, rectangle, pentagon,
+# hexagon, plus sign, star or octagon per image), created with
+# vision_training/data/synthetic/create_synthetic_dataset.py and its task set to "classification". It is a trivial
+# classification task, used to check that the classifier learns.
 ExperimentConfiguration:
   # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
   # "classification" trains the image classifier, and requires the ClassificationHead section.

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from vision_training.configuration.configuration_loader import load_experiment_configuration
-from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
+from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.classification_trainer import ClassificationTrainer
 from tests.fixtures.evaluation_checks import check_error_images, check_predictions_file, read_predictions_file
 
@@ -98,17 +98,17 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     dataset_folder = tmp_path / "synthetic_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
                              split_sizes={"train": 16, "validation": 8, "test": 6}, maximum_objects=1,
-                             number_frames=1, number_workers=2, task="classification")
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
     head_settings = {"class_weighting": "balanced", "label_smoothing": 0.1}
 
     # First run: saves at iterations 2 (intermediate), 4 (with test evaluation) and 5 (end of the run)
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5, head_settings=head_settings,
         evaluation_settings={"error_dumps": {"activated": True, "maximum_per_class_pair": 1}}))
-    assert trainer.run_name.startswith("CLS_") and trainer.run_name.endswith("-LS0.1-CWB_MC4")
-    assert trainer.class_names == ["square", "circle", "triangle", "rectangle"]
+    assert trainer.run_name.startswith("CLS_") and trainer.run_name.endswith("-LS0.1-CWB_MC9")
+    assert trainer.class_names == list(SHAPE_CATEGORIES)
     class_counts = torch.tensor(data=trainer.train_dataloader.dataset.get_class_counts(), dtype=torch.float32)
-    expected_class_weights = class_counts.sum() / (4 * class_counts.clamp(min=1.0))
+    expected_class_weights = class_counts.sum() / (len(SHAPE_CATEGORIES) * class_counts.clamp(min=1.0))
     assert torch.allclose(input=trainer.model.class_weights.cpu(), other=expected_class_weights)
     trainer.run_training_loop()
 
@@ -161,7 +161,7 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     dataset_folder = tmp_path / "synthetic_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
                              split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
-                             number_frames=1, number_workers=2, task="classification")
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
 
     # Rewrite every manifest in the multi-label format
     for split_name in ["train", "validation", "test"]:
@@ -174,7 +174,7 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5,
         head_settings={"output_mode": "multi_label"}, evaluation_settings={}))
-    assert trainer.run_name.endswith("_ML4")
+    assert trainer.run_name.endswith("_ML9")
     trainer.run_training_loop()
 
     results_lines = (trainer.experiment_folder / "Results.txt").read_text().splitlines()
@@ -203,7 +203,7 @@ def test_predictions_file_can_be_turned_off(tmp_path: Path) -> None:
     dataset_folder = tmp_path / "synthetic_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
                              split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
-                             number_frames=1, number_workers=2, task="classification")
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
 
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4, head_settings={},

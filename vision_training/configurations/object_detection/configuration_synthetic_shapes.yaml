@@ -1,6 +1,6 @@
-# Configuration of the synthetic shapes dataset (squares, circles, triangles, rectangles), created with
-# vision_training/data/synthetic/create_synthetic_dataset.py. It is a trivial detection task, used to check that the
-# detector learns.
+# Configuration of the synthetic shapes dataset (squares, circles, triangles, rectangles, pentagons, hexagons, plus
+# signs, stars, octagons), created with vision_training/data/synthetic/create_synthetic_dataset.py. It is a trivial
+# detection task, used to check that the detector learns.
 ExperimentConfiguration:
   # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
   # "object_detection" trains the two-stage detector, and requires the RegionProposal, Anchors and Detector

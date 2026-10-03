@@ -103,7 +103,8 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     dataset_folder = tmp_path / "synthetic_object_loss_pairs"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
                              split_sizes={"train": 8, "validation": 4, "test": 6}, maximum_objects=3,
-                             number_frames=SMOKE_NUMBER_FRAMES, number_workers=2, task="sequence_comparison")
+                             minimum_frames=2, maximum_frames=SMOKE_NUMBER_FRAMES,
+                             number_workers=2, task="sequence_comparison")
 
     # First run: saves at iterations 2 (intermediate), 4 (with test evaluation) and 5 (end of the run)
     trainer = build_trainer(configuration_path=write_smoke_configuration(

@@ -10,7 +10,7 @@ import yaml
 from pathlib import Path
 
 from vision_training.configuration.configuration_loader import load_experiment_configuration
-from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
+from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.sequence_labelling_trainer import SequenceLabellingTrainer
 from tests.fixtures.evaluation_checks import check_error_images, check_predictions_file
 
@@ -99,13 +99,14 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     dataset_folder = tmp_path / "synthetic_changing_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
                              split_sizes={"train": 8, "validation": 4, "test": 3}, maximum_objects=1,
-                             number_frames=SMOKE_NUMBER_FRAMES, number_workers=2, task="sequence_labelling")
+                             minimum_frames=SMOKE_NUMBER_FRAMES, maximum_frames=SMOKE_NUMBER_FRAMES,
+                             number_workers=2, task="sequence_labelling")
 
     # First run: saves at iterations 2 (intermediate), 4 (with test evaluation) and 5 (end of the run)
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5))
     assert trainer.run_name.startswith("M2M_") and "_T4_TRF1x128.4-CAU_" in trainer.run_name
-    assert trainer.class_names == ["square", "circle", "triangle", "rectangle"]
+    assert trainer.class_names == list(SHAPE_CATEGORIES)
     trainer.run_training_loop()
 
     weights_directory = trainer.weights_directory

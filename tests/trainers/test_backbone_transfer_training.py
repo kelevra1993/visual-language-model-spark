@@ -101,7 +101,7 @@ def test_trained_backbone_initialises_a_frozen_run(tmp_path: Path, capsys: pytes
     dataset_folder = tmp_path / "synthetic_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=TRANSFER_IMAGE_SIZE,
                              split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
-                             number_frames=1, number_workers=2, task="classification")
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
     no_transfer = {"experiment_folder": None, "iteration": None, "freeze": False, "learning_rate_multiplier": 1.0}
 
     # Source run trained from random weights, saved at iterations 2 and 3
@@ -176,7 +176,8 @@ def test_sequence_components_initialise_a_partly_frozen_run(tmp_path: Path, caps
     dataset_folder = tmp_path / "synthetic_sequences"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=TRANSFER_IMAGE_SIZE,
                              split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
-                             number_frames=TRANSFER_NUMBER_FRAMES, number_workers=2, task="sequence_classification")
+                             minimum_frames=TRANSFER_NUMBER_FRAMES, maximum_frames=TRANSFER_NUMBER_FRAMES,
+                             number_workers=2, task="sequence_classification")
 
     # Source run trained from random weights, saved at iterations 2 and 3
     source_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
