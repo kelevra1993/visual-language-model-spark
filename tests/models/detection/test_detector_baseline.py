@@ -1,3 +1,8 @@
+"""
+Behaviour baseline of the two-stage detector of vision_training/models/detection: the training losses and inference
+detections of a seeded detector on a fixed batch must match the values recorded before the major refactoring.
+"""
+
 import pytest
 import torch
 

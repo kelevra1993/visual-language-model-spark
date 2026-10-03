@@ -1,3 +1,8 @@
+"""
+Tests of RegionProposal of vision_training/models/detection/region_proposer.py against the reference outputs, through
+check_nn_module_method of tests/testing_utilities.py.
+"""
+
 import torch
 from pathlib import Path
 

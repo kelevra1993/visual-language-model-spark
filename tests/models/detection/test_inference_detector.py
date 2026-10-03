@@ -1,3 +1,8 @@
+"""
+Tests of the detection inference path of vision_training/models/detection: postprocess_detections (threshold, NMS and
+padding), InferenceDetector matching the eager detector, and its TorchScript round trip.
+"""
+
 import torch
 
 from pathlib import Path
