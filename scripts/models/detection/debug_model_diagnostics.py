@@ -1,3 +1,9 @@
+"""
+When run, builds the TwoStageDetector with each optional architecture module (squeeze-and-excite, residual
+shortcuts, inception) and both input normalizations, runs an inference pass on a dummy batch and prints the receptive
+field and model size summaries shown by the trainer diagnosis modes.
+"""
+
 import copy
 import torch
 

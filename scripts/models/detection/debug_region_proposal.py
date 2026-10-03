@@ -1,3 +1,9 @@
+"""
+When run, builds the RegionProposal module of vision_training.models.detection, runs a forward pass on a mock
+backbone feature map and applies the predicted regressions to the anchors with apply_regression_predictions, printing
+the anchors and proposals to debug the region proposal network.
+"""
+
 import torch
 
 from vision_training.models.detection.region_proposer import RegionProposal

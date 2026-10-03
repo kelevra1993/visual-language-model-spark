@@ -1,3 +1,9 @@
+"""
+When run, builds the DetectionHead of vision_training.models.detection from the detection test configuration and runs
+a forward pass on a mock feature map with mock proposals and ground truths, printing the class scores, box regressions
+and detection boxes.
+"""
+
 import torch
 
 from rich.console import Console

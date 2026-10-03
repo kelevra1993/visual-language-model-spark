@@ -1,3 +1,9 @@
+"""
+When run, applies dummy multi-class regression predictions to sample boxes with apply_regression_predictions of
+vision_training.models.detection.box_operations and draws the original boxes and the class-specific predicted boxes on
+a canvas, to check the box regression decoding.
+"""
+
 import cv2
 import numpy as np
 import torch

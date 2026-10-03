@@ -1,3 +1,8 @@
+"""
+When run, builds the complete TwoStageDetector of vision_training.models.detection from the detection test
+configuration, prints its summary and runs a training forward pass on a dummy batch with dummy ground truth boxes and
+labels.
+"""
 
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from scripts.models.detection.detection_debugging_utilities import (get_dummy_input_tensor,

@@ -1,3 +1,9 @@
+"""
+When run, generates the anchors of one feature map with the Anchors module of vision_training.models.detection,
+prints their shape and first boxes, and draws a random subset of them on a black canvas to debug the anchor grid of
+the region proposal.
+"""
+
 import torch
 
 from vision_training.models.detection.anchors import Anchors

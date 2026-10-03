@@ -1,3 +1,9 @@
+"""
+When run, assigns dummy ground truth boxes to anchors with batch_assign_targets_to_anchors of
+vision_training.models.detection.target_assignment, prints the matched targets and visualises the foreground and
+background anchors, to debug the targets of the region proposal losses.
+"""
+
 import torch
 
 from vision_training.models.detection.target_assignment import batch_assign_targets_to_anchors

@@ -1,3 +1,8 @@
+"""
+When run, builds the TwoStageDetector of vision_training.models.detection from the detection test configuration and
+prints its architecture summary (backbone, region proposal and detection head) without any training.
+"""
+
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from tests.fixtures.configuration_fixtures import get_detection_model_configuration
 

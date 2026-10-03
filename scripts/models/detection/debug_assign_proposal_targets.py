@@ -1,3 +1,9 @@
+"""
+When run, assigns dummy ground truth boxes and labels to mock proposals with batch_assign_targets_to_proposals of
+vision_training.models.detection.target_assignment, prints the matched targets and visualises the assignments, to
+debug the targets of the detection head losses.
+"""
+
 import torch
 
 from vision_training.models.detection.target_assignment import (batch_assign_targets_to_proposals)

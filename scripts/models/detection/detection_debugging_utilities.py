@@ -1,3 +1,9 @@
+"""
+Shared helpers of the object detection debugging scripts of scripts/models: dummy input batches, ground truth boxes
+and labels, the mock inputs of the target assignment debuggers, the printing of bounding boxes and the OpenCV
+visualisations of the anchor and proposal target assignments.
+"""
+
 import os
 
 # Suppress annoying Qt font warnings from OpenCV's imshow backend
