@@ -53,8 +53,7 @@ class DetectionTrainer(BaseTrainer):
             Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
         """
         return get_dataloaders(experiment_configuration=self.experiment_configuration,
-                               model_configuration=self.model_configuration, batch_size=self.batch_size,
-                               number_of_workers=4)
+                               model_configuration=self.model_configuration, batch_size=self.batch_size)
 
     def build_model(self) -> TwoStageDetector:
         """

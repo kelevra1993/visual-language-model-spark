@@ -79,7 +79,7 @@ class ClassificationTrainer(BaseTrainer):
         """
         loaders = get_classification_dataloaders(experiment_configuration=self.experiment_configuration,
                                                  model_configuration=self.model_configuration,
-                                                 batch_size=self.batch_size, number_of_workers=4)
+                                                 batch_size=self.batch_size)
         training_dataset = loaders[0].dataset
         self.class_names = [training_dataset.class_names[class_index]
                             for class_index in range(training_dataset.number_classes)]

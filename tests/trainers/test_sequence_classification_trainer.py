@@ -52,6 +52,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
 
     # Small frames, short windows and the generated label mapping
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
+    # Two loader workers per split, enough for the small generated dataset
+    configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["sequence_settings"].update({"sequence_length": SMOKE_NUMBER_FRAMES,
                                                        "window_stride": SMOKE_NUMBER_FRAMES})
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")

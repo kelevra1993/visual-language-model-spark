@@ -54,6 +54,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     # Read the small images with the Native loader, and map the generated categories to the model classes
     configuration["Data"]["DALI"]["activated"] = False
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
+    # Two loader workers per split, enough for the small generated dataset
+    configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     for level, scales in SMOKE_ANCHOR_SCALES.items():
         configuration["Anchors"]["scales_and_ratios"][level]["scales"] = scales

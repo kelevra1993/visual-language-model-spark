@@ -201,7 +201,19 @@ def augment_detection_frames(configuration: Dict[str, Any]) -> None:
     configuration["Data"]["data_augmentation"]["shuffle_frames"] = {"activated": True, "probability": 1.5}
 
 
+def set_invalid_loading(configuration: Dict[str, Any]) -> None:
+    """
+    Sets the detection loaders without worker, which the DALI pipeline cannot run with, and without prefetched batch.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Data"]["loading"] = {"number_workers": 0, "prefetch_batches": 0}
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (set_invalid_loading, ["'Data.loading.prefetch_batches' must be an integer >= 1, got 0.",
+                           "'Data.loading.number_workers' must be at least 1 with 'Data.DALI.activated'"]),
     (use_sequence_normalization, ["'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for "
                                      "this task, whose samples have no frames."]),
     (augment_detection_frames, ["'Data.data_augmentation.shuffle_frames.activated' must be False for this task, "
@@ -321,6 +333,16 @@ def activate_dali(configuration: Dict[str, Any]) -> None:
     configuration["Data"]["DALI"]["activated"] = True
 
 
+def set_negative_number_workers(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a negative number of loader workers.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["Data"]["loading"]["number_workers"] = -1
+
+
 def use_binary_labels(configuration: Dict[str, Any]) -> None:
     """
     Uses the binary label mapping, which only makes sense next to the background class of the object detector.
@@ -396,6 +418,7 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (activate_dali, ["'Data.DALI.activated' must be False"]),
+    (set_negative_number_workers, ["'Data.loading.number_workers' must be an integer >= 0, got -1."]),
     (use_binary_labels, ["'Data.label_mapping.mode' must be 'multi_class' for the classification tasks"]),
     (add_detection_block, ["'Backbone.detection_convolution_block_indices' must be [] for the classification tasks"]),
     (set_invalid_head, ["'ClassificationHead.global_pooling' must be one of ['average', 'max'], got 'median'.",

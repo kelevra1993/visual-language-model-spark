@@ -80,6 +80,14 @@ SEQUENCE_NORMALIZATION_SCOPE_LINES = ("  # Frames sharing the statistics of the 
                                       "backbone.\n"
                                       "  sequence_normalization_scope: \"member\"\n")
 
+# Header of the data section, and the loading settings inserted below it, the 4 worker processes of the runs written
+# before they existed
+DATA_SECTION_HEADER = "Data:\n"
+LOADING_SETTINGS_LINES = ("  # Worker processes of the loaders and batches prepared in advance by each of them.\n"
+                          "  loading:\n"
+                          "    number_workers: 4\n"
+                          "    prefetch_batches: 2\n")
+
 # Optimization section of a run trained with plain Adam at a constant learning rate, the training of every run
 # written before the section existed
 OPTIMIZATION_SECTION = ("\n# Optimization of a run trained with Adam at a constant learning rate.\n"
@@ -304,6 +312,35 @@ def add_sequence_normalization_scope_to_configuration(configuration_path: Path) 
     return True
 
 
+def add_loading_settings_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades a configuration file written before the loading settings by inserting 'Data.loading', with the 4 worker
+    processes of the loaders of that time, right below the header of its data section. The settings are inserted as
+    text, so that every comment of the file is kept, and a file that already has them is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the settings were added, False if the file already had them.
+
+    Raises:
+        ValueError: If the data section has no header line of its own.
+    """
+    text = configuration_path.read_text()
+    if "loading" in yaml.safe_load(stream=text)["Data"]:
+        return False
+    lines = text.splitlines(keepends=True)
+    if DATA_SECTION_HEADER not in lines:
+        raise ValueError(f"No 'Data:' section header in file://{configuration_path.absolute()}")
+
+    # Insert the settings below the header line
+    header_index = lines.index(DATA_SECTION_HEADER)
+    configuration_path.write_text(data="".join(lines[:header_index + 1] + [LOADING_SETTINGS_LINES] +
+                                               lines[header_index + 1:]))
+    return True
+
+
 def add_optimization_section_to_configuration(configuration_path: Path) -> bool:
     """
     Upgrades a configuration file written before the 'Optimization' section by appending the section of a run
@@ -330,8 +367,8 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     module and classification head (those of a run trained from random weights), the
     'Backbone.pretrained.freeze_normalization_parameters' flag (off), the evaluation outputs of the classification-like
     tasks (no predictions file nor error images), the sequence augmentations (off), the scope of the sequence
-    normalization of the comparison task (per member) and its 'Optimization' section (plain Adam at a constant
-    learning rate), and its folder is renamed to the run name the current code builds from that configuration (the
+    normalization of the comparison task (per member), its 'Optimization' section (plain Adam at a constant
+    learning rate) and its loading settings (4 worker processes), and its folder is renamed to the run name the current code builds from that configuration (the
     task code being now the first section of the run names). The configuration is fully checked on the way, any
     other missing key being reported by the configuration checker.
 
@@ -370,6 +407,8 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
                                           f"file://{configuration_path.absolute()}")
     if add_optimization_section_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Optimization Section Added To : file://{configuration_path.absolute()}")
+    if add_loading_settings_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Loading Settings Added To : file://{configuration_path.absolute()}")
 
     # The run name the current code gives to this configuration
     experiment_configuration, model_configuration = load_experiment_configuration(

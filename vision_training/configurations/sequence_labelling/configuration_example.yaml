@@ -107,6 +107,13 @@ Data:
     # It must stay False here: the sequence tasks read their frames with the Native PyTorch loader (OpenCV decoding
     # and CPU resizing).
     activated: False
+  loading:
+    # Number of worker processes reading and resizing the images. They stay alive between epochs and evaluations,
+    # each decodes with a single OpenCV thread, and the training, validation and test loaders each have their own
+    # workers. 8 workers already feed the GPU of the example models; 0 loads in the main process (debugging).
+    number_workers: 8
+    # Number of batches prepared in advance by every worker.
+    prefetch_batches: 2
   image_settings:
     # Target resolution to resize all the frames.
     size: 256

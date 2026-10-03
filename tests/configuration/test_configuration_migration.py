@@ -11,7 +11,7 @@ from pathlib import Path
 
 from vision_training.configuration.configuration_migration import (
     add_evaluation_outputs_to_configuration, add_freeze_normalization_parameters_to_configuration,
-    add_optimization_section_to_configuration, add_pretrained_settings_to_configuration,
+    add_loading_settings_to_configuration, add_optimization_section_to_configuration, add_pretrained_settings_to_configuration,
     add_sequence_augmentation_to_configuration, add_sequence_normalization_scope_to_configuration,
     add_task_to_configuration, migrate_run_folder)
 
@@ -55,6 +55,7 @@ def write_old_run_folder(temporary_directory: Path) -> Path:
     del configuration["ExperimentConfiguration"]["task"]
     del configuration["Backbone"]["pretrained"]
     del configuration["Optimization"]
+    del configuration["Data"]["loading"]
     configuration["Data"]["label_mapping"] = {"mode": "binary", "mapping_file_path": None}
 
     run_folder = temporary_directory / "IN-KAR-1024_old_run_name"
@@ -206,6 +207,7 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     for section_name in ["Backbone", "TemporalModel", "ClassificationHead"]:
         del configuration[section_name]["pretrained"]
     del configuration["Optimization"]
+    del configuration["Data"]["loading"]
     mapping_path = tmp_path / "label_mapping.json"
     mapping_path.write_text(data=json.dumps(obj={"1": 0, "2": 1, "3": 2, "4": 3}))
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(mapping_path)
@@ -223,6 +225,7 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["error_dumps"] == {
         "activated": False, "maximum_per_class_pair": 20}
     assert migrated_configuration["Data"]["data_augmentation"]["independent_frames"] is False
+    assert migrated_configuration["Data"]["loading"] == {"number_workers": 4, "prefetch_batches": 2}
     assert migrate_run_folder(run_folder=renamed_folder, task="sequence_classification",
                               rename_folder=True) == renamed_folder
 
@@ -330,3 +333,19 @@ def test_optimization_section_is_added_once(tmp_path: Path) -> None:
         "decay_iterations": 100000, "minimum_learning_rate_ratio": 0.01, "gradient_clipping_norm": None,
         "mixed_precision": False}
     assert add_optimization_section_to_configuration(configuration_path=configuration_path) is False
+
+
+def test_loading_settings_are_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that the loading settings of the runs written before them (4 worker processes) are inserted below the
+    header of the data section, and that a configuration which already has them is left untouched.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_old_run_folder(temporary_directory=tmp_path) / "training_configuration.yaml"
+
+    assert add_loading_settings_to_configuration(configuration_path=configuration_path) is True
+    assert yaml.safe_load(stream=configuration_path.read_text())["Data"]["loading"] == {"number_workers": 4,
+                                                                                        "prefetch_batches": 2}
+    assert add_loading_settings_to_configuration(configuration_path=configuration_path) is False

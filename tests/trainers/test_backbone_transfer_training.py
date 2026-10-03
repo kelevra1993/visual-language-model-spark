@@ -67,6 +67,8 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
     configuration["ExperimentConfiguration"]["diagnosis_modes"].update({"compute_receptive_field": False,
                                                                         "compute_model_size": False})
     configuration["Data"]["image_settings"]["size"] = TRANSFER_IMAGE_SIZE
+    # Two loader workers per split, enough for the small generated dataset
+    configuration["Data"]["loading"]["number_workers"] = 2
     if task == "sequence_classification":
         configuration["Data"]["sequence_settings"].update({"sequence_length": TRANSFER_NUMBER_FRAMES,
                                                            "window_stride": TRANSFER_NUMBER_FRAMES})

@@ -55,6 +55,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     # Small frames, short members, a recurrent temporal module, the cross attention fusion and the generated label
     # mapping
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
+    # Two loader workers per split, enough for the small generated dataset
+    configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["sequence_settings"]["sequence_length"] = SMOKE_NUMBER_FRAMES
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["TemporalModel"].update({"type": "gru", "hidden_size": 128, "bidirectional": True})
