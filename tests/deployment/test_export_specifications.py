@@ -1,3 +1,9 @@
+"""
+Tests of the model exports of vision_training/deployment/export_model.py and export_specifications.py: the TorchScript
+and ONNX exports of every task match the eager model, keep their dynamic frames, and the inference models match the
+training path on full windows.
+"""
+
 import onnx
 import onnxruntime
 import pytest

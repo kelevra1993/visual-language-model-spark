@@ -1,3 +1,9 @@
+"""
+Tests of the Triton deployment client of vision_training/deployment/deployment_utilities.py, with a recording stand-in
+for the gRPC client: the requests built for every task, the frame windows cycling through the inference folder and the
+inputs written in shared memory at their offsets.
+"""
+
 import json
 import os
 import cv2

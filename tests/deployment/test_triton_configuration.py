@@ -1,3 +1,9 @@
+"""
+Tests of write_triton_configuration of vision_training/deployment/triton_configuration.py: the detection configuration
+is unchanged, the sequence configuration has dynamic frames and the comparison configuration has one input line per
+member.
+"""
+
 import pytest
 
 from pathlib import Path
