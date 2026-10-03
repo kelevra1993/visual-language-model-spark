@@ -15,6 +15,12 @@ TEMPORAL_TYPE_CODES = {"mean_pooling": "MEAN", "max_pooling": "MAX", "attention_
 # Run name code of every fusion of the members of a pair (sequence comparison task)
 FUSION_TYPE_CODES = {"concatenation": "FCAT", "difference": "FDIF", "cross_attention": "FXA"}
 
+# Prefixes of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
+# followed by '<prefix>FRZ' when it is frozen or '<learning rate prefix>LR<multiplier>' when it learns at its own
+# speed, i.e. PT, FRZ and BLR for the backbone, TPT, TFRZ and TLR for the temporal module, HPT, HFRZ and HLR for the
+# classification head
+PRETRAINED_TOKEN_PREFIXES = {"Backbone": ("", "B"), "TemporalModel": ("T", "T"), "ClassificationHead": ("H", "H")}
+
 
 def join_level_tokens(level_tokens: List[str]) -> str:
     """
@@ -57,12 +63,46 @@ def build_input_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     return input_tokens
 
 
+def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: str) -> List[str]:
+    """
+    Builds the tokens of a component initialised by the trained one of another run, placed at the end of the section
+    of the component in the run name (see PRETRAINED_TOKEN_PREFIXES): e.g. PT, then FRZ when it is frozen or
+    BLR<learning rate multiplier> when it learns at another speed than the new layers (a frozen component does not
+    learn at all), then FBN when the scale and shift of the normalization layers of the backbone are kept fixed. A
+    component trained from random weights gives no token.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration.
+        section_name (str): The section holding the 'pretrained' settings, a key of PRETRAINED_TOKEN_PREFIXES.
+
+    Returns:
+        List[str]: The tokens of the transfer, empty without transfer.
+    """
+    pretrained_configuration = model_configuration[section_name]["pretrained"]
+    if pretrained_configuration["experiment_folder"] is None:
+        return []
+
+    # Transferred component, frozen or learning at its own speed
+    token_prefix, learning_rate_prefix = PRETRAINED_TOKEN_PREFIXES[section_name]
+    pretrained_tokens = [f"{token_prefix}PT"]
+    if pretrained_configuration["freeze"]:
+        pretrained_tokens.append(f"{token_prefix}FRZ")
+    elif pretrained_configuration["learning_rate_multiplier"] != 1.0:
+        pretrained_tokens.append(f"{learning_rate_prefix}LR{pretrained_configuration['learning_rate_multiplier']:g}")
+
+    # Normalization parameters kept fixed in a backbone that still learns
+    if section_name == "Backbone" and pretrained_configuration["freeze_normalization_parameters"]:
+        pretrained_tokens.append("FBN")
+    return pretrained_tokens
+
+
 def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the backbone section of the run name, shared by every task: the modules (SE, RES, INC<starting block>),
     the feature map normalization (BN, LN or NN), B<layers>x<filters> of every block in order, then PT when the
     backbone is initialised by the one of another run, followed by BLR<learning rate multiplier> when it learns at
-    another speed than the heads, or FRZ when it is frozen.
+    another speed than the heads or FRZ when it is frozen, and FBN when its normalization parameters are kept fixed
+    (see build_pretrained_tokens).
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -90,13 +130,7 @@ def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
                                           for block in sorted(convolutions, key=int)))
 
     # Backbone transferred from another run, frozen or learning at its own speed
-    pretrained_configuration = backbone_configuration["pretrained"]
-    if pretrained_configuration["experiment_folder"] is not None:
-        backbone_tokens.append("PT")
-        if pretrained_configuration["freeze"]:
-            backbone_tokens.append("FRZ")
-        elif pretrained_configuration["learning_rate_multiplier"] != 1.0:
-            backbone_tokens.append(f"BLR{pretrained_configuration['learning_rate_multiplier']:g}")
+    backbone_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="Backbone")
     return backbone_tokens
 
 
@@ -215,8 +249,9 @@ def build_classification_sections(model_configuration: Dict[str, Any]) -> List[L
     """
     Builds the sections of the run name describing the classification head, shared by the classification-like tasks:
     the head H<global pooling AVG or MAX>.<fully connected sizes> with the dropout DO<rate>, LS<label smoothing> when
-    smoothing and CWB when the classes are balanced in the loss, then the classes MC<classes> (one class per sample)
-    or ML<classes> (several classes per sample), e.g. 'HAVG.256-DO0.5_MC4'.
+    smoothing, CWB when the classes are balanced in the loss and HPT, HFRZ or HLR<multiplier> when the head is
+    initialised by the one of another run (see build_pretrained_tokens), then the classes MC<classes> (one class per
+    sample) or ML<classes> (several classes per sample), e.g. 'HAVG.256-DO0.5_MC4'.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -234,6 +269,7 @@ def build_classification_sections(model_configuration: Dict[str, Any]) -> List[L
         head_tokens.append(f"LS{head_configuration['label_smoothing']:g}")
     if head_configuration["class_weighting"] == "balanced":
         head_tokens.append("CWB")
+    head_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="ClassificationHead")
 
     # Classes, without background class
     output_code = "MC" if head_configuration["output_mode"] == "multi_class" else "ML"
@@ -265,8 +301,9 @@ def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the tokens of the run name describing the temporal module of the sequence models: MEAN, MAX, ATT<hidden
     size>, GRU or LSTM<layers>x<hidden size> with BI when bidirectional, TRF<layers>x<hidden size>.<heads> or
-    TCN<layers>x<hidden size>.<kernel size> with CAU when causal, and TDO<dropout> when the module uses a dropout,
-    e.g. 'GRU2x256-BI'.
+    TCN<layers>x<hidden size>.<kernel size> with CAU when causal, TDO<dropout> when the module uses a dropout, and
+    TPT, TFRZ or TLR<multiplier> when the module is initialised by the one of another run (see
+    build_pretrained_tokens), e.g. 'GRU2x256-BI'.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -294,6 +331,9 @@ def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     if temporal_type not in ["mean_pooling", "max_pooling", "attention_pooling"] and \
             temporal_configuration["dropout_rate"] > 0:
         temporal_tokens.append(f"TDO{temporal_configuration['dropout_rate']:g}")
+
+    # Temporal module transferred from another run, frozen or learning at its own speed
+    temporal_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="TemporalModel")
     return temporal_tokens
 
 

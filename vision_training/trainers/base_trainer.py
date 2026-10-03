@@ -15,7 +15,9 @@ from vision_training.configuration.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
 from vision_training.evaluation.evaluation_report import report_evaluation_results
-from vision_training.models.backbones.backbone_transfer import freeze_backbone, load_pretrained_backbone
+from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, freeze_batch_normalization_statistics,
+                                                   freeze_component, freeze_normalization_parameters,
+                                                   get_component_name, load_pretrained_component)
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import get_last_checkpoint_iteration, load_checkpoint, save_checkpoint
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
@@ -111,13 +113,16 @@ class BaseTrainer(ABC):
                     output="Initializing Training, Validation And Test DataLoaders...", add_separators=True)
         self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.build_dataloaders()
 
-        # Initialize Model and Optimizer, the backbone being possibly initialised by the one of another run
-        self.pretrained_configuration = self.model_configuration["Backbone"]["pretrained"]
+        # Initialize Model and Optimizer, the backbone, the temporal module and the classification head being possibly
+        # initialised by the ones of other runs, through the 'pretrained' settings of the sections the task has
+        self.pretrained_configurations = {section_name: self.model_configuration[section_name]["pretrained"]
+                                          for section_name in TRANSFERABLE_COMPONENTS
+                                          if section_name in self.model_configuration}
         self.optimization_configuration = self.model_configuration["Optimization"]
         self.mixed_precision = self.optimization_configuration["mixed_precision"]
         self.model = self.build_model()
         self.model.to(device=self.device, dtype=self.dtype)
-        self.pretrained_backbone_path = self.initialise_backbone()
+        self.pretrained_checkpoint_paths = self.initialise_pretrained_components()
         self.optimizer = self.build_optimizer()
 
         # Learning rate of every parameter group before the schedule, which multiplies it at every step
@@ -311,25 +316,32 @@ class BaseTrainer(ABC):
     def build_optimizer(self) -> torch.optim.Optimizer:
         """
         Builds the optimizer of 'Optimization.optimizer' with its weight decay: Adam (weight decay added to the
-        gradients), AdamW (weight decay decoupled from the gradients) or SGD with Nesterov momentum 0.9. A backbone
-        loaded from another run gets its own parameter group when 'Backbone.pretrained.learning_rate_multiplier' is
-        not 1, so that it is fine-tuned at another speed than the new heads; otherwise every parameter shares a single
-        group, the layout of the checkpoints of the runs without transfer.
+        gradients), AdamW (weight decay decoupled from the gradients) or SGD with Nesterov momentum 0.9. Every
+        component loaded from another run (backbone, temporal module, classification head) whose
+        'pretrained.learning_rate_multiplier' is not 1 gets its own parameter group, so that it is fine-tuned at
+        another speed than the new layers. The first group holds every other parameter: without such a component,
+        every parameter shares this single group, the layout of the checkpoints of the runs without transfer, and a
+        transferred backbone comes second, the layout of the runs that only transferred their backbone.
 
         Returns:
             torch.optim.Optimizer: The optimizer at the configured learning rate.
         """
-        # One group for every parameter, or the heads and the transferred backbone at the multiplied learning rate
-        learning_rate_multiplier = self.pretrained_configuration["learning_rate_multiplier"]
-        if self.pretrained_configuration["experiment_folder"] is None or learning_rate_multiplier == 1.0:
-            parameter_groups = [{"params": list(self.model.parameters())}]
-        else:
-            backbone_parameters = list(self.model.backbone.parameters())
-            backbone_parameter_identifiers = {id(parameter) for parameter in backbone_parameters}
-            head_parameters = [parameter for parameter in self.model.parameters()
-                               if id(parameter) not in backbone_parameter_identifiers]
-            parameter_groups = [{"params": head_parameters},
-                                {"params": backbone_parameters, "lr": self.learning_rate * learning_rate_multiplier}]
+        # One group per transferred component learning at its own speed, in the order of TRANSFERABLE_COMPONENTS
+        component_groups = []
+        component_parameter_identifiers = set()
+        for section_name, pretrained_configuration in self.pretrained_configurations.items():
+            learning_rate_multiplier = pretrained_configuration["learning_rate_multiplier"]
+            if pretrained_configuration["experiment_folder"] is None or learning_rate_multiplier == 1.0:
+                continue
+            component_parameters = list(getattr(self.model, TRANSFERABLE_COMPONENTS[section_name]).parameters())
+            component_parameter_identifiers.update(id(parameter) for parameter in component_parameters)
+            component_groups.append({"params": component_parameters,
+                                     "lr": self.learning_rate * learning_rate_multiplier})
+
+        # Every other parameter learns at the learning rate of the run, in the first group
+        other_parameters = [parameter for parameter in self.model.parameters()
+                            if id(parameter) not in component_parameter_identifiers]
+        parameter_groups = [{"params": other_parameters}] + component_groups
 
         optimizer_name = self.optimization_configuration["optimizer"]
         weight_decay = self.optimization_configuration["weight_decay"]
@@ -342,12 +354,15 @@ class BaseTrainer(ABC):
 
     def set_training_mode(self) -> None:
         """
-        Puts the model in training mode before every training step, except a frozen transferred backbone, kept in
-        evaluation mode so that its batch normalization statistics stay those of its source run.
+        Puts the model in training mode before every training step, except the batch normalization layers of the
+        frozen transferred components, kept in evaluation mode so that their statistics stay those of their source
+        runs (see freeze_batch_normalization_statistics).
         """
         self.model.train()
-        if self.pretrained_configuration["freeze"]:
-            self.model.backbone.eval()
+        for section_name, pretrained_configuration in self.pretrained_configurations.items():
+            if pretrained_configuration["freeze"]:
+                freeze_batch_normalization_statistics(
+                    component=getattr(self.model, TRANSFERABLE_COMPONENTS[section_name]))
 
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -417,31 +432,48 @@ class BaseTrainer(ABC):
         if self.training_writer is not None:
             self.training_writer.add_scalar("Learning Rate", self.optimizer.param_groups[0]["lr"], iteration)
 
-    def initialise_backbone(self) -> Optional[Path]:
+    def initialise_pretrained_components(self) -> Dict[str, Optional[Path]]:
         """
-        Loads the trained backbone of another run into the model when 'Backbone.pretrained.experiment_folder' is set,
-        and freezes it when asked. A run resuming from its own checkpoints does not load it, its checkpoint holding
-        the backbone it was training, but stays frozen.
+        Loads the trained components of other runs into the model, for every section whose
+        'pretrained.experiment_folder' is set (backbone, temporal module, classification head), and freezes them when
+        asked, or only the scale and shift of the normalization layers of the backbone. A run resuming from its own
+        checkpoints does not load them, its checkpoint holding the components it was training, but keeps them frozen.
 
         Returns:
-            Optional[Path]: The checkpoint file the backbone was loaded from, or None when it was not loaded.
+            Dict[str, Optional[Path]]: The checkpoint file every component was loaded from, keyed by the section names
+                of the task, None for a component that is not transferred or not loaded again.
+
+        Raises:
+            ValueError: If every parameter of the model is frozen, so that the training would change nothing.
         """
-        if self.pretrained_configuration["experiment_folder"] is None:
-            return None
+        pretrained_checkpoint_paths = {}
+        for section_name, pretrained_configuration in self.pretrained_configurations.items():
+            pretrained_checkpoint_paths[section_name] = None
+            if pretrained_configuration["experiment_folder"] is None:
+                continue
+            component = getattr(self.model, TRANSFERABLE_COMPONENTS[section_name])
 
-        # Load the source backbone for a new run only
-        pretrained_backbone_path = None
-        if self.resume_training and get_last_checkpoint_iteration(weights_directory=self.weights_directory):
-            print_color(color="yellow", output="The run resumes from its own checkpoint, the pretrained backbone is "
-                                               "not loaded again.")
-        else:
-            pretrained_backbone_path = load_pretrained_backbone(
-                backbone=self.model.backbone, backbone_configuration=self.model_configuration["Backbone"],
-                input_image_size=self.input_image_size, device=self.device)
+            # Load the source component for a new run only
+            if self.resume_training and get_last_checkpoint_iteration(weights_directory=self.weights_directory):
+                print_color(color="yellow", output=f"The run resumes from its own checkpoint, the pretrained "
+                                                   f"{get_component_name(section_name=section_name)} is not loaded "
+                                                   f"again.")
+            else:
+                pretrained_checkpoint_paths[section_name] = load_pretrained_component(
+                    component=component, section_name=section_name, model_configuration=self.model_configuration,
+                    device=self.device)
 
-        if self.pretrained_configuration["freeze"]:
-            freeze_backbone(backbone=self.model.backbone)
-        return pretrained_backbone_path
+            # Freeze the whole component, or only the scale and shift of the normalization layers of the backbone
+            if pretrained_configuration["freeze"]:
+                freeze_component(component=component)
+            elif section_name == "Backbone" and pretrained_configuration["freeze_normalization_parameters"]:
+                freeze_normalization_parameters(component=component)
+
+        # A model whose every parameter is frozen would not learn anything
+        if not any(parameter.requires_grad for parameter in self.model.parameters()):
+            raise ValueError("Every parameter of the model is frozen by the 'pretrained.freeze' settings, the training "
+                             "would change nothing: leave at least one component trainable.")
+        return pretrained_checkpoint_paths
 
     def setup_training_paths(self, initial_configuration_path: Path) -> tuple[Path, Path, Path]:
         """
@@ -486,10 +518,15 @@ class BaseTrainer(ABC):
         print_color(color="blue", output=f"- Tensorboard Directory   : file://{self.tensorboard_directory.absolute()}")
         print_color(color="blue", output=f"- Weights Directory       : file://{self.weights_directory.absolute()}")
         print_color(color="blue", output=f"- Configuration File      : file://{self.configuration_path.absolute()}")
-        if self.pretrained_configuration["experiment_folder"] is not None:
-            print_color(color="blue", output=f"- Pretrained Backbone     : "
-                                             f"file://{Path(self.pretrained_configuration['experiment_folder'])} "
-                                             f"(frozen: {self.pretrained_configuration['freeze']})")
+
+        # Every component initialised by another run, with its source run and whether it is frozen
+        pretrained_labels = {"Backbone": "Pretrained Backbone", "TemporalModel": "Pretrained Temp. Module",
+                             "ClassificationHead": "Pretrained Class. Head"}
+        for section_name, pretrained_configuration in self.pretrained_configurations.items():
+            if pretrained_configuration["experiment_folder"] is not None:
+                print_color(color="blue", output=f"- {pretrained_labels[section_name]:<23} : "
+                                                 f"file://{Path(pretrained_configuration['experiment_folder'])} "
+                                                 f"(frozen: {pretrained_configuration['freeze']})")
 
         # Print every split folder with its number of samples, described by the task
         number_samples_per_split = {}
@@ -912,16 +949,19 @@ class BaseTrainer(ABC):
 
     def save_model(self, iteration: int) -> None:
         """
-        Saves a checkpoint of the model and optimizer, with the task, the run name and the run folder of the
-        pretrained backbone (None without transfer), and records it in the checkpoint registry of the run used to
-        resume the training.
+        Saves a checkpoint of the model and optimizer, with the task, the run name and the source run of every
+        transferable component of the task ('pretrained_backbone', 'pretrained_temporal_module',
+        'pretrained_classification_head', None without transfer), and records it in the checkpoint registry of the
+        run used to resume the training.
 
         Args:
             iteration (int): The current training iteration, used for naming the weight file.
         """
-        # Task, run name and source run of the pretrained backbone, stored with the weights
-        metadata = {"task": self.TASK_NAME, "run_name": self.run_name,
-                    "pretrained_backbone": self.pretrained_configuration["experiment_folder"]}
+        # Task, run name and source run of every transferable component, stored with the weights
+        metadata = {"task": self.TASK_NAME, "run_name": self.run_name}
+        for section_name, pretrained_configuration in self.pretrained_configurations.items():
+            metadata[f"pretrained_{TRANSFERABLE_COMPONENTS[section_name]}"] = pretrained_configuration[
+                "experiment_folder"]
         model_directory = save_checkpoint(weights_directory=self.weights_directory, iteration=iteration,
                                           model=self.model, optimizer=self.optimizer, metadata=metadata)
 

@@ -22,6 +22,9 @@ CLASSIFICATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_trainin
 CLASSIFICATION_REFERENCE_RUN_NAME = ("CLS_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128-DO0.2_MC4_"
                                      "AUG-BS64-LR1e-3")
 
+# Pretrained settings of a temporal module or classification head trained from random weights
+NO_TRANSFER_SETTINGS = {"experiment_folder": None, "iteration": None, "freeze": False, "learning_rate_multiplier": 1.0}
+
 
 def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
@@ -253,7 +256,8 @@ def get_classification_reference_configurations() -> Tuple[Dict[str, Any], Dict[
     # Classification head and classes
     model_configuration["ClassificationHead"] = {"global_pooling": "average", "fully_connected": [128],
                                                  "dropout_rate": 0.2, "output_mode": "multi_class",
-                                                 "label_smoothing": 0.0, "class_weighting": "none"}
+                                                 "label_smoothing": 0.0, "class_weighting": "none",
+                                                 "pretrained": dict(NO_TRANSFER_SETTINGS)}
     model_configuration["Data"]["label_dictionary"] = {1: 0, 2: 1, 3: 2, 4: 3}
 
     # Augmentation, batch size and learning rate
@@ -371,10 +375,11 @@ def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, A
                                                         "short_sequences": "pad"}
     model_configuration["TemporalModel"] = {"type": "gru", "hidden_size": 128, "number_layers": 1, "number_heads": 4,
                                             "kernel_size": 3, "dropout_rate": 0.0, "bidirectional": True,
-                                            "causal": False}
+                                            "causal": False, "pretrained": dict(NO_TRANSFER_SETTINGS)}
     model_configuration["ClassificationHead"] = {"global_pooling": "average", "fully_connected": [64],
                                                  "dropout_rate": 0.2, "output_mode": "multi_class",
-                                                 "label_smoothing": 0.0, "class_weighting": "none"}
+                                                 "label_smoothing": 0.0, "class_weighting": "none",
+                                                 "pretrained": dict(NO_TRANSFER_SETTINGS)}
     model_configuration["Data"]["label_dictionary"] = {1: 0, 2: 1, 3: 2, 4: 3}
 
     # Augmentation, batch size and learning rate
@@ -584,25 +589,61 @@ def test_sequence_comparison_run_names(modify_function: Callable[[Dict[str, Any]
                           model_configuration=model_configuration) == expected_run_name
 
 
-@pytest.mark.parametrize(argnames=("freeze", "learning_rate_multiplier", "expected_tokens"), argvalues=[
-    (False, 1.0, "-PT_"), (True, 1.0, "-PT-FRZ_"), (False, 0.1, "-PT-BLR0.1_"), (True, 0.1, "-PT-FRZ_")])
-def test_pretrained_backbone_run_names(freeze: bool, learning_rate_multiplier: float, expected_tokens: str) -> None:
+@pytest.mark.parametrize(argnames=("freeze", "learning_rate_multiplier", "freeze_normalization", "expected_tokens"),
+                         argvalues=[(False, 1.0, False, "-PT_"), (True, 1.0, False, "-PT-FRZ_"),
+                                    (False, 0.1, False, "-PT-BLR0.1_"), (True, 0.1, False, "-PT-FRZ_"),
+                                    (False, 1.0, True, "-PT-FBN_"), (False, 0.1, True, "-PT-BLR0.1-FBN_")])
+def test_pretrained_backbone_run_names(freeze: bool, learning_rate_multiplier: float, freeze_normalization: bool,
+                                       expected_tokens: str) -> None:
     """
     Verifies the tokens of a transferred backbone at the end of the backbone section: PT, then FRZ when it is frozen
-    or BLR<multiplier> when it learns at another speed than the heads (a frozen backbone does not learn at all).
+    or BLR<multiplier> when it learns at another speed than the heads (a frozen backbone does not learn at all), then
+    FBN when the scale and shift of its normalization layers are kept fixed.
 
     Args:
         freeze (bool): Whether the transferred backbone is frozen.
         learning_rate_multiplier (float): The learning rate multiplier of the transferred backbone.
+        freeze_normalization (bool): Whether the normalization parameters of the backbone are kept fixed.
         expected_tokens (str): The expected end of the backbone section.
     """
     experiment_configuration, model_configuration = get_classification_reference_configurations()
     model_configuration["Backbone"]["pretrained"] = {"experiment_folder": "/runs/source", "iteration": None,
                                                      "freeze": freeze,
+                                                     "freeze_normalization_parameters": freeze_normalization,
                                                      "learning_rate_multiplier": learning_rate_multiplier}
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == CLASSIFICATION_REFERENCE_RUN_NAME.replace(
         "2x64.2x128_", f"2x64.2x128{expected_tokens}")
+
+
+@pytest.mark.parametrize(argnames=("section_name", "freeze", "learning_rate_multiplier", "expected_section"),
+                         argvalues=[("TemporalModel", False, 1.0, "_GRU1x128-BI-TPT_"),
+                                    ("TemporalModel", True, 1.0, "_GRU1x128-BI-TPT-TFRZ_"),
+                                    ("TemporalModel", False, 0.5, "_GRU1x128-BI-TPT-TLR0.5_"),
+                                    ("ClassificationHead", False, 1.0, "_HAVG.64-DO0.2-HPT_"),
+                                    ("ClassificationHead", True, 0.1, "_HAVG.64-DO0.2-HPT-HFRZ_"),
+                                    ("ClassificationHead", False, 0.1, "_HAVG.64-DO0.2-HPT-HLR0.1_")])
+def test_pretrained_temporal_module_and_head_run_names(section_name: str, freeze: bool,
+                                                       learning_rate_multiplier: float, expected_section: str) -> None:
+    """
+    Verifies the tokens of a transferred temporal module or classification head at the end of its section: TPT or
+    HPT, then TFRZ or HFRZ when it is frozen, or TLR<multiplier> or HLR<multiplier> when it learns at its own speed.
+    The rest of the name is unchanged.
+
+    Args:
+        section_name (str): The section of the transferred component.
+        freeze (bool): Whether the transferred component is frozen.
+        learning_rate_multiplier (float): The learning rate multiplier of the transferred component.
+        expected_section (str): The expected section of the component in the run name.
+    """
+    experiment_configuration, model_configuration = get_sequence_reference_configurations()
+    model_configuration[section_name]["pretrained"] = {"experiment_folder": "/runs/source", "iteration": None,
+                                                       "freeze": freeze,
+                                                       "learning_rate_multiplier": learning_rate_multiplier}
+    original_section = "_GRU1x128-BI_" if section_name == "TemporalModel" else "_HAVG.64-DO0.2_"
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME.replace(
+        original_section, expected_section)
 
 
 def test_optimization_run_name_tokens() -> None:

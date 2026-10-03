@@ -318,6 +318,7 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
                                     "data_augmentation": {"activated": False, "probability": 0.0,
                                                           "types": augmentation_types}},
                            "Backbone": {"pretrained": {"experiment_folder": None, "iteration": None, "freeze": False,
+                                                       "freeze_normalization_parameters": False,
                                                        "learning_rate_multiplier": 1.0}},
                            "Optimization": {"optimizer": "adam", "weight_decay": 0.0,
                                             "learning_rate_schedule": "constant", "warmup_iterations": 0,

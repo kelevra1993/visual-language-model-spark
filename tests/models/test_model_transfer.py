@@ -1,0 +1,502 @@
+import copy
+import pytest
+import torch
+import yaml
+
+from pathlib import Path
+from typing import Any, Callable, Dict, Tuple
+
+from vision_training.models.classification.image_classifier import ImageClassifier
+from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from vision_training.models.model_registry import TASK_MODEL_CLASSES
+from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, disable_pretrained_settings,
+                                                   freeze_batch_normalization_statistics, freeze_component,
+                                                   freeze_normalization_parameters, load_pretrained_component)
+from vision_training.models.task_model import TaskModel
+from vision_training.trainers.checkpointing import save_checkpoint
+from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
+                                                   get_detection_model_configuration,
+                                                   get_sequence_comparison_model_configuration,
+                                                   get_sequence_model_configuration)
+
+# Pretrained settings of a component trained from random weights, and the normalization flag of the backbone
+NO_TRANSFER = {"experiment_folder": None, "iteration": None, "freeze": False, "learning_rate_multiplier": 1.0}
+NO_BACKBONE_TRANSFER = {**NO_TRANSFER, "freeze_normalization_parameters": False}
+
+
+def get_classifier_configuration(detection_configuration: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Builds an image classifier configuration sharing the backbone of the detector configuration, without detection
+    blocks, so that its trained backbone can initialise the detector.
+
+    Args:
+        detection_configuration (Dict[str, Any]): The detector configuration of the tests.
+
+    Returns:
+        Dict[str, Any]: The classifier configuration.
+    """
+    backbone_configuration = copy.deepcopy(detection_configuration["Backbone"])
+    backbone_configuration["detection_convolution_block_indices"] = []
+    return {"Data": {"image_settings": {"size": 512}, "label_dictionary": {1: 0, 2: 1}},
+            "Backbone": backbone_configuration,
+            "ClassificationHead": {"global_pooling": "average", "fully_connected": [], "dropout_rate": 0.0,
+                                   "output_mode": "multi_class", "label_smoothing": 0.0, "class_weighting": "none"}}
+
+
+def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: torch.nn.Module) -> None:
+    """
+    Writes a trained run as the trainers save it: its configuration and one checkpoint of its model.
+
+    Args:
+        run_folder (Path): The run folder.
+        configuration (Dict[str, Any]): The model configuration of the run.
+        model (torch.nn.Module): The model whose weights are saved.
+    """
+    run_folder.mkdir(parents=True)
+    (run_folder / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=configuration))
+    save_checkpoint(weights_directory=run_folder / "Weights", iteration=3, model=model,
+                    optimizer=torch.optim.Adam(params=model.parameters()), metadata={"task": "classification"})
+
+
+def point_to_source_run(configuration: Dict[str, Any], section_name: str, source_folder: Path) -> Dict[str, Any]:
+    """
+    Copies a configuration with the pretrained settings of one section pointing to a source run, the component of
+    that section being then initialised by the one of the source run.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run receiving the component.
+        section_name (str): The section of the transferred component.
+        source_folder (Path): The run folder of the source component.
+
+    Returns:
+        Dict[str, Any]: The configuration with the pretrained settings of the section.
+    """
+    target_configuration = copy.deepcopy(configuration)
+    no_transfer = NO_BACKBONE_TRANSFER if section_name == "Backbone" else NO_TRANSFER
+    target_configuration[section_name]["pretrained"] = {**no_transfer, "experiment_folder": str(source_folder)}
+    return target_configuration
+
+
+def build_sequence_model(task: str, configuration: Dict[str, Any], seed: int) -> TaskModel:
+    """
+    Builds a model of a sequence task on the CPU with seeded weights, so that a source model and the model receiving
+    its components start from different weights.
+
+    Args:
+        task (str): "sequence_classification", "sequence_labelling" or "sequence_comparison".
+        configuration (Dict[str, Any]): The model configuration.
+        seed (int): The seed of the random weights.
+
+    Returns:
+        TaskModel: The model of the task.
+    """
+    torch.manual_seed(seed=seed)
+    return TASK_MODEL_CLASSES[task](configuration=configuration, device=torch.device("cpu"), dtype=torch.float32)
+
+
+def write_sequence_classifier_run(run_folder: Path, temporal_type: str) -> Tuple[Dict[str, Any], TaskModel]:
+    """
+    Writes a trained sequence classifier run with the small sequence configuration of the tests, its temporal module
+    being of the given type.
+
+    Args:
+        run_folder (Path): The run folder.
+        temporal_type (str): The type of the temporal module of the run.
+
+    Returns:
+        Tuple[Dict[str, Any], TaskModel]: The configuration and the model of the run.
+    """
+    configuration, _, _ = get_sequence_model_configuration(temporal_type=temporal_type)
+    source_model = build_sequence_model(task="sequence_classification", configuration=configuration, seed=0)
+    write_source_run(run_folder=run_folder, configuration=configuration, model=source_model)
+    return configuration, source_model
+
+
+def test_classification_backbone_initialises_a_detector(tmp_path: Path) -> None:
+    """
+    Verifies the transfer between two tasks: the backbone of a trained classifier initialises the backbone of a
+    detector exactly, although the two runs differ by their detection blocks and their image size, while the heads of
+    the detector keep their own weights.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    torch.manual_seed(seed=0)
+    detection_configuration, device, dtype = get_detection_model_configuration()
+    classifier_configuration = get_classifier_configuration(detection_configuration=detection_configuration)
+    classifier = ImageClassifier(configuration=classifier_configuration, device=device, dtype=dtype)
+    write_source_run(run_folder=tmp_path / "classification_run", configuration=classifier_configuration,
+                     model=classifier)
+
+    detector = TwoStageDetector(configuration=detection_configuration, device=device, dtype=dtype)
+    detector_heads_before = copy.deepcopy(detector.detector_heads_dictionary.state_dict())
+    checkpoint_path = load_pretrained_component(
+        component=detector.backbone, section_name="Backbone", device=device,
+        model_configuration=point_to_source_run(configuration=detection_configuration, section_name="Backbone",
+                                                source_folder=tmp_path / "classification_run"))
+
+    assert checkpoint_path.name == "model_000003.pt"
+    for parameter_name, parameter_value in classifier.backbone.state_dict().items():
+        assert torch.equal(input=detector.backbone.state_dict()[parameter_name], other=parameter_value)
+    for parameter_name, parameter_value in detector.detector_heads_dictionary.state_dict().items():
+        assert torch.equal(input=parameter_value, other=detector_heads_before[parameter_name])
+
+
+def test_different_architectures_are_rejected(tmp_path: Path) -> None:
+    """
+    Verifies that a backbone is not transferred between runs whose backbone layers differ, the error listing every
+    difference.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    detection_configuration, device, dtype = get_detection_model_configuration()
+    classifier_configuration = get_classifier_configuration(detection_configuration=detection_configuration)
+    write_source_run(run_folder=tmp_path / "classification_run", configuration=classifier_configuration,
+                     model=ImageClassifier(configuration=classifier_configuration, device=device, dtype=dtype))
+
+    # Wider last block and residual connections in the run receiving the backbone
+    target_backbone_configuration = copy.deepcopy(detection_configuration["Backbone"])
+    target_backbone_configuration["convolutions"]["9"] = [2, 128]
+    target_backbone_configuration["modules"]["residual_nets"] = True
+    target_configuration = {**detection_configuration, "Backbone": target_backbone_configuration}
+    detector = TwoStageDetector(configuration=target_configuration, device=device, dtype=dtype)
+
+    with pytest.raises(expected_exception=ValueError) as error_information:
+        load_pretrained_component(
+            component=detector.backbone, section_name="Backbone", device=device,
+            model_configuration=point_to_source_run(configuration=target_configuration, section_name="Backbone",
+                                                    source_folder=tmp_path / "classification_run"))
+    assert "The backbone of the source run" in str(error_information.value)
+    assert "'Backbone.convolutions' is" in str(error_information.value)
+    assert "'Backbone.modules' is" in str(error_information.value)
+
+
+def test_frozen_backbone_keeps_its_weights_and_statistics() -> None:
+    """
+    Verifies that a frozen backbone, whose batch normalization layers stay in evaluation mode as the trainer keeps
+    them, receives no gradient and keeps its batch normalization statistics during a training step of the rest of
+    the model.
+    """
+    torch.manual_seed(seed=0)
+    detection_configuration, device, dtype = get_detection_model_configuration()
+    classifier_configuration = get_classifier_configuration(detection_configuration=detection_configuration)
+    classifier_configuration["Backbone"]["normalization"]["feature_map_normalization"] = "batch"
+    classifier_configuration["Data"]["image_settings"]["size"] = 512
+    classifier = ImageClassifier(configuration=classifier_configuration, device=device, dtype=dtype)
+    freeze_component(component=classifier.backbone)
+    backbone_state_before = copy.deepcopy(classifier.backbone.state_dict())
+
+    # Training mode for the model, evaluation mode for the batch normalization of the frozen backbone, as in
+    # BaseTrainer.set_training_mode
+    classifier.train()
+    freeze_batch_normalization_statistics(component=classifier.backbone)
+    optimizer = torch.optim.Adam(params=classifier.parameters(), lr=0.1)
+    loss = classifier(input_tensor=torch.rand(size=(2, 3, 512, 512)) * 255.0,
+                      labels=torch.tensor(data=[0, 1]))["classification_loss"]
+    loss.backward()
+    optimizer.step()
+
+    assert all(not parameter.requires_grad and parameter.grad is None for parameter in classifier.backbone.parameters())
+    for parameter_name, parameter_value in classifier.backbone.state_dict().items():
+        assert torch.equal(input=parameter_value, other=backbone_state_before[parameter_name]), parameter_name
+
+
+def test_temporal_module_and_head_initialise_another_sequence_classifier(tmp_path: Path) -> None:
+    """
+    Verifies the transfer of the temporal module and of the classification head between two sequence classifiers:
+    both components start from exactly the weights of the source run, while the backbone, not transferred, keeps its
+    own weights.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration, source_model = write_sequence_classifier_run(run_folder=tmp_path / "source_run",
+                                                                temporal_type="gru")
+    target_model = build_sequence_model(task="sequence_classification", configuration=configuration, seed=1)
+    target_backbone_before = copy.deepcopy(target_model.backbone.state_dict())
+
+    for section_name, attribute_name in [("TemporalModel", "temporal_module"),
+                                         ("ClassificationHead", "classification_head")]:
+        load_pretrained_component(component=getattr(target_model, attribute_name), section_name=section_name,
+                                  model_configuration=point_to_source_run(configuration=configuration,
+                                                                          section_name=section_name,
+                                                                          source_folder=tmp_path / "source_run"),
+                                  device=torch.device("cpu"))
+        for tensor_name, tensor_value in getattr(source_model, attribute_name).state_dict().items():
+            assert torch.equal(input=getattr(target_model, attribute_name).state_dict()[tensor_name],
+                               other=tensor_value), tensor_name
+    for tensor_name, tensor_value in target_model.backbone.state_dict().items():
+        assert torch.equal(input=tensor_value, other=target_backbone_before[tensor_name])
+
+
+@pytest.mark.parametrize(argnames="target_task", argvalues=["sequence_labelling", "sequence_comparison"])
+def test_sequence_classifier_temporal_module_initialises_other_sequence_tasks(tmp_path: Path,
+                                                                              target_task: str) -> None:
+    """
+    Verifies that the temporal module of a sequence classifier initialises the temporal module of a sequence labeller
+    (which keeps one vector per frame) and the temporal module shared by both members of a sequence comparator.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        target_task (str): The task of the run receiving the temporal module.
+    """
+    _, source_model = write_sequence_classifier_run(run_folder=tmp_path / "source_run", temporal_type="gru")
+    if target_task == "sequence_comparison":
+        target_configuration, _, _ = get_sequence_comparison_model_configuration(temporal_type="gru",
+                                                                                 fusion_type="difference")
+    else:
+        target_configuration, _, _ = get_sequence_model_configuration(temporal_type="gru")
+    target_model = build_sequence_model(task=target_task, configuration=target_configuration, seed=1)
+
+    load_pretrained_component(component=target_model.temporal_module, section_name="TemporalModel",
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="TemporalModel",
+                                                                      source_folder=tmp_path / "source_run"),
+                              device=torch.device("cpu"))
+    for tensor_name, tensor_value in source_model.temporal_module.state_dict().items():
+        assert torch.equal(input=target_model.temporal_module.state_dict()[tensor_name], other=tensor_value)
+
+
+def use_lstm(configuration: Dict[str, Any]) -> None:
+    """
+    Uses an LSTM instead of the GRU of the source run.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
+    """
+    configuration["TemporalModel"]["type"] = "lstm"
+
+
+def double_hidden_size(configuration: Dict[str, Any]) -> None:
+    """
+    Doubles the hidden size of the temporal module.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
+    """
+    configuration["TemporalModel"]["hidden_size"] = 32
+
+
+def read_backwards(configuration: Dict[str, Any]) -> None:
+    """
+    Makes the recurrent module bidirectional.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
+    """
+    configuration["TemporalModel"]["bidirectional"] = True
+
+
+def double_attention_heads(configuration: Dict[str, Any]) -> None:
+    """
+    Doubles the number of heads of the transformer.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
+    """
+    configuration["TemporalModel"]["number_heads"] = 4
+
+
+def widen_temporal_kernel(configuration: Dict[str, Any]) -> None:
+    """
+    Widens the kernel of the temporal convolution.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
+    """
+    configuration["TemporalModel"]["kernel_size"] = 5
+
+
+def lengthen_windows(configuration: Dict[str, Any]) -> None:
+    """
+    Lengthens the windows of frames, and so the positional embedding of the transformer.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
+    """
+    configuration["Data"]["sequence_settings"]["sequence_length"] = 6
+
+
+def widen_last_backbone_block(configuration: Dict[str, Any]) -> None:
+    """
+    Widens the last backbone block, and so the frame vectors read by the temporal module.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
+    """
+    configuration["Backbone"]["convolutions"]["4"] = [2, 64]
+
+
+def add_head_dropout(configuration: Dict[str, Any]) -> None:
+    """
+    Adds a dropout before the layers of the classification head, which shifts the numbering of its layers.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
+    """
+    configuration["ClassificationHead"]["dropout_rate"] = 0.3
+
+
+@pytest.mark.parametrize(argnames=("source_temporal_type", "modify_function", "section_name", "expected_message"),
+                         argvalues=[
+    ("gru", use_lstm, "TemporalModel", "'TemporalModel.type' is 'gru' in the source run and 'lstm' in this run."),
+    ("gru", double_hidden_size, "TemporalModel",
+     "'TemporalModel.hidden_size' is 16 in the source run and 32 in this run."),
+    ("gru", read_backwards, "TemporalModel",
+     "'TemporalModel.bidirectional' is False in the source run and True in this run."),
+    ("transformer", double_attention_heads, "TemporalModel",
+     "'TemporalModel.number_heads' is 2 in the source run and 4 in this run."),
+    ("temporal_convolution", widen_temporal_kernel, "TemporalModel",
+     "'TemporalModel.kernel_size' is 3 in the source run and 5 in this run."),
+    ("transformer", lengthen_windows, "TemporalModel",
+     "'Data.sequence_settings.sequence_length' is 4 in the source run and 6 in this run, the size of the positional "
+     "embedding of the transformer."),
+    ("gru", widen_last_backbone_block, "TemporalModel",
+     "The last backbone block has 32 channels in the source run and 64 in this run"),
+    ("gru", add_head_dropout, "ClassificationHead",
+     "'ClassificationHead.dropout_rate' is 0.0 in the source run and 0.3 in this run: a head with dropout numbers "
+     "its layers differently from a head without.")])
+def test_different_components_are_rejected(tmp_path: Path, source_temporal_type: str,
+                                           modify_function: Callable[[Dict[str, Any]], None], section_name: str,
+                                           expected_message: str) -> None:
+    """
+    Verifies that a temporal module or a classification head is not transferred when a setting defining its weights
+    differs between the runs, the error naming the setting.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        source_temporal_type (str): The temporal module of the source sequence classifier.
+        modify_function (Callable[[Dict[str, Any]], None]): Function changing the configuration of the run receiving
+            the component.
+        section_name (str): The section of the transferred component.
+        expected_message (str): The expected description of the difference.
+    """
+    configuration, _ = write_sequence_classifier_run(run_folder=tmp_path / "source_run",
+                                                     temporal_type=source_temporal_type)
+    target_configuration = copy.deepcopy(configuration)
+    modify_function(configuration=target_configuration)
+    target_model = build_sequence_model(task="sequence_classification", configuration=target_configuration, seed=1)
+    attribute_name = "temporal_module" if section_name == "TemporalModel" else "classification_head"
+
+    with pytest.raises(expected_exception=ValueError) as error_information:
+        load_pretrained_component(component=getattr(target_model, attribute_name), section_name=section_name,
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name=section_name,
+                                                                          source_folder=tmp_path / "source_run"),
+                                  device=torch.device("cpu"))
+    assert "cannot initialise this run, their architectures differ" in str(error_information.value)
+    assert expected_message in str(error_information.value)
+
+
+def test_head_tensors_of_another_shape_are_listed(tmp_path: Path) -> None:
+    """
+    Verifies that the head of a sequence classifier, whose settings match the head of a sequence comparator, is not
+    loaded into it: the comparison head reads the three fused member vectors, and the mismatching tensor is named
+    with both shapes.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    write_sequence_classifier_run(run_folder=tmp_path / "source_run", temporal_type="gru")
+    target_configuration, _, _ = get_sequence_comparison_model_configuration(temporal_type="gru",
+                                                                             fusion_type="difference")
+    target_model = build_sequence_model(task="sequence_comparison", configuration=target_configuration, seed=1)
+
+    with pytest.raises(expected_exception=ValueError) as error_information:
+        load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name="ClassificationHead",
+                                                                          source_folder=tmp_path / "source_run"),
+                                  device=torch.device("cpu"))
+    assert "classification head tensors of the checkpoint" in str(error_information.value)
+    assert ("'fully_connected_block.0.weight' has the shape [16, 16] in the source run and [16, 48] in this run."
+            in str(error_information.value))
+
+
+def test_source_run_without_the_component_is_rejected(tmp_path: Path) -> None:
+    """
+    Verifies that a temporal module is not looked for in a run whose task has none, here an image classifier.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    classifier_configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    write_source_run(run_folder=tmp_path / "classification_run", configuration=classifier_configuration,
+                     model=ImageClassifier(configuration=classifier_configuration, device=device, dtype=dtype))
+    target_configuration, _, _ = get_sequence_model_configuration(temporal_type="gru")
+    target_model = build_sequence_model(task="sequence_classification", configuration=target_configuration, seed=1)
+
+    target_configuration = point_to_source_run(configuration=target_configuration, section_name="TemporalModel",
+                                               source_folder=tmp_path / "classification_run")
+
+    with pytest.raises(expected_exception=ValueError, match="has no 'TemporalModel' section"):
+        load_pretrained_component(component=target_model.temporal_module, section_name="TemporalModel",
+                                  model_configuration=target_configuration, device=device)
+
+
+@pytest.mark.parametrize(argnames="feature_map_normalization", argvalues=["batch", "layer"])
+def test_normalization_parameters_stay_fixed(feature_map_normalization: str) -> None:
+    """
+    Verifies that the scale and shift of the batch or layer normalization layers of a backbone stay fixed during a
+    training step while its convolutions learn, and that the batch normalization statistics keep following the data.
+
+    Args:
+        feature_map_normalization (str): The normalization of the backbone feature maps.
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    configuration["Backbone"]["normalization"]["feature_map_normalization"] = feature_map_normalization
+    torch.manual_seed(seed=0)
+    classifier = ImageClassifier(configuration=configuration, device=device, dtype=dtype)
+    freeze_normalization_parameters(component=classifier.backbone)
+    backbone_state_before = copy.deepcopy(classifier.backbone.state_dict())
+
+    # Normalization parameters frozen, every other parameter trainable
+    normalization_parameter_names = {f"{module_name}.{parameter_name}"
+                                     for module_name, module in classifier.backbone.named_modules()
+                                     if isinstance(module, NORMALIZATION_LAYER_TYPES)
+                                     for parameter_name, _ in module.named_parameters()}
+    assert normalization_parameter_names
+    for parameter_name, parameter in classifier.backbone.named_parameters():
+        assert parameter.requires_grad == (parameter_name not in normalization_parameter_names), parameter_name
+
+    # One training step of the whole model
+    classifier.train()
+    optimizer = torch.optim.Adam(params=[parameter for parameter in classifier.parameters()
+                                         if parameter.requires_grad], lr=0.1)
+    classifier(input_tensor=torch.rand(size=(2, 3, 64, 64)) * 255.0,
+               labels=torch.tensor(data=[0, 1]))["classification_loss"].backward()
+    optimizer.step()
+
+    # Normalization parameters unchanged, convolutions changed, batch statistics updated
+    backbone_state_after = classifier.backbone.state_dict()
+    for parameter_name in normalization_parameter_names:
+        assert torch.equal(input=backbone_state_after[parameter_name], other=backbone_state_before[parameter_name])
+    convolution_weight_names = [tensor_name for tensor_name in backbone_state_after
+                                if tensor_name.endswith(".weight") and backbone_state_after[tensor_name].dim() == 4]
+    assert any(not torch.equal(input=backbone_state_after[tensor_name], other=backbone_state_before[tensor_name])
+               for tensor_name in convolution_weight_names)
+    running_mean_names = [tensor_name for tensor_name in backbone_state_after if tensor_name.endswith("running_mean")]
+    assert (feature_map_normalization == "batch") == bool(running_mean_names)
+    assert all(not torch.equal(input=backbone_state_after[tensor_name], other=backbone_state_before[tensor_name])
+               for tensor_name in running_mean_names)
+
+
+def test_pretrained_settings_are_disabled() -> None:
+    """
+    Verifies that turning off the transfers of a configuration removes the source run and the freezing of every
+    transferable section, the backbone normalization flag included, and leaves the other settings unchanged.
+    """
+    configuration, _, _ = get_sequence_model_configuration(temporal_type="gru")
+    configuration["Backbone"]["pretrained"] = {**NO_BACKBONE_TRANSFER, "experiment_folder": "/runs/source",
+                                               "freeze_normalization_parameters": True,
+                                               "learning_rate_multiplier": 0.5}
+    configuration["TemporalModel"]["pretrained"] = {**NO_TRANSFER, "experiment_folder": "/runs/source",
+                                                    "freeze": True, "iteration": 4}
+    configuration["ClassificationHead"]["pretrained"] = {**NO_TRANSFER, "experiment_folder": "/runs/source"}
+
+    disable_pretrained_settings(model_configuration=configuration)
+
+    assert configuration["Backbone"]["pretrained"] == {**NO_BACKBONE_TRANSFER, "learning_rate_multiplier": 0.5}
+    assert configuration["TemporalModel"]["pretrained"] == {**NO_TRANSFER, "iteration": 4}
+    assert configuration["ClassificationHead"]["pretrained"] == NO_TRANSFER

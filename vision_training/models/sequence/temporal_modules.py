@@ -17,7 +17,9 @@ def print_sequence_module_summary(title: str, module_configuration: Dict[str, An
                                   border_style: str) -> None:
     """
     Prints the settings of a module of the sequence models in their architecture summary (the temporal module, the
-    fusion of the members of a pair), with the number of features of the vectors it gives to the next module.
+    fusion of the members of a pair), with the number of features of the vectors it gives to the next module. The
+    'pretrained' settings are left out, the source run of a transferred module being printed with the experiment
+    information.
 
     Args:
         title (str): The title of the panel, e.g. "Temporal Module".
@@ -26,7 +28,7 @@ def print_sequence_module_summary(title: str, module_configuration: Dict[str, An
         border_style (str): The colour of the panel border.
     """
     summary_text = "\n".join(f"[bold]{key_name.replace('_', ' ').title():<18}[/bold] : {key_value}"
-                             for key_name, key_value in module_configuration.items())
+                             for key_name, key_value in module_configuration.items() if key_name != "pretrained")
     summary_text += f"\n[bold]{'Output Features':<18}[/bold] : {output_features}"
     Console(width=80).print(Panel(summary_text, title=f"[bold]{title}[/bold]", border_style=border_style))
 

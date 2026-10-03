@@ -1,5 +1,6 @@
 from typing import Any, Dict, List
 
+from vision_training.configuration.common_checks import check_pretrained_configuration
 from vision_training.configuration.configuration_values import (check_positive_integers, check_probability_value,
                                                                 get_configuration_value)
 
@@ -57,7 +58,8 @@ def check_classification_data_configuration(model_configuration: Dict[str, Any])
 def check_classification_head_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'ClassificationHead' section shared by the classification-like tasks: the global pooling, the hidden
-    fully connected layers, the dropout, the output mode, the label smoothing and the class weighting of the loss.
+    fully connected layers, the dropout, the output mode, the label smoothing, the class weighting of the loss, and
+    the 'pretrained' settings initialising the head with the one of another run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -97,6 +99,9 @@ def check_classification_head_configuration(model_configuration: Dict[str, Any])
         errors.append(f"'ClassificationHead.class_weighting' must be one of {VALID_CLASS_WEIGHTINGS}, "
                       f"got {class_weighting!r}.")
 
+    # Head possibly initialised by the one of another run
+    errors += check_pretrained_configuration(model_configuration=model_configuration,
+                                             section_name="ClassificationHead")
     return errors
 
 

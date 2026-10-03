@@ -17,6 +17,11 @@ VALID_LABEL_MODES = ["binary", "multi_class"]
 VALID_OPTIMIZERS = ["adam", "adamw", "sgd"]
 VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
 
+# Name of the component of every section whose 'pretrained' settings initialise it with the one of another run, used
+# in the messages
+PRETRAINED_COMPONENT_NAMES = {"Backbone": "backbone", "TemporalModel": "temporal module",
+                              "ClassificationHead": "classification head"}
+
 
 def check_experiment_configuration(experiment_configuration: Dict[str, Any], valid_tasks: List[str]) -> List[str]:
     """
@@ -212,49 +217,79 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
                     errors.append(f"'Backbone.convolutions.{block_number}' has {output_channels} output channels, "
                                   f"inception modules require a multiple of 8.")
 
-    errors += check_pretrained_backbone_configuration(model_configuration=model_configuration)
+    errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="Backbone")
     return errors
 
 
-def check_pretrained_backbone_configuration(model_configuration: Dict[str, Any]) -> List[str]:
+def check_pretrained_configuration(model_configuration: Dict[str, Any], section_name: str) -> List[str]:
     """
-    Verifies the 'Backbone.pretrained' settings, which initialise the backbone with the one of another run: the source
-    run folder or null, the checkpoint iteration or null for the last one, the freeze flag, only meaningful with a
-    source run, and the learning rate multiplier of the transferred backbone. The source run itself is only read when
-    a new training starts, so that a trained run can still be evaluated and exported once its source run is gone.
+    Verifies the 'pretrained' settings of a section (Backbone, TemporalModel or ClassificationHead), which initialise
+    its component with the trained one of another run: the source run folder or null, the checkpoint iteration or
+    null for the last one, the freeze flag, only meaningful with a source run, and the learning rate multiplier of the
+    transferred component. For the backbone, the 'freeze_normalization_parameters' flag keeps the scale and shift of
+    its normalization layers fixed, which needs a source run that is not frozen anyway and a backbone with
+    normalization layers. The source run itself is only read when a new training starts, so that a trained run can
+    still be evaluated and exported once its source run is gone.
 
     Args:
-        model_configuration (Dict[str, Any]): The model configuration containing the 'Backbone' section.
+        model_configuration (Dict[str, Any]): The model configuration containing the section.
+        section_name (str): The section holding the 'pretrained' settings, a key of PRETRAINED_COMPONENT_NAMES.
 
     Returns:
         List[str]: The description of every inconsistency found.
     """
     errors = []
+    component_name = PRETRAINED_COMPONENT_NAMES[section_name]
+    key_prefix = f"{section_name}.pretrained"
     experiment_folder = get_configuration_value(configuration=model_configuration,
-                                                key_path="Backbone.pretrained.experiment_folder")
-    iteration = get_configuration_value(configuration=model_configuration, key_path="Backbone.pretrained.iteration")
+                                                key_path=f"{key_prefix}.experiment_folder")
+    iteration = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.iteration")
 
     # The source run is given by the path of its folder
     if experiment_folder is not None and not isinstance(experiment_folder, str):
-        errors.append(f"'Backbone.pretrained.experiment_folder' must be null or the path of a run folder, "
+        errors.append(f"'{key_prefix}.experiment_folder' must be null or the path of a run folder, "
                       f"got {experiment_folder!r}.")
     if iteration is not None:
-        errors += check_positive_integers(configuration=model_configuration,
-                                          key_paths=["Backbone.pretrained.iteration"], allow_zero=False)
+        errors += check_positive_integers(configuration=model_configuration, key_paths=[f"{key_prefix}.iteration"],
+                                          allow_zero=False)
 
-    # A random backbone is never frozen
-    freeze_errors = check_boolean_flags(configuration=model_configuration, key_paths=["Backbone.pretrained.freeze"])
+    # A random component is never frozen
+    freeze_errors = check_boolean_flags(configuration=model_configuration, key_paths=[f"{key_prefix}.freeze"])
     errors += freeze_errors
-    if not freeze_errors and experiment_folder is None and get_configuration_value(
-            configuration=model_configuration, key_path="Backbone.pretrained.freeze"):
-        errors.append("'Backbone.pretrained.freeze' must be False when 'Backbone.pretrained.experiment_folder' is "
-                      "null: only a transferred backbone can be frozen.")
+    freeze = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.freeze")
+    if not freeze_errors and experiment_folder is None and freeze:
+        errors.append(f"'{key_prefix}.freeze' must be False when '{key_prefix}.experiment_folder' is null: only a "
+                      f"transferred {component_name} can be frozen.")
 
     learning_rate_multiplier = get_configuration_value(configuration=model_configuration,
-                                                       key_path="Backbone.pretrained.learning_rate_multiplier")
+                                                       key_path=f"{key_prefix}.learning_rate_multiplier")
     if isinstance(learning_rate_multiplier, bool) or not isinstance(learning_rate_multiplier, (int, float)) or \
             learning_rate_multiplier <= 0:
-        errors.append(f"'Backbone.pretrained.learning_rate_multiplier' must be > 0, got {learning_rate_multiplier!r}.")
+        errors.append(f"'{key_prefix}.learning_rate_multiplier' must be > 0, got {learning_rate_multiplier!r}.")
+    if section_name != "Backbone":
+        return errors
+
+    # The scale and shift of the normalization layers are kept fixed in a transferred backbone that still learns
+    normalization_errors = check_boolean_flags(configuration=model_configuration,
+                                               key_paths=["Backbone.pretrained.freeze_normalization_parameters"])
+    errors += normalization_errors
+    freeze_normalization = get_configuration_value(configuration=model_configuration,
+                                                   key_path="Backbone.pretrained.freeze_normalization_parameters")
+    feature_map_normalization = get_configuration_value(
+        configuration=model_configuration, key_path="Backbone.normalization.feature_map_normalization")
+    if not normalization_errors and freeze_normalization:
+        if experiment_folder is None:
+            errors.append("'Backbone.pretrained.freeze_normalization_parameters' must be False when "
+                          "'Backbone.pretrained.experiment_folder' is null: only the normalization of a transferred "
+                          "backbone can be kept fixed.")
+        elif freeze is True:
+            errors.append("'Backbone.pretrained.freeze_normalization_parameters' must be False when "
+                          "'Backbone.pretrained.freeze' is True: a frozen backbone already keeps every parameter "
+                          "fixed.")
+        if feature_map_normalization == "none":
+            errors.append("'Backbone.pretrained.freeze_normalization_parameters' must be False when "
+                          "'Backbone.normalization.feature_map_normalization' is 'none': the backbone has no "
+                          "normalization layer.")
     return errors
 
 

@@ -4,7 +4,7 @@ import torch
 from typing import Any, Dict, Tuple
 
 from vision_training.models.sequence.temporal_modules import (ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES,
-                                                              build_temporal_module)
+                                                              build_temporal_module, print_sequence_module_summary)
 
 # Frame vectors of the tests: batches of 3 sequences of 6 frames of 8 features
 BATCH_SIZE, SEQUENCE_LENGTH, INPUT_FEATURES = 3, 6, 8
@@ -182,3 +182,22 @@ def test_non_causal_modules_look_ahead(temporal_type: str, bidirectional: bool) 
         outputs = module(frame_features=frame_features, sequence_mask=sequence_mask)
         changed_outputs = module(frame_features=changed_features, sequence_mask=sequence_mask)
     assert not torch.allclose(input=outputs[:, 2], other=changed_outputs[:, 2])
+
+
+def test_module_summary_leaves_out_the_pretrained_settings(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the summary panel of a temporal module lists its settings and its output size, but not its
+    'pretrained' settings, whose source run is printed with the experiment information.
+
+    Args:
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed panel.
+    """
+    temporal_configuration = {**get_temporal_configuration(temporal_type="gru", bidirectional=True, causal=False),
+                              "pretrained": {"experiment_folder": "/runs/source", "iteration": None, "freeze": True,
+                                             "learning_rate_multiplier": 1.0}}
+    print_sequence_module_summary(title="Temporal Module", module_configuration=temporal_configuration,
+                                  output_features=24, border_style="blue")
+
+    printed_panel = capsys.readouterr().out
+    assert "Hidden Size" in printed_panel and "Output Features" in printed_panel and "24" in printed_panel
+    assert "Pretrained" not in printed_panel and "/runs/source" not in printed_panel

@@ -214,6 +214,10 @@ Backbone:
     # Keeps the loaded backbone fixed (no gradient, batch normalization statistics frozen) so that only the heads of
     # the task learn. Requires an experiment_folder.
     freeze: False
+    # Keeps the scale and shift of the batch or layer normalization layers of the loaded backbone fixed while its
+    # convolutions learn, the batch normalization statistics still following the data of this run. Requires an
+    # experiment_folder, freeze False and a feature_map_normalization other than "none".
+    freeze_normalization_parameters: False
     # Multiplies the learning rate of the loaded backbone, e.g. 0.1 to fine-tune it ten times slower than the heads.
     learning_rate_multiplier: 1.0
 
@@ -239,6 +243,24 @@ TemporalModel:
   # Every frame only sees the frames before it (transformer, temporal convolution), for online use where the future
   # frames are not available yet. The GRU and LSTM are causal when they are not bidirectional.
   causal: True
+  # Temporal module of another training run (of a sequence task) initialising this run instead of random weights.
+  # Its type, the settings defining its weights for that type (hidden_size, plus number_layers and bidirectional
+  # for GRU and LSTM, number_layers and number_heads for the transformer, number_layers and kernel_size for the
+  # temporal convolution), the channels of the last backbone block and, for the transformer,
+  # Data.sequence_settings.sequence_length must be identical in both runs. The poolings without weights
+  # (mean_pooling, max_pooling) have nothing to transfer.
+  pretrained:
+    # Run folder whose trained temporal module initialises this run, null to start from random weights. A run
+    # resuming from its own checkpoints does not load it again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded temporal module fixed (no gradient) so that only the other components learn. Requires an
+    # experiment_folder.
+    freeze: False
+    # Multiplies the learning rate of the loaded temporal module, e.g. 0.1 to fine-tune it ten times slower than
+    # the new layers.
+    learning_rate_multiplier: 1.0
 
 ClassificationHead:
   # Global pooling reducing the final backbone feature map of every frame to one feature vector, "average" or "max".
@@ -254,3 +276,18 @@ ClassificationHead:
   # Weighting of the classes in the loss: "none" (every sample weighs the same) or "balanced" (every class weighs the
   # same, the weights being inversely proportional to the number of labelled training frames of each class).
   class_weighting: "none"
+  # Classification head of another training run initialising this run instead of random weights. Its
+  # fully_connected layers and whether it uses a dropout must be identical in both runs, as well as the size of
+  # the vectors it reads and the classes it predicts, in the same order.
+  pretrained:
+    # Run folder whose trained classification head initialises this run, null to start from random weights. A
+    # run resuming from its own checkpoints does not load it again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded classification head fixed (no gradient) so that only the other components learn.
+    # Requires an experiment_folder.
+    freeze: False
+    # Multiplies the learning rate of the loaded classification head, e.g. 0.1 to fine-tune it ten times slower
+    # than the new layers.
+    learning_rate_multiplier: 1.0

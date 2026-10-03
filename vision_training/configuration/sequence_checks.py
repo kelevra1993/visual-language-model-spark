@@ -3,6 +3,7 @@ from typing import Any, Dict, List
 from vision_training.configuration.classification_checks import (check_classification_data_configuration,
                                                                  check_classification_evaluation_configuration,
                                                                  check_classification_head_configuration)
+from vision_training.configuration.common_checks import check_pretrained_configuration
 from vision_training.configuration.configuration_values import (check_boolean_flags, check_positive_integers,
                                                                 get_configuration_value)
 from vision_training.models.sequence.member_fusion import FUSION_TYPES
@@ -51,8 +52,9 @@ def check_temporal_model_configuration(model_configuration: Dict[str, Any], vali
                                        allow_causal: bool) -> List[str]:
     """
     Verifies the 'TemporalModel' section of the sequence tasks: the module type allowed by the task, its sizes, its
-    dropout, and the consistency of the causal and bidirectional flags (a causal model never looks at the future
-    frames, so it cannot read the sequence backwards).
+    dropout, the consistency of the causal and bidirectional flags (a causal model never looks at the future frames,
+    so it cannot read the sequence backwards), and the 'pretrained' settings initialising the module with the one of
+    another run, which the poolings without weights cannot use.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -99,6 +101,14 @@ def check_temporal_model_configuration(model_configuration: Dict[str, Any], vali
     if not flag_errors and causal and bidirectional:
         errors.append("'TemporalModel.bidirectional' must be False when 'TemporalModel.causal' is True: reading the "
                       "sequence backwards looks at the future frames.")
+
+    # Module possibly initialised by the one of another run, which needs weights to transfer
+    errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="TemporalModel")
+    pretrained_experiment_folder = get_configuration_value(configuration=model_configuration,
+                                                           key_path="TemporalModel.pretrained.experiment_folder")
+    if temporal_type in ["mean_pooling", "max_pooling"] and pretrained_experiment_folder is not None:
+        errors.append(f"'TemporalModel.pretrained.experiment_folder' must be null for the {temporal_type!r} temporal "
+                      f"module, which has no weights to transfer.")
     return errors
 
 

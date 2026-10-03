@@ -193,6 +193,10 @@ Backbone:
     # Keeps the loaded backbone fixed (no gradient, batch normalization statistics frozen) so that only the heads of
     # the task learn. Requires an experiment_folder.
     freeze: False
+    # Keeps the scale and shift of the batch or layer normalization layers of the loaded backbone fixed while its
+    # convolutions learn, the batch normalization statistics still following the data of this run. Requires an
+    # experiment_folder, freeze False and a feature_map_normalization other than "none".
+    freeze_normalization_parameters: False
     # Multiplies the learning rate of the loaded backbone, e.g. 0.1 to fine-tune it ten times slower than the heads.
     learning_rate_multiplier: 1.0
 

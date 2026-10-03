@@ -707,12 +707,66 @@ def set_invalid_pretrained_run(configuration: Dict[str, Any]) -> None:
     configuration["Backbone"]["pretrained"].update({"experiment_folder": 5, "iteration": 0})
 
 
+def freeze_normalization_of_random_backbone(configuration: Dict[str, Any]) -> None:
+    """
+    Keeps the normalization parameters of a backbone trained from random weights fixed.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Backbone"]["pretrained"]["freeze_normalization_parameters"] = True
+
+
+def freeze_normalization_of_frozen_backbone(configuration: Dict[str, Any]) -> None:
+    """
+    Keeps the normalization parameters of a frozen transferred backbone fixed.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Backbone"]["pretrained"].update({"experiment_folder": "/runs/source", "freeze": True,
+                                                    "freeze_normalization_parameters": True})
+
+
+def freeze_normalization_without_normalization_layers(configuration: Dict[str, Any]) -> None:
+    """
+    Keeps the normalization parameters of a transferred backbone without normalization layers fixed, and writes the
+    flag of another transferred backbone as a string.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Backbone"]["pretrained"].update({"experiment_folder": "/runs/source",
+                                                    "freeze_normalization_parameters": True})
+    configuration["Backbone"]["normalization"]["feature_map_normalization"] = "none"
+
+
+def write_normalization_flag_as_text(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the normalization flag of the backbone as a quoted string instead of a boolean.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Backbone"]["pretrained"]["freeze_normalization_parameters"] = "False"
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (freeze_random_backbone, ["'Backbone.pretrained.freeze' must be False when 'Backbone.pretrained.experiment_folder' "
-                              "is null", "'Backbone.pretrained.learning_rate_multiplier' must be > 0, got 0."]),
+                              "is null: only a transferred backbone can be frozen.",
+                              "'Backbone.pretrained.learning_rate_multiplier' must be > 0, got 0."]),
     (set_invalid_pretrained_run, ["'Backbone.pretrained.experiment_folder' must be null or the path of a run "
                                   "folder, got 5.",
-                                  "'Backbone.pretrained.iteration' must be an integer >= 1, got 0."])])
+                                  "'Backbone.pretrained.iteration' must be an integer >= 1, got 0."]),
+    (freeze_normalization_of_random_backbone, ["'Backbone.pretrained.freeze_normalization_parameters' must be False "
+                                               "when 'Backbone.pretrained.experiment_folder' is null"]),
+    (freeze_normalization_of_frozen_backbone, ["'Backbone.pretrained.freeze_normalization_parameters' must be False "
+                                               "when 'Backbone.pretrained.freeze' is True"]),
+    (freeze_normalization_without_normalization_layers, [
+        "'Backbone.pretrained.freeze_normalization_parameters' must be False when "
+        "'Backbone.normalization.feature_map_normalization' is 'none': the backbone has no normalization layer."]),
+    (write_normalization_flag_as_text, ["'Backbone.pretrained.freeze_normalization_parameters' must be True or False, "
+                                        "got 'False'."])])
 def test_inconsistent_pretrained_backbone_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                       modify_function: Callable[[Dict[str, Any]], None],
                                                       expected_messages: List[str]) -> None:
@@ -734,6 +788,96 @@ def test_inconsistent_pretrained_backbone_is_rejected(tmp_path: Path, capsys: py
     printed_output = capsys.readouterr().out
     for expected_message in expected_messages:
         assert expected_message in printed_output
+
+
+def transfer_all_sequence_components(configuration: Dict[str, Any]) -> None:
+    """
+    Initialises the backbone, the temporal module and the classification head of a sequence classifier with those of
+    another run: the backbone with its normalization parameters fixed, the temporal module frozen and the head ten
+    times slower.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
+    """
+    configuration["Backbone"]["pretrained"].update({"experiment_folder": "/runs/source",
+                                                    "freeze_normalization_parameters": True})
+    configuration["TemporalModel"]["pretrained"].update({"experiment_folder": "/runs/source", "iteration": 3,
+                                                         "freeze": True})
+    configuration["ClassificationHead"]["pretrained"].update({"experiment_folder": "/runs/source",
+                                                              "learning_rate_multiplier": 0.1})
+
+
+def test_transferred_sequence_components_are_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that consistent pretrained settings of every component of a sequence classifier pass the checks, the
+    source run being only read when the training starts.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_classification",
+                                                  configuration_name="configuration_synthetic_sequences.yaml",
+                                                  modify_function=transfer_all_sequence_components)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["TemporalModel"]["pretrained"]["freeze"] is True
+
+
+def transfer_mean_pooling(configuration: Dict[str, Any]) -> None:
+    """
+    Initialises a mean pooling temporal module, which has no weights, with the one of another run.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
+    """
+    configuration["TemporalModel"]["type"] = "mean_pooling"
+    configuration["TemporalModel"]["pretrained"]["experiment_folder"] = "/runs/source"
+
+
+def set_invalid_temporal_and_head_transfers(configuration: Dict[str, Any]) -> None:
+    """
+    Freezes the temporal module without loading one from another run and multiplies its learning rate by zero, and
+    gives the classification head a number instead of a run folder path and a checkpoint iteration of zero.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
+    """
+    configuration["TemporalModel"]["pretrained"].update({"freeze": True, "learning_rate_multiplier": 0})
+    configuration["ClassificationHead"]["pretrained"].update({"experiment_folder": 5, "iteration": 0})
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (transfer_mean_pooling, ["'TemporalModel.pretrained.experiment_folder' must be null for the 'mean_pooling' "
+                             "temporal module, which has no weights to transfer."]),
+    (set_invalid_temporal_and_head_transfers, [
+        "'TemporalModel.pretrained.freeze' must be False when 'TemporalModel.pretrained.experiment_folder' is null: "
+        "only a transferred temporal module can be frozen.",
+        "'TemporalModel.pretrained.learning_rate_multiplier' must be > 0, got 0.",
+        "'ClassificationHead.pretrained.experiment_folder' must be null or the path of a run folder, got 5.",
+        "'ClassificationHead.pretrained.iteration' must be an integer >= 1, got 0."])])
+def test_inconsistent_temporal_and_head_transfers_are_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                               modify_function: Callable[[Dict[str, Any]], None],
+                                                               expected_messages: List[str]) -> None:
+    """
+    Verifies that inconsistent pretrained settings of the temporal module or of the classification head stop the
+    loading with a short message naming the faulty key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_classification",
+                                                  configuration_name="configuration_synthetic_sequences.yaml",
+                                                  modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
+    assert "Traceback" not in printed_output
 
 
 def set_invalid_optimization(configuration: Dict[str, Any]) -> None:

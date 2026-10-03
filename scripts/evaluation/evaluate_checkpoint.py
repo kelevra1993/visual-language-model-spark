@@ -5,6 +5,7 @@ from pathlib import Path
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.core.task_registry import get_trainer_class
 from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.models.model_transfer import disable_pretrained_settings
 from vision_training.utilities.os_utilities import print_color
 
 if __name__ == "__main__":
@@ -26,8 +27,8 @@ if __name__ == "__main__":
     if test_data_folder is not None:
         experiment_configuration["test_data_folder"] = test_data_folder
 
-    # The weights come from the evaluated checkpoint, so the pretrained backbone the run started from is not loaded
-    model_configuration["Backbone"]["pretrained"].update({"experiment_folder": None, "freeze": False})
+    # The weights come from the evaluated checkpoint, so the pretrained components the run started from are not loaded
+    disable_pretrained_settings(model_configuration=model_configuration)
 
     trainer_class = get_trainer_class(task=experiment_configuration["task"])
     trainer = trainer_class(experiment_configuration=experiment_configuration,
