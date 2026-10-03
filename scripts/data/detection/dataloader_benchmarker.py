@@ -1,3 +1,9 @@
+"""
+When run, benchmarks the two object detection data loaders, the Native PyTorch CocoDetectionDataset and the DALI
+pipeline of vision_training.data.detection, on a COCO-format dataset: it times epoch loops of each loader, can compare
+and view their batches, and writes the timings to 'benchmark_results.csv'.
+"""
+
 import os
 
 import json
