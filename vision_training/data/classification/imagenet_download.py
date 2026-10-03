@@ -1,3 +1,10 @@
+"""
+Downloads ImageNet-1k from Hugging Face for the classification task: the parquet shards fetched with resume, extracted
+by worker processes into class folders, a validation split held out from the training images by file name hash, the
+official validation images as the test split, the split size checks, the class folder manifests and the class names.
+Run as a script with the dataset folder and worker counts set in its main block.
+"""
+
 import ast
 import hashlib
 import json

@@ -1,3 +1,9 @@
+"""
+ClassificationDataset, the Native (OpenCV, CPU) dataset of the classification task, reading the images and the
+multi-class or multi-label categories of a split from its 'labels.json' manifest, with the label dictionary of the
+configuration. Instantiated by get_classification_dataloaders of data/loaders.py.
+"""
+
 import json
 import os
 import random

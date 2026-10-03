@@ -1,3 +1,9 @@
+"""
+Converts a classification dataset stored as one folder of images per class into the split layout read by
+ClassificationDataset ('data/' symbolic link and 'labels.json' manifest) and its 'label_mapping.json', without
+copying any image. Run from the classification example configuration instructions and by the ImageNet download.
+"""
+
 import json
 
 from pathlib import Path
