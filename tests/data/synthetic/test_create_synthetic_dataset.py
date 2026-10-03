@@ -1,3 +1,9 @@
+"""
+Tests of vision_training/data/synthetic/create_synthetic_dataset.py: the synthetic detection, classification, sequence
+classification, sequence labelling and sequence comparison datasets are valid, load with the datasets of the framework
+and follow their labels.
+"""
+
 import json
 import cv2
 import numpy as np
