@@ -1,3 +1,9 @@
+"""
+Tests of vision_training/models/model_transfer.py: backbones, temporal modules and heads of a saved run initialising
+other models and tasks, rejected architectures and components, frozen and fixed normalization parameters and backbones
+moving between batch and sequence normalization.
+"""
+
 import copy
 import pytest
 import torch
