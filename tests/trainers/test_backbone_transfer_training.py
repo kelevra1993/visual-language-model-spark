@@ -65,7 +65,8 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
                                                      "number_iterations": number_iterations,
                                                      "validation_iteration_ratio": 2, "resume_training": True})
     configuration["ExperimentConfiguration"]["diagnosis_modes"].update({"compute_receptive_field": False,
-                                                                        "compute_model_size": False})
+                                                                        "compute_model_size": False,
+                                                                        "view_input_images": False})
     configuration["Data"]["image_settings"]["size"] = TRANSFER_IMAGE_SIZE
     # Two loader workers per split, enough for the small generated dataset
     configuration["Data"]["loading"]["number_workers"] = 2
