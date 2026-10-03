@@ -1,3 +1,9 @@
+"""
+CocoDetectionDataset, the Native (OpenCV, CPU) dataset of the object detection task reading a COCO 'labels.json'
+split, and the collate function batching its images and per-image boxes and labels. Used by get_dataloader of
+data/loaders.py when the DALI loader is disabled.
+"""
+
 import random
 import json
 import os

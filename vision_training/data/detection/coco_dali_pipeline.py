@@ -1,3 +1,10 @@
+"""
+GPU data loading of the object detection task with NVIDIA DALI: the pipeline decoding and resizing the COCO images on
+the GPU, and DALIDataloaderWrapper giving its batches the same dictionary format as the Native PyTorch loader.
+Selected by get_dataloader of data/loaders.py when the DALI loader is enabled, and timed by
+scripts/data/detection/dataloader_benchmarker.py.
+"""
+
 import torch
 import nvidia.dali.fn as dali_function
 import nvidia.dali.types as dali_types
