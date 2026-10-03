@@ -1,3 +1,8 @@
+"""
+Tests of ImageClassifier and of the classification head of vision_training/models/classification: output shapes and
+probabilities, learning a tiny batch, the class weights buffer and the global pooling shapes.
+"""
+
 import pytest
 import torch
 
