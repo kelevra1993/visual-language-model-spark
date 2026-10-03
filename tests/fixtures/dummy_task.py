@@ -1,3 +1,9 @@
+"""
+Dummy task (dataset, model and trainer) implementing the hooks of BaseTrainer of
+vision_training/trainers/base_trainer.py with the smallest code, used by the trainer, checkpoint, optimization and
+evaluation tests to check the general training loop without any real model or dataset.
+"""
+
 import torch
 
 from pathlib import Path

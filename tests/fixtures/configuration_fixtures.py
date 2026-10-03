@@ -1,3 +1,8 @@
+"""
+Small model configuration dictionaries of the detection, classification, sequence and sequence comparison models, with
+their device and dtype, shared by the model, export and transfer tests and by the debug scripts under scripts/models.
+"""
+
 import torch
 
 from typing import Any, Dict, Tuple

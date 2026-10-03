@@ -1,3 +1,8 @@
+"""
+Checks of the evaluation outputs written by the classification-like trainers (the predictions file and the error image
+folders), shared by the trainer smoke tests of the classification and sequence tasks.
+"""
+
 import csv
 import pytest
 
