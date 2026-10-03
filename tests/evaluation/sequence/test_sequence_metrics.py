@@ -1,3 +1,8 @@
+"""
+Tests of vision_training/evaluation/sequence/sequence_metrics.py: the frame accuracy and the sequence exact matches of
+the sequence labelling task ignore the frames without class.
+"""
+
 import pytest
 import torch
 
