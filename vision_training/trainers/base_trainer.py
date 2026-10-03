@@ -898,7 +898,7 @@ class BaseTrainer(ABC):
 
         return total_loss, model_outputs
 
-    def run_test_evaluation(self, iteration: int) -> None:
+    def run_test_evaluation(self, iteration: int) -> EvaluationResults:
         """
         Evaluates a saved checkpoint on the whole test split, at every weight_saving_iterations checkpoint, and
         reports it to the console, TensorBoard and the Results.txt file of the run. The model runs as in deployment,
@@ -907,6 +907,9 @@ class BaseTrainer(ABC):
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint.
+
+        Returns:
+            EvaluationResults: The results of the evaluation, for the tools comparing the checkpoints of a run.
         """
         self.model.eval()
         accumulator = self.create_evaluation_accumulator(iteration=iteration)
@@ -935,6 +938,7 @@ class BaseTrainer(ABC):
 
         results = self.compute_evaluation_results(accumulator=accumulator, iteration=iteration)
         self.report_evaluation(iteration=iteration, results=results)
+        return results
 
     def report_evaluation(self, iteration: int, results: EvaluationResults) -> None:
         """

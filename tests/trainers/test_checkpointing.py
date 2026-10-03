@@ -5,8 +5,9 @@ from pathlib import Path
 from torch import nn
 
 from vision_training.trainers.checkpointing import (CHECKPOINT_FORMAT_VERSION, CHECKPOINT_REGISTRY_NAME,
-                                                    get_checkpoint_path, get_last_checkpoint_iteration,
-                                                    load_checkpoint, save_checkpoint, update_checkpoint_registry)
+                                                    get_checkpoint_iterations, get_checkpoint_path,
+                                                    get_last_checkpoint_iteration, load_checkpoint, save_checkpoint,
+                                                    update_checkpoint_registry)
 
 
 def test_registry_names_the_last_checkpoint_and_keeps_the_history(tmp_path: Path) -> None:
@@ -26,6 +27,20 @@ def test_registry_names_the_last_checkpoint_and_keeps_the_history(tmp_path: Path
         'model_checkpoint_path: "Iteration_10"', 'all_model_checkpoint_paths: "Iteration_2"',
         'all_model_checkpoint_paths: "Iteration_4"', 'all_model_checkpoint_paths: "Iteration_10"']
     assert get_last_checkpoint_iteration(weights_directory=tmp_path) == 10
+
+
+def test_registry_lists_every_checkpoint_once(tmp_path: Path) -> None:
+    """
+    Verifies that every iteration recorded in the registry is listed once and in order, even when a resumed run saved
+    an iteration again, and that a run without registry has no checkpoint.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, used as the 'Weights' folder.
+    """
+    assert get_checkpoint_iterations(weights_directory=tmp_path) == []
+    for iteration in [250, 500, 750, 500, 1000]:
+        update_checkpoint_registry(weights_directory=tmp_path, iteration=iteration)
+    assert get_checkpoint_iterations(weights_directory=tmp_path) == [250, 500, 750, 1000]
 
 
 def test_saved_checkpoint_is_found_and_loaded(tmp_path: Path) -> None:

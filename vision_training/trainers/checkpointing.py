@@ -4,7 +4,7 @@ import torch
 
 from pathlib import Path
 from torch import nn
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 # Version of the checkpoint dictionaries: version 2 adds the task and the run name to the weights and optimizer state
 CHECKPOINT_FORMAT_VERSION = 2
@@ -47,6 +47,27 @@ def get_last_checkpoint_iteration(weights_directory: Path) -> int:
     with open(registry_path, "r") as registry_file:
         first_line = registry_file.readline().strip()
     return int(first_line.split('"')[1].split("_")[-1])
+
+
+def get_checkpoint_iterations(weights_directory: Path) -> List[int]:
+    """
+    Lists the iteration of every checkpoint recorded in the registry of a run, the intermediate checkpoints included,
+    so that the evaluation tools can evaluate all of them.
+
+    Args:
+        weights_directory (Path): The 'Weights' folder of the run.
+
+    Returns:
+        List[int]: The recorded iterations, sorted and without repetition, empty if the run has no registry.
+    """
+    registry_path = weights_directory / CHECKPOINT_REGISTRY_NAME
+    if not registry_path.exists():
+        return []
+
+    # Every line names a checkpoint, e.g. 'all_model_checkpoint_paths: "Iteration_2000"'
+    with open(registry_path, "r") as registry_file:
+        registry_lines = [line.strip() for line in registry_file if line.strip()]
+    return sorted({int(line.split('"')[1].split("_")[-1]) for line in registry_lines})
 
 
 def update_checkpoint_registry(weights_directory: Path, iteration: int) -> None:

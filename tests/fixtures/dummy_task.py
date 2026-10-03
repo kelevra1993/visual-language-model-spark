@@ -274,7 +274,7 @@ class DummyTrainer(BaseTrainer):
         accuracy = sum(predicted == label for predicted, label in zip(accumulator["predicted_labels"],
                                                                       accumulator["labels"])) / number_samples
         return {"lines": [f"Iteration {iteration} : {number_samples} Test Samples", f"  Accuracy {accuracy:.4f}"],
-                "scalars": {"Accuracy": accuracy}, "files": {}}
+                "scalars": {"Accuracy": accuracy}, "files": {}, "headline_metric": "Accuracy"}
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

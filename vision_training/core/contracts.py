@@ -37,11 +37,13 @@ class EvaluationResults(TypedDict):
     """
     Results of the evaluation of a checkpoint on the test split, computed by the task and reported by the general
     trainer: the lines are printed and appended to the Results.txt file of the run, the scalars are written to the
-    Test TensorBoard writer, and the files are extra outputs saved by the task (confusion matrix, predictions...).
+    Test TensorBoard writer, and the files are extra outputs saved by the task (confusion matrix, predictions...). The
+    headline metric is the name of the scalar comparing the checkpoints of a run, the higher the better.
     """
     lines: List[str]
     scalars: Dict[str, float]
     files: Dict[str, Path]
+    headline_metric: str
 
 
 class ClassificationBatch(TypedDict):

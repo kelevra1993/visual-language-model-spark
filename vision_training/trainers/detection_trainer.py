@@ -199,8 +199,8 @@ class DetectionTrainer(BaseTrainer):
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
         Computes the mean average precision of the test split with the three average precision methods, and formats
-        it for the report: one line per method (the area method being the headline one) and the area AP of every
-        class, with the same values as TensorBoard scalars.
+        it for the report: one line per method (the area method being the headline one, its mAP@0.5 comparing the
+        checkpoints) and the area AP of every class, with the same values as TensorBoard scalars.
 
         Args:
             accumulator (Dict[str, Any]): The detections and ground truths of the test split.
@@ -232,7 +232,7 @@ class DetectionTrainer(BaseTrainer):
         for class_index, average_precision in results["area"]["class_AP@0.5"].items():
             scalars[f"AP@0.5/{class_names[class_index]}"] = average_precision
 
-        return {"lines": lines, "scalars": scalars, "files": {}}
+        return {"lines": lines, "scalars": scalars, "files": {}, "headline_metric": "mAP@0.5/area"}
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

@@ -484,7 +484,8 @@ class ClassificationTrainer(BaseTrainer):
             for metric_name in ["precision", "recall", "f1"]:
                 scalars[f"{metric_name.capitalize()}/{class_name}"] = metrics[metric_name][class_index]
 
-        return {"lines": lines, "scalars": scalars, "files": files}
+        return {"lines": lines, "scalars": scalars, "files": files,
+                "headline_metric": "Accuracy" if self.output_mode == "multi_class" else "Subset Accuracy"}
 
     def get_label_caption(self, label: torch.Tensor) -> str:
         """
