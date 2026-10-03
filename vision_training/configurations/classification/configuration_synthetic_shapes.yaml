@@ -72,7 +72,7 @@ ExperimentConfiguration:
       # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
       # input images captioned with their class. SPACE shows the next images, ENTER closes the viewer and exits the
       # program without training, so set it to False to train. Requires a display (skipped with a warning otherwise)
-      view_input_images: False
+      view_input_images: True
 
 Optimization:
   # Optimizer of the model parameters: "adam", "adamw" (Adam with the weight decay decoupled from the gradients) or
@@ -110,7 +110,7 @@ Data:
     prefetch_batches: 2
   image_settings:
     # Target resolution to resize all input images.
-    size: 256
+    size: 512
     # Flag to maintain the original aspect ratio when resizing.
     keep_ratio: True
   label_mapping:
