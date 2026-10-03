@@ -1,3 +1,8 @@
+"""
+Registry of the trainer class of every task, keyed by 'ExperimentConfiguration.task'. Used by main.py,
+scripts/evaluation/evaluate_checkpoint.py and the tests to build the trainer matching a configuration.
+"""
+
 from typing import Dict, Type
 
 from vision_training.trainers.base_trainer import BaseTrainer
