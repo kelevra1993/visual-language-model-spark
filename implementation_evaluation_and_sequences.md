@@ -17,6 +17,7 @@
 9. Acceptance
 10. Risks And Open Points
 11. Verification
+12. Implementation Notes
 
 ---
 
@@ -356,3 +357,45 @@ removed, one commit, push.
 - The run names of the existing configurations and the detection Triton configurations are unchanged.
 - `NO_COLOR=1 uvx ruff check --no-cache --select F401,F811,F821,F841 vision_training tests scripts`.
 - The acceptance results of section 9 recorded in this document.
+
+---
+
+## 12. Implementation Notes
+
+Every phase is implemented, one commit per phase (`[EVALUATION]` three times, `[AUGMENTATION]`, `[NORMALIZATION]`).
+This section lists what differs from the plan above and the acceptance results.
+
+### Differences from the plan
+1. **Evaluation accumulator:** `create_evaluation_accumulator` receives the iteration of the evaluated checkpoint
+   (every trainer, detection included), so that the error images are written into its evaluation folder while the
+   batches are evaluated.
+2. **Sample names:** besides `describe_sample`, every dataset gives a short `get_sample_name` for the file names of
+   the error images (`circle_image_000012`, `<sequence>_<first frame>`, the pair name).
+3. **Error images:** a class pair gets its slot before its image is built (`reserve_error_image`), so that no image
+   is built for a full pair.
+4. **Single checkpoint:** `evaluate_checkpoint.py` also evaluates one checkpoint (the last one or a given iteration)
+   through `evaluate_checkpoints`, which then writes a summary of one row.
+5. **Migrated runs:** the migration writes `save_predictions: False` (the runs of that time wrote no predictions
+   file), while the shipped configurations write `True`.
+6. **Normalization comment:** the comment of `feature_map_normalization` in the configurations of the sequence tasks
+   lists the new `"sequence"` option, on lines of at most 120 characters.
+7. **Configuration constants:** the scopes of the comparison task are `SEQUENCE_NORMALIZATION_SCOPES` in
+   `models/sequence/member_fusion.py` (next to `FUSION_TYPES`), and the backbone accepts
+   `BACKBONE_FEATURE_MAP_NORMALIZATIONS` (the detection heads keep `VALID_FEATURE_MAP_NORMALIZATIONS`). The check
+   refusing the sequence settings for the image tasks is `check_image_task_sequence_settings`.
+
+### Acceptance results (synthetic datasets)
+| Phase | Check | Result |
+|---|---|---|
+| 1 | Predictions files of short classification (500 test images) and comparison (200 test pairs) runs | the accuracy recomputed from every file equals Results.txt: 79.2 % then 96.2 % (classification), 97.5 % then 99.0 % (comparison) |
+| 2 | Error images of the same runs, at most 20 per class pair | 33 wrong classifications in 3 class pairs give 30 images, the 6 wrong comparisons 6 images, every image named and captioned with its classes and score |
+| 3 | Every checkpoint of the comparison run | the 4 checkpoints of the registry evaluated (125 and 375 never evaluated in training), 250 and 500 equal to their training evaluations (97.0 %), best iteration 375 (99.0 %) |
+| 4 | Comparison pairs with shuffled members / with per-frame draws | 99.5 % then 99.0 % test accuracy at iterations 500 and 1000 for both |
+| 4 | Moving shapes classifier (98 %) fine-tuned on shuffled windows | 66.5 / 62.0 / 45.0 / 55.5 % test accuracy at iterations 250 to 1000 while the top-2 accuracy stays at 99.0 / 97.0 / 97.5 / 92.5 %: the axis of the movement is kept, its direction, carried by the order, is lost |
+| 5 | Comparison pairs with sequence normalization: member scope, pair scope, and member scope starting from the batch normalization backbone of the moving shapes classifier | 99.5 / 99.0 / 98.5 % test accuracy at iteration 250, 100 % at iteration 1000 for all three (batch normalization: 98.5 % at iteration 500 in `implementation_comparison.md`) |
+| 5 | Exports of the comparator with the pair scope | TorchScript and ONNX match the eager model with 7 before and 6 after frames |
+
+### Observations
+- **Moving shapes from scratch with shuffled frames:** the run stayed at chance level (22.5 % at iteration 2000), but
+  the plateau of this dataset (section 10) can also keep an unshuffled run at chance, hence the fine-tuning check of
+  phase 4.
