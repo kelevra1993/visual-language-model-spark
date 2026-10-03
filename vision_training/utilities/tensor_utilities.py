@@ -1,3 +1,8 @@
+"""
+Tensor helpers: selection of the training device, used by the base trainer, and printing of the shape, type,
+values and device of tensors, used by the debugging scripts.
+"""
+
 import torch
 import numpy as np
 from typing import Optional

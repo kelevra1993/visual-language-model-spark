@@ -1,3 +1,9 @@
+"""
+OpenCV drawing helpers: bounding boxes and anchors for the detection debugging scripts, the input viewer of the
+trainers, the frame grids of the sequence tasks and the caption bars of the evaluation error images. Used by the
+trainers and the scripts.
+"""
+
 import os
 import sys
 import cv2

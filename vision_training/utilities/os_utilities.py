@@ -1,3 +1,8 @@
+"""
+General helpers used across the framework, the scripts and the tests: JSON reading, coloured console output,
+dictionary printing, random colours, image path listing and folder linking.
+"""
+
 import json
 from json import JSONDecodeError
 
