@@ -1,3 +1,8 @@
+"""
+Tests of the backbone of vision_training/models/backbones/backbone.py: printing its summary, done by the trainers after
+a backbone transfer, leaves its weights, statistics and training mode unchanged.
+"""
+
 import copy
 import torch
 
