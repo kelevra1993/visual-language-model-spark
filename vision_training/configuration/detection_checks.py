@@ -2,6 +2,7 @@ import math
 
 from typing import Any, Dict, List
 
+from vision_training.configuration.common_checks import check_image_task_augmentations
 from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
                                                                 check_boolean_flags,
                                                                 check_intersection_over_union_value,
@@ -311,8 +312,8 @@ def check_detection_evaluation_configuration(experiment_configuration: Dict[str,
 def check_detection_configuration(experiment_configuration: Dict[str, Any],
                                   model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Runs every check specific to the object detection task: its evaluation settings, its detection levels, anchors,
-    region proposal and detector sections.
+    Runs every check specific to the object detection task: its evaluation settings, its data settings without the
+    sequence augmentations, its detection levels, anchors, region proposal and detector sections.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -323,6 +324,7 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
     """
     errors = []
     errors += check_detection_evaluation_configuration(experiment_configuration=experiment_configuration)
+    errors += check_image_task_augmentations(model_configuration=model_configuration)
     errors += check_detection_levels(model_configuration=model_configuration)
     errors += check_anchors_configuration(model_configuration=model_configuration)
     errors += check_region_proposal_configuration(model_configuration=model_configuration)

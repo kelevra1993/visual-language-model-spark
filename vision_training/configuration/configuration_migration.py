@@ -57,6 +57,15 @@ ERROR_DUMPS_LINES = ("    # Saves the misclassified test samples as images at ev
                      "      activated: False\n"
                      "      maximum_per_class_pair: 20\n")
 
+# Lines of the augmentation section and of its types, and the sequence augmentations inserted before the types, off in
+# every run written before they existed
+DATA_AUGMENTATION_LINE = "  data_augmentation:\n"
+AUGMENTATION_TYPES_LINE = "    types:\n"
+SEQUENCE_AUGMENTATION_LINES = ("    # Draws the photometric augmentations frame by frame (sequence tasks only).\n"
+                               "    independent_frames: False\n"
+                               "    # Shuffles the real frames of the training windows (sequence tasks only).\n"
+                               "    shuffle_frames: { activated: False, probability: 0.5 }\n")
+
 # Optimization section of a run trained with plain Adam at a constant learning rate, the training of every run
 # written before the section existed
 OPTIMIZATION_SECTION = ("\n# Optimization of a run trained with Adam at a constant learning rate.\n"
@@ -217,6 +226,39 @@ def add_evaluation_outputs_to_configuration(configuration_path: Path) -> bool:
     return added_settings
 
 
+def add_sequence_augmentation_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades a configuration file written before the sequence augmentations by inserting
+    'Data.data_augmentation.independent_frames' and 'Data.data_augmentation.shuffle_frames', off as in the runs of
+    that time, right before the augmentation types. The settings are inserted as text, so that every comment of the
+    file is kept, and a file that already has them is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the settings were added, False if the file already had them.
+
+    Raises:
+        ValueError: If the augmentation section has no 'types:' line of its own.
+    """
+    text = configuration_path.read_text()
+    augmentation_configuration = yaml.safe_load(stream=text)["Data"]["data_augmentation"]
+    if "independent_frames" in augmentation_configuration and "shuffle_frames" in augmentation_configuration:
+        return False
+
+    # Insert the settings right before the types of the augmentation section
+    lines = text.splitlines(keepends=True)
+    augmentation_index = lines.index(DATA_AUGMENTATION_LINE)
+    types_index = next((line_index for line_index in range(augmentation_index, len(lines))
+                        if lines[line_index] == AUGMENTATION_TYPES_LINE), None)
+    if types_index is None:
+        raise ValueError(f"No 'types:' line in the augmentation section of file://{configuration_path.absolute()}")
+    configuration_path.write_text(data="".join(lines[:types_index] + [SEQUENCE_AUGMENTATION_LINES] +
+                                               lines[types_index:]))
+    return True
+
+
 def add_optimization_section_to_configuration(configuration_path: Path) -> bool:
     """
     Upgrades a configuration file written before the 'Optimization' section by appending the section of a run
@@ -242,8 +284,9 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     the current code: its saved configuration gets its task, the 'pretrained' settings of its backbone, temporal
     module and classification head (those of a run trained from random weights), the
     'Backbone.pretrained.freeze_normalization_parameters' flag (off), the evaluation outputs of the classification-like
-    tasks (no predictions file nor error images) and its 'Optimization' section (plain Adam at a constant learning
-    rate), and its folder is renamed to the run name the current code builds from that configuration (the task code
+    tasks (no predictions file nor error images), the sequence augmentations (off) and its 'Optimization' section
+    (plain Adam at a constant learning rate), and its folder is renamed to the run name the current code builds from
+    that configuration (the task code
     being now the first section of the run names). The configuration is fully checked on the way, any other missing
     key being reported by the configuration checker.
 
@@ -273,6 +316,9 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
                                           f"file://{configuration_path.absolute()}")
     if add_evaluation_outputs_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Evaluation Outputs Settings Added To : "
+                                          f"file://{configuration_path.absolute()}")
+    if add_sequence_augmentation_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Sequence Augmentation Settings Added To : "
                                           f"file://{configuration_path.absolute()}")
     if add_optimization_section_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Optimization Section Added To : file://{configuration_path.absolute()}")

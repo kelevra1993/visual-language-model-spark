@@ -646,6 +646,33 @@ def test_pretrained_temporal_module_and_head_run_names(section_name: str, freeze
         original_section, expected_section)
 
 
+@pytest.mark.parametrize(argnames=("augmentation_activated", "shuffle_frames", "independent_frames",
+                                   "expected_tokens"), argvalues=[(True, True, False, "_AUG-SHUF-BS16-"),
+                                                                  (True, False, True, "_AUG-IND-BS16-"),
+                                                                  (True, True, True, "_AUG-SHUF-IND-BS16-"),
+                                                                  (False, True, True, "_BS16-")])
+def test_sequence_augmentation_run_name_tokens(augmentation_activated: bool, shuffle_frames: bool,
+                                               independent_frames: bool, expected_tokens: str) -> None:
+    """
+    Verifies the tokens of the sequence augmentations after AUG in the training section: SHUF when the frames of the
+    windows are shuffled, IND when the photometric augmentations are drawn frame by frame, neither when the
+    augmentation is off.
+
+    Args:
+        augmentation_activated (bool): Whether the data augmentation is on.
+        shuffle_frames (bool): Whether the frames of the windows are shuffled.
+        independent_frames (bool): Whether the photometric augmentations are drawn frame by frame.
+        expected_tokens (str): The expected start of the training section.
+    """
+    experiment_configuration, model_configuration = get_sequence_reference_configurations()
+    model_configuration["Data"]["data_augmentation"].update({
+        "activated": augmentation_activated, "independent_frames": independent_frames,
+        "shuffle_frames": {"activated": shuffle_frames, "probability": 0.5}})
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME.replace(
+        "_AUG-BS16-", expected_tokens)
+
+
 def test_optimization_run_name_tokens() -> None:
     """
     Verifies the optimization tokens at the end of the training section, written only for the settings that differ

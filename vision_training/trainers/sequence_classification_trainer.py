@@ -7,7 +7,9 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from vision_training.core.contracts import SequenceBatch
 from vision_training.data.loaders import get_sequence_dataloaders
 from vision_training.data.split_description import count_split_sequences
+from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES
 from vision_training.trainers.classification_trainer import ClassificationTrainer
+from vision_training.utilities.os_utilities import print_color
 from vision_training.utilities.visualization import build_frame_grid, view_input_data
 
 # Frames per row of the frame grids of the input viewer, and longest side in pixels of their windows
@@ -46,6 +48,15 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         """
         # Window of frames fed to the model, cut from the sequences of the manifests
         self.sequence_settings = model_configuration["Data"]["sequence_settings"]
+
+        # Shuffled frames carry no order, which an ordered temporal module would otherwise learn from
+        augmentation_configuration = model_configuration["Data"]["data_augmentation"]
+        temporal_type = model_configuration["TemporalModel"]["type"]
+        if augmentation_configuration["activated"] and augmentation_configuration["shuffle_frames"]["activated"] and \
+                temporal_type in ORDERED_TEMPORAL_TYPES:
+            print_color(color="yellow", output=f"The frames of the training windows are shuffled "
+                                               f"('Data.data_augmentation.shuffle_frames') while the {temporal_type!r} "
+                                               f"temporal module models their order.")
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
@@ -172,6 +183,31 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         return build_frame_grid(frames=frames, sequence_mask=sequence_mask,
                                 frame_captions=self.get_frame_captions(label=label, sequence_mask=sequence_mask),
                                 number_columns=FRAME_GRID_COLUMNS)
+
+    def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Randomly augments the frames of a training batch of windows (one draw per window for every type, or per frame
+        for the photometric types with 'independent_frames'), then shuffles the real frames of the windows when
+        'shuffle_frames' is on, the frame labels of the sequence labelling task following their frames. The
+        comparison trainer inherits it, each member window of a pair being shuffled on its own.
+
+        Args:
+            batch (Dict[str, Any]): The training batch, with its sequence mask.
+
+        Returns:
+            Dict[str, Any]: The batch with its augmented and possibly shuffled frames and frame labels.
+        """
+        augmented_batch = super().augment_batch(batch=batch)
+        shuffled_images, frame_orders = self.data_augmenter.shuffle_frames(
+            images=augmented_batch["images"], sequence_mask=augmented_batch["sequence_mask"],
+            frame_block_length=self.sequence_settings["sequence_length"])
+        augmented_batch["images"] = shuffled_images
+
+        # One class per frame follows its frame, the sequence mask being unchanged since the real frames stay first
+        if augmented_batch["labels"].dim() == 2:
+            augmented_batch["labels"] = torch.gather(input=augmented_batch["labels"], dim=1,
+                                                     index=frame_orders.to(device=augmented_batch["labels"].device))
+        return augmented_batch
 
     def build_error_image(self, batch: Dict[str, Any], sample_index: int) -> np.ndarray:
         """

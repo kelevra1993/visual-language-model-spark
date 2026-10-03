@@ -132,6 +132,14 @@ Data:
     # Probability that a training pair is augmented at all. Each activated type below is then applied to that pair
     # with its own probability, all the frames of both members sharing the same augmentation.
     probability: 0.4
+    # Sequence tasks only (False for the image tasks): draws the photometric augmentations below frame by frame,
+    # every frame of an augmented sequence getting its own brightness, noise, colour... while the geometric
+    # augmentations stay the same for all its frames, a crop or a rotation per frame making the objects jump.
+    independent_frames: False
+    # Sequence tasks only (activated False for the image tasks): shuffles the real frames of a training window with
+    # this probability, independently of the probability above, the padding frames staying last and each member of
+    # a pair being shuffled on its own. For the sequences whose frame order carries no information (sets of photos).
+    shuffle_frames: { activated: False, probability: 0.5 }
     types:
       # Geometric augmentations, drawn once for both members of a pair. A crop or a small rotation can cut an object at
       # the border, and the flips and 90° rotations change the sides of a scene, so each type stays off when it can

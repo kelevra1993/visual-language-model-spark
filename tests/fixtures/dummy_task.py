@@ -319,6 +319,8 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
     model_configuration = {"Data": {"label_dictionary": {"negative": 0, "positive": 1},
                                     "image_settings": {"size": DUMMY_IMAGE_SIZE},
                                     "data_augmentation": {"activated": False, "probability": 0.0,
+                                                          "independent_frames": False,
+                                                          "shuffle_frames": {"activated": False, "probability": 0.0},
                                                           "types": augmentation_types}},
                            "Backbone": {"pretrained": {"experiment_folder": None, "iteration": None, "freeze": False,
                                                        "freeze_normalization_parameters": False,

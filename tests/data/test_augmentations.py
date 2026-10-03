@@ -15,7 +15,8 @@ BOX_TOLERANCES = {"random_left_right_flip": 0.0, "random_up_down_flip": 0.0, "ra
                   "random_crop": 2.0, "random_rotation": 2.5}
 
 
-def build_configuration(enabled_types: List[str], probability: float = 1.0) -> Dict[str, Any]:
+def build_configuration(enabled_types: List[str], probability: float = 1.0, independent_frames: bool = False,
+                        shuffle_probability: float = 0.0) -> Dict[str, Any]:
     """
     Builds a 'Data.data_augmentation' configuration forcing the given augmentation types, so that each test
     controls exactly which transformations are applied.
@@ -23,11 +24,15 @@ def build_configuration(enabled_types: List[str], probability: float = 1.0) -> D
     Args:
         enabled_types (List[str]): The augmentation types to activate, each with probability 1.
         probability (float): The global probability of augmenting an image. Defaults to 1.0.
+        independent_frames (bool): Whether the photometric types are drawn frame by frame. Defaults to False.
+        shuffle_probability (float): The probability of shuffling the frames of a window, 0 turning the shuffling
+            off. Defaults to 0.0.
 
     Returns:
         Dict[str, Any]: The augmentation configuration.
     """
-    return {"activated": True, "probability": probability,
+    return {"activated": True, "probability": probability, "independent_frames": independent_frames,
+            "shuffle_frames": {"activated": shuffle_probability > 0.0, "probability": shuffle_probability},
             "types": {name: {"activated": name in enabled_types, "probability": 1.0} for name in AUGMENTATION_TYPES}}
 
 
@@ -197,3 +202,67 @@ def test_disabled_augmentation_is_identity() -> None:
                                                                        labels=labels)
         assert torch.equal(input=augmented_images, other=images)
         assert all(torch.equal(input=output, other=original) for output, original in zip(augmented_boxes, boxes))
+
+
+def test_shuffling_permutes_the_real_frames_of_every_window() -> None:
+    """
+    Verifies the shuffling of the frames of the windows: only the real frames move, the padding frames staying last,
+    every member window of a pair is shuffled within its own block, the frame order gives the original frame at every
+    position, and nothing moves without shuffling.
+    """
+    torch.manual_seed(seed=0)
+    random.seed(0)
+
+    # Two pairs of member windows of 4 frames, the frame of position i filled with the value i
+    frames = torch.arange(8, dtype=torch.float32)[None, :, None, None, None].expand(2, 8, 3, 4, 4).clone()
+    sequence_mask = torch.tensor(data=[[True, True, True, False, True, True, True, True],
+                                       [True, True, False, False, True, True, True, False]])
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[],
+                                                                             shuffle_probability=1.0))
+    shuffled_frames, frame_orders = augmenter.shuffle_frames(images=frames, sequence_mask=sequence_mask,
+                                                             frame_block_length=4)
+
+    for sample_index in range(2):
+        shuffled_values = shuffled_frames[sample_index, :, 0, 0, 0].tolist()
+        assert shuffled_values == [float(position) for position in frame_orders[sample_index].tolist()]
+        for block_start in [0, 4]:
+            block_mask = sequence_mask[sample_index, block_start:block_start + 4]
+            number_real_frames = int(block_mask.sum())
+            real_values = shuffled_values[block_start:block_start + number_real_frames]
+            assert sorted(real_values) == [float(block_start + index) for index in range(number_real_frames)]
+            assert shuffled_values[block_start + number_real_frames:block_start + 4] == [
+                float(block_start + index) for index in range(number_real_frames, 4)]
+    assert not torch.equal(input=shuffled_frames, other=frames)
+
+    # Without shuffling, every frame keeps its position
+    unshuffled_frames, identity_orders = DataAugmenter(augmentation_configuration=build_configuration(
+        enabled_types=[])).shuffle_frames(images=frames, sequence_mask=sequence_mask, frame_block_length=4)
+    assert torch.equal(input=unshuffled_frames, other=frames)
+    assert identity_orders.tolist() == [list(range(8))] * 2
+
+
+def test_independent_frames_draw_the_photometric_types_frame_by_frame() -> None:
+    """
+    Verifies the per-frame draws of a sequence: with 'independent_frames', the frames of a sequence of identical
+    frames get different brightness changes while sharing the same flip; without it, they stay identical.
+    """
+    random.seed(1)
+    torch.manual_seed(seed=1)
+    frame = torch.zeros(size=(3, IMAGE_SIZE, IMAGE_SIZE))
+    frame[:, :, :IMAGE_SIZE // 2] = 100.0
+    sequences = frame.expand(1, 4, 3, IMAGE_SIZE, IMAGE_SIZE).clone()
+
+    # Independent brightness draws on top of a shared flip, the bright half moving to the right in every frame
+    independent_augmenter = DataAugmenter(augmentation_configuration=build_configuration(
+        enabled_types=["random_left_right_flip", "brightness_contrast_saturation"], independent_frames=True))
+    augmented_sequence = independent_augmenter.augment_batch(images=sequences)[0][0]
+    right_half_means = augmented_sequence[:, :, :, IMAGE_SIZE // 2:].mean(dim=(1, 2, 3))
+    left_half_means = augmented_sequence[:, :, :, :IMAGE_SIZE // 2].mean(dim=(1, 2, 3))
+    assert bool((right_half_means > left_half_means).all())
+    assert len({round(float(mean_value), 3) for mean_value in right_half_means}) > 1
+
+    # Shared draws keep the frames identical
+    shared_augmenter = DataAugmenter(augmentation_configuration=build_configuration(
+        enabled_types=["random_left_right_flip", "brightness_contrast_saturation"]))
+    shared_sequence = shared_augmenter.augment_batch(images=sequences)[0][0]
+    assert all(torch.allclose(input=sequence_frame, other=shared_sequence[0]) for sequence_frame in shared_sequence)

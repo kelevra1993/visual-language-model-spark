@@ -54,8 +54,10 @@ class DataAugmenter:
     It is shared by every network of the project: the object detector passes bounding boxes and labels, which are
     moved, clipped and filtered together with the geometric augmentations, while a classifier simply omits them.
     Images are float BGR tensors in the [0, 255] range, either single images [B, C, H, W] or sequences
-    [B, T, C, H, W] for many-to-one networks, in which case every frame of a sequence receives exactly the same
-    random augmentation so that the sequence stays coherent.
+    [B, T, C, H, W] for the sequence networks, in which case every frame of a sequence receives exactly the same
+    random augmentation so that the sequence stays coherent, unless the photometric types are drawn frame by frame
+    ('independent_frames'). The real frames of the windows can also be shuffled ('shuffle_frames', see
+    shuffle_frames) for the sequences whose frame order carries no information.
     """
 
     def __init__(self, augmentation_configuration: Dict[str, Any]) -> None:
@@ -64,11 +66,17 @@ class DataAugmenter:
 
         Args:
             augmentation_configuration (Dict[str, Any]): The section holding the global 'activated' flag, the
-                'probability' of augmenting an image and, for every augmentation type, its own 'activated' flag
-                and 'probability' of being applied to an augmented image.
+                'probability' of augmenting an image, the 'independent_frames' flag and the 'shuffle_frames' settings
+                of the sequences and, for every augmentation type, its own 'activated' flag and 'probability' of
+                being applied to an augmented image.
         """
         self.activated = augmentation_configuration["activated"]
         self.probability = augmentation_configuration["probability"]
+
+        # Sequences only: the photometric types drawn frame by frame, and the shuffling of the frames of a window
+        self.independent_frames = augmentation_configuration["independent_frames"]
+        self.shuffle_frames_activated = augmentation_configuration["shuffle_frames"]["activated"]
+        self.shuffle_frames_probability = augmentation_configuration["shuffle_frames"]["probability"]
 
         # Keep the activation flag and probability of every supported augmentation type
         types_configuration = augmentation_configuration["types"]
@@ -130,7 +138,8 @@ class DataAugmenter:
                        torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Applies every activated augmentation type to one sample, each with its own probability. A sequence
-        [T, C, H, W] is transformed as a whole, so all its frames share the same random parameters.
+        [T, C, H, W] is transformed as a whole, so all its frames share the same random parameters, except the
+        photometric types with 'independent_frames', drawn for every frame.
 
         Args:
             image (torch.Tensor): A float BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -152,12 +161,67 @@ class DataAugmenter:
                                                                image_height=image.shape[-2],
                                                                image_width=image.shape[-1])
 
-        # Apply the photometric augmentations, which never move the boxes
+        # Apply the photometric augmentations, which never move the boxes, once for the sample or frame by frame
+        if image.dim() == 4 and self.independent_frames:
+            image = torch.stack(tensors=[self.apply_photometric_augmentations(image=frame) for frame in image])
+        else:
+            image = self.apply_photometric_augmentations(image=image)
+
+        return image.clamp(min=0.0, max=255.0), bounding_boxes, labels
+
+    def apply_photometric_augmentations(self, image: torch.Tensor) -> torch.Tensor:
+        """
+        Applies every activated photometric augmentation type to an image, a sequence or one frame of a sequence, each
+        with its own probability and random parameters.
+
+        Args:
+            image (torch.Tensor): A float BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
+
+        Returns:
+            torch.Tensor: The augmented image or sequence.
+        """
         for augmentation_type in PHOTOMETRIC_AUGMENTATION_TYPES:
             if self.should_apply(augmentation_type=augmentation_type):
                 image = getattr(self, augmentation_type)(image=image)
+        return image
 
-        return image.clamp(min=0.0, max=255.0), bounding_boxes, labels
+    def shuffle_frames(self, images: torch.Tensor, sequence_mask: torch.Tensor,
+                       frame_block_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Shuffles the real frames of the windows of a training batch of sequences, for the sequences whose frame order
+        carries no information (e.g. sets of photos): every window is shuffled with the 'shuffle_frames' probability,
+        independently of the global augmentation probability, its real frames being permuted and its padding frames
+        staying last. The frames are shuffled within every block of frame_block_length frames, so that each member
+        window of a pair is shuffled on its own.
+
+        Args:
+            images (torch.Tensor): The [B, T, C, H, W] frames of the batch.
+            sequence_mask (torch.Tensor): The [B, T] booleans, True for the real frames, which come first in every
+                block.
+            frame_block_length (int): The number of frames of a window, T being a multiple of it.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: The shuffled [B, T, C, H, W] frames and the [B, T] frame order, the
+                index of the original frame now at every position, to move the frame labels along.
+        """
+        batch_size, number_frames = sequence_mask.shape
+        frame_orders = torch.arange(number_frames, device=images.device).repeat(batch_size, 1)
+        if not self.activated or not self.shuffle_frames_activated:
+            return images, frame_orders
+
+        # Every window drawn on its own, its real frames permuted among themselves
+        for sample_index in range(batch_size):
+            for block_start in range(0, number_frames, frame_block_length):
+                if random.random() >= self.shuffle_frames_probability:
+                    continue
+                block_end = block_start + frame_block_length
+                number_real_frames = int(sequence_mask[sample_index, block_start:block_end].sum())
+                frame_orders[sample_index, block_start:block_start + number_real_frames] = torch.randperm(
+                    n=number_real_frames, device=images.device) + block_start
+
+        # Frames gathered in their new order, sample by sample
+        sample_indices = torch.arange(batch_size, device=images.device)[:, None]
+        return images[sample_indices, frame_orders], frame_orders
 
     def should_apply(self, augmentation_type: str) -> bool:
         """

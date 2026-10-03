@@ -107,6 +107,15 @@ def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
         value=get_configuration_value(configuration=model_configuration, key_path="Data.data_augmentation.probability"),
         key_path="Data.data_augmentation.probability")
 
+    # Sequence augmentations: the photometric types drawn frame by frame, and the shuffling of the frames of a window
+    errors += check_boolean_flags(configuration=model_configuration,
+                                  key_paths=["Data.data_augmentation.independent_frames",
+                                             "Data.data_augmentation.shuffle_frames.activated"])
+    errors += check_probability_value(
+        value=get_configuration_value(configuration=model_configuration,
+                                      key_path="Data.data_augmentation.shuffle_frames.probability"),
+        key_path="Data.data_augmentation.shuffle_frames.probability")
+
     # Every supported augmentation type must be configured, and no unknown type may be listed
     augmentation_types = get_configuration_value(configuration=model_configuration,
                                                  key_path="Data.data_augmentation.types")
@@ -134,6 +143,24 @@ def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
             image_size & (image_size - 1) != 0:
         errors.append(f"'Data.image_settings.size' must be a power of two, got {image_size!r}.")
 
+    return errors
+
+
+def check_image_task_augmentations(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Refuses the sequence augmentations for the image tasks (classification, object detection), whose samples have no
+    frames to shuffle or to augment one by one.
+
+    Args:
+        model_configuration (Dict[str, Any]): The model configuration containing the 'Data' section.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    for key_path in ["Data.data_augmentation.shuffle_frames.activated", "Data.data_augmentation.independent_frames"]:
+        if get_configuration_value(configuration=model_configuration, key_path=key_path) is True:
+            errors.append(f"'{key_path}' must be False for this task, whose samples have no frames.")
     return errors
 
 

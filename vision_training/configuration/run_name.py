@@ -149,10 +149,11 @@ def format_scientific(value: float) -> str:
 
 def build_training_tokens(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Builds the training section of the run name, shared by every task: AUG when augmenting, the batch size and the
-    learning rate in short scientific notation (e.g. 2e-4, 1.5e-3), then the optimization settings that differ from
-    plain Adam at a constant learning rate: ADAMW or SGD, WD<weight decay>, WU<warm-up iterations>, COS<decay
-    iterations> for the cosine schedule, GC<gradient clipping norm> and BF16 for mixed precision.
+    Builds the training section of the run name, shared by every task: AUG when augmenting, followed by SHUF when the
+    frames of the windows are shuffled and IND when the photometric augmentations are drawn frame by frame, the batch
+    size and the learning rate in short scientific notation (e.g. 2e-4, 1.5e-3), then the optimization settings that
+    differ from plain Adam at a constant learning rate: ADAMW or SGD, WD<weight decay>, WU<warm-up iterations>,
+    COS<decay iterations> for the cosine schedule, GC<gradient clipping norm> and BF16 for mixed precision.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -161,7 +162,14 @@ def build_training_tokens(experiment_configuration: Dict[str, Any], model_config
     Returns:
         List[str]: The tokens of the section.
     """
-    training_tokens = ["AUG"] if model_configuration["Data"]["data_augmentation"]["activated"] else []
+    augmentation_configuration = model_configuration["Data"]["data_augmentation"]
+    training_tokens = ["AUG"] if augmentation_configuration["activated"] else []
+
+    # Sequence augmentations, only applied when augmenting: shuffled frames, and photometric draws per frame
+    if augmentation_configuration["activated"] and augmentation_configuration["shuffle_frames"]["activated"]:
+        training_tokens.append("SHUF")
+    if augmentation_configuration["activated"] and augmentation_configuration["independent_frames"]:
+        training_tokens.append("IND")
     training_tokens.append(f"BS{experiment_configuration['batch_size']}")
     training_tokens.append(f"LR{format_scientific(value=experiment_configuration['learning_rate'])}")
 

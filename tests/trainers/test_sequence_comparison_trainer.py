@@ -54,6 +54,7 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["TemporalModel"].update({"type": "gru", "hidden_size": 128, "bidirectional": True})
     configuration["Fusion"]["type"] = "cross_attention"
+    configuration["Data"]["data_augmentation"]["shuffle_frames"] = {"activated": True, "probability": 0.5}
     configuration["ClassificationHead"]["class_weighting"] = "balanced"
     configuration["ExperimentConfiguration"]["evaluation"]["error_dumps"] = {"activated": True,
                                                                            "maximum_per_class_pair": 2}
@@ -101,6 +102,7 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5))
     assert trainer.run_name.startswith("CMP_") and "_T4_GRU1x128-BI_FXA4_" in trainer.run_name
+    assert "_AUG-SHUF-BS2-" in trainer.run_name
     assert trainer.class_names == ["loss_of_object", "same_number_of_objects"]
     trainer.run_training_loop()
 
@@ -138,5 +140,6 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     assert number_pairs == number_kept_pairs == 8
     assert "pairs/sec" in console_output and "frames/sec" in console_output
     assert f"8 pairs, {number_frames} frames, 8 kept pairs of 2 x 4 frames" in console_output
+    assert "while the 'gru' temporal module models their order" in console_output
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

@@ -173,7 +173,23 @@ def test_example_configuration_is_consistent() -> None:
     load_experiment_configuration(configuration_path=EXAMPLE_CONFIGURATION_PATH)
 
 
+def augment_detection_frames(configuration: Dict[str, Any]) -> None:
+    """
+    Turns the sequence augmentations on in the detection configuration, with a shuffling probability above 1.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Data"]["data_augmentation"]["independent_frames"] = True
+    configuration["Data"]["data_augmentation"]["shuffle_frames"] = {"activated": True, "probability": 1.5}
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (augment_detection_frames, ["'Data.data_augmentation.shuffle_frames.activated' must be False for this task, "
+                                "whose samples have no frames.",
+                                "'Data.data_augmentation.independent_frames' must be False for this task",
+                                "'Data.data_augmentation.shuffle_frames.probability' must be a probability within "
+                                "[0, 1], got 1.5."]),
     (set_image_size, ["'Data.image_settings.size' must be a power of two"]),
     (set_overlapping_thresholds, ["'RegionProposal.background_iou_threshold.max' (0.6) must be <="]),
     (remove_anchor_level, ["'Anchors.scales_and_ratios' levels ['5', '6'] do not match"]),

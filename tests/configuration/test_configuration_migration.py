@@ -5,8 +5,8 @@ from pathlib import Path
 
 from vision_training.configuration.configuration_migration import (
     add_evaluation_outputs_to_configuration, add_freeze_normalization_parameters_to_configuration,
-    add_optimization_section_to_configuration, add_pretrained_settings_to_configuration, add_task_to_configuration,
-    migrate_run_folder)
+    add_optimization_section_to_configuration, add_pretrained_settings_to_configuration,
+    add_sequence_augmentation_to_configuration, add_task_to_configuration, migrate_run_folder)
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -192,6 +192,8 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     del configuration["ExperimentConfiguration"]["task"]
     for key_name in ["save_predictions", "error_dumps"]:
         del configuration["ExperimentConfiguration"]["evaluation"][key_name]
+    for key_name in ["independent_frames", "shuffle_frames"]:
+        del configuration["Data"]["data_augmentation"][key_name]
     for section_name in ["Backbone", "TemporalModel", "ClassificationHead"]:
         del configuration[section_name]["pretrained"]
     del configuration["Optimization"]
@@ -211,6 +213,7 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["save_predictions"] is False
     assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["error_dumps"] == {
         "activated": False, "maximum_per_class_pair": 20}
+    assert migrated_configuration["Data"]["data_augmentation"]["independent_frames"] is False
     assert migrate_run_folder(run_folder=renamed_folder, task="sequence_classification",
                               rename_folder=True) == renamed_folder
 
@@ -251,6 +254,28 @@ def test_evaluation_outputs_are_added_once(tmp_path: Path) -> None:
     detection_path.write_text(data=detection_text)
     assert add_evaluation_outputs_to_configuration(configuration_path=detection_path) is False
     assert detection_path.read_text() == detection_text
+
+
+def test_sequence_augmentation_is_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that the sequence augmentations are added, off as in the runs written before them, right before the
+    augmentation types, and that a configuration which already has them is left untouched.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
+    for key_name in ["independent_frames", "shuffle_frames"]:
+        del configuration["Data"]["data_augmentation"][key_name]
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+
+    assert add_sequence_augmentation_to_configuration(configuration_path=configuration_path) is True
+    augmentation_settings = yaml.safe_load(stream=configuration_path.read_text())["Data"]["data_augmentation"]
+    assert list(augmentation_settings)[2:5] == ["independent_frames", "shuffle_frames", "types"]
+    assert augmentation_settings["independent_frames"] is False
+    assert augmentation_settings["shuffle_frames"] == {"activated": False, "probability": 0.5}
+    assert add_sequence_augmentation_to_configuration(configuration_path=configuration_path) is False
 
 
 def test_optimization_section_is_added_once(tmp_path: Path) -> None:
