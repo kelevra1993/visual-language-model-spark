@@ -1,3 +1,9 @@
+"""
+When run, preprocesses an image of the README folder and a hardcoded bounding box with
+vision_training.data.preprocessing.preprocess_image_and_boxes, and shows the original and resized images with their
+boxes in OpenCV windows, to debug the resizing of the images and boxes of the detection data.
+"""
+
 import os
 import cv2
 from pathlib import Path

@@ -1,3 +1,8 @@
+"""
+When run, opens the FiftyOne application on a dataset already downloaded into the local FiftyOne database, to inspect
+visually the images and annotations fetched by the data retriever before they are converted for the detection loaders.
+"""
+
 import fiftyone as fo
 from vision_training.utilities.os_utilities import print_color
 
