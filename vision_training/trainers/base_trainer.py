@@ -55,9 +55,9 @@ class BaseTrainer(ABC):
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
         """
-        Prepares a training run: reads the settings, creates the run folder, builds the loaders, the model and the
-        optimizer through the task hooks, prints the experiment information and resumes from the last checkpoint of
-        the run folder when asked.
+        Prepares a training run: reads the settings, creates the run folder (not when only viewing the input images,
+        which exits without training), builds the loaders, the model and the optimizer through the task hooks, prints
+        the experiment information and resumes from the last checkpoint of the run folder when asked.
 
         Args:
             experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
@@ -105,9 +105,11 @@ class BaseTrainer(ABC):
         self.batch_size = self.experiment_configuration["batch_size"]
         self.resume_training = self.experiment_configuration["resume_training"]
 
-        # Setup paths and tensorboard
+        # Paths of the run folder, created with the copy of the configuration only for a training: the input viewer
+        # exits without training, so it leaves no empty run folder and never overwrites the configuration of a run
         self.tensorboard_directory, self.weights_directory, self.configuration_path = self.setup_training_paths(
-            initial_configuration_path=Path(configuration_path))
+            initial_configuration_path=Path(configuration_path),
+            create_run_folder=not self.diagnosis_modes["view_input_images"])
 
         # We use lazy initialization for the tensorboard writers to avoid prematurely creating
         # empty log files on disk during the Trainer instantiation.
@@ -155,6 +157,7 @@ class BaseTrainer(ABC):
             self.model.print_model_size_summary()
 
         # Optional viewer of the training and validation samples fed to the network, the program exits once it is closed
+        # without having created the run folder
         if self.diagnosis_modes["view_input_images"]:
             self.view_input_batches()
             exit()
@@ -485,16 +488,20 @@ class BaseTrainer(ABC):
                              "would change nothing: leave at least one component trainable.")
         return pretrained_checkpoint_paths
 
-    def setup_training_paths(self, initial_configuration_path: Path) -> tuple[Path, Path, Path]:
+    def setup_training_paths(self, initial_configuration_path: Path,
+                             create_run_folder: bool) -> tuple[Path, Path, Path]:
         """
         Sets up the directory structure and persistent files for training outputs.
 
-        This method acts as the initialization step for experiment storage, ensuring that the `Tensorboard` and
-        `Weights` directories exist within the run folder, and archiving the configuration file of the run there
-        before the training loop commences.
+        This method acts as the initialization step for experiment storage: it gives the paths of the `Tensorboard`
+        and `Weights` directories and of the archived configuration within the run folder and, for a training, creates
+        the directories and archives the configuration file of the run there before the training loop commences. The
+        input viewer, which exits without training, only needs the paths.
 
         Args:
             initial_configuration_path (Path): The original path of the experiment configuration file.
+            create_run_folder (bool): True to create the directories and archive the configuration (a training), False
+                to only give their paths (the input viewer).
 
         Returns:
             tuple[Path, Path, Path]: A tuple containing:
@@ -504,6 +511,9 @@ class BaseTrainer(ABC):
         """
         tensorboard_directory = self.experiment_folder / "Tensorboard"
         weights_directory = self.experiment_folder / "Weights"
+        new_configuration_path = self.experiment_folder / "training_configuration.yaml"
+        if not create_run_folder:
+            return tensorboard_directory, weights_directory, new_configuration_path
 
         # Create directories
         self.experiment_folder.mkdir(parents=True, exist_ok=True)
@@ -511,7 +521,6 @@ class BaseTrainer(ABC):
         weights_directory.mkdir(exist_ok=True, parents=True)
 
         # Save a copy of the configuration file
-        new_configuration_path = self.experiment_folder / "training_configuration.yaml"
         copyfile(src=str(initial_configuration_path), dst=str(new_configuration_path))
 
         return tensorboard_directory, weights_directory, new_configuration_path
@@ -528,6 +537,8 @@ class BaseTrainer(ABC):
         print_color(color="blue", output=f"- Tensorboard Directory   : file://{self.tensorboard_directory.absolute()}")
         print_color(color="blue", output=f"- Weights Directory       : file://{self.weights_directory.absolute()}")
         print_color(color="blue", output=f"- Configuration File      : file://{self.configuration_path.absolute()}")
+        if self.diagnosis_modes["view_input_images"]:
+            print_color(color="yellow", output="- Run Folder Not Created  : the input viewer exits without training")
 
         # Every component initialised by another run, with its source run and whether it is frozen
         pretrained_labels = {"Backbone": "Pretrained Backbone", "TemporalModel": "Pretrained Temp. Module",

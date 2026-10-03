@@ -77,8 +77,8 @@ ExperimentConfiguration:
       compute_model_size: True
       # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
       # frames of a sequence on a grid, each captioned with its class. SPACE shows the next sequences, ENTER closes the
-      # viewer and exits the program without training, so set it to False to train. Requires a display (skipped with
-      # a warning otherwise)
+      # viewer and exits the program without training, so set it to False to train. Requires a display (skipped with a
+      # warning otherwise). No run folder is created in this mode.
       view_input_images: False
 
 Optimization:

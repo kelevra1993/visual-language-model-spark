@@ -1,6 +1,7 @@
 """
 Tests of BaseTrainer of vision_training/trainers/base_trainer.py on the dummy task: a model iteration sums the losses
-and tracks the metrics, and training saves, evaluates and resumes from its checkpoints.
+and tracks the metrics, training saves, evaluates and resumes from its checkpoints, and the input viewer creates no run
+folder.
 """
 
 import pytest
@@ -12,7 +13,7 @@ from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_co
 from vision_training.trainers.checkpointing import CHECKPOINT_FORMAT_VERSION
 
 
-def build_dummy_trainer(temporary_directory: Path, number_iterations: int) -> DummyTrainer:
+def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_input_images: bool) -> DummyTrainer:
     """
     Builds the trainer of the dummy task in a temporary directory. Its test split has 6 samples but only 4 distinct
     ones, its last batch repeating the first two samples like the DALI loaders do.
@@ -20,6 +21,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int) -> Du
     Args:
         temporary_directory (Path): The pytest temporary directory, receiving the configuration and the run folder.
         number_iterations (int): The number of training iterations of the run.
+        view_input_images (bool): Whether the input viewer runs, which stops at its first samples and exits.
 
     Returns:
         DummyTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
@@ -28,6 +30,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int) -> Du
     configuration_path.write_text(data="dummy: true\n")
     experiment_configuration, model_configuration = build_dummy_configurations(
         experiment_folder=temporary_directory / "experiments", number_iterations=number_iterations)
+    experiment_configuration["diagnosis_modes"]["view_input_images"] = view_input_images
     datasets = {"train": DummyDataset(sample_identifiers=list(range(8)), seed=0),
                 "validation": DummyDataset(sample_identifiers=list(range(4)), seed=1),
                 "test": DummyDataset(sample_identifiers=[0, 1, 2, 3, 0, 1], seed=2)}
@@ -43,7 +46,7 @@ def test_model_iteration_sums_the_losses_and_tracks_the_metrics(tmp_path: Path) 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
-    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1)
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=False)
     batch = next(iter(trainer.train_dataloader))
     tracker_dictionary = trainer.metric_tracker.create_trackers()
 
@@ -70,7 +73,7 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
     """
-    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5)
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False)
     assert trainer.start_iteration == 1
     trainer.run_training_loop()
 
@@ -89,7 +92,7 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]
 
     # A second run with the same settings resumes from iteration 5 with exactly its weights
-    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2)
+    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False)
     assert resumed_trainer.start_iteration == 6
     for parameter_name, parameter_value in resumed_trainer.model.state_dict().items():
         assert torch.equal(input=parameter_value.cpu(), other=checkpoint["model_state"][parameter_name])
@@ -103,3 +106,24 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_input_viewer_creates_no_run_folder(tmp_path: Path) -> None:
+    """
+    Verifies that the input viewer, which exits without training, creates no run folder for a new run, and leaves the
+    configuration saved in the folder of an existing run untouched.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # A new run only viewed: the program exits before any folder exists
+    with pytest.raises(expected_exception=SystemExit):
+        build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=True)
+    assert not (tmp_path / "experiments").exists()
+
+    # An existing run viewed again: its saved configuration is not replaced by the copy of the viewer launch
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=False)
+    trainer.configuration_path.write_text(data="saved: configuration\n")
+    with pytest.raises(expected_exception=SystemExit):
+        build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=True)
+    assert trainer.configuration_path.read_text() == "saved: configuration\n"

@@ -23,7 +23,7 @@ def test_every_checkpoint_is_evaluated_and_summarised(tmp_path: Path, capsys: py
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
     """
-    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5)
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False)
     trainer.run_training_loop()
     iterations = get_checkpoint_iterations(weights_directory=trainer.weights_directory)
     assert iterations == [2, 4, 5]

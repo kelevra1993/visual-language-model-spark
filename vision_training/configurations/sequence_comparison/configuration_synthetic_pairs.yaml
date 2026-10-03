@@ -80,7 +80,7 @@ ExperimentConfiguration:
       # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
       # frames of the before member of a pair above those of its after member, captioned with the class of the pair.
       # SPACE shows the next pairs, ENTER closes the viewer and exits the program without training, so set it to False
-      # to train. Requires a display (skipped with a warning otherwise)
+      # to train. Requires a display (skipped with a warning otherwise). No run folder is created in this mode.
       view_input_images: False
 
 Optimization:
