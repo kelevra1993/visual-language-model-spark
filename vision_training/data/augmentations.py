@@ -34,14 +34,14 @@ PHOTOMETRIC_AUGMENTATION_TYPES = ["brightness_contrast_saturation", "clahe_augme
 AUGMENTATION_TYPES = GEOMETRIC_AUGMENTATION_TYPES + PHOTOMETRIC_AUGMENTATION_TYPES
 
 # Fixed augmentation strengths, documented in the data_augmentation section of the configuration file
-MINIMUM_CROP_FRACTION = 0.9
+MINIMUM_CROP_FRACTION = 0.75
 MAXIMUM_ROTATION_DEGREES = 5.0
 BRIGHTNESS_MAXIMUM_DELTA = 40.0
 CONTRAST_FACTOR_RANGE = (0.7, 1.0)
 SATURATION_FACTOR_RANGE = (0.7, 1.0)
-NOISE_STANDARD_DEVIATION = 10.0
-BLUR_KERNEL_SIZE = 5
-BLUR_SIGMA = 1.5
+NOISE_STANDARD_DEVIATION = 40.0
+BLUR_KERNEL_SIZE = 9
+BLUR_SIGMA = 2.5
 SHARPENING_SIGMA = 1.5
 SHARPENING_STRENGTH = 3.0
 CLAHE_CLIP_LIMIT = 2.0
@@ -289,7 +289,7 @@ class DataAugmenter:
     def random_crop(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor]) -> Tuple[
             torch.Tensor, Optional[torch.Tensor]]:
         """
-        Crops a random region covering 90 to 100% of each side and resizes it back to the original size, which
+        Crops a random region covering 75 to 100% of each side and resizes it back to the original size, which
         zooms slightly into the image. Boxes are shifted and scaled accordingly; boxes leaving the crop are removed
         afterwards by 'clean_bounding_boxes'.
 
@@ -525,7 +525,7 @@ class DataAugmenter:
     @staticmethod
     def random_noise(image: torch.Tensor) -> torch.Tensor:
         """
-        Adds Gaussian noise with a standard deviation of 10 intensity levels, simulating sensor noise. For a
+        Adds Gaussian noise with a standard deviation of 40 intensity levels, simulating sensor noise. For a
         sequence every frame receives its own noise sample, with the same strength, as a real camera would.
 
         Args:
@@ -565,7 +565,7 @@ class DataAugmenter:
     @staticmethod
     def random_blur(image: torch.Tensor) -> torch.Tensor:
         """
-        Blurs the image with a 5x5 Gaussian kernel (sigma 1.5), simulating defocus and motion softness.
+        Blurs the image with a 9x9 Gaussian kernel (sigma 2.5), simulating defocus and motion softness.
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].

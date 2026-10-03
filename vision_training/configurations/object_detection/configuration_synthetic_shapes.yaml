@@ -118,7 +118,7 @@ Data:
     shuffle_frames: { activated: False, probability: 0.5 }
     types:
       # Geometric augmentations : bounding boxes are moved with the image, boxes leaving the image are removed.
-      # Random Crop : crop keeping 90% to 100% of each side (same aspect ratio), resized back to the input size
+      # Random Crop : crop keeping 75% to 100% of each side (same aspect ratio), resized back to the input size
       random_crop: { activated: False, probability: 0.3 }
       # Random Left to Right Flip (mirror)
       random_left_right_flip: { activated: False, probability: 0.5 }
@@ -140,13 +140,13 @@ Data:
       equalize_histogram_augment: { activated: False, probability: 0.3 }
       # Histogram Equalization of one random channel (B, G or R) or of all three channels
       equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
-      # Random Noise : Gaussian noise with a standard deviation of 10 intensity levels
+      # Random Noise : Gaussian noise with a standard deviation of 40 intensity levels
       random_noise: { activated: False, probability: 0.3 }
       # Grayscale conversion, kept on three channels
       gray_scale_augment: { activated: False, probability: 0.3 }
       # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
       random_colour_augmentation: { activated: False, probability: 0.3 }
-      # Random Image Blurring : 5x5 Gaussian kernel with sigma 1.5
+      # Random Image Blurring : 9x9 Gaussian kernel with sigma 2.5
       random_blur: { activated: False, probability: 0.3 }
 
 Backbone:
