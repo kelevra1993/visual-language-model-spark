@@ -1,3 +1,10 @@
+"""
+SequencePairDataset, the Native (OpenCV, CPU) dataset of the sequence comparison task, reading the before and after
+members of every pair of a 'labels.json' split as two padded windows stored one after the other, and the helpers
+choosing the member frames and splitting the pair tensors. Used by data/loaders.py and the sequence comparison
+trainer.
+"""
+
 import json
 import os
 import random

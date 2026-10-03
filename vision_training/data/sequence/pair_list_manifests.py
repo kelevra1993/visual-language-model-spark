@@ -1,3 +1,9 @@
+"""
+Converts a sequence comparison dataset described by one pair list file per split into the split layout read by
+SequencePairDataset ('data/' symbolic link and 'labels.json' manifest) and its 'label_mapping.json', without copying
+any frame. Run from the sequence comparison example configuration instructions.
+"""
+
 import json
 
 from pathlib import Path

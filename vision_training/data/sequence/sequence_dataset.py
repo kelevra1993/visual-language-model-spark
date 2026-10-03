@@ -1,3 +1,10 @@
+"""
+SequenceDataset, the Native (OpenCV, CPU) dataset of the sequence classification and sequence labelling tasks, cutting
+every sequence of a 'labels.json' split into padded windows of frames with sequence or frame labels, and the window
+helpers shared with the sequence pair dataset and the split description. Instantiated by get_sequence_dataloaders of
+data/loaders.py.
+"""
+
 import json
 import os
 import random
