@@ -1,3 +1,8 @@
+"""
+Metrics of the sequence labelling task (M2M): frame accuracy and exact matches of whole sequences, ignoring the
+padding frames (IGNORED_LABEL_INDEX). Used by the sequence labelling trainer to evaluate a checkpoint.
+"""
+
 import torch
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
