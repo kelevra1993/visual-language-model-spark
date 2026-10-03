@@ -1,3 +1,9 @@
+"""
+Loading of the YAML configuration files: parses a file, splits it into the experiment and model configurations,
+processes the experiment paths and types and runs the configuration checks. Used by main.py, the scripts and the
+tests to obtain the configurations given to the trainers.
+"""
+
 import sys
 import torch
 import yaml

@@ -1,3 +1,9 @@
+"""
+Checks of the configuration sections specific to the image classification task: the data settings (label mode,
+class weighting), the classification head (global pooling, output mode, dropout, label smoothing) and the evaluation
+settings. Run by configuration_checker.py for the classification task and reused by the sequence task checks.
+"""
+
 from typing import Any, Dict, List
 
 from vision_training.configuration.common_checks import (check_image_task_sequence_settings,

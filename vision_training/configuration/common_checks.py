@@ -1,3 +1,9 @@
+"""
+Checks of the configuration sections shared by every task: ExperimentConfiguration, Data, Backbone, the 'pretrained'
+settings of the transferable components and Optimization. Run first by configuration_checker.py, before the checks
+of the task sections, and reused by the task checks (e.g. refusing the sequence settings for the image tasks).
+"""
+
 import torch
 
 from typing import Any, Dict, List

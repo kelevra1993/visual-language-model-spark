@@ -1,3 +1,9 @@
+"""
+Building blocks of the configuration checks: the ConfigurationError raised on an incomplete or inconsistent file,
+the lookup of a nested value from a dotted key path, and the value checks (booleans, positive integers,
+probabilities, IoU thresholds) used by every check module of vision_training/configuration.
+"""
+
 from typing import Any, Dict, List
 
 

@@ -1,3 +1,9 @@
+"""
+Checks of the configuration sections specific to the object detection task: the detection levels, the anchors, the
+region proposal network, the detector heads, the proposal and anchor sampling and the evaluation settings. Run by
+configuration_checker.py for the object_detection task.
+"""
+
 import math
 
 from typing import Any, Dict, List

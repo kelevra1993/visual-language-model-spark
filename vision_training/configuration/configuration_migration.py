@@ -1,3 +1,10 @@
+"""
+Migration of configuration files and run folders written by older versions of the code: inserts as text, keeping
+the comments, the keys and sections added since (task, pretrained settings, evaluation outputs, sequence settings,
+Optimization), and renames the run folder to its current run name. Called by
+scripts/configuration/migrate_configuration.py.
+"""
+
 import yaml
 
 from pathlib import Path

@@ -1,3 +1,9 @@
+"""
+Building of the run names: the name of the folder a training run is saved in, made of short tokens describing the
+settings of the run (task, input, backbone, training, task sections). Called by the base trainer to create or
+resume a run folder, and by configuration_migration.py to rename migrated run folders.
+"""
+
 from typing import Any, Callable, Dict, List
 
 

@@ -1,3 +1,9 @@
+"""
+Checks of the configuration sections specific to the sequence tasks: the window settings, the temporal module and
+the fusion of the pairs, for sequence classification (M2O), sequence labelling (M2M) and sequence comparison (CMP).
+Run by configuration_checker.py for these tasks, on top of the classification head and data checks.
+"""
+
 from typing import Any, Dict, List
 
 from vision_training.configuration.classification_checks import (check_classification_data_configuration,

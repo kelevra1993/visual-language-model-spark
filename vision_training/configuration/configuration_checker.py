@@ -1,3 +1,9 @@
+"""
+Entry point of the configuration checks: runs the checks of the sections common to every task, then those of the
+task of 'ExperimentConfiguration.task', and raises a ConfigurationError listing every problem. Called by
+configuration_loader.py when a configuration file is loaded, before any model or data loader is built.
+"""
+
 from typing import Any, Callable, Dict, List
 
 from vision_training.configuration.classification_checks import check_classification_configuration
