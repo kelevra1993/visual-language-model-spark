@@ -1,6 +1,7 @@
 """
 Smoke tests of ClassificationTrainer of vision_training/trainers/classification_trainer.py on a synthetic dataset:
-multi-class and multi-label training save, evaluate and resume, with the predictions file and error images checked.
+multi-class and multi-label training save, evaluate and resume, with the predictions file and error images checked,
+and a head reading the flattened feature map trains.
 """
 
 import json
@@ -214,3 +215,36 @@ def test_predictions_file_can_be_turned_off(tmp_path: Path) -> None:
     assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_thresholds.json",
                                                                          "confusion_matrix.csv",
                                                                          "confusion_matrix.png"]
+
+
+def test_flattened_feature_map_training(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies a short classification training whose head reads the flattened final feature map: the run name carries
+    HFLAT, the head reads every value of the 64 pixel feature map, and the test evaluation is written to Results.txt
+    without any failed iteration.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4,
+        head_settings={"global_pooling": "flatten"}, evaluation_settings={}))
+    assert "_HFLAT." in trainer.run_name
+
+    # The head reads the channels, height and width of the final feature map of a 64 pixel image
+    with torch.no_grad():
+        final_feature_map, _ = trainer.model.backbone(input_tensor=torch.zeros(
+            size=(1, 3, SMOKE_IMAGE_SIZE, SMOKE_IMAGE_SIZE), device=trainer.device, dtype=trainer.dtype))
+    assert trainer.model.classification_head.input_features == final_feature_map[0].numel()
+    trainer.run_training_loop()
+
+    assert (trainer.experiment_folder / "Results.txt").read_text().startswith("Iteration 4 : 4 Test Images")
+    console_output = capsys.readouterr().out
+    assert "Error encountered during iteration" not in console_output
+    assert "Critical Error" not in console_output

@@ -11,8 +11,9 @@ from vision_training.configuration.common_checks import (check_image_task_sequen
 from vision_training.configuration.configuration_values import (check_boolean_flags, check_positive_integers,
                                                                 check_probability_value, get_configuration_value)
 
-# Global pooling of the final feature map before the classification head
-VALID_GLOBAL_POOLINGS = ["average", "max"]
+# Global pooling of the final feature map before the classification head, or its flattening (image classifier only,
+# refused by the sequence checks)
+VALID_GLOBAL_POOLINGS = ["average", "max", "flatten"]
 
 # Output modes of the classification head: one class per sample (softmax) or several (sigmoid)
 VALID_OUTPUT_MODES = ["multi_class", "multi_label"]

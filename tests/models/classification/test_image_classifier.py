@@ -1,6 +1,7 @@
 """
 Tests of ImageClassifier and of the classification head of vision_training/models/classification: output shapes and
-probabilities, learning a tiny batch, the class weights buffer and the global pooling shapes.
+probabilities, learning a tiny batch, the class weights buffer, the global pooling shapes and the head sized by the
+pooled or flattened feature map.
 """
 
 import pytest
@@ -91,12 +92,14 @@ def test_class_weights_buffer_weights_the_loss() -> None:
     assert "class_weights" in model.state_dict()
 
 
-@pytest.mark.parametrize(argnames=("global_pooling", "expected_vector"), argvalues=[("average", [2.5, 6.5]),
-                                                                                   ("max", [4.0, 8.0])])
+@pytest.mark.parametrize(argnames=("global_pooling", "expected_vector"),
+                         argvalues=[("average", [2.5, 6.5]), ("max", [4.0, 8.0]),
+                                    ("flatten", [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0])])
 def test_global_pooling_and_head_shapes(global_pooling: str, expected_vector: List[float]) -> None:
     """
-    Verifies that the global pooling reduces a feature map to one vector per image with its average or maximum, and
-    that the classification head applies to the last dimension, so that it also classifies every frame of a sequence.
+    Verifies that the global pooling reduces a feature map to one vector per image with its average or maximum, or
+    keeps all its values in channel, row and column order when flattening, and that the classification head applies
+    to the last dimension, so that it also classifies every frame of a sequence.
 
     Args:
         global_pooling (str): The global pooling under test.
@@ -106,7 +109,42 @@ def test_global_pooling_and_head_shapes(global_pooling: str, expected_vector: Li
     pooled_features = build_global_pooling(global_pooling=global_pooling)(input=feature_map)
     assert torch.equal(input=pooled_features, other=torch.tensor(data=[expected_vector]))
 
-    head = ClassificationHead(input_features=2, fully_connected=[], dropout_rate=0.0, number_classes=5,
-                              device=torch.device(device="cpu"), dtype=torch.float32)
+    head = ClassificationHead(input_features=len(expected_vector), fully_connected=[], dropout_rate=0.0,
+                              number_classes=5, device=torch.device(device="cpu"), dtype=torch.float32)
     assert head(features=pooled_features).shape == (1, 5)
-    assert head(features=torch.zeros(size=(2, 7, 2))).shape == (2, 7, 5)
+    assert head(features=torch.zeros(size=(2, 7, len(expected_vector)))).shape == (2, 7, 5)
+
+
+@pytest.mark.parametrize(argnames=("global_pooling", "image_size", "last_max_pooling", "expected_features"),
+                         argvalues=[("average", 64, False, 32), ("flatten", 64, False, 32 * 8 * 8),
+                                    ("flatten", 64, True, 32 * 4 * 4), ("flatten", 32, False, 32 * 4 * 4)])
+def test_head_input_follows_the_pooled_feature_map(global_pooling: str, image_size: int, last_max_pooling: bool,
+                                                   expected_features: int) -> None:
+    """
+    Verifies that the head of the image classifier reads the vector the global pooling makes from the final feature
+    map: its 32 channels for a pooling, whatever the image size, and its 32 channels times its height and width when
+    flattening, which follow the image size and the last max pooling (the 4 test blocks halving 64 pixels to 8 without
+    it, to 4 with it), and that the flattened classifier gives one logit per class of every image.
+
+    Args:
+        global_pooling (str): The reduction of the final feature map.
+        image_size (int): The side of the input images.
+        last_max_pooling (bool): Whether the last backbone block ends with a max pooling.
+        expected_features (int): The expected number of input features of the head.
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    configuration["Data"]["image_settings"]["size"] = image_size
+    configuration["Backbone"]["last_max_pooling"] = last_max_pooling
+    configuration["ClassificationHead"]["global_pooling"] = global_pooling
+    model = ImageClassifier(configuration=configuration, device=device, dtype=dtype)
+    model.eval()
+    assert model.classification_head.input_features == expected_features
+
+    # One logit per class of every image, and when flattening as many head inputs as values in the final feature map
+    images = torch.rand(size=(2, 3, image_size, image_size), generator=torch.Generator().manual_seed(3)) * 255.0
+    with torch.no_grad():
+        final_feature_map, _ = model.backbone(input_tensor=images)
+        outputs = model(input_tensor=images)
+    assert outputs["class_logits"].shape == (2, 3)
+    if global_pooling == "flatten":
+        assert final_feature_map[0].numel() == expected_features

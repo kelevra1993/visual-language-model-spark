@@ -22,9 +22,9 @@ VALID_SHORT_SEQUENCES = ["pad", "skip"]
 def check_sequence_settings(model_configuration: Dict[str, Any], cuts_windows: bool) -> List[str]:
     """
     Verifies the 'Data.sequence_settings' section of the sequence tasks, which gives the windows of frames fed to the
-    models (cut from the sequences, or one window per member of a pair), and that the classification head predicts
-    one class per sequence, per frame or per pair (the manifests give a single category per sequence, per frame or
-    per pair).
+    models (cut from the sequences, or one window per member of a pair), that the classification head predicts one
+    class per sequence, per frame or per pair (the manifests give a single category per sequence, per frame or per
+    pair), and that every frame is pooled to one vector rather than flattened.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -51,6 +51,14 @@ def check_sequence_settings(model_configuration: Dict[str, Any], cuts_windows: b
     if output_mode != "multi_class":
         errors.append(f"'ClassificationHead.output_mode' must be 'multi_class' for the sequence tasks, the manifests "
                       f"giving one category per sequence, per frame or per pair, got {output_mode!r}.")
+
+    # Frames pooled to vectors as wide as the last backbone block, which the temporal module and the fusion read
+    global_pooling = get_configuration_value(configuration=model_configuration,
+                                             key_path="ClassificationHead.global_pooling")
+    if global_pooling == "flatten":
+        errors.append("'ClassificationHead.global_pooling' cannot be 'flatten' for the sequence tasks: the temporal "
+                      "module and the fusion read frame vectors as wide as the last backbone block, use 'average' or "
+                      "'max'.")
     return errors
 
 

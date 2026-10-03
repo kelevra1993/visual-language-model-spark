@@ -66,6 +66,7 @@ Some keys are in several tasks but do not accept the same values in each. The ch
 | `Data.data_augmentation.shuffle_frames.activated` | `False` | `False` | `True` or `False` | `True` or `False` | `True` or `False` |
 | `Backbone.detection_convolution_block_indices` | at least one block | `[]` | `[]` | `[]` | `[]` |
 | `Backbone.normalization.feature_map_normalization` | any except `sequence` | any except `sequence` | any | any | any |
+| `ClassificationHead.global_pooling` | | `average`, `max` or `flatten` | `average` or `max` | `average` or `max` | `average` or `max` |
 | `ClassificationHead.output_mode` | | `multi_class` or `multi_label` | `multi_class` | `multi_class` | `multi_class` |
 | `TemporalModel.type` | | | all 7 types | `gru`, `lstm`, `transformer`, `temporal_convolution` | all 7 types |
 | `TemporalModel.causal` | | | `False` | `True` or `False` | `False` |
@@ -117,7 +118,8 @@ The training settings that can change between two resumptions of a run give no t
 | Fusion | `FCAT`, `FDIF`, `FXA<heads>` | `Fusion.type`: concatenation, difference, cross_attention | | | | | ✓ |
 | Fusion | `FDO<rate>` | `Fusion.dropout_rate` is above 0 (cross_attention) | | | | | ✓ |
 | Fusion | `SNP` | `Fusion.sequence_normalization_scope` is pair, with the `SN` backbone | | | | | ✓ |
-| Head | `HAVG.<fully connected>` or `HMAX.<fully connected>` | `ClassificationHead.global_pooling`, `fully_connected` | | ✓ | ✓ | ✓ | ✓ |
+| Head | `HAVG.<fully connected>` or `HMAX.<fully connected>` | `ClassificationHead.global_pooling` average or max, `fully_connected` | | ✓ | ✓ | ✓ | ✓ |
+| Head | `HFLAT.<fully connected>` | `ClassificationHead.global_pooling` flatten, `fully_connected` | | ✓ | | | |
 | Head | `DO<rate>` | `ClassificationHead.dropout_rate` | | ✓ | ✓ | ✓ | ✓ |
 | Head | `LS<rate>` | `ClassificationHead.label_smoothing` is above 0 | | ✓ | ✓ | ✓ | ✓ |
 | Head | `CWB` | `ClassificationHead.class_weighting` is balanced | | ✓ | ✓ | ✓ | ✓ |

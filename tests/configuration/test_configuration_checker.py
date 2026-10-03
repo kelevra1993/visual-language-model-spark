@@ -421,7 +421,8 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
     (set_negative_number_workers, ["'Data.loading.number_workers' must be an integer >= 0, got -1."]),
     (use_binary_labels, ["'Data.label_mapping.mode' must be 'multi_class' for the classification tasks"]),
     (add_detection_block, ["'Backbone.detection_convolution_block_indices' must be [] for the classification tasks"]),
-    (set_invalid_head, ["'ClassificationHead.global_pooling' must be one of ['average', 'max'], got 'median'.",
+    (set_invalid_head, ["'ClassificationHead.global_pooling' must be one of ['average', 'max', 'flatten'], got "
+                        "'median'.",
                         "'ClassificationHead.fully_connected' must be a list of positive integers, got [0].",
                         "'ClassificationHead.dropout_rate' must be a number within [0, 1), got 1.0.",
                         "'ClassificationHead.output_mode' must be one of ['multi_class', 'multi_label']",
@@ -458,6 +459,58 @@ def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, c
     printed_output = capsys.readouterr().out
     for expected_message in expected_messages:
         assert expected_message in printed_output
+    assert "Traceback" not in printed_output
+
+
+def flatten_final_feature_map(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the classification head all the values of the final feature map instead of their average.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["global_pooling"] = "flatten"
+
+
+def test_flattened_feature_map_is_accepted_for_classification(tmp_path: Path) -> None:
+    """
+    Verifies that the classification task accepts a head reading the flattened final feature map.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=flatten_final_feature_map)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["ClassificationHead"]["global_pooling"] == "flatten"
+
+
+@pytest.mark.parametrize(argnames=("task_folder", "configuration_name"),
+                         argvalues=[("sequence_classification", "configuration_synthetic_sequences.yaml"),
+                                    ("sequence_labelling", "configuration_synthetic_sequences.yaml"),
+                                    ("sequence_comparison", "configuration_synthetic_pairs.yaml")])
+def test_flattened_feature_map_is_rejected_for_the_sequence_tasks(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                                  task_folder: str, configuration_name: str) -> None:
+    """
+    Verifies that the sequence tasks refuse to flatten the final feature map of their frames, their temporal module
+    and fusion reading frame vectors as wide as the last backbone block.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        task_folder (str): The folder of the configurations of the sequence task.
+        configuration_name (str): The file name of the synthetic configuration of the task.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
+                                                  configuration_name=configuration_name,
+                                                  modify_function=flatten_final_feature_map)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    assert "'ClassificationHead.global_pooling' cannot be 'flatten' for the sequence tasks" in printed_output
     assert "Traceback" not in printed_output
 
 

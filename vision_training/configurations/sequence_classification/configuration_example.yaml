@@ -296,7 +296,8 @@ TemporalModel:
     learning_rate_multiplier: 1.0
 
 ClassificationHead:
-  # Global pooling reducing the final backbone feature map of every frame to one feature vector, "average" or "max".
+  # Global pooling reducing the final backbone feature map of every frame to one feature vector, "average" or "max"
+  # ("flatten" is for the classification task only).
   global_pooling: "average"
   # Units of the hidden fully connected layers between the sequence vector and the class logits, [] for none.
   fully_connected: [256]

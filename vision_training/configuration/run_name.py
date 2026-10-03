@@ -21,6 +21,10 @@ TEMPORAL_TYPE_CODES = {"mean_pooling": "MEAN", "max_pooling": "MAX", "attention_
 # Run name code of every fusion of the members of a pair (sequence comparison task)
 FUSION_TYPE_CODES = {"concatenation": "FCAT", "difference": "FDIF", "cross_attention": "FXA"}
 
+# Run name code of every reduction of the final feature map before the classification head: its average or maximum,
+# or all its values flattened (image classifier only)
+GLOBAL_POOLING_CODES = {"average": "AVG", "max": "MAX", "flatten": "FLAT"}
+
 # Prefixes of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
 # followed by '<prefix>FRZ' when it is frozen or '<learning rate prefix>LR<multiplier>' when it learns at its own
 # speed, i.e. PT, FRZ and BLR for the backbone, TPT, TFRZ and TLR for the temporal module, HPT, HFRZ and HLR for the
@@ -242,10 +246,10 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
 def build_classification_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
     """
     Builds the sections of the run name describing the classification head, shared by the classification-like tasks:
-    the head H<global pooling AVG or MAX>.<fully connected sizes> with the dropout DO<rate>, LS<label smoothing> when
-    smoothing, CWB when the classes are balanced in the loss and HPT, HFRZ or HLR<multiplier> when the head is
+    the head H<global pooling AVG, MAX or FLAT>.<fully connected sizes> with the dropout DO<rate>, LS<label smoothing>
+    when smoothing, CWB when the classes are balanced in the loss and HPT, HFRZ or HLR<multiplier> when the head is
     initialised by the one of another run (see build_pretrained_tokens), then the classes MC<classes> (one class per
-    sample) or ML<classes> (several classes per sample), e.g. 'HAVG.256-DO0.5_MC4'.
+    sample) or ML<classes> (several classes per sample), e.g. 'HAVG.256-DO0.5_MC4' or 'HFLAT.256-DO0.5_MC4'.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -256,7 +260,7 @@ def build_classification_sections(model_configuration: Dict[str, Any]) -> List[L
     head_configuration = model_configuration["ClassificationHead"]
 
     # Pooling and hidden layers, dropout, then the label smoothing and class weighting of the loss when used
-    pooling_code = {"average": "AVG", "max": "MAX"}[head_configuration["global_pooling"]]
+    pooling_code = GLOBAL_POOLING_CODES[head_configuration["global_pooling"]]
     head_tokens = ["H" + ".".join([pooling_code] + [str(size) for size in head_configuration["fully_connected"]]),
                    f"DO{head_configuration['dropout_rate']:g}"]
     if head_configuration["label_smoothing"] > 0:

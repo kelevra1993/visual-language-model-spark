@@ -1,7 +1,7 @@
 """
-Classification head of the classification-like tasks: the global pooling turning the last backbone feature map into
-one vector, the fully connected head giving the class logits and its summary panel. Used by the image classifier and
-by the sequence classifier, labeller and comparator.
+Classification head of the classification-like tasks: the global pooling (or the flattening, for the image classifier)
+turning the last backbone feature map into one vector, the fully connected head giving the class logits and its
+summary panel. Used by the image classifier and by the sequence classifier, labeller and comparator.
 """
 
 import torch
@@ -11,36 +11,68 @@ from rich.panel import Panel
 from torch import nn
 from typing import Any, Dict, List
 
+from vision_training.models.backbones.backbone import Backbone
 from vision_training.models.components.fully_connected_block import build_fully_connected_block
 
-# Global pooling layer of every 'ClassificationHead.global_pooling' setting, reducing a feature map to one vector
+# Global pooling layer of the 'ClassificationHead.global_pooling' settings reducing a feature map to one value per
+# channel, the "flatten" setting keeping every value of the feature map instead
 GLOBAL_POOLING_LAYERS = {"average": nn.AdaptiveAvgPool2d, "max": nn.AdaptiveMaxPool2d}
 
 
 def build_global_pooling(global_pooling: str) -> nn.Sequential:
     """
     Builds the global pooling turning the final feature map of the backbone into one feature vector per image, the
-    input of the classification head of the image classifier and of the frame encoder of the sequence models.
+    input of the classification head of the image classifier and of the frame encoder of the sequence models: its
+    average or maximum over the positions, or for the image classifier all its values flattened, which keeps where the
+    features are in the image.
 
     Args:
-        global_pooling (str): "average" or "max".
+        global_pooling (str): "average", "max" or "flatten".
 
     Returns:
-        nn.Sequential: The pooling, mapping [B, C, H, W] feature maps to [B, C] vectors.
+        nn.Sequential: The pooling, mapping [B, C, H, W] feature maps to [B, C] vectors, or to [B, C x H x W] vectors
+            when flattening.
     """
+    if global_pooling == "flatten":
+        return nn.Sequential(nn.Flatten(start_dim=1))
     return nn.Sequential(GLOBAL_POOLING_LAYERS[global_pooling](output_size=1), nn.Flatten(start_dim=1))
 
 
-def print_classification_head_summary(head_configuration: Dict[str, Any], number_classes: int) -> None:
+def compute_pooled_features(global_pooling: str, backbone: Backbone) -> int:
+    """
+    Gives the size of the vector the global pooling makes from the final feature map of the backbone, the input size
+    of the classification head of the image classifier: the channels of the map for the average and max poolings,
+    whatever the image size, and its channels times its height and width when flattening, read from the output size
+    of the last spatial layer of the backbone (Data.image_settings.size halved by every max pooling).
+
+    Args:
+        global_pooling (str): "average", "max" or "flatten".
+        backbone (Backbone): The backbone, built for the input image size of the run.
+
+    Returns:
+        int: The number of features of the pooled vector.
+    """
+    final_layer = backbone.compute_receptive_field_information()[-1]
+    if global_pooling == "flatten":
+        return final_layer["output_channels"] * final_layer["output_size"] * final_layer["output_size"]
+    return final_layer["output_channels"]
+
+
+def print_classification_head_summary(head_configuration: Dict[str, Any], input_features: int,
+                                      number_classes: int) -> None:
     """
     Prints the classification head settings in the architecture summary of the classification and sequence models:
-    pooling, hidden layers, dropout, output mode and number of classes.
+    pooling, size of the vectors the head classifies (the pooled or flattened feature map of the image classifier,
+    the output of the temporal module or of the fusion of the sequence models), hidden layers, dropout, output mode
+    and number of classes.
 
     Args:
         head_configuration (Dict[str, Any]): The 'ClassificationHead' section.
+        input_features (int): The number of features of the vectors given to the head.
         number_classes (int): The number of predicted classes.
     """
     summary_text = (f"[bold]Global Pooling[/bold]     : {head_configuration['global_pooling']}\n"
+                    f"[bold]Input Features[/bold]     : {input_features}\n"
                     f"[bold]Hidden Layers[/bold]      : {head_configuration['fully_connected']}\n"
                     f"[bold]Dropout Rate[/bold]       : {head_configuration['dropout_rate']}\n"
                     f"[bold]Output Mode[/bold]        : {head_configuration['output_mode']}\n"
@@ -69,6 +101,7 @@ class ClassificationHead(nn.Module):
             dtype (torch.dtype): The precision of the parameters.
         """
         super(ClassificationHead, self).__init__()
+        self.input_features = input_features
         self.fully_connected = fully_connected
         self.dropout_rate = dropout_rate
 

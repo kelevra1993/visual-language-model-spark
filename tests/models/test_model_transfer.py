@@ -1,7 +1,7 @@
 """
 Tests of vision_training/models/model_transfer.py: backbones, temporal modules and heads of a saved run initialising
-other models and tasks, rejected architectures and components, frozen and fixed normalization parameters and backbones
-moving between batch and sequence normalization.
+other models and tasks, rejected architectures and components (flattened heads included), frozen and fixed
+normalization parameters and backbones moving between batch and sequence normalization.
 """
 
 import copy
@@ -418,6 +418,85 @@ def test_head_tensors_of_another_shape_are_listed(tmp_path: Path) -> None:
     assert "classification head tensors of the checkpoint" in str(error_information.value)
     assert ("'fully_connected_block.0.weight' has the shape [16, 16] in the source run and [16, 48] in this run."
             in str(error_information.value))
+
+
+def write_flattened_classifier_run(run_folder: Path, global_pooling: str) -> Tuple[Dict[str, Any], TaskModel]:
+    """
+    Writes a trained image classifier run with the small classification configuration of the tests (64 pixel images),
+    its head reading the pooled or flattened final feature map.
+
+    Args:
+        run_folder (Path): The run folder.
+        global_pooling (str): The reduction of the final feature map of the run, "average", "max" or "flatten".
+
+    Returns:
+        Tuple[Dict[str, Any], TaskModel]: The configuration and the model of the run.
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    configuration["ClassificationHead"]["global_pooling"] = global_pooling
+    torch.manual_seed(seed=0)
+    source_model = ImageClassifier(configuration=configuration, device=device, dtype=dtype)
+    write_source_run(run_folder=run_folder, configuration=configuration, model=source_model)
+    return configuration, source_model
+
+
+def test_flattened_head_initialises_a_flattened_run(tmp_path: Path) -> None:
+    """
+    Verifies that the head of a classifier reading the flattened feature map initialises exactly the head of another
+    flattened classifier of the same image size.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration, source_model = write_flattened_classifier_run(run_folder=tmp_path / "source_run",
+                                                                 global_pooling="flatten")
+    torch.manual_seed(seed=1)
+    target_model = ImageClassifier(configuration=configuration, device=torch.device("cpu"), dtype=torch.float32)
+    load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                              model_configuration=point_to_source_run(configuration=configuration,
+                                                                      section_name="ClassificationHead",
+                                                                      source_folder=tmp_path / "source_run"),
+                              device=torch.device("cpu"))
+
+    for parameter_name, parameter_value in source_model.classification_head.state_dict().items():
+        assert torch.equal(input=target_model.classification_head.state_dict()[parameter_name], other=parameter_value)
+
+
+@pytest.mark.parametrize(argnames=("source_pooling", "target_pooling", "target_image_size", "expected_message"),
+                         argvalues=[
+    ("average", "flatten", 64, "'ClassificationHead.global_pooling' is 'average' in the source run and 'flatten' in "
+                               "this run: a flattened feature map and a pooled one give input vectors of different "
+                               "sizes."),
+    ("flatten", "max", 64, "'ClassificationHead.global_pooling' is 'flatten' in the source run and 'max' in this run"),
+    ("flatten", "flatten", 32, "'Data.image_settings.size' is 64 in the source run and 32 in this run: the flattened "
+                               "feature map, the input of the head, has a size following the image size.")])
+def test_heads_of_other_input_sizes_are_rejected(tmp_path: Path, source_pooling: str, target_pooling: str,
+                                                 target_image_size: int, expected_message: str) -> None:
+    """
+    Verifies that a classification head is not transferred between a pooled and a flattened feature map, nor between
+    two flattened maps of different image sizes, the error naming the setting to change.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        source_pooling (str): The reduction of the final feature map of the source run.
+        target_pooling (str): The reduction of the final feature map of the run receiving the head.
+        target_image_size (int): The image size of the run receiving the head.
+        expected_message (str): The expected description of the difference.
+    """
+    configuration, _ = write_flattened_classifier_run(run_folder=tmp_path / "source_run", global_pooling=source_pooling)
+    target_configuration = copy.deepcopy(configuration)
+    target_configuration["ClassificationHead"]["global_pooling"] = target_pooling
+    target_configuration["Data"]["image_settings"]["size"] = target_image_size
+    target_model = ImageClassifier(configuration=target_configuration, device=torch.device("cpu"), dtype=torch.float32)
+
+    with pytest.raises(expected_exception=ValueError) as error_information:
+        load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name="ClassificationHead",
+                                                                          source_folder=tmp_path / "source_run"),
+                                  device=torch.device("cpu"))
+    assert "cannot initialise this run, their architectures differ" in str(error_information.value)
+    assert expected_message in str(error_information.value)
 
 
 def test_source_run_without_the_component_is_rejected(tmp_path: Path) -> None:

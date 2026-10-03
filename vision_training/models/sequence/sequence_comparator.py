@@ -236,6 +236,7 @@ class SequenceComparator(TaskModel):
         print_sequence_module_summary(title="Member Fusion", module_configuration=self.fusion_configuration,
                                       output_features=self.member_fusion.output_features, border_style="magenta")
         print_classification_head_summary(head_configuration=self.head_configuration,
+                                          input_features=self.classification_head.input_features,
                                           number_classes=self.number_classes)
 
     def get_size_components(self) -> Dict[str, nn.Module]:

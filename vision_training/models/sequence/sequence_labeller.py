@@ -113,6 +113,7 @@ class SequenceLabeller(TaskModel):
         print_sequence_module_summary(title="Temporal Module", module_configuration=self.temporal_configuration,
                                       output_features=self.temporal_module.output_features, border_style="blue")
         print_classification_head_summary(head_configuration=self.head_configuration,
+                                          input_features=self.classification_head.input_features,
                                           number_classes=self.number_classes)
 
     def get_size_components(self) -> Dict[str, nn.Module]:

@@ -163,8 +163,10 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
                                  target_configuration: Dict[str, Any]) -> List[str]:
     """
     Lists the differences between the settings defining the layers of the classification heads of two runs: the
-    hidden fully connected layers, and whether the head uses a dropout, which shifts the numbering of its layers. The
-    sizes of the input vectors and the number of classes are compared on the weights themselves.
+    hidden fully connected layers, whether the head uses a dropout, which shifts the numbering of its layers, and for
+    a flattened feature map the settings giving the size of its input (the flattening itself, and the image size).
+    The other sizes of the input vectors (e.g. the channels of the last backbone block) and the number of classes are
+    compared on the weights themselves.
 
     Args:
         source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
@@ -179,6 +181,22 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
     if source_head_configuration["fully_connected"] != target_head_configuration["fully_connected"]:
         differences.append(f"'ClassificationHead.fully_connected' is {source_head_configuration['fully_connected']!r} "
                            f"in the source run and {target_head_configuration['fully_connected']!r} in this run.")
+
+    # A flattened feature map gives one input per position and channel, a pooled one an input per channel only, and
+    # the positions of a flattened map follow the image size
+    source_pooling = source_head_configuration["global_pooling"]
+    target_pooling = target_head_configuration["global_pooling"]
+    if "flatten" in [source_pooling, target_pooling] and source_pooling != target_pooling:
+        differences.append(f"'ClassificationHead.global_pooling' is {source_pooling!r} in the source run and "
+                           f"{target_pooling!r} in this run: a flattened feature map and a pooled one give input "
+                           f"vectors of different sizes.")
+    elif source_pooling == "flatten":
+        source_image_size = source_configuration["Data"]["image_settings"]["size"]
+        target_image_size = target_configuration["Data"]["image_settings"]["size"]
+        if source_image_size != target_image_size:
+            differences.append(f"'Data.image_settings.size' is {source_image_size!r} in the source run and "
+                               f"{target_image_size!r} in this run: the flattened feature map, the input of the head, "
+                               f"has a size following the image size.")
 
     # A dropout layer before every fully connected layer shifts the numbering of the layers of the head
     source_uses_dropout = source_head_configuration["dropout_rate"] > 0

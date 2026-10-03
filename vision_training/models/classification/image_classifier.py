@@ -1,7 +1,7 @@
 """
-Model of the image classification task: ImageClassifier chains the shared Backbone, a global pooling and the
-classification head, and returns the class logits, probabilities and loss. Registered in model_registry.py for the
-"classification" task and wrapped by inference_classifier.py for the exports.
+Model of the image classification task: ImageClassifier chains the shared Backbone, a global pooling (or the flattening
+of the feature map) and the classification head, and returns the class logits, probabilities and loss. Registered in
+model_registry.py for the "classification" task and wrapped by inference_classifier.py for the exports.
 """
 
 import torch
@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional
 from vision_training.losses.classification_losses import compute_classification_loss, convert_logits_to_probabilities
 from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.classification.classification_head import (ClassificationHead, build_global_pooling,
+                                                                       compute_pooled_features,
                                                                        print_classification_head_summary)
 from vision_training.models.task_model import TaskModel
 
@@ -19,9 +20,9 @@ from vision_training.models.task_model import TaskModel
 class ImageClassifier(TaskModel):
     """
     Model of the classification task: the shared Backbone extracts the final feature map of the image, a global
-    pooling reduces it to one feature vector, and the classification head gives the logits of the classes. It
-    predicts one class per image (softmax) or any number of classes (sigmoid), depending on
-    'ClassificationHead.output_mode'.
+    pooling reduces it to one feature vector (or the map is flattened, keeping where the features are), and the
+    classification head gives the logits of the classes. It predicts one class per image (softmax) or any number of
+    classes (sigmoid), depending on 'ClassificationHead.output_mode'.
 
     Outputs: 'class_logits' [B, K] and 'class_probabilities' [B, K], plus 'classification_loss' when labels are given.
     """
@@ -46,16 +47,17 @@ class ImageClassifier(TaskModel):
         self.label_smoothing = self.head_configuration["label_smoothing"]
         self.number_classes = len(set(configuration["Data"]["label_dictionary"].values()))
 
-        # Shared feature extractor, whose last block gives the number of features of the pooled vector
-        backbone_configuration = configuration["Backbone"]
-        self.backbone = build_backbone(backbone_configuration=backbone_configuration,
+        # Shared feature extractor, whose final feature map gives the number of features of the pooled vector: its
+        # channels for the poolings, its channels times its height and width when flattened
+        self.backbone = build_backbone(backbone_configuration=configuration["Backbone"],
                                        input_image_size=configuration["Data"]["image_settings"]["size"],
                                        device=device, dtype=dtype)
-        final_channels = list(backbone_configuration["convolutions"].values())[-1][1]
+        pooled_features = compute_pooled_features(global_pooling=self.head_configuration["global_pooling"],
+                                                  backbone=self.backbone)
 
-        # Global pooling of the final feature map, then the class logits
+        # Global pooling (or flattening) of the final feature map, then the class logits
         self.global_pooling = build_global_pooling(global_pooling=self.head_configuration["global_pooling"])
-        self.classification_head = ClassificationHead(input_features=final_channels,
+        self.classification_head = ClassificationHead(input_features=pooled_features,
                                                       fully_connected=self.head_configuration["fully_connected"],
                                                       dropout_rate=self.head_configuration["dropout_rate"],
                                                       number_classes=self.number_classes, device=device, dtype=dtype)
@@ -90,11 +92,12 @@ class ImageClassifier(TaskModel):
 
     def print_summary(self) -> None:
         """
-        Prints the backbone summary, then the classification head: pooling, hidden layers, dropout, output mode and
-        number of classes.
+        Prints the backbone summary, then the classification head: pooling, size of the pooled or flattened vector,
+        hidden layers, dropout, output mode and number of classes.
         """
         self.backbone.print_summary()
         print_classification_head_summary(head_configuration=self.head_configuration,
+                                          input_features=self.classification_head.input_features,
                                           number_classes=self.number_classes)
 
     def get_size_components(self) -> Dict[str, nn.Module]:

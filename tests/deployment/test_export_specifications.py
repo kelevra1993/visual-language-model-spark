@@ -1,7 +1,7 @@
 """
 Tests of the model exports of vision_training/deployment/export_model.py and export_specifications.py: the TorchScript
-and ONNX exports of every task match the eager model, keep their dynamic frames, and the inference models match the
-training path on full windows.
+and ONNX exports of every task (the image classifier with a pooled or flattened feature map) match the eager model,
+keep their dynamic frames, and the inference models match the training path on full windows.
 """
 
 import onnx
@@ -27,7 +27,8 @@ from tests.fixtures.configuration_fixtures import (get_classification_model_conf
 TEST_MAXIMUM_BATCH_SIZE = 4
 
 
-def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optional[str]) -> TaskModel:
+def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optional[str],
+                     global_pooling: str) -> TaskModel:
     """
     Builds a small untrained model of a task on the CPU, in evaluation mode, with seeded weights: bidirectional
     recurrent modules, and a causal transformer for the sequence labeller.
@@ -36,6 +37,8 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
         task (str): "classification", "sequence_classification", "sequence_labelling" or "sequence_comparison".
         temporal_type (Optional[str]): The temporal module of the sequence models, None for the classifier.
         fusion_type (Optional[str]): The fusion of the members of the comparison model, None for the other tasks.
+        global_pooling (str): The reduction of the final feature map, "average" or "max", or "flatten" for the
+            classifier only.
 
     Returns:
         TaskModel: The model of the task.
@@ -43,6 +46,7 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
     torch.manual_seed(seed=0)
     if temporal_type is None:
         configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+        configuration["ClassificationHead"]["global_pooling"] = global_pooling
     else:
         if task == "sequence_comparison":
             configuration, device, dtype = get_sequence_comparison_model_configuration(temporal_type=temporal_type,
@@ -54,13 +58,15 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
     return TASK_MODEL_CLASSES[task](configuration=configuration, device=device, dtype=dtype).eval()
 
 
-@pytest.mark.parametrize(argnames=("task", "temporal_type", "fusion_type"), argvalues=[
-    ("classification", None, None), ("sequence_classification", "gru", None),
-    ("sequence_classification", "transformer", None), ("sequence_labelling", "lstm", None),
-    ("sequence_labelling", "transformer", None), ("sequence_labelling", "temporal_convolution", None),
-    ("sequence_comparison", "gru", "cross_attention"), ("sequence_comparison", "transformer", "difference")])
+@pytest.mark.parametrize(argnames=("task", "temporal_type", "fusion_type", "global_pooling"), argvalues=[
+    ("classification", None, None, "average"), ("classification", None, None, "flatten"),
+    ("sequence_classification", "gru", None, "average"), ("sequence_classification", "transformer", None, "average"),
+    ("sequence_labelling", "lstm", None, "average"), ("sequence_labelling", "transformer", None, "average"),
+    ("sequence_labelling", "temporal_convolution", None, "average"),
+    ("sequence_comparison", "gru", "cross_attention", "average"),
+    ("sequence_comparison", "transformer", "difference", "average")])
 def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type: Optional[str],
-                                       fusion_type: Optional[str]) -> None:
+                                       fusion_type: Optional[str], global_pooling: str) -> None:
     """
     Verifies the TorchScript and ONNX exports of the inference models of the classification and sequence tasks: both
     keep the input names of the specification and reproduce the eager class probabilities on a batch of another size
@@ -74,10 +80,12 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
         task (str): The task of the exported model.
         temporal_type (Optional[str]): The temporal module of the sequence models, None for the classifier.
         fusion_type (Optional[str]): The fusion of the members of the comparison model, None for the other tasks.
+        global_pooling (str): The reduction of the final feature map of the model.
     """
     hide_known_export_warnings()
     inference_model = build_inference_model(task=task, model=build_test_model(task=task, temporal_type=temporal_type,
-                                                                              fusion_type=fusion_type))
+                                                                              fusion_type=fusion_type,
+                                                                              global_pooling=global_pooling))
     specification = get_export_specification(task=task, inference_model=inference_model)
     example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
                                           maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
@@ -132,7 +140,7 @@ def test_second_recurrent_export_keeps_dynamic_frames(tmp_path: Path) -> None:
     """
     hide_known_export_warnings()
     inference_model = build_inference_model(task="sequence_classification", model=build_test_model(
-        task="sequence_classification", temporal_type="gru", fusion_type=None))
+        task="sequence_classification", temporal_type="gru", fusion_type=None, global_pooling="average"))
     specification = get_export_specification(task="sequence_classification", inference_model=inference_model)
     example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
                                           maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
@@ -167,7 +175,7 @@ def test_fixed_dynamic_dimensions_are_reported(tmp_path: Path) -> None:
     """
     hide_known_export_warnings()
     inference_model = build_inference_model(task="sequence_classification", model=build_test_model(
-        task="sequence_classification", temporal_type="mean", fusion_type=None))
+        task="sequence_classification", temporal_type="mean", fusion_type=None, global_pooling="average"))
     specification = get_export_specification(task="sequence_classification", inference_model=inference_model)
     example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
                                           maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),
@@ -192,7 +200,7 @@ def test_inference_path_matches_the_training_path_on_full_windows(task: str, tem
         task (str): The sequence task of the model.
         temporal_type (str): The temporal module of the model.
     """
-    model = build_test_model(task=task, temporal_type=temporal_type, fusion_type=None)
+    model = build_test_model(task=task, temporal_type=temporal_type, fusion_type=None, global_pooling="average")
     frames = torch.rand(size=(2, 4, 3, 64, 64), generator=torch.Generator().manual_seed(3)) * 255.0
     with torch.no_grad():
         masked_probabilities = model(input_tensor=frames, sequence_mask=torch.ones(size=(2, 4), dtype=torch.bool))[
@@ -213,7 +221,8 @@ def test_inference_comparator_matches_the_training_path_on_full_windows(temporal
         temporal_type (str): The temporal module of the model.
         fusion_type (str): The fusion of the members of the model.
     """
-    model = build_test_model(task="sequence_comparison", temporal_type=temporal_type, fusion_type=fusion_type)
+    model = build_test_model(task="sequence_comparison", temporal_type=temporal_type, fusion_type=fusion_type,
+                             global_pooling="average")
     before_frames = torch.rand(size=(2, 4, 3, 64, 64), generator=torch.Generator().manual_seed(4)) * 255.0
     after_frames = torch.rand(size=(2, 4, 3, 64, 64), generator=torch.Generator().manual_seed(5)) * 255.0
     full_mask = torch.ones(size=(2, 4), dtype=torch.bool)

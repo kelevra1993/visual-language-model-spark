@@ -294,6 +294,17 @@ def use_max_pooling_and_two_hidden_layers(experiment_configuration: Dict[str, An
     model_configuration["ClassificationHead"].update({"global_pooling": "max", "fully_connected": [256, 64]})
 
 
+def flatten_final_feature_map(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Gives the head all the values of the final feature map instead of their average.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["ClassificationHead"]["global_pooling"] = "flatten"
+
+
 def remove_hidden_layers_and_dropout(experiment_configuration: Dict[str, Any],
                                      model_configuration: Dict[str, Any]) -> None:
     """
@@ -333,6 +344,7 @@ def use_multi_label_outputs(experiment_configuration: Dict[str, Any], model_conf
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
     (None, CLASSIFICATION_REFERENCE_RUN_NAME),
     (use_max_pooling_and_two_hidden_layers, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128-", "_HMAX.256.64-")),
+    (flatten_final_feature_map, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128-", "_HFLAT.128-")),
     (remove_hidden_layers_and_dropout, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128-DO0.2_", "_HAVG-DO0_")),
     (smooth_labels_and_balance_classes, CLASSIFICATION_REFERENCE_RUN_NAME.replace("-DO0.2_", "-DO0.2-LS0.1-CWB_")),
     (use_multi_label_outputs, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_MC4", "_ML5"))])
