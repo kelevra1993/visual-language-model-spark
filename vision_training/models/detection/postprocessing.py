@@ -1,3 +1,9 @@
+"""
+Final postprocessing of the object detector: class probabilities, background removal, score threshold, per-class
+batched non-maximum suppression and a fixed number of detections per image, vectorised so that it exports. Shared by
+the TwoStageDetector at inference and by the InferenceDetector of the deployment.
+"""
+
 import torch
 
 from typing import Dict

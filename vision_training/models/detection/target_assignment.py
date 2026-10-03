@@ -1,3 +1,9 @@
+"""
+Training target assignment of the object detector: matching of the ground truth boxes to the anchors (region
+proposal stage) and to the proposals (detection stage) by intersection over union, regression targets, and the
+sampling of positive and negative examples. Used by the TwoStageDetector and vision_training/losses/detection_losses.py.
+"""
+
 import torch
 
 from typing import Dict, List, Tuple

@@ -1,3 +1,9 @@
+"""
+Bounding box operations of the object detection task: areas, intersection over union, widths, heights and centers,
+decoding of the regression predictions and clamping to the image. Used by the region proposer, the detection heads,
+the postprocessing, the inference detector, the target assignment and the mean average precision evaluation.
+"""
+
 import math
 import torch
 

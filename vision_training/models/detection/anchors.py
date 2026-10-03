@@ -1,3 +1,9 @@
+"""
+Anchor generation of the object detection task: the Anchors module computes the reference boxes of one feature map
+level from its scales and aspect ratios, used by the region proposal heads and the target assignment of the
+TwoStageDetector.
+"""
+
 import torch
 from torch import nn
 from typing import List

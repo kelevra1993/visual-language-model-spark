@@ -1,3 +1,9 @@
+"""
+Inference-only version of the trained TwoStageDetector with batched, fixed-shape proposal filtering and detection,
+returning a fixed number of detections per image. Built by vision_training/deployment/export_specifications.py for
+the TorchScript and ONNX exports served by Triton.
+"""
+
 import torch
 
 from torch import nn

@@ -1,3 +1,9 @@
+"""
+Second stage of the object detector: the DetectionHead of one feature map scale pools the proposals with RoIAlign,
+runs them through a ConvolutionBlock and fully connected layers, and predicts the class scores and the per-class box
+offsets. Built for every detection block by the TwoStageDetector.
+"""
+
 import torch
 
 from typing import Dict, Tuple, Any, Optional

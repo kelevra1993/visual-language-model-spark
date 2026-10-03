@@ -1,3 +1,9 @@
+"""
+Model of the object detection task: the TwoStageDetector combines the shared Backbone, the region proposal heads and
+filter, the target assignment, the detection heads and the postprocessing, and returns the losses and detections.
+Registered in model_registry.py for the "object_detection" task and wrapped by inference_detector.py for the exports.
+"""
+
 import torch
 from torch import nn
 from rich.console import Console

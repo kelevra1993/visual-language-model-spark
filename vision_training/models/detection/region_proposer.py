@@ -1,3 +1,9 @@
+"""
+First stage of the object detector: RegionProposal predicts the objectness scores and box offsets of the anchors of
+one feature map scale, and RegionProposalFilter keeps the best proposals with non-maximum suppression and pads them
+to a fixed number, with different limits in training and inference. Both are built by the TwoStageDetector.
+"""
+
 import torch
 
 from torch import nn
