@@ -1,3 +1,8 @@
+"""
+Tests of compute_sequence_labelling_loss of vision_training/losses/sequence_losses.py, which only counts the labelled
+frames.
+"""
+
 import torch
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX

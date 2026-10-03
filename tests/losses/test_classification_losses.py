@@ -1,3 +1,8 @@
+"""
+Tests of vision_training/losses/classification_losses.py: the weighted, smoothed multi-class and multi-label losses, the
+probabilities following the output mode and the balanced class weights.
+"""
+
 import torch
 
 from vision_training.losses.classification_losses import (compute_balanced_class_weights, compute_classification_loss,
