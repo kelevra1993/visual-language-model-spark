@@ -14,6 +14,7 @@
 8. Acceptance
 9. Risks And Open Points
 10. Verification
+11. Implementation Notes
 
 ---
 
@@ -471,3 +472,54 @@ checklist removed, one commit, push.
 - The M2O and M2M run names, the existing run names and the detection Triton configurations are unchanged.
 - `NO_COLOR=1 uvx ruff check --no-cache --select F401,F811,F821,F841 vision_training tests scripts`.
 - The acceptance trainings and exports of section 8, with the results recorded in `implementation_comparison.md`.
+
+---
+
+## 11. Implementation Notes
+
+Every phase is implemented, one commit per phase (`[COMPARISON]`, `[DEPLOYMENT]`, `[TRANSFER]`). This section lists
+what differs from the plan above, what is left out, and the acceptance results.
+
+### Differences from the plan
+1. **Synthetic detection and classification images:** `generate_image` is rewritten on the shape helpers shared with
+   the object loss pairs. It draws the size and the colour of an object once and only retries its position (the
+   previous code drew a new size at every attempt), so the same seed no longer gives the same images as before.
+2. **Exported frame dimensions:** every sequence input has its own `Dim("<input name>_frames")`, so the ONNX exports
+   of the sequence classifier and labeller name their frame dimension `images_frames` instead of `frames`. Triton
+   does not read these names.
+3. **Comparison of the heads:** the dropout of two heads is only compared when they have hidden layers, a head without
+   hidden layers numbering its layers the same with or without dropout.
+4. **Startup lines:** the transferred components are printed as `Pretrained Backbone`, `Pretrained Temp. Module` and
+   `Pretrained Class. Head`, which keeps the column of the experiment information aligned.
+
+### Left out
+- Error dumps of the misclassified pairs, left to item 2 of the comparison document for every task.
+- Independent photometric draws for the two members of a pair, and random frame sampling of the long members (see
+  section 9): both members share every draw, and a long member is always subsampled the same way.
+
+### Migration of the runs trained before
+`scripts/configuration/migrate_configuration.py` now also adds the `pretrained` settings of `TemporalModel` and
+`ClassificationHead` and `Backbone.pretrained.freeze_normalization_parameters`, all off. The classification and
+sequence runs trained before phase 3 must be migrated before they are resumed, evaluated or exported. Their folder
+keeps its name, the settings of a run without transfer adding no run name token.
+
+### Acceptance results (synthetic datasets)
+| Phase | Check | Result |
+|---|---|---|
+| 1 | Object loss pairs (128 px, 8 frames per member, mean pooling), concatenation / difference / cross attention; one member alone caps at 66.7 % | 97.0 / 98.5 / 96.0 % test accuracy at iteration 500 (target 95 %), 100 / 100 / 99.0 % at their best, 100 / 100 / 94.5 % at the last checkpoint (iteration 3000, constant learning rate) |
+| 2 | Exports of the cross attention comparator | TorchScript and ONNX match the eager model with 7 before and 6 after frames, load in Triton with two inputs of dynamic frames, and the served outputs match the local model, also with 8 before and 5 after frames: TorchScript to 3e-7 against full FP32, ONNX with TensorRT within the TF32 noise (1.6e-3 at most) |
+| 2 | Throughput, one pair of 2 x 8 frames of 128 px per request | local 407 pairs/s, Triton TorchScript 131 pairs/s (157 with shared memory), ONNX with TensorRT 183 pairs/s (241 with shared memory) |
+| 2 | Second recurrent ONNX export in one process | fixed numbers of frames without the reset of the dispatch caches (caught by the guard), dynamic with it |
+| 3 | Backbone and GRU1x128-BI of a trained synthetic sequence classifier (98.0 % test accuracy) loaded into a comparator | the 89 transferred tensors equal those of the source checkpoint |
+| 3 | Frozen GRU temporal module trained on the GPU | stays fixed while the backbone before it learns (test); putting the whole frozen module in evaluation mode fails at every step with "cudnn RNN backward can only be called in training mode" |
+| 3 | Comparator from the transferred weights vs from scratch | validation accuracy slightly ahead after the first 100 iterations (98.75 vs 96.25 % at iteration 400, 100 vs 98.75 % at 700), test accuracy comparable: 97.5 / 98.0 / 97.0 / 99.0 / 99.0 / 100 % vs 99.5 / 98.5 / 99.0 / 99.5 / 99.0 / 100 % at iterations 500 to 3000. The comparison task learns within 500 iterations from scratch, which leaves little to gain on this dataset |
+
+### Observations
+- **Plateau of the synthetic moving shapes:** the sequence classifier first trained as the transfer source never left
+  the chance level in 3000 iterations (21 to 28 % test accuracy, training loss at ln 4). A second run of the same
+  configuration left it around iteration 700 (98.5 % at iteration 1000), while the code before phase 1, run at the
+  same time, stayed on it for 1500 iterations. The runs draw different random initialisations (no seed is set), so
+  this plateau, and not a regression, explains the difference with the 100 % at iteration 1500 of phase 6 of
+  `major_refactoring.md`. The transfer acceptance uses the run that learned.
+- **Transfer from an untrained source:** a comparator initialised by the run stuck on the plateau reached 96.5 % test
+  accuracy at iteration 500 (99.5 % from scratch) and 100 % at iteration 1000.
