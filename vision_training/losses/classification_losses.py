@@ -1,3 +1,9 @@
+"""
+Classification losses shared by the classification-like tasks: the multi-class or multi-label loss of the logits,
+the conversion of the logits to probabilities and the balanced class weights. Used by the image classifier, the
+sequence models and the classification trainer.
+"""
+
 import torch
 
 from typing import List

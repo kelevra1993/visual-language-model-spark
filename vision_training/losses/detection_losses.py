@@ -1,3 +1,8 @@
+"""
+Losses of the two-stage detector: the classification and localisation losses of the region proposal network and of
+the detection head. Called by the forward pass of models/detection/two_stage_detector.py during training.
+"""
+
 import torch
 
 from typing import Any, Dict, List, Optional, Tuple

@@ -1,3 +1,8 @@
+"""
+Loss of the sequence labelling task (M2M): the per-frame classification loss with label smoothing, ignoring the
+padding frames (IGNORED_LABEL_INDEX). Called by models/sequence/sequence_labeller.py during training.
+"""
+
 import torch
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
