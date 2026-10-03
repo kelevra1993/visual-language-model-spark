@@ -24,8 +24,6 @@ wheels/
 !implementation_comparison.md
 # Keep the plan of the evaluation outputs, sequence augmentations and sequence normalization under version control
 !implementation_evaluation_and_sequences.md
-# Keep the plan of the DALI loaders of the classification and sequence tasks under version control
-!implementation_dali_loaders.md
 
 # Model data
 experiments_folder/
@@ -34,5 +32,6 @@ experiments_folder/
 experiments/
 datasets/
 classifier_insipiration_code/
+previous_classifiers/
 # Exported models served by Triton
 vision_training/deployment/triton/served_models/
