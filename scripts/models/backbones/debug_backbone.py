@@ -1,3 +1,9 @@
+"""
+When run, builds the Backbone of vision_training.models.backbones from the detection test configuration, prints its
+summary, runs a forward pass on a dummy batch and checks that the feature map sizes and channels computed by
+compute_detection_input_information match the real outputs.
+"""
+
 from vision_training.models.backbones.backbone import Backbone
 from tests.fixtures.configuration_fixtures import get_detection_model_configuration
 from scripts.models.detection.detection_debugging_utilities import get_dummy_input_tensor
