@@ -1,3 +1,9 @@
+"""
+Tests of vision_training/data/classification/imagenet_download.py on small parquet shards written by the tests: the
+class names, the extraction of the shards into class folders, the validation images held out by file name hash and the
+split size checks.
+"""
+
 import pyarrow
 import pyarrow.parquet as parquet
 import pytest

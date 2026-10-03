@@ -1,3 +1,9 @@
+"""
+Tests of the classification data of vision_training/data/classification: ClassificationDataset loading multi-class and
+multi-label manifests, the label mapping without background class, and the manifests written by
+create_class_folder_manifests from class folders.
+"""
+
 import json
 import cv2
 import numpy as np
