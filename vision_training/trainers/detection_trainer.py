@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Tuple
 
 from vision_training.core.contracts import DetectionBatch, EvaluationResults
-from vision_training.data.loaders import get_dataloaders
+from vision_training.data.loaders import get_detection_dataloaders
 from vision_training.data.split_description import count_split_images_and_annotations
 from vision_training.evaluation.detection.mean_average_precision import AVERAGE_PRECISION_METHODS, evaluate_detections
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
@@ -52,8 +52,8 @@ class DetectionTrainer(BaseTrainer):
         Returns:
             Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
         """
-        return get_dataloaders(experiment_configuration=self.experiment_configuration,
-                               model_configuration=self.model_configuration, batch_size=self.batch_size)
+        return get_detection_dataloaders(experiment_configuration=self.experiment_configuration,
+                                         model_configuration=self.model_configuration, batch_size=self.batch_size)
 
     def build_model(self) -> TwoStageDetector:
         """

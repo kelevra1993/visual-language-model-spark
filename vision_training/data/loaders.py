@@ -49,10 +49,10 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
                       prefetch_factor=loading_configuration["prefetch_batches"] if use_workers else None)
 
 
-def get_dataloader(split_name: str, split_data_folder: str, model_configuration: Dict[str, Any],
-                   batch_size: int) -> Union[DataLoader, DALIDataloaderWrapper]:
+def get_detection_dataloader(split_name: str, split_data_folder: str, model_configuration: Dict[str, Any],
+                             batch_size: int) -> Union[DataLoader, DALIDataloaderWrapper]:
     """
-    Instantiates the DataLoader feeding one split (Train, Validation or Test) to the Trainer.
+    Instantiates the DataLoader feeding one COCO split (Train, Validation or Test) to the object detection trainer.
     The GPU-accelerated DALI pipeline is used when activated, otherwise the Native PyTorch dataset decodes the
     images with OpenCV and resizes them on the CPU. Both return the same batch dictionary format.
 
@@ -104,14 +104,14 @@ def get_dataloader(split_name: str, split_data_folder: str, model_configuration:
                                collate_function=collate_function)
 
 
-def get_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                    batch_size: int) -> Tuple[Union[DataLoader, DALIDataloaderWrapper],
-                                              Union[DataLoader, DALIDataloaderWrapper],
-                                              Union[DataLoader, DALIDataloaderWrapper]]:
+def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
+                              batch_size: int) -> Tuple[Union[DataLoader, DALIDataloaderWrapper],
+                                                        Union[DataLoader, DALIDataloaderWrapper],
+                                                        Union[DataLoader, DALIDataloaderWrapper]]:
     """
-    Initializes the training, validation and testing loaders consumed by the Trainer.
-    This function is the entry point of the data loading subsystem: it resolves each split folder from the
-    experiment configuration and builds the matching loader (DALI or Native) for it.
+    Initializes the training, validation and testing loaders of the object detection task, consumed by the detection
+    trainer: it resolves each split folder from the experiment configuration and builds the matching COCO loader
+    (DALI or Native) for it.
 
     Args:
         experiment_configuration (Dict[str, Any]): The overall experiment configuration including data paths.
@@ -128,12 +128,13 @@ def get_dataloaders(experiment_configuration: Dict[str, Any], model_configuratio
                             "Test": str(experiment_configuration["test_data_folder"])}
 
     # Build the training, validation and test loaders with the same data loading settings
-    train_loader = get_dataloader(split_name="Train", split_data_folder=split_folder_mapping["Train"],
-                                  model_configuration=model_configuration, batch_size=batch_size)
-    validation_loader = get_dataloader(split_name="Validation", split_data_folder=split_folder_mapping["Validation"],
-                                       model_configuration=model_configuration, batch_size=batch_size)
-    test_loader = get_dataloader(split_name="Test", split_data_folder=split_folder_mapping["Test"],
-                                 model_configuration=model_configuration, batch_size=batch_size)
+    train_loader = get_detection_dataloader(split_name="Train", split_data_folder=split_folder_mapping["Train"],
+                                            model_configuration=model_configuration, batch_size=batch_size)
+    validation_loader = get_detection_dataloader(split_name="Validation",
+                                                 split_data_folder=split_folder_mapping["Validation"],
+                                                 model_configuration=model_configuration, batch_size=batch_size)
+    test_loader = get_detection_dataloader(split_name="Test", split_data_folder=split_folder_mapping["Test"],
+                                           model_configuration=model_configuration, batch_size=batch_size)
 
     return train_loader, validation_loader, test_loader
 
