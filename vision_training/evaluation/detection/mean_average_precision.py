@@ -1,3 +1,9 @@
+"""
+Mean average precision of the object detection task: matching of the detections to the ground truth boxes,
+precision-recall curves and average precision (area, 11 or 101 points) over the IoU thresholds. Used by the
+detection trainer to evaluate a checkpoint on the test split.
+"""
+
 import torch
 
 from typing import Any, Dict, List, Tuple
