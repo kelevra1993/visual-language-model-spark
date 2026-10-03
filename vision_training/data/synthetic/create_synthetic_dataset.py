@@ -1,3 +1,10 @@
+"""
+Creates the synthetic shapes datasets of every task (object detection, classification, sequence classification,
+sequence labelling, sequence comparison) with their labels and 'label_mapping.json': trivial datasets used by the
+synthetic configurations and the trainer tests to check that a model learns. Run as a script with the task set in
+its main block.
+"""
+
 import json
 import os
 import cv2
