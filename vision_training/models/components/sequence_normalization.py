@@ -1,3 +1,9 @@
+"""
+Sequence batch normalization ('feature_map_normalization: "sequence"') used in the ConvolutionBlocks of the backbone
+of the sequence models: statistics computed over the frames of each window (or pair) at training and at inference,
+with the same tensors as nn.BatchNorm2d so that a backbone transfers between batch and sequence normalization.
+"""
+
 import torch
 
 from torch import nn

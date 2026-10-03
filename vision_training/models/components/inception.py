@@ -1,3 +1,8 @@
+"""
+Inception module replacing the plain convolution of a ConvolutionBlock layer when 'modules.inception' is enabled:
+parallel 1x1, 3x3, 5x5 and pooling branches capturing features at several spatial extents.
+"""
+
 import torch
 from torch import nn
 

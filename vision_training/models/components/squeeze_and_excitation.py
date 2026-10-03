@@ -1,3 +1,8 @@
+"""
+Squeeze-and-Excitation channel recalibration appended after every convolution layer of a ConvolutionBlock when
+'modules.squeeze_and_excite' is enabled, in the backbone and the detection heads.
+"""
+
 import torch
 from torch import nn
 

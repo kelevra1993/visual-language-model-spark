@@ -1,3 +1,8 @@
+"""
+Parameter-free normalization of the raw [0, 255] images at the entrance of the Backbone: the optional rescaling to
+[-0.5, 0.5] and the optional per-image standardization, applied before feature extraction for every task.
+"""
+
 import math
 import torch
 from torch import nn

@@ -1,3 +1,9 @@
+"""
+Builder of the hidden fully connected layers (linear, ReLU, optional dropout) shared by the detection heads after
+RoIAlign and by the classification heads after the global pooling, keeping the checkpoint names of the detection
+heads when no dropout is used.
+"""
+
 import torch
 
 from torch import nn

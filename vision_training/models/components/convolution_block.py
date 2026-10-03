@@ -1,3 +1,9 @@
+"""
+Convolution block shared by the Backbone, the region proposal heads and the detection heads: convolutions with batch,
+layer or sequence normalization, activation, dropout and pooling, optionally with Squeeze-and-Excitation, residual
+shortcuts and Inception modules, plus the channel layer normalization it uses and the receptive field layers it lists.
+"""
+
 # Definition of the convolution block
 import torch
 from torch import nn
