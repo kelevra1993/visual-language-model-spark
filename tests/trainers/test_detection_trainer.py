@@ -1,3 +1,8 @@
+"""
+Smoke test of DetectionTrainer of vision_training/trainers/detection_trainer.py on a synthetic dataset: training saves
+checkpoints, evaluates and resumes.
+"""
+
 import pytest
 import torch
 import yaml

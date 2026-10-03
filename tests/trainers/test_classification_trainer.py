@@ -1,3 +1,8 @@
+"""
+Smoke tests of ClassificationTrainer of vision_training/trainers/classification_trainer.py on a synthetic dataset:
+multi-class and multi-label training save, evaluate and resume, with the predictions file and error images checked.
+"""
+
 import json
 import pytest
 import torch

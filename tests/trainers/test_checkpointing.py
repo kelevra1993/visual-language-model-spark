@@ -1,3 +1,8 @@
+"""
+Tests of vision_training/trainers/checkpointing.py: the checkpoint registry naming the last checkpoint and listing every
+checkpoint once, saved checkpoints found and loaded, and missing checkpoints reported.
+"""
+
 import pytest
 import torch
 

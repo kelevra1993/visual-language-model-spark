@@ -1,3 +1,9 @@
+"""
+Tests of the optimization settings of the trainers: the learning rate factor of
+vision_training/trainers/learning_rate_schedule.py, the optimizer, schedule and gradient clipping during training, and
+mixed precision training.
+"""
+
 import math
 import pytest
 import torch

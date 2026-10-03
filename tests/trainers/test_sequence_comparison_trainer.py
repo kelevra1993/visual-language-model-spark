@@ -1,3 +1,8 @@
+"""
+Smoke test of SequenceComparisonTrainer of vision_training/trainers/sequence_comparison_trainer.py on synthetic pairs:
+training saves, evaluates and resumes, with the predictions file and error images checked.
+"""
+
 import pytest
 import torch
 import yaml

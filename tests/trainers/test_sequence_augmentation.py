@@ -1,3 +1,8 @@
+"""
+Tests of the frame shuffling in the sequence trainers: the frame labels of SequenceLabellingTrainer follow their
+shuffled frames, and SequenceComparisonTrainer shuffles each member within its own window.
+"""
+
 import random
 import torch
 

@@ -1,3 +1,8 @@
+"""
+Smoke test of SequenceLabellingTrainer of vision_training/trainers/sequence_labelling_trainer.py on synthetic sequences:
+training saves, evaluates and resumes, with the predictions file and error images checked.
+"""
+
 import pytest
 import torch
 import yaml

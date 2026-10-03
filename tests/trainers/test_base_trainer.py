@@ -1,3 +1,8 @@
+"""
+Tests of BaseTrainer of vision_training/trainers/base_trainer.py on the dummy task: a model iteration sums the losses
+and tracks the metrics, and training saves, evaluates and resumes from its checkpoints.
+"""
+
 import pytest
 import torch
 

@@ -1,3 +1,8 @@
+"""
+Tests of MetricTracker of vision_training/trainers/metric_tracking.py: interval averages of the tracked metrics,
+validation sums divided by their count, the time interval format and the interval summary header.
+"""
+
 import pytest
 import torch
 

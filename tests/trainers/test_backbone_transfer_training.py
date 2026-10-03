@@ -1,3 +1,9 @@
+"""
+Tests of the model transfers through the trainers of vision_training/trainers on synthetic datasets: a frozen backbone,
+and the backbone, temporal module and head of a sequence classifier, initialise a new run that trains, saves and resumes
+correctly.
+"""
+
 import copy
 import pytest
 import torch
