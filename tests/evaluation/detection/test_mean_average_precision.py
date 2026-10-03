@@ -1,3 +1,9 @@
+"""
+Tests of vision_training/evaluation/detection/mean_average_precision.py on a worked example and edge cases: true
+positives, precision recall curve, average precision, duplicate, missing and wrong-class detections and the COCO-style
+mean over overlap thresholds.
+"""
+
 import pytest
 import torch
 
