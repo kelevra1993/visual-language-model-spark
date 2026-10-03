@@ -1,3 +1,10 @@
+"""
+DataAugmenter, the random geometric and photometric augmentations applied on the device to the training batches of
+every task right before the forward pass, moving the bounding boxes of the object detector with the images and
+handling the frame shuffling and per-frame draws of the sequence tasks. Built by the base trainer from the
+Data.data_augmentation configuration, whose augmentation types are verified by the common checks.
+"""
+
 import random
 import warnings
 import torch

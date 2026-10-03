@@ -1,3 +1,9 @@
+"""
+Counts the samples of a dataset split from its 'labels.json' (images and annotations, classification samples,
+sequences and windows, pairs and kept pairs), printed by the task trainers at startup to describe the splits of a
+run.
+"""
+
 import os
 
 from pathlib import Path

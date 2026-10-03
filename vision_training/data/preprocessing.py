@@ -1,3 +1,9 @@
+"""
+Image and bounding box preprocessing shared by the data loaders and the inference clients: resizing to the square
+network input with optional centred padding, the matching box transformation, and its inverse restoring predicted
+boxes to the original image.
+"""
+
 import cv2
 import numpy as np
 

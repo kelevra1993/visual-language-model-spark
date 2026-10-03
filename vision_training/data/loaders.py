@@ -1,3 +1,9 @@
+"""
+Builds the training, validation and test data loaders of every task from the experiment and model configurations:
+COCO detection with the DALI or Native loader, classification, and the sequence and sequence comparison tasks with
+the Native loader. Called by the task trainers.
+"""
+
 import os
 
 from nvidia.dali.plugin.pytorch import DALIGenericIterator

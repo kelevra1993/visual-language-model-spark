@@ -1,3 +1,10 @@
+"""
+Label mapping of every task: builds the label dictionary injected into the configuration by the configuration loader
+(raw dataset categories to predicted class indices, with the background class of the object detector), names the
+predicted classes for the evaluation reports and viewers, and writes the 'label_mapping.json' file of the dataset
+creation tools.
+"""
+
 import json
 import os
 
