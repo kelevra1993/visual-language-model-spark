@@ -1,3 +1,9 @@
+"""
+When run, evaluates the last, a given or every checkpoint of a trained experiment on its test split (or another
+labelled split) through vision_training.evaluation.checkpoint_evaluation.evaluate_checkpoints, the trainer of the task
+being built from the copied configuration and the results written to a separate evaluations folder.
+"""
+
 from pathlib import Path
 
 from vision_training.core.task_registry import get_trainer_class
