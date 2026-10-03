@@ -22,6 +22,8 @@ wheels/
 !major_refactoring.md
 # Keep the plan of the sequence comparison task under version control
 !implementation_comparison.md
+# Keep the plan of the evaluation outputs, sequence augmentations and sequence normalization under version control
+!implementation_evaluation_and_sequences.md
 
 # Model data
 experiments_folder/
