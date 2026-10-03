@@ -1,3 +1,8 @@
+"""
+Entry point of the training pipeline: loads an experiment configuration file and runs the training loop of the
+trainer of its task, found in the task registry.
+"""
+
 from pathlib import Path
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.core.task_registry import get_trainer_class
