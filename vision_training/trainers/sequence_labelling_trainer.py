@@ -1,10 +1,13 @@
+import cv2
+import numpy as np
 import torch
 
 from typing import Any, Dict, List, Optional
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX, SAMPLE_IDENTIFIERS_KEY
 from vision_training.evaluation.sequence.sequence_metrics import compute_frame_accuracy, compute_sequence_exact_matches
-from vision_training.trainers.sequence_classification_trainer import SequenceClassificationTrainer
+from vision_training.trainers.sequence_classification_trainer import FRAME_GRID_COLUMNS, SequenceClassificationTrainer
+from vision_training.utilities.visualization import add_caption_bar, build_frame_grid
 
 
 class SequenceLabellingTrainer(SequenceClassificationTrainer):
@@ -38,17 +41,23 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
             return {"accuracy": compute_frame_accuracy(predicted_labels=model_outputs["class_logits"].argmax(dim=-1),
                                                        labels=batch["labels"])}
 
-    def create_evaluation_accumulator(self) -> Dict[str, Any]:
+    def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
         Creates the lists of class probabilities and labels of the labelled frames, of the window and position of
-        every labelled frame, and of the exact matches of the windows, filled during the evaluation of the test split.
+        every labelled frame, and of the exact matches of the windows, filled during the evaluation of the test split,
+        with the folder and the counts of the error images.
+
+        Args:
+            iteration (int): The training iteration of the evaluated checkpoint, which names its evaluation folder.
 
         Returns:
             Dict[str, Any]: The empty 'probabilities', 'labels', 'frame_window_identifiers', 'frame_positions' and
-                'exact_matches' lists.
+                'exact_matches' lists, the 'errors_folder' of the error images and their empty 'error_counts'.
         """
         return {"probabilities": [], "labels": [], "frame_window_identifiers": [], "frame_positions": [],
-                "exact_matches": []}
+                "exact_matches": [],
+                "errors_folder": self.experiment_folder / "Evaluation" / f"Iteration_{iteration}" / "Errors",
+                "error_counts": {}}
 
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
@@ -76,8 +85,68 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
         accumulator["frame_window_identifiers"].append(
             window_identifiers[:, None].expand(-1, labels.shape[1])[labelled_frames].cpu())
         accumulator["frame_positions"].append(frame_positions[labelled_frames].cpu())
+
+        # Whether every labelled frame of each window is right
         accumulator["exact_matches"].append(compute_sequence_exact_matches(
             predicted_labels=probabilities.argmax(dim=-1), labels=labels).cpu())
+
+        # Misclassified frames saved as images while their windows are still in the batch
+        if self.error_dumps_configuration["activated"]:
+            self.dump_errors(accumulator=accumulator, batch=batch, predictions=predictions,
+                             sample_indices=sample_indices)
+
+    def dump_errors(self, accumulator: Dict[str, Any], batch: Dict[str, Any], predictions: Dict[str, Any],
+                    sample_indices: List[int]) -> None:
+        """
+        Saves every misclassified frame of the windows of a test batch as an image: the frame grid of its window, every
+        real frame captioned with its true and predicted classes and the wrong ones marked with 'X', saved as
+        'Errors/<TRUE>-TO-<PREDICTED>/<window>_frame<index>_<score>.png', the score being the probability of the
+        predicted class of the frame. At most 'maximum_per_class_pair' frames are saved per pair of classes.
+
+        Args:
+            accumulator (Dict[str, Any]): The evaluation accumulator, holding the 'errors_folder' and 'error_counts'.
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The sequence labeller outputs.
+            sample_indices (List[int]): The indices of the windows kept for the evaluation.
+        """
+        probabilities = predictions["class_probabilities"].detach()
+        test_dataset = self.test_dataloader.dataset
+        for sample_index in sample_indices:
+            frame_labels = batch["labels"][sample_index].tolist()
+            predicted_labels = probabilities[sample_index].argmax(dim=-1).tolist()
+            sequence_mask = batch["sequence_mask"][sample_index]
+            number_real_frames = int(sequence_mask.sum())
+            wrong_frames = [frame_index for frame_index in range(number_real_frames)
+                            if frame_labels[frame_index] not in [IGNORED_LABEL_INDEX, predicted_labels[frame_index]]]
+            if not wrong_frames:
+                continue
+
+            # Frame grid of the window, built once, every real frame captioned with its true and predicted classes
+            frame_captions = [("X " if frame_index in wrong_frames else "") +
+                              (self.class_names[frame_labels[frame_index]]
+                               if frame_labels[frame_index] != IGNORED_LABEL_INDEX else "none") +
+                              f"/{self.class_names[predicted_labels[frame_index]]}"
+                              for frame_index in range(number_real_frames)]
+            frame_grid = None
+            window_identifier = int(batch[SAMPLE_IDENTIFIERS_KEY][sample_index])
+            window_name = test_dataset.get_sample_name(sample_identifier=window_identifier)
+
+            # One image per wrong frame, in the folder of its class pair unless it is full
+            for frame_index in wrong_frames:
+                pair_folder = self.reserve_error_image(accumulator=accumulator,
+                                                       true_class_index=frame_labels[frame_index],
+                                                       predicted_class_index=predicted_labels[frame_index])
+                if pair_folder is None:
+                    continue
+                if frame_grid is None:
+                    frame_grid = np.ascontiguousarray(build_frame_grid(
+                        frames=batch["images"][sample_index], sequence_mask=sequence_mask,
+                        frame_captions=frame_captions, number_columns=FRAME_GRID_COLUMNS).permute(1, 2, 0).numpy())
+                score = float(probabilities[sample_index, frame_index, predicted_labels[frame_index]])
+                caption = (f"frame {frame_index} : {self.class_names[frame_labels[frame_index]]} -> "
+                           f"{self.class_names[predicted_labels[frame_index]]} {score:.3f}")
+                cv2.imwrite(filename=str(pair_folder / f"{window_name}_frame{frame_index}_{score:.3f}.png"),
+                            img=add_caption_bar(image=frame_grid, caption=caption))
 
     def build_prediction_rows(self, accumulator: Dict[str, Any]) -> List[Dict[str, Any]]:
         """

@@ -129,7 +129,8 @@ def check_sequence_classification_configuration(experiment_configuration: Dict[s
     errors = []
     errors += check_classification_data_configuration(model_configuration=model_configuration)
     errors += check_classification_head_configuration(model_configuration=model_configuration)
-    errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration)
+    errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
+                                                            model_configuration=model_configuration)
     errors += check_sequence_settings(model_configuration=model_configuration, cuts_windows=True)
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=POOLING_TEMPORAL_TYPES + ORDERED_TEMPORAL_TYPES,
@@ -154,7 +155,8 @@ def check_sequence_labelling_configuration(experiment_configuration: Dict[str, A
     errors = []
     errors += check_classification_data_configuration(model_configuration=model_configuration)
     errors += check_classification_head_configuration(model_configuration=model_configuration)
-    errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration)
+    errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
+                                                            model_configuration=model_configuration)
     errors += check_sequence_settings(model_configuration=model_configuration, cuts_windows=True)
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=ORDERED_TEMPORAL_TYPES, allow_causal=True)
@@ -217,7 +219,8 @@ def check_sequence_comparison_configuration(experiment_configuration: Dict[str, 
     errors = []
     errors += check_classification_data_configuration(model_configuration=model_configuration)
     errors += check_classification_head_configuration(model_configuration=model_configuration)
-    errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration)
+    errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
+                                                            model_configuration=model_configuration)
     errors += check_sequence_settings(model_configuration=model_configuration, cuts_windows=False)
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=POOLING_TEMPORAL_TYPES + ORDERED_TEMPORAL_TYPES,

@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from torch.utils.data import Dataset
+from pathlib import PurePosixPath
 from typing import Any, Dict, List, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
@@ -206,6 +207,21 @@ class SequenceDataset(Dataset):
         window = self.window_records[sample_identifier]
         return {"sequence": window["sequence_name"], "first_frame": window["frames"][0],
                 "last_frame": window["frames"][-1]}
+
+    def get_sample_name(self, sample_identifier: int) -> str:
+        """
+        Gives the short name of an evaluated window used in the file names of the error images of the evaluation: its
+        sequence followed by its first real frame, a sequence being cut into several windows.
+
+        Args:
+            sample_identifier (int): The identifier of the window, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            str: The name of the window, e.g. 'test_000003_000004' for the window of 'test_000003' starting at
+                'test_000003/000004.png'.
+        """
+        window = self.window_records[sample_identifier]
+        return f"{window['sequence_name']}_{PurePosixPath(window['frames'][0]).stem}".replace("/", "_")
 
     def get_window_frame_names(self, sample_identifier: int) -> List[str]:
         """

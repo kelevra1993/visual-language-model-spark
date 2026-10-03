@@ -9,7 +9,7 @@ from typing import Any, Dict
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.classification_trainer import ClassificationTrainer
-from tests.fixtures.evaluation_checks import check_predictions_file, read_predictions_file
+from tests.fixtures.evaluation_checks import check_error_images, check_predictions_file, read_predictions_file
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "classification" /
                                 "configuration_synthetic_shapes.yaml")
@@ -97,7 +97,7 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     # First run: saves at iterations 2 (intermediate), 4 (with test evaluation) and 5 (end of the run)
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5, head_settings=head_settings,
-        evaluation_settings={}))
+        evaluation_settings={"error_dumps": {"activated": True, "maximum_per_class_pair": 1}}))
     assert trainer.run_name.startswith("CLS_") and "-LS0.1-CWB_MC4_" in trainer.run_name
     assert trainer.class_names == ["square", "circle", "triangle", "rectangle"]
     class_counts = torch.tensor(data=trainer.train_dataloader.dataset.get_class_counts(), dtype=torch.float32)
@@ -112,12 +112,13 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     assert results_lines[0] == "Iteration 4 : 6 Test Images"
     assert results_lines[1].startswith("  Accuracy ") and "| Top-2 Accuracy " in results_lines[1]
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
-    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_thresholds.json",
-                                                                         "confusion_matrix.csv",
-                                                                         "confusion_matrix.png", "predictions.csv"]
+    assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
+        "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png", "predictions.csv"]
     rows = check_predictions_file(evaluation_folder=evaluation_folder, results_lines=results_lines, expected_rows=6,
                                   class_names=trainer.class_names, identification_columns=["sample"])
     assert all(row["sample"].endswith(".png") for row in rows)
+    check_error_images(evaluation_folder=evaluation_folder, rows=rows, results_lines=results_lines,
+                       maximum_per_class_pair=1)
     class_thresholds = json.loads((evaluation_folder / "class_thresholds.json").read_text())
     assert list(class_thresholds["classes"]) == trainer.class_names
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]

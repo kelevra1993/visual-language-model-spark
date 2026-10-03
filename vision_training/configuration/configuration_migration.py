@@ -44,12 +44,18 @@ FREEZE_NORMALIZATION_LINES = ("    # Keeps the scale and shift of the normalizat
                               "fixed while its convolutions learn.\n"
                               "    freeze_normalization_parameters: False\n")
 
-# Start of the line of the target precision of the evaluation settings of the classification-like tasks, and the
-# setting of the predictions file inserted after it, off in every run written before it existed
+# Start of the lines of the target precision and of the predictions setting of the evaluation settings of the
+# classification-like tasks, and the settings of the predictions file and of the error images inserted after them,
+# off in every run written before they existed
 TARGET_PRECISION_LINE_START = "    target_precision:"
+SAVE_PREDICTIONS_LINE_START = "    save_predictions:"
 SAVE_PREDICTIONS_LINES = ("    # Saves the predictions of every test sample in the evaluation folder of every "
                           "evaluated checkpoint.\n"
                           "    save_predictions: False\n")
+ERROR_DUMPS_LINES = ("    # Saves the misclassified test samples as images at every evaluation.\n"
+                     "    error_dumps:\n"
+                     "      activated: False\n"
+                     "      maximum_per_class_pair: 20\n")
 
 # Optimization section of a run trained with plain Adam at a constant learning rate, the training of every run
 # written before the section existed
@@ -170,32 +176,45 @@ def add_freeze_normalization_parameters_to_configuration(configuration_path: Pat
 
 def add_evaluation_outputs_to_configuration(configuration_path: Path) -> bool:
     """
-    Upgrades the configuration file of a classification-like run written before the predictions file by inserting
-    'ExperimentConfiguration.evaluation.save_predictions', off as in the runs of that time, right after the target
-    precision of its evaluation settings. The setting is inserted as text, so that every comment of the file is kept,
-    and a file that already has it, or whose evaluation settings have no target precision (object detection), is left
-    untouched.
+    Upgrades the configuration file of a classification-like run written before the evaluation outputs by inserting
+    the settings it lacks, off as in the runs of that time: 'ExperimentConfiguration.evaluation.save_predictions' right
+    after the target precision of its evaluation settings, then 'ExperimentConfiguration.evaluation.error_dumps' right
+    after it. The settings are inserted as text, so that every comment of the file is kept, and a file that already
+    has them, or whose evaluation settings have no target precision (object detection), is left untouched.
 
     Args:
         configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
 
     Returns:
-        bool: True if the setting was added, False if the file already had it or is not a classification-like run.
+        bool: True if a setting was added, False if the file already had them or is not a classification-like run.
     """
     text = configuration_path.read_text()
     experiment_configuration = yaml.safe_load(stream=text)["ExperimentConfiguration"]
     if "evaluation" not in experiment_configuration or \
-            "target_precision" not in experiment_configuration["evaluation"] or \
-            "save_predictions" in experiment_configuration["evaluation"]:
+            "target_precision" not in experiment_configuration["evaluation"]:
         return False
-
-    # Insert the setting after the line of the target precision, the only one of the file
+    evaluation_settings = experiment_configuration["evaluation"]
     lines = text.splitlines(keepends=True)
-    precision_index = next(line_index for line_index, line in enumerate(lines)
-                           if line.startswith(TARGET_PRECISION_LINE_START))
-    configuration_path.write_text(data="".join(lines[:precision_index + 1] + [SAVE_PREDICTIONS_LINES] +
-                                               lines[precision_index + 1:]))
-    return True
+    added_settings = False
+
+    # Predictions setting after the line of the target precision, the only one of the file
+    if "save_predictions" not in evaluation_settings:
+        precision_index = next(line_index for line_index, line in enumerate(lines)
+                               if line.startswith(TARGET_PRECISION_LINE_START))
+        lines = "".join(lines[:precision_index + 1] + [SAVE_PREDICTIONS_LINES] +
+                        lines[precision_index + 1:]).splitlines(keepends=True)
+        added_settings = True
+
+    # Error images setting after the line of the predictions setting
+    if "error_dumps" not in evaluation_settings:
+        predictions_index = next(line_index for line_index, line in enumerate(lines)
+                                 if line.startswith(SAVE_PREDICTIONS_LINE_START))
+        lines = lines[:predictions_index + 1] + [ERROR_DUMPS_LINES] + lines[predictions_index + 1:]
+        added_settings = True
+
+    if added_settings:
+        configuration_path.write_text(data="".join(lines))
+    return added_settings
 
 
 def add_optimization_section_to_configuration(configuration_path: Path) -> bool:
@@ -223,10 +242,10 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     the current code: its saved configuration gets its task, the 'pretrained' settings of its backbone, temporal
     module and classification head (those of a run trained from random weights), the
     'Backbone.pretrained.freeze_normalization_parameters' flag (off), the evaluation outputs of the classification-like
-    tasks (no predictions file) and its 'Optimization' section (plain Adam at a constant learning rate), and its folder
-    is renamed to the run name the current code builds from that configuration (the task code being now the first
-    section of the run names). The configuration is fully checked on the way, any other missing key being reported by
-    the configuration checker.
+    tasks (no predictions file nor error images) and its 'Optimization' section (plain Adam at a constant learning
+    rate), and its folder is renamed to the run name the current code builds from that configuration (the task code
+    being now the first section of the run names). The configuration is fully checked on the way, any other missing
+    key being reported by the configuration checker.
 
     Args:
         run_folder (Path): The run folder, holding 'training_configuration.yaml', 'Weights' and 'Tensorboard'.

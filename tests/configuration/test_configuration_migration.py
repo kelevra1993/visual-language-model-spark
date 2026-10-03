@@ -190,7 +190,8 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     """
     configuration = yaml.safe_load(stream=SEQUENCE_CONFIGURATION_PATH.read_text())
     del configuration["ExperimentConfiguration"]["task"]
-    del configuration["ExperimentConfiguration"]["evaluation"]["save_predictions"]
+    for key_name in ["save_predictions", "error_dumps"]:
+        del configuration["ExperimentConfiguration"]["evaluation"][key_name]
     for section_name in ["Backbone", "TemporalModel", "ClassificationHead"]:
         del configuration[section_name]["pretrained"]
     del configuration["Optimization"]
@@ -208,28 +209,41 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     for section_name in ["TemporalModel", "ClassificationHead"]:
         assert migrated_configuration[section_name]["pretrained"] == RANDOM_PRETRAINED_SETTINGS
     assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["save_predictions"] is False
+    assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["error_dumps"] == {
+        "activated": False, "maximum_per_class_pair": 20}
     assert migrate_run_folder(run_folder=renamed_folder, task="sequence_classification",
                               rename_folder=True) == renamed_folder
 
 
 def test_evaluation_outputs_are_added_once(tmp_path: Path) -> None:
     """
-    Verifies that the predictions setting of the classification-like tasks is added, off as in the runs written
-    before it, right after the target precision, that a configuration which already has it is left untouched, and that
-    a detection configuration, whose evaluation has no target precision, is not changed.
+    Verifies that the predictions and error images settings of the classification-like tasks are added, off as in
+    the runs written before them, after the target precision, that the error images setting alone is added to a
+    configuration which already has the predictions setting, that a configuration which has both is left untouched,
+    and that a detection configuration, whose evaluation has no target precision, is not changed.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
     configuration = yaml.safe_load(stream=SEQUENCE_CONFIGURATION_PATH.read_text())
-    del configuration["ExperimentConfiguration"]["evaluation"]["save_predictions"]
+    for key_name in ["save_predictions", "error_dumps"]:
+        del configuration["ExperimentConfiguration"]["evaluation"][key_name]
     configuration_path = tmp_path / "configuration.yaml"
     configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
 
     assert add_evaluation_outputs_to_configuration(configuration_path=configuration_path) is True
     evaluation_settings = yaml.safe_load(stream=configuration_path.read_text())["ExperimentConfiguration"]["evaluation"]
-    assert list(evaluation_settings.items())[-1] == ("save_predictions", False)
+    assert list(evaluation_settings.items())[-2:] == [("save_predictions", False),
+                                                      ("error_dumps", {"activated": False,
+                                                                       "maximum_per_class_pair": 20})]
     assert add_evaluation_outputs_to_configuration(configuration_path=configuration_path) is False
+
+    # A configuration with the predictions setting only gets the error images setting
+    configuration["ExperimentConfiguration"]["evaluation"]["save_predictions"] = True
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+    assert add_evaluation_outputs_to_configuration(configuration_path=configuration_path) is True
+    evaluation_settings = yaml.safe_load(stream=configuration_path.read_text())["ExperimentConfiguration"]["evaluation"]
+    assert evaluation_settings["save_predictions"] is True and evaluation_settings["error_dumps"]["activated"] is False
 
     # The detection configuration keeps its evaluation settings
     detection_text = EXAMPLE_CONFIGURATION_PATH.read_text()

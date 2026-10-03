@@ -163,9 +163,12 @@ class DetectionTrainer(BaseTrainer):
         """
         return self.model(input_tensor=batch["images"])
 
-    def create_evaluation_accumulator(self) -> Dict[str, Any]:
+    def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
         Creates the lists of detections and ground truths filled during the evaluation of the test split.
+
+        Args:
+            iteration (int): The training iteration of the evaluated checkpoint, unused by the detection task.
 
         Returns:
             Dict[str, Any]: The empty 'detections' and 'ground_truths' lists.

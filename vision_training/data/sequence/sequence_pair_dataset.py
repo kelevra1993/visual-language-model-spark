@@ -185,6 +185,18 @@ class SequencePairDataset(Dataset):
         """
         return {"pair": self.pair_records[sample_identifier]["name"]}
 
+    def get_sample_name(self, sample_identifier: int) -> str:
+        """
+        Gives the short name of an evaluated pair used in the file names of the error images of the evaluation.
+
+        Args:
+            sample_identifier (int): The identifier of the pair, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            str: The name of the pair in the manifest, its folders joined with underscores.
+        """
+        return self.pair_records[sample_identifier]["name"].replace("/", "_")
+
     def get_class_counts(self) -> List[int]:
         """
         Counts the pairs of every class, used to weight the classes of the loss inversely to their frequency.

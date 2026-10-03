@@ -49,6 +49,16 @@ ExperimentConfiguration:
     # every class, to study the errors and the thresholds again without running the model. Its size grows with the
     # number of test samples times the number of classes, False to skip it on large test sets.
     save_predictions: True
+    # Saves every misclassified test sample as an image at every evaluation, in
+    # 'Evaluation/Iteration_<n>/Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png', the score being the probability
+    # of the predicted class: the network input of an image, the frame grid of a window or of a pair (the before
+    # member above the after member), or for sequence labelling the frame grid of the window of every wrong frame.
+    # Multi-class output mode only.
+    error_dumps:
+      # Turns the error images on.
+      activated: False
+      # Largest number of images saved for every pair of true and predicted classes, the first ones met.
+      maximum_per_class_pair: 20
   # Base learning rate used by the optimizer.
   learning_rate: 2.0e-4
   # Global tensor data type, either "float32" or "float64".

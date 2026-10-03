@@ -6,6 +6,7 @@ import numpy as np
 import torch
 
 from torch.utils.data import Dataset
+from pathlib import PurePosixPath
 from typing import Any, Dict, List
 
 from vision_training.data.label_mapping import get_class_names
@@ -112,6 +113,19 @@ class ClassificationDataset(Dataset):
             Dict[str, str]: The 'sample' column, the file name of the image relative to the 'data' folder.
         """
         return {"sample": self.sample_records[sample_identifier]["file_name"]}
+
+    def get_sample_name(self, sample_identifier: int) -> str:
+        """
+        Gives the short name of an evaluated sample used in the file names of the error images of the evaluation: its
+        file name without extension, its folders joined with underscores.
+
+        Args:
+            sample_identifier (int): The identifier of the sample, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            str: The name of the sample, e.g. 'circle_image_000012' for 'circle/image_000012.png'.
+        """
+        return str(PurePosixPath(self.sample_records[sample_identifier]["file_name"]).with_suffix("")).replace("/", "_")
 
     def get_class_counts(self) -> List[int]:
         """

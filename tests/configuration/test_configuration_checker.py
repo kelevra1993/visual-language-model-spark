@@ -328,6 +328,18 @@ def set_invalid_classification_evaluation(configuration: Dict[str, Any]) -> None
                                                                    "save_predictions": "yes"})
 
 
+def dump_multi_label_errors(configuration: Dict[str, Any]) -> None:
+    """
+    Turns the error images on in multi-label mode, with a maximum of zero images per class pair.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["output_mode"] = "multi_label"
+    configuration["ExperimentConfiguration"]["evaluation"]["error_dumps"] = {"activated": True,
+                                                                           "maximum_per_class_pair": 0}
+
+
 @pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
                                                                    "configuration_synthetic_shapes.yaml"])
 def test_classification_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
@@ -360,7 +372,11 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
                                              "'ExperimentConfiguration.evaluation.target_precision' must be a "
                                              "probability within [0, 1], got 1.5.",
                                              "'ExperimentConfiguration.evaluation.save_predictions' must be True or "
-                                             "False, got 'yes'."])])
+                                             "False, got 'yes'."]),
+    (dump_multi_label_errors, ["'ExperimentConfiguration.evaluation.error_dumps.maximum_per_class_pair' must be an "
+                               "integer >= 1, got 0.",
+                               "'ExperimentConfiguration.evaluation.error_dumps.activated' must be False with "
+                               "'ClassificationHead.output_mode' 'multi_label'"])])
 def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                modify_function: Callable[[Dict[str, Any]], None],
                                                                expected_messages: List[str]) -> None:

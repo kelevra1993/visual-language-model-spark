@@ -7,7 +7,7 @@ from pathlib import Path
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.sequence_labelling_trainer import SequenceLabellingTrainer
-from tests.fixtures.evaluation_checks import check_predictions_file
+from tests.fixtures.evaluation_checks import check_error_images, check_predictions_file
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                 "sequence_labelling" / "configuration_synthetic_sequences.yaml")
@@ -53,6 +53,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     configuration["TemporalModel"].update({"type": "transformer", "causal": True})
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["ClassificationHead"]["class_weighting"] = "balanced"
+    configuration["ExperimentConfiguration"]["evaluation"]["error_dumps"] = {"activated": True,
+                                                                           "maximum_per_class_pair": 2}
 
     configuration_path = temporary_directory / f"configuration_{number_iterations}_iterations.yaml"
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))
@@ -107,13 +109,15 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     assert results_lines[0] == "Iteration 4 : 6 Test Sequences, 24 Labelled Frames"
     assert results_lines[1].startswith("  Accuracy ") and "| Sequence Exact Match " in results_lines[1]
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
-    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_thresholds.json",
-                                                                         "confusion_matrix.csv",
-                                                                         "confusion_matrix.png", "predictions.csv"]
+    assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
+        "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png", "predictions.csv"]
     rows = check_predictions_file(evaluation_folder=evaluation_folder, results_lines=results_lines, expected_rows=24,
                                   class_names=trainer.class_names, identification_columns=["sequence", "frame"])
     # The 3 test sequences of 6 frames give 18 distinct frames, frames 2 and 3 of each sequence being in both windows
     assert len({(row["sequence"], row["frame"]) for row in rows}) == 3 * 6
+    if check_error_images(evaluation_folder=evaluation_folder, rows=rows, results_lines=results_lines,
+                          maximum_per_class_pair=2):
+        assert all("_frame" in image_path.stem for image_path in (evaluation_folder / "Errors").rglob("*.png"))
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(

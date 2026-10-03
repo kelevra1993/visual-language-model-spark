@@ -239,9 +239,12 @@ class BaseTrainer(ABC):
         """
 
     @abstractmethod
-    def create_evaluation_accumulator(self) -> Dict[str, Any]:
+    def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
         Creates the empty collection filled by accumulate_evaluation_batch during an evaluation of the test split.
+
+        Args:
+            iteration (int): The training iteration of the evaluated checkpoint, which names its evaluation folder.
 
         Returns:
             Dict[str, Any]: The empty accumulator.
@@ -906,7 +909,7 @@ class BaseTrainer(ABC):
             iteration (int): The training iteration of the evaluated checkpoint.
         """
         self.model.eval()
-        accumulator = self.create_evaluation_accumulator()
+        accumulator = self.create_evaluation_accumulator(iteration=iteration)
         evaluated_sample_identifiers = set()
 
         # The evaluation settings of the task are always restored, even when the evaluation fails

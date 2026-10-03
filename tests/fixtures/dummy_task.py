@@ -231,9 +231,12 @@ class DummyTrainer(BaseTrainer):
         """
         return self.model(input_tensor=batch["images"])
 
-    def create_evaluation_accumulator(self) -> Dict[str, Any]:
+    def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
         Creates the lists filled during the evaluation.
+
+        Args:
+            iteration (int): The training iteration of the evaluated checkpoint, unused.
 
         Returns:
             Dict[str, Any]: The empty 'predicted_labels', 'labels' and 'sample_identifiers' lists.

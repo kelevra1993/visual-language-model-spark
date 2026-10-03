@@ -1,9 +1,11 @@
 import csv
 import json
+import cv2
+import numpy as np
 import torch
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY, ClassificationBatch, EvaluationResults
 from vision_training.data.loaders import get_classification_dataloaders
@@ -18,7 +20,7 @@ from vision_training.losses.classification_losses import compute_balanced_class_
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
-from vision_training.utilities.visualization import view_input_data
+from vision_training.utilities.visualization import add_caption_bar, view_input_data
 
 # Probability from which a class is predicted in multi-label mode
 MULTI_LABEL_THRESHOLD = 0.5
@@ -49,13 +51,14 @@ class ClassificationTrainer(BaseTrainer):
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
         # One class per sample (softmax) or several (sigmoid), the weighting of the classes in the loss, and the
-        # evaluation settings: the k of the top-k accuracy, the precision targeted by the per-class thresholds and
-        # whether the predictions of every test sample are saved
+        # evaluation settings: the k of the top-k accuracy, the precision targeted by the per-class thresholds,
+        # whether the predictions of every test sample are saved, and the error images of the misclassified samples
         self.output_mode = model_configuration["ClassificationHead"]["output_mode"]
         self.class_weighting = model_configuration["ClassificationHead"]["class_weighting"]
         self.top_k = experiment_configuration["evaluation"]["top_k"]
         self.target_precision = experiment_configuration["evaluation"]["target_precision"]
         self.save_predictions = experiment_configuration["evaluation"]["save_predictions"]
+        self.error_dumps_configuration = experiment_configuration["evaluation"]["error_dumps"]
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
@@ -172,21 +175,28 @@ class ClassificationTrainer(BaseTrainer):
                                        (batch["labels"] >= 0.5))
             return {"accuracy": correct_predictions.to(dtype=torch.float32).mean()}
 
-    def create_evaluation_accumulator(self) -> Dict[str, Any]:
+    def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
         Creates the lists of class probabilities, labels and sample identifiers filled during the evaluation of the
-        test split.
+        test split, with the folder and the counts of the error images.
+
+        Args:
+            iteration (int): The training iteration of the evaluated checkpoint, which names its evaluation folder.
 
         Returns:
-            Dict[str, Any]: The empty 'probabilities', 'labels' and 'sample_identifiers' lists.
+            Dict[str, Any]: The empty 'probabilities', 'labels' and 'sample_identifiers' lists, the 'errors_folder' of
+                the error images and their empty 'error_counts' per class pair.
         """
-        return {"probabilities": [], "labels": [], "sample_identifiers": []}
+        return {"probabilities": [], "labels": [], "sample_identifiers": [],
+                "errors_folder": self.experiment_folder / "Evaluation" / f"Iteration_{iteration}" / "Errors",
+                "error_counts": {}}
 
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
         """
         Keeps the class probabilities, the labels and the identifiers of the kept samples of a test batch on the CPU,
-        the identifiers naming the samples in the predictions file.
+        the identifiers naming the samples in the predictions file, and saves the misclassified samples as images when
+        the error images are on.
 
         Args:
             accumulator (Dict[str, Any]): The 'probabilities', 'labels' and 'sample_identifiers' lists, extended in
@@ -198,6 +208,89 @@ class ClassificationTrainer(BaseTrainer):
         accumulator["probabilities"].append(predictions["class_probabilities"][sample_indices].detach().cpu().double())
         accumulator["labels"].append(batch["labels"][sample_indices].detach().cpu())
         accumulator["sample_identifiers"].append(batch[SAMPLE_IDENTIFIERS_KEY][sample_indices].detach().cpu())
+
+        # Misclassified samples saved as images while their images are still in the batch
+        if self.error_dumps_configuration["activated"]:
+            self.dump_errors(accumulator=accumulator, batch=batch, predictions=predictions,
+                             sample_indices=sample_indices)
+
+    def reserve_error_image(self, accumulator: Dict[str, Any], true_class_index: int,
+                            predicted_class_index: int) -> Optional[Path]:
+        """
+        Counts one more error image for a pair of true and predicted classes, and gives the folder it is written to,
+        '<TRUE>-TO-<PREDICTED>', or None when the pair already holds the maximum number of images, so that the image
+        is only built when it is saved.
+
+        Args:
+            accumulator (Dict[str, Any]): The evaluation accumulator, holding the 'errors_folder' and 'error_counts'.
+            true_class_index (int): The index of the true class.
+            predicted_class_index (int): The index of the predicted class.
+
+        Returns:
+            Optional[Path]: The folder of the class pair, created, or None when the pair is full.
+        """
+        pair_name = f"{self.class_names[true_class_index]}-TO-{self.class_names[predicted_class_index]}"
+        error_counts = accumulator["error_counts"]
+        number_images = error_counts[pair_name] if pair_name in error_counts else 0
+        if number_images >= self.error_dumps_configuration["maximum_per_class_pair"]:
+            return None
+        error_counts[pair_name] = number_images + 1
+        pair_folder = accumulator["errors_folder"] / pair_name
+        pair_folder.mkdir(parents=True, exist_ok=True)
+        return pair_folder
+
+    def build_error_image(self, batch: Dict[str, Any], sample_index: int) -> np.ndarray:
+        """
+        Builds the image of a misclassified test sample for the error images: the network input of an image, as the
+        model saw it. The sequence trainers override it to lay out the frames of a window or of a pair on a grid.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            sample_index (int): The index of the sample in the batch.
+
+        Returns:
+            np.ndarray: The [H, W, 3] uint8 BGR image of the sample.
+        """
+        image = batch["images"][sample_index].detach().cpu().clamp(min=0.0, max=255.0).to(dtype=torch.uint8)
+        return np.ascontiguousarray(image.permute(1, 2, 0).numpy())
+
+    def dump_errors(self, accumulator: Dict[str, Any], batch: Dict[str, Any], predictions: Dict[str, Any],
+                    sample_indices: List[int]) -> None:
+        """
+        Saves every misclassified sample of a test batch as an image, to look at the errors of the checkpoint:
+        'Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png' in its evaluation folder, the score being the probability
+        of the predicted class and the image captioned with both classes. At most 'maximum_per_class_pair' images are
+        saved per pair of classes, the first ones met. The sequence labelling trainer overrides it to save the wrong
+        frames.
+
+        Args:
+            accumulator (Dict[str, Any]): The evaluation accumulator, holding the 'errors_folder' and 'error_counts'.
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The classifier outputs.
+            sample_indices (List[int]): The indices of the samples kept for the evaluation.
+        """
+        probabilities = predictions["class_probabilities"].detach()
+        test_dataset = self.test_dataloader.dataset
+        for sample_index in sample_indices:
+            true_class_index = int(batch["labels"][sample_index])
+            predicted_class_index = int(probabilities[sample_index].argmax())
+            if true_class_index == predicted_class_index:
+                continue
+
+            # The folder of the class pair, unless it is full
+            pair_folder = self.reserve_error_image(accumulator=accumulator, true_class_index=true_class_index,
+                                                   predicted_class_index=predicted_class_index)
+            if pair_folder is None:
+                continue
+
+            # The image captioned with both classes, named after the sample and the score of the predicted class
+            score = float(probabilities[sample_index, predicted_class_index])
+            caption = f"{self.class_names[true_class_index]} -> {self.class_names[predicted_class_index]} {score:.3f}"
+            image = add_caption_bar(image=self.build_error_image(batch=batch, sample_index=sample_index),
+                                    caption=caption)
+            sample_identifier = int(batch[SAMPLE_IDENTIFIERS_KEY][sample_index])
+            sample_name = test_dataset.get_sample_name(sample_identifier=sample_identifier)
+            cv2.imwrite(filename=str(pair_folder / f"{sample_name}_{score:.3f}.png"), img=image)
 
     def describe_evaluated_samples(self, accumulator: Dict[str, Any]) -> str:
         """
@@ -376,6 +469,14 @@ class ClassificationTrainer(BaseTrainer):
                      f"{class_name} " + ("unreachable" if class_threshold is None else
                                          f"{class_threshold[0]:.4f} / {class_threshold[1]:.4f}")
                      for class_name, class_threshold in zip(self.class_names, class_thresholds))]
+
+        # Number of error images, and their folder when some were saved
+        if self.error_dumps_configuration["activated"]:
+            error_counts = accumulator["error_counts"]
+            lines.append(f"  Error Images : {sum(error_counts.values())} in {len(error_counts)} class pairs, at most "
+                         f"{self.error_dumps_configuration['maximum_per_class_pair']} per pair")
+            if error_counts:
+                files["Error Images"] = accumulator["errors_folder"]
 
         # The same values as TensorBoard scalars, to follow them over the training
         scalars = {metric_name: metric_value for metric_name, metric_value in headline_metrics.items()}

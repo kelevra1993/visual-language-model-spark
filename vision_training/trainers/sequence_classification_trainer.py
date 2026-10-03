@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 
 from pathlib import Path
@@ -171,6 +172,23 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         return build_frame_grid(frames=frames, sequence_mask=sequence_mask,
                                 frame_captions=self.get_frame_captions(label=label, sequence_mask=sequence_mask),
                                 number_columns=FRAME_GRID_COLUMNS)
+
+    def build_error_image(self, batch: Dict[str, Any], sample_index: int) -> np.ndarray:
+        """
+        Builds the image of a misclassified test window for the error images: its real frames laid out on a grid, the
+        before member above the after member for a pair.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            sample_index (int): The index of the window (or pair) in the batch.
+
+        Returns:
+            np.ndarray: The [H, W, 3] uint8 BGR frame grid of the sample.
+        """
+        frame_grid = self.build_sample_frame_grid(frames=batch["images"][sample_index],
+                                                  sequence_mask=batch["sequence_mask"][sample_index],
+                                                  label=batch["labels"][sample_index])
+        return np.ascontiguousarray(frame_grid.permute(1, 2, 0).numpy())
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

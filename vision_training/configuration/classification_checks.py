@@ -105,14 +105,16 @@ def check_classification_head_configuration(model_configuration: Dict[str, Any])
     return errors
 
 
-def check_classification_evaluation_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
+def check_classification_evaluation_configuration(experiment_configuration: Dict[str, Any],
+                                                  model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'ExperimentConfiguration.evaluation' settings of the classification-like tasks: the k of the top-k
-    accuracy, the precision targeted by the per-class threshold finder, and whether the predictions of every test
-    sample are saved.
+    accuracy, the precision targeted by the per-class threshold finder, whether the predictions of every test
+    sample are saved, and the error images of the misclassified samples, which need one class per sample.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
+        model_configuration (Dict[str, Any]): The processed model sections, giving the output mode of the head.
 
     Returns:
         List[str]: The description of every inconsistency found.
@@ -128,6 +130,20 @@ def check_classification_evaluation_configuration(experiment_configuration: Dict
                                       key_path="ExperimentConfiguration.evaluation.target_precision")
     errors += check_boolean_flags(configuration=configuration,
                                   key_paths=["ExperimentConfiguration.evaluation.save_predictions"])
+
+    # Error images, at most a positive number per class pair, for one class per sample only
+    error_flag_errors = check_boolean_flags(configuration=configuration,
+                                            key_paths=["ExperimentConfiguration.evaluation.error_dumps.activated"])
+    errors += error_flag_errors
+    errors += check_positive_integers(configuration=configuration, allow_zero=False,
+                                      key_paths=["ExperimentConfiguration.evaluation.error_dumps."
+                                                 "maximum_per_class_pair"])
+    output_mode = get_configuration_value(configuration=model_configuration, key_path="ClassificationHead.output_mode")
+    if not error_flag_errors and output_mode == "multi_label" and get_configuration_value(
+            configuration=configuration, key_path="ExperimentConfiguration.evaluation.error_dumps.activated"):
+        errors.append("'ExperimentConfiguration.evaluation.error_dumps.activated' must be False with "
+                      "'ClassificationHead.output_mode' 'multi_label': a sample with several classes has no single "
+                      "true and predicted class pair.")
     return errors
 
 
@@ -147,5 +163,6 @@ def check_classification_configuration(experiment_configuration: Dict[str, Any],
     errors = []
     errors += check_classification_data_configuration(model_configuration=model_configuration)
     errors += check_classification_head_configuration(model_configuration=model_configuration)
-    errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration)
+    errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
+                                                            model_configuration=model_configuration)
     return errors

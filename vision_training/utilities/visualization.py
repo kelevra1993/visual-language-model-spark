@@ -8,6 +8,9 @@ from typing import Dict, List, Optional, Tuple
 
 from vision_training.utilities.os_utilities import print_color
 
+# Height in pixels of the caption bar written above the error images of the evaluation
+CAPTION_BAR_HEIGHT = 24
+
 
 def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_image_size: int,
                        color: Tuple[int, int, int] = (0, 255, 0)) -> np.ndarray:
@@ -244,3 +247,30 @@ def build_frame_grid(frames: torch.Tensor, sequence_mask: torch.Tensor, frame_ca
         grid[top:top + frame_height, left:left + frame_width] = frame_numpy
 
     return torch.from_numpy(grid).permute(2, 0, 1)
+
+
+def add_caption_bar(image: np.ndarray, caption: str) -> np.ndarray:
+    """
+    Writes a caption in a black bar above an image, e.g. the true and predicted classes of a misclassified test sample
+    in the error images of the evaluation. The bar is widened to the caption when the image is narrower, the image
+    being padded with gray on its right.
+
+    Args:
+        image (np.ndarray): The [H, W, 3] uint8 BGR image.
+        caption (str): The text written in the bar.
+
+    Returns:
+        np.ndarray: The [H + 24, max(W, caption width), 3] uint8 BGR image with its caption bar.
+    """
+    (caption_width, _), _ = cv2.getTextSize(text=caption, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45,
+                                            thickness=1)
+    output_width = max(image.shape[1], caption_width + 8)
+
+    # Gray canvas holding the bar above the image, then the caption written in the bar
+    captioned_image = np.full(shape=(image.shape[0] + CAPTION_BAR_HEIGHT, output_width, 3), fill_value=128,
+                              dtype=np.uint8)
+    captioned_image[:CAPTION_BAR_HEIGHT] = 0
+    captioned_image[CAPTION_BAR_HEIGHT:, :image.shape[1]] = image
+    cv2.putText(img=captioned_image, text=caption, org=(4, 17), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45,
+                color=(255, 255, 255), thickness=1)
+    return captioned_image
