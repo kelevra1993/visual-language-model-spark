@@ -1,3 +1,9 @@
+"""
+Tests of vision_training/configuration/configuration_migration.py: every migration step (task, pretrained settings,
+normalization flag, evaluation outputs, sequence augmentation, normalization scope, optimization section) is added once
+to an old configuration, and migrate_run_folder renames old run folders after their settings.
+"""
+
 import json
 import yaml
 

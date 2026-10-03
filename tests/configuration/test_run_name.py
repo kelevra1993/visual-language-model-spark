@@ -1,3 +1,9 @@
+"""
+Tests of build_run_name of vision_training/configuration/run_name.py on the reference configurations of every task: the
+reference run names are fixed, and every changed setting (architecture, inputs, heads, temporal modules, fusions,
+transfers, augmentations, normalization, optimization) changes the run name with its token.
+"""
+
 import copy
 import pytest
 import yaml

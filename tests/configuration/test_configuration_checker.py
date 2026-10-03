@@ -1,3 +1,10 @@
+"""
+Tests of the configuration checks of vision_training/configuration/configuration_checker.py, run through
+load_experiment_configuration: the configurations shipped for every task are accepted, while inconsistent settings
+(detection, classification, sequence, comparison, normalization, pretrained transfers, optimization) and missing keys
+are rejected with errors naming their path.
+"""
+
 import copy
 import json
 import pytest
