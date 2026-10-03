@@ -1,3 +1,9 @@
+"""
+Shared convolutional feature extractor of every task model: the Backbone class (stacked ConvolutionBlocks, input
+normalization, detection block outputs, summaries and receptive field) and build_backbone, called by the detector,
+the image classifier and the sequence models so that a backbone trained for one task can initialise another one.
+"""
+
 import torch
 from torch import nn
 from typing import Dict, Any, List, Optional, Tuple
