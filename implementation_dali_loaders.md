@@ -502,4 +502,110 @@ Each phase follows the previous workflow:
 - The benchmark results and the gate decision are recorded in this document before phase 2.
 
 ## 13. Benchmark Results
-To be filled after phase 1.
+
+### 13.1 Differences From The Plan
+- **Preprocessing parity of DALI:** two settings were needed for the DALI images to match `preprocess_image`, found
+  on 256 ImageNet images before writing the prototypes:
+  - `fn.resize(..., subpixel_scale=False)`: by default DALI keeps the exact scale factor and samples a fractional
+    region, while `cv2.resize` maps the image onto its rounded size; the content drifted by up to half a pixel towards
+    the edges;
+  - a crop position of `0.4999` instead of `0.5` for the padding: DALI rounds the centre position up, while
+    `preprocess_image` puts the extra pixel of an odd padding at the bottom and on the right
+    (`(size - new size) // 2`). With 0.5, 35 images out of 128 were shifted by one pixel (mean difference 8.3
+    levels on those images).
+
+  With both, DALI with CPU decoding matches OpenCV within one level (mean 0.12). With GPU decoding, the mean
+  difference is 0.4 levels and 0.03 % of the pixels differ by more than 8 levels, from the nvJPEG decoder.
+- **Start method of the case processes:** every case runs in a process created with the `spawn` method, which made
+  `spawn` the default start method inside it, so the DataLoader workers were started as new interpreters (about
+  0.8 s each, one after another) instead of being forked as in a training process (0.1 s). The case processes now
+  force `fork` for the DataLoader workers; the DALI reader processes keep their explicit `spawn`.
+- **GPU sampling:** the GPU utilisation is sampled by an `nvidia-smi --loop-ms` process instead of a thread. A
+  DataLoader forking its workers while the sampling thread ran left the workers blocked forever (found in the dry
+  run, in the evaluation pass of a tuned loader).
+- **Iterations:** 100 measured iterations for the training iteration (stage C) and 30 for the GPU ceiling (stage
+  B), instead of 200 and 50, the example models training at a few iterations per second.
+- **DALI prefetch queue depth:** fixed at 2 instead of swept over {2, 3}, to keep the run within about 1.5 hours.
+- **Evaluation pass:** the reports give the throughput with the start of the loader included (as planned), the
+  throughput after the first batch, and the estimated duration of an evaluation of the whole test split.
+- **Smoke test:** a classification case (also cold) and a sequence comparison case on generated datasets, plus a
+  test of the frame slots and label tables of the DALI sequence loader against the Native windows and pairs (frame
+  labels included). It takes about 40 s.
+- **D-COCO:** the optional detection case was not run.
+
+### 13.2 Results
+Run of 2026-10-03, 15:08 to 16:10, 425 measurements, medians of 3 repeats. Full reports:
+`/home/robert_kelevra/Data/loader_benchmark/20261003_150842/` (`summary.md`, `results.csv`, `Parity/`). The frames/s
+count the frame slots of the windows and pairs, padding included.
+
+**Training iteration (stage C), samples/s, against the GPU ceiling (stage B)**
+
+| Case | Current | Best tuned Native | Best DALI | Ceiling float32 | Ceiling bfloat16 | Current / ceiling |
+|---|---|---|---|---|---|---|
+| C-IN | 364 | 366 (1.01×) | 363 (1.00×) | 388 | 633 | 94 % |
+| C-SYN | 412 | 432 (1.05×) | 441 (1.07×) | 459 | 771 | 90 % |
+| S-SYN | 189 | 198 (1.05×) | 196 (1.04×) | 213 | 373 | 89 % |
+| S-JPG | 26 | 27 (1.03×) | 27 (1.03×) | 29 | 48 | 89 % |
+| P-SYN | 180 | 192 (1.07×) | 202 (1.13×) | 193 | 353 | 93 % |
+| P-JPG | 14 | 14 (1.03×) | 15 (1.05×) | 15 | 24 | 95 % |
+
+**Loader alone (stage A, warm page cache), samples/s (frames/s)**
+
+| Case | Current (4 workers) | Best tuned Native | Best DALI | Current / float32 ceiling |
+|---|---|---|---|---|
+| C-IN | 2,937 | 9,645, 16 workers (3.28×) | 5,419, 16 threads (1.85×) | 7.6 |
+| C-SYN | 5,227 | 9,343, 16 workers (1.79×) | 8,896, 8 threads (1.70×) | 11.4 |
+| S-SYN | 2,734 (21,871) | 4,322, 16 workers (1.58×) | 1,974, 4 threads (0.72×) | 12.8 |
+| S-JPG | 188 (3,014) | 625 (10,007), 16 workers (3.32×) | 411 (6,573), 16 threads (2.18×) | 6.4 |
+| P-SYN | 2,089 (33,416) | 2,681, 16 workers (1.28×) | 1,999, 4 threads (0.96×) | 10.9 |
+| P-JPG | 100 (3,192) | 301 (9,648), 16 workers (3.02×) | 254 (8,130), 12 threads (2.55×) | 6.8 |
+
+- **Cold page cache (JPEG cases):** C-IN 2,581 / 8,360 / 5,479, S-JPG 183 / 571 / 412, P-JPG 94 / 302 / 257
+  samples/s (current / tuned / DALI), within 15 % of the warm runs.
+- **Disk:** 2,229 MB/s and 19,269 files/s on cold ImageNet files (116 KB per file on average), about twice the
+  1.1 GB/s read by the fastest loader.
+- **CPU:** on the JPEG cases, the current loader keeps about 18 cores busy (4 workers with 20 OpenCV threads each)
+  for 2,937 images/s, the tuned loader 17 cores for 9,645 images/s, DALI 8 cores for 5,419 images/s.
+
+**Evaluation of the whole test split (stage D), seconds (current / tuned / DALI)**
+- C-IN (50,000 images): 43.0 / 38.4 (1.12×) / 42.0 (1.02×), the inference itself running at about 1,200 images/s.
+- S-JPG (186 windows): 3.0 / 2.4 / 2.3, P-JPG (100 pairs): 3.1 / 2.6 / 2.2. The synthetic test splits take less
+  than a second with any loader.
+
+**Parity (stage E):** labels, frame labels, masks and identifiers equal in every case. Mean pixel difference 0.40
+levels on JPEG (at most 0.03 % of the pixels above 8 levels), 0 on PNG.
+
+**Decision gate (5.8), measured**
+
+| Gate | Threshold | Measured | Met |
+|---|---|---|---|
+| Native loader settings (phase 2) | tuned ≥ 1.10 × current end to end on a case | 1.01 to 1.07 × | No |
+| DALI for classification (phase 3) | DALI ≥ 1.25 × tuned on C-IN, or ≥ 1.5 × on its evaluation | 0.99 × and 0.91 × | No |
+| DALI for the sequence tasks (phase 4) | DALI ≥ 1.25 × tuned on S-JPG or P-JPG | 1.00 × and 1.02 × | No |
+| Parity | ≤ 1 level on average, ≤ 1 % of the pixels above 8 levels | 0.40 levels, 0.03 % | Yes |
+
+### 13.3 Observations
+- **The GPU is the limit in every case:** the current loader already feeds 89 to 95 % of the GPU ceiling, and alone
+  it is 6 to 13 times faster than the ceiling in float32 (4 to 7 times in bfloat16). The faster loaders only remove
+  the small stalls of the current one (its worker restarts at every epoch, the copies between processes), hence the
+  1 to 13 % gains, the largest on the small synthetic datasets whose epochs are short.
+- **Tuned Native beats DALI on JPEG here:** without a hardware JPEG decoder, DALI's hybrid decoding is limited by its
+  CPU threads (about 5,400 ImageNet images/s at 256 pixels), while 16 Native workers with one OpenCV thread each reach
+  9,600 images/s. On the small synthetic PNG frames, the DALI sequence prototype is slower than the current loader
+  (per-sample overhead of the pipeline and its reader processes).
+- **OpenCV oversubscription:** the current loader runs 20 OpenCV threads in each of its 4 workers. One OpenCV
+  thread per worker gives about 3.5 times more images per busy core (581 against 157 ImageNet images/s).
+- **Mixed precision is the larger lever:** bfloat16 raises the GPU ceiling 1.6 to 1.8 times in every case
+  (`Optimization.mixed_precision`, off in every configuration), far more than any loader. Its effect on accuracy
+  would need its own check.
+- **Augmentation:** 15 ms per batch of 64 ImageNet images (9 % of a float32 iteration, 15 % in bfloat16), 9 ms per
+  batch of 8 ImageNet pairs, about 1 to 3 ms elsewhere: a batched augmentation would be the next lever after mixed
+  precision for the classification task.
+- **DALI build time:** 1.1 to 1.6 s for the classification pipeline, 3.9 to 7.0 s for the sequence pipeline, which
+  spawns its reader processes.
+- **Detection DALI pipeline:** it uses the default `subpixel_scale` and a crop position of 0.5, so its images can be
+  one pixel off the Native loader and `preprocess_boxes`, which computes the boxes for the Native geometry. Left as
+  it is in this phase; the shared resize of phase 3 would fix it.
+
+### 13.4 Decision
+Pending the user. With the thresholds of 5.8, none of phases 2 to 4 is kept.

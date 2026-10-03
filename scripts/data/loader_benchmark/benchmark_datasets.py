@@ -1,22 +1,28 @@
 """
-When run, builds the JPEG sequence and pair datasets of the loader benchmark of implementation_dali_loaders.md (phase
-1) out of ImageNet, while no real sequence dataset exists: random ImageNet training images copied into one folder per
-sequence (6 to 30 frames by default), and pairs made of two of these sequences, in the split layout read by
-SequenceDataset and SequencePairDataset of vision_training/data/sequence.
+Datasets of the loader benchmark of implementation_dali_loaders.md (phase 1). When run, builds the JPEG sequence and
+pair datasets out of ImageNet, while no real sequence dataset exists: random ImageNet training images copied into one
+folder per sequence (6 to 30 frames by default), and pairs made of two of these sequences, in the split layout read by
+SequenceDataset and SequencePairDataset of vision_training/data/sequence. Also gives run_loader_benchmark.py the
+ImageNet subset of the classification case, the benchmark configurations and the control of the page cache.
 """
 
 import json
+import os
 import random
 import shutil
+import yaml
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Dict, List
+from torch.utils.data import Dataset
+from typing import Any, Dict, List, Optional, Tuple
 
 from tqdm import tqdm
 
+from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.label_mapping import write_label_mapping
-from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
+from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset
 from vision_training.utilities.os_utilities import link_folder, print_color
 
 # Categories of the benchmark sequences and pairs. The frames being random images, every sample gets a random
@@ -26,8 +32,11 @@ BENCHMARK_CATEGORIES = [{"id": 1, "name": "random_category_1"}, {"id": 2, "name"
 # Extension of the copied frames, whose bytes are the unchanged ImageNet JPEG files
 FRAME_EXTENSION = ".jpg"
 
-# Number of threads copying the frames
+# Number of threads copying the frames, and reading the files loaded into the page cache
 NUMBER_COPY_THREADS = 16
+
+# Split folder keys of the experiment configuration
+SPLIT_FOLDER_KEYS = ["train_data_folder", "validation_data_folder", "test_data_folder"]
 
 
 def draw_sequence_frames(image_paths: List[Path], split_sizes: Dict[str, int], minimum_length: int,
@@ -190,6 +199,131 @@ def create_sequence_pair_dataset(sequence_dataset_folder: Path, output_folder: P
 
     # Class index of every category, from 0 since the comparison model predicts no background class
     write_label_mapping(categories=BENCHMARK_CATEGORIES, output_folder=output_folder)
+
+
+def create_benchmark_subset_manifest(source_split_folder: Path, output_split_folder: Path, number_samples: int,
+                                     seed: int) -> Path:
+    """
+    Writes the training split of the ImageNet classification case of the benchmark: 'number_samples' random samples
+    of an ImageNet split, keeping all its categories, in a manifest whose 'data' folder links to the source images. The
+    subset fits in memory, so that the warm runs measure the decoding and not the disk, ImageNet itself being larger
+    than the memory. Writing it again replaces the manifest and the link.
+
+    Args:
+        source_split_folder (Path): The ImageNet split prepared by imagenet_download.py.
+        output_split_folder (Path): The folder of the subset split.
+        number_samples (int): The number of samples of the subset.
+        seed (int): The seed of the draw of the samples.
+
+    Returns:
+        Path: The manifest of the subset.
+    """
+    manifest = json.loads(s=(source_split_folder / "labels.json").read_text())
+    samples = random.Random(seed).sample(population=manifest["samples"], k=number_samples)
+
+    # Link the source images and write the manifest of the drawn samples
+    output_split_folder.mkdir(parents=True, exist_ok=True)
+    link_folder(link_path=output_split_folder / "data", target_folder=source_split_folder / "data")
+    labels_path = output_split_folder / "labels.json"
+    labels_path.write_text(data=json.dumps(obj={"categories": manifest["categories"], "samples": samples}))
+    print_color(color="green", output=f"ImageNet subset : {len(samples)} images : file://{labels_path}")
+    return labels_path
+
+
+def write_benchmark_configuration(template_path: Path, output_path: Path, experiment_folder: Path,
+                                  split_folders: Optional[Dict[str, Path]],
+                                  label_mapping_path: Optional[Path]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Writes the configuration of a benchmark case, a copy of a YAML of the repository pointing to the benchmark
+    dataset, and loads it with load_experiment_configuration, so that the task, batch size, image settings, model and
+    augmentation settings and the injected label dictionary are exactly those of a training run.
+
+    Args:
+        template_path (Path): The YAML of the repository the case is measured with.
+        output_path (Path): The written configuration.
+        experiment_folder (Path): The experiment folder written in the configuration (no run is created).
+        split_folders (Optional[Dict[str, Path]]): The training, validation and test split folders keyed by
+            SPLIT_FOLDER_KEYS, or None to keep those of the template.
+        label_mapping_path (Optional[Path]): The label mapping file of the dataset, or None to keep the template one.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: The processed experiment and model configurations.
+    """
+    configuration = yaml.safe_load(stream=template_path.read_text())
+
+    # Benchmark dataset and experiment folder in place of those of the template
+    configuration["ExperimentConfiguration"]["experiment_folder"] = str(experiment_folder)
+    if split_folders is not None:
+        for split_key in SPLIT_FOLDER_KEYS:
+            configuration["ExperimentConfiguration"][split_key] = str(split_folders[split_key])
+    if label_mapping_path is not None:
+        configuration["Data"]["label_mapping"]["mapping_file_path"] = str(label_mapping_path)
+
+    output_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+    return load_experiment_configuration(configuration_path=output_path)
+
+
+def get_dataset_file_paths(dataset: Dataset) -> List[str]:
+    """
+    Lists the files read by a Native dataset of the benchmark (the images of the classification samples, the frames
+    of the windows or pairs), each once, so that they can be loaded into or evicted from the page cache before a
+    measurement.
+
+    Args:
+        dataset (Dataset): A ClassificationDataset, SequenceDataset or SequencePairDataset.
+
+    Returns:
+        List[str]: The paths of the files, without repetition.
+    """
+    if isinstance(dataset, ClassificationDataset):
+        relative_paths = [sample["file_name"] for sample in dataset.samples]
+    elif isinstance(dataset, SequencePairDataset):
+        relative_paths = [frame for pair in dataset.pairs for member_name in PAIR_MEMBERS
+                          for frame in pair[member_name]]
+    else:
+        relative_paths = [frame for window in dataset.windows for frame in window["frames"]]
+    return [os.path.join(dataset.data_directory, relative_path) for relative_path in dict.fromkeys(relative_paths)]
+
+
+def read_file_bytes(file_path: str) -> int:
+    """
+    Reads a whole file, which leaves it in the page cache, for load_into_page_cache and the disk measurement.
+
+    Args:
+        file_path (str): The path of the file.
+
+    Returns:
+        int: The number of bytes read.
+    """
+    with open(file=file_path, mode="rb") as file_handler:
+        return len(file_handler.read())
+
+
+def load_into_page_cache(file_paths: List[str]) -> None:
+    """
+    Reads files with several threads so that they are in the page cache, before the warm measurements, which then
+    measure the decoding and not the disk.
+
+    Args:
+        file_paths (List[str]): The paths of the files.
+    """
+    with ThreadPoolExecutor(max_workers=NUMBER_COPY_THREADS) as executor:
+        for future in [executor.submit(read_file_bytes, file_path=file_path) for file_path in file_paths]:
+            future.result()
+
+
+def evict_from_page_cache(file_paths: List[str]) -> None:
+    """
+    Drops files from the page cache without root rights (posix_fadvise DONTNEED), before the cold measurements, so
+    that the loaders read them from the disk as in an epoch over a dataset larger than the memory.
+
+    Args:
+        file_paths (List[str]): The paths of the files.
+    """
+    for file_path in file_paths:
+        file_descriptor = os.open(path=file_path, flags=os.O_RDONLY)
+        os.posix_fadvise(file_descriptor, 0, 0, os.POSIX_FADV_DONTNEED)
+        os.close(file_descriptor)
 
 
 if __name__ == "__main__":
