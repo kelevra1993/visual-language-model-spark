@@ -1,3 +1,9 @@
+"""
+Export specifications of every task: the inference model wrapping a trained model, the input and output names and
+dynamic dimensions, the random input batches, and the comparisons of the exported outputs with the eager model. Read
+by deployment/export_model.py, the Triton configuration and the deployment utilities.
+"""
+
 import numpy as np
 import torch
 

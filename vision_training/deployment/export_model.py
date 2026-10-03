@@ -1,3 +1,9 @@
+"""
+Exports a trained experiment of any task to the Triton model repository as TorchScript and ONNX (optionally run with
+TensorRT), writes the Triton configurations and checks every export against the eager inference model. Run as a
+script with the experiment, iteration and formats set in its main block.
+"""
+
 import logging
 import warnings
 import onnx

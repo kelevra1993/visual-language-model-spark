@@ -1,3 +1,9 @@
+"""
+Measures the inference throughput of a trained experiment of any task, run locally in this process and served by
+Triton as TorchScript and ONNX (TensorRT), on the images of deployment/inference_data. Run as a script once the
+models are exported by deployment/export_model.py and the Triton server is started.
+"""
+
 from pathlib import Path
 
 from vision_training.deployment.deployment_utilities import (load_inference_inputs, load_local_inference_model,

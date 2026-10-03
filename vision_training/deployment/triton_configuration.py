@@ -1,3 +1,8 @@
+"""
+Writes the 'config.pbtxt' Triton model configuration of an exported model of any task (platform, inputs, outputs,
+batching, TensorRT acceleration) from its export specification. Called by deployment/export_model.py.
+"""
+
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 

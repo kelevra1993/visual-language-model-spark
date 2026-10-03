@@ -1,3 +1,10 @@
+"""
+Inference helpers of the deployment stage: preprocessing the images of the inference folder into the requests of the
+model of any task, loading the local inference model of a run, sending requests to Triton over gRPC (optionally
+through shared memory), and measuring the throughput of the local and served models. Used by
+deployment/run_inference.py.
+"""
+
 import os
 import cv2
 import numpy as np
