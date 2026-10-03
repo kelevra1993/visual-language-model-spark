@@ -1,3 +1,9 @@
+"""
+Tests of SequenceComparator of vision_training/models/sequence/sequence_comparator.py: outputs with padding frames,
+mask-free and masked paths, batch and sequence normalization of the members, padding frames kept from the backbone and
+members mixed only by the cross attention.
+"""
+
 import pytest
 import torch
 

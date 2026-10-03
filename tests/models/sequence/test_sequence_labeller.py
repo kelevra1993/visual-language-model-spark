@@ -1,3 +1,8 @@
+"""
+Tests of SequenceLabeller of vision_training/models/sequence/sequence_labeller.py: one prediction per frame, and no
+look-ahead with a causal temporal module.
+"""
+
 import pytest
 import torch
 

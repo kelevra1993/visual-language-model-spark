@@ -1,3 +1,8 @@
+"""
+Tests of SequenceClassifier of vision_training/models/sequence/sequence_classifier.py and of encode_frames: outputs with
+padding frames, frames encoded without the padding frames and sequence normalization ignoring them.
+"""
+
 import pytest
 import torch
 

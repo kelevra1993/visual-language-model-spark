@@ -1,3 +1,9 @@
+"""
+Tests of the temporal modules of vision_training/models/sequence/temporal_modules.py: output shapes with padding frames,
+poolings ignoring the frame order, ordered modules depending on it, causal and non-causal look-ahead and the module
+summary.
+"""
+
 import pytest
 import torch
 

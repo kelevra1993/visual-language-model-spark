@@ -1,3 +1,9 @@
+"""
+Tests of MemberFusion of vision_training/models/sequence/member_fusion.py for the sequence comparison task: the member
+vectors are combined, the fusions without attention leave the frames unchanged and the cross attention ignores the
+padding frames.
+"""
+
 import pytest
 import torch
 
