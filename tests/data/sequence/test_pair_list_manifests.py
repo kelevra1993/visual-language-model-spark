@@ -1,3 +1,8 @@
+"""
+Tests of vision_training/data/sequence/pair_list_manifests.py: pair lists are converted into manifests that
+SequencePairDataset of the sequence comparison task reads.
+"""
+
 import json
 import cv2
 import numpy as np

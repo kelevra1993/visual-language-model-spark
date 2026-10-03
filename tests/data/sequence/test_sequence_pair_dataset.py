@@ -1,3 +1,9 @@
+"""
+Tests of SequencePairDataset of vision_training/data/sequence/sequence_pair_dataset.py for the sequence comparison task:
+the member frame indices, pairs read as the before then the after member, short or empty members left out, the pair
+counts and pair batches split into their members.
+"""
+
 import json
 import cv2
 import numpy as np

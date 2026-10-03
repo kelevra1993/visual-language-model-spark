@@ -1,3 +1,9 @@
+"""
+Tests of SequenceDataset of vision_training/data/sequence/sequence_dataset.py: the window starts, the windows of
+sequences with one class per sequence or one class per frame, and the window counts of
+vision_training/data/split_description.py.
+"""
+
 import json
 import cv2
 import numpy as np
