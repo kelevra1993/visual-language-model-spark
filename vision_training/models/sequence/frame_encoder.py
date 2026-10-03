@@ -1,3 +1,9 @@
+"""
+Frame encoder of the sequence models: encode_frames runs the real frames of every window through the shared Backbone
+and the global pooling to get one feature vector per frame, with zeros for the padding frames and the sequence
+grouping of the sequence normalization. Used by the sequence classifier, labeller and comparator.
+"""
+
 import torch
 
 from torch import nn

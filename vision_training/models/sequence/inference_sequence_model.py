@@ -1,3 +1,9 @@
+"""
+Inference-only wrapper of the trained sequence classifier and sequence labeller returning the class probabilities of
+windows of real frames (per window or per frame). Built by vision_training/deployment/export_specifications.py for
+the TorchScript and ONNX exports served by Triton.
+"""
+
 import torch
 
 from torch import nn

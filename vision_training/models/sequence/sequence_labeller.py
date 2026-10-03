@@ -1,3 +1,9 @@
+"""
+Model of the sequence labelling task (many to many, M2M): the frame encoder, a temporal module keeping the time axis
+and the classification head give the class logits, probabilities and loss of every frame. Registered in
+model_registry.py for the "sequence_labelling" task and wrapped by inference_sequence_model.py for the exports.
+"""
+
 import torch
 
 from torch import nn

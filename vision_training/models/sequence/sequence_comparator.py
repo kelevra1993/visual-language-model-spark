@@ -1,3 +1,10 @@
+"""
+Model of the sequence comparison task (CMP): the frames of the before and after windows are encoded, fused,
+summarised by the shared temporal module and classified as a pair, with the member or pair scope of the sequence
+normalization. Registered in model_registry.py for the "sequence_comparison" task and wrapped by
+inference_sequence_comparator.py for the exports.
+"""
+
 import torch
 
 from torch import nn

@@ -1,3 +1,9 @@
+"""
+Fusion of the before and after members of a pair in the sequence comparison model: concatenation, difference or
+cross attention between the frames of the two members, and the combination of the member vectors fed to the
+classification head. Its fusion types and normalization scopes are also read by the sequence configuration checks.
+"""
+
 import torch
 
 from torch import nn

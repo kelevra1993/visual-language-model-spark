@@ -1,3 +1,9 @@
+"""
+Inference-only wrapper of the trained SequenceComparator taking the before and after windows as two inputs and
+returning the class probabilities of the pairs. Built by vision_training/deployment/export_specifications.py for the
+TorchScript and ONNX exports served by Triton.
+"""
+
 import torch
 
 from torch import nn

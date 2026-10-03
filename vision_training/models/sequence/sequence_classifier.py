@@ -1,3 +1,9 @@
+"""
+Model of the sequence classification task (many to one, M2O): the frame encoder, the temporal module and the
+classification head give the class logits, probabilities and loss of every window. Registered in model_registry.py
+for the "sequence_classification" task and wrapped by inference_sequence_model.py for the exports.
+"""
+
 import torch
 
 from torch import nn

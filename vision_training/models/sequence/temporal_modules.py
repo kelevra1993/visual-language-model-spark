@@ -1,3 +1,9 @@
+"""
+Temporal modules of the sequence models, summarising or relating the frame vectors while ignoring the padding frames:
+mean, max and attention pooling, GRU and LSTM, transformer and temporal convolution, with build_temporal_module and
+the summary panel. Their pooling and ordered type lists are also read by the sequence checks and trainer.
+"""
+
 import torch
 
 from rich.console import Console
