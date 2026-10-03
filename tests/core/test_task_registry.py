@@ -1,3 +1,8 @@
+"""
+Tests of vision_training/core/task_registry.py: every trainable task is registered in every table of the framework
+(trainer, model, configuration checks, run name, inference model and export inputs), and an unknown task has no trainer.
+"""
+
 import pytest
 
 from vision_training.configuration.configuration_checker import TASK_CONFIGURATION_CHECKS
