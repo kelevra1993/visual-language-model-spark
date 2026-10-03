@@ -108,8 +108,10 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
         evaluation_settings={"error_dumps": {"activated": True, "maximum_per_class_pair": 1}}))
     assert trainer.run_name.startswith("CLS_") and trainer.run_name.endswith("-LS0.1-CWB_MC9")
     assert trainer.class_names == list(SHAPE_CATEGORIES)
+    # Balanced weights, a class without training image counting as one, as some of the 9 classes may be empty
     class_counts = torch.tensor(data=trainer.train_dataloader.dataset.get_class_counts(), dtype=torch.float32)
-    expected_class_weights = class_counts.sum() / (len(SHAPE_CATEGORIES) * class_counts.clamp(min=1.0))
+    clamped_class_counts = class_counts.clamp(min=1.0)
+    expected_class_weights = clamped_class_counts.sum() / (len(SHAPE_CATEGORIES) * clamped_class_counts)
     assert torch.allclose(input=trainer.model.class_weights.cpu(), other=expected_class_weights)
     trainer.run_training_loop()
 
