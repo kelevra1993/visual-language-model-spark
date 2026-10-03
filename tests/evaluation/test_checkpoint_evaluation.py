@@ -1,3 +1,8 @@
+"""
+Tests of evaluate_checkpoints of vision_training/evaluation/checkpoint_evaluation.py on the dummy task: every checkpoint
+of the registry is evaluated, deleted checkpoints are skipped and the evaluation summary holds one row per iteration.
+"""
+
 import csv
 import pytest
 
