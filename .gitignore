@@ -33,5 +33,6 @@ experiments/
 datasets/
 classifier_insipiration_code/
 previous_classifiers/
+previous_semantic_segmentation/
 # Exported models served by Triton
 vision_training/deployment/triton/served_models/
