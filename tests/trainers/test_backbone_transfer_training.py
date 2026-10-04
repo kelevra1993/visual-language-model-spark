@@ -142,7 +142,7 @@ def test_trained_backbone_initialises_a_frozen_run(tmp_path: Path, capsys: pytes
                                              number_iterations=1, pretrained_settings={"Backbone": frozen_settings},
                                              configuration_name="frozen.yaml", task="classification")
     assert resumed_trainer.start_iteration == 4 and resumed_trainer.pretrained_checkpoint_paths["Backbone"] is None
-    assert "the pretrained backbone is not loaded again" in capsys.readouterr().out
+    assert "The Pretrained Backbone Is Not Loaded Again" in capsys.readouterr().out
     assert all(not parameter.requires_grad for parameter in resumed_trainer.model.backbone.parameters())
 
     # Fine-tuning run: the transferred backbone learns ten times slower than the head
@@ -232,7 +232,7 @@ def test_sequence_components_initialise_a_partly_frozen_run(tmp_path: Path, caps
     assert list(resumed_trainer.pretrained_checkpoint_paths.values()) == [None] * 3
     assert all(not parameter.requires_grad for parameter in resumed_trainer.model.temporal_module.parameters())
     console_output = capsys.readouterr().out
-    assert "the pretrained temporal module is not loaded again" in console_output
+    assert "The Pretrained Temporal Module Is Not Loaded Again" in console_output
     assert "Error encountered during iteration" not in console_output and "Critical Error" not in console_output
 
     # Normalization parameters of the transferred backbone kept fixed while its other parameters learn
@@ -251,7 +251,7 @@ def test_sequence_components_initialise_a_partly_frozen_run(tmp_path: Path, caps
         list(backbone.parameters())) - len(batch_normalization_parameters)
 
     # A run freezing every component would learn nothing
-    with pytest.raises(expected_exception=ValueError, match="Every parameter of the model is frozen"):
+    with pytest.raises(expected_exception=ValueError, match="Every Parameter Of The Model Is Frozen"):
         build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=1,
                                pretrained_settings={section_name: {"experiment_folder": source_folder, "freeze": True}
                                                     for section_name in SEQUENCE_COMPONENTS},

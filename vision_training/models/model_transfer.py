@@ -297,33 +297,33 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     # Only the configuration of the source run is read, not checked, so that a run of any task and any age can serve
     source_configuration = load_configuration(configuration_path=source_folder / "training_configuration.yaml")
     if section_name not in source_configuration:
-        raise ValueError(f"The source run file://{source_folder.absolute()} has no '{section_name}' section: its task "
-                         f"has no {component_name} to initialise this run.")
+        raise ValueError(f"The Source Run file://{source_folder.absolute()} Has No '{section_name}' Section: Its Task "
+                         f"Has No {component_name.title()} To Initialise This Run.")
     differences = compare_component_configurations(section_name=section_name,
                                                    source_configuration=source_configuration,
                                                    target_configuration=model_configuration)
     if differences:
-        raise ValueError(f"The {component_name} of the source run file://{source_folder.absolute()} cannot initialise "
-                         f"this run, their architectures differ: " + " ".join(differences))
+        raise ValueError(f"The {component_name.title()} Of The Source Run file://{source_folder.absolute()} Cannot "
+                         f"Initialise This Run, Their Architectures Differ: " + " ".join(differences))
 
     # Settings that change what the component learned without changing its weights, reported only
     if section_name == "Backbone":
         source_image_size = source_configuration["Data"]["image_settings"]["size"]
         target_image_size = model_configuration["Data"]["image_settings"]["size"]
         if source_image_size != target_image_size:
-            print_color(color="yellow", output=f"The pretrained backbone was trained on {source_image_size} pixel "
-                                               f"images, this run uses {target_image_size} pixel images.")
+            print_color(color="yellow", output=f"The Pretrained Backbone Was Trained On {source_image_size} Pixel "
+                                               f"Images, This Run Uses {target_image_size} Pixel Images.")
         source_normalization = source_configuration["Backbone"]["normalization"]["feature_map_normalization"]
         target_normalization = model_configuration["Backbone"]["normalization"]["feature_map_normalization"]
         if source_normalization != target_normalization:
-            print_color(color="yellow", output=f"The pretrained backbone was trained with {source_normalization!r} "
-                                               f"normalization, this run uses {target_normalization!r} normalization.")
+            print_color(color="yellow", output=f"The Pretrained Backbone Was Trained With {source_normalization!r} "
+                                               f"Normalization, This Run Uses {target_normalization!r} Normalization.")
     if section_name == "TemporalModel" and model_configuration["TemporalModel"]["type"] in CAUSAL_TEMPORAL_TYPES:
         source_causal = source_configuration["TemporalModel"]["causal"]
         target_causal = model_configuration["TemporalModel"]["causal"]
         if source_causal != target_causal:
-            print_color(color="yellow", output=f"The pretrained temporal module was trained with 'causal' "
-                                               f"{source_causal}, this run uses 'causal' {target_causal}.")
+            print_color(color="yellow", output=f"The Pretrained Temporal Module Was Trained With 'causal' "
+                                               f"{source_causal}, This Run Uses 'causal' {target_causal}.")
 
     # Keep the tensors of the component in the source model, without their prefix, and require every one of them
     checkpoint_path = get_checkpoint_path(experiment_folder=source_folder,
@@ -334,8 +334,8 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
                        for tensor_name, tensor_value in model_state.items() if tensor_name.startswith(state_prefix)}
     state_differences = compare_state_dictionaries(source_state=component_state, target_state=component.state_dict())
     if state_differences:
-        raise ValueError(f"The {component_name} tensors of the checkpoint file://{checkpoint_path.absolute()} do not "
-                         f"fit this run: " + " ".join(state_differences))
+        raise ValueError(f"The {component_name.title()} Tensors Of The Checkpoint file://{checkpoint_path.absolute()} "
+                         f"Do Not Fit This Run: " + " ".join(state_differences))
     component.load_state_dict(state_dict=component_state, strict=True)
 
     print_color(color="green", add_separators=True,

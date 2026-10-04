@@ -474,9 +474,9 @@ class BaseTrainer(ABC):
 
             # Load the source component for a new run only
             if self.resume_training and get_last_checkpoint_iteration(weights_directory=self.weights_directory):
-                print_color(color="yellow", output=f"The run resumes from its own checkpoint, the pretrained "
-                                                   f"{get_component_name(section_name=section_name)} is not loaded "
-                                                   f"again.")
+                print_color(color="yellow", output=f"The Run Resumes From Its Own Checkpoint, The Pretrained "
+                                                   f"{get_component_name(section_name=section_name).title()} Is Not "
+                                                   f"Loaded Again.")
             else:
                 pretrained_checkpoint_paths[section_name] = load_pretrained_component(
                     component=component, section_name=section_name, model_configuration=self.model_configuration,
@@ -490,8 +490,8 @@ class BaseTrainer(ABC):
 
         # A model whose every parameter is frozen would not learn anything
         if not any(parameter.requires_grad for parameter in self.model.parameters()):
-            raise ValueError("Every parameter of the model is frozen by the 'pretrained.freeze' settings, the training "
-                             "would change nothing: leave at least one component trainable.")
+            raise ValueError("Every Parameter Of The Model Is Frozen By The 'pretrained.freeze' Settings, The Training "
+                             "Would Change Nothing: Leave At Least One Component Trainable.")
         return pretrained_checkpoint_paths
 
     def setup_training_paths(self, initial_configuration_path: Path,
@@ -544,7 +544,7 @@ class BaseTrainer(ABC):
         print_color(color="blue", output=f"- Weights Directory       : file://{self.weights_directory.absolute()}")
         print_color(color="blue", output=f"- Configuration File      : file://{self.configuration_path.absolute()}")
         if self.diagnosis_modes["view_input_images"]:
-            print_color(color="yellow", output="- Run Folder Not Created  : the input viewer exits without training")
+            print_color(color="yellow", output="- Run Folder Not Created  : The Input Viewer Exits Without Training")
 
         # Every component initialised by another run, with its source run and whether it is frozen
         pretrained_labels = {"Backbone": "Pretrained Backbone", "TemporalModel": "Pretrained Temp. Module",

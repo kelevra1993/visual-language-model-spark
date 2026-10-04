@@ -173,7 +173,7 @@ def test_different_architectures_are_rejected(tmp_path: Path) -> None:
             component=detector.backbone, section_name="Backbone", device=device,
             model_configuration=point_to_source_run(configuration=target_configuration, section_name="Backbone",
                                                     source_folder=tmp_path / "classification_run"))
-    assert "The backbone of the source run" in str(error_information.value)
+    assert "The Backbone Of The Source Run" in str(error_information.value)
     assert "'Backbone.convolutions' is" in str(error_information.value)
     assert "'Backbone.modules' is" in str(error_information.value)
 
@@ -391,7 +391,7 @@ def test_different_components_are_rejected(tmp_path: Path, source_temporal_type:
                                                                           section_name=section_name,
                                                                           source_folder=tmp_path / "source_run"),
                                   device=torch.device("cpu"))
-    assert "cannot initialise this run, their architectures differ" in str(error_information.value)
+    assert "Cannot Initialise This Run, Their Architectures Differ" in str(error_information.value)
     assert expected_message in str(error_information.value)
 
 
@@ -415,7 +415,7 @@ def test_head_tensors_of_another_shape_are_listed(tmp_path: Path) -> None:
                                                                           section_name="ClassificationHead",
                                                                           source_folder=tmp_path / "source_run"),
                                   device=torch.device("cpu"))
-    assert "classification head tensors of the checkpoint" in str(error_information.value)
+    assert "Classification Head Tensors Of The Checkpoint" in str(error_information.value)
     assert ("'fully_connected_block.0.weight' has the shape [16, 16] in the source run and [16, 48] in this run."
             in str(error_information.value))
 
@@ -495,7 +495,7 @@ def test_heads_of_other_input_sizes_are_rejected(tmp_path: Path, source_pooling:
                                                                           section_name="ClassificationHead",
                                                                           source_folder=tmp_path / "source_run"),
                                   device=torch.device("cpu"))
-    assert "cannot initialise this run, their architectures differ" in str(error_information.value)
+    assert "Cannot Initialise This Run, Their Architectures Differ" in str(error_information.value)
     assert expected_message in str(error_information.value)
 
 
@@ -515,7 +515,7 @@ def test_source_run_without_the_component_is_rejected(tmp_path: Path) -> None:
     target_configuration = point_to_source_run(configuration=target_configuration, section_name="TemporalModel",
                                                source_folder=tmp_path / "classification_run")
 
-    with pytest.raises(expected_exception=ValueError, match="has no 'TemporalModel' section"):
+    with pytest.raises(expected_exception=ValueError, match="Has No 'TemporalModel' Section"):
         load_pretrained_component(component=target_model.temporal_module, section_name="TemporalModel",
                                   model_configuration=target_configuration, device=device)
 
