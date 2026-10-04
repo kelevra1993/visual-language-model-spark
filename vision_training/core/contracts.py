@@ -17,10 +17,11 @@ Model output dictionary:
 - every key ending in "_loss" is a scalar loss, all of them being summed by the trainer into the total loss;
 - the other keys are the predictions of the task, documented by its model.
 """
+import numpy as np
 import torch
 
 from pathlib import Path
-from typing import Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 # Key suffix of the losses returned by the models, all summed into the total loss by the trainer
 LOSS_KEY_SUFFIX = "_loss"
@@ -46,15 +47,41 @@ class SequenceGrouping(TypedDict):
     number_sequences: Optional[int]
 
 
+class EvaluationTable(TypedDict):
+    """
+    Table of the report of an evaluated checkpoint, rendered by evaluation/report_formatting.py in the console and in
+    the Results.txt file of the run: its title, its column names (a line break makes a two-line header) and its rows of
+    raw cells (text, integers, floats with 4 decimals, None written "—"), the per-class rows stored in class index
+    order. The rows are shown by ascending value of the sort column, the worst classes first (None last, ties in
+    stored order), or in stored order without one. A per-class table is only shown with the per-class report, and its
+    legend is written below it.
+    """
+    title: str
+    columns: List[str]
+    rows: List[List[Any]]
+    sort_column: Optional[str]
+    per_class: bool
+    legend: str
+
+
 class EvaluationResults(TypedDict):
     """
     Results of the evaluation of a checkpoint on the test split, computed by the task and reported by the general
-    trainer: the lines are printed and appended to the Results.txt file of the run, the scalars are written to the
-    Test TensorBoard writer, and the files are extra outputs saved by the task (confusion matrix, predictions...). The
-    headline metric is the name of the scalar comparing the checkpoints of a run, the higher the better.
+    trainer (evaluation/evaluation_report.py): the evaluated samples name the block of the report, the global metrics,
+    notes and tables are printed and appended to the Results.txt file of the run, the scalars are written to the Test
+    TensorBoard writer (and gathered in the evaluation summary of the checkpoints), and the files are extra outputs
+    saved by the task (class metrics, confusion matrix, predictions...). The class scalars (one per class and metric)
+    and the images (e.g. the confusion matrix) are per-class outputs, only reported with the per-class report, like
+    the per-class tables. The headline metric is the name of the scalar comparing the checkpoints of a run, the higher
+    the better.
     """
-    lines: List[str]
+    evaluated_samples: str
+    metrics: Dict[str, float]
+    notes: List[str]
+    tables: List[EvaluationTable]
     scalars: Dict[str, float]
+    class_scalars: Dict[str, float]
+    images: Dict[str, np.ndarray]
     files: Dict[str, Path]
     headline_metric: str
 

@@ -31,6 +31,10 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
     # Labels read from the manifests: one class per frame (many to many)
     LABEL_TYPE = "frame"
 
+    # Name of the column of the evaluated samples of every class in the per-class table of the report: its labelled
+    # frames, on which the classification metrics are computed
+    CLASS_SUPPORT_COLUMN = "Frames"
+
     def compute_batch_metrics(self, batch: Dict[str, Any], model_outputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         """
         Computes the accuracy of a training or validation batch over its labelled frames, from the logits of its
@@ -185,8 +189,8 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
 
     def describe_evaluated_samples(self, accumulator: Dict[str, Any]) -> str:
         """
-        Describes the evaluated test samples in the report: the windows and their labelled frames, on which the
-        classification metrics are computed.
+        Describes the evaluated test samples in the header of the report: the windows and their labelled frames, on
+        which the classification metrics are computed.
 
         Args:
             accumulator (Dict[str, Any]): The accumulated predictions and labels of the test split.

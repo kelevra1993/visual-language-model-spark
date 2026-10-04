@@ -267,20 +267,36 @@ class DummyTrainer(BaseTrainer):
 
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
-        Computes the accuracy of the evaluated samples.
+        Computes the accuracy of the evaluated samples, and the recall of each of the two classes as the per-class
+        table and scalars of the report.
 
         Args:
             accumulator (Dict[str, Any]): The accumulated predictions.
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
-            EvaluationResults: The number of samples and accuracy, as lines and scalar.
+            EvaluationResults: The number of samples, the accuracy and the per-class recalls.
         """
         number_samples = len(accumulator["labels"])
         accuracy = sum(predicted == label for predicted, label in zip(accumulator["predicted_labels"],
                                                                       accumulator["labels"])) / number_samples
-        return {"lines": [f"Iteration {iteration} : {number_samples} Test Samples", f"  Accuracy {accuracy:.4f}"],
-                "scalars": {"Accuracy": accuracy}, "files": {}, "headline_metric": "Accuracy"}
+
+        # Samples and recall of every class, None for a class without samples
+        rows, class_scalars = [], {}
+        for class_name, class_index in self.label_dictionary.items():
+            class_predictions = [predicted for predicted, label in zip(accumulator["predicted_labels"],
+                                                                       accumulator["labels"]) if label == class_index]
+            recall = (sum(predicted == class_index for predicted in class_predictions) / len(class_predictions)
+                      if class_predictions else None)
+            rows.append([class_name, len(class_predictions), recall])
+            if recall is not None:
+                class_scalars[f"Recall/{class_name}"] = recall
+
+        return {"evaluated_samples": f"{number_samples} Test Samples", "metrics": {"Accuracy": accuracy}, "notes": [],
+                "tables": [{"title": "Per Class Recall", "columns": ["Class", "Samples", "Recall"], "rows": rows,
+                            "sort_column": "Recall", "per_class": True, "legend": ""}],
+                "scalars": {"Accuracy": accuracy}, "class_scalars": class_scalars, "images": {}, "files": {},
+                "headline_metric": "Accuracy"}
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
@@ -303,7 +319,8 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
     """
     Builds the experiment and model settings read by the general trainer for the dummy task: batches of 2 samples,
     saves at iterations 2 (intermediate) and 4 (with test evaluation), a console summary and a validation batch every 2
-    iterations, no augmentation, no pretrained backbone, and plain Adam at a constant learning rate.
+    iterations, the per-class evaluation report on, no augmentation, no pretrained backbone, and plain Adam at a
+    constant learning rate.
 
     Args:
         experiment_folder (Path): The experiments root folder of the run.
@@ -318,7 +335,7 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
                                 "batch_size": 2, "information_dump": 2, "weight_saving_iterations": 4,
                                 "intermediate_weight_saving_iterations": 2, "number_iterations": number_iterations,
                                 "validation_iteration_ratio": 2, "learning_rate": 0.01, "dtype": torch.float32,
-                                "resume_training": True,
+                                "resume_training": True, "evaluation": {"per_class_report": True},
                                 "diagnosis_modes": {"verbose": False, "compute_receptive_field": False,
                                                     "compute_model_size": False, "view_input_images": False}}
     augmentation_types = {name: {"activated": False, "probability": 0.0} for name in AUGMENTATION_TYPES}

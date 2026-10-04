@@ -5,7 +5,9 @@ and the confusion matrix files.
 """
 
 import csv
+import sys
 import cv2
+import numpy as np
 import pytest
 import torch
 
@@ -15,7 +17,9 @@ from vision_training.evaluation.classification.classification_metrics import (co
                                                                               compute_metrics_from_confusion_matrix,
                                                                               compute_multi_label_metrics,
                                                                               compute_top_k_accuracy)
-from vision_training.evaluation.classification.confusion_matrix import save_confusion_matrix
+from vision_training.evaluation.classification.confusion_matrix import (draw_confusion_matrix,
+                                                                        save_confusion_matrix_image,
+                                                                        save_confusion_matrix_table)
 from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
 
 
@@ -36,6 +40,7 @@ def test_confusion_matrix_and_metrics_match_hand_computed_values() -> None:
     assert metrics["precision"] == pytest.approx(expected=[1.0, 0.5, 0.0])
     assert metrics["recall"] == pytest.approx(expected=[2 / 3, 1.0, 0.0])
     assert metrics["f1"] == pytest.approx(expected=[0.8, 2 / 3, 0.0])
+    assert metrics["support"] == [3, 2, 1]
     assert metrics["balanced_accuracy"] == pytest.approx(expected=(2 / 3 + 1.0 + 0.0) / 3)
     assert metrics["macro_f1"] == pytest.approx(expected=(0.8 + 2 / 3 + 0.0) / 3)
 
@@ -77,6 +82,7 @@ def test_multi_label_metrics() -> None:
     # Class 0: 1 true positive, 1 false positive. Class 1: 2 true positives
     assert metrics["precision"] == pytest.approx(expected=[0.5, 1.0])
     assert metrics["recall"] == pytest.approx(expected=[1.0, 1.0])
+    assert metrics["support"] == [1, 2]
     assert metrics["subset_accuracy"] == pytest.approx(expected=2 / 3)
     assert metrics["micro_f1"] == pytest.approx(expected=2 * 0.75 * 1.0 / 1.75)
     assert metrics["macro_f1"] == pytest.approx(expected=(2 / 3 + 1.0) / 2)
@@ -114,16 +120,44 @@ def test_tied_scores_are_cut_together() -> None:
 
 def test_confusion_matrix_files(tmp_path: Path) -> None:
     """
-    Verifies that the confusion matrix is saved as a CSV table, one row per true class, and as an image.
+    Verifies that the confusion matrix is saved as a CSV table, one row per true class, and as an image identical to
+    the RGB array logged to TensorBoard (the PNG being written in BGR order).
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
     confusion_matrix = torch.tensor(data=[[5, 1], [0, 4]])
-    files = save_confusion_matrix(confusion_matrix=confusion_matrix, class_names=["circle", "square"],
-                                  output_folder=tmp_path / "Iteration_10")
-
-    with open(files["Confusion Matrix Table"], newline="") as table_file:
+    table_path = save_confusion_matrix_table(confusion_matrix=confusion_matrix, class_names=["circle", "square"],
+                                             output_folder=tmp_path / "Iteration_10")
+    with open(table_path, newline="") as table_file:
         rows = list(csv.reader(table_file))
     assert rows == [["true \\ predicted", "circle", "square"], ["circle", "5", "1"], ["square", "0", "4"]]
-    assert cv2.imread(filename=str(files["Confusion Matrix Image"])) is not None
+
+    image_path, image = save_confusion_matrix_image(confusion_matrix=confusion_matrix, class_names=["circle", "square"],
+                                                    output_folder=tmp_path / "Iteration_10", title="Confusion Matrix")
+    assert image_path == tmp_path / "Iteration_10" / "confusion_matrix.png"
+    assert image.dtype == np.uint8 and image.ndim == 3 and image.shape[2] == 3
+    assert np.array_equal(cv2.cvtColor(src=cv2.imread(filename=str(image_path)), code=cv2.COLOR_BGR2RGB), image)
+
+
+def test_confusion_matrix_image_grows_with_the_classes_and_stays_headless() -> None:
+    """
+    Verifies that the confusion matrix image grows with the number of classes up to a cap, that it is drawn without
+    pyplot (no global figure state in the training process), and that a matrix without any sample is still drawn.
+    """
+    pyplot_loaded_before = "matplotlib.pyplot" in sys.modules
+    small_image = draw_confusion_matrix(confusion_matrix=torch.eye(n=3, dtype=torch.int64) * 4,
+                                        class_names=["circle", "square", "triangle"], title="Small")
+    large_image = draw_confusion_matrix(confusion_matrix=torch.eye(n=50, dtype=torch.int64) * 4,
+                                        class_names=[f"class_{class_index}" for class_index in range(50)],
+                                        title="Large")
+    capped_image = draw_confusion_matrix(confusion_matrix=torch.eye(n=200, dtype=torch.int64),
+                                         class_names=[f"class_{class_index}" for class_index in range(200)],
+                                         title="Capped")
+    assert large_image.shape[0] > small_image.shape[0] and large_image.shape[1] > small_image.shape[1]
+    assert capped_image.shape == large_image.shape
+    assert pyplot_loaded_before or "matplotlib.pyplot" not in sys.modules
+
+    empty_image = draw_confusion_matrix(confusion_matrix=torch.zeros(size=(3, 3), dtype=torch.int64),
+                                        class_names=["circle", "square", "triangle"], title="Empty")
+    assert empty_image.shape == small_image.shape

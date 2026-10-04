@@ -236,7 +236,8 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
     """
     Evaluates the detections of a whole test split, as reported by the Trainer at every evaluated checkpoint: with
     every average precision method, the mAP at an intersection over union of 0.5 (PASCAL VOC), at 0.75, and averaged
-    over the thresholds 0.5 to 0.95 (COCO), plus the average precision of every class at 0.5.
+    over the thresholds 0.5 to 0.95 (COCO), plus the average precision of every class at the same thresholds and the
+    number of ground truth boxes of every class, for the per-class report.
 
     Args:
         detections (List[Dict[str, torch.Tensor]]): For every image, its detection 'boxes' [N, 4], 'scores' [N] and
@@ -246,8 +247,9 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
         number_classes (int): The number of classes, background (index 0) included.
 
     Returns:
-        Dict[str, Dict[str, Any]]: For every method, its 'mAP@0.5', 'mAP@0.75', 'mAP@[0.5:0.95]' and 'class_AP@0.5'
-            (the average precision of every class with ground truth, at 0.5).
+        Dict[str, Dict[str, Any]]: For every method, its 'mAP@0.5', 'mAP@0.75' and 'mAP@[0.5:0.95]', the average
+            precision of every class with ground truth at 0.5, at 0.75 and averaged over 0.5 to 0.95 ('class_AP@0.5',
+            'class_AP@0.75', 'class_AP@[0.5:0.95]'), and the 'class_ground_truths' boxes of every foreground class.
     """
     # Gather the detections and best matches of every foreground class once, for all thresholds and methods
     class_detections = {class_label: gather_class_detections(detections=detections, ground_truths=ground_truths,
@@ -260,10 +262,19 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
             class_detections=class_detections, intersection_over_union_threshold=threshold, method=method)
             for threshold in INTERSECTION_OVER_UNION_THRESHOLDS}
 
-        # The COCO-style mAP is the mean of the mAPs at the ten thresholds
+        # The COCO-style mAP is the mean of the mAPs at the ten thresholds, and the COCO-style average precision of a
+        # class the mean of its average precisions at the ten thresholds (the same classes have ground truth at every
+        # threshold)
+        class_labels = list(threshold_results[0.5]["class_average_precisions"])
         results[method] = {"mAP@0.5": threshold_results[0.5]["mean_average_precision"],
                            "mAP@0.75": threshold_results[0.75]["mean_average_precision"],
                            "mAP@[0.5:0.95]": sum(result["mean_average_precision"]
                                                  for result in threshold_results.values()) / len(threshold_results),
-                           "class_AP@0.5": threshold_results[0.5]["class_average_precisions"]}
+                           "class_AP@0.5": threshold_results[0.5]["class_average_precisions"],
+                           "class_AP@0.75": threshold_results[0.75]["class_average_precisions"],
+                           "class_AP@[0.5:0.95]": {class_label: sum(
+                               result["class_average_precisions"][class_label] for result in threshold_results.values())
+                               / len(threshold_results) for class_label in class_labels},
+                           "class_ground_truths": {class_label: gathered["number_ground_truth"]
+                                                   for class_label, gathered in class_detections.items()}}
     return results

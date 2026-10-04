@@ -3,15 +3,17 @@ Smoke test of DetectionTrainer of vision_training/trainers/detection_trainer.py 
 checkpoints, evaluates and resumes.
 """
 
+import csv
 import pytest
 import torch
 import yaml
 
 from pathlib import Path
 
-from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
+from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.configuration.configuration_loader import load_experiment_configuration
+from tests.fixtures.evaluation_checks import read_results_blocks
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                                 "configuration_synthetic_shapes.yaml")
@@ -84,9 +86,11 @@ def build_trainer(configuration_path: Path) -> DetectionTrainer:
 def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the whole training pipeline on a generated synthetic dataset: 5 iterations save the intermediate and
-    evaluated checkpoints and the final one, evaluate the test split into Results.txt and write the three TensorBoard
-    folders. A second run with the same settings resolves to the same run folder, resumes from the last checkpoint
-    with exactly its weights, and trains 2 more iterations. No training step may fail silently.
+    evaluated checkpoints and the final one, evaluate the test split into Results.txt (the table of the average
+    precision methods and the per-class table) and class_metrics.csv (the ground truth boxes of every class summing to
+    those of the test images) and write the three TensorBoard folders. A second run with the same settings resolves to
+    the same run folder, resumes from the last checkpoint with exactly its weights, and trains 2 more iterations. No
+    training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -107,10 +111,30 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert sorted(path.name for path in weights_directory.glob("Iteration_*")) == ["Iteration_2", "Iteration_4",
                                                                                  "Iteration_5"]
     assert (weights_directory / "full-checkpoint").read_text().splitlines()[0] == 'model_checkpoint_path: "Iteration_5"'
-    assert (trainer.experiment_folder / "Results.txt").read_text().startswith("Iteration 4 : 4 Test Images")
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]
     results = trainer.run_test_evaluation(iteration=5)
     assert results["headline_metric"] == "mAP@0.5/area" and results["headline_metric"] in results["scalars"]
+
+    # Report of the two evaluations, with the table of the methods and the per-class table
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
+        (4, "4 Test Images"), (5, "4 Test Images")]
+    assert [table["title"] for table in results["tables"]] == ["Mean Average Precision",
+                                                              "Per Class Average Precision (Area)"]
+    assert "Per Class Average Precision (Area)" in results_blocks[1]["text"]
+    assert all(scalar_name.startswith("AP@0.5/") for scalar_name in results["class_scalars"])
+
+    # The ground truth boxes of every class sum to the boxes of the test images
+    test_dataset = trainer.test_dataloader.dataset
+    number_boxes = sum(test_dataset[sample_index]["bounding_boxes"].shape[0]
+                       for sample_index in range(len(test_dataset)))
+    with open(file=trainer.experiment_folder / "Evaluation" / "Iteration_5" / "class_metrics.csv", mode="r",
+              newline="") as class_metrics_file:
+        class_rows = list(csv.DictReader(f=class_metrics_file))
+    assert list(class_rows[0]) == ["class_index", "class", "ground_truths", "average_precision_50",
+                                   "average_precision_75", "average_precision_50_95"]
+    assert sum(int(class_row["ground_truths"]) for class_row in class_rows) == number_boxes
+    assert [class_row["class"] for class_row in class_rows] == list(SHAPE_CATEGORIES)
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(

@@ -1,6 +1,6 @@
 """
-Metrics of the classification-like tasks: confusion matrix, per-class precision, recall and F1, accuracy, top-k
-accuracy and the multi-label metrics. Used by the classification trainer, from which the sequence classification
+Metrics of the classification-like tasks: confusion matrix, per-class precision, recall, F1 and support, accuracy,
+top-k accuracy and the multi-label metrics. Used by the classification trainer, from which the sequence classification
 and comparison trainers inherit, to evaluate a checkpoint on the test split.
 """
 
@@ -56,14 +56,14 @@ def compute_metrics_from_confusion_matrix(confusion_matrix: torch.Tensor) -> Dic
     """
     Computes the multi-class metrics of an evaluation from its confusion matrix: the accuracy, the balanced accuracy
     (mean recall over the classes present in the evaluated samples, insensitive to class imbalance), the macro F1
-    over the same classes, and the precision, recall and F1 of every class.
+    over the same classes, and the precision, recall, F1 and number of evaluated samples (support) of every class.
 
     Args:
         confusion_matrix (torch.Tensor): The [K, K] confusion matrix (rows true classes, columns predicted classes).
 
     Returns:
-        Dict[str, Any]: The 'accuracy', 'balanced_accuracy' and 'macro_f1' floats, and the per-class 'precision',
-            'recall' and 'f1' lists.
+        Dict[str, Any]: The 'accuracy', 'balanced_accuracy' and 'macro_f1' floats, the per-class 'precision',
+            'recall' and 'f1' lists, and the per-class 'support' list of evaluated samples.
     """
     actual_counts = confusion_matrix.sum(dim=1)
     class_metrics = compute_precision_recall_f1(true_positives=confusion_matrix.diagonal(),
@@ -78,7 +78,7 @@ def compute_metrics_from_confusion_matrix(confusion_matrix: torch.Tensor) -> Dic
             else 0.0,
             "macro_f1": float(class_metrics["f1"][present_classes].mean()) if present_classes.any() else 0.0,
             "precision": class_metrics["precision"].tolist(), "recall": class_metrics["recall"].tolist(),
-            "f1": class_metrics["f1"].tolist()}
+            "f1": class_metrics["f1"].tolist(), "support": actual_counts.tolist()}
 
 
 def compute_top_k_accuracy(probabilities: torch.Tensor, labels: torch.Tensor, top_k: int) -> float:
@@ -103,8 +103,8 @@ def compute_multi_label_metrics(probabilities: torch.Tensor, labels: torch.Tenso
     """
     Computes the metrics of a multi-label evaluation, every class being predicted when its probability reaches the
     threshold: the subset accuracy (samples whose every class is right), the micro F1 (counts pooled over the
-    classes), the macro F1 (mean over the classes present in the evaluated samples), and the precision, recall and F1
-    of every class.
+    classes), the macro F1 (mean over the classes present in the evaluated samples), and the precision, recall, F1 and
+    number of positive samples (support) of every class.
 
     Args:
         probabilities (torch.Tensor): The [N, K] class probabilities.
@@ -112,8 +112,8 @@ def compute_multi_label_metrics(probabilities: torch.Tensor, labels: torch.Tenso
         threshold (float): The probability from which a class is predicted.
 
     Returns:
-        Dict[str, Any]: The 'subset_accuracy', 'micro_f1' and 'macro_f1' floats, and the per-class 'precision',
-            'recall' and 'f1' lists.
+        Dict[str, Any]: The 'subset_accuracy', 'micro_f1' and 'macro_f1' floats, the per-class 'precision',
+            'recall' and 'f1' lists, and the per-class 'support' list of positive samples.
     """
     predictions, targets = probabilities >= threshold, labels >= 0.5
     true_positives, predicted_counts, actual_counts = ((predictions & targets).sum(dim=0), predictions.sum(dim=0),
@@ -130,4 +130,4 @@ def compute_multi_label_metrics(probabilities: torch.Tensor, labels: torch.Tenso
             "micro_f1": float(pooled_metrics["f1"][0]),
             "macro_f1": float(class_metrics["f1"][present_classes].mean()) if present_classes.any() else 0.0,
             "precision": class_metrics["precision"].tolist(), "recall": class_metrics["recall"].tolist(),
-            "f1": class_metrics["f1"].tolist()}
+            "f1": class_metrics["f1"].tolist(), "support": actual_counts.tolist()}

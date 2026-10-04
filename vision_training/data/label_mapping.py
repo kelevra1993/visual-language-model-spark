@@ -65,14 +65,15 @@ def build_label_dictionary(label_mapping_configuration: Dict[str, Any], task: st
 
 def get_class_names(categories: List[Dict[str, Any]], label_dictionary: Dict[Any, int]) -> Dict[int, str]:
     """
-    Names the classes predicted by the classification and sequence models after the categories of a 'labels.json'
-    manifest, for the evaluation reports, the confusion matrices and the viewer captions. The names of the categories
-    merged into one class by the label dictionary are joined with '+', and a class named by no category keeps its
-    index as name.
+    Names the classes predicted by the classification, sequence and detection models after the categories of a
+    'labels.json' manifest, for the evaluation reports, the confusion matrices and the viewer captions. The names of the
+    categories merged into one class by the label dictionary are joined with '+', and a class named by no category
+    keeps the name it has in the label dictionary (e.g. 'background' and 'foreground' of the detector), or else its
+    index.
 
     Args:
         categories (List[Dict[str, Any]]): The 'id' and 'name' of every category of the manifest.
-        label_dictionary (Dict[Any, int]): The class index of every raw category identifier.
+        label_dictionary (Dict[Any, int]): The class index of every raw category identifier (or class name).
 
     Returns:
         Dict[int, str]: The name of every class index.
@@ -81,8 +82,17 @@ def get_class_names(categories: List[Dict[str, Any]], label_dictionary: Dict[Any
     for category in categories:
         if category["id"] in label_dictionary:
             category_names.setdefault(label_dictionary[category["id"]], []).append(category["name"])
-    return {class_index: "+".join(category_names.get(class_index, [str(class_index)]))
-            for class_index in range(len(set(label_dictionary.values())))}
+
+    # Classes named by no category: their name in the label dictionary when they have one, otherwise their index
+    dictionary_names = {class_index: key for key, class_index in label_dictionary.items() if isinstance(key, str)}
+    class_names = {}
+    for class_index in range(len(set(label_dictionary.values()))):
+        if class_index in category_names:
+            class_names[class_index] = "+".join(category_names[class_index])
+        else:
+            class_names[class_index] = dictionary_names[class_index] if class_index in dictionary_names else str(
+                class_index)
+    return class_names
 
 
 def write_label_mapping(categories: List[Dict[str, Any]], output_folder: str | Path) -> Path:

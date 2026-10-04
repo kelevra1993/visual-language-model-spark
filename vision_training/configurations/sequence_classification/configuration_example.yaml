@@ -40,6 +40,12 @@ ExperimentConfiguration:
   # balanced accuracy, macro F1, top-k accuracy, precision / recall / F1 of every class, and the confusion matrix and
   # class thresholds saved in <run folder>/Evaluation/Iteration_<iteration>/.
   evaluation:
+    # Reports every class at every evaluation: the table of the classes (test samples, precision, recall, F1, and the
+    # threshold reaching target_precision with the recall it keeps, worst F1 first) in the console and Results.txt,
+    # their Precision / Recall / F1 Test scalars in TensorBoard, and the confusion matrix image (confusion_matrix.png
+    # and TensorBoard). False keeps the global metrics only, e.g. for many classes: class_metrics.csv,
+    # class_thresholds.json and confusion_matrix.csv are saved either way.
+    per_class_report: True
     # Number of most probable classes among which the true class must be for the top-k accuracy. Must be a positive
     # integer, values above the number of classes counting every sample as right.
     top_k: 3

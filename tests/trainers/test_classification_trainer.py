@@ -1,7 +1,8 @@
 """
 Smoke tests of ClassificationTrainer of vision_training/trainers/classification_trainer.py on a synthetic dataset:
-multi-class and multi-label training save, evaluate and resume, with the predictions file and error images checked,
-and a head reading the flattened feature map trains.
+multi-class and multi-label training save, evaluate and resume, with the report, the per-class metrics, the
+predictions file and the error images checked, the per-class report and the predictions file can be turned off, and a
+head reading the flattened feature map trains.
 """
 
 import json
@@ -10,12 +11,15 @@ import torch
 import yaml
 
 from pathlib import Path
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from typing import Any, Dict
+from unittest.mock import patch
 
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.classification_trainer import ClassificationTrainer
-from tests.fixtures.evaluation_checks import check_error_images, check_predictions_file, read_predictions_file
+from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
+                                              read_predictions_file, read_results_blocks)
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "classification" /
                                 "configuration_synthetic_shapes.yaml")
@@ -88,9 +92,10 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     """
     Verifies the classification training pipeline on a generated synthetic dataset: the balanced class weights of the
     training split are set in the model, 5 iterations save the intermediate, evaluated and final checkpoints, the
-    evaluation of the test split is written to Results.txt with its confusion matrix and class thresholds files, and
-    a second run with the same settings resumes from the last checkpoint with exactly its weights. No training step
-    may fail silently.
+    evaluation of the test split is reported (Results.txt block with its per-class table, per-class scalars and
+    confusion matrix image) with its per-class metrics, confusion matrix and class thresholds files, and a second run
+    with the same settings resumes from the last checkpoint with exactly its weights. No training step may fail
+    silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -113,21 +118,32 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     clamped_class_counts = class_counts.clamp(min=1.0)
     expected_class_weights = clamped_class_counts.sum() / (len(SHAPE_CATEGORIES) * clamped_class_counts)
     assert torch.allclose(input=trainer.model.class_weights.cpu(), other=expected_class_weights)
-    trainer.run_training_loop()
+    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
+        trainer.run_training_loop()
+    results = report_mock.call_args.kwargs["results"]
 
     weights_directory = trainer.weights_directory
     assert sorted(path.name for path in weights_directory.glob("Iteration_*")) == ["Iteration_2", "Iteration_4",
                                                                                  "Iteration_5"]
-    results_lines = (trainer.experiment_folder / "Results.txt").read_text().splitlines()
-    assert results_lines[0] == "Iteration 4 : 6 Test Images"
-    assert results_lines[1].startswith("  Accuracy ") and "| Top-2 Accuracy " in results_lines[1]
+
+    # Report of the evaluated checkpoint: its block in Results.txt with the per-class table, and its per-class outputs
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "6 Test Images")]
+    assert list(results["metrics"]) == ["Accuracy", "Balanced Accuracy", "Macro F1", "Top-2 Accuracy"]
+    assert "Per Class Metrics" in results_blocks[0]["text"]
+    assert list(results["images"]) == ["Confusion Matrix"] and results["images"]["Confusion Matrix"].ndim == 3
+    assert len(results["class_scalars"]) == 3 * len(trainer.class_names)
+
+    # Files of the evaluated checkpoint
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
-        "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png", "predictions.csv"]
-    rows = check_predictions_file(evaluation_folder=evaluation_folder, results_lines=results_lines, expected_rows=6,
-                                  class_names=trainer.class_names, identification_columns=["sample"])
+        "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
+        "predictions.csv"]
+    check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=6)
+    rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
+                                  expected_rows=6, class_names=trainer.class_names, identification_columns=["sample"])
     assert all(row["sample"].endswith(".png") for row in rows)
-    check_error_images(evaluation_folder=evaluation_folder, rows=rows, results_lines=results_lines,
+    check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
                        maximum_per_class_pair=1)
     class_thresholds = json.loads((evaluation_folder / "class_thresholds.json").read_text())
     assert list(class_thresholds["classes"]) == trainer.class_names
@@ -155,7 +171,8 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     """
     Verifies the multi-label mode of the classification trainer on the synthetic dataset rewritten as a multi-label
     one (every sample listing its single category in 'category_ids'): the training runs, and the evaluation reports
-    the multi-label metrics and saves the class thresholds without confusion matrix.
+    the multi-label metrics, with the positives of every class in its per-class table, and saves the per-class metrics
+    and the class thresholds without confusion matrix.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -178,13 +195,17 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5,
         head_settings={"output_mode": "multi_label"}, evaluation_settings={}))
     assert trainer.run_name.endswith("_ML9")
-    trainer.run_training_loop()
+    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
+        trainer.run_training_loop()
+    results = report_mock.call_args.kwargs["results"]
 
-    results_lines = (trainer.experiment_folder / "Results.txt").read_text().splitlines()
-    assert results_lines[0] == "Iteration 4 : 4 Test Images"
-    assert results_lines[1].startswith("  Subset Accuracy ")
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "4 Test Images")]
+    assert list(results["metrics"]) == ["Subset Accuracy", "Micro F1", "Macro F1"]
+    assert results["tables"][0]["columns"][1] == "Positives" and results["images"] == {}
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
-    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_thresholds.json", "predictions.csv"]
+    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_metrics.csv", "class_thresholds.json",
+                                                                         "predictions.csv"]
     multi_label_rows = read_predictions_file(evaluation_folder=evaluation_folder)
     assert len(multi_label_rows) == 4
     assert list(multi_label_rows[0])[:4] == ["sample", "true_classes", "predicted_classes", "correct"]
@@ -195,10 +216,12 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     assert "Critical Error" not in console_output
 
 
-def test_predictions_file_can_be_turned_off(tmp_path: Path) -> None:
+def test_predictions_file_and_per_class_report_can_be_turned_off(tmp_path: Path) -> None:
     """
     Verifies that the evaluation writes no predictions file when 'evaluation.save_predictions' is False, for the large
-    test sets whose file would be too big.
+    test sets whose file would be too big, and that 'evaluation.per_class_report' False keeps the global metrics only:
+    no per-class table in Results.txt, no per-class scalar nor confusion matrix image in TensorBoard and no
+    confusion_matrix.png, while class_metrics.csv and confusion_matrix.csv are still saved.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -210,13 +233,21 @@ def test_predictions_file_can_be_turned_off(tmp_path: Path) -> None:
 
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4, head_settings={},
-        evaluation_settings={"save_predictions": False}))
+        evaluation_settings={"save_predictions": False, "per_class_report": False}))
     trainer.run_training_loop()
 
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
-    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_thresholds.json",
-                                                                         "confusion_matrix.csv",
-                                                                         "confusion_matrix.png"]
+    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_metrics.csv", "class_thresholds.json",
+                                                                         "confusion_matrix.csv"]
+
+    # The report keeps the global metrics only
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [block["iteration"] for block in results_blocks] == [4]
+    assert "Accuracy" in results_blocks[0]["text"] and "Per Class Metrics" not in results_blocks[0]["text"]
+    test_events = EventAccumulator(path=str(trainer.tensorboard_directory / "Test"))
+    test_events.Reload()
+    assert sorted(test_events.Tags()["scalars"]) == ["Accuracy", "Balanced Accuracy", "Macro F1", "Top-2 Accuracy"]
+    assert test_events.Tags()["images"] == []
 
 
 def test_flattened_feature_map_training(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -246,7 +277,8 @@ def test_flattened_feature_map_training(tmp_path: Path, capsys: pytest.CaptureFi
     assert trainer.model.classification_head.input_features == final_feature_map[0].numel()
     trainer.run_training_loop()
 
-    assert (trainer.experiment_folder / "Results.txt").read_text().startswith("Iteration 4 : 4 Test Images")
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "4 Test Images")]
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

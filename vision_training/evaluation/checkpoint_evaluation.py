@@ -20,9 +20,9 @@ def evaluate_checkpoints(trainer: BaseTrainer, experiment_folder: Path, iteratio
     Evaluates checkpoints of a trained run one after the other on the test split of the trainer, to choose the
     checkpoint to deploy: every checkpoint is loaded into the model of the trainer and evaluated like during the
     training (Results.txt, TensorBoard, the evaluation files of the task in the run folder of the trainer), then
-    'Evaluation/evaluation_summary.csv' gathers one row per evaluated iteration with every evaluation scalar, and the
-    best iteration according to the headline metric of the task is printed. A checkpoint listed in the registry but
-    deleted from the disk is skipped.
+    'Evaluation/evaluation_summary.csv' gathers one row per evaluated iteration with every evaluation scalar (those of
+    every class only with the per-class report), and the best iteration according to the headline metric of the task
+    is printed. A checkpoint listed in the registry but deleted from the disk is skipped.
 
     Args:
         trainer (BaseTrainer): The trainer of the run, built from its configuration, usually writing into a separate
@@ -47,7 +47,8 @@ def evaluate_checkpoints(trainer: BaseTrainer, experiment_folder: Path, iteratio
         trainer.model.load_state_dict(state_dict=checkpoint["model_state"])
         print_color(color="blue", output=f"Evaluating : file://{checkpoint_path.absolute()}", add_separators=True)
         results = trainer.run_test_evaluation(iteration=iteration)
-        summary_rows.append({"iteration": iteration, **results["scalars"]})
+        summary_rows.append({"iteration": iteration, **results["scalars"],
+                             **(results["class_scalars"] if trainer.per_class_report else {})})
 
         # Best iteration of the headline metric, the higher the better
         headline_metric = results["headline_metric"]

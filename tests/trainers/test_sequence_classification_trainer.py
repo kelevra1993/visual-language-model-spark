@@ -8,11 +8,13 @@ import torch
 import yaml
 
 from pathlib import Path
+from unittest.mock import patch
 
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.sequence_classification_trainer import SequenceClassificationTrainer
-from tests.fixtures.evaluation_checks import check_error_images, check_predictions_file
+from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
+                                              read_results_blocks)
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                 "sequence_classification" / "configuration_synthetic_sequences.yaml")
@@ -89,9 +91,9 @@ def test_sequence_classification_training_saves_evaluates_and_resumes(tmp_path: 
     """
     Verifies the sequence classification training pipeline on a generated synthetic moving shapes dataset: 5
     iterations save the intermediate, evaluated and final checkpoints, the evaluation of the test sequences is
-    written to Results.txt with its confusion matrix and class thresholds files, the frame throughput is printed,
-    and a second run with the same settings resumes from the last checkpoint with exactly its weights. No training
-    step may fail silently.
+    reported in Results.txt with its per-class metrics, confusion matrix and class thresholds files, the frame
+    throughput is printed, and a second run with the same settings resumes from the last checkpoint with exactly its
+    weights. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -108,21 +110,25 @@ def test_sequence_classification_training_saves_evaluates_and_resumes(tmp_path: 
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5))
     assert trainer.run_name.startswith("M2O_") and "_T4_GRU1x128-BI_" in trainer.run_name
     assert trainer.class_names == ["moving_left", "moving_right", "moving_up", "moving_down"]
-    trainer.run_training_loop()
+    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
+        trainer.run_training_loop()
+    results = report_mock.call_args.kwargs["results"]
 
     weights_directory = trainer.weights_directory
     assert sorted(path.name for path in weights_directory.glob("Iteration_*")) == ["Iteration_2", "Iteration_4",
                                                                                  "Iteration_5"]
-    results_lines = (trainer.experiment_folder / "Results.txt").read_text().splitlines()
-    assert results_lines[0] == "Iteration 4 : 6 Test Sequences"
-    assert results_lines[1].startswith("  Accuracy ")
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "6 Test Sequences")]
+    assert "Accuracy" in results["metrics"] and "Per Class Metrics" in results_blocks[0]["text"]
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
-        "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png", "predictions.csv"]
-    rows = check_predictions_file(evaluation_folder=evaluation_folder, results_lines=results_lines, expected_rows=6,
-                                  class_names=trainer.class_names,
+        "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
+        "predictions.csv"]
+    check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=6)
+    rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
+                                  expected_rows=6, class_names=trainer.class_names,
                                   identification_columns=["sequence", "first_frame", "last_frame"])
-    check_error_images(evaluation_folder=evaluation_folder, rows=rows, results_lines=results_lines,
+    check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
                        maximum_per_class_pair=2)
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights

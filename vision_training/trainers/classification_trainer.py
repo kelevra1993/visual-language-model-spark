@@ -1,8 +1,8 @@
 """
 Trainer of the image classification task: the data loaders of the 'labels.json' manifests, the classifier, the
 accuracy tracked on every batch, and the evaluation of the checkpoints on the test split (classification metrics,
-confusion matrix, class thresholds, error images and the predictions file). Registered for the classification task and
-extended by the sequence classification trainer.
+per-class metrics, confusion matrix, class thresholds, error images and the predictions file). Registered for the
+classification task and extended by the sequence classification trainer.
 """
 
 import csv
@@ -21,8 +21,13 @@ from vision_training.evaluation.classification.classification_metrics import (co
                                                                               compute_metrics_from_confusion_matrix,
                                                                               compute_multi_label_metrics,
                                                                               compute_top_k_accuracy)
-from vision_training.evaluation.classification.confusion_matrix import save_confusion_matrix
+from vision_training.evaluation.classification.class_metrics_report import (build_class_metric_scalars,
+                                                                             build_class_metrics_rows,
+                                                                             build_class_metrics_table)
+from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
+                                                                        save_confusion_matrix_table)
 from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
+from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.losses.classification_losses import compute_balanced_class_weights
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
@@ -45,6 +50,10 @@ class ClassificationTrainer(BaseTrainer):
     """
 
     TASK_NAME = "classification"
+
+    # Name of the column of the evaluated samples of every class in the per-class table of the report ("Positives" in
+    # multi-label mode, the samples of the classes present)
+    CLASS_SUPPORT_COLUMN = "Samples"
 
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
@@ -301,8 +310,8 @@ class ClassificationTrainer(BaseTrainer):
 
     def describe_evaluated_samples(self, accumulator: Dict[str, Any]) -> str:
         """
-        Describes the evaluated test samples in the first line of the report. The sequence labelling trainer
-        overrides it to count the windows and their labelled frames.
+        Describes the evaluated test samples in the header of the report. The sequence labelling trainer overrides
+        it to count the windows and their labelled frames.
 
         Args:
             accumulator (Dict[str, Any]): The accumulated class probabilities and labels of the test split.
@@ -405,24 +414,26 @@ class ClassificationTrainer(BaseTrainer):
 
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
-        Computes the classification metrics of the test split and formats them for the report: the headline metrics
-        (with the extra metrics of the task), the precision, recall and F1 of every class, and the threshold of every
-        class reaching the target precision with the recall it keeps. The confusion matrix (multi-class mode), the
-        thresholds and, when asked, the predictions of every sample are saved in the evaluation folder of the
-        checkpoint, '<run>/Evaluation/Iteration_<n>/'.
+        Computes the classification metrics of the test split and organises them for the report: the headline metrics
+        (with the extra metrics of the task), the error images as a note, the per-class table (shown with the per-class
+        report, worst F1 first) and the per-class scalars. The threshold of every class reaching the target precision,
+        the metrics of every class, the confusion matrix table (multi-class mode) and, when asked, the predictions of
+        every sample are saved in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever
+        the per-class report; the confusion matrix image only with it, also logged to TensorBoard.
 
         Args:
             accumulator (Dict[str, Any]): The class probabilities and labels of the test split.
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
-            EvaluationResults: The lines, scalars and files of the evaluation.
+            EvaluationResults: The results of the evaluation.
         """
         probabilities = torch.cat(tensors=accumulator["probabilities"], dim=0)
         labels = torch.cat(tensors=accumulator["labels"], dim=0)
         evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
+        evaluation_folder.mkdir(parents=True, exist_ok=True)
         number_classes = len(self.class_names)
-        files = {}
+        files, images = {}, {}
 
         # Headline metrics: from the confusion matrix for a single class per sample, from the class decisions at 0.5
         # for several classes per sample
@@ -436,14 +447,17 @@ class ClassificationTrainer(BaseTrainer):
                                                                                      labels=labels,
                                                                                      top_k=self.top_k)}
             positive_masks = torch.nn.functional.one_hot(input=labels, num_classes=number_classes).to(dtype=torch.bool)
-            files.update(save_confusion_matrix(confusion_matrix=confusion_matrix, class_names=self.class_names,
-                                               output_folder=evaluation_folder))
+            files["Confusion Matrix Table"] = save_confusion_matrix_table(confusion_matrix=confusion_matrix,
+                                                                          class_names=self.class_names,
+                                                                          output_folder=evaluation_folder)
+            support_column = self.CLASS_SUPPORT_COLUMN
         else:
             metrics = compute_multi_label_metrics(probabilities=probabilities, labels=labels,
                                                   threshold=MULTI_LABEL_THRESHOLD)
             headline_metrics = {"Subset Accuracy": metrics["subset_accuracy"], "Micro F1": metrics["micro_f1"],
                                 "Macro F1": metrics["macro_f1"]}
             positive_masks = labels >= 0.5
+            support_column = "Positives"
 
         # Extra metrics of the task, e.g. the sequence exact match of the sequence labelling task
         headline_metrics.update(self.compute_extra_headline_metrics(accumulator=accumulator))
@@ -451,7 +465,6 @@ class ClassificationTrainer(BaseTrainer):
         # Threshold of every class reaching the target precision, saved for the deployment of the checkpoint
         class_thresholds = find_class_thresholds(probabilities=probabilities, positive_masks=positive_masks,
                                                  target_precision=self.target_precision)
-        evaluation_folder.mkdir(parents=True, exist_ok=True)
         thresholds_path = evaluation_folder / "class_thresholds.json"
         thresholds_path.write_text(data=json.dumps(obj={
             "target_precision": self.target_precision,
@@ -460,38 +473,39 @@ class ClassificationTrainer(BaseTrainer):
                         for class_name, class_threshold in zip(self.class_names, class_thresholds)}}, indent=4))
         files["Class Thresholds"] = thresholds_path
 
+        # Metrics of every class, saved whatever the per-class report so that they stay available for many classes
+        class_rows = build_class_metrics_rows(class_names=self.class_names, metrics=metrics,
+                                              class_thresholds=class_thresholds)
+        files["Class Metrics"] = write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)
+
+        # Confusion matrix image of the per-class report, saved and logged to TensorBoard
+        if self.output_mode == "multi_class" and self.per_class_report:
+            files["Confusion Matrix Image"], images["Confusion Matrix"] = save_confusion_matrix_image(
+                confusion_matrix=confusion_matrix, class_names=self.class_names, output_folder=evaluation_folder,
+                title=f"Confusion Matrix · Iteration {iteration} · Accuracy {metrics['accuracy']:.4f} · Balanced "
+                      f"Accuracy {metrics['balanced_accuracy']:.4f}")
+
         # Predictions of every evaluated sample, when asked
         if self.save_predictions:
             files["Predictions"] = self.write_predictions_file(accumulator=accumulator,
                                                                evaluation_folder=evaluation_folder)
 
-        # Headline line, then one line for the per-class metrics and one for the per-class thresholds
-        lines = [f"Iteration {iteration} : {self.describe_evaluated_samples(accumulator=accumulator)}",
-                 "  " + " | ".join(f"{metric_name} {metric_value:.4f}"
-                                   for metric_name, metric_value in headline_metrics.items()),
-                 "  Precision / Recall / F1 Per Class : " + " | ".join(
-                     f"{class_name} {metrics['precision'][class_index]:.4f} / {metrics['recall'][class_index]:.4f} / "
-                     f"{metrics['f1'][class_index]:.4f}" for class_index, class_name in enumerate(self.class_names)),
-                 f"  Threshold / Recall At Precision {self.target_precision} Per Class : " + " | ".join(
-                     f"{class_name} " + ("unreachable" if class_threshold is None else
-                                         f"{class_threshold[0]:.4f} / {class_threshold[1]:.4f}")
-                     for class_name, class_threshold in zip(self.class_names, class_thresholds))]
-
         # Number of error images, and their folder when some were saved
+        notes = []
         if self.error_dumps_configuration["activated"]:
             error_counts = accumulator["error_counts"]
-            lines.append(f"  Error Images : {sum(error_counts.values())} in {len(error_counts)} class pairs, at most "
+            notes.append(f"Error Images : {sum(error_counts.values())} in {len(error_counts)} class pairs, at most "
                          f"{self.error_dumps_configuration['maximum_per_class_pair']} per pair")
             if error_counts:
                 files["Error Images"] = accumulator["errors_folder"]
 
-        # The same values as TensorBoard scalars, to follow them over the training
-        scalars = {metric_name: metric_value for metric_name, metric_value in headline_metrics.items()}
-        for class_index, class_name in enumerate(self.class_names):
-            for metric_name in ["precision", "recall", "f1"]:
-                scalars[f"{metric_name.capitalize()}/{class_name}"] = metrics[metric_name][class_index]
-
-        return {"lines": lines, "scalars": scalars, "files": files,
+        return {"evaluated_samples": self.describe_evaluated_samples(accumulator=accumulator),
+                "metrics": headline_metrics, "notes": notes,
+                "tables": [build_class_metrics_table(class_rows=class_rows, target_precision=self.target_precision,
+                                                     support_column=support_column)],
+                "scalars": dict(headline_metrics),
+                "class_scalars": build_class_metric_scalars(class_names=self.class_names, metrics=metrics),
+                "images": images, "files": files,
                 "headline_metric": "Accuracy" if self.output_mode == "multi_class" else "Subset Accuracy"}
 
     def get_label_caption(self, label: torch.Tensor) -> str:

@@ -15,6 +15,7 @@ from typing import Any, Dict
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
 from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_configurations
+from tests.fixtures.evaluation_checks import read_results_blocks
 from tests.trainers.test_classification_trainer import SMOKE_IMAGE_SIZE, build_trainer, write_smoke_configuration
 
 
@@ -117,7 +118,8 @@ def test_mixed_precision_training(tmp_path: Path, capsys: pytest.CaptureFixture)
     assert "BF16" not in trainer.run_name and trainer.run_name.endswith("_MC9")
     trainer.run_training_loop()
 
-    assert (trainer.experiment_folder / "Results.txt").read_text().startswith("Iteration 4 : 4 Test Images")
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "4 Test Images")]
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

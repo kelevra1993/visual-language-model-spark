@@ -31,8 +31,8 @@ PRETRAINED_COMPONENT_NAMES = {"Backbone": "backbone", "TemporalModel": "temporal
 
 def check_experiment_configuration(experiment_configuration: Dict[str, Any], valid_tasks: List[str]) -> List[str]:
     """
-    Verifies the task and the training loop settings of the 'ExperimentConfiguration' section consumed by the
-    trainers.
+    Verifies the task, the training loop settings and the per-class report switch of the 'ExperimentConfiguration'
+    section consumed by the trainers.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -80,9 +80,10 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any], val
     if isinstance(learning_rate, bool) or not isinstance(learning_rate, (int, float)) or learning_rate <= 0:
         errors.append(f"'ExperimentConfiguration.learning_rate' must be > 0, got {learning_rate!r}.")
 
-    # Flags toggling training resumption and the diagnosis modes
+    # Flags toggling training resumption, the per-class part of the evaluation reports and the diagnosis modes
     errors += check_boolean_flags(configuration=configuration,
                                   key_paths=["ExperimentConfiguration.resume_training",
+                                             "ExperimentConfiguration.evaluation.per_class_report",
                                              "ExperimentConfiguration.diagnosis_modes.verbose",
                                              "ExperimentConfiguration.diagnosis_modes.compute_receptive_field",
                                              "ExperimentConfiguration.diagnosis_modes.compute_model_size",

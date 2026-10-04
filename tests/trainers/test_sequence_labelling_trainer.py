@@ -8,11 +8,13 @@ import torch
 import yaml
 
 from pathlib import Path
+from unittest.mock import patch
 
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.sequence_labelling_trainer import SequenceLabellingTrainer
-from tests.fixtures.evaluation_checks import check_error_images, check_predictions_file
+from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
+                                              read_results_blocks)
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                 "sequence_labelling" / "configuration_synthetic_sequences.yaml")
@@ -88,9 +90,9 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     """
     Verifies the sequence labelling training pipeline on a generated synthetic changing shapes dataset: 5 iterations
     save the intermediate, evaluated and final checkpoints, the evaluation of the labelled frames of the test windows
-    is written to Results.txt with the sequence exact match, its confusion matrix and class thresholds files, and a
-    second run with the same settings resumes from the last checkpoint with exactly its weights. No training step may
-    fail silently.
+    is reported in Results.txt with the sequence exact match and the labelled frames of every class, its per-class
+    metrics, confusion matrix and class thresholds files, and a second run with the same settings resumes from the
+    last checkpoint with exactly its weights. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -107,23 +109,30 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5))
     assert trainer.run_name.startswith("M2M_") and "_T4_TRF1x128.4-CAU_" in trainer.run_name
     assert trainer.class_names == list(SHAPE_CATEGORIES)
-    trainer.run_training_loop()
+    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
+        trainer.run_training_loop()
+    results = report_mock.call_args.kwargs["results"]
 
     weights_directory = trainer.weights_directory
     assert sorted(path.name for path in weights_directory.glob("Iteration_*")) == ["Iteration_2", "Iteration_4",
                                                                                  "Iteration_5"]
-    results_lines = (trainer.experiment_folder / "Results.txt").read_text().splitlines()
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
     # Every test sequence of 6 frames gives the windows of frames 0 to 3 and 2 to 5, all their frames being labelled
-    assert results_lines[0] == "Iteration 4 : 6 Test Sequences, 24 Labelled Frames"
-    assert results_lines[1].startswith("  Accuracy ") and "| Sequence Exact Match " in results_lines[1]
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
+        (4, "6 Test Sequences, 24 Labelled Frames")]
+    assert "Accuracy" in results["metrics"] and "Sequence Exact Match" in results["metrics"]
+    assert results["tables"][0]["columns"][1] == "Frames"
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
-        "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png", "predictions.csv"]
-    rows = check_predictions_file(evaluation_folder=evaluation_folder, results_lines=results_lines, expected_rows=24,
-                                  class_names=trainer.class_names, identification_columns=["sequence", "frame"])
+        "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
+        "predictions.csv"]
+    check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=24)
+    rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
+                                  expected_rows=24, class_names=trainer.class_names,
+                                  identification_columns=["sequence", "frame"])
     # The 3 test sequences of 6 frames give 18 distinct frames, frames 2 and 3 of each sequence being in both windows
     assert len({(row["sequence"], row["frame"]) for row in rows}) == 3 * 6
-    if check_error_images(evaluation_folder=evaluation_folder, rows=rows, results_lines=results_lines,
+    if check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
                           maximum_per_class_pair=2):
         assert all("_frame" in image_path.stem for image_path in (evaluation_folder / "Errors").rglob("*.png"))
 

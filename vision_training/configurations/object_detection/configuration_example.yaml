@@ -34,6 +34,10 @@ ExperimentConfiguration:
   # Test evaluation run at every weight_saving_iterations checkpoint, computing the mean average precision (mAP)
   # on the whole test split.
   evaluation:
+    # Reports every class at every evaluation: the table of the classes (ground truth boxes and average precision at
+    # IoU 0.5, 0.75 and 0.5:0.95, area method, worst AP@0.5 first) in the console and Results.txt, and their AP@0.5
+    # Test scalars in TensorBoard. False keeps the mean average precisions only: class_metrics.csv is saved either way.
+    per_class_report: True
     # Minimum class probability of the detections kept for the mAP. It replaces Detector.inference.score_threshold
     # during the evaluation only: the mAP needs the low-confidence detections too, otherwise the end of the
     # precision-recall curve is cut off and the mAP is underestimated. Must be within [0, 1].

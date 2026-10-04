@@ -1,8 +1,8 @@
 """
 Migration of configuration files and run folders written by older versions of the code: inserts as text, keeping
-the comments, the keys and sections added since (task, pretrained settings, evaluation outputs, sequence settings,
-Optimization), and renames the run folder to its current run name (without the training tokens no longer written
-in the run names). Called by scripts/configuration/migrate_configuration.py.
+the comments, the keys and sections added since (task, pretrained settings, evaluation outputs, per-class report,
+sequence settings, Optimization), and renames the run folder to its current run name (without the training tokens no
+longer written in the run names). Called by scripts/configuration/migrate_configuration.py.
 """
 
 import yaml
@@ -63,6 +63,14 @@ ERROR_DUMPS_LINES = ("    # Saves the misclassified test samples as images at ev
                      "    error_dumps:\n"
                      "      activated: False\n"
                      "      maximum_per_class_pair: 20\n")
+
+# Line of the evaluation settings of the experiment section, and the switch of the per-class part of the evaluation
+# reports inserted as their first setting, on as in every run written before it existed
+EVALUATION_SECTION_LINE = "  evaluation:\n"
+PER_CLASS_REPORT_LINES = ("    # Reports every class at every evaluation: the table of the classes, their TensorBoard "
+                          "scalars and the\n"
+                          "    # confusion matrix image. False keeps the global metrics only.\n"
+                          "    per_class_report: True\n")
 
 # Lines of the augmentation section and of its types, and the sequence augmentations inserted before the types, off in
 # every run written before they existed
@@ -248,6 +256,44 @@ def add_evaluation_outputs_to_configuration(configuration_path: Path) -> bool:
     return added_settings
 
 
+def add_per_class_report_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades the configuration file of a run of any task written before
+    'ExperimentConfiguration.evaluation.per_class_report' by inserting the switch, on, as the first setting of its
+    evaluation settings: the runs of that time reported every class. The switch is inserted as text, so that every
+    comment of the file is kept, and a file that already has it, or has no evaluation settings, is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the switch was added, False if the file already had it or has no evaluation settings.
+
+    Raises:
+        ValueError: If the evaluation settings have no line of their own in the experiment section.
+    """
+    text = configuration_path.read_text()
+    experiment_configuration = yaml.safe_load(stream=text)["ExperimentConfiguration"]
+    if "evaluation" not in experiment_configuration or "per_class_report" in experiment_configuration["evaluation"]:
+        return False
+
+    # Line of the evaluation settings, searched from the experiment header to the next section header
+    lines = text.splitlines(keepends=True)
+    evaluation_index = None
+    for line_index in range(lines.index(EXPERIMENT_SECTION_HEADER) + 1, len(lines)):
+        if lines[line_index][:1].isalpha():
+            break
+        if lines[line_index] == EVALUATION_SECTION_LINE:
+            evaluation_index = line_index
+            break
+    if evaluation_index is None:
+        raise ValueError(f"No '  evaluation:' line in the experiment section of file://{configuration_path.absolute()}")
+
+    configuration_path.write_text(data="".join(lines[:evaluation_index + 1] + [PER_CLASS_REPORT_LINES] +
+                                               lines[evaluation_index + 1:]))
+    return True
+
+
 def add_sequence_augmentation_to_configuration(configuration_path: Path) -> bool:
     """
     Upgrades a configuration file written before the sequence augmentations by inserting
@@ -366,9 +412,10 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     the current code: its saved configuration gets its task, the 'pretrained' settings of its backbone, temporal
     module and classification head (those of a run trained from random weights), the
     'Backbone.pretrained.freeze_normalization_parameters' flag (off), the evaluation outputs of the classification-like
-    tasks (no predictions file nor error images), the sequence augmentations (off), the scope of the sequence
-    normalization of the comparison task (per member), its 'Optimization' section (plain Adam at a constant
-    learning rate) and its loading settings (4 worker processes), and its folder is renamed to the run name the
+    tasks (no predictions file nor error images), the per-class report switch of every task (on, the per-class
+    report of that time), the sequence augmentations (off), the scope of the sequence normalization of the
+    comparison task (per member), its 'Optimization' section (plain Adam at a constant learning rate) and its loading
+    settings (4 worker processes), and its folder is renamed to the run name the
     current code builds from that configuration (the task code being now the first section of the run names, and the
     augmentation, batch size, learning rate, schedule, gradient clipping and mixed precision tokens being no longer
     written). The configuration is fully checked on the way, any other missing key being reported by the configuration
@@ -401,6 +448,8 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     if add_evaluation_outputs_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Evaluation Outputs Settings Added To : "
                                           f"file://{configuration_path.absolute()}")
+    if add_per_class_report_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Per-Class Report Switch Added To : file://{configuration_path.absolute()}")
     if add_sequence_augmentation_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Sequence Augmentation Settings Added To : "
                                           f"file://{configuration_path.absolute()}")

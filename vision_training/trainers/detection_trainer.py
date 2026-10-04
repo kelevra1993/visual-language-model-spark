@@ -1,9 +1,11 @@
 """
 Trainer of the object detection task: the COCO-format loaders (DALI or Native), the two-stage detector with its four
 losses, the geometric augmentations moving the bounding boxes, and the evaluation of the checkpoints on the test split
-with the mean average precision. Registered for the object detection task in the task registry.
+with the mean average precision and the average precision of every class. Registered for the object detection task in
+the task registry.
 """
 
+import json
 import torch
 
 from contextlib import contextmanager
@@ -11,9 +13,14 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Tuple
 
 from vision_training.core.contracts import DetectionBatch, EvaluationResults
+from vision_training.data.label_mapping import get_class_names
 from vision_training.data.loaders import get_detection_dataloaders
 from vision_training.data.split_description import count_split_images_and_annotations
+from vision_training.evaluation.detection.average_precision_report import (build_class_average_precision_rows,
+                                                                           build_class_average_precision_table,
+                                                                           build_mean_average_precision_table)
 from vision_training.evaluation.detection.mean_average_precision import AVERAGE_PRECISION_METHODS, evaluate_detections
+from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.utilities.visualization import view_input_data
@@ -47,11 +54,16 @@ class DetectionTrainer(BaseTrainer):
 
     def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
         """
-        Builds the COCO detection loaders (DALI or Native, depending on the configuration) of the three splits.
+        Builds the COCO detection loaders (DALI or Native, depending on the configuration) of the three splits, and
+        names the classes after the categories of the test split for the per-class report.
 
         Returns:
             Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
         """
+        test_labels_path = Path(self.experiment_configuration["test_data_folder"]) / "labels.json"
+        with open(file=test_labels_path, mode="r") as labels_file:
+            categories = json.load(fp=labels_file)["categories"]
+        self.class_names = get_class_names(categories=categories, label_dictionary=self.label_dictionary)
         return get_detection_dataloaders(experiment_configuration=self.experiment_configuration,
                                          model_configuration=self.model_configuration, batch_size=self.batch_size)
 
@@ -203,41 +215,42 @@ class DetectionTrainer(BaseTrainer):
 
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
-        Computes the mean average precision of the test split with the three average precision methods, and formats
-        it for the report: one line per method (the area method being the headline one, its mAP@0.5 comparing the
-        checkpoints) and the area AP of every class, with the same values as TensorBoard scalars.
+        Computes the mean average precision of the test split with the three average precision methods (the area
+        method being the headline one, its mAP@0.5 comparing the checkpoints) and the average precisions of every class,
+        and organises them for the report: the table of the methods, always shown, and the per-class table (shown with
+        the per-class report, worst AP@0.5 first), with the same values as TensorBoard scalars (the AP@0.5 of every
+        class only with the per-class report). The average precisions of every class are saved to class_metrics.csv
+        in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever the per-class report.
 
         Args:
             accumulator (Dict[str, Any]): The detections and ground truths of the test split.
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
-            EvaluationResults: The lines and scalars of the evaluation.
+            EvaluationResults: The results of the evaluation.
         """
         results = evaluate_detections(detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
                                       number_classes=len(self.label_dictionary))
-        class_names = {class_index: str(class_name) for class_name, class_index in self.label_dictionary.items()}
 
-        # One line per average precision method, the area method being the headline one, then the area AP per class
-        lines = [f"Iteration {iteration} : {len(accumulator['detections'])} Test Images"]
-        for method in AVERAGE_PRECISION_METHODS:
-            method_results = results[method]
-            lines.append(f"  {method.capitalize():<10} : MAP@0.5 {method_results['mAP@0.5']:.4f} | "
-                         f"MAP@0.75 {method_results['mAP@0.75']:.4f} | "
-                         f"MAP@[0.5:0.95] {method_results['mAP@[0.5:0.95]']:.4f}")
-        lines.append("  AP@0.5 (Area) Per Class : " + " | ".join(
-            f"{class_names[class_index]} {average_precision:.4f}"
-            for class_index, average_precision in results["area"]["class_AP@0.5"].items()))
+        # Average precisions of every class, saved whatever the per-class report
+        evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
+        class_rows = build_class_average_precision_rows(results=results, class_names=self.class_names)
+        files = {"Class Metrics": write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)}
 
-        # The same values as TensorBoard scalars, to follow them over the training
+        # The mean average precisions of every method as TensorBoard scalars, to follow them over the training, and the
+        # AP@0.5 of every class for the per-class report
         scalars = {}
         for method in AVERAGE_PRECISION_METHODS:
             for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"]:
                 scalars[f"{metric_name}/{method}"] = results[method][metric_name]
-        for class_index, average_precision in results["area"]["class_AP@0.5"].items():
-            scalars[f"AP@0.5/{class_names[class_index]}"] = average_precision
+        class_scalars = {f"AP@0.5/{self.class_names[class_index]}": average_precision
+                         for class_index, average_precision in results["area"]["class_AP@0.5"].items()}
 
-        return {"lines": lines, "scalars": scalars, "files": {}, "headline_metric": "mAP@0.5/area"}
+        return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {}, "notes": [],
+                "tables": [build_mean_average_precision_table(results=results),
+                           build_class_average_precision_table(class_rows=class_rows)],
+                "scalars": scalars, "class_scalars": class_scalars, "images": {}, "files": files,
+                "headline_metric": "mAP@0.5/area"}
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

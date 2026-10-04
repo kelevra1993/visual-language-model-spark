@@ -97,6 +97,10 @@ class BaseTrainer(ABC):
         self.learning_rate = self.experiment_configuration["learning_rate"]
         self.diagnosis_modes = self.experiment_configuration["diagnosis_modes"]
 
+        # Whether the evaluation reports show every class (table, TensorBoard scalars, confusion matrix image) or only
+        # the global metrics, for the runs with many classes
+        self.per_class_report = self.experiment_configuration["evaluation"]["per_class_report"]
+
         self.label_dictionary = self.data_configuration["label_dictionary"]
 
         # Random augmentation of the training batches, applied on their device right before the forward pass
@@ -277,14 +281,16 @@ class BaseTrainer(ABC):
     @abstractmethod
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
-        Computes the metrics of the task over the whole test split.
+        Computes the metrics of the task over the whole test split: the global metrics, notes and tables of the
+        report, its scalars, and its per-class outputs (per-class tables, scalars and images), which the reporter only
+        shows with the per-class report.
 
         Args:
             accumulator (Dict[str, Any]): The accumulated predictions and targets.
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
-            EvaluationResults: The lines, scalars and files reported by the trainer.
+            EvaluationResults: The results reported by the trainer.
         """
 
     @abstractmethod
@@ -961,16 +967,17 @@ class BaseTrainer(ABC):
     def report_evaluation(self, iteration: int, results: EvaluationResults) -> None:
         """
         Reports the evaluation of a checkpoint to the console, the Test TensorBoard writer (created at the first
-        evaluation) and the Results.txt file of the run.
+        evaluation) and the Results.txt file of the run, with its per-class outputs when the per-class report is on.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint.
-            results (EvaluationResults): The lines, scalars and files of the evaluation.
+            results (EvaluationResults): The results of the evaluation.
         """
         if self.test_writer is None:
             self.test_writer = SummaryWriter(log_dir=str(self.tensorboard_directory / "Test"))
         report_evaluation_results(results=results, iteration=iteration, test_writer=self.test_writer,
-                                  results_path=Path(self.experiment_folder) / "Results.txt")
+                                  results_path=Path(self.experiment_folder) / "Results.txt",
+                                  per_class_report=self.per_class_report)
 
     def save_model(self, iteration: int) -> None:
         """

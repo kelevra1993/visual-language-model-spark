@@ -211,6 +211,16 @@ def set_invalid_loading(configuration: Dict[str, Any]) -> None:
     configuration["Data"]["loading"] = {"number_workers": 0, "prefetch_batches": 0}
 
 
+def write_per_class_report_as_text(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the switch of the per-class evaluation report as a quoted string instead of a boolean.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["per_class_report"] = "yes"
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_invalid_loading, ["'Data.loading.prefetch_batches' must be an integer >= 1, got 0.",
                            "'Data.loading.number_workers' must be at least 1 with 'Data.DALI.activated'"]),
@@ -235,7 +245,9 @@ def set_invalid_loading(configuration: Dict[str, Any]) -> None:
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
-                           "'Detector.number_training_positives' (500) must be <="])])
+                           "'Detector.number_training_positives' (500) must be <="]),
+    (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
+                                      "got 'yes'."])])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                 expected_messages: List[str]) -> None:
@@ -435,7 +447,9 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
     (dump_multi_label_errors, ["'ExperimentConfiguration.evaluation.error_dumps.maximum_per_class_pair' must be an "
                                "integer >= 1, got 0.",
                                "'ExperimentConfiguration.evaluation.error_dumps.activated' must be False with "
-                               "'ClassificationHead.output_mode' 'multi_label'"])])
+                               "'ClassificationHead.output_mode' 'multi_label'"]),
+    (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
+                                      "got 'yes'."])])
 def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                modify_function: Callable[[Dict[str, Any]], None],
                                                                expected_messages: List[str]) -> None:

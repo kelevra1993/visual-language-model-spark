@@ -19,7 +19,7 @@ Every task has its own configuration files in `vision_training/configurations/<t
 
 A configuration file holds only the keys its task reads, and every one of them is required. To start a new run, copy the file of the right task, not the file of another task. The check of the task lists any missing key, and a section used only by another task is ignored.
 
-The tables below list only the keys that are not in every task. Every other key (the rest of `ExperimentConfiguration`, `Optimization`, `Data` and `Backbone`) is the same in all tasks. A section name alone (e.g. `RegionProposal`) means the whole section with all its keys. Tasks are written with their run name codes:
+The tables below list only the keys that are not in every task. Every other key (the rest of `ExperimentConfiguration`, including `evaluation.per_class_report`, `Optimization`, `Data` and `Backbone`) is the same in all tasks. A section name alone (e.g. `RegionProposal`) means the whole section with all its keys. Tasks are written with their run name codes:
 
 | Code | Task |
 |---|---|
@@ -74,6 +74,21 @@ Some keys are in several tasks but do not accept the same values in each. The ch
 An empty cell means that the task does not have the key. The 7 temporal types are `mean_pooling`, `max_pooling`, `attention_pooling`, `gru`, `lstm`, `transformer` and `temporal_convolution`. M2M needs one output per frame, which the three poolings do not give.
 
 M2O and M2M have exactly the same keys. The number of blocks in `Backbone.convolutions` changes from one example to another, but this is a value, not a different key.
+
+### Evaluation Outputs
+Every evaluated checkpoint is reported in the console and in a block of `<run>/Results.txt` with the same layout: a header `Iteration <n> · <evaluated samples> · <date and time>`, the global metrics, the notes (e.g. the error images) and the tables of the task, the per-class table being sorted worst first. Its files are written in `<run>/Evaluation/Iteration_<n>/`. `ExperimentConfiguration.evaluation.per_class_report` set to `False` keeps the global metrics only, for runs with many classes: the files written in every case keep the details.
+
+| Output | Tasks | Written |
+|---|---|---|
+| Global metrics and notes (console, `Results.txt`), global Test scalars (TensorBoard) | all | every evaluation |
+| Per-class table (console, `Results.txt`), per-class Test scalars (TensorBoard) | all | with `per_class_report` |
+| `class_metrics.csv`: one row per class (samples, precision, recall, F1, threshold and recall at the target precision; detection: ground truths and average precisions) | all | every evaluation |
+| `class_thresholds.json` | CLS, M2O, M2M, CMP | every evaluation |
+| `confusion_matrix.csv` | CLS (multi-class), M2O, M2M, CMP | every evaluation |
+| `confusion_matrix.png` and its Test image (TensorBoard) | CLS (multi-class), M2O, M2M, CMP | with `per_class_report` |
+| `predictions.csv` | CLS, M2O, M2M, CMP | with `save_predictions` |
+| `Errors/<TRUE>-TO-<PREDICTED>/` | CLS (multi-class), M2O, M2M, CMP | with `error_dumps.activated` |
+| `Evaluation/evaluation_summary.csv` (`scripts/evaluation/evaluate_checkpoint.py` with `iteration = "all"`) | all | per-class columns with `per_class_report` |
 
 ## Run Names
 A training run is saved in `<ExperimentConfiguration.experiment_folder>/<run name>`. The run name is built from the configuration by `vision_training/configuration/run_name.py`: the same settings resume in the same folder, changed settings start a new folder.

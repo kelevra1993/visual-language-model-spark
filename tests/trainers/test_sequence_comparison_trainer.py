@@ -8,12 +8,14 @@ import torch
 import yaml
 
 from pathlib import Path
+from unittest.mock import patch
 
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.data.split_description import count_split_pairs
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
-from tests.fixtures.evaluation_checks import check_error_images, check_predictions_file
+from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
+                                              read_results_blocks)
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                 "sequence_comparison" / "configuration_synthetic_pairs.yaml")
@@ -91,10 +93,10 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
                                                                   capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the sequence comparison training pipeline on a generated synthetic object loss pairs dataset: 5
-    iterations save the intermediate, evaluated and final checkpoints, the evaluation of the test pairs is written to
-    Results.txt with its confusion matrix and class thresholds files, the pair and frame throughputs are printed with
-    the description of the splits, and a second run with the same settings resumes from the last checkpoint with
-    exactly its weights. No training step may fail silently.
+    iterations save the intermediate, evaluated and final checkpoints, the evaluation of the test pairs is reported
+    in Results.txt with its per-class metrics, confusion matrix and class thresholds files, the pair and frame
+    throughputs are printed with the description of the splits, and a second run with the same settings resumes from
+    the last checkpoint with exactly its weights. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -112,21 +114,25 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     assert trainer.run_name.startswith("CMP_") and "_T4_GRU1x128-BI_FXA4_" in trainer.run_name
     assert "AUG" not in trainer.run_name and "SHUF" not in trainer.run_name
     assert trainer.class_names == ["loss_of_object", "same_number_of_objects"]
-    trainer.run_training_loop()
+    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
+        trainer.run_training_loop()
+    results = report_mock.call_args.kwargs["results"]
 
     weights_directory = trainer.weights_directory
     assert sorted(path.name for path in weights_directory.glob("Iteration_*")) == ["Iteration_2", "Iteration_4",
                                                                                  "Iteration_5"]
-    results_lines = (trainer.experiment_folder / "Results.txt").read_text().splitlines()
-    assert results_lines[0] == "Iteration 4 : 6 Test Pairs"
-    assert results_lines[1].startswith("  Accuracy ")
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "6 Test Pairs")]
+    assert "Accuracy" in results["metrics"] and "Per Class Metrics" in results_blocks[0]["text"]
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
-        "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png", "predictions.csv"]
-    rows = check_predictions_file(evaluation_folder=evaluation_folder, results_lines=results_lines, expected_rows=6,
-                                  class_names=trainer.class_names, identification_columns=["pair"])
+        "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
+        "predictions.csv"]
+    check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=6)
+    rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
+                                  expected_rows=6, class_names=trainer.class_names, identification_columns=["pair"])
     assert sorted(row["pair"] for row in rows) == [f"test_{pair_index:06d}" for pair_index in range(6)]
-    check_error_images(evaluation_folder=evaluation_folder, rows=rows, results_lines=results_lines,
+    check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
                        maximum_per_class_pair=2)
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights

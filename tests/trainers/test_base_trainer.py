@@ -10,6 +10,7 @@ import torch
 from pathlib import Path
 
 from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_configurations
+from tests.fixtures.evaluation_checks import read_results_blocks
 from vision_training.trainers.checkpointing import CHECKPOINT_FORMAT_VERSION
 
 
@@ -88,7 +89,9 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert checkpoint["format_version"] == CHECKPOINT_FORMAT_VERSION
 
     # The test split has 6 samples but only 4 distinct ones, each evaluated exactly once
-    assert (trainer.experiment_folder / "Results.txt").read_text().startswith("Iteration 4 : 4 Test Samples")
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "4 Test Samples")]
+    assert "Accuracy" in results_blocks[0]["text"] and "Per Class Recall" in results_blocks[0]["text"]
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]
 
     # A second run with the same settings resumes from iteration 5 with exactly its weights

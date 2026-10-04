@@ -148,6 +148,25 @@ def test_no_detection_gives_zero() -> None:
         assert method_results["mAP@0.5"] == pytest.approx(expected=0.5)
 
 
+def test_per_class_average_precisions_and_ground_truths() -> None:
+    """
+    Verifies the per-class results of the report: a box found exactly (AP 1 at every threshold) and a box found with
+    an intersection over union of 0.72 (AP 1 up to the threshold 0.7, 0 from 0.75, so 0.5 over the ten thresholds),
+    the mean of the per-class averages over 0.5 to 0.95 being the mAP@[0.5:0.95], and the ground truth boxes of every
+    foreground class, a class without any being counted as 0.
+    """
+    ground_truths = [make_ground_truth(boxes=[[0, 0, 10, 10], [20, 20, 30, 30]], labels=[1, 2])]
+    detections = [make_detections(boxes=[[0, 0, 10, 10], [20, 20, 30, 27.2]], scores=[0.9, 0.8], labels=[1, 2])]
+
+    results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=4)
+    for method_results in results.values():
+        assert method_results["class_AP@0.75"] == pytest.approx(expected={1: 1.0, 2: 0.0})
+        assert method_results["class_AP@[0.5:0.95]"] == pytest.approx(expected={1: 1.0, 2: 0.5})
+        assert sum(method_results["class_AP@[0.5:0.95]"].values()) / 2 == pytest.approx(
+            expected=method_results["mAP@[0.5:0.95]"])
+        assert method_results["class_ground_truths"] == {1: 1, 2: 1, 3: 0}
+
+
 def test_class_without_ground_truth_is_left_out() -> None:
     """
     Verifies that a class with detections but no ground truth anywhere is left out of the mean, instead of counting
