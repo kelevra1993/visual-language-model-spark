@@ -233,6 +233,11 @@ def test_sequence_components_initialise_a_partly_frozen_run(tmp_path: Path, caps
     assert all(not parameter.requires_grad for parameter in resumed_trainer.model.temporal_module.parameters())
     console_output = capsys.readouterr().out
     assert "The Pretrained Temporal Module Is Not Loaded Again" in console_output
+
+    # A new run without checkpoint says which components it took from other runs, the source run says it is new
+    assert ("The New Model Starts From Pretrained Components Of Other Runs : Backbone, Temporal Module, "
+            "Classification Head.") in console_output
+    assert "We Generate A New Model That Will Be Trained From Scratch." in console_output
     assert "Error encountered during iteration" not in console_output and "Critical Error" not in console_output
 
     # Normalization parameters of the transferred backbone kept fixed while its other parameters learn

@@ -1022,10 +1022,18 @@ class BaseTrainer(ABC):
 
         # Despite trying to get the last model None was found
         if not index_iteration:
-            print_color(color="green",
-                        output="No Initiation Model Weights Will Be Used..."
-                               "\nWe Generate A New Model That Will Be Trained From Scratch.",
-                        add_separators=True)
+            # Components already loaded from other runs by initialise_pretrained_components, which the new model holds
+            loaded_component_names = [get_component_name(section_name=section_name).title()
+                                      for section_name, checkpoint_path in self.pretrained_checkpoint_paths.items()
+                                      if checkpoint_path is not None]
+            if loaded_component_names:
+                message = (f"No Checkpoint Of This Run Found, The New Model Starts From Pretrained Components Of "
+                           f"Other Runs : {', '.join(loaded_component_names)}."
+                           f"\nEvery Other Layer Is Trained From Scratch.")
+            else:
+                message = ("No Initiation Model Weights Will Be Used..."
+                           "\nWe Generate A New Model That Will Be Trained From Scratch.")
+            print_color(color="green", output=message, add_separators=True)
             return 1
         else:
             self.load_model(iteration=index_iteration)
