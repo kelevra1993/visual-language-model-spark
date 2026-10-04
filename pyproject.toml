@@ -23,6 +23,8 @@ dependencies = [
     "huggingface-hub>=2.1.1",
     "pyarrow>=25.0.1",
     "matplotlib>=3.11.2",
+    "gdown>=6.4.1",
+    "boto3>=1.43.93",
 ]
 
 [tool.pytest.ini_options]
