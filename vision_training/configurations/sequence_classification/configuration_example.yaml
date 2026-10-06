@@ -35,7 +35,7 @@ ExperimentConfiguration:
   number_iterations: 1e10
   # Ratio controlling how often validation is run during training.
   # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
-  validation_iteration_ratio: 10
+  validation_iteration_ratio: 25
   # Test evaluation run at every weight_saving_iterations checkpoint on every window of the test split: accuracy,
   # balanced accuracy, macro F1, top-k accuracy, precision / recall / F1 of every class, and the confusion matrix and
   # class thresholds saved in <run folder>/Evaluation/Iteration_<iteration>/.
@@ -48,7 +48,7 @@ ExperimentConfiguration:
     per_class_report: True
     # Number of most probable classes among which the true class must be for the top-k accuracy. Must be a positive
     # integer, values above the number of classes counting every sample as right.
-    top_k: 3
+    top_k: 5
     # Precision that the score threshold of every class must reach, the threshold keeping the most samples of the
     # class (highest recall) at that precision being saved for deployment. Must be within [0, 1].
     target_precision: 0.99

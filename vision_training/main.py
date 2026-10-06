@@ -15,7 +15,7 @@ def main() -> None:
     the trainer of the task of the configuration ('ExperimentConfiguration.task') to begin the model training.
     """
     # Define configuration path
-    experiment_configuration_path = (Path(__file__).parent / "configurations" / "object_detection" /
+    experiment_configuration_path = (Path(__file__).parent / "configurations" / "classification" /
                                      "configuration_example.yaml")
 
     # Load configuration

@@ -37,7 +37,7 @@ ExperimentConfiguration:
   number_iterations: 1e10
   # Ratio controlling how often validation is run during training.
   # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
-  validation_iteration_ratio: 10
+  validation_iteration_ratio: 25
   # Test evaluation run at every weight_saving_iterations checkpoint on every pair of the test split: accuracy,
   # balanced accuracy, macro F1, top-k accuracy, precision / recall / F1 of every class, and the confusion matrix and
   # class thresholds saved in <run folder>/Evaluation/Iteration_<iteration>/.
