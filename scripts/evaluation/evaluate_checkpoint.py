@@ -18,7 +18,7 @@ if __name__ == "__main__":
     experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / run_name
     # Checkpoint iteration to evaluate, None for the last saved one, or "all" for every checkpoint of the registry
     # (the intermediate ones included, the last saved first), compared in 'Evaluation/evaluation_summary.csv'
-    iteration = None
+    iteration = "all"
     # Labelled split evaluated instead of the test split of the experiment, None to keep the experiment's one
     test_data_folder = None
     # Batch size of the evaluation, which can be larger than the training one since no gradient is kept, None to
