@@ -42,13 +42,35 @@ def read_json(path: str) -> dict[str, Any] | list[Any]:
         return json_data
 
 
-# ANSI escape codes of the console colours available to print_color
+# ANSI escape codes of the console colours available to color_text and print_color
 COLOR_CODES = {"blue": "\033[94m", "green": "\033[32m", "yellow": "\033[93m", "red": "\033[91m"}
+
+
+def color_text(color: str, text: str) -> str:
+    """
+    Wraps a string in the bold colour codes of the console, the building block of print_color and of the lines mixing
+    several colours, such as the metric lines of the training console summary whose changes are green or red.
+
+    Args:
+        color (str): The colour of the text, one of "blue", "green", "yellow" or "red".
+        text (str): The string to colour.
+
+    Returns:
+        str: The text between the colour and bold codes and the reset code.
+
+    Raises:
+        ValueError: If the colour is not one of the supported colours.
+    """
+    if color not in COLOR_CODES:
+        raise ValueError(f"Unsupported color {color!r}, expected one of {list(COLOR_CODES)}.")
+
+    return COLOR_CODES[color] + "\033[1m" + text + "\033[0m"
 
 
 def print_color(color: str, output: str, add_separators: bool = False, indent: int = 0) -> None:
     """
-    Prints a string to the console in a bold colour, the single console output helper of the project.
+    Prints a string to the console in a bold colour, the single colour console output helper of the project (lines
+    mixing several colours are built with color_text).
 
     The colour carries the meaning of the message across the pipeline: blue for information and progress, green
     for successful operations (saved weights, completed steps), yellow for warnings that need attention without
@@ -63,22 +85,18 @@ def print_color(color: str, output: str, add_separators: bool = False, indent: i
     Raises:
         ValueError: If the colour is not one of the supported colours.
     """
-    if color not in COLOR_CODES:
-        raise ValueError(f"Unsupported color {color!r}, expected one of {list(COLOR_CODES)}.")
-    color_code = COLOR_CODES[color]
-
     # Prefix every line with the indentation and a bullet when an indentation level is requested
     indentation_string = (indent * 2 * " ") + "- " if indent > 0 else ""
     indented_output = "\n".join(f"{indentation_string}{line}" for line in output.split("\n"))
 
     # Print the message in bold colour, optionally framed by separators as long as its longest line
     if add_separators:
-        length = max(len(line) for line in output.split("\n")) + 1
-        print(indentation_string + color_code + "\033[1m" + str(length * "-") + "\033[0m")
-        print(color_code + "\033[1m" + indented_output + "\033[0m")
-        print(indentation_string + color_code + "\033[1m" + str(length * "-") + "\033[0m")
+        separator = color_text(color=color, text=str((max(len(line) for line in output.split("\n")) + 1) * "-"))
+        print(indentation_string + separator)
+        print(color_text(color=color, text=indented_output))
+        print(indentation_string + separator)
     else:
-        print(color_code + "\033[1m" + indented_output + "\033[0m")
+        print(color_text(color=color, text=indented_output))
 
 
 def print_dictionary(dictionary: Dict[str, Any], indent: int = 4) -> None:
