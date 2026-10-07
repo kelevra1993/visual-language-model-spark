@@ -1,7 +1,7 @@
 """
-Tests of vision_training/data/synthetic/create_synthetic_dataset.py: the synthetic detection, classification, sequence
-classification, sequence labelling and sequence comparison datasets are valid, load with the datasets of the framework
-and follow their labels.
+Tests of vision_training/data/synthetic/create_synthetic_dataset.py: the synthetic detection, classification, semantic
+segmentation, sequence classification, sequence labelling and sequence comparison datasets are valid, load with the
+datasets of the framework and follow their labels.
 """
 
 import json
@@ -13,6 +13,7 @@ from pathlib import Path
 
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset
+from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.synthetic.create_synthetic_dataset import (MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS,
                                                                      PAIR_CATEGORIES, SHAPE_CATEGORIES,
                                                                      SHAPE_DRAWING_FUNCTIONS, create_synthetic_dataset,
@@ -117,6 +118,51 @@ def test_created_classification_dataset_has_one_shape_per_image(tmp_path: Path) 
                                     output_mode="multi_class")
     assert dataset.class_names == {class_index: shape_name for class_index, shape_name in enumerate(SHAPE_CATEGORIES)}
     assert sum(dataset.get_class_counts()) == 12
+
+
+def test_created_segmentation_dataset_masks_match_the_shapes(tmp_path: Path) -> None:
+    """
+    Verifies the segmentation mode of the generator: every image gets a single-channel mask of its size in 'masks/',
+    whose labelled pixels are exactly the pixels of the drawn shapes (every pixel differing from the background
+    colour) with shape categories, a label mapping keeping the category identifiers as classes after the background
+    class 0, and the segmentation dataset loads it with its class names.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE,
+                             split_sizes={"train": 6, "validation": 2, "test": 2}, maximum_objects=4,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="semantic_segmentation")
+
+    labels = json.loads((tmp_path / "train" / "labels.json").read_text())
+    assert len(labels["samples"]) == 6
+    assert [category["name"] for category in labels["categories"]] == list(SHAPE_CATEGORIES)
+
+    # The labelled pixels of every mask are the pixels of the shapes, the background being the most frequent colour
+    for sample in labels["samples"]:
+        image = cv2.imread(filename=str(tmp_path / "train" / "data" / sample["file_name"]))
+        mask = cv2.imread(filename=str(tmp_path / "train" / "masks" / sample["mask_file_name"]),
+                          flags=cv2.IMREAD_UNCHANGED)
+        assert mask.shape == (IMAGE_SIZE, IMAGE_SIZE) and mask.dtype == np.uint8
+        colours, counts = np.unique(image.reshape(-1, 3), axis=0, return_counts=True)
+        shape_pixels = np.any(image != colours[np.argmax(counts)], axis=-1)
+        assert np.array_equal(mask > 0, shape_pixels)
+        assert set(np.unique(mask[mask > 0]).tolist()) <= set(SHAPE_CATEGORIES.values())
+
+    # The segmenter predicts the background as class 0: the nine categories keep their identifiers as classes
+    label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
+    assert label_mapping == {str(category_identifier): category_identifier
+                             for category_identifier in SHAPE_CATEGORIES.values()}
+
+    label_dictionary = {**{int(category): class_index for category, class_index in label_mapping.items()},
+                        "background": 0}
+    dataset = SegmentationDataset(data_directory=str(tmp_path / "train" / "data"),
+                                  masks_directory=str(tmp_path / "train" / "masks"),
+                                  labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
+                                  keep_ratio=True, label_mode="multi_class", label_dictionary=label_dictionary)
+    assert dataset.class_names == {0: "background", **{class_index: shape_name for shape_name, class_index
+                                                       in SHAPE_CATEGORIES.items()}}
+    assert set(dataset[0]["masks"].unique().tolist()) <= set(range(len(SHAPE_CATEGORIES) + 1))
 
 
 def get_shape_centroid(frame: np.ndarray) -> np.ndarray:

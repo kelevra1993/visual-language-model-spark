@@ -1,7 +1,8 @@
 """
-Abstract base class of the model of every task (detector, image classifier, sequence models): the backbone stored in
-'self.backbone' and the architecture diagnostics printed by the trainer at the start of a run (summary, receptive
-field and size of every component). Used by the model registry, the trainers, model loading and the exports.
+Abstract base class of the model of every task (detector, image classifier, semantic segmenter, sequence models): the
+backbone stored in 'self.backbone' and the architecture diagnostics printed by the trainer at the start of a run
+(summary, receptive field and size of every component). Used by the model registry, the trainers, model loading and
+the exports.
 """
 
 from abc import ABC, abstractmethod
@@ -13,7 +14,8 @@ from typing import Dict
 
 class TaskModel(nn.Module, ABC):
     """
-    Base class of the networks of every task of the repository (object detector, image classifier, sequence models).
+    Base class of the networks of every task of the repository (object detector, image classifier, semantic
+    segmenter, sequence models).
 
     Every task model is built around the shared Backbone, always stored in 'self.backbone' so that a backbone trained
     for one task can initialise another one, and its forward pass returns a dictionary whose keys ending in '_loss'

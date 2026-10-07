@@ -9,6 +9,8 @@ Batch dictionary, produced by the loaders and moved to the device by the 'prepar
   [B, 2T, C, H, W] for the sequence comparison task (the before window then the after window of every pair).
 - "labels": the targets of the task (one [N_i] tensor per image for detection, [B] for classification, ...).
 - "bounding_boxes": one [N_i, 4] tensor of [x1, y1, x2, y2] boxes per image, object detection only.
+- "masks": [B, H, W] int64 class index of every pixel, semantic segmentation only (padding and unlabelled pixels at
+  IGNORED_LABEL_INDEX).
 - "sequence_mask": [B, T] booleans, True for the real frames of padded sequences, sequence tasks only ([B, 2T] for the
   pairs, the real frames coming first within each member window).
 - "sample_identifiers": [B] identifiers of the samples, used to evaluate every test sample exactly once.
@@ -30,7 +32,8 @@ LOSS_KEY_SUFFIX = "_loss"
 SAMPLE_IDENTIFIERS_KEY = "sample_identifiers"
 
 # Label of the frames without class in the sequence labelling batches (padding frames, frames of unmapped
-# categories), ignored by its loss and metrics
+# categories) and of the pixels without class in the segmentation masks (padding, unlabelled pixels), ignored by the
+# losses and metrics of these tasks
 IGNORED_LABEL_INDEX = -100
 
 
@@ -72,8 +75,9 @@ class EvaluationResults(TypedDict):
     TensorBoard writer (and gathered in the evaluation summary of the checkpoints), and the files are extra outputs
     saved by the task (class metrics, confusion matrix, predictions...). The class scalars (one per class and metric)
     and the images (e.g. the confusion matrix) are per-class outputs, only reported with the per-class report, like
-    the per-class tables. The headline metric is the name of the scalar comparing the checkpoints of a run, the higher
-    the better.
+    the per-class tables. The sample images (e.g. the segmentation grids of a few fixed test images) are written to
+    TensorBoard at every evaluation, whatever the per-class report. Every image is an [H, W, 3] uint8 RGB array. The
+    headline metric is the name of the scalar comparing the checkpoints of a run, the higher the better.
     """
     evaluated_samples: str
     metrics: Dict[str, float]
@@ -82,6 +86,7 @@ class EvaluationResults(TypedDict):
     scalars: Dict[str, float]
     class_scalars: Dict[str, float]
     images: Dict[str, np.ndarray]
+    sample_images: Dict[str, np.ndarray]
     files: Dict[str, Path]
     headline_metric: str
 
@@ -107,6 +112,16 @@ class SequenceBatch(TypedDict):
     images: torch.Tensor
     sequence_mask: torch.Tensor
     labels: torch.Tensor
+    sample_identifiers: torch.Tensor
+
+
+class SegmentationBatch(TypedDict):
+    """
+    Batch of the semantic segmentation task, on the device and in the precision of the model: [B, 3, H, W] images and
+    the [B, H, W] int64 class index of every pixel, IGNORED_LABEL_INDEX on the padding and the unlabelled pixels.
+    """
+    images: torch.Tensor
+    masks: torch.Tensor
     sample_identifiers: torch.Tensor
 
 

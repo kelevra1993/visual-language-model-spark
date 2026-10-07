@@ -1,31 +1,38 @@
 """
-Image and bounding box preprocessing shared by the data loaders and the inference clients: resizing to the square
-network input with optional centred padding, the matching box transformation, and its inverse restoring predicted
-boxes to the original image.
+Image, mask and bounding box preprocessing shared by the data loaders and the inference clients: resizing to the
+square network input with optional centred padding (bilinear for the images, nearest for the segmentation masks), the
+matching box transformation, and its inverse restoring predicted boxes to the original image.
 """
 
 import cv2
 import numpy as np
 
 
-def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True) -> np.ndarray:
+def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True,
+                     interpolation: int = cv2.INTER_LINEAR, padding_value: int = 0) -> np.ndarray:
     """
-    Preprocesses an image by resizing it to a specified square size, optionally maintaining its aspect ratio.
+    Preprocesses an image by resizing it to a specified square size, optionally maintaining its aspect ratio. The
+    segmentation masks go through the same resizing and padding as their images, with the nearest interpolation so
+    that every pixel keeps a category of the mask, and the padding at the ignored value of the masks.
 
-    If `keep_ratio` is True, the image is padded with zeros (black) to make it square before resizing,
-    preventing distortion. If False, the image is simply stretched or squashed to the target size.
+    If `keep_ratio` is True, the image is padded with 'padding_value' (black for the images) to make it square before
+    resizing, preventing distortion. If False, the image is simply stretched or squashed to the target size.
 
     Args:
-        image (np.ndarray): The input image array, typically of shape (Height, Width, Channels).
+        image (np.ndarray): The input image array, of shape (Height, Width, Channels), or (Height, Width) for a mask.
         image_size (int): The target width and height for the output square image.
         keep_ratio (bool): If True, pads the image to maintain its original aspect ratio before resizing.
         Defaults to True.
+        interpolation (int): The OpenCV interpolation of the resizing, bilinear for the images and nearest for the
+            masks. Defaults to cv2.INTER_LINEAR.
+        padding_value (int): The value of the padding pixels, 0 (black) for the images. Defaults to 0.
 
     Returns:
-        np.ndarray: The preprocessed and resized image of shape (image_size, image_size, Channels).
+        np.ndarray: The preprocessed and resized image of shape (image_size, image_size, Channels), or
+            (image_size, image_size) for a mask.
     """
     if keep_ratio:
-        image_height, image_width, _ = image.shape
+        image_height, image_width = image.shape[:2]
         scale = image_size / max(image_height, image_width)
         
         # Calculate new dimensions after scaling, matching DALI's not_larger logic
@@ -33,19 +40,20 @@ def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True
         new_height = int(round(image_height * scale))
         
         # Resize first to pure image pixels to avoid bilinear black padding bleed
-        resized_image = cv2.resize(src=image, dsize=(new_width, new_height), interpolation=cv2.INTER_LINEAR)
+        resized_image = cv2.resize(src=image, dsize=(new_width, new_height), interpolation=interpolation)
         
-        # Create the padded square canvas
-        processed_image = np.zeros((image_size, image_size, 3), dtype=image.dtype)
+        # Create the padded square canvas, with the channels of the image when it has some
+        processed_image = np.full(shape=(image_size, image_size) + image.shape[2:], fill_value=padding_value,
+                                  dtype=image.dtype)
         
         # Calculate centering offsets (matching DALI crop_pos=0.5 symmetric padding)
         start_x = (image_size - new_width) // 2
         start_y = (image_size - new_height) // 2
         
         # Drop the resized image into the center
-        processed_image[start_y: start_y + new_height, start_x: start_x + new_width, :] = resized_image
+        processed_image[start_y: start_y + new_height, start_x: start_x + new_width] = resized_image
     else:
-        processed_image = cv2.resize(src=image, dsize=(image_size, image_size), interpolation=cv2.INTER_LINEAR)
+        processed_image = cv2.resize(src=image, dsize=(image_size, image_size), interpolation=interpolation)
 
     return processed_image
 
@@ -147,7 +155,7 @@ def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int
     return restored_boxes
 
 
-def preprocess_image_and_boxes(image: np.ndarray, bounding_boxes: list[list[float]], image_size,
+def preprocess_image_and_boxes(image: np.ndarray, bounding_boxes: list[list[float]], image_size: int,
                                keep_ratio: bool = True) -> tuple[np.ndarray, list[list[float]]]:
     """
     Preprocesses both an image and its corresponding bounding boxes to the target spatial size.

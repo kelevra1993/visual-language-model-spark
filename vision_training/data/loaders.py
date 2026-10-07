@@ -1,7 +1,7 @@
 """
 Builds the training, validation and test data loaders of every task from the experiment and model configurations:
-COCO detection with the DALI or Native loader, classification, and the sequence and sequence comparison tasks with
-the Native loader. Called by the task trainers.
+COCO detection with the DALI or Native loader, classification, semantic segmentation, and the sequence and sequence
+comparison tasks with the Native loader. Called by the task trainers.
 """
 
 import os
@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader, Dataset
 from vision_training.data.detection.coco_dali_pipeline import DALIDataloaderWrapper, dali_pipeline
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
+from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset
 from vision_training.data.sequence.sequence_pair_dataset import SequencePairDataset
 
@@ -166,6 +167,42 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
                                         keep_ratio=data_configuration["image_settings"]["keep_ratio"],
                                         label_dictionary=data_configuration["label_dictionary"],
                                         output_mode=model_configuration["ClassificationHead"]["output_mode"])
+        loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
+                                           loading_configuration=data_configuration["loading"]))
+
+    return loaders[0], loaders[1], loaders[2]
+
+
+def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
+                                 batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    Initializes the training, validation and testing loaders of the semantic segmentation task, read from the
+    'labels.json' manifest, the 'data' images and the 'masks' class masks of every split with the Native loader
+    (OpenCV decoding and CPU resizing). Every image and mask is resized to the square network input, so the default
+    collate stacks them into [B, 3, H, W] images and [B, H, W] masks.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
+        model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label mode, the
+            label dictionary and the loading settings.
+        batch_size (int): The number of images of a batch.
+
+    Returns:
+        Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
+    """
+    data_configuration = model_configuration["Data"]
+    loaders = []
+
+    # Build the loader of every split with the same settings
+    for split_key in ["train_data_folder", "validation_data_folder", "test_data_folder"]:
+        split_data_folder = str(experiment_configuration[split_key])
+        dataset = SegmentationDataset(data_directory=os.path.join(split_data_folder, "data"),
+                                      masks_directory=os.path.join(split_data_folder, "masks"),
+                                      labels_file=os.path.join(split_data_folder, "labels.json"),
+                                      image_size=data_configuration["image_settings"]["size"],
+                                      keep_ratio=data_configuration["image_settings"]["keep_ratio"],
+                                      label_mode=data_configuration["label_mode"],
+                                      label_dictionary=data_configuration["label_dictionary"])
         loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
                                            loading_configuration=data_configuration["loading"]))
 

@@ -1,7 +1,7 @@
 """
 OpenCV drawing helpers: bounding boxes and anchors for the detection debugging scripts, the input viewer of the
-trainers, the frame grids of the sequence tasks and the caption bars of the evaluation error images. Used by the
-trainers and the scripts.
+trainers, the frame grids of the sequence tasks, the caption bars of the evaluation error images, and the class
+colours, mask overlays, error maps and sample grids of the semantic segmentation. Used by the trainers and the scripts.
 """
 
 import os
@@ -12,10 +12,32 @@ import torch
 
 from typing import Dict, List, Optional, Tuple
 
+from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.utilities.os_utilities import print_color
 
 # Height in pixels of the caption bar written above the error images of the evaluation
 CAPTION_BAR_HEIGHT = 24
+
+# Segmentation drawings: opacity of the class colours painted over an image, BGR colour of the ignored pixels (padding,
+# unlabelled), and BGR colours of the error map (pixels of a class given their class, pixels given a wrong class,
+# pixels of a class missed as background)
+MASK_OVERLAY_OPACITY = 0.5
+IGNORED_PIXEL_COLOUR = (128, 128, 128)
+ERROR_MAP_COLOURS = {"Correct": (0, 200, 0), "Wrong Class": (0, 0, 255), "Missed": (0, 255, 255)}
+
+# Brightness kept by the grayscale image under the error map, and opacity of the error colours painted over it
+ERROR_MAP_BACKGROUND_BRIGHTNESS = 0.5
+ERROR_MAP_OPACITY = 0.7
+
+# Number of classes (background left out) whose evenly spaced hues stay distinct (at least 30 degrees apart), beyond
+# which every other class is darkened so that neighbouring hues can still be told apart, and the brightness of these
+# darker classes
+MAXIMUM_CLASSES_WITH_DISTINCT_HUES = 12
+DARK_CLASS_COLOUR_VALUE = 160
+
+# Height in pixels of the legend bar written below the segmentation sample grids, and gap between their panels
+LEGEND_BAR_HEIGHT = 24
+GRID_GAP = 4
 
 
 def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_image_size: int,
@@ -280,3 +302,160 @@ def add_caption_bar(image: np.ndarray, caption: str) -> np.ndarray:
     cv2.putText(img=captioned_image, text=caption, org=(4, 17), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45,
                 color=(255, 255, 255), thickness=1)
     return captioned_image
+
+
+def build_class_colours(number_classes: int) -> np.ndarray:
+    """
+    Gives every class of the semantic segmentation a BGR colour for the mask overlays and the sample grids: black for
+    the background class 0, which is left unpainted, and fully saturated colours evenly spaced on the hue circle for
+    the other classes, in class order, which keeps every two classes as far apart as the hue circle allows. Beyond 12
+    classes, every other class is darkened, so that neighbouring hues can still be told apart.
+
+    Args:
+        number_classes (int): The number of classes K, background included.
+
+    Returns:
+        np.ndarray: The [K, 3] uint8 BGR colour of every class.
+    """
+    # Evenly spaced hues of the classes, OpenCV hues being within [0, 180)
+    number_foreground_classes = number_classes - 1
+    class_ranks = np.arange(number_foreground_classes)
+    hues = (class_ranks * 180.0 / max(number_foreground_classes, 1)).astype(np.uint8)
+    saturations = np.full(shape=hues.shape, fill_value=255, dtype=np.uint8)
+
+    # Full brightness, or every other class darkened when the hues get too close
+    values = np.full(shape=hues.shape, fill_value=255, dtype=np.uint8)
+    if number_foreground_classes > MAXIMUM_CLASSES_WITH_DISTINCT_HUES:
+        values[class_ranks % 2 == 1] = DARK_CLASS_COLOUR_VALUE
+    class_colours = cv2.cvtColor(src=np.stack([hues, saturations, values], axis=-1)[np.newaxis],
+                                 code=cv2.COLOR_HSV2BGR)[0]
+    return np.concatenate([np.zeros(shape=(1, 3), dtype=np.uint8), class_colours], axis=0)
+
+
+def overlay_segmentation_mask(image: np.ndarray, class_map: np.ndarray, class_colours: np.ndarray) -> np.ndarray:
+    """
+    Paints a class map over its image for the input viewer and the evaluation sample grids of the segmentation: every
+    pixel of a class is blended with the colour of its class, the background stays as it is and the ignored pixels
+    (padding, unlabelled) are grayed.
+
+    Args:
+        image (np.ndarray): The [H, W, 3] uint8 BGR image.
+        class_map (np.ndarray): The [H, W] class index of every pixel, IGNORED_LABEL_INDEX on the ignored ones.
+        class_colours (np.ndarray): The [K, 3] uint8 BGR colour of every class (build_class_colours).
+
+    Returns:
+        np.ndarray: The [H, W, 3] uint8 BGR image with its class map painted over it.
+    """
+    painted_image = image.copy()
+    class_pixels = class_map > 0
+    painted_image[class_pixels] = class_colours[class_map[class_pixels]]
+    painted_image[class_map == IGNORED_LABEL_INDEX] = IGNORED_PIXEL_COLOUR
+    return cv2.addWeighted(src1=image, alpha=1.0 - MASK_OVERLAY_OPACITY, src2=painted_image,
+                           beta=MASK_OVERLAY_OPACITY, gamma=0.0)
+
+
+def build_segmentation_error_map(image: np.ndarray, class_map: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """
+    Shows where a predicted class map is right or wrong, over the darkened grayscale image, for the evaluation sample
+    grids of the segmentation: the pixels of a class given their class in green, the pixels given a wrong class
+    (another class, or a class where the truth is the background) in red, the pixels of a class missed as background
+    in yellow, and the ignored pixels in gray, the background predicted as background staying dark.
+
+    Args:
+        image (np.ndarray): The [H, W, 3] uint8 BGR image.
+        class_map (np.ndarray): The [H, W] predicted class index of every pixel.
+        mask (np.ndarray): The [H, W] true class index of every pixel, IGNORED_LABEL_INDEX on the ignored ones.
+
+    Returns:
+        np.ndarray: The [H, W, 3] uint8 BGR error map.
+    """
+    # Darkened grayscale image, so that the error colours stand out while the objects stay recognisable
+    grayscale_image = cv2.cvtColor(src=image, code=cv2.COLOR_BGR2GRAY)
+    background = cv2.cvtColor(src=(grayscale_image * ERROR_MAP_BACKGROUND_BRIGHTNESS).astype(np.uint8),
+                              code=cv2.COLOR_GRAY2BGR)
+
+    # Colour of every labelled pixel by the kind of its prediction, and of the ignored pixels
+    labelled_pixels = mask != IGNORED_LABEL_INDEX
+    wrong_pixels = labelled_pixels & (class_map != mask)
+    painted_map = background.copy()
+    painted_map[labelled_pixels & (class_map == mask) & (mask > 0)] = ERROR_MAP_COLOURS["Correct"]
+    painted_map[wrong_pixels & (class_map > 0)] = ERROR_MAP_COLOURS["Wrong Class"]
+    painted_map[wrong_pixels & (class_map == 0)] = ERROR_MAP_COLOURS["Missed"]
+    painted_map[~labelled_pixels] = IGNORED_PIXEL_COLOUR
+    return cv2.addWeighted(src1=background, alpha=1.0 - ERROR_MAP_OPACITY, src2=painted_map, beta=ERROR_MAP_OPACITY,
+                           gamma=0.0)
+
+
+def draw_legend_bar(width: int, legend_entries: List[Tuple[str, Tuple[int, int, int]]]) -> np.ndarray:
+    """
+    Draws a black bar naming coloured entries one after the other, each as a colour square followed by its name, for
+    the legend of the segmentation sample grids. The entries that do not fit in the width are left out.
+
+    Args:
+        width (int): The width of the bar in pixels.
+        legend_entries (List[Tuple[str, Tuple[int, int, int]]]): The name and BGR colour of every entry.
+
+    Returns:
+        np.ndarray: The [LEGEND_BAR_HEIGHT, width, 3] uint8 BGR legend bar.
+    """
+    legend_bar = np.zeros(shape=(LEGEND_BAR_HEIGHT, width, 3), dtype=np.uint8)
+    horizontal_position = 4
+    for entry_name, entry_colour in legend_entries:
+        # Width of the entry: its colour square, a space and its name
+        (name_width, _), _ = cv2.getTextSize(text=entry_name, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45,
+                                             thickness=1)
+        if horizontal_position + 18 + name_width > width:
+            break
+        cv2.rectangle(img=legend_bar, pt1=(horizontal_position, 6), pt2=(horizontal_position + 12, 18),
+                      color=tuple(int(component) for component in entry_colour), thickness=-1)
+        cv2.putText(img=legend_bar, text=entry_name, org=(horizontal_position + 18, 17),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45, color=(255, 255, 255), thickness=1)
+        horizontal_position += 18 + name_width + 16
+    return legend_bar
+
+
+def build_segmentation_sample_grid(image: np.ndarray, mask: np.ndarray, class_map: np.ndarray,
+                                   class_names: List[str], class_colours: np.ndarray, caption: str) -> np.ndarray:
+    """
+    Lays out one evaluated test image of the segmentation in four titled panels side by side, saved and sent to
+    TensorBoard at every evaluation so that the predictions of the same images can be followed over the training: the
+    input, its true mask and its predicted mask painted over it, and the error map. A caption bar names the sample
+    above the panels, and a legend bar below them names the classes painted in the image and the error colours.
+
+    Args:
+        image (np.ndarray): The [H, W, 3] uint8 BGR network input.
+        mask (np.ndarray): The [H, W] true class index of every pixel, IGNORED_LABEL_INDEX on the ignored ones.
+        class_map (np.ndarray): The [H, W] predicted class index of every pixel.
+        class_names (List[str]): The name of every class, in class index order.
+        class_colours (np.ndarray): The [K, 3] uint8 BGR colour of every class (build_class_colours).
+        caption (str): The text of the caption bar, e.g. the sample name and its pixel accuracy.
+
+    Returns:
+        np.ndarray: The [24 + H + 24, 4 x W + 3 x 4, 3] uint8 BGR grid.
+    """
+    panels = {"Input": image,
+              "Ground Truth": overlay_segmentation_mask(image=image, class_map=mask, class_colours=class_colours),
+              "Prediction": overlay_segmentation_mask(image=image, class_map=class_map, class_colours=class_colours),
+              "Errors": build_segmentation_error_map(image=image, class_map=class_map, mask=mask)}
+
+    # Panels side by side on a gray canvas, each titled in its top left corner
+    image_height, image_width = image.shape[:2]
+    grid = np.full(shape=(image_height, len(panels) * (image_width + GRID_GAP) - GRID_GAP, 3), fill_value=128,
+                   dtype=np.uint8)
+    for panel_index, (panel_title, panel) in enumerate(panels.items()):
+        titled_panel = panel.copy()
+        (title_width, _), _ = cv2.getTextSize(text=panel_title, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45,
+                                              thickness=1)
+        cv2.rectangle(img=titled_panel, pt1=(0, 0), pt2=(title_width + 8, 20), color=(0, 0, 0), thickness=-1)
+        cv2.putText(img=titled_panel, text=panel_title, org=(4, 15), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.45, color=(255, 255, 255), thickness=1)
+        left = panel_index * (image_width + GRID_GAP)
+        grid[:, left:left + image_width] = titled_panel
+
+    # Legend of the classes of the true and predicted masks (background left out), then of the error colours
+    painted_class_indices = sorted(set(np.unique(ar=mask[mask > 0]).tolist()) |
+                                   set(np.unique(ar=class_map[class_map > 0]).tolist()))
+    legend_entries = [(class_names[class_index], tuple(class_colours[class_index].tolist()))
+                      for class_index in painted_class_indices] + list(ERROR_MAP_COLOURS.items())
+    legend_bar = draw_legend_bar(width=grid.shape[1], legend_entries=legend_entries)
+    return add_caption_bar(image=np.concatenate([grid, legend_bar], axis=0), caption=caption)

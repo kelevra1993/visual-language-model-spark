@@ -1,7 +1,8 @@
 """
 Shared convolutional feature extractor of every task model: the Backbone class (stacked ConvolutionBlocks, input
-normalization, detection block outputs, summaries and receptive field) and build_backbone, called by the detector,
-the image classifier and the sequence models so that a backbone trained for one task can initialise another one.
+normalization, detection block outputs, block outputs before pooling for the segmentation decoder, summaries and
+receptive field) and build_backbone, called by the detector, the image classifier, the sequence models and the
+semantic segmenter so that a backbone trained for one task can initialise another one.
 """
 
 import torch
@@ -116,16 +117,21 @@ class Backbone(nn.Module):
             # Update the input channels for the subsequent convolution block
             current_input_channels = output_channels
 
-    def forward(self, input_tensor: torch.Tensor,
-                sequence_grouping: Optional[SequenceGrouping] = None) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    def forward(self, input_tensor: torch.Tensor, sequence_grouping: Optional[SequenceGrouping] = None,
+                return_pre_pooling_outputs: bool = False) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
-        Processes the input tensor through the sequence of convolution blocks.
+        Processes the input tensor through the sequence of convolution blocks, keeping the intermediate feature maps
+        read by the task heads: the outputs of the detection blocks (after their pooling) for the detector, or the
+        output of every block before its pooling for the segmentation decoder, whose skip connections start at the
+        input resolution.
 
         Args:
             input_tensor (torch.Tensor): The input image tensor to be processed of shape [Batch, Channels, Height, Width].
             sequence_grouping (Optional[SequenceGrouping]): The sequence of every frame of the batch, given by the frame
                 encoder of the sequence models to the sequence normalization layers, or None for a batch of images.
-            
+            return_pre_pooling_outputs (bool): True to keep the output of every block before its pooling, block b
+                being at 1 / 2**(b-1) of the input resolution, instead of the outputs of the detection blocks.
+
         Returns:
             Tuple[torch.Tensor, Dict[str, torch.Tensor]]: A tuple containing:
                 - The final resulting feature map of shape [Batch, Out_Channels, Final_Height, Final_Width]
@@ -137,12 +143,15 @@ class Backbone(nn.Module):
         # Creation of output tensor dictionary
         output_tensor_dictionary = {}
 
-        # Iterate through each convolution block and sequentially process the feature map
+        # Iterate through each convolution block and sequentially process the feature map, its layers then its pooling
         for block_index, block in enumerate(self.convolution_blocks, start=1):
-            current_tensor = block(input_tensor=current_tensor, sequence_grouping=sequence_grouping)
+            pre_pooling_tensor = block.compute_layers(input_tensor=current_tensor, sequence_grouping=sequence_grouping)
+            current_tensor = block.apply_pooling(input_tensor=pre_pooling_tensor)
 
-            # Check if the current block is designated as an detection and save its output
-            if block_index in self.detection_convolution_block_indices:
+            # Keep every block output before its pooling, or only the outputs of the detection blocks
+            if return_pre_pooling_outputs:
+                output_tensor_dictionary[str(block_index)] = pre_pooling_tensor
+            elif block_index in self.detection_convolution_block_indices:
                 output_tensor_dictionary[str(block_index)] = current_tensor
 
         return current_tensor, output_tensor_dictionary

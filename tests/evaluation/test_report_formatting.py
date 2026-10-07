@@ -43,7 +43,7 @@ def build_results(tables: list) -> EvaluationResults:
     return {"evaluated_samples": "6 Test Images",
             "metrics": {"Accuracy": 0.8333333, "Balanced Accuracy": 0.75, "Macro F1": 0.7222},
             "notes": ["Error Images : 1 in 1 class pairs, at most 1 per pair"], "tables": tables, "scalars": {},
-            "class_scalars": {}, "images": {}, "files": {}, "headline_metric": "Accuracy"}
+            "class_scalars": {}, "images": {}, "sample_images": {}, "files": {}, "headline_metric": "Accuracy"}
 
 
 @pytest.mark.parametrize(argnames=("value", "expected_text"),

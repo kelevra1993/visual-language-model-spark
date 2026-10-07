@@ -26,7 +26,8 @@ VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
 # Name of the component of every section whose 'pretrained' settings initialise it with the one of another run, used
 # in the messages
 PRETRAINED_COMPONENT_NAMES = {"Backbone": "backbone", "TemporalModel": "temporal module",
-                              "ClassificationHead": "classification head"}
+                              "ClassificationHead": "classification head",
+                              "SegmentationDecoder": "segmentation decoder"}
 
 
 def check_experiment_configuration(experiment_configuration: Dict[str, Any], valid_tasks: List[str]) -> List[str]:
@@ -273,13 +274,13 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
 
 def check_pretrained_configuration(model_configuration: Dict[str, Any], section_name: str) -> List[str]:
     """
-    Verifies the 'pretrained' settings of a section (Backbone, TemporalModel or ClassificationHead), which initialise
-    its component with the trained one of another run: the source run folder or null, the checkpoint iteration or
-    null for the last one, the freeze flag, only meaningful with a source run, and the learning rate multiplier of the
-    transferred component. For the backbone, the 'freeze_normalization_parameters' flag keeps the scale and shift of
-    its normalization layers fixed, which needs a source run that is not frozen anyway and a backbone with
-    normalization layers. The source run itself is only read when a new training starts, so that a trained run can
-    still be evaluated and exported once its source run is gone.
+    Verifies the 'pretrained' settings of a section (Backbone, TemporalModel, ClassificationHead or
+    SegmentationDecoder), which initialise its component with the trained one of another run: the source run folder or
+    null, the checkpoint iteration or null for the last one, the freeze flag, only meaningful with a source run, and
+    the learning rate multiplier of the transferred component. For the backbone, the 'freeze_normalization_parameters'
+    flag keeps the scale and shift of its normalization layers fixed, which needs a source run that is not frozen
+    anyway and a backbone with normalization layers. The source run itself is only read when a new training starts, so
+    that a trained run can still be evaluated and exported once its source run is gone.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the section.

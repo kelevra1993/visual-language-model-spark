@@ -295,8 +295,8 @@ class DummyTrainer(BaseTrainer):
         return {"evaluated_samples": f"{number_samples} Test Samples", "metrics": {"Accuracy": accuracy}, "notes": [],
                 "tables": [{"title": "Per Class Recall", "columns": ["Class", "Samples", "Recall"], "rows": rows,
                             "sort_column": "Recall", "per_class": True, "legend": ""}],
-                "scalars": {"Accuracy": accuracy}, "class_scalars": class_scalars, "images": {}, "files": {},
-                "headline_metric": "Accuracy"}
+                "scalars": {"Accuracy": accuracy}, "class_scalars": class_scalars, "images": {}, "sample_images": {},
+                "files": {}, "headline_metric": "Accuracy"}
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

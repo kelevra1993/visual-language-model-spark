@@ -191,10 +191,8 @@ class ConvolutionBlock(nn.Module):
 
     def forward(self, input_tensor: torch.Tensor, sequence_grouping: Optional[SequenceGrouping] = None) -> torch.Tensor:
         """
-        Processes the input tensor through the sequence of convolutional layers to extract features.
-
-        Each layer applies convolution, normalization and activation, then the optional residual addition,
-        Squeeze-and-Excitation recalibration and dropout. The optional pooling layer is applied last.
+        Processes the input tensor through the sequence of convolutional layers to extract features, then through the
+        optional pooling layer (see compute_layers and apply_pooling).
 
         Args:
             input_tensor (torch.Tensor): The input feature map to be processed by the network of shape [Batch, Channels, Height, Width].
@@ -203,6 +201,26 @@ class ConvolutionBlock(nn.Module):
 
         Returns:
             torch.Tensor: The resulting feature map after passing through the convolutional block of shape [Batch, Out_Channels, Out_Height, Out_Width].
+        """
+        return self.apply_pooling(input_tensor=self.compute_layers(input_tensor=input_tensor,
+                                                                   sequence_grouping=sequence_grouping))
+
+    def compute_layers(self, input_tensor: torch.Tensor,
+                       sequence_grouping: Optional[SequenceGrouping] = None) -> torch.Tensor:
+        """
+        Processes the input tensor through the convolutional layers of the block, without its final pooling: the
+        feature map at the input resolution, which the segmentation decoder reads as a skip connection.
+
+        Each layer applies convolution, normalization and activation, then the optional residual addition,
+        Squeeze-and-Excitation recalibration and dropout.
+
+        Args:
+            input_tensor (torch.Tensor): The [Batch, Channels, Height, Width] input feature map.
+            sequence_grouping (Optional[SequenceGrouping]): The sequence of every frame of the batch, read by the
+                sequence normalization layers only, or None (the whole batch as one sequence for these layers).
+
+        Returns:
+            torch.Tensor: The [Batch, Out_Channels, Height, Width] feature map before the pooling.
         """
         current_tensor = input_tensor
         shortcut_tensor = None
@@ -234,11 +252,22 @@ class ConvolutionBlock(nn.Module):
             if self.layer_dropout_indices[layer_index] is not None:
                 current_tensor = self.block[self.layer_dropout_indices[layer_index]](current_tensor)
 
-        # Reduce the spatial dimensions with the final pooling layer, if any
-        if self.pooling_index is not None:
-            current_tensor = self.block[self.pooling_index](current_tensor)
-
         return current_tensor
+
+    def apply_pooling(self, input_tensor: torch.Tensor) -> torch.Tensor:
+        """
+        Applies the final max pooling of the block to the output of its layers, halving its height and width, or
+        returns it unchanged for a block without pooling.
+
+        Args:
+            input_tensor (torch.Tensor): The [Batch, Channels, Height, Width] output of compute_layers.
+
+        Returns:
+            torch.Tensor: The pooled feature map, or the input feature map without pooling.
+        """
+        if self.pooling_index is None:
+            return input_tensor
+        return self.block[self.pooling_index](input_tensor)
 
     def get_active_module_names(self) -> List[str]:
         """

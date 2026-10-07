@@ -505,7 +505,7 @@ class ClassificationTrainer(BaseTrainer):
                                                      support_column=support_column)],
                 "scalars": dict(headline_metrics),
                 "class_scalars": build_class_metric_scalars(class_names=self.class_names, metrics=metrics),
-                "images": images, "files": files,
+                "images": images, "sample_images": {}, "files": files,
                 "headline_metric": "Accuracy" if self.output_mode == "multi_class" else "Subset Accuracy"}
 
     def get_label_caption(self, label: torch.Tensor) -> str:

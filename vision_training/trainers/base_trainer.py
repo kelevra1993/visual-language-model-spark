@@ -35,8 +35,8 @@ from vision_training.utilities.tensor_utilities import get_device
 
 class BaseTrainer(ABC):
     """
-    General training pipeline shared by every task of the repository (object detection, classification, sequence
-    classification, sequence labelling and sequence comparison).
+    General training pipeline shared by every task of the repository (object detection, classification, semantic
+    segmentation, sequence classification, sequence labelling and sequence comparison).
 
     It owns everything that does not depend on the task: the run folder named after the settings, the training loop
     with its validation passes and checkpoint schedule, the metric tracking (console and TensorBoard), the checkpoints
@@ -126,8 +126,9 @@ class BaseTrainer(ABC):
                     output="Initializing Training, Validation And Test DataLoaders...", add_separators=True)
         self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.build_dataloaders()
 
-        # Initialize Model and Optimizer, the backbone, the temporal module and the classification head being possibly
-        # initialised by the ones of other runs, through the 'pretrained' settings of the sections the task has
+        # Initialize Model and Optimizer, the backbone, the temporal module, the classification head and the
+        # segmentation decoder being possibly initialised by the ones of other runs, through the 'pretrained' settings
+        # of the sections the task has
         self.pretrained_configurations = {section_name: self.model_configuration[section_name]["pretrained"]
                                           for section_name in TRANSFERABLE_COMPONENTS
                                           if section_name in self.model_configuration}
@@ -336,7 +337,7 @@ class BaseTrainer(ABC):
         """
         Builds the optimizer of 'Optimization.optimizer' with its weight decay: Adam (weight decay added to the
         gradients), AdamW (weight decay decoupled from the gradients) or SGD with Nesterov momentum 0.9. Every
-        component loaded from another run (backbone, temporal module, classification head) whose
+        component loaded from another run (backbone, temporal module, classification head, segmentation decoder) whose
         'pretrained.learning_rate_multiplier' is not 1 gets its own parameter group, so that it is fine-tuned at
         another speed than the new layers. The first group holds every other parameter: without such a component,
         every parameter shares this single group, the layout of the checkpoints of the runs without transfer, and a
@@ -386,7 +387,7 @@ class BaseTrainer(ABC):
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
         Randomly augments the images of a training batch. Tasks whose targets move with the images (e.g. bounding
-        boxes) override it to transform them too.
+        boxes, segmentation masks) override it to transform them too.
 
         Args:
             batch (Dict[str, Any]): The training batch.
@@ -394,7 +395,7 @@ class BaseTrainer(ABC):
         Returns:
             Dict[str, Any]: The batch with its augmented images.
         """
-        augmented_images, _, _ = self.data_augmenter.augment_batch(images=batch["images"])
+        augmented_images, _, _, _ = self.data_augmenter.augment_batch(images=batch["images"])
         return {**batch, "images": augmented_images}
 
     def compute_batch_metrics(self, batch: Dict[str, Any], model_outputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
@@ -454,9 +455,10 @@ class BaseTrainer(ABC):
     def initialise_pretrained_components(self) -> Dict[str, Optional[Path]]:
         """
         Loads the trained components of other runs into the model, for every section whose
-        'pretrained.experiment_folder' is set (backbone, temporal module, classification head), and freezes them when
-        asked, or only the scale and shift of the normalization layers of the backbone. A run resuming from its own
-        checkpoints does not load them, its checkpoint holding the components it was training, but keeps them frozen.
+        'pretrained.experiment_folder' is set (backbone, temporal module, classification head, segmentation decoder),
+        and freezes them when asked, or only the scale and shift of the normalization layers of the backbone. A run
+        resuming from its own checkpoints does not load them, its checkpoint holding the components it was training,
+        but keeps them frozen.
 
         Returns:
             Dict[str, Optional[Path]]: The checkpoint file every component was loaded from, keyed by the section names
@@ -548,7 +550,8 @@ class BaseTrainer(ABC):
 
         # Every component initialised by another run, with its source run and whether it is frozen
         pretrained_labels = {"Backbone": "Pretrained Backbone", "TemporalModel": "Pretrained Temp. Module",
-                             "ClassificationHead": "Pretrained Class. Head"}
+                             "ClassificationHead": "Pretrained Class. Head",
+                             "SegmentationDecoder": "Pretrained Seg. Decoder"}
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             if pretrained_configuration["experiment_folder"] is not None:
                 print_color(color="blue", output=f"- {pretrained_labels[section_name]:<23} : "
@@ -999,8 +1002,8 @@ class BaseTrainer(ABC):
         """
         Saves a checkpoint of the model and optimizer, with the task, the run name and the source run of every
         transferable component of the task ('pretrained_backbone', 'pretrained_temporal_module',
-        'pretrained_classification_head', None without transfer), and records it in the checkpoint registry of the
-        run used to resume the training.
+        'pretrained_classification_head', 'pretrained_segmentation_decoder', None without transfer), and records it in
+        the checkpoint registry of the run used to resume the training.
 
         Args:
             iteration (int): The current training iteration, used for naming the weight file.

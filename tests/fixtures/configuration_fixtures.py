@@ -1,6 +1,7 @@
 """
-Small model configuration dictionaries of the detection, classification, sequence and sequence comparison models, with
-their device and dtype, shared by the model, export and transfer tests and by the debug scripts under scripts/models.
+Small model configuration dictionaries of the detection, classification, semantic segmentation, sequence and sequence
+comparison models, with their device and dtype, shared by the model, export and transfer tests and by the debug scripts
+under scripts/models.
 """
 
 import torch
@@ -106,6 +107,32 @@ def get_classification_model_configuration(output_mode: str) -> Tuple[Dict[str, 
                                             'class_weighting': 'none'}}
     device = torch.device(device="cpu")
     dtype = torch.float32
+
+    return configuration, device, dtype
+
+
+def get_segmentation_model_configuration(upsampling: str) -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
+    """
+    Supplies a small semantic segmentation configuration dictionary, with its device and dtype, shared by the
+    segmentation model tests: the 4 backbone blocks of the image classifier configuration on 64 pixel images, a
+    decoder of 3 levels (blocks 3, 2 and 1) and 3 classes, the background included, trained with the cross entropy
+    and the Dice loss.
+
+    Args:
+        upsampling (str): The upsampling of the decoder levels, "transposed" or "bilinear".
+
+    Returns:
+        Tuple[Dict[str, Any], torch.device, torch.dtype]: The segmenter configuration, compute device and dtype.
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    del configuration['ClassificationHead']
+    configuration['Data']['label_dictionary'] = {'background': 0, 1: 1, 2: 2}
+    configuration['SegmentationDecoder'] = {'upsampling': upsampling,
+                                            'convolutions': {'3': [1, 16], '2': [1, 16], '1': [1, 8]},
+                                            'modules': {'squeeze_and_excite': False, 'residual_nets': False},
+                                            'feature_map_normalization': 'batch', 'dropout_rate': 0.0}
+    configuration['SegmentationLoss'] = {'cross_entropy_weight': 1.0, 'focal_gamma': 0.0, 'label_smoothing': 0.0,
+                                         'class_weighting': 'none', 'dice_weight': 1.0}
 
     return configuration, device, dtype
 

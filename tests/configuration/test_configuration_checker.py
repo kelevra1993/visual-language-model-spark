@@ -1,8 +1,8 @@
 """
 Tests of the configuration checks of vision_training/configuration/configuration_checker.py, run through
 load_experiment_configuration: the configurations shipped for every task are accepted, while inconsistent settings
-(detection, classification, sequence, comparison, normalization, pretrained transfers, optimization) and missing keys
-are rejected with errors naming their path.
+(detection, classification, sequence, comparison, segmentation, normalization, pretrained transfers, optimization) and
+missing keys are rejected with errors naming their path.
 """
 
 import copy
@@ -21,6 +21,11 @@ EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "c
 # Folder of the configurations of every task, checked with a label mapping file written by the tests for the tasks
 # whose mapping file only exists once their dataset is created
 CONFIGURATIONS_FOLDER = Path(__file__).parents[2] / "vision_training" / "configurations"
+
+# Label mapping file written by the tests: the categories 1 to 4 give the classes 0 to 3 of the classification and
+# sequence tasks, or the classes 1 to 4 of the semantic segmentation, next to its background class 0
+CLASSIFICATION_LABEL_MAPPING = {"1": 0, "2": 1, "3": 2, "4": 3}
+SEGMENTATION_LABEL_MAPPING = {"1": 1, "2": 2, "3": 3, "4": 4}
 
 
 def write_modified_configuration(temporary_directory: Path,
@@ -240,8 +245,8 @@ def write_per_class_report_as_text(configuration: Dict[str, Any]) -> None:
     (set_intermediate_weight_saving, ["'ExperimentConfiguration.intermediate_weight_saving_iterations' (10000) "
                                       "must be smaller than"]),
     (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'classification', "
-                        "'sequence_classification', 'sequence_labelling', 'sequence_comparison'], got "
-                        "'segmentation'."]),
+                        "'semantic_segmentation', 'sequence_classification', 'sequence_labelling', "
+                        "'sequence_comparison'], got 'segmentation'."]),
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
@@ -309,13 +314,15 @@ def test_missing_task_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture)
 def write_task_configuration(temporary_directory: Path, task_folder: str, configuration_name: str,
                              modify_function: Callable[[Dict[str, Any]], None] | None) -> Path:
     """
-    Writes a copy of a configuration of a classification or sequence task whose label mapping file (giving the
-    classes 0 to 3) is written in the temporary directory, the mapping files of the shipped configurations only
-    existing once their datasets are created, then altered by the given function.
+    Writes a copy of a configuration of a classification, sequence or semantic segmentation task whose label mapping
+    file (giving the classes 0 to 3, or 1 to 4 next to the background of the segmentation) is written in the temporary
+    directory, the mapping files of the shipped configurations only existing once their datasets are created, then
+    altered by the given function.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the mapping file.
-        task_folder (str): The folder of the configurations of the task, e.g. "classification".
+        task_folder (str): The folder of the configurations of the task, e.g. "classification", also selecting its
+            label mapping.
         configuration_name (str): The file name of the configuration.
         modify_function (Callable[[Dict[str, Any]], None] | None): Function altering the raw configuration in place,
             or None to keep it.
@@ -325,7 +332,9 @@ def write_task_configuration(temporary_directory: Path, task_folder: str, config
     """
     configuration = yaml.safe_load(stream=(CONFIGURATIONS_FOLDER / task_folder / configuration_name).read_text())
     mapping_path = temporary_directory / "label_mapping.json"
-    mapping_path.write_text(data=json.dumps(obj={"1": 0, "2": 1, "3": 2, "4": 3}))
+    label_mapping = SEGMENTATION_LABEL_MAPPING if task_folder == "semantic_segmentation" else \
+        CLASSIFICATION_LABEL_MAPPING
+    mapping_path.write_text(data=json.dumps(obj=label_mapping))
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(mapping_path)
     if modify_function is not None:
         modify_function(configuration=configuration)
@@ -1094,3 +1103,214 @@ def test_inconsistent_optimization_is_rejected(tmp_path: Path, capsys: pytest.Ca
                              "'Optimization.mixed_precision' requires 'ExperimentConfiguration.dtype' to be "
                              "\"float32\"."]:
         assert expected_message in printed_output
+
+
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
+                                                                   "configuration_synthetic_shapes.yaml"])
+def test_segmentation_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
+    """
+    Verifies that the semantic segmentation configurations shipped with the repository pass every consistency check,
+    and that their label dictionary holds the background class 0 next to the mapped categories.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_name (str): The file name of the semantic segmentation configuration.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="semantic_segmentation",
+                                                  configuration_name=configuration_name, modify_function=None)
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=configuration_path)
+    assert experiment_configuration["task"] == "semantic_segmentation"
+    assert model_configuration["Data"]["label_dictionary"] == {1: 1, 2: 2, 3: 3, 4: 4, "background": 0}
+
+
+def use_last_max_pooling_with_its_decoder_level(configuration: Dict[str, Any]) -> None:
+    """
+    Pools the output of the last backbone block, which then becomes one more skip connection, with its decoder level,
+    and uses the binary label mapping.
+
+    Args:
+        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
+    """
+    configuration["Backbone"]["last_max_pooling"] = True
+    configuration["SegmentationDecoder"]["convolutions"]["6"] = [2, 128]
+    configuration["Data"]["label_mapping"]["mode"] = "binary"
+
+
+def test_segmentation_last_max_pooling_and_binary_labels_are_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that the semantic segmentation accepts a pooled last backbone block when the decoder has the level of
+    its skip connection, and the binary label mapping giving the background and foreground classes.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="semantic_segmentation",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=use_last_max_pooling_with_its_decoder_level)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["Data"]["label_dictionary"] == {"background": 0, "foreground": 1}
+
+
+def remove_decoder_level(configuration: Dict[str, Any]) -> None:
+    """
+    Removes the decoder level of the skip connection of the first backbone block.
+
+    Args:
+        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
+    """
+    del configuration["SegmentationDecoder"]["convolutions"]["1"]
+
+
+def use_last_max_pooling_without_its_decoder_level(configuration: Dict[str, Any]) -> None:
+    """
+    Pools the output of the last backbone block without adding the decoder level of its skip connection.
+
+    Args:
+        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
+    """
+    configuration["Backbone"]["last_max_pooling"] = True
+
+
+def set_invalid_decoder(configuration: Dict[str, Any]) -> None:
+    """
+    Sets an unknown upsampling and normalization, a decoder level without layer, a module flag written as a string
+    and a dropout of 1.
+
+    Args:
+        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
+    """
+    configuration["SegmentationDecoder"].update({"upsampling": "nearest", "feature_map_normalization": "group",
+                                                 "dropout_rate": 1.0})
+    configuration["SegmentationDecoder"]["convolutions"]["3"] = [0, 32]
+    configuration["SegmentationDecoder"]["modules"]["squeeze_and_excite"] = "yes"
+
+
+def freeze_random_decoder(configuration: Dict[str, Any]) -> None:
+    """
+    Freezes the decoder without loading one from another run, and multiplies its learning rate by zero.
+
+    Args:
+        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
+    """
+    configuration["SegmentationDecoder"]["pretrained"].update({"freeze": True, "learning_rate_multiplier": 0})
+
+
+def remove_both_losses(configuration: Dict[str, Any]) -> None:
+    """
+    Gives both losses a weight of 0, and sets a negative focusing parameter, a label smoothing of 1 and an unknown
+    class weighting.
+
+    Args:
+        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
+    """
+    configuration["SegmentationLoss"].update({"cross_entropy_weight": 0, "dice_weight": 0.0, "focal_gamma": -1.0,
+                                              "label_smoothing": 1.0, "class_weighting": "inverse"})
+
+
+def set_invalid_segmentation_evaluation(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a negative number of sample images and the predicted masks setting as a quoted string.
+
+    Args:
+        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"].update({"number_sample_images": -1,
+                                                                   "save_predicted_masks": "yes"})
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (activate_dali, ["'Data.DALI.activated' must be False: the DALI loaders are only available for the object "
+                     "detection task, the semantic segmentation uses the Native loader."]),
+    (add_detection_block, ["'Backbone.detection_convolution_block_indices' must be [] for the semantic segmentation "
+                           "task, its decoder reads every block, got [3]."]),
+    (use_sequence_normalization, ["'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for "
+                                  "this task, whose samples have no frames."]),
+    (remove_decoder_level, ["'SegmentationDecoder.convolutions' keys must be the backbone blocks of its skip "
+                            "connections ['5', '4', '3', '2', '1']", "missing ['1'], unexpected []."]),
+    (use_last_max_pooling_without_its_decoder_level, ["'SegmentationDecoder.convolutions' keys must be the backbone "
+                                                      "blocks of its skip connections ['6', '5', '4', '3', '2', '1']",
+                                                      "missing ['6'], unexpected []."]),
+    (set_invalid_decoder, ["'SegmentationDecoder.upsampling' must be one of ['transposed', 'bilinear'], got "
+                           "'nearest'.",
+                           "'SegmentationDecoder.convolutions.3' must be [number_layers, output_channels] with "
+                           "positive integers, got [0, 32].",
+                           "'SegmentationDecoder.modules.squeeze_and_excite' must be True or False, got 'yes'.",
+                           "'SegmentationDecoder.feature_map_normalization' must be one of ['batch', 'layer', "
+                           "'none'], got 'group'.",
+                           "'SegmentationDecoder.dropout_rate' must be a number within [0, 1), got 1.0."]),
+    (freeze_random_decoder, ["'SegmentationDecoder.pretrained.freeze' must be False when "
+                             "'SegmentationDecoder.pretrained.experiment_folder' is null: only a transferred "
+                             "segmentation decoder can be frozen.",
+                             "'SegmentationDecoder.pretrained.learning_rate_multiplier' must be > 0, got 0."]),
+    (remove_both_losses, ["'SegmentationLoss.cross_entropy_weight' and 'SegmentationLoss.dice_weight' cannot both be "
+                          "0, the model would have no loss.",
+                          "'SegmentationLoss.focal_gamma' must be a number >= 0, got -1.0.",
+                          "'SegmentationLoss.label_smoothing' must be a number within [0, 1), got 1.0.",
+                          "'SegmentationLoss.class_weighting' must be one of ['none', 'balanced'], got 'inverse'."]),
+    (set_invalid_segmentation_evaluation, ["'ExperimentConfiguration.evaluation.number_sample_images' must be an "
+                                           "integer >= 0, got -1.",
+                                           "'ExperimentConfiguration.evaluation.save_predicted_masks' must be True or "
+                                           "False, got 'yes'."]),
+    (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
+                                      "got 'yes'."])])
+def test_inconsistent_segmentation_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                             modify_function: Callable[[Dict[str, Any]], None],
+                                                             expected_messages: List[str]) -> None:
+    """
+    Verifies that every inconsistency of the semantic segmentation sections stops the loading with a short message
+    naming the faulty key, the decoder levels being checked against the backbone blocks.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="semantic_segmentation",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
+    assert "Traceback" not in printed_output
+
+
+@pytest.mark.parametrize(argnames=("label_mapping", "expected_message"), argvalues=[
+    ({"1": 1, "2": 3}, "indexed 0 (background) to K-1 without gaps, got [0, 1, 3]."),
+    ({"1": 1, "300": 2}, "The categories of the label mapping file must be mask values between 1 and 254 (0 is the "
+                         "background, 255 the unlabelled pixels), got [300]."),
+    ({"0": 1, "1": 0}, "The categories of the label mapping file must be mask values between 1 and 254"),
+    ({"0": 0, "1": 1, "2": 2}, None)])
+def test_segmentation_label_mapping_gives_mask_values(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                      label_mapping: Dict[str, int],
+                                                      expected_message: str | None) -> None:
+    """
+    Verifies that the label mapping file of the semantic segmentation maps mask values (1 to 254, the value 0 being
+    allowed for the background class only) to classes indexed from the background 0 without gaps.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        label_mapping (Dict[str, int]): The content of the label mapping file.
+        expected_message (str | None): The message fragment printed for the mapping, None when it is accepted.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="semantic_segmentation",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=None)
+    (tmp_path / "label_mapping.json").write_text(data=json.dumps(obj=label_mapping))
+
+    # An accepted mapping keeps its background category, a rejected one is reported without traceback
+    if expected_message is None:
+        _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+        assert model_configuration["Data"]["label_dictionary"] == {0: 0, 1: 1, 2: 2}
+        return
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+    printed_output = capsys.readouterr().out
+    assert expected_message in printed_output
+    assert "Traceback" not in printed_output

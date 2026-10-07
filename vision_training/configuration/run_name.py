@@ -12,7 +12,7 @@ NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN", "sequence": "
 
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
 TASK_CODES = {"object_detection": "DET", "classification": "CLS", "sequence_classification": "M2O",
-              "sequence_labelling": "M2M", "sequence_comparison": "CMP"}
+              "sequence_labelling": "M2M", "sequence_comparison": "CMP", "semantic_segmentation": "SEG"}
 
 # Run name code of every temporal module type of the sequence tasks
 TEMPORAL_TYPE_CODES = {"mean_pooling": "MEAN", "max_pooling": "MAX", "attention_pooling": "ATT", "gru": "GRU",
@@ -25,11 +25,16 @@ FUSION_TYPE_CODES = {"concatenation": "FCAT", "difference": "FDIF", "cross_atten
 # or all its values flattened (image classifier only)
 GLOBAL_POOLING_CODES = {"average": "AVG", "max": "MAX", "flatten": "FLAT"}
 
+# Run name code of every upsampling of the segmentation decoder levels: a transposed convolution, or a bilinear
+# upsampling followed by a 1x1 convolution
+UPSAMPLING_CODES = {"transposed": "UTC", "bilinear": "UBL"}
+
 # Prefixes of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
 # followed by '<prefix>FRZ' when it is frozen or '<learning rate prefix>LR<multiplier>' when it learns at its own
 # speed, i.e. PT, FRZ and BLR for the backbone, TPT, TFRZ and TLR for the temporal module, HPT, HFRZ and HLR for the
-# classification head
-PRETRAINED_TOKEN_PREFIXES = {"Backbone": ("", "B"), "TemporalModel": ("T", "T"), "ClassificationHead": ("H", "H")}
+# classification head, DPT, DFRZ and DLR for the segmentation decoder
+PRETRAINED_TOKEN_PREFIXES = {"Backbone": ("", "B"), "TemporalModel": ("T", "T"), "ClassificationHead": ("H", "H"),
+                             "SegmentationDecoder": ("D", "D")}
 
 
 def join_level_tokens(level_tokens: List[str]) -> str:
@@ -396,11 +401,53 @@ def build_sequence_comparison_sections(model_configuration: Dict[str, Any]) -> L
             build_classification_sections(model_configuration=model_configuration))
 
 
+def build_segmentation_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
+    """
+    Builds the sections of the run name specific to the semantic segmentation task: the decoder (UTC or UBL for the
+    transposed convolution or bilinear upsampling, the modules DSE and DRES, the normalization DBN, DLN or DNN, then
+    D<layers>x<channels> of every level from the deepest one to the input resolution, and DPT, DFRZ or DLR<multiplier>
+    when the decoder is initialised by the one of another run, see build_pretrained_tokens), then the classes (BIN or
+    MC<foreground classes>), e.g. 'UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC4'. The dropout of the segmentation head and
+    the 'SegmentationLoss' settings give no token, so that they can change between two resumptions of a run.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
+
+    Returns:
+        List[List[str]]: The tokens of every section.
+    """
+    data_configuration = model_configuration["Data"]
+    decoder_configuration = model_configuration["SegmentationDecoder"]
+
+    # Upsampling, modules and normalization of the decoder blocks
+    decoder_tokens = [UPSAMPLING_CODES[decoder_configuration["upsampling"]]]
+    if decoder_configuration["modules"]["squeeze_and_excite"]:
+        decoder_tokens.append("DSE")
+    if decoder_configuration["modules"]["residual_nets"]:
+        decoder_tokens.append("DRES")
+    decoder_tokens.append("D" + NORMALIZATION_CODES[decoder_configuration["feature_map_normalization"]])
+
+    # Layers and channels of every level, from the deepest one to the input resolution, then the transfer
+    convolutions = decoder_configuration["convolutions"]
+    decoder_tokens.append("D" + ".".join(f"{convolutions[level][0]}x{convolutions[level][1]}"
+                                         for level in sorted(convolutions, key=int, reverse=True)))
+    decoder_tokens += build_pretrained_tokens(model_configuration=model_configuration,
+                                              section_name="SegmentationDecoder")
+
+    # Classes, the label dictionary including the background class
+    if data_configuration["label_mode"] == "binary":
+        classes_token = "BIN"
+    else:
+        classes_token = f"MC{len(set(data_configuration['label_dictionary'].values())) - 1}"
+
+    return [decoder_tokens, [classes_token]]
+
+
 # Builder of the task-specific sections of the run name, placed between the backbone and training sections
 TASK_RUN_NAME_SECTIONS: Dict[str, Callable[[Dict[str, Any]], List[List[str]]]] = {
     "object_detection": build_detection_sections, "classification": build_classification_sections,
     "sequence_classification": build_sequence_sections, "sequence_labelling": build_sequence_sections,
-    "sequence_comparison": build_sequence_comparison_sections}
+    "sequence_comparison": build_sequence_comparison_sections, "semantic_segmentation": build_segmentation_sections}
 
 
 def build_run_name(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> str:
@@ -414,9 +461,9 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
 
     The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
     is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
-    DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, CLS, M2O, M2M or CMP), the input
-    and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the sections of the task
-    (e.g. build_detection_sections), then the optimizer section (build_optimizer_tokens), left out when empty.
+    DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, CLS, M2O, M2M, CMP or SEG), the
+    input and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the sections of the
+    task (e.g. build_detection_sections), then the optimizer section (build_optimizer_tokens), left out when empty.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration, with its task.

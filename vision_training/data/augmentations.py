@@ -1,8 +1,9 @@
 """
 DataAugmenter, the random geometric and photometric augmentations applied on the device to the training batches of
-every task right before the forward pass, moving the bounding boxes of the object detector with the images and
-handling the frame shuffling and per-frame draws of the sequence tasks. Built by the base trainer from the
-Data.data_augmentation configuration, whose augmentation types are verified by the common checks.
+every task right before the forward pass, moving the bounding boxes of the object detector and the masks of the
+semantic segmentation with the images and handling the frame shuffling and per-frame draws of the sequence tasks.
+Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
+common checks.
 """
 
 import random
@@ -15,6 +16,8 @@ from torchvision import tv_tensors
 from torchvision.transforms.v2 import functional as vision_functional
 from torchvision.transforms.v2 import InterpolationMode
 
+from vision_training.core.contracts import IGNORED_LABEL_INDEX
+
 # kornia decorates some of its functions with torch.jit.script when it is imported, which recent PyTorch versions
 # report as deprecated; the notice is harmless and cannot be fixed on our side, so it is silenced for this import only
 with warnings.catch_warnings():
@@ -22,11 +25,13 @@ with warnings.catch_warnings():
     from kornia.color import rgb_to_yuv, yuv_to_rgb
     from kornia.enhance import equalize_clahe
 
-# Geometric augmentations, applied first, in this order. They move the bounding boxes along with the image
+# Geometric augmentations, applied first, in this order. They move the bounding boxes and the masks along with the
+# image
 GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_left_right_flip", "random_up_down_flip", "random_rotation",
                                 "random_90_rotation"]
 
-# Photometric augmentations, applied after the geometric ones, in this order. They never move the bounding boxes
+# Photometric augmentations, applied after the geometric ones, in this order. They never move the bounding boxes and
+# never change the masks
 PHOTOMETRIC_AUGMENTATION_TYPES = ["brightness_contrast_saturation", "clahe_augment", "sharp_augment",
                                   "equalize_histogram_augment", "equalize_bgr_histogram_augment", "random_noise",
                                   "gray_scale_augment", "random_colour_augmentation", "random_blur"]
@@ -59,7 +64,9 @@ class DataAugmenter:
     Randomly augments training batches on their device (usually the GPU), right before the forward pass.
 
     It is shared by every network of the project: the object detector passes bounding boxes and labels, which are
-    moved, clipped and filtered together with the geometric augmentations, while a classifier simply omits them.
+    moved, clipped and filtered together with the geometric augmentations, the semantic segmenter passes the class
+    masks of its images, moved with nearest interpolation so that every pixel keeps a class, while a classifier simply
+    omits them.
     Images are float BGR tensors in the [0, 255] range, either single images [B, C, H, W] or sequences
     [B, T, C, H, W] for the sequence networks, in which case every frame of a sequence receives exactly the same
     random augmentation so that the sequence stays coherent, unless the photometric types are drawn frame by frame
@@ -91,8 +98,8 @@ class DataAugmenter:
                               for name in AUGMENTATION_TYPES}
 
     def augment_batch(self, images: torch.Tensor, bounding_boxes: Optional[List[torch.Tensor]] = None,
-                      labels: Optional[List[torch.Tensor]] = None) -> Tuple[
-                      torch.Tensor, Optional[List[torch.Tensor]], Optional[List[torch.Tensor]]]:
+                      labels: Optional[List[torch.Tensor]] = None, masks: Optional[torch.Tensor] = None) -> Tuple[
+                      torch.Tensor, Optional[List[torch.Tensor]], Optional[List[torch.Tensor]], Optional[torch.Tensor]]:
         """
         Augments every sample of a training batch independently, each one with probability 'probability'.
 
@@ -101,48 +108,52 @@ class DataAugmenter:
             bounding_boxes (Optional[List[torch.Tensor]]): Per-image [N, 4] boxes in absolute [x1, y1, x2, y2]
                 pixel coordinates, or None for networks without boxes. Defaults to None.
             labels (Optional[List[torch.Tensor]]): Per-image [N] labels matching the boxes. Defaults to None.
+            masks (Optional[torch.Tensor]): The [B, H, W] int64 class index of every pixel of the images, or None
+                for networks without masks. Defaults to None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[List[torch.Tensor]], Optional[List[torch.Tensor]]]: The augmented images,
-                boxes and labels, with the same structure as the inputs.
+            Tuple[torch.Tensor, Optional[List[torch.Tensor]], Optional[List[torch.Tensor]], Optional[torch.Tensor]]:
+                The augmented images, boxes, labels and masks, with the same structure as the inputs.
 
         Raises:
-            ValueError: If boxes are given with sequences, or boxes and labels are not given together.
+            ValueError: If boxes or masks are given with sequences, or boxes and labels are not given together.
         """
         if not self.activated:
-            return images, bounding_boxes, labels
+            return images, bounding_boxes, labels, masks
 
-        # Boxes are only supported for single images, and always travel together with their labels
-        if images.dim() == 5 and bounding_boxes is not None:
-            raise ValueError("Bounding boxes are not supported for image sequences [B, T, C, H, W].")
+        # Boxes and masks are only supported for single images, and the boxes always travel together with their labels
+        if images.dim() == 5 and (bounding_boxes is not None or masks is not None):
+            raise ValueError("Bounding boxes and masks are not supported for image sequences [B, T, C, H, W].")
         if (bounding_boxes is None) != (labels is None):
             raise ValueError("Bounding boxes and labels must be given together.")
 
-        augmented_images, augmented_boxes, augmented_labels = [], [], []
+        augmented_images, augmented_boxes, augmented_labels, augmented_masks = [], [], [], []
 
         # Decide independently for every sample whether it is augmented
         for sample_index in range(images.shape[0]):
             sample_image = images[sample_index]
             sample_boxes = bounding_boxes[sample_index] if bounding_boxes is not None else None
             sample_labels = labels[sample_index] if labels is not None else None
+            sample_mask = masks[sample_index] if masks is not None else None
 
             if random.random() < self.probability:
-                sample_image, sample_boxes, sample_labels = self.augment_sample(image=sample_image,
-                                                                                bounding_boxes=sample_boxes,
-                                                                                labels=sample_labels)
+                sample_image, sample_boxes, sample_labels, sample_mask = self.augment_sample(
+                    image=sample_image, bounding_boxes=sample_boxes, labels=sample_labels, mask=sample_mask)
 
             augmented_images.append(sample_image)
             augmented_boxes.append(sample_boxes)
             augmented_labels.append(sample_labels)
+            augmented_masks.append(sample_mask)
 
         output_boxes = augmented_boxes if bounding_boxes is not None else None
         output_labels = augmented_labels if labels is not None else None
+        output_masks = torch.stack(tensors=augmented_masks) if masks is not None else None
 
-        return torch.stack(tensors=augmented_images), output_boxes, output_labels
+        return torch.stack(tensors=augmented_images), output_boxes, output_labels, output_masks
 
     def augment_sample(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
-                       labels: Optional[torch.Tensor]) -> Tuple[
-                       torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+                       labels: Optional[torch.Tensor], mask: Optional[torch.Tensor]) -> Tuple[
+                       torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Applies every activated augmentation type to one sample, each with its own probability. A sequence
         [T, C, H, W] is transformed as a whole, so all its frames share the same random parameters, except the
@@ -152,15 +163,17 @@ class DataAugmenter:
             image (torch.Tensor): A float BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
             bounding_boxes (Optional[torch.Tensor]): The [N, 4] absolute [x1, y1, x2, y2] boxes, or None.
             labels (Optional[torch.Tensor]): The [N] labels of the boxes, or None.
+            mask (Optional[torch.Tensor]): The [H, W] int64 class index of every pixel, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The augmented image, boxes and labels.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]: The augmented
+                image, boxes, labels and mask.
         """
-        # Apply the geometric augmentations, which move the boxes together with the image
+        # Apply the geometric augmentations, which move the boxes and the mask together with the image
         for augmentation_type in GEOMETRIC_AUGMENTATION_TYPES:
             if self.should_apply(augmentation_type=augmentation_type):
                 augmentation_method = getattr(self, augmentation_type)
-                image, bounding_boxes = augmentation_method(image=image, bounding_boxes=bounding_boxes)
+                image, bounding_boxes, mask = augmentation_method(image=image, bounding_boxes=bounding_boxes, mask=mask)
 
         # Clip the boxes to the image and remove the ones that left it, together with their labels
         if bounding_boxes is not None:
@@ -168,13 +181,14 @@ class DataAugmenter:
                                                                image_height=image.shape[-2],
                                                                image_width=image.shape[-1])
 
-        # Apply the photometric augmentations, which never move the boxes, once for the sample or frame by frame
+        # Apply the photometric augmentations, which never move the boxes nor change the mask, once for the sample or
+        # frame by frame
         if image.dim() == 4 and self.independent_frames:
             image = torch.stack(tensors=[self.apply_photometric_augmentations(image=frame) for frame in image])
         else:
             image = self.apply_photometric_augmentations(image=image)
 
-        return image.clamp(min=0.0, max=255.0), bounding_boxes, labels
+        return image.clamp(min=0.0, max=255.0), bounding_boxes, labels, mask
 
     def apply_photometric_augmentations(self, image: torch.Tensor) -> torch.Tensor:
         """
@@ -286,19 +300,21 @@ class DataAugmenter:
         return tv_tensors.BoundingBoxes(data=bounding_boxes, format="XYXY",
                                         canvas_size=(image.shape[-2], image.shape[-1]))
 
-    def random_crop(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor]) -> Tuple[
-            torch.Tensor, Optional[torch.Tensor]]:
+    def random_crop(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
+                    mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
+                                                           Optional[torch.Tensor]]:
         """
         Crops a random region covering 75 to 100% of each side and resizes it back to the original size, which
         zooms slightly into the image. Boxes are shifted and scaled accordingly; boxes leaving the crop are removed
-        afterwards by 'clean_bounding_boxes'.
+        afterwards by 'clean_bounding_boxes'. The mask is cropped and resized with the nearest interpolation.
 
         Args:
             image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
             bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes, or None.
+            mask (Optional[torch.Tensor]): The [H, W] class mask, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor]]: The cropped image and boxes.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The cropped image, boxes and mask.
         """
         image_height, image_width = image.shape[-2], image.shape[-1]
 
@@ -310,92 +326,111 @@ class DataAugmenter:
         cropped_image = vision_functional.resized_crop(image, top=top, left=left, height=crop_height,
                                                        width=crop_width, size=[image_height, image_width],
                                                        antialias=True)
-        if bounding_boxes is None:
-            return cropped_image, None
 
-        cropped_boxes = vision_functional.resized_crop(
-            self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image), top=top, left=left,
-            height=crop_height, width=crop_width, size=[image_height, image_width])
-        return cropped_image, cropped_boxes.as_subclass(torch.Tensor)
+        # Crop the boxes and the mask exactly like the image, the mask with the nearest interpolation
+        cropped_boxes, cropped_mask = None, None
+        if bounding_boxes is not None:
+            cropped_boxes = vision_functional.resized_crop(
+                self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image), top=top, left=left,
+                height=crop_height, width=crop_width, size=[image_height, image_width]).as_subclass(torch.Tensor)
+        if mask is not None:
+            cropped_mask = vision_functional.resized_crop(tv_tensors.Mask(mask), top=top, left=left,
+                                                          height=crop_height, width=crop_width,
+                                                          size=[image_height, image_width]).as_subclass(torch.Tensor)
+        return cropped_image, cropped_boxes, cropped_mask
 
-    def random_left_right_flip(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor]) -> Tuple[
-            torch.Tensor, Optional[torch.Tensor]]:
+    def random_left_right_flip(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
+                               mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
+                                                                      Optional[torch.Tensor]]:
         """
-        Mirrors the image from left to right, together with its boxes.
+        Mirrors the image from left to right, together with its boxes and its mask.
 
         Args:
             image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
             bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes, or None.
+            mask (Optional[torch.Tensor]): The [H, W] class mask, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor]]: The flipped image and boxes.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The flipped image, boxes and mask.
         """
         flipped_image = vision_functional.horizontal_flip(image)
-        if bounding_boxes is None:
-            return flipped_image, None
+        flipped_boxes = None
+        if bounding_boxes is not None:
+            flipped_boxes = vision_functional.horizontal_flip(
+                self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image)).as_subclass(torch.Tensor)
+        flipped_mask = mask.flip(dims=(-1,)) if mask is not None else None
+        return flipped_image, flipped_boxes, flipped_mask
 
-        flipped_boxes = vision_functional.horizontal_flip(
-            self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image))
-        return flipped_image, flipped_boxes.as_subclass(torch.Tensor)
-
-    def random_up_down_flip(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor]) -> Tuple[
-            torch.Tensor, Optional[torch.Tensor]]:
+    def random_up_down_flip(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
+                            mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
+                                                                   Optional[torch.Tensor]]:
         """
-        Mirrors the image from top to bottom, together with its boxes.
+        Mirrors the image from top to bottom, together with its boxes and its mask.
 
         Args:
             image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
             bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes, or None.
+            mask (Optional[torch.Tensor]): The [H, W] class mask, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor]]: The flipped image and boxes.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The flipped image, boxes and mask.
         """
         flipped_image = vision_functional.vertical_flip(image)
-        if bounding_boxes is None:
-            return flipped_image, None
+        flipped_boxes = None
+        if bounding_boxes is not None:
+            flipped_boxes = vision_functional.vertical_flip(
+                self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image)).as_subclass(torch.Tensor)
+        flipped_mask = mask.flip(dims=(-2,)) if mask is not None else None
+        return flipped_image, flipped_boxes, flipped_mask
 
-        flipped_boxes = vision_functional.vertical_flip(
-            self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image))
-        return flipped_image, flipped_boxes.as_subclass(torch.Tensor)
-
-    def random_rotation(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor]) -> Tuple[
-            torch.Tensor, Optional[torch.Tensor]]:
+    def random_rotation(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
+                        mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
+                                                               Optional[torch.Tensor]]:
         """
         Rotates the image by a random angle between -5 and 5 degrees around its centre, filling the uncovered
         corners with black like the padding of the data loaders. A rotated box is no longer axis aligned, so it is
-        replaced by the enclosing box of its rotated corners, which is slightly larger than the object.
+        replaced by the enclosing box of its rotated corners, which is slightly larger than the object. The mask is
+        rotated with the nearest interpolation, its uncovered corners being ignored like its padding.
 
         Args:
             image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
             bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes, or None.
+            mask (Optional[torch.Tensor]): The [H, W] class mask, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor]]: The rotated image and boxes.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The rotated image, boxes and mask.
         """
         angle = random.uniform(-MAXIMUM_ROTATION_DEGREES, MAXIMUM_ROTATION_DEGREES)
 
         rotated_image = vision_functional.rotate(image, angle=angle, interpolation=InterpolationMode.BILINEAR,
                                                  fill=0.0)
-        if bounding_boxes is None:
-            return rotated_image, None
 
-        rotated_boxes = vision_functional.rotate(self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image),
-                                                 angle=angle)
-        return rotated_image, rotated_boxes.as_subclass(torch.Tensor)
+        # Rotate the boxes and the mask by the same angle, the uncovered corners of the mask being ignored
+        rotated_boxes, rotated_mask = None, None
+        if bounding_boxes is not None:
+            rotated_boxes = vision_functional.rotate(
+                self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image),
+                angle=angle).as_subclass(torch.Tensor)
+        if mask is not None:
+            rotated_mask = vision_functional.rotate(tv_tensors.Mask(mask), angle=angle,
+                                                    fill=IGNORED_LABEL_INDEX).as_subclass(torch.Tensor)
+        return rotated_image, rotated_boxes, rotated_mask
 
     @staticmethod
-    def random_90_rotation(image: torch.Tensor, bounding_boxes: Optional[torch.Tensor]) -> Tuple[
-            torch.Tensor, Optional[torch.Tensor]]:
+    def random_90_rotation(image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
+                           mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
+                                                                  Optional[torch.Tensor]]:
         """
         Rotates a square image by 90 degrees clockwise or counter-clockwise, chosen at random. The rotation is an
-        exact pixel permutation, so the boxes are transformed exactly.
+        exact pixel permutation, so the boxes and the mask are transformed exactly.
 
         Args:
             image (torch.Tensor): The square image [C, H, W] or sequence [T, C, H, W].
             bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes, or None.
+            mask (Optional[torch.Tensor]): The [H, W] class mask, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor]]: The rotated image and boxes.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The rotated image, boxes and mask.
 
         Raises:
             ValueError: If the image is not square, since the batch could then no longer be stacked.
@@ -407,15 +442,16 @@ class DataAugmenter:
         # Counter-clockwise rotation maps a point (x, y) to (y, W - x), clockwise maps it to (H - y, x)
         counter_clockwise = random.random() < 0.5
         rotated_image = torch.rot90(image, k=1 if counter_clockwise else -1, dims=(-2, -1))
+        rotated_mask = torch.rot90(mask, k=1 if counter_clockwise else -1, dims=(-2, -1)) if mask is not None else None
         if bounding_boxes is None:
-            return rotated_image, None
+            return rotated_image, None, rotated_mask
 
         x_1, y_1, x_2, y_2 = bounding_boxes.unbind(dim=-1)
         if counter_clockwise:
             rotated_boxes = torch.stack(tensors=[y_1, image_width - x_2, y_2, image_width - x_1], dim=-1)
         else:
             rotated_boxes = torch.stack(tensors=[image_height - y_2, x_1, image_height - y_1, x_2], dim=-1)
-        return rotated_image, rotated_boxes
+        return rotated_image, rotated_boxes, rotated_mask
 
     @staticmethod
     def brightness_contrast_saturation(image: torch.Tensor) -> torch.Tensor:

@@ -1,7 +1,8 @@
 """
 Tests of vision_training/evaluation/evaluation_report.py: the report of an evaluated checkpoint writes the global
-scalars, and the per-class scalars and images only with the per-class report, appends one block per evaluation to
-Results.txt, and the per-class metrics file is written in class index order with its values formatted.
+scalars and the sample images, and the per-class scalars and images only with the per-class report, appends one block
+per evaluation to Results.txt, and the per-class metrics file is written in class index order with its values
+formatted.
 """
 
 import csv
@@ -59,8 +60,8 @@ class RecordingWriter:
 
 def build_results() -> EvaluationResults:
     """
-    Builds the evaluation results of the tests: two global scalars, two per-class scalars, a per-class table and a
-    confusion matrix image.
+    Builds the evaluation results of the tests: two global scalars, two per-class scalars, a per-class table, a
+    confusion matrix image and a sample image.
 
     Returns:
         EvaluationResults: The results.
@@ -70,15 +71,17 @@ def build_results() -> EvaluationResults:
                         "rows": [["circle", 3, 0.8], ["square", 3, 0.0]], "sort_column": "F1", "per_class": True,
                         "legend": ""}],
             "scalars": {"Accuracy": 0.5, "Macro F1": 0.4}, "class_scalars": {"F1/circle": 0.8, "F1/square": 0.0},
-            "images": {"Confusion Matrix": np.zeros(shape=(8, 10, 3), dtype=np.uint8)}, "files": {},
+            "images": {"Confusion Matrix": np.zeros(shape=(8, 10, 3), dtype=np.uint8)},
+            "sample_images": {"Samples/image_000001": np.zeros(shape=(6, 24, 3), dtype=np.uint8)}, "files": {},
             "headline_metric": "Accuracy"}
 
 
 @pytest.mark.parametrize(argnames="per_class_report", argvalues=[True, False])
 def test_report_follows_the_per_class_report(tmp_path: Path, per_class_report: bool) -> None:
     """
-    Verifies that the report writes the global scalars at every evaluation, and the per-class scalars, images and
-    table only with the per-class report, and that every evaluation appends its own block to Results.txt.
+    Verifies that the report writes the global scalars and the sample images at every evaluation, and the per-class
+    scalars, images and table only with the per-class report, and that every evaluation appends its own block to
+    Results.txt.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -92,8 +95,10 @@ def test_report_follows_the_per_class_report(tmp_path: Path, per_class_report: b
 
     expected_tags = ["Accuracy", "Macro F1"] + (["F1/circle", "F1/square"] if per_class_report else [])
     assert [tag for tag, _, global_step in writer.scalars if global_step == 4] == expected_tags
-    assert writer.images == ([("Confusion Matrix", (8, 10, 3), 4, "HWC"), ("Confusion Matrix", (8, 10, 3), 8, "HWC")]
-                             if per_class_report else [])
+    expected_images = [("Samples/image_000001", (6, 24, 3), iteration, "HWC") for iteration in [4, 8]]
+    if per_class_report:
+        expected_images += [("Confusion Matrix", (8, 10, 3), iteration, "HWC") for iteration in [4, 8]]
+    assert sorted(writer.images) == sorted(expected_images)
 
     results_blocks = read_results_blocks(results_path=results_path)
     assert [block["iteration"] for block in results_blocks] == [4, 8]

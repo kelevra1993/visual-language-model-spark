@@ -1,9 +1,11 @@
 """
 Tests of the model exports of vision_training/deployment/export_model.py and export_specifications.py: the TorchScript
-and ONNX exports of every task (the image classifier with a pooled or flattened feature map) match the eager model,
-keep their dynamic frames, and the inference models match the training path on full windows.
+and ONNX exports of every task (the image classifier with a pooled or flattened feature map, the semantic segmenter)
+match the eager model, keep their dynamic frames, the comparison of the segmenter outputs reports their differences,
+and the inference models match the training path on full windows.
 """
 
+import numpy as np
 import onnx
 import onnxruntime
 import pytest
@@ -15,11 +17,12 @@ from typing import Optional
 from vision_training.deployment.export_model import (export_onnx, export_torchscript, find_fixed_dynamic_dimensions,
                                                      hide_known_export_warnings)
 from vision_training.deployment.export_specifications import (TASK_INPUT_NAMES, build_inference_model,
-                                                              convert_outputs_to_numpy, create_random_inputs,
-                                                              get_export_specification)
+                                                              compare_segmentations, convert_outputs_to_numpy,
+                                                              create_random_inputs, get_export_specification)
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
+                                                   get_segmentation_model_configuration,
                                                    get_sequence_comparison_model_configuration,
                                                    get_sequence_model_configuration)
 
@@ -34,8 +37,10 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
     recurrent modules, and a causal transformer for the sequence labeller.
 
     Args:
-        task (str): "classification", "sequence_classification", "sequence_labelling" or "sequence_comparison".
-        temporal_type (Optional[str]): The temporal module of the sequence models, None for the classifier.
+        task (str): "classification", "semantic_segmentation", "sequence_classification", "sequence_labelling" or
+            "sequence_comparison".
+        temporal_type (Optional[str]): The temporal module of the sequence models, None for the classifier and the
+            segmenter.
         fusion_type (Optional[str]): The fusion of the members of the comparison model, None for the other tasks.
         global_pooling (str): The reduction of the final feature map, "average" or "max", or "flatten" for the
             classifier only.
@@ -44,7 +49,9 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
         TaskModel: The model of the task.
     """
     torch.manual_seed(seed=0)
-    if temporal_type is None:
+    if task == "semantic_segmentation":
+        configuration, device, dtype = get_segmentation_model_configuration(upsampling="transposed")
+    elif temporal_type is None:
         configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
         configuration["ClassificationHead"]["global_pooling"] = global_pooling
     else:
@@ -60,7 +67,7 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
 
 @pytest.mark.parametrize(argnames=("task", "temporal_type", "fusion_type", "global_pooling"), argvalues=[
     ("classification", None, None, "average"), ("classification", None, None, "flatten"),
-    ("sequence_classification", "gru", None, "average"), ("sequence_classification", "transformer", None, "average"),
+    ("semantic_segmentation", None, None, "average"), ("sequence_classification", "gru", None, "average"), ("sequence_classification", "transformer", None, "average"),
     ("sequence_labelling", "lstm", None, "average"), ("sequence_labelling", "transformer", None, "average"),
     ("sequence_labelling", "temporal_convolution", None, "average"),
     ("sequence_comparison", "gru", "cross_attention", "average"),
@@ -68,9 +75,10 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
 def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type: Optional[str],
                                        fusion_type: Optional[str], global_pooling: str) -> None:
     """
-    Verifies the TorchScript and ONNX exports of the inference models of the classification and sequence tasks: both
-    keep the input names of the specification and reproduce the eager class probabilities on a batch of another size
-    than the traced one and, for the sequence models, with another number of frames, so that Triton can batch
+    Verifies the TorchScript and ONNX exports of the inference models of the classification, segmentation and
+    sequence tasks: both keep the input names of the specification and reproduce the eager class probabilities (and
+    class maps of the segmenter) on a batch of another size than the traced one and, for the sequence models, with
+    another number of frames, so that Triton can batch
     requests and receive windows of any length. The before and after windows of the comparison model are checked
     with different numbers of frames, and its recurrent case, exported after the recurrent sequence classifier in the
     same process, also checks that a second recurrent export keeps its numbers of frames dynamic.
@@ -78,7 +86,8 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
     Args:
         tmp_path (Path): The pytest temporary directory.
         task (str): The task of the exported model.
-        temporal_type (Optional[str]): The temporal module of the sequence models, None for the classifier.
+        temporal_type (Optional[str]): The temporal module of the sequence models, None for the classifier and the
+            segmenter.
         fusion_type (Optional[str]): The fusion of the members of the comparison model, None for the other tasks.
         global_pooling (str): The reduction of the final feature map of the model.
     """
@@ -102,10 +111,14 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
         assert [input_batch.shape[1] for input_batch in example_inputs.values()] == [4, 4]
         assert [input_batch.shape[1] for input_batch in check_inputs.values()] == [3, 2]
 
-    # One vector of class probabilities per sample, or per frame for the sequence labeller
+    # One vector of class probabilities per sample, or per frame for the sequence labeller, or a class map and the
+    # class probabilities of every pixel for the segmenter
     check_shape = specification["inputs"][0]["check_shape"]
-    expected_shape = (check_shape[0], check_shape[1], 3) if task == "sequence_labelling" else (3, 3)
-    assert reference_outputs[0].shape == expected_shape
+    if task == "semantic_segmentation":
+        assert [output.shape for output in reference_outputs] == [(3, 64, 64), (3, 3, 64, 64)]
+    else:
+        expected_shape = (check_shape[0], check_shape[1], 3) if task == "sequence_labelling" else (3, 3)
+        assert reference_outputs[0].shape == expected_shape
 
     # TorchScript export, traced on the example batch, keeping the input names as the names of its arguments, and run
     # on the check batch with the inputs passed by name
@@ -127,6 +140,29 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
                                       for input_name, input_batch in check_inputs.items()})
     assert specification["compare_outputs"](reference=reference_outputs, candidate=onnx_outputs,
                                             **specification["comparison_tolerances"]) == []
+
+
+def test_segmentation_comparison_reports_the_differences() -> None:
+    """
+    Verifies that the comparison of the segmenter outputs accepts a few pixels of tied classes taking the other class,
+    and reports class maps disagreeing on more pixels and class probabilities beyond the tolerance.
+    """
+    class_maps = np.zeros(shape=(1, 40, 50), dtype=np.int64)
+    class_probabilities = np.full(shape=(1, 2, 40, 50), fill_value=0.5, dtype=np.float32)
+
+    # One pixel of 2000 taking the other class is accepted, one in ten is reported
+    almost_equal_maps = class_maps.copy()
+    almost_equal_maps[0, 0, 0] = 1
+    assert compare_segmentations(reference=[class_maps, class_probabilities],
+                                 candidate=[almost_equal_maps, class_probabilities], tolerance=1e-4,
+                                 minimum_equal_share=0.999) == []
+    different_maps = class_maps.copy()
+    different_maps[0, :4] = 1
+    different_probabilities = class_probabilities + 0.01
+    assert compare_segmentations(reference=[class_maps, class_probabilities],
+                                 candidate=[different_maps, different_probabilities], tolerance=1e-4,
+                                 minimum_equal_share=0.999) == ["class probabilities differ by up to 1.00e-02",
+                                                                "class maps agree on 90.000% of the pixels only"]
 
 
 def test_second_recurrent_export_keeps_dynamic_frames(tmp_path: Path) -> None:

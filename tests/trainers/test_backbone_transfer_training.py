@@ -1,7 +1,7 @@
 """
 Tests of the model transfers through the trainers of vision_training/trainers on synthetic datasets: a frozen backbone,
-and the backbone, temporal module and head of a sequence classifier, initialise a new run that trains, saves and resumes
-correctly.
+the backbone, temporal module and head of a sequence classifier, and the classification backbone and segmentation
+decoder of the semantic segmentation runs, initialise a new run that trains, saves and resumes correctly.
 """
 
 import copy
@@ -22,7 +22,8 @@ CONFIGURATIONS_FOLDER = Path(__file__).parents[2] / "vision_training" / "configu
 SYNTHETIC_CONFIGURATION_PATHS = {
     "classification": CONFIGURATIONS_FOLDER / "classification" / "configuration_synthetic_shapes.yaml",
     "sequence_classification": (CONFIGURATIONS_FOLDER / "sequence_classification" /
-                                "configuration_synthetic_sequences.yaml")}
+                                "configuration_synthetic_sequences.yaml"),
+    "semantic_segmentation": CONFIGURATIONS_FOLDER / "semantic_segmentation" / "configuration_synthetic_shapes.yaml"}
 
 # Image size of the transfer tests and number of frames of their sequences, small enough for a few quick iterations
 TRANSFER_IMAGE_SIZE = 64
@@ -37,9 +38,9 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
                            pretrained_settings: Dict[str, Dict[str, Any]], configuration_name: str,
                            task: str) -> BaseTrainer:
     """
-    Writes a copy of the synthetic configuration of a task (synthetic shapes classification, or synthetic sequences
-    classification with windows of 4 frames) for a quick run on the generated dataset, with the given pretrained
-    settings, and builds its trainer exactly like main.py does.
+    Writes a copy of the synthetic configuration of a task (synthetic shapes classification or segmentation, or
+    synthetic sequences classification with windows of 4 frames) for a quick run on the generated dataset, with the
+    given pretrained settings, and builds its trainer exactly like main.py does.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
@@ -47,7 +48,7 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
         number_iterations (int): The number of training iterations of the run.
         pretrained_settings (Dict[str, Dict[str, Any]]): The 'pretrained' settings replaced for the run, by section.
         configuration_name (str): The file name of the written configuration.
-        task (str): "classification" or "sequence_classification".
+        task (str): "classification", "sequence_classification" or "semantic_segmentation".
 
     Returns:
         BaseTrainer: The trainer of the run.
@@ -261,3 +262,74 @@ def test_sequence_components_initialise_a_partly_frozen_run(tmp_path: Path, caps
                                pretrained_settings={section_name: {"experiment_folder": source_folder, "freeze": True}
                                                     for section_name in SEQUENCE_COMPONENTS},
                                configuration_name="all_frozen.yaml", task="sequence_classification")
+
+
+def test_classification_backbone_and_segmentation_decoder_initialise_segmentation_runs(
+        tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the transfers of the semantic segmentation through the trainers: the backbone of a classification run
+    initialises a frozen segmentation run, which keeps it fixed while its decoder learns and records its source run in
+    its checkpoints, and the decoder of that segmentation run initialises another segmentation run, which starts with
+    exactly its weights and fine-tunes it ten times slower in its own optimizer group.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainers.
+    """
+    classification_dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(classification_dataset_folder), image_size=TRANSFER_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+    segmentation_dataset_folder = tmp_path / "synthetic_segmentation_shapes"
+    create_synthetic_dataset(output_folder=str(segmentation_dataset_folder), image_size=TRANSFER_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=3,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="semantic_segmentation")
+
+    # Classification source run trained from random weights, saved at iterations 2 and 3
+    classification_trainer = build_transfer_trainer(temporary_directory=tmp_path,
+                                                    dataset_folder=classification_dataset_folder, number_iterations=3,
+                                                    pretrained_settings={}, configuration_name="classification.yaml",
+                                                    task="classification")
+    classification_trainer.run_training_loop()
+    classification_folder = str(classification_trainer.experiment_folder)
+    source_backbone_state = {
+        tensor_name[len("backbone."):]: tensor_value for tensor_name, tensor_value in
+        torch.load(f=classification_trainer.weights_directory / "Iteration_3" / "model_000003.pt",
+                   map_location="cpu", weights_only=True)["model_state"].items() if tensor_name.startswith("backbone.")}
+
+    # Segmentation run initialised by the frozen classification backbone, whose decoder learns
+    segmentation_trainer = build_transfer_trainer(
+        temporary_directory=tmp_path, dataset_folder=segmentation_dataset_folder, number_iterations=3,
+        pretrained_settings={"Backbone": {"experiment_folder": classification_folder, "freeze": True}},
+        configuration_name="segmentation.yaml", task="semantic_segmentation")
+    assert "-PT-FRZ_UTC-" in segmentation_trainer.run_name
+    model = segmentation_trainer.model
+    decoder_state_before = copy.deepcopy(model.segmentation_decoder.state_dict())
+    segmentation_trainer.run_training_loop()
+    for tensor_name, tensor_value in model.backbone.state_dict().items():
+        assert torch.equal(input=tensor_value.cpu(), other=source_backbone_state[tensor_name]), tensor_name
+    assert any(not torch.equal(input=tensor_value, other=decoder_state_before[tensor_name])
+               for tensor_name, tensor_value in model.segmentation_decoder.state_dict().items())
+    segmentation_checkpoint = torch.load(f=segmentation_trainer.weights_directory / "Iteration_3" / "model_000003.pt",
+                                         map_location="cpu", weights_only=True)
+    assert segmentation_checkpoint["pretrained_backbone"] == classification_folder
+    assert segmentation_checkpoint["pretrained_segmentation_decoder"] is None
+
+    # Segmentation run initialised by the decoder of the previous one, fine-tuned ten times slower in its own group
+    decoder_trainer = build_transfer_trainer(
+        temporary_directory=tmp_path, dataset_folder=segmentation_dataset_folder, number_iterations=2,
+        pretrained_settings={"SegmentationDecoder": {"experiment_folder": str(segmentation_trainer.experiment_folder),
+                                                     "learning_rate_multiplier": 0.1}},
+        configuration_name="decoder.yaml", task="semantic_segmentation")
+    assert "-D2x64.2x64.2x32.2x32.1x16-DPT-DLR0.1_" in decoder_trainer.run_name
+    for tensor_name, tensor_value in decoder_trainer.model.segmentation_decoder.state_dict().items():
+        assert torch.equal(input=tensor_value.cpu(),
+                           other=segmentation_checkpoint["model_state"][f"segmentation_decoder.{tensor_name}"])
+    parameter_groups = decoder_trainer.optimizer.param_groups
+    assert [parameter_group["lr"] for parameter_group in parameter_groups] == pytest.approx(expected=[1e-3, 1e-4])
+    assert len(parameter_groups[1]["params"]) == len(list(decoder_trainer.model.segmentation_decoder.parameters()))
+    decoder_trainer.run_training_loop()
+
+    console_output = capsys.readouterr().out
+    assert "Segmentation Decoder Initialised From" in console_output
+    assert "Error encountered during iteration" not in console_output and "Critical Error" not in console_output

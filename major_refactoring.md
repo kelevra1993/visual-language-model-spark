@@ -951,13 +951,46 @@ is left out.
     weight names, and `migrate_configuration.py` renames their folders. Runs trained before without head dropout but
     with hidden head layers have the old weight names (`fully_connected_block.0.weight` instead of `.1.weight`) and can
     no longer be loaded as they are.
+
 11. **Last checkpoint of a run:** when the last iteration fell on `weight_saving_iterations`, its checkpoint was saved and
     evaluated before its training step, then overwritten by the final save after that step, so the evaluation did not
     match the saved weights. The last iteration now skips its start-of-iteration save, and the final checkpoint is
     evaluated after the final save when the run completes on a weight saving iteration, for every task.
 
+### Semantic Segmentation
+A sixth task added after the phases above, `semantic_segmentation` (run name code `SEG`), built like the other tasks:
+- **Model:** a U-Net whose downsampling path is the shared `Backbone`. `Backbone.forward(...,
+  return_pre_pooling_outputs=True)` gives the output of every block before its pooling (block 1 at the input
+  resolution), `ConvolutionBlock.forward` being split into `compute_layers` and `apply_pooling`, without any new
+  weight, so the backbone transfer between tasks is unchanged. `SegmentationDecoder` has one level per skip connection
+  (blocks 1 to N-1, and N with `last_max_pooling`), each a transposed convolution or a bilinear upsampling with a 1x1
+  convolution, followed by a `ConvolutionBlock` with the options of the backbone blocks. The segmentation head
+  (dropout and 1x1 convolution) is kept apart from the decoder, so that a transferred decoder serves other classes, and
+  always holds its dropout layer, so that the weight names do not depend on the rate.
+- **Data:** a mask is a single-channel uint8 PNG per image (category of every pixel, 0 background, 255 unlabelled),
+  converted to class indices with a lookup table, resized with the nearest interpolation and padded with the ignored
+  value. The geometric augmentations move the masks with the images (`tv_tensors.Mask`), the rotation filling the
+  uncovered corners with the ignore index. The synthetic generator paints the class of every shape in the masks.
+- **Losses:** pixel cross entropy (ignore index, label smoothing, optional focal factor, class weights from the pixel
+  counts of the training masks, cached in `<run>/class_pixel_counts.json`) and soft Dice over the classes present,
+  both in float32, with the weights 1.0 / 1.0 in the shipped configurations. The loss settings give no run name token,
+  like the dropout rates, and the class weights are set again from the configuration when a run resumes.
+- **Evaluation:** at the network resolution, from a pixel confusion matrix accumulated on the device: mean IoU (the
+  headline metric), mean Dice, pixel accuracy and frequency-weighted IoU, the per-class table (worst IoU first), the
+  confusion matrix image with the shares of the true class only (`show_counts=False`, the pixel counts being too
+  large), the sample grids of fixed test images (input, true mask, predicted mask, error map), reported at every
+  evaluation through the new `EvaluationResults["sample_images"]`, and optionally the predicted masks.
+- **Transfer:** `SegmentationDecoder` is a transferable component, compared on its upsampling, levels, modules,
+  normalization and the channels of the backbone blocks it reads.
+- **Deployment:** `InferenceSegmenter` returns the class map (INT64) and the class probabilities (FP32) of every pixel,
+  and `restore_mask_to_original_image` undoes the padding and the resizing of the inputs.
+
 ### Left out
 - Segment metrics of the sequence labelling task (edit score, segment F1), optional in section 8.4.
+- Semantic segmentation: boundary metrics and losses, deep supervision, Lovász loss, sliding-window inference, the
+  evaluation at the original resolution, a converter of per-class binary mask datasets, a GIF script of the sample
+  grids, an export of the class map alone for many classes, and the migration block of `SegmentationDecoder.pretrained`
+  (no segmentation run predates it).
 - DALI loaders for the classification and sequence tasks: they use the Native loaders.
 - `torch.compile` in `BaseTrainer`: the compiled model prefixes the state dictionary keys, which would change the
   checkpoint format.
@@ -979,4 +1012,6 @@ renamed while a training writes into it.
 | 8 | Classification backbone initialising a detector | first 50 iterations equal, then 9 to 12 % lower losses |
 | 9 | Exports of the classification and sequence models | match the eager models, load in Triton, served outputs match |
 | 10 | Phase 5 training with warm-up and cosine decay | 100 % test accuracy at iterations 500, 1000 and 1500 (constant learning rate: 98.25 %, 100 %, 94 %) |
+| SEG | Segmentation of the synthetic shapes (9 classes and background), shipped synthetic configuration | test mean IoU 0.154 at iteration 1000, 0.415 at 2000 (squares 0.82, plus signs 0.75, the polygons still below 0.1) |
+| SEG | ImageNet classifier backbone vs random weights, same `B1x64.2x64.2x64.4x64.5x64.5x64` segmenter | test mean IoU 0.634 vs 0.226 at iteration 500, 0.766 vs 0.568 at 1000 |
 

@@ -1,8 +1,8 @@
 """
 Inference helpers of the deployment stage: preprocessing the images of the inference folder into the requests of the
-model of any task, loading the local inference model of a run, sending requests to Triton over gRPC (optionally
-through shared memory), and measuring the throughput of the local and served models. Used by
-deployment/run_inference.py.
+model of any task, restoring a predicted segmentation class map to its original image, loading the local inference
+model of a run, sending requests to Triton over gRPC (optionally through shared memory), and measuring the throughput
+of the local and served models. Used by deployment/run_inference.py.
 """
 
 import os
@@ -84,6 +84,40 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
     return [{input_name: build_frame_window(images=images, window_start=window_start + input_index * sequence_length,
                                             sequence_length=sequence_length)[None]
              for input_index, input_name in enumerate(TASK_INPUT_NAMES[task])} for window_start in range(len(images))]
+
+
+def restore_mask_to_original_image(class_map: np.ndarray, original_height: int, original_width: int,
+                                   keep_ratio: bool) -> np.ndarray:
+    """
+    Brings a class map predicted by the segmenter at the network resolution back to its original image, undoing the
+    preprocessing of the inference inputs (preprocess_image): the centred padding added to keep the aspect ratio is
+    cut off, then the map is resized to the size of the original image with the nearest interpolation, so that every
+    pixel keeps one of the predicted classes.
+
+    Args:
+        class_map (np.ndarray): The [S, S] class index of every pixel of the network input.
+        original_height (int): The height of the original image in pixels.
+        original_width (int): The width of the original image in pixels.
+        keep_ratio (bool): Whether the image was padded to keep its aspect ratio ('Data.image_settings.keep_ratio'),
+            or stretched to the square network input.
+
+    Returns:
+        np.ndarray: The [original_height, original_width] class index of every pixel of the original image, of the
+            type of the class map.
+    """
+    # Part of the network input holding the image, centred between the padding exactly as preprocess_image places it
+    image_size = class_map.shape[0]
+    image_part = class_map
+    if keep_ratio:
+        scale = image_size / max(original_height, original_width)
+        resized_width, resized_height = int(round(original_width * scale)), int(round(original_height * scale))
+        start_x, start_y = (image_size - resized_width) // 2, (image_size - resized_height) // 2
+        image_part = class_map[start_y:start_y + resized_height, start_x:start_x + resized_width]
+
+    # Nearest resizing to the original size, OpenCV resizing the class indices as 32 bit integers
+    restored_class_map = cv2.resize(src=image_part.astype(np.int32), dsize=(original_width, original_height),
+                                    interpolation=cv2.INTER_NEAREST)
+    return restored_class_map.astype(class_map.dtype)
 
 
 def load_local_inference_model(experiment_folder: Path, iteration: Optional[int]) -> Tuple[nn.Module,

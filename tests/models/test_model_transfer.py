@@ -1,7 +1,8 @@
 """
-Tests of vision_training/models/model_transfer.py: backbones, temporal modules and heads of a saved run initialising
-other models and tasks, rejected architectures and components (flattened heads included), frozen and fixed
-normalization parameters and backbones moving between batch and sequence normalization.
+Tests of vision_training/models/model_transfer.py: backbones, temporal modules, heads and segmentation decoders of a
+saved run initialising other models and tasks, rejected architectures and components (flattened heads and decoders of
+other levels included), frozen and fixed normalization parameters and backbones moving between batch and sequence
+normalization.
 """
 
 import copy
@@ -22,6 +23,7 @@ from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import save_checkpoint
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
                                                    get_detection_model_configuration,
+                                                   get_segmentation_model_configuration,
                                                    get_sequence_comparison_model_configuration,
                                                    get_sequence_model_configuration)
 
@@ -83,13 +85,13 @@ def point_to_source_run(configuration: Dict[str, Any], section_name: str, source
     return target_configuration
 
 
-def build_sequence_model(task: str, configuration: Dict[str, Any], seed: int) -> TaskModel:
+def build_task_model(task: str, configuration: Dict[str, Any], seed: int) -> TaskModel:
     """
-    Builds a model of a sequence task on the CPU with seeded weights, so that a source model and the model receiving
-    its components start from different weights.
+    Builds the model of a task on the CPU with seeded weights, so that a source model and the model receiving its
+    components start from different weights.
 
     Args:
-        task (str): "sequence_classification", "sequence_labelling" or "sequence_comparison".
+        task (str): The task of the model, e.g. "sequence_classification" or "semantic_segmentation".
         configuration (Dict[str, Any]): The model configuration.
         seed (int): The seed of the random weights.
 
@@ -113,7 +115,7 @@ def write_sequence_classifier_run(run_folder: Path, temporal_type: str) -> Tuple
         Tuple[Dict[str, Any], TaskModel]: The configuration and the model of the run.
     """
     configuration, _, _ = get_sequence_model_configuration(temporal_type=temporal_type)
-    source_model = build_sequence_model(task="sequence_classification", configuration=configuration, seed=0)
+    source_model = build_task_model(task="sequence_classification", configuration=configuration, seed=0)
     write_source_run(run_folder=run_folder, configuration=configuration, model=source_model)
     return configuration, source_model
 
@@ -219,7 +221,7 @@ def test_temporal_module_and_head_initialise_another_sequence_classifier(tmp_pat
     """
     configuration, source_model = write_sequence_classifier_run(run_folder=tmp_path / "source_run",
                                                                 temporal_type="gru")
-    target_model = build_sequence_model(task="sequence_classification", configuration=configuration, seed=1)
+    target_model = build_task_model(task="sequence_classification", configuration=configuration, seed=1)
     target_backbone_before = copy.deepcopy(target_model.backbone.state_dict())
 
     for section_name, attribute_name in [("TemporalModel", "temporal_module"),
@@ -253,7 +255,7 @@ def test_sequence_classifier_temporal_module_initialises_other_sequence_tasks(tm
                                                                                  fusion_type="difference")
     else:
         target_configuration, _, _ = get_sequence_model_configuration(temporal_type="gru")
-    target_model = build_sequence_model(task=target_task, configuration=target_configuration, seed=1)
+    target_model = build_task_model(task=target_task, configuration=target_configuration, seed=1)
 
     load_pretrained_component(component=target_model.temporal_module, section_name="TemporalModel",
                               model_configuration=point_to_source_run(configuration=target_configuration,
@@ -379,7 +381,7 @@ def test_different_components_are_rejected(tmp_path: Path, source_temporal_type:
                                                      temporal_type=source_temporal_type)
     target_configuration = copy.deepcopy(configuration)
     modify_function(configuration=target_configuration)
-    target_model = build_sequence_model(task="sequence_classification", configuration=target_configuration, seed=1)
+    target_model = build_task_model(task="sequence_classification", configuration=target_configuration, seed=1)
     attribute_name = "temporal_module" if section_name == "TemporalModel" else "classification_head"
 
     with pytest.raises(expected_exception=ValueError) as error_information:
@@ -404,7 +406,7 @@ def test_head_with_another_dropout_rate_is_transferred(tmp_path: Path) -> None:
                                                                 temporal_type="gru")
     target_configuration = copy.deepcopy(configuration)
     add_head_dropout(configuration=target_configuration)
-    target_model = build_sequence_model(task="sequence_classification", configuration=target_configuration, seed=1)
+    target_model = build_task_model(task="sequence_classification", configuration=target_configuration, seed=1)
 
     # Transfer the head, then compare every tensor with the one of the source run
     load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
@@ -429,7 +431,7 @@ def test_head_tensors_of_another_shape_are_listed(tmp_path: Path) -> None:
     write_sequence_classifier_run(run_folder=tmp_path / "source_run", temporal_type="gru")
     target_configuration, _, _ = get_sequence_comparison_model_configuration(temporal_type="gru",
                                                                              fusion_type="difference")
-    target_model = build_sequence_model(task="sequence_comparison", configuration=target_configuration, seed=1)
+    target_model = build_task_model(task="sequence_comparison", configuration=target_configuration, seed=1)
 
     with pytest.raises(expected_exception=ValueError) as error_information:
         load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
@@ -532,7 +534,7 @@ def test_source_run_without_the_component_is_rejected(tmp_path: Path) -> None:
     write_source_run(run_folder=tmp_path / "classification_run", configuration=classifier_configuration,
                      model=ImageClassifier(configuration=classifier_configuration, device=device, dtype=dtype))
     target_configuration, _, _ = get_sequence_model_configuration(temporal_type="gru")
-    target_model = build_sequence_model(task="sequence_classification", configuration=target_configuration, seed=1)
+    target_model = build_task_model(task="sequence_classification", configuration=target_configuration, seed=1)
 
     target_configuration = point_to_source_run(configuration=target_configuration, section_name="TemporalModel",
                                                source_folder=tmp_path / "classification_run")
@@ -624,12 +626,12 @@ def test_backbone_moves_between_batch_and_sequence_normalization(tmp_path: Path,
     """
     configuration, _, _ = get_sequence_model_configuration(temporal_type="gru")
     configuration["Backbone"]["normalization"]["feature_map_normalization"] = source_normalization
-    source_model = build_sequence_model(task="sequence_classification", configuration=configuration, seed=0)
+    source_model = build_task_model(task="sequence_classification", configuration=configuration, seed=0)
     write_source_run(run_folder=tmp_path / "source_run", configuration=configuration, model=source_model)
 
     target_configuration = copy.deepcopy(configuration)
     target_configuration["Backbone"]["normalization"]["feature_map_normalization"] = target_normalization
-    target_model = build_sequence_model(task="sequence_classification", configuration=target_configuration, seed=1)
+    target_model = build_task_model(task="sequence_classification", configuration=target_configuration, seed=1)
     load_pretrained_component(component=target_model.backbone, section_name="Backbone",
                               model_configuration=point_to_source_run(configuration=target_configuration,
                                                                       section_name="Backbone",
@@ -637,3 +639,141 @@ def test_backbone_moves_between_batch_and_sequence_normalization(tmp_path: Path,
                               device=torch.device("cpu"))
     for tensor_name, tensor_value in source_model.backbone.state_dict().items():
         assert torch.equal(input=target_model.backbone.state_dict()[tensor_name], other=tensor_value), tensor_name
+
+
+def test_classification_backbone_initialises_a_segmenter_and_back(tmp_path: Path) -> None:
+    """
+    Verifies the backbone transfers between the classification and the semantic segmentation: the backbone of a
+    trained classifier initialises a segmenter exactly, and the backbone of a trained segmenter initialises a
+    classifier exactly, both tasks sharing the same backbone layers.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    classifier_configuration, _, _ = get_classification_model_configuration(output_mode="multi_class")
+    segmenter_configuration, _, _ = get_segmentation_model_configuration(upsampling="transposed")
+    classifier = build_task_model(task="classification", configuration=classifier_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "classification_run", configuration=classifier_configuration,
+                     model=classifier)
+
+    # Classifier backbone into a segmenter
+    segmenter = build_task_model(task="semantic_segmentation", configuration=segmenter_configuration, seed=1)
+    load_pretrained_component(component=segmenter.backbone, section_name="Backbone", device=torch.device("cpu"),
+                              model_configuration=point_to_source_run(configuration=segmenter_configuration,
+                                                                      section_name="Backbone",
+                                                                      source_folder=tmp_path / "classification_run"))
+    for tensor_name, tensor_value in classifier.backbone.state_dict().items():
+        assert torch.equal(input=segmenter.backbone.state_dict()[tensor_name], other=tensor_value), tensor_name
+
+    # Segmenter backbone, trained further, into a new classifier
+    with torch.no_grad():
+        for parameter in segmenter.backbone.parameters():
+            parameter.add_(other=torch.ones_like(input=parameter))
+    write_source_run(run_folder=tmp_path / "segmentation_run", configuration=segmenter_configuration, model=segmenter)
+    new_classifier = build_task_model(task="classification", configuration=classifier_configuration, seed=2)
+    load_pretrained_component(component=new_classifier.backbone, section_name="Backbone", device=torch.device("cpu"),
+                              model_configuration=point_to_source_run(configuration=classifier_configuration,
+                                                                      section_name="Backbone",
+                                                                      source_folder=tmp_path / "segmentation_run"))
+    for tensor_name, tensor_value in segmenter.backbone.state_dict().items():
+        assert torch.equal(input=new_classifier.backbone.state_dict()[tensor_name], other=tensor_value), tensor_name
+
+
+def test_decoder_initialises_a_segmenter_of_other_classes(tmp_path: Path) -> None:
+    """
+    Verifies the transfer of the segmentation decoder between two segmenters of different classes: the decoder starts
+    from exactly the weights of the source run, while the segmentation head, giving the logits of other classes, keeps
+    its own weights.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    source_configuration, _, _ = get_segmentation_model_configuration(upsampling="bilinear")
+    source_segmenter = build_task_model(task="semantic_segmentation", configuration=source_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "segmentation_run", configuration=source_configuration,
+                     model=source_segmenter)
+
+    # Segmenter of five classes, the background included, receiving the decoder of a segmenter of three classes
+    target_configuration = copy.deepcopy(source_configuration)
+    target_configuration["Data"]["label_dictionary"] = {"background": 0, 1: 1, 2: 2, 3: 3, 4: 4}
+    target_segmenter = build_task_model(task="semantic_segmentation", configuration=target_configuration, seed=1)
+    head_state_before = copy.deepcopy(target_segmenter.segmentation_head.state_dict())
+    load_pretrained_component(component=target_segmenter.segmentation_decoder, section_name="SegmentationDecoder",
+                              device=torch.device("cpu"),
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="SegmentationDecoder",
+                                                                      source_folder=tmp_path / "segmentation_run"))
+
+    for tensor_name, tensor_value in source_segmenter.segmentation_decoder.state_dict().items():
+        assert torch.equal(input=target_segmenter.segmentation_decoder.state_dict()[tensor_name],
+                           other=tensor_value), tensor_name
+    for tensor_name, tensor_value in target_segmenter.segmentation_head.state_dict().items():
+        assert torch.equal(input=tensor_value, other=head_state_before[tensor_name]), tensor_name
+    assert target_segmenter.segmentation_head[1].out_channels == 5
+
+
+def add_last_block_decoder_level(configuration: Dict[str, Any]) -> None:
+    """
+    Pools the last backbone block, whose skip connection gets one more decoder level.
+
+    Args:
+        configuration (Dict[str, Any]): The segmenter configuration, modified in place.
+    """
+    configuration["Backbone"]["last_max_pooling"] = True
+    configuration["SegmentationDecoder"]["convolutions"]["4"] = [1, 32]
+
+
+def use_bilinear_upsampling(configuration: Dict[str, Any]) -> None:
+    """
+    Upsamples the decoder levels bilinearly instead of with transposed convolutions.
+
+    Args:
+        configuration (Dict[str, Any]): The segmenter configuration, modified in place.
+    """
+    configuration["SegmentationDecoder"]["upsampling"] = "bilinear"
+
+
+def widen_second_backbone_block(configuration: Dict[str, Any]) -> None:
+    """
+    Doubles the output channels of the second backbone block, which feeds a skip connection of the decoder.
+
+    Args:
+        configuration (Dict[str, Any]): The segmenter configuration, modified in place.
+    """
+    configuration["Backbone"]["convolutions"]["2"] = [1, 32]
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_message"), argvalues=[
+    (add_last_block_decoder_level, "in the source run and {'3': [1, 16], '2': [1, 16], '1': [1, 8], '4': [1, 32]} in "
+                                   "this run."),
+    (use_bilinear_upsampling, "'SegmentationDecoder.upsampling' is 'transposed' in the source run and 'bilinear' in "
+                              "this run."),
+    (widen_second_backbone_block, "The backbone blocks have [8, 16, 16, 32] output channels in the source run and "
+                                  "[8, 32, 16, 32] in this run")])
+def test_decoders_of_other_architectures_are_rejected(tmp_path: Path,
+                                                      modify_function: Callable[[Dict[str, Any]], None],
+                                                      expected_message: str) -> None:
+    """
+    Verifies that a segmentation decoder is not transferred to a decoder of other levels, of another upsampling, or
+    reading backbone blocks of other channels, the error naming the difference.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        modify_function (Callable[[Dict[str, Any]], None]): Function changing the configuration receiving the decoder.
+        expected_message (str): The fragment of the error message naming the difference.
+    """
+    source_configuration, _, _ = get_segmentation_model_configuration(upsampling="transposed")
+    write_source_run(run_folder=tmp_path / "segmentation_run", configuration=source_configuration,
+                     model=build_task_model(task="semantic_segmentation", configuration=source_configuration, seed=0))
+    target_configuration = copy.deepcopy(source_configuration)
+    modify_function(configuration=target_configuration)
+    target_segmenter = build_task_model(task="semantic_segmentation", configuration=target_configuration, seed=1)
+
+    with pytest.raises(expected_exception=ValueError) as error_information:
+        load_pretrained_component(component=target_segmenter.segmentation_decoder, section_name="SegmentationDecoder",
+                                  device=torch.device("cpu"),
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name="SegmentationDecoder",
+                                                                          source_folder=tmp_path / "segmentation_run"))
+    assert "The Segmentation Decoder Of The Source Run" in str(error_information.value)
+    assert expected_message in str(error_information.value)

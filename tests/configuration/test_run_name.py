@@ -1,9 +1,9 @@
 """
 Tests of build_run_name of vision_training/configuration/run_name.py on the reference configurations of every task: the
 reference run names are fixed, every changed setting (architecture, inputs, heads, temporal modules, fusions,
-transfers, normalization, optimizer, weight decay) changes the run name with its token, and the training settings that
-can change between two resumptions (augmentation, batch size, learning rate, schedule, clipping, mixed precision,
-dropout rates) keep it.
+segmentation decoders and losses, transfers, normalization, optimizer, weight decay) changes the run name with its
+token, and the training settings that can change between two resumptions (augmentation, batch size, learning rate,
+schedule, clipping, mixed precision, dropout rates, segmentation losses) keep it.
 """
 
 import copy
@@ -762,3 +762,179 @@ def test_optimization_run_name_tokens() -> None:
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == CLASSIFICATION_REFERENCE_RUN_NAME.replace(
         "_MC4", "_MC4_ADAMW-WD1e-4")
+
+
+SEGMENTATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
+                                   "semantic_segmentation" / "configuration_synthetic_shapes.yaml")
+
+# Run name of the semantic segmentation reference settings set by get_segmentation_reference_configurations
+SEGMENTATION_REFERENCE_RUN_NAME = ("SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_"
+                                   "UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC4")
+
+
+def get_segmentation_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Reads the synthetic shapes semantic segmentation configuration and sets every setting used by the run name
+    explicitly, so that the expected names do not change when the configuration is edited. The label dictionary is
+    set directly, the label mapping file of the configuration only existing once the synthetic dataset is created.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: The experiment and model configurations of the reference settings.
+    """
+    model_configuration = yaml.safe_load(stream=SEGMENTATION_CONFIGURATION_PATH.read_text())
+    experiment_configuration = model_configuration.pop("ExperimentConfiguration")
+
+    # Task, input and backbone of the run
+    experiment_configuration["task"] = "semantic_segmentation"
+    model_configuration["Data"]["image_settings"].update({"size": 512, "keep_ratio": True})
+    model_configuration["Backbone"]["normalization"].update({"input_normalization": True,
+                                                             "per_sample_normalization": False,
+                                                             "feature_map_normalization": "batch"})
+    model_configuration["Backbone"]["modules"].update({"squeeze_and_excite": True, "residual_nets": True,
+                                                       "inception": False})
+    model_configuration["Backbone"]["convolutions"] = {"1": [1, 16], "2": [2, 32], "3": [2, 32], "4": [2, 64],
+                                                       "5": [2, 64], "6": [2, 128]}
+
+    # Decoder, losses and classes, the background class 0 being added to the four mapped categories
+    model_configuration["SegmentationDecoder"] = {"upsampling": "transposed",
+                                                  "convolutions": {"5": [2, 64], "4": [2, 64], "3": [2, 32],
+                                                                   "2": [2, 32], "1": [1, 16]},
+                                                  "modules": {"squeeze_and_excite": False, "residual_nets": False},
+                                                  "feature_map_normalization": "batch", "dropout_rate": 0.0,
+                                                  "pretrained": dict(NO_TRANSFER_SETTINGS)}
+    model_configuration["SegmentationLoss"] = {"cross_entropy_weight": 1.0, "focal_gamma": 0.0,
+                                               "label_smoothing": 0.0, "class_weighting": "none", "dice_weight": 1.0}
+    model_configuration["Data"]["label_mode"] = "multi_class"
+    model_configuration["Data"]["label_dictionary"] = {1: 1, 2: 2, 3: 3, 4: 4, "background": 0}
+    return experiment_configuration, model_configuration
+
+
+def use_bilinear_upsampling_and_decoder_modules(experiment_configuration: Dict[str, Any],
+                                                model_configuration: Dict[str, Any]) -> None:
+    """
+    Upsamples the decoder levels bilinearly, with Squeeze-and-Excitation, residual shortcuts and layer normalization
+    in the decoder blocks.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["SegmentationDecoder"].update({"upsampling": "bilinear", "feature_map_normalization": "layer",
+                                                       "modules": {"squeeze_and_excite": True,
+                                                                   "residual_nets": True}})
+
+
+def add_last_block_decoder_level(experiment_configuration: Dict[str, Any],
+                                 model_configuration: Dict[str, Any]) -> None:
+    """
+    Pools the last backbone block, whose skip connection gets a decoder level, written first as the deepest one.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Backbone"]["last_max_pooling"] = True
+    model_configuration["SegmentationDecoder"]["convolutions"]["6"] = [3, 128]
+
+
+def use_cross_entropy_only(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Trains with the plain cross entropy only.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["SegmentationLoss"]["dice_weight"] = 0.0
+
+
+def use_dice_only(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Trains with the Dice loss only, with settings of the unused cross entropy.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["SegmentationLoss"].update({"cross_entropy_weight": 0.0, "label_smoothing": 0.1,
+                                                    "class_weighting": "balanced", "focal_gamma": 2.0})
+
+
+def use_weighted_focal_cross_entropy(experiment_configuration: Dict[str, Any],
+                                     model_configuration: Dict[str, Any]) -> None:
+    """
+    Weighs the smoothed, class-balanced focal cross entropy twice, and the Dice loss half.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["SegmentationLoss"].update({"cross_entropy_weight": 2.0, "label_smoothing": 0.1,
+                                                    "class_weighting": "balanced", "focal_gamma": 2.0,
+                                                    "dice_weight": 0.5})
+
+
+def use_binary_segmentation_labels(experiment_configuration: Dict[str, Any],
+                                   model_configuration: Dict[str, Any]) -> None:
+    """
+    Segments the background and the foreground only.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Data"]["label_mode"] = "binary"
+    model_configuration["Data"]["label_dictionary"] = {"background": 0, "foreground": 1}
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
+    (None, SEGMENTATION_REFERENCE_RUN_NAME),
+    (use_bilinear_upsampling_and_decoder_modules, SEGMENTATION_REFERENCE_RUN_NAME.replace("_UTC-DBN-",
+                                                                                          "_UBL-DSE-DRES-DLN-")),
+    (add_last_block_decoder_level, SEGMENTATION_REFERENCE_RUN_NAME.replace("-D2x64.2x64.", "-D3x128.2x64.2x64.")),
+    (use_cross_entropy_only, SEGMENTATION_REFERENCE_RUN_NAME),
+    (use_dice_only, SEGMENTATION_REFERENCE_RUN_NAME),
+    (use_weighted_focal_cross_entropy, SEGMENTATION_REFERENCE_RUN_NAME),
+    (use_binary_segmentation_labels, SEGMENTATION_REFERENCE_RUN_NAME.replace("_MC4", "_BIN"))])
+def test_segmentation_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
+                                expected_run_name: str) -> None:
+    """
+    Verifies the run names of the semantic segmentation task: the SEG task code, the shared input and backbone
+    sections, the decoder section with its levels from the deepest one and the classes section counting the
+    foreground classes, the loss settings giving no token so that they can change between two resumptions of a run.
+
+    Args:
+        modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the settings, or
+            None for the reference settings.
+        expected_run_name (str): The expected run name of the settings.
+    """
+    experiment_configuration, model_configuration = get_segmentation_reference_configurations()
+    if modify_function is not None:
+        modify_function(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == expected_run_name
+
+
+@pytest.mark.parametrize(argnames=("freeze", "learning_rate_multiplier", "expected_tokens"),
+                         argvalues=[(False, 1.0, "-DPT_"), (True, 1.0, "-DPT-DFRZ_"), (False, 0.1, "-DPT-DLR0.1_")])
+def test_pretrained_segmentation_decoder_run_names(freeze: bool, learning_rate_multiplier: float,
+                                                   expected_tokens: str) -> None:
+    """
+    Verifies the tokens of a transferred segmentation decoder at the end of the decoder section: DPT, then DFRZ when
+    it is frozen or DLR<multiplier> when it learns at its own speed, and that the dropout rate of the segmentation
+    head gives no token.
+
+    Args:
+        freeze (bool): Whether the transferred decoder is frozen.
+        learning_rate_multiplier (float): The learning rate multiplier of the transferred decoder.
+        expected_tokens (str): The expected end of the decoder section.
+    """
+    experiment_configuration, model_configuration = get_segmentation_reference_configurations()
+    model_configuration["SegmentationDecoder"].update({"dropout_rate": 0.3,
+                                                       "pretrained": {"experiment_folder": "/runs/source",
+                                                                      "iteration": None, "freeze": freeze,
+                                                                      "learning_rate_multiplier":
+                                                                          learning_rate_multiplier}})
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == SEGMENTATION_REFERENCE_RUN_NAME.replace(
+        "2x32.1x16_", f"2x32.1x16{expected_tokens}")

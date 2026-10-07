@@ -131,9 +131,9 @@ class DetectionTrainer(BaseTrainer):
         Returns:
             Dict[str, Any]: The batch with its augmented images, boxes and labels.
         """
-        images, bounding_boxes, labels = self.data_augmenter.augment_batch(images=batch["images"],
-                                                                           bounding_boxes=batch["bounding_boxes"],
-                                                                           labels=batch["labels"])
+        images, bounding_boxes, labels, _ = self.data_augmenter.augment_batch(images=batch["images"],
+                                                                              bounding_boxes=batch["bounding_boxes"],
+                                                                              labels=batch["labels"])
         return {**batch, "images": images, "bounding_boxes": bounding_boxes, "labels": labels}
 
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
@@ -249,8 +249,8 @@ class DetectionTrainer(BaseTrainer):
         return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {}, "notes": [],
                 "tables": [build_mean_average_precision_table(results=results),
                            build_class_average_precision_table(class_rows=class_rows)],
-                "scalars": scalars, "class_scalars": class_scalars, "images": {}, "files": files,
-                "headline_metric": "mAP@0.5/area"}
+                "scalars": scalars, "class_scalars": class_scalars, "images": {}, "sample_images": {},
+                "files": files, "headline_metric": "mAP@0.5/area"}
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

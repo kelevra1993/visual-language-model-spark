@@ -1,7 +1,7 @@
 """
-Transfer of trained components between runs: the architecture checks of the backbone, temporal module and
-classification head, the loading of a pretrained component from the checkpoint of another run, and the freezing of
-components, normalization parameters and batch statistics. Used by the base trainer and by
+Transfer of trained components between runs: the architecture checks of the backbone, temporal module,
+classification head and segmentation decoder, the loading of a pretrained component from the checkpoint of another
+run, and the freezing of components, normalization parameters and batch statistics. Used by the base trainer and by
 scripts/evaluation/evaluate_checkpoint.py.
 """
 
@@ -20,7 +20,7 @@ from vision_training.utilities.os_utilities import print_color
 # dictionaries. Their order is the order of the optimizer parameter groups of the components learning at their own
 # speed
 TRANSFERABLE_COMPONENTS = {"Backbone": "backbone", "TemporalModel": "temporal_module",
-                           "ClassificationHead": "classification_head"}
+                           "ClassificationHead": "classification_head", "SegmentationDecoder": "segmentation_decoder"}
 
 # Backbone settings defining its layers and their parameters, which must be identical in the source run and in the
 # run receiving its backbone. The detection block indices only select outputs, and the convolutions do not depend
@@ -41,6 +41,10 @@ TEMPORAL_WEIGHT_KEYS = {"attention_pooling": ["hidden_size"], "gru": ["hidden_si
 
 # Temporal modules whose frames may only see the frames before them
 CAUSAL_TEMPORAL_TYPES = ["transformer", "temporal_convolution"]
+
+# Segmentation decoder settings defining its weights. The dropout only acts in the segmentation head, which is not
+# part of the decoder, so that a decoder serves runs of other classes
+SEGMENTATION_DECODER_WEIGHT_KEYS = ["upsampling", "convolutions", "modules", "feature_map_normalization"]
 
 # Normalization layers whose scale and shift can be kept fixed, and batch normalization layers whose statistics a
 # frozen component keeps
@@ -201,6 +205,42 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
     return differences
 
 
+def compare_segmentation_decoders(source_configuration: Dict[str, Any],
+                                  target_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Lists the differences between the settings defining the weights of the segmentation decoders of two runs: the
+    upsampling, the convolutions of its levels (and therefore its levels), its modules and its normalization, and the
+    channels of the backbone blocks it reads, through its skip connections and its deepest level. The segmentation
+    head is not part of the decoder, so that the runs may segment other classes.
+
+    Args:
+        source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
+        target_configuration (Dict[str, Any]): The model configuration of the run receiving the decoder.
+
+    Returns:
+        List[str]: The description of every difference, empty when the weights of the decoders match.
+    """
+    source_decoder_configuration = source_configuration["SegmentationDecoder"]
+    target_decoder_configuration = target_configuration["SegmentationDecoder"]
+    differences = []
+    for key_name in SEGMENTATION_DECODER_WEIGHT_KEYS:
+        if source_decoder_configuration[key_name] != target_decoder_configuration[key_name]:
+            differences.append(f"'SegmentationDecoder.{key_name}' is {source_decoder_configuration[key_name]!r} in "
+                               f"the source run and {target_decoder_configuration[key_name]!r} in this run.")
+
+    # Channels of the backbone blocks read by the decoder levels, in block order
+    block_channels = []
+    for configuration in [source_configuration, target_configuration]:
+        backbone_convolutions = configuration["Backbone"]["convolutions"]
+        block_channels.append([backbone_convolutions[block_key][1]
+                               for block_key in sorted(backbone_convolutions, key=int)])
+    if block_channels[0] != block_channels[1]:
+        differences.append(f"The backbone blocks have {block_channels[0]} output channels in the source run and "
+                           f"{block_channels[1]} in this run, the channels of the skip connections and of the "
+                           f"bottleneck read by the decoder.")
+    return differences
+
+
 def compare_component_configurations(section_name: str, source_configuration: Dict[str, Any],
                                      target_configuration: Dict[str, Any]) -> List[str]:
     """
@@ -222,6 +262,9 @@ def compare_component_configurations(section_name: str, source_configuration: Di
     if section_name == "TemporalModel":
         return compare_temporal_modules(source_configuration=source_configuration,
                                         target_configuration=target_configuration)
+    if section_name == "SegmentationDecoder":
+        return compare_segmentation_decoders(source_configuration=source_configuration,
+                                             target_configuration=target_configuration)
     return compare_classification_heads(source_configuration=source_configuration,
                                         target_configuration=target_configuration)
 
@@ -260,14 +303,14 @@ def compare_state_dictionaries(source_state: Dict[str, torch.Tensor],
 def load_pretrained_component(component: nn.Module, section_name: str, model_configuration: Dict[str, Any],
                               device: torch.device) -> Path:
     """
-    Initialises a component of a new run (backbone, temporal module or classification head) with the trained
-    component of another run, as set by '<section>.pretrained': every task model stores the shared components under
-    the same attributes, so a backbone trained for classification can initialise a detector, the temporal module of a
-    sequence classifier a sequence labeller or comparator, and so on. The settings defining the component must be
-    identical in both runs (see compare_component_configurations), then its tensors must fit exactly (see
-    compare_state_dictionaries). A backbone may come from a run of another input image size, the convolutions not
-    depending on it, which is reported since the features were learned at another scale, and a temporal module from a
-    causal or non-causal run alike, which is reported too.
+    Initialises a component of a new run (backbone, temporal module, classification head or segmentation decoder)
+    with the trained component of another run, as set by '<section>.pretrained': every task model stores the shared
+    components under the same attributes, so a backbone trained for classification can initialise a detector or a
+    segmenter, the temporal module of a sequence classifier a sequence labeller or comparator, and so on. The settings
+    defining the component must be identical in both runs (see compare_component_configurations), then its tensors
+    must fit exactly (see compare_state_dictionaries). A backbone may come from a run of another input image size,
+    the convolutions not depending on it, which is reported since the features were learned at another scale, and a
+    temporal module from a causal or non-causal run alike, which is reported too.
 
     Args:
         component (nn.Module): The component of the new run, loaded in place.

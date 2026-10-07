@@ -12,20 +12,22 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from vision_training.models.classification.inference_classifier import InferenceClassifier
 from vision_training.models.detection.inference_detector import InferenceDetector
+from vision_training.models.segmentation.inference_segmenter import InferenceSegmenter
 from vision_training.models.sequence.inference_sequence_comparator import InferenceSequenceComparator
 from vision_training.models.sequence.inference_sequence_model import InferenceSequenceModel
 from vision_training.models.task_model import TaskModel
 
 # Inference model of every task, wrapping the trained model for deployment and local inference
 INFERENCE_MODEL_CLASSES = {"object_detection": InferenceDetector, "classification": InferenceClassifier,
+                           "semantic_segmentation": InferenceSegmenter,
                            "sequence_classification": InferenceSequenceModel,
                            "sequence_labelling": InferenceSequenceModel,
                            "sequence_comparison": InferenceSequenceComparator}
 
 # Triton model name of every task, followed by '_<export format>' in the model repository
 TASK_MODEL_NAMES = {"object_detection": "object_detector", "classification": "image_classifier",
-                    "sequence_classification": "sequence_classifier", "sequence_labelling": "sequence_labeller",
-                    "sequence_comparison": "sequence_comparator"}
+                    "semantic_segmentation": "semantic_segmenter", "sequence_classification": "sequence_classifier",
+                    "sequence_labelling": "sequence_labeller", "sequence_comparison": "sequence_comparator"}
 
 # Tasks whose inputs are windows of frames [B, T, 3, H, W] instead of images [B, 3, H, W]
 SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison"]
@@ -34,7 +36,8 @@ SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_com
 # they name the inputs of the ONNX exports, and match the argument names kept by the TorchScript exports, which the
 # Triton PyTorch backend uses to pass every input to its argument
 TASK_INPUT_NAMES = {"object_detection": ["images"], "classification": ["images"],
-                    "sequence_classification": ["images"], "sequence_labelling": ["images"],
+                    "semantic_segmentation": ["images"], "sequence_classification": ["images"],
+                    "sequence_labelling": ["images"],
                     "sequence_comparison": ["before_images", "after_images"]}
 
 
@@ -55,8 +58,8 @@ def build_inference_model(task: str, model: TaskModel) -> nn.Module:
 
 def convert_outputs_to_numpy(outputs: torch.Tensor | Sequence[torch.Tensor]) -> List[np.ndarray]:
     """
-    Turns the outputs of an inference model (a tuple of tensors for the detector, a single tensor for the classifiers
-    and sequence models) into a list of arrays, the format compared by the export specifications.
+    Turns the outputs of an inference model (a tuple of tensors for the detector and the segmenter, a single tensor for
+    the classifiers and sequence models) into a list of arrays, the format compared by the export specifications.
 
     Args:
         outputs (torch.Tensor | Sequence[torch.Tensor]): The model outputs.
@@ -143,6 +146,31 @@ def compare_probabilities(reference: Sequence[np.ndarray], candidate: Sequence[n
     if probability_difference > tolerance:
         return [f"class probabilities differ by up to {probability_difference:.2e}"]
     return []
+
+
+def compare_segmentations(reference: Sequence[np.ndarray], candidate: Sequence[np.ndarray], tolerance: float,
+                          minimum_equal_share: float) -> List[str]:
+    """
+    Compares the outputs of an exported segmenter with those of the eager inference segmenter: the class probabilities
+    of every pixel within the tolerance, and the class maps on almost every pixel, a pixel whose two most probable
+    classes are tied up to the rounding of the export possibly taking the other class.
+
+    Args:
+        reference (Sequence[np.ndarray]): The eager class maps and class probabilities.
+        candidate (Sequence[np.ndarray]): The exported model outputs, in the same order.
+        tolerance (float): The largest accepted probability difference.
+        minimum_equal_share (float): The smallest accepted share of pixels with the same class in both class maps.
+
+    Returns:
+        List[str]: A description of every mismatch, empty when the outputs agree.
+    """
+    mismatches = compare_probabilities(reference=reference[1:], candidate=candidate[1:], tolerance=tolerance)
+    if reference[0].shape != candidate[0].shape:
+        return mismatches + [f"class map shapes differ: {reference[0].shape} vs {candidate[0].shape}"]
+    equal_share = float(np.mean(a=reference[0] == candidate[0]))
+    if equal_share < minimum_equal_share:
+        mismatches.append(f"class maps agree on {100.0 * equal_share:.3f}% of the pixels only")
+    return mismatches
 
 
 def build_input_specification(input_name: str, image_size: int, sequence_length: Optional[int],
@@ -250,9 +278,22 @@ def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str,
                 "compare_outputs": compare_detections,
                 "comparison_tolerances": {"box_tolerance": 1e-2, "score_tolerance": 1e-4}}
 
+    # Number of classes of the segmenter, the classifiers and the sequence models
+    number_classes = inference_model.number_classes
+
+    # Semantic segmentation: the class map and the class probabilities of every pixel at the network resolution
+    if task == "semantic_segmentation":
+        image_size = inference_model.input_image_size
+        return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs,
+                "outputs": [{"name": "class_map", "dimensions": [image_size, image_size], "data_type": "TYPE_INT64",
+                             "reshape_to_scalar": False},
+                            {"name": "class_probabilities", "dimensions": [number_classes, image_size, image_size],
+                             "data_type": "TYPE_FP32", "reshape_to_scalar": False}],
+                "compare_outputs": compare_segmentations,
+                "comparison_tolerances": {"tolerance": 1e-4, "minimum_equal_share": 0.999}}
+
     # Classification and sequence tasks: the class probabilities of every image, window or pair, or of every frame
     # for the sequence labeller
-    number_classes = inference_model.number_classes
     output_dimensions = [-1, number_classes] if task == "sequence_labelling" else [number_classes]
     return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs,
             "outputs": [{"name": "class_probabilities", "dimensions": output_dimensions, "data_type": "TYPE_FP32",

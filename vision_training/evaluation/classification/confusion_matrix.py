@@ -2,7 +2,7 @@
 Drawing and saving of the confusion matrix of an evaluated checkpoint: the CSV table, always saved in the evaluation
 folder of the checkpoint, and the matplotlib image (with the recall of every true class, the precision of every
 predicted class and the accuracy), saved and logged to TensorBoard when the per-class report is on. Used by the
-classification trainer and the trainers inheriting from it.
+classification trainer and the trainers inheriting from it, and by the segmentation trainer for its pixels.
 """
 
 import csv
@@ -66,10 +66,11 @@ def compute_text_colour(cell_colour: Tuple[float, float, float, float]) -> str:
 
 
 def write_cell_texts(axes: Axes, counts: np.ndarray, shares: np.ndarray, colour_map: Colormap,
-                     normalization: Normalize) -> None:
+                     normalization: Normalize, show_counts: bool) -> None:
     """
     Writes the count of every cell of the matrix of a confusion matrix image, with its share of the true class up to
     20 classes, the diagonal counts (the right predictions) in bold and the empty off-diagonal cells left blank.
+    Without counts (e.g. the pixels of the segmentation, too many to print), the cells only show their share.
 
     Args:
         axes (Axes): The axes of the matrix.
@@ -77,6 +78,7 @@ def write_cell_texts(axes: Axes, counts: np.ndarray, shares: np.ndarray, colour_
         shares (np.ndarray): The [K, K] shares of the true class of every cell, NaN for the rows without samples.
         colour_map (Colormap): The colour map of the shares, giving the colour behind every text.
         normalization (Normalize): The normalization of the shares into the colour map.
+        show_counts (bool): Whether the cells show their count, or only their share of the true class.
     """
     number_classes = counts.shape[0]
     show_shares = number_classes <= MAXIMUM_CLASSES_WITH_SHARES
@@ -88,9 +90,14 @@ def write_cell_texts(axes: Axes, counts: np.ndarray, shares: np.ndarray, colour_
             if count == 0 and not is_diagonal:
                 continue
 
-            # Count, with the share of the true class below it when the cells are large enough
+            # Count, with the share of the true class below it when the cells are large enough, or the share alone
             share = float(shares[true_index, predicted_index])
-            text = f"{count}\n{100.0 * share:.1f}%" if show_shares and not np.isnan(share) else str(count)
+            if not show_counts:
+                if np.isnan(share):
+                    continue
+                text = f"{100.0 * share:.1f}%"
+            else:
+                text = f"{count}\n{100.0 * share:.1f}%" if show_shares and not np.isnan(share) else str(count)
             cell_colour = colour_map(normalization(share)) if not np.isnan(share) else (0.9, 0.9, 0.9, 1.0)
             axes.text(x=predicted_index, y=true_index, s=text, ha="center", va="center", fontsize=font_size,
                       fontweight="bold" if is_diagonal else "normal",
@@ -145,7 +152,8 @@ def set_class_ticks(axes: Axes, class_names: List[str], along_columns: bool) -> 
         axes.set_yticks(ticks=tick_positions, labels=tick_labels, fontsize=font_size)
 
 
-def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str], title: str) -> np.ndarray:
+def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str], title: str,
+                          show_counts: bool = True) -> np.ndarray:
     """
     Draws the confusion matrix of an evaluated checkpoint as an image, saved in its evaluation folder and logged to
     TensorBoard by the per-class report: every cell coloured by its share of the samples of its true class, with its
@@ -158,6 +166,8 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
         confusion_matrix (torch.Tensor): The [K, K] confusion matrix (rows true classes, columns predicted classes).
         class_names (List[str]): The name of every class.
         title (str): The title of the image, e.g. 'Confusion Matrix · Iteration 4000 · Accuracy 0.8123'.
+        show_counts (bool): Whether the cells show their count, False for counts too large to print (pixels), the
+            cells then showing their share of the true class only. Defaults to True.
 
     Returns:
         np.ndarray: The [H, W, 3] uint8 RGB image.
@@ -202,7 +212,7 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
     matrix_axes.set_ylabel(ylabel="True Class", fontsize=10, fontweight="bold")
     if number_classes <= MAXIMUM_CLASSES_WITH_COUNTS:
         write_cell_texts(axes=matrix_axes, counts=counts, shares=shares, colour_map=colour_map,
-                         normalization=normalization)
+                         normalization=normalization, show_counts=show_counts)
 
         # Thin white separators between the cells
         matrix_axes.set_xticks(ticks=np.arange(-0.5, number_classes, 1.0), minor=True)
@@ -273,7 +283,7 @@ def save_confusion_matrix_table(confusion_matrix: torch.Tensor, class_names: Lis
 
 
 def save_confusion_matrix_image(confusion_matrix: torch.Tensor, class_names: List[str], output_folder: Path,
-                                title: str) -> Tuple[Path, np.ndarray]:
+                                title: str, show_counts: bool = True) -> Tuple[Path, np.ndarray]:
     """
     Draws the confusion matrix of an evaluated checkpoint (draw_confusion_matrix) and saves it as
     'confusion_matrix.png' in its evaluation folder, for the per-class report, which also logs the returned image to
@@ -284,12 +294,15 @@ def save_confusion_matrix_image(confusion_matrix: torch.Tensor, class_names: Lis
         class_names (List[str]): The name of every class.
         output_folder (Path): The evaluation folder of the checkpoint, created if needed.
         title (str): The title of the image.
+        show_counts (bool): Whether the cells show their count, or only their share of the true class. Defaults to
+            True.
 
     Returns:
         Tuple[Path, np.ndarray]: The path of the image and the [H, W, 3] uint8 RGB image.
     """
     output_folder.mkdir(parents=True, exist_ok=True)
-    image = draw_confusion_matrix(confusion_matrix=confusion_matrix, class_names=class_names, title=title)
+    image = draw_confusion_matrix(confusion_matrix=confusion_matrix, class_names=class_names, title=title,
+                                  show_counts=show_counts)
     image_path = output_folder / "confusion_matrix.png"
     cv2.imwrite(filename=str(image_path), img=cv2.cvtColor(src=image, code=cv2.COLOR_RGB2BGR))
     return image_path, image
