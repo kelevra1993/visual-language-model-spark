@@ -951,6 +951,10 @@ is left out.
     weight names, and `migrate_configuration.py` renames their folders. Runs trained before without head dropout but
     with hidden head layers have the old weight names (`fully_connected_block.0.weight` instead of `.1.weight`) and can
     no longer be loaded as they are.
+11. **Last checkpoint of a run:** when the last iteration fell on `weight_saving_iterations`, its checkpoint was saved and
+    evaluated before its training step, then overwritten by the final save after that step, so the evaluation did not
+    match the saved weights. The last iteration now skips its start-of-iteration save, and the final checkpoint is
+    evaluated after the final save when the run completes on a weight saving iteration, for every task.
 
 ### Left out
 - Segment metrics of the sequence labelling task (edit score, segment F1), optional in section 8.4.

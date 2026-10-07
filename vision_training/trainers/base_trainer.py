@@ -761,7 +761,8 @@ class BaseTrainer(ABC):
     def run_training_loop(self, maximum_consecutive_errors: int = 5) -> None:
         """
         Executes the main training loop: training steps, validation passes, console summaries, checkpoints (with the
-        evaluation of the test split at every weight_saving_iterations checkpoint) and a final checkpoint.
+        evaluation of the test split at every weight_saving_iterations checkpoint) and a final checkpoint, evaluated
+        too when the run completes on a weight_saving_iterations iteration.
 
         Args:
             maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before the training
@@ -775,17 +776,24 @@ class BaseTrainer(ABC):
          training_trackers, validation_trackers, validation_interval_count,
          consecutive_errors) = self.initialize_training_loop_state()
 
-        for training_iteration in range(self.start_iteration, self.training_iterations + self.start_iteration, 1):
+        # The checkpoint of the last iteration is the final one, saved after its training step, so that a checkpoint
+        # saved at the start of the last iteration is never overwritten after being evaluated
+        last_iteration = self.training_iterations + self.start_iteration - 1
+        training_completed = False
+
+        for training_iteration in range(self.start_iteration, last_iteration + 1, 1):
             try:
                 # Save and evaluate the model at every weight saving iteration, and only save it at the more
-                # frequent intermediate weight saving iterations in between
-                if training_iteration % self.weight_saving_iterations == 0:
+                # frequent intermediate weight saving iterations in between. The last iteration is left to the final
+                # save after the loop
+                is_last_iteration = training_iteration == last_iteration
+                if not is_last_iteration and training_iteration % self.weight_saving_iterations == 0:
                     self.save_model(iteration=training_iteration)
                     # The checkpoint of the first iteration of a run is not evaluated: it is either the untrained
                     # model of a new run, or the already evaluated checkpoint a resumed run starts from
                     if training_iteration != self.start_iteration:
                         self.run_test_evaluation(iteration=training_iteration)
-                elif training_iteration % self.intermediate_weight_saving_iterations == 0:
+                elif not is_last_iteration and training_iteration % self.intermediate_weight_saving_iterations == 0:
                     self.save_model(iteration=training_iteration)
 
                 # Get next training elements
@@ -837,8 +845,10 @@ class BaseTrainer(ABC):
                         validation_trackers = self.metric_tracker.create_trackers()
                         validation_interval_count = 0
 
-                # Reset the consecutive errors counter after a fully successful iteration
+                # Reset the consecutive errors counter after a fully successful iteration, the run being completed once
+                # its last iteration succeeds
                 consecutive_errors = 0
+                training_completed = is_last_iteration
 
             except KeyboardInterrupt:
                 print_color(color="red",
@@ -867,6 +877,12 @@ class BaseTrainer(ABC):
         print_color(color="green",
                     output=f"Model successfully saved at iteration {training_iteration}. Exiting Training.",
                     add_separators=True)
+
+        # Evaluate the final checkpoint of a completed run on a weight saving iteration, once it holds the weights
+        # after the last training step
+        if training_completed and training_iteration % self.weight_saving_iterations == 0:
+            self.run_test_evaluation(iteration=training_iteration)
+
         if self.training_writer is not None:
             self.training_writer.close()
         if validation_enabled and self.validation_writer is not None:

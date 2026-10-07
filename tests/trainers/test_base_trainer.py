@@ -1,17 +1,51 @@
 """
 Tests of BaseTrainer of vision_training/trainers/base_trainer.py on the dummy task: a model iteration sums the losses
-and tracks the metrics, training saves, evaluates and resumes from its checkpoints, and the input viewer creates no run
-folder.
+and tracks the metrics, training saves, evaluates and resumes from its checkpoints, the final checkpoint is evaluated on
+the weights it holds, and the input viewer creates no run folder.
 """
 
+import copy
 import pytest
 import torch
 
 from pathlib import Path
+from typing import Callable, Dict
 
 from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_configurations
 from tests.fixtures.evaluation_checks import read_results_blocks
+from vision_training.core.contracts import EvaluationResults
 from vision_training.trainers.checkpointing import CHECKPOINT_FORMAT_VERSION
+
+
+class EvaluationRecorder:
+    """
+    Replaces the test evaluation of a trainer to record the weights of the model at every evaluated iteration, then
+    runs the original evaluation, so that a test can compare the evaluated weights with the saved checkpoints.
+    """
+
+    def __init__(self, trainer: DummyTrainer) -> None:
+        """
+        Keeps the trainer and its original evaluation method.
+
+        Args:
+            trainer (DummyTrainer): The trainer whose evaluations are recorded.
+        """
+        self.trainer = trainer
+        self.original_evaluation: Callable[[int], EvaluationResults] = trainer.run_test_evaluation
+        self.evaluated_weights: Dict[int, Dict[str, torch.Tensor]] = {}
+
+    def __call__(self, iteration: int) -> EvaluationResults:
+        """
+        Records the weights of the evaluated model, then evaluates it.
+
+        Args:
+            iteration (int): The training iteration of the evaluated checkpoint.
+
+        Returns:
+            EvaluationResults: The results of the original evaluation.
+        """
+        self.evaluated_weights[iteration] = copy.deepcopy(self.trainer.model.state_dict())
+        return self.original_evaluation(iteration=iteration)
 
 
 def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_input_images: bool) -> DummyTrainer:
@@ -109,6 +143,32 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_final_checkpoint_is_evaluated_on_its_weights(tmp_path: Path) -> None:
+    """
+    Verifies that a run ending on a weight saving iteration (4 iterations, saved and evaluated every 4) evaluates its
+    final checkpoint once, after the final save, on exactly the weights that checkpoint holds, instead of evaluating
+    the weights before the last training step and overwriting their checkpoint.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=4, view_input_images=False)
+    evaluation_recorder = EvaluationRecorder(trainer=trainer)
+    trainer.run_test_evaluation = evaluation_recorder
+    trainer.run_training_loop()
+
+    # One evaluation of iteration 4, written once in Results.txt
+    assert list(evaluation_recorder.evaluated_weights) == [4]
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [block["iteration"] for block in results_blocks] == [4]
+
+    # The evaluated weights are the weights of the saved checkpoint of iteration 4
+    checkpoint = torch.load(f=trainer.weights_directory / "Iteration_4" / "model_000004.pt", map_location="cpu",
+                            weights_only=True)
+    for parameter_name, parameter_value in evaluation_recorder.evaluated_weights[4].items():
+        assert torch.equal(input=parameter_value.cpu(), other=checkpoint["model_state"][parameter_name])
 
 
 def test_input_viewer_creates_no_run_folder(tmp_path: Path) -> None:
