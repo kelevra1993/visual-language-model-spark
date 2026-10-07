@@ -163,8 +163,9 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
                                  target_configuration: Dict[str, Any]) -> List[str]:
     """
     Lists the differences between the settings defining the layers of the classification heads of two runs: the
-    hidden fully connected layers, whether the head uses a dropout, which shifts the numbering of its layers, and for
-    a flattened feature map the settings giving the size of its input (the flattening itself, and the image size).
+    hidden fully connected layers and, for a flattened feature map, the settings giving the size of its input (the
+    flattening itself, and the image size). The dropout rate is not compared: the heads always hold their dropout
+    layers, so it does not change the names of their weights.
     The other sizes of the input vectors (e.g. the channels of the last backbone block) and the number of classes are
     compared on the weights themselves.
 
@@ -197,14 +198,6 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
             differences.append(f"'Data.image_settings.size' is {source_image_size!r} in the source run and "
                                f"{target_image_size!r} in this run: the flattened feature map, the input of the head, "
                                f"has a size following the image size.")
-
-    # A dropout layer before every fully connected layer shifts the numbering of the layers of the head
-    source_uses_dropout = source_head_configuration["dropout_rate"] > 0
-    target_uses_dropout = target_head_configuration["dropout_rate"] > 0
-    if source_head_configuration["fully_connected"] and source_uses_dropout != target_uses_dropout:
-        differences.append(f"'ClassificationHead.dropout_rate' is {source_head_configuration['dropout_rate']!r} in the "
-                           f"source run and {target_head_configuration['dropout_rate']!r} in this run: a head with "
-                           f"dropout numbers its layers differently from a head without.")
     return differences
 
 

@@ -95,7 +95,7 @@ A training run is saved in `<ExperimentConfiguration.experiment_folder>/<run nam
 
 The name is made of sections joined with `_`, the tokens of a section being joined with `-`. A flag token is left out when its setting is off, and the optimizer section is left out with plain Adam without weight decay. The sections always come in the order of the table below. Values in `<...>` are read from the configuration.
 
-The training settings that can change between two resumptions of a run give no token: augmentation (including `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up, cosine schedule, gradient clipping and mixed precision. A run can be resumed in its folder with changed values, and two runs differing only by these settings share a folder. The optimizer keeps its token, because the state of one optimizer cannot be resumed by another.
+The training settings that can change between two resumptions of a run give no token: augmentation (including `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up, cosine schedule, gradient clipping, mixed precision and the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`). A run can be resumed in its folder with changed values, and two runs differing only by these settings share a folder. The optimizer keeps its token, because the state of one optimizer cannot be resumed by another.
 
 | Section | Token | Meaning (configuration key) | DET | CLS | M2O | M2M | CMP |
 |---|---|---|:---:|:---:|:---:|:---:|:---:|
@@ -128,14 +128,11 @@ The training settings that can change between two resumptions of a run give no t
 | Temporal module | `TCN<layers>x<hidden size>.<kernel size>` | `TemporalModel.type`: temporal_convolution | | | ✓ | ✓ | ✓ |
 | Temporal module | `BI` | `TemporalModel.bidirectional` is True (gru, lstm) | | | ✓ | ✓ | ✓ |
 | Temporal module | `CAU` | `TemporalModel.causal` is True (transformer, temporal_convolution) | | | | ✓ | |
-| Temporal module | `TDO<rate>` | `TemporalModel.dropout_rate` is above 0 (gru, lstm, transformer, temporal_convolution) | | | ✓ | ✓ | ✓ |
 | Temporal module | `TPT`, then `TFRZ` or `TLR<multiplier>` | `TemporalModel.pretrained` (not for mean or max pooling) | | | ✓ | ✓ | ✓ |
 | Fusion | `FCAT`, `FDIF`, `FXA<heads>` | `Fusion.type`: concatenation, difference, cross_attention | | | | | ✓ |
-| Fusion | `FDO<rate>` | `Fusion.dropout_rate` is above 0 (cross_attention) | | | | | ✓ |
 | Fusion | `SNP` | `Fusion.sequence_normalization_scope` is pair, with the `SN` backbone | | | | | ✓ |
 | Head | `HAVG.<fully connected>` or `HMAX.<fully connected>` | `ClassificationHead.global_pooling` average or max, `fully_connected` | | ✓ | ✓ | ✓ | ✓ |
 | Head | `HFLAT.<fully connected>` | `ClassificationHead.global_pooling` flatten, `fully_connected` | | ✓ | | | |
-| Head | `DO<rate>` | `ClassificationHead.dropout_rate` | | ✓ | ✓ | ✓ | ✓ |
 | Head | `LS<rate>` | `ClassificationHead.label_smoothing` is above 0 | | ✓ | ✓ | ✓ | ✓ |
 | Head | `CWB` | `ClassificationHead.class_weighting` is balanced | | ✓ | ✓ | ✓ | ✓ |
 | Head | `HPT`, then `HFRZ` or `HLR<multiplier>` | `ClassificationHead.pretrained` | | ✓ | ✓ | ✓ | ✓ |
@@ -151,9 +148,9 @@ Examples, built from the configurations of the repository:
 | Task | Run name |
 |---|---|
 | DET | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
-| CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128-DO0.2_MC4` |
-| M2O | `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HAVG.64-DO0.2_MC4` |
-| CMP | `CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64-DO0.2_MC2` |
+| CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC4` |
+| M2O | `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HAVG.64_MC4` |
+| CMP | `CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64_MC2` |
 
 M2M names have the same layout as M2O names.
 

@@ -196,7 +196,7 @@ def test_sequence_components_initialise_a_partly_frozen_run(tmp_path: Path, caps
                                               number_iterations=3, pretrained_settings=transfer_settings,
                                               configuration_name="transfer.yaml", task="sequence_classification")
     model = transfer_trainer.model
-    assert "-PT-BLR0.5_T4_GRU1x128-BI-TPT-TFRZ_HAVG.64-DO0.2-HPT-HLR0.1_" in transfer_trainer.run_name
+    assert "-PT-BLR0.5_T4_GRU1x128-BI-TPT-TFRZ_HAVG.64-HPT-HLR0.1_" in transfer_trainer.run_name
     assert transfer_trainer.pretrained_checkpoint_paths == {section_name: source_checkpoint_path
                                                             for section_name in SEQUENCE_COMPONENTS}
     for tensor_name, tensor_value in model.state_dict().items():

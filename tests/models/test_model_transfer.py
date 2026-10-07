@@ -336,7 +336,7 @@ def widen_last_backbone_block(configuration: Dict[str, Any]) -> None:
 
 def add_head_dropout(configuration: Dict[str, Any]) -> None:
     """
-    Adds a dropout before the layers of the classification head, which shifts the numbering of its layers.
+    Adds a dropout before the layers of the classification head, which keeps the names of its weights.
 
     Args:
         configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
@@ -359,10 +359,7 @@ def add_head_dropout(configuration: Dict[str, Any]) -> None:
      "'Data.sequence_settings.sequence_length' is 4 in the source run and 6 in this run, the size of the positional "
      "embedding of the transformer."),
     ("gru", widen_last_backbone_block, "TemporalModel",
-     "The last backbone block has 32 channels in the source run and 64 in this run"),
-    ("gru", add_head_dropout, "ClassificationHead",
-     "'ClassificationHead.dropout_rate' is 0.0 in the source run and 0.3 in this run: a head with dropout numbers "
-     "its layers differently from a head without.")])
+     "The last backbone block has 32 channels in the source run and 64 in this run")])
 def test_different_components_are_rejected(tmp_path: Path, source_temporal_type: str,
                                            modify_function: Callable[[Dict[str, Any]], None], section_name: str,
                                            expected_message: str) -> None:
@@ -395,6 +392,31 @@ def test_different_components_are_rejected(tmp_path: Path, source_temporal_type:
     assert expected_message in str(error_information.value)
 
 
+def test_head_with_another_dropout_rate_is_transferred(tmp_path: Path) -> None:
+    """
+    Verifies that a classification head trained without dropout initialises a head with dropout: the heads always
+    hold their dropout layers, so the dropout rate changes neither the names nor the shapes of their weights.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration, source_model = write_sequence_classifier_run(run_folder=tmp_path / "source_run",
+                                                                temporal_type="gru")
+    target_configuration = copy.deepcopy(configuration)
+    add_head_dropout(configuration=target_configuration)
+    target_model = build_sequence_model(task="sequence_classification", configuration=target_configuration, seed=1)
+
+    # Transfer the head, then compare every tensor with the one of the source run
+    load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="ClassificationHead",
+                                                                      source_folder=tmp_path / "source_run"),
+                              device=torch.device("cpu"))
+    for tensor_name, tensor_value in source_model.classification_head.state_dict().items():
+        assert torch.equal(input=target_model.classification_head.state_dict()[tensor_name], other=tensor_value), \
+            tensor_name
+
+
 def test_head_tensors_of_another_shape_are_listed(tmp_path: Path) -> None:
     """
     Verifies that the head of a sequence classifier, whose settings match the head of a sequence comparator, is not
@@ -416,7 +438,7 @@ def test_head_tensors_of_another_shape_are_listed(tmp_path: Path) -> None:
                                                                           source_folder=tmp_path / "source_run"),
                                   device=torch.device("cpu"))
     assert "Classification Head Tensors Of The Checkpoint" in str(error_information.value)
-    assert ("'fully_connected_block.0.weight' has the shape [16, 16] in the source run and [16, 48] in this run."
+    assert ("'fully_connected_block.1.weight' has the shape [16, 16] in the source run and [16, 48] in this run."
             in str(error_information.value))
 
 

@@ -71,7 +71,8 @@ class DetectionHead(nn.Module):
         flattened_dimension = self.roi_align_pool_size * self.roi_align_pool_size * convolution_output_channels
         self.fully_connected_block = build_fully_connected_block(input_dimension=flattened_dimension,
                                                                  dimensions=self.fully_connected_dimensions,
-                                                                 dropout_rate=0.0, device=self.device, dtype=self.dtype)
+                                                                 dropout_rate=0.0, add_dropout_layers=False,
+                                                                 device=self.device, dtype=self.dtype)
 
         # Final task-specific output layers
         # Object classification layer (outputs un-normalized logits for number_classes)

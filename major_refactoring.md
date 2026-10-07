@@ -938,6 +938,20 @@ is left out.
    run can still be evaluated and exported once its source run is deleted.
 8. **Backbone summary:** its dummy forward pass now runs in evaluation mode without gradients, so that printing the
    summary no longer changes the batch normalization statistics (it shifted those of a transferred backbone).
+9. **Console summary changes:** `MetricTracker` keeps the values of the previous summary, and every metric line shows
+   its change (green when it improves, red when it gets worse, the `_loss` keys improving when they decrease), a
+   `Best` marker on the best value of the run for its split, and on the Valid lines the `Valid-Train Gap` coloured by
+   its own change. The header shows the throughput change. The Valid lines compare with the last interval that ran
+   validation, and a resumed run starts without changes. `color_text` (`utilities/os_utilities.py`) builds these
+   multi-colour lines and is the colour helper behind `print_color`.
+10. **Dropout out of the run names:** the `DO<rate>` (head), `TDO<rate>` (temporal module) and `FDO<rate>` (cross
+    attention fusion) tokens are no longer written, so that the dropout rates can change between two resumptions of a
+    run. The classification heads now always hold their dropout layers (`build_fully_connected_block(...,
+    add_dropout_layers=True)`, an identity at a rate of 0), so that the names of their weights no longer depend on the
+    rate, and the transfer no longer compares the head dropout rates. Runs trained before with dropout keep their
+    weight names, and `migrate_configuration.py` renames their folders. Runs trained before without head dropout but
+    with hidden head layers have the old weight names (`fully_connected_block.0.weight` instead of `.1.weight`) and can
+    no longer be loaded as they are.
 
 ### Left out
 - Segment metrics of the sequence labelling task (edit score, segment F1), optional in section 8.4.

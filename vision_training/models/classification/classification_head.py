@@ -105,10 +105,11 @@ class ClassificationHead(nn.Module):
         self.fully_connected = fully_connected
         self.dropout_rate = dropout_rate
 
-        # Hidden layers, then a dropout and the linear layer giving one logit per class
+        # Hidden layers, then a dropout and the linear layer giving one logit per class. The dropout layers are built
+        # even at a rate of 0, so that the names of the weights do not depend on the dropout rate
         self.fully_connected_block = build_fully_connected_block(input_dimension=input_features,
                                                                  dimensions=fully_connected, dropout_rate=dropout_rate,
-                                                                 device=device, dtype=dtype)
+                                                                 add_dropout_layers=True, device=device, dtype=dtype)
         self.dropout = nn.Dropout(p=dropout_rate)
         self.classifier = nn.Linear(in_features=fully_connected[-1] if fully_connected else input_features,
                                     out_features=number_classes, device=device, dtype=dtype)

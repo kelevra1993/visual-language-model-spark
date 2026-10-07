@@ -10,8 +10,8 @@ ExperimentConfiguration:
   # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
   # backbone modules, normalization and blocks, window, temporal module, classification head, classes, optimizer and
   # weight decay unless plain Adam), so that the same settings resume in the same folder and changed settings start a
-  # new one, e.g. M2O_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64_T16_GRU2x256-BI_HAVG.256-DO0.5_MC4. The
-  # augmentation, batch size, learning rate and its schedule, gradient clipping and mixed precision give no token, so
+  # new one, e.g. M2O_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64_T16_GRU2x256-BI_HAVG.256_MC4. The augmentation,
+  # batch size, learning rate and its schedule, gradient clipping, mixed precision and dropout rates give no token, so
   # that a run can be resumed in its folder with changed values. The format is described in
   # vision_training/configuration/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"

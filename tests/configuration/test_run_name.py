@@ -2,7 +2,8 @@
 Tests of build_run_name of vision_training/configuration/run_name.py on the reference configurations of every task: the
 reference run names are fixed, every changed setting (architecture, inputs, heads, temporal modules, fusions,
 transfers, normalization, optimizer, weight decay) changes the run name with its token, and the training settings that
-can change between two resumptions (augmentation, batch size, learning rate, schedule, clipping, mixed precision) keep it.
+can change between two resumptions (augmentation, batch size, learning rate, schedule, clipping, mixed precision,
+dropout rates) keep it.
 """
 
 import copy
@@ -26,7 +27,7 @@ CLASSIFICATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_trainin
                                      "classification" / "configuration_synthetic_shapes.yaml")
 
 # Run name of the classification reference settings set by get_classification_reference_configurations
-CLASSIFICATION_REFERENCE_RUN_NAME = "CLS_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128-DO0.2_MC4"
+CLASSIFICATION_REFERENCE_RUN_NAME = "CLS_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC4"
 
 # Pretrained settings of a temporal module or classification head trained from random weights
 NO_TRANSFER_SETTINGS = {"experiment_folder": None, "iteration": None, "freeze": False, "learning_rate_multiplier": 1.0}
@@ -343,10 +344,11 @@ def use_multi_label_outputs(experiment_configuration: Dict[str, Any], model_conf
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
     (None, CLASSIFICATION_REFERENCE_RUN_NAME),
-    (use_max_pooling_and_two_hidden_layers, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128-", "_HMAX.256.64-")),
-    (flatten_final_feature_map, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128-", "_HFLAT.128-")),
-    (remove_hidden_layers_and_dropout, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128-DO0.2_", "_HAVG-DO0_")),
-    (smooth_labels_and_balance_classes, CLASSIFICATION_REFERENCE_RUN_NAME.replace("-DO0.2_", "-DO0.2-LS0.1-CWB_")),
+    (use_max_pooling_and_two_hidden_layers, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_", "_HMAX.256.64_")),
+    (flatten_final_feature_map, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_", "_HFLAT.128_")),
+    (remove_hidden_layers_and_dropout, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_", "_HAVG_")),
+    (smooth_labels_and_balance_classes, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_",
+                                                                                  "_HAVG.128-LS0.1-CWB_")),
     (use_multi_label_outputs, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_MC4", "_ML5"))])
 def test_classification_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                   expected_run_name: str) -> None:
@@ -370,7 +372,7 @@ SEQUENCE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "
                                "sequence_classification" / "configuration_synthetic_sequences.yaml")
 
 # Run name of the sequence reference settings set by get_sequence_reference_configurations
-SEQUENCE_REFERENCE_RUN_NAME = "M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HAVG.64-DO0.2_MC4"
+SEQUENCE_REFERENCE_RUN_NAME = "M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HAVG.64_MC4"
 
 
 def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -487,7 +489,7 @@ def use_mean_pooling(experiment_configuration: Dict[str, Any], model_configurati
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
     (None, SEQUENCE_REFERENCE_RUN_NAME),
     (skip_frames, SEQUENCE_REFERENCE_RUN_NAME.replace("_T8_", "_T16S2_")),
-    (use_deep_unidirectional_lstm, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_LSTM3x64-TDO0.1_")),
+    (use_deep_unidirectional_lstm, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_LSTM3x64_")),
     (use_causal_transformer, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_TRF2x128.8-CAU_")),
     (use_temporal_convolution, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_TCN4x128.5_")),
     (use_attention_pooling, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_ATT128_")),
@@ -525,8 +527,7 @@ def test_sequence_labelling_run_name() -> None:
 
 
 # Run name of the sequence comparison reference settings set by get_sequence_comparison_reference_configurations
-SEQUENCE_COMPARISON_REFERENCE_RUN_NAME = ("CMP_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64-"
-                                          "DO0.2_MC2")
+SEQUENCE_COMPARISON_REFERENCE_RUN_NAME = "CMP_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64_MC2"
 
 
 def get_sequence_comparison_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -596,7 +597,7 @@ def skip_member_frames(experiment_configuration: Dict[str, Any], model_configura
     (None, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME),
     (use_concatenation, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_FDIF_", "_FCAT_")),
     (use_cross_attention, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_FDIF_", "_FXA4_")),
-    (use_cross_attention_with_dropout, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_FDIF_", "_FXA4-FDO0.1_")),
+    (use_cross_attention_with_dropout, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_FDIF_", "_FXA4_")),
     (skip_member_frames, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_T8_", "_T8S2_"))])
 def test_sequence_comparison_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                        expected_run_name: str) -> None:
@@ -647,9 +648,9 @@ def test_pretrained_backbone_run_names(freeze: bool, learning_rate_multiplier: f
                          argvalues=[("TemporalModel", False, 1.0, "_GRU1x128-BI-TPT_"),
                                     ("TemporalModel", True, 1.0, "_GRU1x128-BI-TPT-TFRZ_"),
                                     ("TemporalModel", False, 0.5, "_GRU1x128-BI-TPT-TLR0.5_"),
-                                    ("ClassificationHead", False, 1.0, "_HAVG.64-DO0.2-HPT_"),
-                                    ("ClassificationHead", True, 0.1, "_HAVG.64-DO0.2-HPT-HFRZ_"),
-                                    ("ClassificationHead", False, 0.1, "_HAVG.64-DO0.2-HPT-HLR0.1_")])
+                                    ("ClassificationHead", False, 1.0, "_HAVG.64-HPT_"),
+                                    ("ClassificationHead", True, 0.1, "_HAVG.64-HPT-HFRZ_"),
+                                    ("ClassificationHead", False, 0.1, "_HAVG.64-HPT-HLR0.1_")])
 def test_pretrained_temporal_module_and_head_run_names(section_name: str, freeze: bool,
                                                        learning_rate_multiplier: float, expected_section: str) -> None:
     """
@@ -667,10 +668,39 @@ def test_pretrained_temporal_module_and_head_run_names(section_name: str, freeze
     model_configuration[section_name]["pretrained"] = {"experiment_folder": "/runs/source", "iteration": None,
                                                        "freeze": freeze,
                                                        "learning_rate_multiplier": learning_rate_multiplier}
-    original_section = "_GRU1x128-BI_" if section_name == "TemporalModel" else "_HAVG.64-DO0.2_"
+    original_section = "_GRU1x128-BI_" if section_name == "TemporalModel" else "_HAVG.64_"
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME.replace(
         original_section, expected_section)
+
+
+@pytest.mark.parametrize(argnames=("head_dropout_rate", "temporal_dropout_rate", "fusion_dropout_rate"),
+                         argvalues=[(0.0, 0.0, 0.0), (0.5, 0.0, 0.0), (0.0, 0.3, 0.0), (0.0, 0.0, 0.1),
+                                    (0.5, 0.3, 0.1)])
+def test_dropout_rates_keep_run_name(head_dropout_rate: float, temporal_dropout_rate: float,
+                                     fusion_dropout_rate: float) -> None:
+    """
+    Verifies that the dropout rates of the classification head, of the temporal module and of the cross attention
+    fusion give no token, so that a run can be resumed in its folder with changed rates.
+
+    Args:
+        head_dropout_rate (float): The dropout of the classification head.
+        temporal_dropout_rate (float): The dropout between the layers of the GRU.
+        fusion_dropout_rate (float): The dropout of the cross attention weights.
+    """
+    experiment_configuration, model_configuration = get_sequence_comparison_reference_configurations()
+    model_configuration["TemporalModel"].update({"type": "gru", "number_layers": 2, "bidirectional": False})
+    model_configuration["Fusion"]["type"] = "cross_attention"
+    reference_run_name = build_run_name(experiment_configuration=experiment_configuration,
+                                        model_configuration=model_configuration)
+
+    # Change every dropout rate, the run name staying the same
+    model_configuration["ClassificationHead"]["dropout_rate"] = head_dropout_rate
+    model_configuration["TemporalModel"]["dropout_rate"] = temporal_dropout_rate
+    model_configuration["Fusion"]["dropout_rate"] = fusion_dropout_rate
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == reference_run_name
+    assert reference_run_name == SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_MEAN_FDIF_", "_GRU2x128_FXA4_")
 
 
 @pytest.mark.parametrize(argnames=("augmentation_activated", "shuffle_frames", "independent_frames"),

@@ -14,7 +14,7 @@ from vision_training.trainers.checkpointing import get_checkpoint_iterations, ge
 
 if __name__ == "__main__":
     # Run name of the trained experiment whose configuration and checkpoints are evaluated, it is only read
-    run_name = "CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-DO0.2-CWB_MC1000"
+    run_name = "CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-CWB_MC1000"
     experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / run_name
     # Checkpoint iteration to evaluate, None for the last saved one, or "all" for every checkpoint of the registry
     # (the intermediate ones included, the last saved first), compared in 'Evaluation/evaluation_summary.csv'

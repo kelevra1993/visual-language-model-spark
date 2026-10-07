@@ -246,10 +246,11 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
 def build_classification_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
     """
     Builds the sections of the run name describing the classification head, shared by the classification-like tasks:
-    the head H<global pooling AVG, MAX or FLAT>.<fully connected sizes> with the dropout DO<rate>, LS<label smoothing>
-    when smoothing, CWB when the classes are balanced in the loss and HPT, HFRZ or HLR<multiplier> when the head is
-    initialised by the one of another run (see build_pretrained_tokens), then the classes MC<classes> (one class per
-    sample) or ML<classes> (several classes per sample), e.g. 'HAVG.256-DO0.5_MC4' or 'HFLAT.256-DO0.5_MC4'.
+    the head H<global pooling AVG, MAX or FLAT>.<fully connected sizes>, LS<label smoothing> when smoothing, CWB when
+    the classes are balanced in the loss and HPT, HFRZ or HLR<multiplier> when the head is initialised by the one of
+    another run (see build_pretrained_tokens), then the classes MC<classes> (one class per sample) or ML<classes>
+    (several classes per sample), e.g. 'HAVG.256-LS0.1_MC4' or 'HFLAT.256_MC4'. The dropout gives no token, so that it
+    can change between two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -259,10 +260,9 @@ def build_classification_sections(model_configuration: Dict[str, Any]) -> List[L
     """
     head_configuration = model_configuration["ClassificationHead"]
 
-    # Pooling and hidden layers, dropout, then the label smoothing and class weighting of the loss when used
+    # Pooling and hidden layers, then the label smoothing and class weighting of the loss when used
     pooling_code = GLOBAL_POOLING_CODES[head_configuration["global_pooling"]]
-    head_tokens = ["H" + ".".join([pooling_code] + [str(size) for size in head_configuration["fully_connected"]]),
-                   f"DO{head_configuration['dropout_rate']:g}"]
+    head_tokens = ["H" + ".".join([pooling_code] + [str(size) for size in head_configuration["fully_connected"]])]
     if head_configuration["label_smoothing"] > 0:
         head_tokens.append(f"LS{head_configuration['label_smoothing']:g}")
     if head_configuration["class_weighting"] == "balanced":
@@ -299,9 +299,9 @@ def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the tokens of the run name describing the temporal module of the sequence models: MEAN, MAX, ATT<hidden
     size>, GRU or LSTM<layers>x<hidden size> with BI when bidirectional, TRF<layers>x<hidden size>.<heads> or
-    TCN<layers>x<hidden size>.<kernel size> with CAU when causal, TDO<dropout> when the module uses a dropout, and
-    TPT, TFRZ or TLR<multiplier> when the module is initialised by the one of another run (see
-    build_pretrained_tokens), e.g. 'GRU2x256-BI'.
+    TCN<layers>x<hidden size>.<kernel size> with CAU when causal, and TPT, TFRZ or TLR<multiplier> when the module is
+    initialised by the one of another run (see build_pretrained_tokens), e.g. 'GRU2x256-BI'. The dropout gives no
+    token, so that it can change between two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -326,9 +326,6 @@ def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
         type_parameter = temporal_configuration["number_heads" if temporal_type == "transformer" else "kernel_size"]
         temporal_tokens = [f"{temporal_code}{layers_and_size}.{type_parameter}"] + (
             ["CAU"] if temporal_configuration["causal"] else [])
-    if temporal_type not in ["mean_pooling", "max_pooling", "attention_pooling"] and \
-            temporal_configuration["dropout_rate"] > 0:
-        temporal_tokens.append(f"TDO{temporal_configuration['dropout_rate']:g}")
 
     # Temporal module transferred from another run, frozen or learning at its own speed
     temporal_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="TemporalModel")
@@ -339,7 +336,7 @@ def build_sequence_sections(model_configuration: Dict[str, Any]) -> List[List[st
     """
     Builds the sections of the run name specific to the sequence tasks: the window (build_window_tokens), the temporal
     module (build_temporal_tokens), then the classification head and classes sections, e.g.
-    'T16_GRU2x256-BI_HAVG.256-DO0.5_MC4'.
+    'T16_GRU2x256-BI_HAVG.256_MC4'.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -355,9 +352,9 @@ def build_sequence_sections(model_configuration: Dict[str, Any]) -> List[List[st
 def build_fusion_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the tokens of the run name describing the fusion of the members of a pair in the sequence comparison model:
-    FCAT (concatenation), FDIF (difference) or FXA<heads> (cross attention), the latter followed by FDO<dropout> when
-    its attention uses a dropout, then SNP when both members share the statistics of the sequence normalization of the
-    backbone, e.g. 'FXA4-FDO0.1' or 'FDIF-SNP'.
+    FCAT (concatenation), FDIF (difference) or FXA<heads> (cross attention), then SNP when both members share the
+    statistics of the sequence normalization of the backbone, e.g. 'FXA4' or 'FDIF-SNP'. The dropout of the cross
+    attention gives no token, so that it can change between two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -368,11 +365,9 @@ def build_fusion_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     fusion_configuration = model_configuration["Fusion"]
     fusion_type = fusion_configuration["type"]
 
-    # Cross attention with its number of heads, and its dropout when used, or the type of the other fusions
+    # Cross attention with its number of heads, or the type of the other fusions
     if fusion_type == "cross_attention":
         fusion_tokens = [f"{FUSION_TYPE_CODES[fusion_type]}{fusion_configuration['number_heads']}"]
-        if fusion_configuration["dropout_rate"] > 0:
-            fusion_tokens.append(f"FDO{fusion_configuration['dropout_rate']:g}")
     else:
         fusion_tokens = [FUSION_TYPE_CODES[fusion_type]]
 
@@ -387,7 +382,7 @@ def build_sequence_comparison_sections(model_configuration: Dict[str, Any]) -> L
     """
     Builds the sections of the run name specific to the sequence comparison task: the member windows
     (build_window_tokens), the temporal module (build_temporal_tokens), the fusion of the members
-    (build_fusion_tokens), then the classification head and classes sections, e.g. 'T8_MEAN_FDIF_HAVG.64-DO0.2_MC2'.
+    (build_fusion_tokens), then the classification head and classes sections, e.g. 'T8_MEAN_FDIF_HAVG.64_MC2'.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -414,7 +409,8 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
     always trains in a folder matching its configuration: the same settings resume in the same folder, and changed
     settings, in particular every setting changing the model size, start a new one instead of mixing with a folder
     whose saved configuration no longer matches. The training settings that can change between two resumptions of a
-    run (augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision) give no token.
+    run (augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision, dropout rates)
+    give no token.
 
     The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
     is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
