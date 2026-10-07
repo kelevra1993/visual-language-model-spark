@@ -39,8 +39,8 @@ class MetricTracker:
     batch metrics, plus the total loss) to their display names.
 
     The tracker keeps the values of the previous summary, so that every summary shows the change of each value, green
-    when it improved and red when it got worse, the best value of the run marked, and the Valid-Train gap of every
-    metric. Nothing is kept across a resume, so the first summary of a resumed run has no change.
+    when it improved and red when it got worse, and the best value of the run marked. Nothing is kept across a
+    resume, so the first summary of a resumed run has no change.
     """
 
     def __init__(self, tracked_metrics_mapping: Dict[str, str], information_dump: int, batch_size: int,
@@ -69,8 +69,6 @@ class MetricTracker:
         # The Valid values are only updated by the summaries whose interval ran validation batches.
         self.previous_values = {split_name: {} for split_name in SPLIT_COLORS}
         self.best_values = {split_name: {} for split_name in SPLIT_COLORS}
-        self.previous_gaps = {}
-        self.previous_samples_per_second = None
 
     def create_trackers(self) -> Dict[str, Any]:
         """
@@ -163,66 +161,39 @@ class MetricTracker:
         return metric_key.endswith(LOWER_IS_BETTER_SUFFIX)
 
     @staticmethod
-    def choose_change_color(change: float, lower_is_better: bool, neutral_color: Optional[str],
-                            decimals: int) -> Optional[str]:
+    def format_change(change: float, lower_is_better: bool, neutral_color: str) -> str:
         """
-        Chooses the colour of a change between two console summaries, so that the progress of the training reads at a
-        glance: green when the change goes in the improving direction, red when it goes in the other one.
+        Formats the signed change of a console summary value since the previous summary, so that the progress of the
+        training reads at a glance: green when it goes in the improving direction, red when it goes in the other one,
+        and in the colour of its line when it rounds to zero at the printed decimals.
 
         Args:
             change (float): The current value minus the previous one.
             lower_is_better (bool): True when the value improves by decreasing (losses), False otherwise.
-            neutral_color (Optional[str]): The colour of a change rounding to zero, or None for no colour.
-            decimals (int): The number of printed decimals, below which a change rounds to zero.
-
-        Returns:
-            Optional[str]: "green", "red", or the neutral colour.
-        """
-        # A change rounding to zero at the printed decimals is neither an improvement nor a degradation
-        if round(change, decimals) == 0:
-            return neutral_color
-
-        improved = change < 0 if lower_is_better else change > 0
-        return "green" if improved else "red"
-
-    @staticmethod
-    def format_change(change: float, lower_is_better: bool, neutral_color: Optional[str], decimals: int,
-                      width: int) -> str:
-        """
-        Formats the signed change of a console summary value since the previous summary, in the colour given by
-        choose_change_color.
-
-        Args:
-            change (float): The current value minus the previous one.
-            lower_is_better (bool): True when the value improves by decreasing (losses), False otherwise.
-            neutral_color (Optional[str]): The colour of a change rounding to zero, or None for no colour.
-            decimals (int): The number of printed decimals.
-            width (int): The minimum width of the printed change, sign included.
+            neutral_color (str): The colour of a change rounding to zero, the colour of its line.
 
         Returns:
             str: The coloured signed change.
         """
-        change_color = MetricTracker.choose_change_color(change=change, lower_is_better=lower_is_better,
-                                                         neutral_color=neutral_color, decimals=decimals)
+        # A change rounding to zero is neither an improvement nor a degradation, and is printed as +0 rather than -0
+        if round(change, METRIC_DECIMALS) == 0:
+            return color_text(color=neutral_color, text=f"{0.0:>+{METRIC_COLUMN_WIDTH}.{METRIC_DECIMALS}f}")
 
-        # Print a change rounding to zero as +0 rather than -0
-        displayed_change = 0.0 if round(change, decimals) == 0 else change
-        change_text = f"{displayed_change:>+{width}.{decimals}f}"
-        return change_text if change_color is None else color_text(color=change_color, text=change_text)
+        improved = change < 0 if lower_is_better else change > 0
+        return color_text(color="green" if improved else "red",
+                          text=f"{change:>+{METRIC_COLUMN_WIDTH}.{METRIC_DECIMALS}f}")
 
-    def format_metric_line(self, split_name: str, metric_key: str, display_name: str, current_value: float,
-                           gap_value: Optional[float]) -> str:
+    def format_metric_line(self, split_name: str, metric_key: str, display_name: str, current_value: float) -> str:
         """
         Builds one metric line of the console summary, the main training feedback read at every information dump: the
-        interval mean, its change since the last summary that printed this split, the best marker when it is the best
-        value of the run, and on the Valid lines the Valid-Train gap. Keeps the values for the next summary.
+        interval mean, its change since the last summary that printed this split, and the best marker when it is the
+        best value of the run. Keeps the values for the next summary.
 
         Args:
             split_name (str): "Train" or "Valid".
             metric_key (str): The model output key of the metric.
             display_name (str): The name of the metric printed in the line.
             current_value (float): The mean of the metric over the interval.
-            gap_value (Optional[float]): The Valid value minus the Train value of the interval, or None on Train lines.
 
         Returns:
             str: The coloured line.
@@ -236,28 +207,11 @@ class MetricTracker:
         is_best = False
         if metric_key in self.previous_values[split_name]:
             change = current_value - self.previous_values[split_name][metric_key]
-            line += " " + self.format_change(change=change, lower_is_better=lower_is_better, neutral_color=line_color,
-                                             decimals=METRIC_DECIMALS, width=METRIC_COLUMN_WIDTH)
+            line += " " + self.format_change(change=change, lower_is_better=lower_is_better, neutral_color=line_color)
             best_value = self.best_values[split_name][metric_key]
             is_best = current_value < best_value if lower_is_better else current_value > best_value
-
-            # Keep an empty marker column before the gap, so that the gaps of every Valid line are aligned
-            if is_best or gap_value is not None:
-                line += " " + color_text(color=line_color, text=BEST_MARKER if is_best else " " * len(BEST_MARKER))
-
-        # Keep the gap aligned on the first summary, which has neither change nor marker
-        elif gap_value is not None:
-            line += " " * (METRIC_COLUMN_WIDTH + len(BEST_MARKER) + 2)
-
-        # Add the Valid-Train gap, red when it widened in the degrading direction since the previous summary
-        if gap_value is not None:
-            gap_color = line_color
-            if metric_key in self.previous_gaps:
-                gap_color = self.choose_change_color(change=gap_value - self.previous_gaps[metric_key],
-                                                     lower_is_better=lower_is_better, neutral_color=line_color,
-                                                     decimals=METRIC_DECIMALS)
-            line += " " + color_text(color=gap_color, text=f"Valid-Train Gap {gap_value:+.{METRIC_DECIMALS}f}")
-            self.previous_gaps[metric_key] = gap_value
+            if is_best:
+                line += " " + color_text(color=line_color, text=BEST_MARKER)
 
         # Keep the value for the change of the next summary, and the best value of the run
         self.previous_values[split_name][metric_key] = current_value
@@ -271,8 +225,8 @@ class MetricTracker:
                                validation_interval_count: int) -> Dict[str, Any]:
         """
         Prints the rolling average of the training and validation metrics at the end of a console log interval.
-        It is the primary training feedback of the pipeline, showing the throughput and every tracked metric with their
-        changes since the previous summary, so that the user can monitor the convergence at a glance.
+        It is the primary training feedback of the pipeline, showing the throughput and every tracked metric with its
+        change since the previous summary, so that the user can monitor the convergence at a glance.
 
         Args:
             iterations (int): Current global training iteration.
@@ -293,39 +247,26 @@ class MetricTracker:
         duration = time.time() - training_tracker_dictionary["start_time"]
         samples_per_second = interval_samples / max(duration, 0.001)
 
-        # Show the throughput changes since the previous summary, green when faster and red when slower (width 1 for no
-        # padding)
-        samples_change_text, frames_change_text = "", ""
-        if self.previous_samples_per_second is not None:
-            samples_change = samples_per_second - self.previous_samples_per_second
-            samples_change_text = " (" + self.format_change(change=samples_change, lower_is_better=False,
-                                                            neutral_color=None, decimals=1, width=1) + ")"
-            if self.frames_per_sample is not None:
-                frames_change_text = " (" + self.format_change(change=samples_change * self.frames_per_sample,
-                                                               lower_is_better=False, neutral_color=None, decimals=1,
-                                                               width=1) + ")"
-        self.previous_samples_per_second = samples_per_second
-
         # Display the formatted summary header, with the frame throughput of the sequence tasks
         header = (f"| Iteration: {iterations:<6} | Total {self.sample_name}: {total_samples:<8} "
                   f"| Interval {self.sample_name}: {interval_samples:<6} "
-                  f"| Throughput: {samples_per_second:.1f} {THROUGHPUT_UNITS[self.sample_name]}{samples_change_text} |")
+                  f"| Throughput: {samples_per_second:.1f} {THROUGHPUT_UNITS[self.sample_name]} |")
         if self.frames_per_sample is not None:
-            header += f" {samples_per_second * self.frames_per_sample:.1f} frames/sec{frames_change_text} |"
+            header += f" {samples_per_second * self.frames_per_sample:.1f} frames/sec |"
         print(header)
         print("-" * print_length)
 
         for metric_key, display_name in self.tracked_metrics_mapping.items():
             train_value = training_tracker_dictionary[metric_key]
             print(self.format_metric_line(split_name="Train", metric_key=metric_key, display_name=display_name,
-                                          current_value=train_value, gap_value=None))
+                                          current_value=train_value))
 
             # Only display validation metrics if at least one validation iteration ran in this interval, so that the
             # Valid changes compare with the last interval that ran validation
             if validation_tracker_dictionary is not None and validation_interval_count > 0:
                 validation_value = validation_tracker_dictionary[metric_key]
                 print(self.format_metric_line(split_name="Valid", metric_key=metric_key, display_name=display_name,
-                                              current_value=validation_value, gap_value=validation_value - train_value))
+                                              current_value=validation_value))
 
         print("-" * print_length)
         formatted_duration = self.format_time_interval(duration_seconds=duration)

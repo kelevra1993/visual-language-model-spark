@@ -1,20 +1,14 @@
 """
 Tests of MetricTracker of vision_training/trainers/metric_tracking.py: interval averages of the tracked metrics,
 validation sums divided by their count, the time interval format, the interval summary header, and the changes since
-the previous summary (metric changes and their colours, best marker, Valid-Train gap, throughput change).
+the previous summary (metric changes and their colours, best marker).
 """
-
-import re
-import time
 
 import pytest
 import torch
 
 from vision_training.trainers.metric_tracking import MetricTracker
-from vision_training.utilities.os_utilities import COLOR_CODES, color_text
-
-# Pattern of the ANSI colour codes, removed to compare the visible columns of the console lines
-ANSI_CODE_PATTERN = re.compile(pattern=r"\033\[[0-9;]*m")
+from vision_training.utilities.os_utilities import color_text
 
 
 def build_metric_tracker(sample_name: str, frames_per_sample: int | None) -> MetricTracker:
@@ -117,7 +111,7 @@ def test_metric_changes_and_best_marker() -> None:
     # Follow the training loss over four summaries, the best marker only appearing when it improves on the best value
     for summary_index, (loss_value, expected_change) in enumerate(loss_values_and_fragments):
         loss_line = tracker.format_metric_line(split_name="Train", metric_key="total_loss", display_name="Total Loss",
-                                               current_value=loss_value, gap_value=None)
+                                               current_value=loss_value)
         if expected_change is None:
             assert loss_line == color_text(color="blue", text=f"Moving Average of Train {'Total Loss':30} :   1.0000")
         else:
@@ -126,36 +120,10 @@ def test_metric_changes_and_best_marker() -> None:
 
     # An accuracy improves when it increases, so its decrease is red
     tracker.format_metric_line(split_name="Train", metric_key="accuracy", display_name="Accuracy",
-                               current_value=0.6, gap_value=None)
+                               current_value=0.6)
     accuracy_line = tracker.format_metric_line(split_name="Train", metric_key="accuracy", display_name="Accuracy",
-                                               current_value=0.5, gap_value=None)
+                                               current_value=0.5)
     assert color_text(color="red", text=" -0.1000") in accuracy_line
-
-
-def test_valid_train_gap() -> None:
-    """
-    Verifies the Valid-Train gap of the Valid lines: uncoloured on the first summary, red when it widens in the
-    degrading direction (Valid loss further above the Train loss, Valid accuracy further below the Train accuracy),
-    green when it narrows, and printed in the same column on every summary.
-    """
-    tracker = build_metric_tracker(sample_name="Images", frames_per_sample=None)
-    loss_gaps_and_colors = [(0.2, "yellow"), (0.4, "red"), (0.1, "green")]
-
-    # Follow the gap of the validation loss over three summaries, the gap staying in the column of the first one
-    gap_columns = []
-    for loss_gap, expected_color in loss_gaps_and_colors:
-        loss_line = tracker.format_metric_line(split_name="Valid", metric_key="total_loss", display_name="Total Loss",
-                                               current_value=1.0 + loss_gap, gap_value=loss_gap)
-        assert color_text(color=expected_color, text=f"Valid-Train Gap {loss_gap:+.4f}") in loss_line
-        gap_columns.append(ANSI_CODE_PATTERN.sub(repl="", string=loss_line).index("Valid-Train Gap"))
-    assert len(set(gap_columns)) == 1
-
-    # A Valid accuracy further below the Train accuracy is a widening gap
-    tracker.format_metric_line(split_name="Valid", metric_key="accuracy", display_name="Accuracy", current_value=0.47,
-                               gap_value=-0.03)
-    accuracy_line = tracker.format_metric_line(split_name="Valid", metric_key="accuracy", display_name="Accuracy",
-                                               current_value=0.45, gap_value=-0.05)
-    assert color_text(color="red", text="Valid-Train Gap -0.0500") in accuracy_line
 
 
 def test_valid_changes_skip_intervals_without_validation(capsys: pytest.CaptureFixture) -> None:
@@ -182,38 +150,3 @@ def test_valid_changes_skip_intervals_without_validation(capsys: pytest.CaptureF
     console_output = capsys.readouterr().out
     assert console_output.count("Moving Average of Valid Total Loss") == 2
     assert color_text(color="green", text=" -0.2000") in console_output
-
-
-@pytest.mark.parametrize(argnames=("sample_name", "frames_per_sample", "expected_fragments"), argvalues=[
-    ("Images", None, ["imgs/sec ("]),
-    ("Sequences", 16, ["seqs/sec (", "frames/sec ("])])
-def test_throughput_change(capsys: pytest.CaptureFixture, sample_name: str, frames_per_sample: int | None,
-                           expected_fragments: list) -> None:
-    """
-    Verifies that the header shows no throughput change on the first summary, and a green change (with the frame
-    change of the sequence tasks) when the next interval is faster.
-
-    Args:
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
-        sample_name (str): "Images" or "Sequences".
-        frames_per_sample (int | None): The number of frames of a sequence, or None for images.
-        expected_fragments (list): Text fragments followed by the throughput change.
-    """
-    tracker = build_metric_tracker(sample_name=sample_name, frames_per_sample=frames_per_sample)
-
-    # The first interval lasts about 10 seconds and prints no change
-    tracker.print_interval_summary(iterations=4,
-                                   training_tracker_dictionary={"start_time": time.time() - 10.0, "total_loss": 1.0,
-                                                                "accuracy": 0.5},
-                                   validation_tracker_dictionary=None, validation_interval_count=0)
-    first_output = capsys.readouterr().out
-    assert all(expected_fragment not in first_output for expected_fragment in expected_fragments)
-
-    # The second interval lasts about 5 seconds, so its throughput rises
-    tracker.print_interval_summary(iterations=8,
-                                   training_tracker_dictionary={"start_time": time.time() - 5.0, "total_loss": 1.0,
-                                                                "accuracy": 0.5},
-                                   validation_tracker_dictionary=None, validation_interval_count=0)
-    second_output = capsys.readouterr().out
-    for expected_fragment in expected_fragments:
-        assert expected_fragment + COLOR_CODES["green"] + "\033[1m+" in second_output

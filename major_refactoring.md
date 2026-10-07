@@ -939,9 +939,8 @@ is left out.
 8. **Backbone summary:** its dummy forward pass now runs in evaluation mode without gradients, so that printing the
    summary no longer changes the batch normalization statistics (it shifted those of a transferred backbone).
 9. **Console summary changes:** `MetricTracker` keeps the values of the previous summary, and every metric line shows
-   its change (green when it improves, red when it gets worse, the `_loss` keys improving when they decrease), a
-   `Best` marker on the best value of the run for its split, and on the Valid lines the `Valid-Train Gap` coloured by
-   its own change. The header shows the throughput change. The Valid lines compare with the last interval that ran
+   its change (green when it improves, red when it gets worse, the `_loss` keys improving when they decrease) and a
+   `Best` marker on the best value of the run for its split. The Valid lines compare with the last interval that ran
    validation, and a resumed run starts without changes. `color_text` (`utilities/os_utilities.py`) builds these
    multi-colour lines and is the colour helper behind `print_color`.
 10. **Dropout out of the run names:** the `DO<rate>` (head), `TDO<rate>` (temporal module) and `FDO<rate>` (cross
