@@ -243,6 +243,19 @@ class SequenceDataset(Dataset):
         """
         return self.window_records[sample_identifier]["frames"]
 
+    def get_sample_class_indices(self) -> Dict[int, List[int]]:
+        """
+        Lists the classes of every window, from which the sequence trainers spread the fixed test windows drawn at
+        every evaluation over the classes: the class of the window (one class per window), or the class of every
+        labelled frame (one class per frame), so that a window counts for the class of most of its frames.
+
+        Returns:
+            Dict[int, List[int]]: The class indices of every window keyed by its identifier.
+        """
+        return {window["identifier"]: window["frame_labels"][:1] if self.label_type == "sequence" else
+                [class_index for class_index in window["frame_labels"] if class_index != IGNORED_LABEL_INDEX]
+                for window in self.windows}
+
     def get_class_counts(self) -> List[int]:
         """
         Counts the windows of every class (one class per window), or the real frames of every class (one class per

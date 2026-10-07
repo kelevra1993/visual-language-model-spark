@@ -1,7 +1,8 @@
 """
 Trainer of the sequence labelling task (M2M): one class per frame of the windows, the accuracy and the evaluation of
 the checkpoints counting only the labelled frames (frame metrics, error frames, predictions file and the share of fully
-correct windows), the loaders being those of the sequence classification trainer. Registered in the task registry.
+correct windows) with the sample images captioned frame by frame, the loaders being those of the sequence
+classification trainer. Registered in the task registry.
 """
 
 import cv2
@@ -13,7 +14,8 @@ from typing import Any, Dict, List, Optional
 from vision_training.core.contracts import IGNORED_LABEL_INDEX, SAMPLE_IDENTIFIERS_KEY
 from vision_training.evaluation.sequence.sequence_metrics import compute_frame_accuracy, compute_sequence_exact_matches
 from vision_training.trainers.sequence_classification_trainer import FRAME_GRID_COLUMNS, SequenceClassificationTrainer
-from vision_training.utilities.visualization import add_caption_bar, build_frame_grid
+from vision_training.utilities.visualization import (CORRECT_PREDICTION_COLOUR, WRONG_PREDICTION_COLOUR,
+                                                     add_caption_bar, build_frame_grid)
 
 
 class SequenceLabellingTrainer(SequenceClassificationTrainer):
@@ -132,11 +134,9 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
                 continue
 
             # Frame grid of the window, built once, every real frame captioned with its true and predicted classes
-            frame_captions = [("X " if frame_index in wrong_frames else "") +
-                              (self.class_names[frame_labels[frame_index]]
-                               if frame_labels[frame_index] != IGNORED_LABEL_INDEX else "none") +
-                              f"/{self.class_names[predicted_labels[frame_index]]}"
-                              for frame_index in range(number_real_frames)]
+            frame_captions = self.build_frame_prediction_captions(frame_labels=frame_labels,
+                                                                  predicted_labels=predicted_labels,
+                                                                  number_real_frames=number_real_frames)
             frame_grid = None
             window_identifier = int(batch[SAMPLE_IDENTIFIERS_KEY][sample_index])
             window_name = test_dataset.get_sample_name(sample_identifier=window_identifier)
@@ -157,6 +157,72 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
                            f"{self.class_names[predicted_labels[frame_index]]} {score:.3f}")
                 cv2.imwrite(filename=str(pair_folder / f"{window_name}_frame{frame_index}_{score:.3f}.png"),
                             img=add_caption_bar(image=frame_grid, caption=caption))
+
+    def build_frame_prediction_captions(self, frame_labels: List[int], predicted_labels: List[int],
+                                        number_real_frames: int) -> List[str]:
+        """
+        Captions every real frame of a test window with its true and predicted classes, 'true/predicted', the wrong
+        frames being marked with 'X' and the frames of unmapped categories named 'none', for the frame grids of the
+        error images and of the sample images.
+
+        Args:
+            frame_labels (List[int]): The class index of every frame of the window, IGNORED_LABEL_INDEX for the
+                unlabelled and padding frames.
+            predicted_labels (List[int]): The predicted class index of every frame of the window.
+            number_real_frames (int): The number of real frames of the window, which come first.
+
+        Returns:
+            List[str]: The caption of every real frame.
+        """
+        frame_captions = []
+        for frame_index in range(number_real_frames):
+            true_label, predicted_label = frame_labels[frame_index], predicted_labels[frame_index]
+            wrong_frame = true_label not in [IGNORED_LABEL_INDEX, predicted_label]
+            true_class_name = self.class_names[true_label] if true_label != IGNORED_LABEL_INDEX else "none"
+            frame_captions.append(("X " if wrong_frame else "") +
+                                  f"{true_class_name}/{self.class_names[predicted_label]}")
+        return frame_captions
+
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
+                           sample_name: str, iteration: int) -> np.ndarray:
+        """
+        Draws a fixed test window for the sample images of the evaluation: the frame grid of the window, every real
+        frame captioned with its true and predicted classes and the wrong ones marked with 'X', under a caption giving
+        the number of labelled frames that are right, in green when they all are and in red otherwise.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The sequence labeller outputs.
+            sample_index (int): The index of the window in the batch.
+            sample_name (str): The name of the window.
+            iteration (int): The training iteration of the evaluated checkpoint.
+
+        Returns:
+            np.ndarray: The [H, W, 3] uint8 BGR image of the window.
+        """
+        frame_labels = batch["labels"][sample_index].tolist()
+        predicted_labels = predictions["class_probabilities"][sample_index].detach().argmax(dim=-1).tolist()
+        sequence_mask = batch["sequence_mask"][sample_index]
+        number_real_frames = int(sequence_mask.sum())
+
+        # Labelled real frames of the window and those predicted right
+        labelled_frames = [frame_index for frame_index in range(number_real_frames)
+                           if frame_labels[frame_index] != IGNORED_LABEL_INDEX]
+        number_correct_frames = sum(frame_labels[frame_index] == predicted_labels[frame_index]
+                                    for frame_index in labelled_frames)
+
+        # Frame grid with the classes of every frame, under the caption of the window
+        frame_captions = self.build_frame_prediction_captions(frame_labels=frame_labels,
+                                                              predicted_labels=predicted_labels,
+                                                              number_real_frames=number_real_frames)
+        frame_grid = np.ascontiguousarray(build_frame_grid(
+            frames=batch["images"][sample_index], sequence_mask=sequence_mask, frame_captions=frame_captions,
+            number_columns=FRAME_GRID_COLUMNS).permute(1, 2, 0).numpy())
+        return add_caption_bar(image=frame_grid,
+                               caption=f"Iteration {iteration} | {sample_name} | {number_correct_frames}/"
+                                       f"{len(labelled_frames)} labelled frames right (true/predicted)",
+                               caption_colour=CORRECT_PREDICTION_COLOUR
+                               if number_correct_frames == len(labelled_frames) else WRONG_PREDICTION_COLOUR)
 
     def build_prediction_rows(self, accumulator: Dict[str, Any]) -> List[Dict[str, Any]]:
         """

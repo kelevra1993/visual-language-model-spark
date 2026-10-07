@@ -39,8 +39,8 @@ def test_multi_class_manifest_loading(tmp_path: Path, capsys: pytest.CaptureFixt
     """
     Verifies that the dataset reads a multi-class manifest: the images are resized to the network input, the raw
     categories become class indices, the samples of unmapped categories are left out with a warning, the class names
-    come from the categories (joined when the label dictionary merges two categories), the class counts match, and a
-    sample is named by its file name from its identifier.
+    come from the categories (joined when the label dictionary merges two categories), the class counts and the class
+    of every sample match, and a sample is named by its file name from its identifier.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -60,6 +60,7 @@ def test_multi_class_manifest_loading(tmp_path: Path, capsys: pytest.CaptureFixt
     assert "1 samples of unmapped categories left out" in capsys.readouterr().out
     assert dataset.class_names == {0: "circle", 1: "square+box"}
     assert dataset.get_class_counts() == [1, 2]
+    assert dataset.get_sample_class_indices() == {1: [0], 2: [1], 3: [1]}
 
     sample = dataset[1]
     assert sample["images"].shape == (3, 64, 64) and sample["images"].dtype == torch.uint8
@@ -71,7 +72,8 @@ def test_multi_class_manifest_loading(tmp_path: Path, capsys: pytest.CaptureFixt
 def test_multi_label_manifest_loading(tmp_path: Path) -> None:
     """
     Verifies that the dataset reads a multi-label manifest: every sample gets the multi-hot vector of its mapped
-    categories, a sample without any mapped category being kept as a negative of every class.
+    categories, a sample without any mapped category being kept as a negative of every class, without any class among
+    the classes of the samples.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -88,6 +90,7 @@ def test_multi_label_manifest_loading(tmp_path: Path) -> None:
     assert dataset[0]["labels"].tolist() == [1.0, 1.0] and dataset[0]["labels"].dtype == torch.float32
     assert dataset[1]["labels"].tolist() == [0.0, 0.0]
     assert dataset.get_class_counts() == [1, 1]
+    assert dataset.get_sample_class_indices() == {1: [0, 1], 2: []}
 
 
 def test_label_mapping_without_background_class(tmp_path: Path) -> None:

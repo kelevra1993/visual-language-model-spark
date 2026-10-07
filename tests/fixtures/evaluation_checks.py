@@ -1,14 +1,19 @@
 """
 Checks of the evaluation outputs written by the trainers (the blocks of Results.txt, the per-class metrics file, the
-predictions file and the error image folders), shared by the trainer smoke tests of every task.
+predictions file, the error image folders and the sample images), shared by the trainer smoke tests of every task.
 """
 
 import csv
 import re
+import cv2
+import numpy as np
 import pytest
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+
+from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, CORRECT_PREDICTION_COLOUR,
+                                                     WRONG_PREDICTION_COLOUR)
 
 # Header starting every block of Results.txt: the iteration, the evaluated samples and the time of the evaluation
 RESULTS_BLOCK_HEADER = re.compile(pattern=r"^Iteration (\d+) · (.+?) · (\d{4}-\d{2}-\d{2} \d{2}:\d{2})")
@@ -145,3 +150,41 @@ def check_error_images(evaluation_folder: Path, rows: List[Dict[str, str]], note
     assert (f"Error Images : {number_images} in {len(pair_folders)} class pairs, at most {maximum_per_class_pair} "
             f"per pair") in notes
     return number_images
+
+
+def check_sample_images(evaluation_folder: Path, results: Dict[str, Any], number_sample_images: int, sample_kind: str,
+                        correct_predictions: Optional[Dict[str, bool]]) -> None:
+    """
+    Verifies the sample images of an evaluation, shared by the trainer smoke tests: one RGB image per fixed test sample
+    in the results under the TensorBoard tag 'Samples/<sample name>', each saved in BGR as '<sample name>.png' in the
+    'Samples' folder of the checkpoint, with the number of images in the notes and the folder in the files, and, when
+    the correctness of the samples is given, the caption of every image written in green when its prediction is right
+    and in red when it is wrong.
+
+    Args:
+        evaluation_folder (Path): The evaluation folder of the checkpoint.
+        results (Dict[str, Any]): The evaluation results of the checkpoint.
+        number_sample_images (int): The expected number of sample images.
+        sample_kind (str): The kind of the samples written in the note, e.g. 'images' or 'sequences'.
+        correct_predictions (Optional[Dict[str, bool]]): Whether the prediction of every sample is right, keyed by
+            sample name, or None to leave the caption colours unchecked.
+    """
+    samples_folder = evaluation_folder / "Samples"
+    sample_names = sorted(image_name.removeprefix("Samples/") for image_name in results["sample_images"])
+    assert len(sample_names) == number_sample_images
+    assert sorted(image_path.stem for image_path in samples_folder.glob("*.png")) == sample_names
+    assert f"Sample Images : {number_sample_images} fixed test {sample_kind}" in results["notes"]
+    assert results["files"]["Sample Images"] == samples_folder
+
+    for sample_name in sample_names:
+        # The saved image is the BGR version of the RGB image sent to TensorBoard
+        sample_image = results["sample_images"][f"Samples/{sample_name}"]
+        assert sample_image.dtype == np.uint8 and sample_image.ndim == 3 and sample_image.shape[2] == 3
+        saved_image = cv2.imread(filename=str(samples_folder / f"{sample_name}.png"))
+        assert (cv2.cvtColor(src=saved_image, code=cv2.COLOR_BGR2RGB) == sample_image).all()
+
+        # The caption is written in the colour of the correctness of the prediction, given in BGR
+        if correct_predictions is not None:
+            caption_colour = CORRECT_PREDICTION_COLOUR if correct_predictions[sample_name] else WRONG_PREDICTION_COLOUR
+            caption_bar = sample_image[:CAPTION_BAR_HEIGHT]
+            assert (caption_bar == np.array(object=caption_colour[::-1])).all(axis=-1).any(), sample_name

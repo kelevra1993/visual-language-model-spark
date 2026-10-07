@@ -1,20 +1,20 @@
 """
 Smoke test of SequenceClassificationTrainer of vision_training/trainers/sequence_classification_trainer.py on synthetic
-sequences: training saves, evaluates and resumes, with the predictions file and error images checked.
+sequences: training saves, evaluates and resumes, with the predictions file, error images and sample images checked.
 """
 
 import pytest
 import torch
 import yaml
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest.mock import patch
 
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.sequence_classification_trainer import SequenceClassificationTrainer
 from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
-                                              read_results_blocks)
+                                              check_sample_images, read_results_blocks)
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                 "sequence_classification" / "configuration_synthetic_sequences.yaml")
@@ -122,7 +122,7 @@ def test_sequence_classification_training_saves_evaluates_and_resumes(tmp_path: 
     assert "Accuracy" in results["metrics"] and "Per Class Metrics" in results_blocks[0]["text"]
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
-        "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
+        "Samples", "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
         "predictions.csv"]
     check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=6)
     rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
@@ -130,6 +130,13 @@ def test_sequence_classification_training_saves_evaluates_and_resumes(tmp_path: 
                                   identification_columns=["sequence", "first_frame", "last_frame"])
     check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
                        maximum_per_class_pair=2)
+
+    # Every test window is a sample image (8 asked for 6 windows), named after its sequence and first frame and
+    # captioned in the colour of its prediction
+    check_sample_images(evaluation_folder=evaluation_folder, results=results, number_sample_images=6,
+                        sample_kind="sequences",
+                        correct_predictions={f"{row['sequence']}_{PurePosixPath(row['first_frame']).stem}":
+                                             row["correct"] == "1" for row in rows})
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(

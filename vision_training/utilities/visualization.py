@@ -18,6 +18,10 @@ from vision_training.utilities.os_utilities import print_color
 # Height in pixels of the caption bar written above the error images of the evaluation
 CAPTION_BAR_HEIGHT = 24
 
+# BGR colours of the captions of the evaluation sample images, by whether the prediction of the sample is right
+CORRECT_PREDICTION_COLOUR = (0, 200, 0)
+WRONG_PREDICTION_COLOUR = (0, 0, 255)
+
 # Segmentation drawings: opacity of the class colours painted over an image, BGR colour of the ignored pixels (padding,
 # unlabelled), and BGR colours of the error map (pixels of a class given their class, pixels given a wrong class,
 # pixels of a class missed as background)
@@ -41,20 +45,23 @@ GRID_GAP = 4
 
 
 def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_image_size: int,
-                       color: Tuple[int, int, int] = (0, 255, 0)) -> np.ndarray:
+                       color: Tuple[int, int, int] = (0, 255, 0), captions: Optional[List[str]] = None) -> np.ndarray:
     """
-    Draws one or more bounding boxes onto the provided image canvas.
-    
+    Draws one or more bounding boxes onto the provided image canvas, optionally each with a caption (e.g. its class
+    and score in the detection sample images of the evaluation).
+
     This function processes bounding box coordinates, clamps them to the image boundaries
-    to prevent out-of-bounds drawing errors, and renders the rectangles using OpenCV. 
+    to prevent out-of-bounds drawing errors, and renders the rectangles using OpenCV.
     It supports both single bounding boxes [4] and batches of bounding boxes [N, 4].
-    
+
     Args:
         bounding_boxes (np.ndarray): The [x_min, y_min, x_max, y_max] coordinates. Shape (4,) or (N, 4).
         image (np.ndarray): The image canvas on which to draw the bounding boxes.
         input_image_size (int): The spatial size (height and width) of the image to clamp coordinates.
         color (Tuple[int, int, int]): The BGR color tuple for the bounding boxes. Defaults to green (0, 255, 0).
-        
+        captions (Optional[List[str]]): The text written above every box in its colour, on a black background.
+            Defaults to None, in which case the boxes are drawn without text.
+
     Returns:
         np.ndarray: The updated image canvas containing the newly drawn bounding boxes.
     """
@@ -62,7 +69,7 @@ def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_imag
     if bounding_boxes.ndim == 1:
         bounding_boxes = bounding_boxes.reshape((1, 4))
 
-    for box in bounding_boxes:
+    for box_index, box in enumerate(bounding_boxes):
         x_min, y_min, x_max, y_max = box
 
         # Ensure coordinates are within image boundaries for clean visualization
@@ -73,6 +80,17 @@ def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_imag
 
         # Draw the bounding box on the canvas using the provided color
         cv2.rectangle(img=image, pt1=(x_min, y_min), pt2=(x_max, y_max), color=color, thickness=2)
+
+        # Write the caption of the box above it, or inside its top when the box touches the top of the image
+        if captions is not None:
+            (caption_width, caption_height), _ = cv2.getTextSize(text=captions[box_index],
+                                                                 fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.4,
+                                                                 thickness=1)
+            caption_bottom = y_min - 3 if y_min - caption_height - 6 >= 0 else y_min + caption_height + 3
+            cv2.rectangle(img=image, pt1=(x_min, caption_bottom - caption_height - 3),
+                          pt2=(x_min + caption_width + 4, caption_bottom + 3), color=(0, 0, 0), thickness=-1)
+            cv2.putText(img=image, text=captions[box_index], org=(x_min + 2, caption_bottom),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.4, color=color, thickness=1)
 
     return image
 
@@ -277,15 +295,18 @@ def build_frame_grid(frames: torch.Tensor, sequence_mask: torch.Tensor, frame_ca
     return torch.from_numpy(grid).permute(2, 0, 1)
 
 
-def add_caption_bar(image: np.ndarray, caption: str) -> np.ndarray:
+def add_caption_bar(image: np.ndarray, caption: str,
+                    caption_colour: Tuple[int, int, int] = (255, 255, 255)) -> np.ndarray:
     """
     Writes a caption in a black bar above an image, e.g. the true and predicted classes of a misclassified test sample
-    in the error images of the evaluation. The bar is widened to the caption when the image is narrower, the image
-    being padded with gray on its right.
+    in the error images of the evaluation, or of a fixed test sample in the sample images, coloured by whether its
+    prediction is right. The bar is widened to the caption when the image is narrower, the image being padded with
+    gray on its right.
 
     Args:
         image (np.ndarray): The [H, W, 3] uint8 BGR image.
         caption (str): The text written in the bar.
+        caption_colour (Tuple[int, int, int]): The BGR colour of the text. Defaults to white.
 
     Returns:
         np.ndarray: The [H + 24, max(W, caption width), 3] uint8 BGR image with its caption bar.
@@ -300,7 +321,7 @@ def add_caption_bar(image: np.ndarray, caption: str) -> np.ndarray:
     captioned_image[:CAPTION_BAR_HEIGHT] = 0
     captioned_image[CAPTION_BAR_HEIGHT:, :image.shape[1]] = image
     cv2.putText(img=captioned_image, text=caption, org=(4, 17), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45,
-                color=(255, 255, 255), thickness=1)
+                color=caption_colour, thickness=1)
     return captioned_image
 
 
@@ -414,6 +435,36 @@ def draw_legend_bar(width: int, legend_entries: List[Tuple[str, Tuple[int, int, 
     return legend_bar
 
 
+def place_panels_side_by_side(panels: Dict[str, np.ndarray]) -> np.ndarray:
+    """
+    Lays out panels of the same size side by side on a gray canvas, each titled in its top left corner, for the
+    sample images of the evaluation (e.g. the input, true mask, predicted mask and error map of a segmentation sample,
+    or the ground truth and predicted boxes of a detection sample).
+
+    Args:
+        panels (Dict[str, np.ndarray]): The [H, W, 3] uint8 BGR panels keyed by title, in display order.
+
+    Returns:
+        np.ndarray: The [H, number of panels x W + gaps, 3] uint8 BGR grid, 4 gray pixels between the panels.
+    """
+    image_height, image_width = next(iter(panels.values())).shape[:2]
+    grid = np.full(shape=(image_height, len(panels) * (image_width + GRID_GAP) - GRID_GAP, 3), fill_value=128,
+                   dtype=np.uint8)
+    for panel_index, (panel_title, panel) in enumerate(panels.items()):
+        # Title written on a black block in the top left corner of a copy of the panel
+        titled_panel = panel.copy()
+        (title_width, _), _ = cv2.getTextSize(text=panel_title, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45,
+                                              thickness=1)
+        cv2.rectangle(img=titled_panel, pt1=(0, 0), pt2=(title_width + 8, 20), color=(0, 0, 0), thickness=-1)
+        cv2.putText(img=titled_panel, text=panel_title, org=(4, 15), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=0.45, color=(255, 255, 255), thickness=1)
+
+        # Panel placed in its column of the canvas
+        left = panel_index * (image_width + GRID_GAP)
+        grid[:, left:left + image_width] = titled_panel
+    return grid
+
+
 def build_segmentation_sample_grid(image: np.ndarray, mask: np.ndarray, class_map: np.ndarray,
                                    class_names: List[str], class_colours: np.ndarray, caption: str) -> np.ndarray:
     """
@@ -433,29 +484,66 @@ def build_segmentation_sample_grid(image: np.ndarray, mask: np.ndarray, class_ma
     Returns:
         np.ndarray: The [24 + H + 24, 4 x W + 3 x 4, 3] uint8 BGR grid.
     """
-    panels = {"Input": image,
-              "Ground Truth": overlay_segmentation_mask(image=image, class_map=mask, class_colours=class_colours),
-              "Prediction": overlay_segmentation_mask(image=image, class_map=class_map, class_colours=class_colours),
-              "Errors": build_segmentation_error_map(image=image, class_map=class_map, mask=mask)}
-
-    # Panels side by side on a gray canvas, each titled in its top left corner
-    image_height, image_width = image.shape[:2]
-    grid = np.full(shape=(image_height, len(panels) * (image_width + GRID_GAP) - GRID_GAP, 3), fill_value=128,
-                   dtype=np.uint8)
-    for panel_index, (panel_title, panel) in enumerate(panels.items()):
-        titled_panel = panel.copy()
-        (title_width, _), _ = cv2.getTextSize(text=panel_title, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45,
-                                              thickness=1)
-        cv2.rectangle(img=titled_panel, pt1=(0, 0), pt2=(title_width + 8, 20), color=(0, 0, 0), thickness=-1)
-        cv2.putText(img=titled_panel, text=panel_title, org=(4, 15), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=0.45, color=(255, 255, 255), thickness=1)
-        left = panel_index * (image_width + GRID_GAP)
-        grid[:, left:left + image_width] = titled_panel
+    grid = place_panels_side_by_side(panels={
+        "Input": image,
+        "Ground Truth": overlay_segmentation_mask(image=image, class_map=mask, class_colours=class_colours),
+        "Prediction": overlay_segmentation_mask(image=image, class_map=class_map, class_colours=class_colours),
+        "Errors": build_segmentation_error_map(image=image, class_map=class_map, mask=mask)})
 
     # Legend of the classes of the true and predicted masks (background left out), then of the error colours
     painted_class_indices = sorted(set(np.unique(ar=mask[mask > 0]).tolist()) |
                                    set(np.unique(ar=class_map[class_map > 0]).tolist()))
     legend_entries = [(class_names[class_index], tuple(class_colours[class_index].tolist()))
                       for class_index in painted_class_indices] + list(ERROR_MAP_COLOURS.items())
+    legend_bar = draw_legend_bar(width=grid.shape[1], legend_entries=legend_entries)
+    return add_caption_bar(image=np.concatenate([grid, legend_bar], axis=0), caption=caption)
+
+
+def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarray, ground_truth_labels: np.ndarray,
+                                predicted_boxes: np.ndarray, predicted_labels: np.ndarray,
+                                predicted_scores: np.ndarray, class_names: Dict[int, str], class_colours: np.ndarray,
+                                caption: str) -> np.ndarray:
+    """
+    Lays out one evaluated test image of the object detection in two titled panels side by side, saved and sent to
+    TensorBoard at every evaluation so that the detections of the same images can be followed over the training: the
+    ground truth boxes captioned with their class, and the detections captioned with their class and score, every box
+    in the colour of its class. A caption bar names the sample above the panels, and a legend bar below them names the
+    classes drawn.
+
+    Args:
+        image (np.ndarray): The [H, W, 3] uint8 BGR network input.
+        ground_truth_boxes (np.ndarray): The [N, 4] true boxes in network input pixels (x_min, y_min, x_max, y_max).
+        ground_truth_labels (np.ndarray): The [N] class index of every true box.
+        predicted_boxes (np.ndarray): The [M, 4] detected boxes in network input pixels.
+        predicted_labels (np.ndarray): The [M] class index of every detection.
+        predicted_scores (np.ndarray): The [M] class probability of every detection.
+        class_names (Dict[int, str]): The name of every class index.
+        class_colours (np.ndarray): The [K, 3] uint8 BGR colour of every class (build_class_colours).
+        caption (str): The text of the caption bar, e.g. the sample name and its number of boxes.
+
+    Returns:
+        np.ndarray: The [24 + H + 24, 2 x W + 4, 3] uint8 BGR grid.
+    """
+    image_size = max(image.shape[:2])
+    ground_truth_panel, prediction_panel = image.copy(), image.copy()
+    drawn_class_indices = sorted(set(ground_truth_labels.tolist()) | set(predicted_labels.tolist()))
+
+    # Boxes of every class drawn in the colour of the class, the true ones with their class, the detections with their
+    # class and score
+    for class_index in drawn_class_indices:
+        class_colour = tuple(int(component) for component in class_colours[class_index])
+        ground_truth_mask, prediction_mask = ground_truth_labels == class_index, predicted_labels == class_index
+        add_bounding_boxes(bounding_boxes=ground_truth_boxes[ground_truth_mask], image=ground_truth_panel,
+                           input_image_size=image_size, color=class_colour,
+                           captions=[class_names[class_index]] * int(ground_truth_mask.sum()))
+        add_bounding_boxes(bounding_boxes=predicted_boxes[prediction_mask], image=prediction_panel,
+                           input_image_size=image_size, color=class_colour,
+                           captions=[f"{class_names[class_index]} {score:.2f}"
+                                     for score in predicted_scores[prediction_mask]])
+    grid = place_panels_side_by_side(panels={"Ground Truth": ground_truth_panel, "Prediction": prediction_panel})
+
+    # Legend of the classes of the true and detected boxes
+    legend_entries = [(class_names[class_index], tuple(class_colours[class_index].tolist()))
+                      for class_index in drawn_class_indices]
     legend_bar = draw_legend_bar(width=grid.shape[1], legend_entries=legend_entries)
     return add_caption_bar(image=np.concatenate([grid, legend_bar], axis=0), caption=caption)

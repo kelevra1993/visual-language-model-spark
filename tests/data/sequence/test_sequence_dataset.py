@@ -73,8 +73,8 @@ def test_sequence_windows_with_one_class_per_sequence(tmp_path: Path, capsys: py
     """
     Verifies the many to one dataset: the frame stride keeps one frame every two, every sequence is cut into windows
     carrying its class, a short sequence gives one window padded with black frames marked by the sequence mask, the
-    sequences of unmapped categories are left out with a warning, the class counts count windows, and a window is
-    named by its sequence and its real frames from its identifier.
+    sequences of unmapped categories are left out with a warning, the class counts count windows, every window has
+    the class of its sequence, and a window is named by its sequence and its real frames from its identifier.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -94,6 +94,7 @@ def test_sequence_windows_with_one_class_per_sequence(tmp_path: Path, capsys: py
 
     # The long sequence keeps frames 0, 2, ..., 10, cut into the windows [0, 2, 4, 6] and [4, 6, 8, 10]
     assert len(dataset) == 3 and dataset.get_class_counts() == [2, 1]
+    assert dataset.get_sample_class_indices() == {0: [0], 1: [0], 2: [1]}
     first_window, second_window, short_window = dataset[0], dataset[1], dataset[2]
     assert first_window["images"].shape == (4, 3, 16, 16) and first_window["images"].dtype == torch.uint8
     assert first_window["images"][:, 0, 8, 8].tolist() == [1, 3, 5, 7]
@@ -116,7 +117,8 @@ def test_sequence_windows_with_one_class_per_sequence(tmp_path: Path, capsys: py
 def test_sequence_windows_with_one_class_per_frame(tmp_path: Path) -> None:
     """
     Verifies the many to one dataset with one class per frame: every frame gets its class, the frames of unmapped
-    categories and the padding frames get the ignored label -100, and the class counts count the labelled frames.
+    categories and the padding frames get the ignored label -100, and the class counts and the classes of the window
+    count the labelled frames only.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -132,6 +134,7 @@ def test_sequence_windows_with_one_class_per_frame(tmp_path: Path) -> None:
     assert window["labels"].tolist() == [0, IGNORED_LABEL_INDEX, 1, IGNORED_LABEL_INDEX]
     assert window["sequence_mask"].tolist() == [True, True, True, False]
     assert dataset.get_class_counts() == [1, 1]
+    assert dataset.get_sample_class_indices() == {0: [0, 1]}
 
 
 def test_split_description_counts_windows(tmp_path: Path) -> None:

@@ -81,7 +81,7 @@ def test_pairs_are_read_as_before_then_after_members(tmp_path: Path, capsys: pyt
     Verifies the samples of the sequence pair dataset: the before window followed by the after window along the frame
     axis, a longer member reduced to evenly spaced frames, a shorter one padded with black frames marked by the
     sequence mask, the frame stride applied before, the class of the pair, distinct identifiers naming the pairs, the
-    class names and counts, and the pairs of unmapped categories left out with a warning.
+    class names, counts and the class of every pair, and the pairs of unmapped categories left out with a warning.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -100,6 +100,7 @@ def test_pairs_are_read_as_before_then_after_members(tmp_path: Path, capsys: pyt
     assert "1 pairs of unmapped categories" in capsys.readouterr().out
     assert dataset.class_names == {0: "loss_of_object", 1: "same_number_of_objects"}
     assert dataset.get_class_counts() == [1, 1]
+    assert dataset.get_sample_class_indices() == {0: [0], 1: [1]}
 
     # The before member keeps the middle frames of 4 equal parts (frames 0, 2, 3 and 5), the after member is padded
     first_sample = dataset[0]

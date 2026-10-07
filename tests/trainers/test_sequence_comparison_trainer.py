@@ -1,6 +1,6 @@
 """
 Smoke test of SequenceComparisonTrainer of vision_training/trainers/sequence_comparison_trainer.py on synthetic pairs:
-training saves, evaluates and resumes, with the predictions file and error images checked.
+training saves, evaluates and resumes, with the predictions file, error images and sample images checked.
 """
 
 import pytest
@@ -15,7 +15,7 @@ from vision_training.data.split_description import count_split_pairs
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
 from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
-                                              read_results_blocks)
+                                              check_sample_images, read_results_blocks)
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                 "sequence_comparison" / "configuration_synthetic_pairs.yaml")
@@ -126,7 +126,7 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     assert "Accuracy" in results["metrics"] and "Per Class Metrics" in results_blocks[0]["text"]
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
-        "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
+        "Samples", "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
         "predictions.csv"]
     check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=6)
     rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
@@ -134,6 +134,10 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     assert sorted(row["pair"] for row in rows) == [f"test_{pair_index:06d}" for pair_index in range(6)]
     check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
                        maximum_per_class_pair=2)
+
+    # Every test pair is a sample image (8 asked for 6 pairs), captioned in the colour of its prediction
+    check_sample_images(evaluation_folder=evaluation_folder, results=results, number_sample_images=6,
+                        sample_kind="pairs", correct_predictions={row["pair"]: row["correct"] == "1" for row in rows})
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(

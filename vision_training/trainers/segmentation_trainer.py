@@ -61,20 +61,17 @@ class SegmentationTrainer(BaseTrainer):
                 SegmentationLoss).
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
-        # Losses of the model, the weighting of the classes in the cross entropy, and the evaluation settings: the
-        # number of fixed test images drawn at every evaluation and whether the predicted masks are saved
+        # Losses of the model, the weighting of the classes in the cross entropy, and whether the predicted masks are
+        # saved at every evaluation
         self.loss_configuration = model_configuration["SegmentationLoss"]
-        self.number_sample_images = experiment_configuration["evaluation"]["number_sample_images"]
         self.save_predicted_masks = experiment_configuration["evaluation"]["save_predicted_masks"]
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
     def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
         """
-        Builds the segmentation loaders of the three splits, takes the class names from the categories of the training
-        manifest with a colour per class, and chooses the test images shown at every evaluation: spread evenly over the
-        test images sorted by identifier, so that they stay the same between the evaluations and the resumptions of a
-        run whatever the shuffling of the loaders.
+        Builds the segmentation loaders of the three splits, and takes the class names from the categories of the
+        training manifest with a colour per class for the mask overlays and the sample grids.
 
         Returns:
             Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
@@ -86,13 +83,17 @@ class SegmentationTrainer(BaseTrainer):
         self.class_names = [training_dataset.class_names[class_index]
                             for class_index in range(training_dataset.number_classes)]
         self.class_colours = build_class_colours(number_classes=training_dataset.number_classes)
-
-        # Fixed test images of the sample grids, evenly spread over the sorted identifiers
-        test_identifiers = sorted(sample["identifier"] for sample in loaders[2].dataset.samples)
-        number_sample_images = min(self.number_sample_images, len(test_identifiers))
-        chosen_positions = np.linspace(start=0, stop=len(test_identifiers) - 1, num=number_sample_images).round()
-        self.sample_image_identifiers = {test_identifiers[int(position)] for position in chosen_positions}
         return loaders
+
+    def get_test_sample_classes(self) -> Dict[int, List[int]]:
+        """
+        Lists the test images without their classes, counting the pixels of every class of the test masks being too
+        slow, so that the fixed test images drawn at every evaluation are evenly spread over the test split.
+
+        Returns:
+            Dict[int, List[int]]: An empty list for every identifier of the test images.
+        """
+        return {sample["identifier"]: [] for sample in self.test_dataloader.dataset.samples}
 
     def get_class_pixel_counts(self) -> List[int]:
         """
@@ -271,29 +272,26 @@ class SegmentationTrainer(BaseTrainer):
     def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
         Creates the pixel confusion matrix filled on the device during the evaluation of the test split, with the
-        folders of the sample grids and of the predicted masks of the checkpoint.
+        folder of the predicted masks of the checkpoint.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint, which names its evaluation folder.
 
         Returns:
-            Dict[str, Any]: The empty [K, K] 'confusion_matrix', the 'number_images' evaluated, the 'iteration', the
-                'samples_folder' and its empty 'sample_images' (RGB grids keyed by TensorBoard tag), and the
+            Dict[str, Any]: The empty [K, K] 'confusion_matrix', the 'number_images' evaluated and the
                 'predicted_masks_folder'.
         """
         evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
         number_classes = len(self.class_names)
         return {"confusion_matrix": torch.zeros(size=(number_classes, number_classes), dtype=torch.int64,
                                                 device=self.device),
-                "number_images": 0, "iteration": iteration, "samples_folder": evaluation_folder / "Samples",
-                "sample_images": {}, "predicted_masks_folder": evaluation_folder / "Predicted_Masks"}
+                "number_images": 0, "predicted_masks_folder": evaluation_folder / "Predicted_Masks"}
 
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
         """
-        Adds the labelled pixels of the kept images of a test batch to the confusion matrix, on the device, then, while
-        the images are still in the batch, saves the sample grid of the fixed test images and, when asked, the
-        predicted mask of every image.
+        Adds the labelled pixels of the kept images of a test batch to the confusion matrix, on the device, then, when
+        asked, saves the predicted mask of every image.
 
         Args:
             accumulator (Dict[str, Any]): The evaluation accumulator, modified in place.
@@ -306,56 +304,47 @@ class SegmentationTrainer(BaseTrainer):
         accumulator["confusion_matrix"] += compute_pixel_confusion_matrix(class_maps=class_maps, masks=masks,
                                                                           number_classes=len(self.class_names))
         accumulator["number_images"] += len(sample_indices)
-
-        # Images of the batch written to the evaluation folder: the fixed sample images, and every predicted mask
-        test_dataset = self.test_dataloader.dataset
-        sample_identifiers = batch[SAMPLE_IDENTIFIERS_KEY][sample_indices].tolist()
-        written_positions = [position for position, sample_identifier in enumerate(sample_identifiers)
-                             if self.save_predicted_masks or sample_identifier in self.sample_image_identifiers]
-        if not written_positions:
+        if not self.save_predicted_masks:
             return
-        class_maps, masks = class_maps.cpu().numpy(), masks.cpu().numpy()
-        for position in written_positions:
-            sample_name = test_dataset.get_sample_name(sample_identifier=sample_identifiers[position])
 
-            # Predicted class index of every pixel at the network resolution, as a single-channel image
-            if self.save_predicted_masks:
-                accumulator["predicted_masks_folder"].mkdir(parents=True, exist_ok=True)
-                cv2.imwrite(filename=str(accumulator["predicted_masks_folder"] / f"{sample_name}.png"),
-                            img=class_maps[position].astype(np.uint8))
+        # Predicted class index of every pixel at the network resolution, as a single-channel image
+        test_dataset = self.test_dataloader.dataset
+        accumulator["predicted_masks_folder"].mkdir(parents=True, exist_ok=True)
+        class_maps = class_maps.cpu().numpy()
+        for position, sample_identifier in enumerate(batch[SAMPLE_IDENTIFIERS_KEY][sample_indices].tolist()):
+            sample_name = test_dataset.get_sample_name(sample_identifier=sample_identifier)
+            cv2.imwrite(filename=str(accumulator["predicted_masks_folder"] / f"{sample_name}.png"),
+                        img=class_maps[position].astype(np.uint8))
 
-            # Grid of the input, the true and predicted masks and the error map, captioned with its pixel accuracy
-            if sample_identifiers[position] in self.sample_image_identifiers:
-                self.save_sample_grid(accumulator=accumulator, sample_name=sample_name,
-                                      image=batch["images"][sample_indices[position]], mask=masks[position],
-                                      class_map=class_maps[position])
-
-    def save_sample_grid(self, accumulator: Dict[str, Any], sample_name: str, image: torch.Tensor, mask: np.ndarray,
-                         class_map: np.ndarray) -> None:
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
+                           sample_name: str, iteration: int) -> np.ndarray:
         """
-        Saves the sample grid of a fixed test image in the 'Samples' folder of the evaluated checkpoint, and keeps it
-        in RGB for TensorBoard, so that the predictions of the same images can be followed over the training.
+        Draws a fixed test image for the sample images of the evaluation: its input, its true and predicted masks and
+        its error map side by side, captioned with its pixel accuracy over its labelled pixels.
 
         Args:
-            accumulator (Dict[str, Any]): The evaluation accumulator, holding the 'samples_folder', the 'iteration' and
-                the 'sample_images', extended in place.
-            sample_name (str): The name of the test image.
-            image (torch.Tensor): The [3, H, W] network input in BGR.
-            mask (np.ndarray): The [H, W] true class index of every pixel, IGNORED_LABEL_INDEX on the ignored ones.
-            class_map (np.ndarray): The [H, W] predicted class index of every pixel.
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The segmenter outputs.
+            sample_index (int): The index of the image in the batch.
+            sample_name (str): The name of the image.
+            iteration (int): The training iteration of the evaluated checkpoint.
+
+        Returns:
+            np.ndarray: The [H, W, 3] uint8 BGR grid of the sample.
         """
-        image_numpy = np.ascontiguousarray(image.detach().cpu().clamp(min=0.0, max=255.0).to(dtype=torch.uint8)
-                                           .permute(1, 2, 0).numpy())
+        image = np.ascontiguousarray(batch["images"][sample_index].detach().cpu().clamp(min=0.0, max=255.0)
+                                     .to(dtype=torch.uint8).permute(1, 2, 0).numpy())
+        mask = batch["masks"][sample_index].cpu().numpy()
+        class_map = predictions["class_logits"][sample_index].argmax(dim=0).cpu().numpy()
+
+        # Share of the labelled pixels given their class
         labelled_pixels = mask != IGNORED_LABEL_INDEX
         pixel_accuracy = float((class_map[labelled_pixels] == mask[labelled_pixels]).mean()) \
             if labelled_pixels.any() else 0.0
-        grid = build_segmentation_sample_grid(
-            image=image_numpy, mask=mask, class_map=class_map, class_names=self.class_names,
+        return build_segmentation_sample_grid(
+            image=image, mask=mask, class_map=class_map, class_names=self.class_names,
             class_colours=self.class_colours,
-            caption=f"Iteration {accumulator['iteration']} | {sample_name} | Pixel Accuracy {pixel_accuracy:.4f}")
-        accumulator["samples_folder"].mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(filename=str(accumulator["samples_folder"] / f"{sample_name}.png"), img=grid)
-        accumulator["sample_images"][f"Samples/{sample_name}"] = cv2.cvtColor(src=grid, code=cv2.COLOR_BGR2RGB)
+            caption=f"Iteration {iteration} | {sample_name} | Pixel Accuracy {pixel_accuracy:.4f}")
 
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
@@ -364,11 +353,10 @@ class SegmentationTrainer(BaseTrainer):
         per-class report, worst IoU first) and the per-class scalars. The metrics of every class and the pixel
         confusion matrix table are saved in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/',
         whatever the per-class report; the confusion matrix image only with it, also logged to TensorBoard, with the
-        shares of every true class in its cells, the pixel counts being too large to print. The sample grids are
-        reported at every evaluation.
+        shares of every true class in its cells, the pixel counts being too large to print.
 
         Args:
-            accumulator (Dict[str, Any]): The pixel confusion matrix and the saved images of the test split.
+            accumulator (Dict[str, Any]): The pixel confusion matrix and the predicted masks folder of the test split.
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
@@ -397,12 +385,9 @@ class SegmentationTrainer(BaseTrainer):
                 title=f"Pixel Confusion Matrix · Iteration {iteration} · Mean IoU {metrics['mean_iou']:.4f} · Pixel "
                       f"Accuracy {metrics['pixel_accuracy']:.4f}", show_counts=False)
 
-        # Evaluated pixels, and the folders of the saved images
+        # Evaluated pixels, and the folder of the predicted masks
         notes = [f"Labelled Pixels : {int(confusion_matrix.sum())}, the padding and the unlabelled pixels being "
                  f"ignored"]
-        if accumulator["sample_images"]:
-            notes.append(f"Sample Images : {len(accumulator['sample_images'])} fixed test images")
-            files["Sample Images"] = accumulator["samples_folder"]
         if self.save_predicted_masks:
             notes.append(f"Predicted Masks : {accumulator['number_images']} class index images")
             files["Predicted Masks"] = accumulator["predicted_masks_folder"]
@@ -411,7 +396,7 @@ class SegmentationTrainer(BaseTrainer):
                 "metrics": headline_metrics, "notes": notes,
                 "tables": [build_segmentation_class_table(class_rows=class_rows)], "scalars": dict(headline_metrics),
                 "class_scalars": build_segmentation_class_scalars(class_rows=class_rows), "images": images,
-                "sample_images": accumulator["sample_images"], "files": files, "headline_metric": "Mean IoU"}
+                "files": files, "headline_metric": "Mean IoU"}
 
     def describe_mask_classes(self, mask: torch.Tensor) -> str:
         """

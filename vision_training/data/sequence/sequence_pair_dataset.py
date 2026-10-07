@@ -204,6 +204,16 @@ class SequencePairDataset(Dataset):
         """
         return self.pair_records[sample_identifier]["name"].replace("/", "_")
 
+    def get_sample_class_indices(self) -> Dict[int, List[int]]:
+        """
+        Lists the class of every pair, from which the sequence comparison trainer spreads the fixed test pairs drawn
+        at every evaluation over the classes.
+
+        Returns:
+            Dict[int, List[int]]: The class index of every pair, in a list, keyed by its identifier.
+        """
+        return {pair["identifier"]: [pair["label"]] for pair in self.pairs}
+
     def get_class_counts(self) -> List[int]:
         """
         Counts the pairs of every class, used to weight the classes of the loss inversely to their frequency.

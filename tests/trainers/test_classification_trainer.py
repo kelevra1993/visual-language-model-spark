@@ -1,8 +1,8 @@
 """
 Smoke tests of ClassificationTrainer of vision_training/trainers/classification_trainer.py on a synthetic dataset:
 multi-class and multi-label training save, evaluate and resume, with the report, the per-class metrics, the
-predictions file and the error images checked, the per-class report and the predictions file can be turned off, and a
-head reading the flattened feature map trains.
+predictions file, the error images and the sample images checked, the per-class report, the predictions file and the
+sample images can be turned off, and a head reading the flattened feature map trains.
 """
 
 import json
@@ -10,7 +10,7 @@ import pytest
 import torch
 import yaml
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from typing import Any, Dict
 from unittest.mock import patch
@@ -19,7 +19,7 @@ from vision_training.configuration.configuration_loader import load_experiment_c
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.classification_trainer import ClassificationTrainer
 from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
-                                              read_predictions_file, read_results_blocks)
+                                              check_sample_images, read_predictions_file, read_results_blocks)
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "classification" /
                                 "configuration_synthetic_shapes.yaml")
@@ -137,7 +137,7 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     # Files of the evaluated checkpoint
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
-        "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
+        "Samples", "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
         "predictions.csv"]
     check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=6)
     rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
@@ -145,6 +145,12 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     assert all(row["sample"].endswith(".png") for row in rows)
     check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
                        maximum_per_class_pair=1)
+
+    # Every test image is a sample image (8 asked for 6 images), captioned in the colour of its prediction
+    check_sample_images(evaluation_folder=evaluation_folder, results=results, number_sample_images=6,
+                        sample_kind="images",
+                        correct_predictions={str(PurePosixPath(row["sample"]).with_suffix("")).replace("/", "_"):
+                                             row["correct"] == "1" for row in rows})
     class_thresholds = json.loads((evaluation_folder / "class_thresholds.json").read_text())
     assert list(class_thresholds["classes"]) == trainer.class_names
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]
@@ -204,24 +210,31 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     assert list(results["metrics"]) == ["Subset Accuracy", "Micro F1", "Macro F1"]
     assert results["tables"][0]["columns"][1] == "Positives" and results["images"] == {}
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
-    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_metrics.csv", "class_thresholds.json",
-                                                                         "predictions.csv"]
+    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["Samples", "class_metrics.csv",
+                                                                         "class_thresholds.json", "predictions.csv"]
     multi_label_rows = read_predictions_file(evaluation_folder=evaluation_folder)
     assert len(multi_label_rows) == 4
     assert list(multi_label_rows[0])[:4] == ["sample", "true_classes", "predicted_classes", "correct"]
     assert all(row["true_classes"] in trainer.class_names for row in multi_label_rows)
+
+    # Every test image is a sample image, green when all its class decisions are right
+    check_sample_images(evaluation_folder=evaluation_folder, results=results, number_sample_images=4,
+                        sample_kind="images",
+                        correct_predictions={str(PurePosixPath(row["sample"]).with_suffix("")).replace("/", "_"):
+                                             row["correct"] == "1" for row in multi_label_rows})
 
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
 
 
-def test_predictions_file_and_per_class_report_can_be_turned_off(tmp_path: Path) -> None:
+def test_predictions_file_per_class_report_and_sample_images_can_be_turned_off(tmp_path: Path) -> None:
     """
     Verifies that the evaluation writes no predictions file when 'evaluation.save_predictions' is False, for the large
-    test sets whose file would be too big, and that 'evaluation.per_class_report' False keeps the global metrics only:
+    test sets whose file would be too big, that 'evaluation.per_class_report' False keeps the global metrics only:
     no per-class table in Results.txt, no per-class scalar nor confusion matrix image in TensorBoard and no
-    confusion_matrix.png, while class_metrics.csv and confusion_matrix.csv are still saved.
+    confusion_matrix.png, while class_metrics.csv and confusion_matrix.csv are still saved, and that
+    'evaluation.number_sample_images' 0 draws no sample image.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -233,7 +246,7 @@ def test_predictions_file_and_per_class_report_can_be_turned_off(tmp_path: Path)
 
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4, head_settings={},
-        evaluation_settings={"save_predictions": False, "per_class_report": False}))
+        evaluation_settings={"save_predictions": False, "per_class_report": False, "number_sample_images": 0}))
     trainer.run_training_loop()
 
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"

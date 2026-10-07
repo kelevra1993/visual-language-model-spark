@@ -1,15 +1,16 @@
 """
 Trainer of the object detection task: the COCO-format loaders (DALI or Native), the two-stage detector with its four
 losses, the geometric augmentations moving the bounding boxes, and the evaluation of the checkpoints on the test split
-with the mean average precision and the average precision of every class. Registered for the object detection task in
-the task registry.
+with the mean average precision and the average precision of every class, and the sample images of fixed test images
+with their true and detected boxes. Registered for the object detection task in the task registry.
 """
 
 import json
+import numpy as np
 import torch
 
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, Iterator, List, Tuple
 
 from vision_training.core.contracts import DetectionBatch, EvaluationResults
@@ -23,7 +24,7 @@ from vision_training.evaluation.detection.mean_average_precision import AVERAGE_
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.trainers.base_trainer import BaseTrainer
-from vision_training.utilities.visualization import view_input_data
+from vision_training.utilities.visualization import build_class_colours, build_detection_sample_grid, view_input_data
 
 
 class DetectionTrainer(BaseTrainer):
@@ -49,21 +50,29 @@ class DetectionTrainer(BaseTrainer):
         # Score threshold of the detections kept for the mAP, lower than the deployment one so that the
         # precision-recall curves keep their low-confidence end
         self.evaluation_score_threshold = experiment_configuration["evaluation"]["score_threshold"]
+
+        # Score threshold of the detections drawn on the sample images, the deployment one, so that the images show
+        # what the deployed detector returns
+        self.sample_score_threshold = model_configuration["Detector"]["inference"]["score_threshold"]
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
     def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
         """
-        Builds the COCO detection loaders (DALI or Native, depending on the configuration) of the three splits, and
-        names the classes after the categories of the test split for the per-class report.
+        Builds the COCO detection loaders (DALI or Native, depending on the configuration) of the three splits, names
+        the classes after the categories of the test split for the per-class report, with a colour per class for the
+        sample images, and keeps the file name of every test image, which names the sample images whatever the loader
+        (the DALI loader has no dataset to ask).
 
         Returns:
             Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
         """
         test_labels_path = Path(self.experiment_configuration["test_data_folder"]) / "labels.json"
         with open(file=test_labels_path, mode="r") as labels_file:
-            categories = json.load(fp=labels_file)["categories"]
-        self.class_names = get_class_names(categories=categories, label_dictionary=self.label_dictionary)
+            test_labels = json.load(fp=labels_file)
+        self.class_names = get_class_names(categories=test_labels["categories"], label_dictionary=self.label_dictionary)
+        self.class_colours = build_class_colours(number_classes=len(self.class_names))
+        self.test_image_file_names = {image["id"]: image["file_name"] for image in test_labels["images"]}
         return get_detection_dataloaders(experiment_configuration=self.experiment_configuration,
                                          model_configuration=self.model_configuration, batch_size=self.batch_size)
 
@@ -249,8 +258,68 @@ class DetectionTrainer(BaseTrainer):
         return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {}, "notes": [],
                 "tables": [build_mean_average_precision_table(results=results),
                            build_class_average_precision_table(class_rows=class_rows)],
-                "scalars": scalars, "class_scalars": class_scalars, "images": {}, "sample_images": {},
-                "files": files, "headline_metric": "mAP@0.5/area"}
+                "scalars": scalars, "class_scalars": class_scalars, "images": {}, "files": files,
+                "headline_metric": "mAP@0.5/area"}
+
+    def get_test_sample_classes(self) -> Dict[int, List[int]]:
+        """
+        Lists the test images without their classes, so that the fixed test images drawn at every evaluation are
+        evenly spread over the test split.
+
+        Returns:
+            Dict[int, List[int]]: An empty list for every COCO identifier of the test images.
+        """
+        return {image_identifier: [] for image_identifier in self.test_image_file_names}
+
+    def get_test_sample_name(self, sample_identifier: int) -> str:
+        """
+        Gives the short name of a test image from the test labels.json, the DALI loader having no dataset: its file
+        name without extension, its folders joined with underscores.
+
+        Args:
+            sample_identifier (int): The COCO identifier of the image, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            str: The name of the image, e.g. 'image_000012' for 'image_000012.png'.
+        """
+        return str(PurePosixPath(self.test_image_file_names[sample_identifier]).with_suffix("")).replace("/", "_")
+
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
+                           sample_name: str, iteration: int) -> np.ndarray:
+        """
+        Draws a fixed test image for the sample images of the evaluation: its ground truth boxes next to its
+        detections whose score reaches the deployment score threshold ('Detector.inference.score_threshold'), the
+        evaluation keeping lower scores for the mAP, under a caption counting both.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The detector outputs, with the final detections of every image.
+            sample_index (int): The index of the image in the batch.
+            sample_name (str): The name of the image.
+            iteration (int): The training iteration of the evaluated checkpoint.
+
+        Returns:
+            np.ndarray: The [H, W, 3] uint8 BGR image of the sample.
+        """
+        image = np.ascontiguousarray(batch["images"][sample_index].detach().cpu().clamp(min=0.0, max=255.0)
+                                     .to(dtype=torch.uint8).permute(1, 2, 0).numpy())
+
+        # Valid detections of the image, kept from the deployment score threshold
+        number_detections = int(predictions["number_detections"][sample_index])
+        scores = predictions["final_detection_scores"][sample_index, :number_detections].detach().float().cpu().numpy()
+        kept_detections = scores >= self.sample_score_threshold
+        predicted_boxes = predictions["final_detection_boxes"][sample_index, :number_detections].detach().float()
+        predicted_labels = predictions["final_detection_labels"][sample_index, :number_detections].detach()
+        ground_truth_boxes = batch["bounding_boxes"][sample_index].detach().float().cpu().numpy()
+
+        return build_detection_sample_grid(
+            image=image, ground_truth_boxes=ground_truth_boxes,
+            ground_truth_labels=batch["labels"][sample_index].detach().cpu().numpy(),
+            predicted_boxes=predicted_boxes.cpu().numpy()[kept_detections],
+            predicted_labels=predicted_labels.cpu().numpy()[kept_detections], predicted_scores=scores[kept_detections],
+            class_names=self.class_names, class_colours=self.class_colours,
+            caption=f"Iteration {iteration} | {sample_name} | {len(ground_truth_boxes)} ground truth boxes | "
+                    f"{int(kept_detections.sum())} detections with score >= {self.sample_score_threshold:.2f}")
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

@@ -1,8 +1,8 @@
 """
 Trainer of the sequence classification task (M2O): the loaders of the frame windows cut from the sequences of the
-'labels.json' manifests, the sequence classifier, the sequence augmentations and the frame grids of the input viewer and
-error images, the losses and evaluation being those of the classification trainer. Registered in the task registry and
-extended by the sequence labelling and sequence comparison trainers.
+'labels.json' manifests, the sequence classifier, the sequence augmentations and the frame grids of the input viewer,
+the error images and the sample images, the losses and evaluation being those of the classification trainer. Registered
+in the task registry and extended by the sequence labelling and sequence comparison trainers.
 """
 
 import numpy as np
@@ -216,10 +216,10 @@ class SequenceClassificationTrainer(ClassificationTrainer):
                                                      index=frame_orders.to(device=augmented_batch["labels"].device))
         return augmented_batch
 
-    def build_error_image(self, batch: Dict[str, Any], sample_index: int) -> np.ndarray:
+    def build_input_image(self, batch: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
-        Builds the image of a misclassified test window for the error images: its real frames laid out on a grid, the
-        before member above the after member for a pair.
+        Builds the image of a test window shown by the error images and the sample images of the evaluation: its real
+        frames laid out on a grid, the before member above the after member for a pair.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.

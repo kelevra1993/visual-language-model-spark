@@ -75,7 +75,8 @@ class EvaluationResults(TypedDict):
     TensorBoard writer (and gathered in the evaluation summary of the checkpoints), and the files are extra outputs
     saved by the task (class metrics, confusion matrix, predictions...). The class scalars (one per class and metric)
     and the images (e.g. the confusion matrix) are per-class outputs, only reported with the per-class report, like
-    the per-class tables. The sample images (e.g. the segmentation grids of a few fixed test images) are written to
+    the per-class tables. The sample images (the fixed test samples drawn with their targets and predictions by the
+    build_sample_image hook of the task) are added by the general trainer, not by the task, and written to
     TensorBoard at every evaluation, whatever the per-class report. Every image is an [H, W, 3] uint8 RGB array. The
     headline metric is the name of the scalar comparing the checkpoints of a run, the higher the better.
     """

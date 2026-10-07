@@ -1,16 +1,18 @@
 """
-Tests of the segmentation drawings of vision_training/utilities/visualization.py: the class colours are distinct with
+Tests of the evaluation drawings of vision_training/utilities/visualization.py: the class colours are distinct with
 an unpainted background, the mask overlay paints the classes and grays the ignored pixels only, the error map gives
-every kind of pixel its colour, and the sample grid lays out its four panels between its caption and legend bars.
+every kind of pixel its colour, the segmentation sample grid lays out its four panels and the detection sample grid its
+two panels between their caption and legend bars, and the caption bar is written in the given colour.
 """
 
 import numpy as np
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, GRID_GAP, IGNORED_PIXEL_COLOUR,
-                                                     LEGEND_BAR_HEIGHT, build_class_colours,
-                                                     build_segmentation_error_map, build_segmentation_sample_grid,
-                                                     overlay_segmentation_mask)
+from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, CORRECT_PREDICTION_COLOUR, GRID_GAP,
+                                                     IGNORED_PIXEL_COLOUR, LEGEND_BAR_HEIGHT, WRONG_PREDICTION_COLOUR,
+                                                     add_caption_bar, build_class_colours,
+                                                     build_detection_sample_grid, build_segmentation_error_map,
+                                                     build_segmentation_sample_grid, overlay_segmentation_mask)
 
 
 def build_image_and_masks() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -89,3 +91,52 @@ def test_sample_grid_lays_out_four_panels() -> None:
 
     assert grid.shape == (CAPTION_BAR_HEIGHT + 96 + LEGEND_BAR_HEIGHT, 4 * 128 + 3 * GRID_GAP, 3)
     assert np.all(grid[CAPTION_BAR_HEIGHT + 50, 100] == 100)
+
+
+def test_detection_grid_draws_the_boxes_in_their_class_colour() -> None:
+    """
+    Verifies the detection sample grid: the ground truth and prediction panels side by side between the caption and
+    legend bars, the ground truth box drawn in the colour of its class on the left panel only, the detection drawn in
+    the colour of its class on the right panel only, and an image without any box left as it is.
+    """
+    image = np.full(shape=(96, 128, 3), fill_value=100, dtype=np.uint8)
+    class_colours = build_class_colours(number_classes=3)
+    class_names = {0: "background", 1: "circle", 2: "square"}
+    grid = build_detection_sample_grid(
+        image=image, ground_truth_boxes=np.array(object=[[20.0, 30.0, 60.0, 70.0]]),
+        ground_truth_labels=np.array(object=[1]), predicted_boxes=np.array(object=[[70.0, 30.0, 110.0, 70.0]]),
+        predicted_labels=np.array(object=[2]), predicted_scores=np.array(object=[0.9]), class_names=class_names,
+        class_colours=class_colours, caption="test")
+
+    assert grid.shape == (CAPTION_BAR_HEIGHT + 96 + LEGEND_BAR_HEIGHT, 2 * 128 + GRID_GAP, 3)
+    panels = grid[CAPTION_BAR_HEIGHT:CAPTION_BAR_HEIGHT + 96]
+    ground_truth_panel, prediction_panel = panels[:, :128], panels[:, 128 + GRID_GAP:]
+
+    # Left edge of every box, below its caption, in the colour of its class on its own panel only
+    assert np.all(ground_truth_panel[50, 20] == class_colours[1]) and np.all(prediction_panel[50, 20] == 100)
+    assert np.all(prediction_panel[50, 70] == class_colours[2]) and np.all(ground_truth_panel[50, 70] == 100)
+
+    # Without any box, both panels keep the image
+    empty_boxes, empty_labels = np.zeros(shape=(0, 4)), np.zeros(shape=(0,), dtype=np.int64)
+    empty_grid = build_detection_sample_grid(
+        image=image, ground_truth_boxes=empty_boxes, ground_truth_labels=empty_labels, predicted_boxes=empty_boxes,
+        predicted_labels=empty_labels, predicted_scores=np.zeros(shape=(0,)), class_names=class_names,
+        class_colours=class_colours, caption="test")
+    assert np.all(empty_grid[CAPTION_BAR_HEIGHT + 50, 60] == 100)
+
+
+def test_caption_bar_is_written_in_its_colour() -> None:
+    """
+    Verifies that the caption bar is written in the given colour and in none of the others, among the right and wrong
+    prediction colours of the sample images and the default white, the text edges being blended with the black bar.
+    """
+    image = np.full(shape=(32, 200, 3), fill_value=100, dtype=np.uint8)
+    caption_colours = [CORRECT_PREDICTION_COLOUR, WRONG_PREDICTION_COLOUR, (255, 255, 255)]
+    for caption_colour in caption_colours:
+        captioned_image = add_caption_bar(image=image, caption="circle -> square 0.912", caption_colour=caption_colour)
+        caption_bar = captioned_image[:CAPTION_BAR_HEIGHT]
+        for other_colour in caption_colours:
+            colour_present = bool(np.any(np.all(caption_bar == np.array(object=other_colour), axis=-1)))
+            assert colour_present == (other_colour == caption_colour)
+    assert np.array_equal(add_caption_bar(image=image, caption="test"),
+                          add_caption_bar(image=image, caption="test", caption_colour=(255, 255, 255)))

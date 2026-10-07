@@ -32,7 +32,8 @@ from vision_training.losses.classification_losses import compute_balanced_class_
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
-from vision_training.utilities.visualization import add_caption_bar, view_input_data
+from vision_training.utilities.visualization import (CORRECT_PREDICTION_COLOUR, WRONG_PREDICTION_COLOUR,
+                                                     add_caption_bar, view_input_data)
 
 # Probability from which a class is predicted in multi-label mode
 MULTI_LABEL_THRESHOLD = 0.5
@@ -255,10 +256,11 @@ class ClassificationTrainer(BaseTrainer):
         pair_folder.mkdir(parents=True, exist_ok=True)
         return pair_folder
 
-    def build_error_image(self, batch: Dict[str, Any], sample_index: int) -> np.ndarray:
+    def build_input_image(self, batch: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
-        Builds the image of a misclassified test sample for the error images: the network input of an image, as the
-        model saw it. The sequence trainers override it to lay out the frames of a window or of a pair on a grid.
+        Builds the image of a test sample shown by the error images and the sample images of the evaluation: the
+        network input of an image, as the model saw it. The sequence trainers override it to lay out the frames of a
+        window or of a pair on a grid.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -302,11 +304,63 @@ class ClassificationTrainer(BaseTrainer):
             # The image captioned with both classes, named after the sample and the score of the predicted class
             score = float(probabilities[sample_index, predicted_class_index])
             caption = f"{self.class_names[true_class_index]} -> {self.class_names[predicted_class_index]} {score:.3f}"
-            image = add_caption_bar(image=self.build_error_image(batch=batch, sample_index=sample_index),
+            image = add_caption_bar(image=self.build_input_image(batch=batch, sample_index=sample_index),
                                     caption=caption)
             sample_identifier = int(batch[SAMPLE_IDENTIFIERS_KEY][sample_index])
             sample_name = test_dataset.get_sample_name(sample_identifier=sample_identifier)
             cv2.imwrite(filename=str(pair_folder / f"{sample_name}_{score:.3f}.png"), img=image)
+
+    def get_test_sample_classes(self) -> Dict[int, List[int]]:
+        """
+        Lists the classes of every test sample (image, window or pair), so that the fixed test samples drawn at every
+        evaluation are spread over the classes.
+
+        Returns:
+            Dict[int, List[int]]: The class indices of every test sample, keyed by sample identifier.
+        """
+        return self.test_dataloader.dataset.get_sample_class_indices()
+
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
+                           sample_name: str, iteration: int) -> np.ndarray:
+        """
+        Draws a fixed test sample for the sample images of the evaluation: its input (the image, or the frame grid of a
+        window or of a pair) captioned with its true class and its predicted class with its probability, or in
+        multi-label mode its true classes and its predicted classes with their probabilities, the caption in green
+        when the prediction is right and in red when it is wrong. The sequence labelling trainer overrides it to
+        caption every frame.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The classifier outputs.
+            sample_index (int): The index of the sample in the batch.
+            sample_name (str): The name of the sample.
+            iteration (int): The training iteration of the evaluated checkpoint.
+
+        Returns:
+            np.ndarray: The [H, W, 3] uint8 BGR image of the sample.
+        """
+        probabilities = predictions["class_probabilities"][sample_index].detach().float().cpu()
+        label = batch["labels"][sample_index].detach().cpu()
+
+        # True and predicted classes: the most probable class, or the class decisions at the multi-label threshold
+        if self.output_mode == "multi_class":
+            predicted_class_index = int(probabilities.argmax())
+            correct_prediction = predicted_class_index == int(label)
+            prediction_text = (f"{self.class_names[int(label)]} -> {self.class_names[predicted_class_index]} "
+                               f"{float(probabilities[predicted_class_index]):.3f}")
+        else:
+            predicted_decisions = probabilities >= MULTI_LABEL_THRESHOLD
+            correct_prediction = bool((predicted_decisions == (label >= 0.5)).all())
+            predicted_classes_text = ", ".join(
+                f"{self.class_names[class_index]} {float(probabilities[class_index]):.3f}"
+                for class_index in torch.nonzero(input=predicted_decisions).flatten().tolist()) or "none"
+            prediction_text = f"{self.get_label_caption(label=label)} -> {predicted_classes_text}"
+
+        # Input of the sample captioned with its prediction, in green when right and in red when wrong
+        return add_caption_bar(image=self.build_input_image(batch=batch, sample_index=sample_index),
+                               caption=f"Iteration {iteration} | {sample_name} | {prediction_text}",
+                               caption_colour=CORRECT_PREDICTION_COLOUR if correct_prediction else
+                               WRONG_PREDICTION_COLOUR)
 
     def describe_evaluated_samples(self, accumulator: Dict[str, Any]) -> str:
         """
@@ -505,7 +559,7 @@ class ClassificationTrainer(BaseTrainer):
                                                      support_column=support_column)],
                 "scalars": dict(headline_metrics),
                 "class_scalars": build_class_metric_scalars(class_names=self.class_names, metrics=metrics),
-                "images": images, "sample_images": {}, "files": files,
+                "images": images, "files": files,
                 "headline_metric": "Accuracy" if self.output_mode == "multi_class" else "Subset Accuracy"}
 
     def get_label_caption(self, label: torch.Tensor) -> str:

@@ -27,7 +27,8 @@ def test_every_checkpoint_is_evaluated_and_summarised(tmp_path: Path, capsys: py
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
         per_class_report (bool): Whether the evaluations report every class.
     """
-    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False)
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                  number_sample_images=0)
     trainer.per_class_report = per_class_report
     trainer.run_training_loop()
     iterations = get_checkpoint_iterations(weights_directory=trainer.weights_directory)

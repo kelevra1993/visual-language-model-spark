@@ -1,6 +1,6 @@
 """
 Smoke test of DetectionTrainer of vision_training/trainers/detection_trainer.py on a synthetic dataset: training saves
-checkpoints, evaluates and resumes.
+checkpoints, evaluates with its sample images and resumes.
 """
 
 import csv
@@ -13,7 +13,7 @@ from pathlib import Path
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.configuration.configuration_loader import load_experiment_configuration
-from tests.fixtures.evaluation_checks import read_results_blocks
+from tests.fixtures.evaluation_checks import check_sample_images, read_results_blocks
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                                 "configuration_synthetic_shapes.yaml")
@@ -87,10 +87,10 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     """
     Verifies the whole training pipeline on a generated synthetic dataset: 5 iterations save the intermediate and
     evaluated checkpoints and the final one, evaluate the test split into Results.txt (the table of the average
-    precision methods and the per-class table) and class_metrics.csv (the ground truth boxes of every class summing to
-    those of the test images) and write the three TensorBoard folders. A second run with the same settings resolves to
-    the same run folder, resumes from the last checkpoint with exactly its weights, and trains 2 more iterations. No
-    training step may fail silently.
+    precision methods and the per-class table), class_metrics.csv (the ground truth boxes of every class summing to
+    those of the test images) and the sample images of the test images, and write the three TensorBoard folders. A
+    second run with the same settings resolves to the same run folder, resumes from the last checkpoint with exactly
+    its weights, and trains 2 more iterations. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -135,6 +135,15 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
                                    "average_precision_75", "average_precision_50_95"]
     assert sum(int(class_row["ground_truths"]) for class_row in class_rows) == number_boxes
     assert [class_row["class"] for class_row in class_rows] == list(SHAPE_CATEGORIES)
+
+    # Every test image is a sample image (8 asked for 4 images), named after its file: its ground truth panel next to
+    # its detection panel, between the caption and legend bars
+    check_sample_images(evaluation_folder=trainer.experiment_folder / "Evaluation" / "Iteration_5", results=results,
+                        number_sample_images=4, sample_kind="images", correct_predictions=None)
+    assert sorted(results["sample_images"]) == sorted(f"Samples/{Path(file_name).stem}"
+                                                      for file_name in trainer.test_image_file_names.values())
+    assert all(sample_image.shape[0] == 24 + SMOKE_IMAGE_SIZE + 24 and sample_image.shape[1] >= 2 * SMOKE_IMAGE_SIZE + 4
+               for sample_image in results["sample_images"].values())
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(

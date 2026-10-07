@@ -133,6 +133,17 @@ class ClassificationDataset(Dataset):
         """
         return str(PurePosixPath(self.sample_records[sample_identifier]["file_name"]).with_suffix("")).replace("/", "_")
 
+    def get_sample_class_indices(self) -> Dict[int, List[int]]:
+        """
+        Lists the classes of every sample, from which the classification trainer spreads the fixed test samples drawn
+        at every evaluation over the classes.
+
+        Returns:
+            Dict[int, List[int]]: The class indices of every sample keyed by its identifier, one per sample in
+                multi-class mode, any number in multi-label mode.
+        """
+        return {sample["identifier"]: list(sample["class_indices"]) for sample in self.samples}
+
     def get_class_counts(self) -> List[int]:
         """
         Counts the samples of every class, used to weight the classes of the loss inversely to their frequency.

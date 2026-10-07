@@ -1,6 +1,6 @@
 """
 Smoke test of SequenceLabellingTrainer of vision_training/trainers/sequence_labelling_trainer.py on synthetic sequences:
-training saves, evaluates and resumes, with the predictions file and error images checked.
+training saves, evaluates and resumes, with the predictions file, error images and sample images checked.
 """
 
 import pytest
@@ -14,7 +14,7 @@ from vision_training.configuration.configuration_loader import load_experiment_c
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.sequence_labelling_trainer import SequenceLabellingTrainer
 from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
-                                              read_results_blocks)
+                                              check_sample_images, read_results_blocks)
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                 "sequence_labelling" / "configuration_synthetic_sequences.yaml")
@@ -124,7 +124,7 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     assert results["tables"][0]["columns"][1] == "Frames"
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
-        "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
+        "Samples", "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
         "predictions.csv"]
     check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=24)
     rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
@@ -135,6 +135,10 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     if check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
                           maximum_per_class_pair=2):
         assert all("_frame" in image_path.stem for image_path in (evaluation_folder / "Errors").rglob("*.png"))
+
+    # Every test window is a sample image (8 asked for 6 windows), its frames captioned with their classes
+    check_sample_images(evaluation_folder=evaluation_folder, results=results, number_sample_images=6,
+                        sample_kind="sequences", correct_predictions=None)
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(

@@ -10,8 +10,7 @@ from vision_training.configuration.classification_checks import VALID_CLASS_WEIG
 from vision_training.configuration.common_checks import (check_image_task_sequence_settings,
                                                          check_pretrained_configuration)
 from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
-                                                                check_boolean_flags, check_positive_integers,
-                                                                get_configuration_value)
+                                                                check_boolean_flags, get_configuration_value)
 from vision_training.data.segmentation.segmentation_dataset import IGNORED_MASK_VALUE
 from vision_training.models.segmentation.segmentation_decoder import compute_skip_block_numbers
 
@@ -166,8 +165,9 @@ def check_segmentation_loss_configuration(model_configuration: Dict[str, Any]) -
 
 def check_segmentation_evaluation_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'ExperimentConfiguration.evaluation' settings of the semantic segmentation task: the number of fixed
-    test samples drawn at every evaluation (0 for none), and whether the predicted mask of every test image is saved.
+    Verifies the 'ExperimentConfiguration.evaluation' settings of the semantic segmentation task: whether the predicted
+    mask of every test image is saved. The number of sample images, shared by every task, is checked with the
+    experiment settings.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -177,12 +177,8 @@ def check_segmentation_evaluation_configuration(experiment_configuration: Dict[s
     """
     # Nest the section under its name so that every reported key path matches its location in the YAML file
     configuration = {"ExperimentConfiguration": experiment_configuration}
-    errors = check_positive_integers(configuration=configuration,
-                                     key_paths=["ExperimentConfiguration.evaluation.number_sample_images"],
-                                     allow_zero=True)
-    errors += check_boolean_flags(configuration=configuration,
-                                  key_paths=["ExperimentConfiguration.evaluation.save_predicted_masks"])
-    return errors
+    return check_boolean_flags(configuration=configuration,
+                               key_paths=["ExperimentConfiguration.evaluation.save_predicted_masks"])
 
 
 def check_segmentation_configuration(experiment_configuration: Dict[str, Any],
