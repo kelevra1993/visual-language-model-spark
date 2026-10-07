@@ -1,11 +1,13 @@
 """
 General trainer shared by every task: the run folder, the training loop with its validation passes, the optimizer
-and learning rate schedule, the checkpoints and the resume, the evaluation of the saved checkpoints on the test split
-and the input batch viewer. The task trainers subclass it and implement its abstract hooks, and vision_training/main.py
-builds them through the task registry.
+and learning rate schedule, the checkpoints and the resume, the evaluation of the saved checkpoints on the test split,
+the MLflow tracking of the run (vision_training/tracking) and the input batch viewer. The task trainers subclass it
+and implement its abstract hooks, and vision_training/main.py builds them through the task registry.
 """
 
 import math
+import cv2
+import numpy as np
 import torch
 
 from abc import ABC, abstractmethod
@@ -22,6 +24,7 @@ from vision_training.configuration.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
 from vision_training.evaluation.evaluation_report import report_evaluation_results
+from vision_training.evaluation.sample_selection import choose_sample_identifiers
 from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, freeze_batch_normalization_statistics,
                                                    freeze_component, freeze_normalization_parameters,
                                                    get_component_name, load_pretrained_component)
@@ -29,8 +32,16 @@ from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import get_last_checkpoint_iteration, load_checkpoint, save_checkpoint
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
 from vision_training.trainers.metric_tracking import MetricTracker
+from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED_STATUS, KILLED_STATUS,
+                                                         RUN_RECORD_FILE_NAME, DisabledTracker,
+                                                         create_experiment_tracker, resolve_tracking_uri)
 from vision_training.utilities.os_utilities import print_color
 from vision_training.utilities.tensor_utilities import get_device
+
+# Evaluation files of a checkpoint sent to the MLflow run, small whatever the size of the test split: the confusion
+# matrix image (per-class report only), the metrics of every class and the class thresholds of the classification-like
+# tasks. The predictions, the error images and the sample images grow with the test split and stay in the run folder.
+TRACKED_EVALUATION_FILES = ["Confusion Matrix Image", "Class Metrics", "Class Thresholds"]
 
 
 class BaseTrainer(ABC):
@@ -39,10 +50,11 @@ class BaseTrainer(ABC):
     segmentation, sequence classification, sequence labelling and sequence comparison).
 
     It owns everything that does not depend on the task: the run folder named after the settings, the training loop
-    with its validation passes and checkpoint schedule, the metric tracking (console and TensorBoard), the checkpoints
-    and the resume, the evaluation loop of the saved checkpoints on the test split and its report, and the viewer of
-    the input batches. A task subclasses it and implements the hooks that depend on its data and its model (marked
-    abstract), and may override the optional ones (augmentation, batch metrics, evaluation context, optimizer...).
+    with its validation passes and checkpoint schedule, the metric tracking (console, TensorBoard and MLflow), the
+    checkpoints and the resume, the evaluation loop of the saved checkpoints on the test split and its report, and
+    the viewer of the input batches. A task subclasses it and implements the hooks that depend on its data and its
+    model (marked abstract), and may override the optional ones (augmentation, batch metrics, evaluation context,
+    optimizer...).
     """
 
     # Name of the task trained by the subclass, stored in its checkpoints
@@ -101,6 +113,14 @@ class BaseTrainer(ABC):
         # the global metrics, for the runs with many classes
         self.per_class_report = self.experiment_configuration["evaluation"]["per_class_report"]
 
+        # Number of fixed test samples drawn with their targets and predictions at every evaluation, 0 for none
+        self.number_sample_images = self.experiment_configuration["evaluation"]["number_sample_images"]
+
+        # MLflow tracking of the run, opened at the start of the training loop: until then, and for the input viewer,
+        # the benchmarking loop and the trainer of a standalone evaluation, the tracker does nothing
+        self.tracking_configuration = self.experiment_configuration["tracking"]
+        self.experiment_tracker = DisabledTracker()
+
         self.label_dictionary = self.data_configuration["label_dictionary"]
 
         # Random augmentation of the training batches, applied on their device right before the forward pass
@@ -125,6 +145,11 @@ class BaseTrainer(ABC):
         print_color(color="blue",
                     output="Initializing Training, Validation And Test DataLoaders...", add_separators=True)
         self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.build_dataloaders()
+
+        # Fixed test samples drawn at every evaluation, chosen once from the classes of the test samples so that the
+        # same samples are followed over the training and its resumptions
+        self.sample_image_identifiers = choose_sample_identifiers(sample_classes=self.get_test_sample_classes(),
+                                                                  number_samples=self.number_sample_images)
 
         # Initialize Model and Optimizer, the backbone, the temporal module, the classification head and the
         # segmentation decoder being possibly initialised by the ones of other runs, through the 'pretrained' settings
@@ -295,6 +320,36 @@ class BaseTrainer(ABC):
         """
 
     @abstractmethod
+    def get_test_sample_classes(self) -> Dict[int, List[int]]:
+        """
+        Lists the classes of every test sample, from which the fixed test samples drawn at every evaluation are chosen
+        (evaluation/sample_selection.py): the samples are spread over their classes, and evenly over the test split when
+        no sample has a class.
+
+        Returns:
+            Dict[int, List[int]]: The class indices of every test sample, keyed by sample identifier, empty lists for
+                the tasks whose samples are not spread over the classes.
+        """
+
+    @abstractmethod
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
+                           sample_name: str, iteration: int) -> np.ndarray:
+        """
+        Draws one fixed test sample with its target and its prediction, saved and sent to TensorBoard at every
+        evaluation so that the predictions of the same samples can be followed over the training.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The predictions of predict_batch.
+            sample_index (int): The index of the sample in the batch.
+            sample_name (str): The name of the sample, from get_test_sample_name.
+            iteration (int): The training iteration of the evaluated checkpoint, written in the caption.
+
+        Returns:
+            np.ndarray: The [H, W, 3] uint8 BGR image of the sample.
+        """
+
+    @abstractmethod
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
         """
@@ -323,6 +378,19 @@ class BaseTrainer(ABC):
         """
         return build_run_name(experiment_configuration=self.experiment_configuration,
                               model_configuration=self.model_configuration)
+
+    def get_test_sample_name(self, sample_identifier: int) -> str:
+        """
+        Gives the short name of a test sample, naming its sample image file and its TensorBoard tag. Given by the test
+        dataset by default; the detection trainer overrides it, its DALI loader having no dataset.
+
+        Args:
+            sample_identifier (int): The identifier of the sample, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            str: The name of the sample.
+        """
+        return self.test_dataloader.dataset.get_sample_name(sample_identifier=sample_identifier)
 
     def get_frames_per_sample(self) -> Optional[int]:
         """
@@ -558,20 +626,20 @@ class BaseTrainer(ABC):
                                                  f"file://{Path(pretrained_configuration['experiment_folder'])} "
                                                  f"(frozen: {pretrained_configuration['freeze']})")
 
-        # Print every split folder with its number of samples, described by the task
-        number_samples_per_split = {}
+        # Print every split folder with its number of samples, described by the task, kept for the MLflow parameters
+        self.number_samples_per_split = {}
         for split_label, split_key in [("Train Data Folder", "train_data_folder"),
                                        ("Validation Data Folder", "validation_data_folder"),
                                        ("Test Data Folder", "test_data_folder")]:
             number_samples, description = self.describe_split(
                 split_data_folder=self.experiment_configuration[split_key])
-            number_samples_per_split[split_key] = number_samples
+            self.number_samples_per_split[split_key] = number_samples
             print_color(color="blue", output=f"- {split_label:<23} : file://{self.experiment_configuration[split_key]} "
                                              f"({description})")
 
         # One epoch is a full pass over the training samples
-        iterations_per_epoch = math.ceil(number_samples_per_split["train_data_folder"] / self.batch_size)
-        print_color(color="blue", output=f"- Iterations Per Epoch    : {iterations_per_epoch}")
+        self.iterations_per_epoch = math.ceil(self.number_samples_per_split["train_data_folder"] / self.batch_size)
+        print_color(color="blue", output=f"- Iterations Per Epoch    : {self.iterations_per_epoch}")
         print_color(color="blue", output=f"- Batch Size              : {self.batch_size}")
         print_color(color="blue", output=f"- Total Iterations        : {self.training_iterations}")
         print_color(color="blue", output=f"- Save And Evaluate Every : {self.weight_saving_iterations} iterations")
@@ -588,6 +656,14 @@ class BaseTrainer(ABC):
         print_color(color="blue", output=f"- Mixed Precision         : {self.mixed_precision}")
         print_color(color="blue", output=f"- Resume Training         : {self.resume_training}")
         print_color(color="blue", output=f"- Validation Iter. Ratio  : {self.validation_iteration_ratio}")
+
+        # Backend of the MLflow tracking, the local database of the experiments root folder unless a server is set
+        tracking_description = "Off"
+        if self.tracking_configuration["activated"]:
+            tracking_description, _ = resolve_tracking_uri(
+                tracking_configuration=self.tracking_configuration,
+                tracking_root=self.experiment_configuration["experiment_folder"])
+        print_color(color="blue", output=f"- MLflow Tracking         : {tracking_description}")
 
     def setup_tensorboard_writers(self) -> Tuple[SummaryWriter, Optional[SummaryWriter]]:
         """
@@ -763,13 +839,38 @@ class BaseTrainer(ABC):
 
     def run_training_loop(self, maximum_consecutive_errors: int = 5) -> None:
         """
-        Executes the main training loop: training steps, validation passes, console summaries, checkpoints (with the
-        evaluation of the test split at every weight_saving_iterations checkpoint) and a final checkpoint, evaluated
-        too when the run completes on a weight_saving_iterations iteration.
+        Trains the model (see run_training_iterations) and closes its MLflow run whatever ends the training: FINISHED
+        once the training ends normally, KILLED when the user stops it (Ctrl+C), FAILED after too many consecutive
+        errors or on an unexpected error, which is raised again once the run is closed.
 
         Args:
             maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before the training
                 loop exits.
+        """
+        run_status = FAILED_STATUS
+        try:
+            run_status = self.run_training_iterations(maximum_consecutive_errors=maximum_consecutive_errors)
+        except KeyboardInterrupt:
+            run_status = KILLED_STATUS
+            raise
+        finally:
+            self.finish_experiment_tracking(run_status=run_status)
+
+    def run_training_iterations(self, maximum_consecutive_errors: int) -> str:
+        """
+        Executes the main training loop: training steps, validation passes, console summaries, checkpoints (with the
+        evaluation of the test split at every weight_saving_iterations checkpoint) and a final checkpoint, evaluated
+        too when the run completes on a weight_saving_iterations iteration. The MLflow run of the training is opened
+        once the loader workers exist, and receives the interval averages of every console summary and the test
+        evaluations.
+
+        Args:
+            maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before the training
+                loop exits.
+
+        Returns:
+            str: The status of the MLflow run: FINISHED_STATUS, or KILLED_STATUS when the user stopped the training,
+                or FAILED_STATUS when it stopped after too many consecutive errors.
         """
         # Initialize tensorboard writers right before training starts
         self.training_writer, self.validation_writer = self.setup_tensorboard_writers()
@@ -778,6 +879,13 @@ class BaseTrainer(ABC):
         (training_dataloader_iterator, validation_dataloader_iterator, validation_enabled,
          training_trackers, validation_trackers, validation_interval_count,
          consecutive_errors) = self.initialize_training_loop_state()
+
+        # MLflow run of the training, opened after the loader worker processes are forked from this process so that
+        # they never inherit the thread of the tracker
+        self.start_experiment_tracking()
+
+        # Status of the MLflow run set by a stop of the training before its last iteration
+        stopped_status = None
 
         # The checkpoint of the last iteration is the final one, saved after its training step, so that a checkpoint
         # saved at the start of the last iteration is never overwritten after being evaluated
@@ -839,6 +947,11 @@ class BaseTrainer(ABC):
                             validation_trackers=validation_trackers,
                             validation_interval_count=validation_interval_count)
 
+                    # Interval averages sent to MLflow before the summary starts the trackers of the next interval
+                    self.log_interval_metrics(iteration=training_iteration, training_trackers=training_trackers,
+                                              validation_trackers=validation_trackers if validation_interval_count > 0
+                                              else None)
+
                     training_trackers = self.metric_tracker.print_interval_summary(
                         iterations=training_iteration, training_tracker_dictionary=training_trackers,
                         validation_tracker_dictionary=validation_trackers,
@@ -857,6 +970,7 @@ class BaseTrainer(ABC):
                 print_color(color="red",
                             output=f"Training Interrupted by User at iteration {training_iteration}.",
                             add_separators=True)
+                stopped_status = KILLED_STATUS
                 break
             except Exception as error:
                 # Increment error counter when an exception occurs inside the training iteration loop
@@ -867,6 +981,7 @@ class BaseTrainer(ABC):
                                 output=f"Critical Error: Over {maximum_consecutive_errors} consecutive errors "
                                        f"encountered during training iterations. Exiting.", add_separators=True)
                     print(f"Last exception: {error}")
+                    stopped_status = FAILED_STATUS
                     break
                 else:
                     print_color(color="yellow", output=f"Error encountered during iteration {training_iteration}."
@@ -890,6 +1005,135 @@ class BaseTrainer(ABC):
             self.training_writer.close()
         if validation_enabled and self.validation_writer is not None:
             self.validation_writer.close()
+        return FINISHED_STATUS if stopped_status is None else stopped_status
+
+    def build_tracking_parameters(self) -> Dict[str, Any]:
+        """
+        Gathers the settings of the run logged as the parameters of its MLflow run, searched and compared in the
+        MLflow table: every configuration section, and the values derived from them (number of parameters, samples of
+        every split, iterations per epoch, device and library versions). Also used by the MLflow run of a standalone
+        evaluation.
+
+        Returns:
+            Dict[str, Any]: The nested settings, flattened by the tracker.
+        """
+        # Size of the model, samples of the splits and environment of the training, derived from the settings
+        model_parameters = list(self.model.parameters())
+        device_name = torch.cuda.get_device_name(device=self.device) if self.device.type == "cuda" else str(
+            self.device)
+        derived_values = {"number_parameters": sum(parameter.numel() for parameter in model_parameters),
+                          "number_trainable_parameters": sum(parameter.numel() for parameter in model_parameters
+                                                             if parameter.requires_grad),
+                          "number_training_samples": self.number_samples_per_split["train_data_folder"],
+                          "number_validation_samples": self.number_samples_per_split["validation_data_folder"],
+                          "number_test_samples": self.number_samples_per_split["test_data_folder"],
+                          "iterations_per_epoch": self.iterations_per_epoch, "device": device_name,
+                          "torch_version": torch.__version__, "cuda_version": torch.version.cuda}
+        return {"ExperimentConfiguration": self.experiment_configuration, **self.model_configuration,
+                "Derived": derived_values}
+
+    def build_tracking_tags(self) -> Dict[str, str]:
+        """
+        Gives the tags identifying the MLflow run of the training: its task, its run name, its run folder (to find its
+        checkpoints, which are not sent to MLflow) and the source run of every transferable component, as stored in
+        its checkpoints. Also used by the MLflow run of a standalone evaluation.
+
+        Returns:
+            Dict[str, str]: The value of every tag.
+        """
+        # Identity of the run, and the source run of every transferable component, 'None' without transfer
+        tags = {"task": self.TASK_NAME, "run_name": self.run_name,
+                "run_folder": str(Path(self.experiment_folder).absolute())}
+        for section_name, pretrained_configuration in self.pretrained_configurations.items():
+            tags[f"pretrained_{TRANSFERABLE_COMPONENTS[section_name]}"] = str(pretrained_configuration[
+                "experiment_folder"])
+        return tags
+
+    def start_experiment_tracking(self) -> None:
+        """
+        Opens the MLflow run of the training when 'tracking.activated' is True, at the start of the training loop: a
+        resumed training continues the MLflow run recorded in its run folder ('mlflow_run.json'). The configuration of
+        the run is sent as an artifact, under its own name at every resumption since its settings may have changed.
+        """
+        # MLflow tracker of the run, a DisabledTracker when the tracking is off or unavailable
+        self.experiment_tracker = create_experiment_tracker(
+            tracking_configuration=self.tracking_configuration,
+            tracking_root=self.experiment_configuration["experiment_folder"], run_name=self.run_name,
+            task=self.TASK_NAME, run_record_path=self.experiment_folder / RUN_RECORD_FILE_NAME)
+
+        # A run resumed from its checkpoint of iteration n starts at n + 1
+        resumed_iteration = self.start_iteration - 1 if self.start_iteration > 1 else None
+        self.experiment_tracker.start(parameters=self.build_tracking_parameters(), tags=self.build_tracking_tags(),
+                                      resumed_iteration=resumed_iteration)
+        artifact_name = None if resumed_iteration is None else \
+            f"training_configuration_resume_{resumed_iteration}.yaml"
+        self.experiment_tracker.log_artifact(file_path=self.configuration_path, artifact_folder="configuration",
+                                             artifact_name=artifact_name)
+
+    def log_interval_metrics(self, iteration: int, training_trackers: Dict[str, Any],
+                             validation_trackers: Optional[Dict[str, Any]]) -> None:
+        """
+        Sends the averages of a console log interval to the MLflow run of the training, at its last iteration: the
+        training and validation losses and batch metrics under their display names ('train/<name>',
+        'validation/<name>'), the throughput and duration of the interval and the learning rate of the first parameter
+        group. The per-iteration curves stay in TensorBoard.
+
+        Args:
+            iteration (int): The last training iteration of the interval.
+            training_trackers (Dict[str, Any]): The training averages of the interval, with its start time.
+            validation_trackers (Optional[Dict[str, Any]]): The validation averages of the interval, None when no
+                validation batch ran in it.
+        """
+        samples_per_second, duration = self.metric_tracker.compute_interval_statistics(
+            training_tracker_dictionary=training_trackers)
+
+        # Averages of the tracked metrics under their display names, then the speed and the learning rate
+        metrics = {f"train/{display_name}": training_trackers[metric_key]
+                   for metric_key, display_name in self.tracked_metrics_mapping.items()}
+        if validation_trackers is not None:
+            metrics.update({f"validation/{display_name}": validation_trackers[metric_key]
+                            for metric_key, display_name in self.tracked_metrics_mapping.items()})
+        metrics.update({"train/throughput": samples_per_second, "train/interval_seconds": duration,
+                        "learning_rate": self.optimizer.param_groups[0]["lr"]})
+        self.experiment_tracker.log_metrics(metrics=metrics, step=iteration)
+
+    def track_evaluation(self, iteration: int, results: EvaluationResults) -> None:
+        """
+        Sends the evaluation of a checkpoint to the MLflow run: the global scalars ('test/<scalar>'), the scalars of
+        every class with the per-class report only ('test_class/<scalar>'), the best value so far of the headline
+        metric with its iteration, and the small evaluation files of TRACKED_EVALUATION_FILES under
+        'evaluation/iteration_<n>/'.
+
+        Args:
+            iteration (int): The training iteration of the evaluated checkpoint.
+            results (EvaluationResults): The results of the evaluation.
+        """
+        # Global scalars, and the scalars of every class only with the per-class report (thousands for many classes)
+        metrics = {f"test/{scalar_name}": value for scalar_name, value in results["scalars"].items()}
+        if self.per_class_report:
+            metrics.update({f"test_class/{scalar_name}": value
+                            for scalar_name, value in results["class_scalars"].items()})
+        self.experiment_tracker.log_metrics(metrics=metrics, step=iteration)
+        self.experiment_tracker.update_best_metric(metric_name=results["headline_metric"],
+                                                   value=results["scalars"][results["headline_metric"]],
+                                                   step=iteration)
+        # Small evaluation files written by the task for this checkpoint
+        for file_key in TRACKED_EVALUATION_FILES:
+            if file_key in results["files"]:
+                self.experiment_tracker.log_artifact(file_path=results["files"][file_key],
+                                                     artifact_folder=f"evaluation/iteration_{iteration}")
+
+    def finish_experiment_tracking(self, run_status: str) -> None:
+        """
+        Closes the MLflow run of the training at its end, after sending Results.txt, the whole readable report of the
+        run.
+
+        Args:
+            run_status (str): FINISHED_STATUS, KILLED_STATUS or FAILED_STATUS.
+        """
+        self.experiment_tracker.log_artifact(file_path=Path(self.experiment_folder) / "Results.txt",
+                                             artifact_folder=None)
+        self.experiment_tracker.close(status=run_status)
 
     def run_model_iteration(self, batch: Dict[str, Any], writer: Optional[SummaryWriter], iteration: int,
                             tracker_dictionary: Optional[Dict[str, Any]], apply_augmentation: bool,
@@ -946,7 +1190,8 @@ class BaseTrainer(ABC):
         Evaluates a saved checkpoint on the whole test split, at every weight_saving_iterations checkpoint, and
         reports it to the console, TensorBoard and the Results.txt file of the run. The model runs as in deployment,
         through the predict_batch hook and within the evaluation context of the task, and every test sample is
-        evaluated exactly once.
+        evaluated exactly once. The images of the fixed test samples are drawn on the way and added to the results
+        of the task, with a note and their folder.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint.
@@ -957,6 +1202,8 @@ class BaseTrainer(ABC):
         self.model.eval()
         accumulator = self.create_evaluation_accumulator(iteration=iteration)
         evaluated_sample_identifiers = set()
+        samples_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}" / "Samples"
+        sample_images = {}
 
         # The evaluation settings of the task are always restored, even when the evaluation fails
         with self.evaluation_context(), torch.no_grad():
@@ -979,14 +1226,55 @@ class BaseTrainer(ABC):
                 self.accumulate_evaluation_batch(accumulator=accumulator, batch=test_batch, predictions=predictions,
                                                  sample_indices=sample_indices)
 
+                # Images of the fixed test samples of the batch, drawn while their inputs and predictions are at hand
+                if self.sample_image_identifiers and SAMPLE_IDENTIFIERS_KEY in test_batch:
+                    self.save_sample_images(batch=test_batch, predictions=predictions, sample_indices=sample_indices,
+                                            iteration=iteration, samples_folder=samples_folder,
+                                            sample_images=sample_images)
+
+        # Results of the task, with the images of the fixed test samples reported at every evaluation
         results = self.compute_evaluation_results(accumulator=accumulator, iteration=iteration)
+        results["sample_images"] = sample_images
+        if sample_images:
+            results["notes"].append(f"Sample Images : {len(sample_images)} fixed test {self.SAMPLE_NAME.lower()}")
+            results["files"]["Sample Images"] = samples_folder
         self.report_evaluation(iteration=iteration, results=results)
         return results
+
+    def save_sample_images(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_indices: List[int],
+                           iteration: int, samples_folder: Path, sample_images: Dict[str, np.ndarray]) -> None:
+        """
+        Draws the fixed test samples of an evaluated test batch with the build_sample_image hook of the task, saves
+        every image in the 'Samples' folder of the evaluated checkpoint, '<run>/Evaluation/Iteration_<n>/Samples/', and
+        keeps it in RGB under the TensorBoard tag 'Samples/<sample name>', so that the same samples can be followed over
+        the training in the Test TensorBoard writer.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The predictions of predict_batch.
+            sample_indices (List[int]): The indices of the samples evaluated in this batch.
+            iteration (int): The training iteration of the evaluated checkpoint.
+            samples_folder (Path): The 'Samples' folder of the evaluated checkpoint, created with its first image.
+            sample_images (Dict[str, np.ndarray]): The RGB sample images keyed by TensorBoard tag, extended in place.
+        """
+        for sample_index in sample_indices:
+            sample_identifier = int(batch[SAMPLE_IDENTIFIERS_KEY][sample_index])
+            if sample_identifier not in self.sample_image_identifiers:
+                continue
+
+            # Image of the sample drawn by the task, saved in BGR and kept in RGB for TensorBoard
+            sample_name = self.get_test_sample_name(sample_identifier=sample_identifier)
+            sample_image = self.build_sample_image(batch=batch, predictions=predictions, sample_index=sample_index,
+                                                   sample_name=sample_name, iteration=iteration)
+            samples_folder.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(filename=str(samples_folder / f"{sample_name}.png"), img=sample_image)
+            sample_images[f"Samples/{sample_name}"] = cv2.cvtColor(src=sample_image, code=cv2.COLOR_BGR2RGB)
 
     def report_evaluation(self, iteration: int, results: EvaluationResults) -> None:
         """
         Reports the evaluation of a checkpoint to the console, the Test TensorBoard writer (created at the first
-        evaluation) and the Results.txt file of the run, with its per-class outputs when the per-class report is on.
+        evaluation) and the Results.txt file of the run, with its per-class outputs when the per-class report is on,
+        then sends it to the MLflow run.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint.
@@ -997,10 +1285,12 @@ class BaseTrainer(ABC):
         report_evaluation_results(results=results, iteration=iteration, test_writer=self.test_writer,
                                   results_path=Path(self.experiment_folder) / "Results.txt",
                                   per_class_report=self.per_class_report)
+        self.track_evaluation(iteration=iteration, results=results)
 
     def save_model(self, iteration: int) -> None:
         """
-        Saves a checkpoint of the model and optimizer, with the task, the run name and the source run of every
+        Saves a checkpoint of the model and optimizer, with the task, the run name, the identifier of the MLflow run
+        ('mlflow_run_id', None without tracking or while the run is being opened) and the source run of every
         transferable component of the task ('pretrained_backbone', 'pretrained_temporal_module',
         'pretrained_classification_head', 'pretrained_segmentation_decoder', None without transfer), and records it in
         the checkpoint registry of the run used to resume the training.
@@ -1008,8 +1298,9 @@ class BaseTrainer(ABC):
         Args:
             iteration (int): The current training iteration, used for naming the weight file.
         """
-        # Task, run name and source run of every transferable component, stored with the weights
-        metadata = {"task": self.TASK_NAME, "run_name": self.run_name}
+        # Task, run name, MLflow run and source run of every transferable component, stored with the weights
+        metadata = {"task": self.TASK_NAME, "run_name": self.run_name,
+                    "mlflow_run_id": self.experiment_tracker.get_run_id()}
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             metadata[f"pretrained_{TRANSFERABLE_COMPONENTS[section_name]}"] = pretrained_configuration[
                 "experiment_folder"]

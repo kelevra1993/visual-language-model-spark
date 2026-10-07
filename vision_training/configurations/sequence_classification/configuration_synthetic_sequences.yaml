@@ -47,6 +47,12 @@ ExperimentConfiguration:
     # and TensorBoard). False keeps the global metrics only, e.g. for many classes: class_metrics.csv,
     # class_thresholds.json and confusion_matrix.csv are saved either way.
     per_class_report: True
+    # Number of test windows drawn once and shown at every evaluation, each as the grid of its frames captioned with
+    # its true class and its predicted class with its probability, in green when the prediction is right and in red
+    # when it is wrong, saved in Evaluation/Iteration_<n>/Samples/ and sent to TensorBoard. The windows are spread over
+    # the classes (one per class when the number reaches the number of classes), then evenly over the windows of each
+    # class. 0 to disable.
+    number_sample_images: 8
     # Number of most probable classes among which the true class must be for the top-k accuracy. Must be a positive
     # integer, values above the number of classes counting every sample as right.
     top_k: 2
@@ -68,6 +74,24 @@ ExperimentConfiguration:
       activated: False
       # Largest number of images saved for every pair of true and predicted classes, the first ones met.
       maximum_per_class_pair: 20
+  # Tracking of the run in MLflow, next to TensorBoard and Results.txt: the hyperparameters, the averages of the
+  # training and validation metrics of every information_dump interval, the learning rate, the test metrics of every
+  # evaluated checkpoint and a few small artifacts (configuration, confusion matrices, class metrics and thresholds,
+  # Results.txt). The tracking never blocks nor stops the training: any MLflow error prints one warning and the
+  # training continues without it.
+  tracking:
+    # Turns the MLflow tracking on.
+    activated: False
+    # Address of an MLflow tracking server, e.g. "http://192.168.1.20:5000", or null for the local database of the
+    # experiments root folder (sqlite:///<experiment_folder>/mlflow.db, artifacts in <experiment_folder>/mlartifacts),
+    # browsed with "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". The credentials of a
+    # server are read from the MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD environment variables, never from
+    # this file.
+    tracking_uri: null
+    # MLflow experiment grouping the runs, null for the task name (e.g. "sequence_classification").
+    experiment_name: null
+    # Sends the configuration, the confusion matrices, the class metrics and thresholds and Results.txt as artifacts.
+    log_artifacts: True
   # Base learning rate used by the optimizer.
   learning_rate: 1.0e-3
   # Global tensor data type, either "float32" or "float64".

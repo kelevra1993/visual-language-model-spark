@@ -32,8 +32,8 @@ PRETRAINED_COMPONENT_NAMES = {"Backbone": "backbone", "TemporalModel": "temporal
 
 def check_experiment_configuration(experiment_configuration: Dict[str, Any], valid_tasks: List[str]) -> List[str]:
     """
-    Verifies the task, the training loop settings and the per-class report switch of the 'ExperimentConfiguration'
-    section consumed by the trainers.
+    Verifies the task, the training loop settings, the per-class report switch, the number of sample images and the
+    MLflow tracking settings of the 'ExperimentConfiguration' section consumed by the trainers.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -76,19 +76,34 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any], val
     errors += check_positive_integers(configuration=configuration,
                                       key_paths=["ExperimentConfiguration.validation_iteration_ratio"], allow_zero=True)
 
+    # Fixed test samples drawn with their targets and predictions at every evaluation, 0 for none
+    errors += check_positive_integers(configuration=configuration,
+                                      key_paths=["ExperimentConfiguration.evaluation.number_sample_images"],
+                                      allow_zero=True)
+
     # The optimizer requires a strictly positive learning rate
     learning_rate = get_configuration_value(configuration=configuration, key_path="ExperimentConfiguration.learning_rate")
     if isinstance(learning_rate, bool) or not isinstance(learning_rate, (int, float)) or learning_rate <= 0:
         errors.append(f"'ExperimentConfiguration.learning_rate' must be > 0, got {learning_rate!r}.")
 
-    # Flags toggling training resumption, the per-class part of the evaluation reports and the diagnosis modes
+    # Flags toggling training resumption, the per-class part of the evaluation reports, the diagnosis modes and the
+    # MLflow tracking with its artifacts
     errors += check_boolean_flags(configuration=configuration,
                                   key_paths=["ExperimentConfiguration.resume_training",
                                              "ExperimentConfiguration.evaluation.per_class_report",
                                              "ExperimentConfiguration.diagnosis_modes.verbose",
                                              "ExperimentConfiguration.diagnosis_modes.compute_receptive_field",
                                              "ExperimentConfiguration.diagnosis_modes.compute_model_size",
-                                             "ExperimentConfiguration.diagnosis_modes.view_input_images"])
+                                             "ExperimentConfiguration.diagnosis_modes.view_input_images",
+                                             "ExperimentConfiguration.tracking.activated",
+                                             "ExperimentConfiguration.tracking.log_artifacts"])
+
+    # Address of the MLflow server and name of the MLflow experiment, null for the local database and the task name
+    for key_path in ["ExperimentConfiguration.tracking.tracking_uri",
+                     "ExperimentConfiguration.tracking.experiment_name"]:
+        tracking_value = get_configuration_value(configuration=configuration, key_path=key_path)
+        if tracking_value is not None and (not isinstance(tracking_value, str) or not tracking_value.strip()):
+            errors.append(f"'{key_path}' must be null or a non-empty string, got {tracking_value!r}.")
 
     return errors
 

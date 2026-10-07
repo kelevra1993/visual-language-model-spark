@@ -1,14 +1,15 @@
 """
 Metric tracking of the general trainer: the rolling averages of the training and validation losses and batch metrics
-over every console interval, the console summary printed at every information dump (with the change of every value
-since the previous summary) and the TensorBoard curves.
+over every console interval, the throughput of the interval, the console summary printed at every information dump
+(with the change of every value since the previous summary) and the TensorBoard curves. The interval averages and the
+throughput are also sent to the MLflow run of the training by the general trainer.
 """
 
 import time
 import torch
 
 from torch.utils.tensorboard import SummaryWriter
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from vision_training.utilities.os_utilities import color_text
 
@@ -220,6 +221,21 @@ class MetricTracker:
 
         return line
 
+    def compute_interval_statistics(self, training_tracker_dictionary: Dict[str, Any]) -> Tuple[float, float]:
+        """
+        Measures the speed of the training over the current console log interval, printed by the console summary and
+        sent to the MLflow run of the training ('train/throughput', 'train/interval_seconds').
+
+        Args:
+            training_tracker_dictionary (Dict[str, Any]): The training trackers of the interval, with its start time.
+
+        Returns:
+            Tuple[float, float]: The throughput in samples per second, and the duration of the interval in seconds.
+        """
+        interval_samples = self.information_dump * self.batch_size
+        duration = time.time() - training_tracker_dictionary["start_time"]
+        return interval_samples / max(duration, 0.001), duration
+
     def print_interval_summary(self, iterations: int, training_tracker_dictionary: Dict[str, Any],
                                validation_tracker_dictionary: Optional[Dict[str, Any]],
                                validation_interval_count: int) -> Dict[str, Any]:
@@ -244,8 +260,8 @@ class MetricTracker:
         # Calculate sample scale and throughput metrics
         total_samples = iterations * self.batch_size
         interval_samples = self.information_dump * self.batch_size
-        duration = time.time() - training_tracker_dictionary["start_time"]
-        samples_per_second = interval_samples / max(duration, 0.001)
+        samples_per_second, duration = self.compute_interval_statistics(
+            training_tracker_dictionary=training_tracker_dictionary)
 
         # Display the formatted summary header, with the frame throughput of the sequence tasks
         header = (f"| Iteration: {iterations:<6} | Total {self.sample_name}: {total_samples:<8} "

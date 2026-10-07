@@ -1,14 +1,16 @@
 """
 Tests of BaseTrainer of vision_training/trainers/base_trainer.py on the dummy task: a model iteration sums the losses
 and tracks the metrics, training saves, evaluates and resumes from its checkpoints, the final checkpoint is evaluated on
-the weights it holds, and the input viewer creates no run folder.
+the weights it holds, the evaluation draws the fixed sample images, and the input viewer creates no run folder.
 """
 
 import copy
+import cv2
 import pytest
 import torch
 
 from pathlib import Path
+from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from typing import Callable, Dict
 
 from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_configurations
@@ -48,7 +50,8 @@ class EvaluationRecorder:
         return self.original_evaluation(iteration=iteration)
 
 
-def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_input_images: bool) -> DummyTrainer:
+def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_input_images: bool,
+                        number_sample_images: int) -> DummyTrainer:
     """
     Builds the trainer of the dummy task in a temporary directory. Its test split has 6 samples but only 4 distinct
     ones, its last batch repeating the first two samples like the DALI loaders do.
@@ -57,6 +60,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
         temporary_directory (Path): The pytest temporary directory, receiving the configuration and the run folder.
         number_iterations (int): The number of training iterations of the run.
         view_input_images (bool): Whether the input viewer runs, which stops at its first samples and exits.
+        number_sample_images (int): The number of fixed test samples drawn at every evaluation, 0 for none.
 
     Returns:
         DummyTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
@@ -66,6 +70,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
     experiment_configuration, model_configuration = build_dummy_configurations(
         experiment_folder=temporary_directory / "experiments", number_iterations=number_iterations)
     experiment_configuration["diagnosis_modes"]["view_input_images"] = view_input_images
+    experiment_configuration["evaluation"]["number_sample_images"] = number_sample_images
     datasets = {"train": DummyDataset(sample_identifiers=list(range(8)), seed=0),
                 "validation": DummyDataset(sample_identifiers=list(range(4)), seed=1),
                 "test": DummyDataset(sample_identifiers=[0, 1, 2, 3, 0, 1], seed=2)}
@@ -81,7 +86,8 @@ def test_model_iteration_sums_the_losses_and_tracks_the_metrics(tmp_path: Path) 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
-    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=False)
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=False,
+                                  number_sample_images=0)
     batch = next(iter(trainer.train_dataloader))
     tracker_dictionary = trainer.metric_tracker.create_trackers()
 
@@ -108,7 +114,8 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
     """
-    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False)
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                  number_sample_images=0)
     assert trainer.start_iteration == 1
     trainer.run_training_loop()
 
@@ -120,7 +127,7 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     checkpoint = torch.load(f=weights_directory / "Iteration_5" / "model_000005.pt", map_location="cpu",
                             weights_only=True)
     assert (checkpoint["task"], checkpoint["run_name"], checkpoint["iteration"]) == ("dummy_task", "dummy_run", 5)
-    assert checkpoint["format_version"] == CHECKPOINT_FORMAT_VERSION
+    assert checkpoint["format_version"] == CHECKPOINT_FORMAT_VERSION and checkpoint["mlflow_run_id"] is None
 
     # The test split has 6 samples but only 4 distinct ones, each evaluated exactly once
     results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
@@ -129,7 +136,8 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]
 
     # A second run with the same settings resumes from iteration 5 with exactly its weights
-    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False)
+    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+                                          number_sample_images=0)
     assert resumed_trainer.start_iteration == 6
     for parameter_name, parameter_value in resumed_trainer.model.state_dict().items():
         assert torch.equal(input=parameter_value.cpu(), other=checkpoint["model_state"][parameter_name])
@@ -154,7 +162,8 @@ def test_final_checkpoint_is_evaluated_on_its_weights(tmp_path: Path) -> None:
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
-    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=4, view_input_images=False)
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=4, view_input_images=False,
+                                  number_sample_images=0)
     evaluation_recorder = EvaluationRecorder(trainer=trainer)
     trainer.run_test_evaluation = evaluation_recorder
     trainer.run_training_loop()
@@ -181,12 +190,55 @@ def test_input_viewer_creates_no_run_folder(tmp_path: Path) -> None:
     """
     # A new run only viewed: the program exits before any folder exists
     with pytest.raises(expected_exception=SystemExit):
-        build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=True)
+        build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=True,
+                            number_sample_images=0)
     assert not (tmp_path / "experiments").exists()
 
     # An existing run viewed again: its saved configuration is not replaced by the copy of the viewer launch
-    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=False)
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=False,
+                                  number_sample_images=0)
     trainer.configuration_path.write_text(data="saved: configuration\n")
     with pytest.raises(expected_exception=SystemExit):
-        build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=True)
+        build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=True,
+                            number_sample_images=0)
     assert trainer.configuration_path.read_text() == "saved: configuration\n"
+
+
+def test_evaluation_draws_the_fixed_sample_images(tmp_path: Path) -> None:
+    """
+    Verifies the sample images of the evaluation on the dummy task: the fixed test samples are chosen once, one per
+    class of the 4 distinct test samples, and every evaluation draws each of them exactly once (the repeated samples of
+    the last batch being left out), saves it in the 'Samples' folder of the evaluated checkpoint, reports it with a
+    note and its folder, and writes it to the Test TensorBoard writer under 'Samples/<sample name>'.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=False,
+                                  number_sample_images=2)
+    test_labels = {sample_identifier: int(trainer.datasets["test"].labels[sample_identifier])
+                   for sample_identifier in range(4)}
+    assert len(trainer.sample_image_identifiers) == 2
+    assert {test_labels[sample_identifier] for sample_identifier in trainer.sample_image_identifiers} == \
+        set(test_labels.values())
+
+    # Two evaluations draw the same samples, each saved once per evaluated checkpoint
+    for iteration in [1, 2]:
+        results = trainer.run_test_evaluation(iteration=iteration)
+        expected_names = sorted(f"sample_{sample_identifier}" for sample_identifier in trainer.sample_image_identifiers)
+        assert sorted(results["sample_images"]) == [f"Samples/{sample_name}" for sample_name in expected_names]
+        samples_folder = trainer.experiment_folder / "Evaluation" / f"Iteration_{iteration}" / "Samples"
+        assert sorted(path.stem for path in samples_folder.iterdir()) == expected_names
+        assert results["files"]["Sample Images"] == samples_folder
+        assert results["notes"][-1] == "Sample Images : 2 fixed test images"
+
+        # The saved image is the BGR version of the RGB image sent to TensorBoard
+        saved_image = cv2.imread(filename=str(samples_folder / f"{expected_names[0]}.png"))
+        assert (cv2.cvtColor(src=saved_image, code=cv2.COLOR_BGR2RGB) ==
+                results["sample_images"][f"Samples/{expected_names[0]}"]).all()
+
+    # One image per sample and evaluation in the Test TensorBoard writer
+    test_events = EventAccumulator(path=str(trainer.tensorboard_directory / "Test"))
+    test_events.Reload()
+    assert sorted(test_events.Tags()["images"]) == sorted(results["sample_images"])
+    assert [event.step for event in test_events.Images(tag=sorted(results["sample_images"])[0])] == [1, 2]

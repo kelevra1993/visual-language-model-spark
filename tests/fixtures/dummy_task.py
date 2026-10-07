@@ -4,6 +4,7 @@ vision_training/trainers/base_trainer.py with the smallest code, used by the tra
 evaluation tests to check the general training loop without any real model or dataset.
 """
 
+import numpy as np
 import torch
 
 from pathlib import Path
@@ -15,6 +16,7 @@ from vision_training.core.contracts import EvaluationResults
 from vision_training.data.augmentations import AUGMENTATION_TYPES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
+from vision_training.utilities.visualization import add_caption_bar
 
 # Side of the square random images of the dummy task
 DUMMY_IMAGE_SIZE = 8
@@ -295,8 +297,51 @@ class DummyTrainer(BaseTrainer):
         return {"evaluated_samples": f"{number_samples} Test Samples", "metrics": {"Accuracy": accuracy}, "notes": [],
                 "tables": [{"title": "Per Class Recall", "columns": ["Class", "Samples", "Recall"], "rows": rows,
                             "sort_column": "Recall", "per_class": True, "legend": ""}],
-                "scalars": {"Accuracy": accuracy}, "class_scalars": class_scalars, "images": {}, "sample_images": {},
-                "files": {}, "headline_metric": "Accuracy"}
+                "scalars": {"Accuracy": accuracy}, "class_scalars": class_scalars, "images": {}, "files": {},
+                "headline_metric": "Accuracy"}
+
+    def get_test_sample_classes(self) -> Dict[int, List[int]]:
+        """
+        Gives the label of every distinct test sample, so that the fixed test samples are spread over the two classes.
+
+        Returns:
+            Dict[int, List[int]]: The label of every test sample, in a list, keyed by sample identifier.
+        """
+        test_dataset = self.datasets["test"]
+        return {sample_identifier: [int(test_dataset.labels[sample_identifier])]
+                for sample_identifier in set(test_dataset.sample_identifiers)}
+
+    def get_test_sample_name(self, sample_identifier: int) -> str:
+        """
+        Names a test sample after its identifier, the dummy dataset having no file names.
+
+        Args:
+            sample_identifier (int): The identifier of the sample.
+
+        Returns:
+            str: The name 'sample_<identifier>'.
+        """
+        return f"sample_{sample_identifier}"
+
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
+                           sample_name: str, iteration: int) -> np.ndarray:
+        """
+        Draws a test sample as its image under a caption naming the iteration, the sample and its predicted label.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The model outputs.
+            sample_index (int): The index of the sample in the batch.
+            sample_name (str): The name of the sample.
+            iteration (int): The training iteration of the evaluated checkpoint.
+
+        Returns:
+            np.ndarray: The [24 + H, W', 3] uint8 BGR image of the sample.
+        """
+        image = np.ascontiguousarray(batch["images"][sample_index].detach().cpu().to(dtype=torch.uint8)
+                                     .permute(1, 2, 0).numpy())
+        predicted_label = int(predictions["class_logits"][sample_index].argmax())
+        return add_caption_bar(image=image, caption=f"Iteration {iteration} | {sample_name} | {predicted_label}")
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
@@ -319,8 +364,8 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
     """
     Builds the experiment and model settings read by the general trainer for the dummy task: batches of 2 samples,
     saves at iterations 2 (intermediate) and 4 (with test evaluation), a console summary and a validation batch every 2
-    iterations, the per-class evaluation report on, no augmentation, no pretrained backbone, and plain Adam at a
-    constant learning rate.
+    iterations, the per-class evaluation report on, no sample images, no MLflow tracking, no augmentation, no
+    pretrained backbone, and plain Adam at a constant learning rate.
 
     Args:
         experiment_folder (Path): The experiments root folder of the run.
@@ -335,7 +380,10 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
                                 "batch_size": 2, "information_dump": 2, "weight_saving_iterations": 4,
                                 "intermediate_weight_saving_iterations": 2, "number_iterations": number_iterations,
                                 "validation_iteration_ratio": 2, "learning_rate": 0.01, "dtype": torch.float32,
-                                "resume_training": True, "evaluation": {"per_class_report": True},
+                                "resume_training": True,
+                                "evaluation": {"per_class_report": True, "number_sample_images": 0},
+                                "tracking": {"activated": False, "tracking_uri": None, "experiment_name": None,
+                                             "log_artifacts": True},
                                 "diagnosis_modes": {"verbose": False, "compute_receptive_field": False,
                                                     "compute_model_size": False, "view_input_images": False}}
     augmentation_types = {name: {"activated": False, "probability": 0.0} for name in AUGMENTATION_TYPES}

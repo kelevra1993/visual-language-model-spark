@@ -25,6 +25,7 @@ dependencies = [
     "matplotlib>=3.11.2",
     "gdown>=6.4.1",
     "boto3>=1.43.93",
+    "mlflow>=3.17.0",
 ]
 
 [tool.pytest.ini_options]

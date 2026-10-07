@@ -226,6 +226,28 @@ def write_per_class_report_as_text(configuration: Dict[str, Any]) -> None:
     configuration["ExperimentConfiguration"]["evaluation"]["per_class_report"] = "yes"
 
 
+def set_negative_number_sample_images(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a negative number of sample images, a setting shared by every task.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["number_sample_images"] = -1
+
+
+def set_invalid_tracking(configuration: Dict[str, Any]) -> None:
+    """
+    Writes every MLflow tracking setting with an invalid value: the switches as text, an empty server address and an
+    experiment name that is not a string.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["tracking"].update({"activated": "yes", "log_artifacts": "no",
+                                                                 "tracking_uri": " ", "experiment_name": 12})
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_invalid_loading, ["'Data.loading.prefetch_batches' must be an integer >= 1, got 0.",
                            "'Data.loading.number_workers' must be at least 1 with 'Data.DALI.activated'"]),
@@ -252,7 +274,15 @@ def write_per_class_report_as_text(configuration: Dict[str, Any]) -> None:
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
                            "'Detector.number_training_positives' (500) must be <="]),
     (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
-                                      "got 'yes'."])])
+                                      "got 'yes'."]),
+    (set_negative_number_sample_images, ["'ExperimentConfiguration.evaluation.number_sample_images' must be an "
+                                         "integer >= 0, got -1."]),
+    (set_invalid_tracking, ["'ExperimentConfiguration.tracking.activated' must be True or False, got 'yes'.",
+                            "'ExperimentConfiguration.tracking.log_artifacts' must be True or False, got 'no'.",
+                            "'ExperimentConfiguration.tracking.tracking_uri' must be null or a non-empty string, "
+                            "got ' '.",
+                            "'ExperimentConfiguration.tracking.experiment_name' must be null or a non-empty string, "
+                            "got 12."])])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                 expected_messages: List[str]) -> None:
@@ -458,7 +488,9 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
                                "'ExperimentConfiguration.evaluation.error_dumps.activated' must be False with "
                                "'ClassificationHead.output_mode' 'multi_label'"]),
     (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
-                                      "got 'yes'."])])
+                                      "got 'yes'."]),
+    (set_negative_number_sample_images, ["'ExperimentConfiguration.evaluation.number_sample_images' must be an "
+                                         "integer >= 0, got -1."])])
 def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                modify_function: Callable[[Dict[str, Any]], None],
                                                                expected_messages: List[str]) -> None:

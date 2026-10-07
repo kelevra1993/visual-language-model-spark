@@ -5,6 +5,7 @@
 - Prerequisites
 - Configurations
 - Run Names
+- MLflow Tracking
 - TODO
 
 ## Description
@@ -14,13 +15,14 @@ This repository contains an object detection pipeline built with PyTorch, suppor
 - PyTorch
 - NVIDIA DALI
 - OpenCV
+- MLflow, only for the tracking of the runs (`ExperimentConfiguration.tracking`)
 
 ## Configurations
 Every task has its own configuration files in `vision_training/configurations/<task>/`: a `configuration_example.yaml` and a `configuration_synthetic_*.yaml`. Both files of a task have the same keys, only their values differ.
 
 A configuration file holds only the keys its task reads, and every one of them is required. To start a new run, copy the file of the right task, not the file of another task. The check of the task lists any missing key, and a section used only by another task is ignored.
 
-The tables below list only the keys that are not in every task. Every other key (the rest of `ExperimentConfiguration`, including `evaluation.per_class_report`, `Optimization`, `Data` and `Backbone`) is the same in all tasks. A section name alone (e.g. `RegionProposal`) means the whole section with all its keys. Tasks are written with their run name codes:
+The tables below list only the keys that are not in every task. Every other key (the rest of `ExperimentConfiguration`, including `evaluation.per_class_report`, `evaluation.number_sample_images` and `tracking`, `Optimization`, `Data` and `Backbone`) is the same in all tasks. A section name alone (e.g. `RegionProposal`) means the whole section with all its keys. Tasks are written with their run name codes:
 
 | Code | Task |
 |---|---|
@@ -49,7 +51,6 @@ The tables below list only the keys that are not in every task. Every other key 
 | `Fusion` | | | | | ✓ | |
 | `SegmentationDecoder` | | | | | | ✓ |
 | `SegmentationLoss` | | | | | | ✓ |
-| `ExperimentConfiguration.evaluation.number_sample_images` | | | | | | ✓ |
 | `ExperimentConfiguration.evaluation.save_predicted_masks` | | | | | | ✓ |
 
 ### Keys Per Group Of Tasks
@@ -60,7 +61,7 @@ The tables below list only the keys that are not in every task. Every other key 
 | M2O, M2M, CMP | `TemporalModel`, `Data.sequence_settings` (`sequence_length`, `frame_stride`, `short_sequences`) |
 | M2O, M2M | `Data.sequence_settings.window_stride` |
 | CMP | `Fusion` |
-| SEG | `SegmentationDecoder`, `SegmentationLoss`, `ExperimentConfiguration.evaluation.number_sample_images`, `save_predicted_masks` |
+| SEG | `SegmentationDecoder`, `SegmentationLoss`, `ExperimentConfiguration.evaluation.save_predicted_masks` |
 
 ### Values Per Task
 Some keys are in several tasks but do not accept the same values in each. The check of the task refuses a value that its task cannot use. Everything not listed here accepts the same values in every task that has the key.
@@ -97,9 +98,11 @@ Every evaluated checkpoint is reported in the console and in a block of `<run>/R
 | `confusion_matrix.png` and its Test image (TensorBoard), the shares of the true class only for SEG | CLS (multi-class), M2O, M2M, CMP, SEG | with `per_class_report` |
 | `predictions.csv` | CLS, M2O, M2M, CMP | with `save_predictions` |
 | `Errors/<TRUE>-TO-<PREDICTED>/` | CLS (multi-class), M2O, M2M, CMP | with `error_dumps.activated` |
-| `Samples/<image>.png` and its Test image (TensorBoard): input, true mask, predicted mask and error map of the same test images at every evaluation | SEG | with `number_sample_images` above 0, whatever `per_class_report` |
+| `Samples/<sample>.png` and its Test image `Samples/<sample>` (TensorBoard): the same test samples at every evaluation with their targets and predictions. CLS, M2O, CMP: the input (frame grid of the window, before member above after member for CMP) captioned `true -> predicted probability`, green when right and red when wrong. M2M: the frame grid, every frame captioned `true/predicted` with `X` on the wrong ones. DET: ground truth boxes next to the detections above `Detector.inference.score_threshold`. SEG: input, true mask, predicted mask and error map | all | with `number_sample_images` above 0, whatever `per_class_report` |
 | `Predicted_Masks/<image>.png`: class index of every pixel at the network resolution | SEG | with `save_predicted_masks` |
 | `Evaluation/evaluation_summary.csv` (`scripts/evaluation/evaluate_checkpoint.py` with `iteration = "all"`) | all | per-class columns with `per_class_report` |
+
+The `number_sample_images` test samples are chosen once from the test split, so that the same samples are shown at every evaluation and after a resume. For CLS, M2O, M2M and CMP they are spread over the classes first, one per class in turn (a window of M2M counts for the class of most of its frames), then evenly over the samples of each class. For DET and SEG they are evenly spread over the test images. A test split smaller than `number_sample_images` shows all its samples.
 
 ## Run Names
 A training run is saved in `<ExperimentConfiguration.experiment_folder>/<run name>`. The run name is built from the configuration by `vision_training/configuration/run_name.py`: the same settings resume in the same folder, changed settings start a new folder.
@@ -171,5 +174,39 @@ Examples, built from the configurations of the repository:
 
 M2M names have the same layout as M2O names.
 
+## MLflow Tracking
+MLflow keeps every training run in one database, so that the runs can be listed, compared and searched by their settings and results in a web page. It is used next to TensorBoard and `Results.txt`, not instead of them.
+
+To launch it, set `ExperimentConfiguration.tracking.activated: True` in the configuration and train as usual. The runs are written to `<experiment_folder>/mlflow.db` and their files to `<experiment_folder>/mlartifacts/`. To browse them, start the interface and open http://localhost:5000:
+
+```bash
+uv run mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db
+```
+
+Advantages:
+- All the runs of an experiments root folder in one table, sorted and filtered by any setting or metric (e.g. the best test accuracy).
+- The full configuration of every run is kept, with the git commit it was trained from.
+- A resumed training continues the same MLflow run, and the changed settings are recorded.
+- It never slows down nor stops the training: the values are written by a background thread, and an unavailable database only prints a warning.
+
+Disadvantages:
+- An extra package, about 1 s to import, and a few seconds to create a new database.
+- The training curves are interval averages (every `information_dump` iterations): the per-iteration curves stay in TensorBoard.
+- The checkpoints, predictions, error images and sample images are not sent, only the folder of the run is recorded.
+- The copied files (configuration, evaluation files) take extra disk space.
+
+What is logged:
+
+| Output | Tasks |
+|---|---|
+| The configuration as parameters, the number of model parameters and of samples | all |
+| `train/<metric>`, `validation/<metric>`, `learning_rate`, `train/throughput` | all |
+| `test/best_<headline metric>`, `Results.txt` and the configuration file | all |
+| `test/mAP@0.5`, `mAP@0.75`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test_class/AP@0.5/<class>`; `class_metrics.csv` | DET |
+| `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-<k> Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`); `test_class/Precision`, `Recall`, `F1` per class; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | CLS, M2O, M2M, CMP |
+| `test/Sequence Exact Match` | M2M |
+| `test/Mean IoU`, `Mean Dice`, `Pixel Accuracy`, `Frequency Weighted IoU`; `test_class/IoU`, `Dice`, `Precision`, `Recall` per class; `class_metrics.csv`, `confusion_matrix.png` | SEG |
+
+The `test_class/` metrics and `confusion_matrix.png` need `evaluation.per_class_report: True`, and the files need `tracking.log_artifacts: True`. MLflow writes `@` as `_at_` and `[0.5:0.95]` as `0.5-0.95` in the metric names. `scripts/evaluation/evaluate_checkpoint.py` logs its evaluations in a separate run, `<run name>-evaluation`.
+
 ## TODO
-- Sample grids for every task, as for SEG: a few fixed test samples drawn with their targets and predictions at every evaluation, saved in `Evaluation/Iteration_<n>/Samples/` and sent to TensorBoard through `EvaluationResults["sample_images"]` (CLS, DET, M2O, M2M, CMP).

@@ -1,8 +1,9 @@
 """
 Migration of configuration files and run folders written by older versions of the code: inserts as text, keeping
 the comments, the keys and sections added since (task, pretrained settings, evaluation outputs, per-class report,
-sequence settings, Optimization), and renames the run folder to its current run name (without the training and
-dropout tokens no longer written in the run names). Called by scripts/configuration/migrate_configuration.py.
+sample images, MLflow tracking, sequence settings, Optimization), and renames the run folder to its current run name
+(without the training and dropout tokens no longer written in the run names). Called by
+scripts/configuration/migrate_configuration.py.
 """
 
 import yaml
@@ -71,6 +72,44 @@ PER_CLASS_REPORT_LINES = ("    # Reports every class at every evaluation: the ta
                           "scalars and the\n"
                           "    # confusion matrix image. False keeps the global metrics only.\n"
                           "    per_class_report: True\n")
+
+# Start of the line of the per-class report switch, and the number of sample images inserted after it, none as in the
+# runs of every task but the segmentation written before it was shared by every task
+PER_CLASS_REPORT_LINE_START = "    per_class_report:"
+NUMBER_SAMPLE_IMAGES_LINES = ("    # Number of fixed test samples drawn with their targets and predictions at every "
+                              "evaluation, 0 for none.\n"
+                              "    number_sample_images: 0\n")
+
+# MLflow tracking section inserted after the evaluation settings of the experiment section, off as in every run
+# written before it existed
+TRACKING_SECTION_LINES = ("  # Tracking of the run in MLflow, next to TensorBoard and Results.txt: the "
+                          "hyperparameters, the averages of the\n"
+                          "  # training and validation metrics of every information_dump interval, the learning rate, "
+                          "the test metrics of every\n"
+                          "  # evaluated checkpoint and a few small artifacts (configuration, confusion matrices, "
+                          "class metrics and thresholds,\n"
+                          "  # Results.txt). The tracking never blocks nor stops the training: any MLflow error prints "
+                          "one warning and the\n"
+                          "  # training continues without it.\n"
+                          "  tracking:\n"
+                          "    # Turns the MLflow tracking on.\n"
+                          "    activated: False\n"
+                          "    # Address of an MLflow tracking server, e.g. \"http://192.168.1.20:5000\", or null for "
+                          "the local database of the\n"
+                          "    # experiments root folder (sqlite:///<experiment_folder>/mlflow.db, artifacts in "
+                          "<experiment_folder>/mlartifacts),\n"
+                          "    # browsed with \"mlflow ui --backend-store-uri "
+                          "sqlite:///<experiment_folder>/mlflow.db\". The credentials of a\n"
+                          "    # server are read from the MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD "
+                          "environment variables, never from\n"
+                          "    # this file.\n"
+                          "    tracking_uri: null\n"
+                          "    # MLflow experiment grouping the runs, null for the task name (e.g. "
+                          "\"classification\").\n"
+                          "    experiment_name: null\n"
+                          "    # Sends the configuration, the confusion matrices, the class metrics and thresholds and "
+                          "Results.txt as artifacts.\n"
+                          "    log_artifacts: True\n")
 
 # Lines of the augmentation section and of its types, and the sequence augmentations inserted before the types, off in
 # every run written before they existed
@@ -294,6 +333,94 @@ def add_per_class_report_to_configuration(configuration_path: Path) -> bool:
     return True
 
 
+def add_sample_images_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades the configuration file of a run written before 'ExperimentConfiguration.evaluation.number_sample_images'
+    was shared by every task by inserting it, at 0 (no sample images, as in the runs of that time), right after the
+    per-class report switch of its evaluation settings. The setting is inserted as text, so that every comment of the
+    file is kept, and a file that already has it (the segmentation runs), or has no evaluation settings, is left
+    untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the setting was added, False if the file already had it or has no evaluation settings.
+
+    Raises:
+        ValueError: If the evaluation settings have no per-class report switch, add it first with
+            add_per_class_report_to_configuration.
+    """
+    text = configuration_path.read_text()
+    experiment_configuration = yaml.safe_load(stream=text)["ExperimentConfiguration"]
+    if "evaluation" not in experiment_configuration or \
+            "number_sample_images" in experiment_configuration["evaluation"]:
+        return False
+
+    # Line of the per-class report switch, the only one of the file
+    lines = text.splitlines(keepends=True)
+    report_index = next((line_index for line_index, line in enumerate(lines)
+                         if line.startswith(PER_CLASS_REPORT_LINE_START)), None)
+    if report_index is None:
+        raise ValueError(f"No 'per_class_report' line in the evaluation settings of "
+                         f"file://{configuration_path.absolute()}, add it first with "
+                         f"add_per_class_report_to_configuration.")
+
+    configuration_path.write_text(data="".join(lines[:report_index + 1] + [NUMBER_SAMPLE_IMAGES_LINES] +
+                                               lines[report_index + 1:]))
+    return True
+
+
+def add_tracking_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades the configuration file of a run written before the MLflow tracking by inserting the commented
+    'ExperimentConfiguration.tracking' section, off as in the runs of that time, right after the evaluation settings
+    of the experiment section, so that the run can be resumed and its checkpoints evaluated. The section is inserted as
+    text, so that every comment of the file is kept, and a file that already has it is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the section was added, False if the file already had it.
+
+    Raises:
+        ValueError: If the experiment section has no '  evaluation:' line, add it first with
+            add_per_class_report_to_configuration.
+    """
+    text = configuration_path.read_text()
+    if "tracking" in yaml.safe_load(stream=text)["ExperimentConfiguration"]:
+        return False
+
+    # Line of the evaluation settings, searched within the experiment section only
+    lines = text.splitlines(keepends=True)
+    evaluation_index = None
+    for line_index in range(lines.index(EXPERIMENT_SECTION_HEADER) + 1, len(lines)):
+        if lines[line_index][:1].isalpha():
+            break
+        if lines[line_index] == EVALUATION_SECTION_LINE:
+            evaluation_index = line_index
+            break
+    if evaluation_index is None:
+        raise ValueError(f"No '  evaluation:' line in the experiment section of "
+                         f"file://{configuration_path.absolute()}, add it first with "
+                         f"add_per_class_report_to_configuration.")
+
+    # Last line of the evaluation settings: the section ends at the first line indented as the experiment keys (a key or
+    # the comment of the next key), the blank lines before it staying after the inserted section
+    insertion_index = evaluation_index + 1
+    for line_index in range(evaluation_index + 1, len(lines)):
+        if not lines[line_index].strip():
+            continue
+        if len(lines[line_index]) - len(lines[line_index].lstrip(" ")) <= 2:
+            break
+        insertion_index = line_index + 1
+
+    configuration_path.write_text(data="".join(lines[:insertion_index] + [TRACKING_SECTION_LINES] +
+                                               lines[insertion_index:]))
+    return True
+
+
 def add_sequence_augmentation_to_configuration(configuration_path: Path) -> bool:
     """
     Upgrades a configuration file written before the sequence augmentations by inserting
@@ -413,9 +540,10 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     module and classification head (those of a run trained from random weights), the
     'Backbone.pretrained.freeze_normalization_parameters' flag (off), the evaluation outputs of the classification-like
     tasks (no predictions file nor error images), the per-class report switch of every task (on, the per-class
-    report of that time), the sequence augmentations (off), the scope of the sequence normalization of the
-    comparison task (per member), its 'Optimization' section (plain Adam at a constant learning rate) and its loading
-    settings (4 worker processes), and its folder is renamed to the run name the
+    report of that time), the number of sample images (none), the MLflow tracking settings (off), the sequence
+    augmentations (off), the scope of the
+    sequence normalization of the comparison task (per member), its 'Optimization' section (plain Adam at a constant
+    learning rate) and its loading settings (4 worker processes), and its folder is renamed to the run name the
     current code builds from that configuration (the task code being now the first section of the run names, and the
     augmentation, batch size, learning rate, schedule, gradient clipping, mixed precision and dropout tokens being no
     longer written). The configuration is fully checked on the way, any other missing key being reported by the configuration
@@ -450,6 +578,10 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
                                           f"file://{configuration_path.absolute()}")
     if add_per_class_report_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Per-Class Report Switch Added To : file://{configuration_path.absolute()}")
+    if add_sample_images_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Number Of Sample Images Added To : file://{configuration_path.absolute()}")
+    if add_tracking_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"MLflow Tracking Settings Added To : file://{configuration_path.absolute()}")
     if add_sequence_augmentation_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Sequence Augmentation Settings Added To : "
                                           f"file://{configuration_path.absolute()}")

@@ -31,6 +31,10 @@ experiments_folder/
 # Experiments data
 experiments/
 datasets/
+# MLflow local database and artifacts, written in the experiments root folder wherever it points
+mlflow.db
+mlartifacts/
+mlruns/
 classifier_insipiration_code/
 previous_classifiers/
 previous_semantic_segmentation/

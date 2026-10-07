@@ -49,12 +49,30 @@ ExperimentConfiguration:
     # Number of test images drawn once and shown at every evaluation, each as a grid of its input, its ground truth
     # mask, its predicted mask and its error map (correct pixels of the classes in green, pixels given a wrong class in
     # red, pixels of a class missed as background in yellow), saved in Evaluation/Iteration_<n>/Samples/ and sent to
-    # TensorBoard. 0 to disable.
+    # TensorBoard. The images are evenly spread over the test images. 0 to disable.
     number_sample_images: 16
     # Saves the predicted mask of every test image at every evaluation in Evaluation/Iteration_<n>/Predicted_Masks/, a
     # single-channel PNG at the network input resolution holding the class index of every pixel. Its size grows with
     # the number of test images, False to skip it on large test sets.
     save_predicted_masks: False
+  # Tracking of the run in MLflow, next to TensorBoard and Results.txt: the hyperparameters, the averages of the
+  # training and validation metrics of every information_dump interval, the learning rate, the test metrics of every
+  # evaluated checkpoint and a few small artifacts (configuration, confusion matrices, class metrics, Results.txt).
+  # The tracking never blocks nor stops the training: any MLflow error prints one warning and the training
+  # continues without it.
+  tracking:
+    # Turns the MLflow tracking on.
+    activated: False
+    # Address of an MLflow tracking server, e.g. "http://192.168.1.20:5000", or null for the local database of the
+    # experiments root folder (sqlite:///<experiment_folder>/mlflow.db, artifacts in <experiment_folder>/mlartifacts),
+    # browsed with "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". The credentials of a
+    # server are read from the MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD environment variables, never from
+    # this file.
+    tracking_uri: null
+    # MLflow experiment grouping the runs, null for the task name (e.g. "semantic_segmentation").
+    experiment_name: null
+    # Sends the configuration, the confusion matrices, the class metrics and Results.txt as artifacts.
+    log_artifacts: True
   # Base learning rate used by the optimizer.
   learning_rate: 5.0e-4
   # Global tensor data type, either "float32" or "float64".

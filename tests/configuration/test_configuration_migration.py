@@ -1,7 +1,8 @@
 """
 Tests of vision_training/configuration/configuration_migration.py: every migration step (task, pretrained settings,
-normalization flag, evaluation outputs, per-class report, sequence augmentation, normalization scope, optimization
-section) is added once to an old configuration, and migrate_run_folder renames old run folders after their settings.
+normalization flag, evaluation outputs, per-class report, sample images, MLflow tracking, sequence augmentation,
+normalization scope, optimization section) is added once to an old configuration, and migrate_run_folder renames old
+run folders after their settings.
 """
 
 import json
@@ -11,11 +12,13 @@ import yaml
 from pathlib import Path
 
 from vision_training.configuration.configuration_migration import (
-    add_evaluation_outputs_to_configuration, add_freeze_normalization_parameters_to_configuration,
-    add_loading_settings_to_configuration, add_optimization_section_to_configuration,
+    TRACKING_SECTION_LINES, add_evaluation_outputs_to_configuration,
+    add_freeze_normalization_parameters_to_configuration, add_loading_settings_to_configuration,
+    add_optimization_section_to_configuration,
     add_per_class_report_to_configuration, add_pretrained_settings_to_configuration,
-    add_sequence_augmentation_to_configuration, add_sequence_normalization_scope_to_configuration,
-    add_task_to_configuration, migrate_run_folder)
+    add_sample_images_to_configuration, add_sequence_augmentation_to_configuration,
+    add_sequence_normalization_scope_to_configuration, add_task_to_configuration, add_tracking_to_configuration,
+    migrate_run_folder)
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -23,6 +26,10 @@ SEQUENCE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "
                                "sequence_classification" / "configuration_synthetic_sequences.yaml")
 COMPARISON_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                  "sequence_comparison" / "configuration_synthetic_pairs.yaml")
+SEGMENTATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
+                                   "semantic_segmentation" / "configuration_synthetic_shapes.yaml")
+CLASSIFICATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
+                                     "classification" / "configuration_example.yaml")
 
 # Pretrained backbone settings written by the migration of the backbone transfer, before the normalization flag existed
 OLD_PRETRAINED_BACKBONE_BLOCK = ("  # Backbone of another training run initialising this run, null to start from "
@@ -44,8 +51,9 @@ def write_old_run_folder(temporary_directory: Path) -> Path:
     """
     Writes a run folder as trained before the task-aware configuration, the backbone transfer and the optimization
     settings: an old-style name (without task code, with the augmentation, batch size and learning rate tokens no
-    longer written), and a saved configuration without task, pretrained backbone settings, per-class report switch nor
-    optimization section (a copy of the example configuration, with binary labels so that no mapping file is needed).
+    longer written), and a saved configuration without task, pretrained backbone settings, per-class report switch,
+    number of sample images, tracking settings nor optimization section (a copy of the example configuration, with
+    binary labels so that no mapping file is needed).
 
     Args:
         temporary_directory (Path): The pytest temporary directory, used as the experiments root folder.
@@ -56,6 +64,8 @@ def write_old_run_folder(temporary_directory: Path) -> Path:
     configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
     del configuration["ExperimentConfiguration"]["task"]
     del configuration["ExperimentConfiguration"]["evaluation"]["per_class_report"]
+    del configuration["ExperimentConfiguration"]["evaluation"]["number_sample_images"]
+    del configuration["ExperimentConfiguration"]["tracking"]
     del configuration["Backbone"]["pretrained"]
     del configuration["Optimization"]
     del configuration["Data"]["loading"]
@@ -215,7 +225,7 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     """
     configuration = yaml.safe_load(stream=SEQUENCE_CONFIGURATION_PATH.read_text())
     del configuration["ExperimentConfiguration"]["task"]
-    for key_name in ["save_predictions", "error_dumps", "per_class_report"]:
+    for key_name in ["save_predictions", "error_dumps", "per_class_report", "number_sample_images"]:
         del configuration["ExperimentConfiguration"]["evaluation"][key_name]
     for key_name in ["independent_frames", "shuffle_frames"]:
         del configuration["Data"]["data_augmentation"][key_name]
@@ -240,6 +250,7 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["error_dumps"] == {
         "activated": False, "maximum_per_class_pair": 20}
     assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["per_class_report"] is True
+    assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["number_sample_images"] == 0
     assert migrated_configuration["Data"]["data_augmentation"]["independent_frames"] is False
     assert migrated_configuration["Data"]["loading"] == {"number_workers": 4, "prefetch_batches": 2}
     assert migrate_run_folder(run_folder=renamed_folder, task="sequence_classification",
@@ -315,6 +326,95 @@ def test_per_class_report_is_added_once(tmp_path: Path, configuration_path: Path
     unchanged_text = old_configuration_path.read_text()
     assert add_per_class_report_to_configuration(configuration_path=old_configuration_path) is False
     assert old_configuration_path.read_text() == unchanged_text
+
+
+def test_sample_images_are_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that the number of sample images is added, at 0 as in the runs written before it was shared by every task,
+    right after the per-class report switch, the other evaluation settings being kept, only once; that a segmentation
+    run, which already has it, and a configuration without evaluation settings are left untouched; and that evaluation
+    settings without the per-class report switch are refused.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration = yaml.safe_load(stream=SEQUENCE_CONFIGURATION_PATH.read_text())
+    evaluation_settings = configuration["ExperimentConfiguration"]["evaluation"]
+    del evaluation_settings["number_sample_images"]
+    old_configuration_path = tmp_path / "configuration.yaml"
+    old_configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+
+    # Added right after the per-class report switch, once
+    assert add_sample_images_to_configuration(configuration_path=old_configuration_path) is True
+    migrated_configuration = yaml.safe_load(stream=old_configuration_path.read_text())
+    migrated_settings = migrated_configuration["ExperimentConfiguration"]["evaluation"]
+    expected_settings = list(evaluation_settings.items())
+    expected_settings.insert(list(evaluation_settings).index("per_class_report") + 1, ("number_sample_images", 0))
+    assert list(migrated_settings.items()) == expected_settings
+    assert add_sample_images_to_configuration(configuration_path=old_configuration_path) is False
+
+    # A segmentation run already has it
+    segmentation_path = tmp_path / "segmentation_configuration.yaml"
+    segmentation_path.write_text(data=SEGMENTATION_CONFIGURATION_PATH.read_text())
+    assert add_sample_images_to_configuration(configuration_path=segmentation_path) is False
+    assert segmentation_path.read_text() == SEGMENTATION_CONFIGURATION_PATH.read_text()
+
+    # Evaluation settings without the per-class report switch must be migrated by its step first
+    del evaluation_settings["per_class_report"]
+    old_configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+    with pytest.raises(expected_exception=ValueError):
+        add_sample_images_to_configuration(configuration_path=old_configuration_path)
+
+    # A configuration without evaluation settings is left as it is
+    del configuration["ExperimentConfiguration"]["evaluation"]
+    old_configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+    unchanged_text = old_configuration_path.read_text()
+    assert add_sample_images_to_configuration(configuration_path=old_configuration_path) is False
+    assert old_configuration_path.read_text() == unchanged_text
+
+
+def test_tracking_is_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that the MLflow tracking section is added, off, right after the evaluation settings of the experiment
+    section: a commented configuration gets back exactly its current text, a configuration written by yaml gets the
+    section before its next key with its other settings kept, evaluation settings ending the experiment section keep
+    the blank line before the next section after the inserted one, the section is added only once, and an experiment
+    section without evaluation settings is refused.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "configuration.yaml"
+
+    # A commented configuration without the section gets back the text of the current configuration
+    current_text = CLASSIFICATION_CONFIGURATION_PATH.read_text()
+    configuration_path.write_text(data=current_text.replace(TRACKING_SECTION_LINES, ""))
+    assert add_tracking_to_configuration(configuration_path=configuration_path) is True
+    assert configuration_path.read_text() == current_text
+    assert add_tracking_to_configuration(configuration_path=configuration_path) is False
+    assert configuration_path.read_text() == current_text
+
+    # A configuration written by yaml, its keys sorted, the evaluation settings being followed by experiment_folder
+    configuration = yaml.safe_load(stream=current_text)
+    tracking_settings = configuration["ExperimentConfiguration"].pop("tracking")
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+    assert add_tracking_to_configuration(configuration_path=configuration_path) is True
+    migrated_configuration = yaml.safe_load(stream=configuration_path.read_text())
+    migrated_tracking_settings = migrated_configuration["ExperimentConfiguration"].pop("tracking")
+    assert migrated_tracking_settings == {**tracking_settings, "activated": False}
+    assert migrated_configuration == configuration
+
+    # Evaluation settings ending the experiment section, before a blank line and the next section
+    configuration_path.write_text(data="ExperimentConfiguration:\n  evaluation:\n    per_class_report: True\n\n"
+                                       "Optimization:\n  optimizer: \"adam\"\n")
+    assert add_tracking_to_configuration(configuration_path=configuration_path) is True
+    assert configuration_path.read_text() == ("ExperimentConfiguration:\n  evaluation:\n    per_class_report: True\n" +
+                                              TRACKING_SECTION_LINES + "\nOptimization:\n  optimizer: \"adam\"\n")
+
+    # An experiment section without evaluation settings must be migrated by the per-class report step first
+    configuration_path.write_text(data="ExperimentConfiguration:\n  task: \"classification\"\n")
+    with pytest.raises(expected_exception=ValueError):
+        add_tracking_to_configuration(configuration_path=configuration_path)
 
 
 def test_sequence_augmentation_is_added_once(tmp_path: Path) -> None:

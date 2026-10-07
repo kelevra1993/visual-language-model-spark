@@ -1,7 +1,8 @@
 """
 When run, evaluates the last, a given or every checkpoint of a trained experiment on its test split (or another
 labelled split) through vision_training.evaluation.checkpoint_evaluation.evaluate_checkpoints, the trainer of the task
-being built from the copied configuration and the results written to a separate evaluations folder.
+being built from the copied configuration, the results written to a separate evaluations folder and, when the tracking
+is on, tracked in an MLflow run of their own.
 """
 
 from pathlib import Path
@@ -24,6 +25,10 @@ if __name__ == "__main__":
     # Batch size of the evaluation, which can be larger than the training one since no gradient is kept, None to
     # keep the experiment's one
     batch_size = 128
+    # Tracks the evaluation in an MLflow run of its own, named '<run name>-evaluation' in the backend of the evaluated
+    # experiment and tagged with its training run ('evaluation_of'), True or False, None to keep the experiment's
+    # 'tracking.activated'. The MLflow run of the training is never modified
+    track_evaluation = None
     # Root folder of the evaluations, kept apart from the experiment so that its files are untouched. Like a training
     # run, Results.txt, Tensorboard/Test and the Evaluation folder are written in a subfolder of it named after the
     # run settings
@@ -38,6 +43,8 @@ if __name__ == "__main__":
         experiment_configuration["test_data_folder"] = test_data_folder
     if batch_size is not None:
         experiment_configuration["batch_size"] = batch_size
+    if track_evaluation is not None:
+        experiment_configuration["tracking"]["activated"] = track_evaluation
 
     # The weights come from the evaluated checkpoints, so the pretrained components the run started from are not loaded
     disable_pretrained_settings(model_configuration=model_configuration)
