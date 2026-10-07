@@ -334,7 +334,7 @@ ClassificationHead:
   # same, the weights being inversely proportional to the number of training pairs of each class).
   class_weighting: "none"
   # Classification head of another training run initialising this run instead of random weights. Its
-  # fully_connected layers and whether it uses a dropout must be identical in both runs, as well as the size of
+  # fully_connected layers must be identical in both runs (the dropout rate may differ), as well as the size of
   # the vectors it reads and the classes it predicts, in the same order. The head of a comparison run, which reads
   # the fused vectors of both members, only fits another comparison run.
   pretrained:
