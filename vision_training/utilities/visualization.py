@@ -479,7 +479,7 @@ def build_segmentation_sample_grid(image: np.ndarray, mask: np.ndarray, class_ma
         class_map (np.ndarray): The [H, W] predicted class index of every pixel.
         class_names (List[str]): The name of every class, in class index order.
         class_colours (np.ndarray): The [K, 3] uint8 BGR colour of every class (build_class_colours).
-        caption (str): The text of the caption bar, e.g. the sample name and its pixel accuracy.
+        caption (str): The text of the caption bar, e.g. the pixel accuracy of the sample.
 
     Returns:
         np.ndarray: The [24 + H + 24, 4 x W + 3 x 4, 3] uint8 BGR grid.
@@ -519,7 +519,7 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
         predicted_scores (np.ndarray): The [M] class probability of every detection.
         class_names (Dict[int, str]): The name of every class index.
         class_colours (np.ndarray): The [K, 3] uint8 BGR colour of every class (build_class_colours).
-        caption (str): The text of the caption bar, e.g. the sample name and its number of boxes.
+        caption (str): The text of the caption bar, e.g. the number of true boxes and of detections.
 
     Returns:
         np.ndarray: The [24 + H + 24, 2 x W + 4, 3] uint8 BGR grid.

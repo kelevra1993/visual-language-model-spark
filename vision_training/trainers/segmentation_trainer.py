@@ -316,8 +316,7 @@ class SegmentationTrainer(BaseTrainer):
             cv2.imwrite(filename=str(accumulator["predicted_masks_folder"] / f"{sample_name}.png"),
                         img=class_maps[position].astype(np.uint8))
 
-    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
-                           sample_name: str, iteration: int) -> np.ndarray:
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
         Draws a fixed test image for the sample images of the evaluation: its input, its true and predicted masks and
         its error map side by side, captioned with its pixel accuracy over its labelled pixels.
@@ -326,8 +325,6 @@ class SegmentationTrainer(BaseTrainer):
             batch (Dict[str, Any]): The prepared test batch.
             predictions (Dict[str, Any]): The segmenter outputs.
             sample_index (int): The index of the image in the batch.
-            sample_name (str): The name of the image.
-            iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
             np.ndarray: The [H, W, 3] uint8 BGR grid of the sample.
@@ -344,7 +341,7 @@ class SegmentationTrainer(BaseTrainer):
         return build_segmentation_sample_grid(
             image=image, mask=mask, class_map=class_map, class_names=self.class_names,
             class_colours=self.class_colours,
-            caption=f"Iteration {iteration} | {sample_name} | Pixel Accuracy {pixel_accuracy:.4f}")
+            caption=f"Pixel Accuracy {pixel_accuracy:.4f}")
 
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """

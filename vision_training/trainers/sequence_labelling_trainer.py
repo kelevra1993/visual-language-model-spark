@@ -183,8 +183,7 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
                                   f"{true_class_name}/{self.class_names[predicted_label]}")
         return frame_captions
 
-    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
-                           sample_name: str, iteration: int) -> np.ndarray:
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
         Draws a fixed test window for the sample images of the evaluation: the frame grid of the window, every real
         frame captioned with its true and predicted classes and the wrong ones marked with 'X', under a caption giving
@@ -194,8 +193,6 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
             batch (Dict[str, Any]): The prepared test batch.
             predictions (Dict[str, Any]): The sequence labeller outputs.
             sample_index (int): The index of the window in the batch.
-            sample_name (str): The name of the window.
-            iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
             np.ndarray: The [H, W, 3] uint8 BGR image of the window.
@@ -219,8 +216,8 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
             frames=batch["images"][sample_index], sequence_mask=sequence_mask, frame_captions=frame_captions,
             number_columns=FRAME_GRID_COLUMNS).permute(1, 2, 0).numpy())
         return add_caption_bar(image=frame_grid,
-                               caption=f"Iteration {iteration} | {sample_name} | {number_correct_frames}/"
-                                       f"{len(labelled_frames)} labelled frames right (true/predicted)",
+                               caption=f"{number_correct_frames}/{len(labelled_frames)} labelled frames right "
+                                       f"(true/predicted)",
                                caption_colour=CORRECT_PREDICTION_COLOUR
                                if number_correct_frames == len(labelled_frames) else WRONG_PREDICTION_COLOUR)
 

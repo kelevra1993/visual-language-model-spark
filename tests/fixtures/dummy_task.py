@@ -323,17 +323,14 @@ class DummyTrainer(BaseTrainer):
         """
         return f"sample_{sample_identifier}"
 
-    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
-                           sample_name: str, iteration: int) -> np.ndarray:
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
-        Draws a test sample as its image under a caption naming the iteration, the sample and its predicted label.
+        Draws a test sample as its image under a caption giving its predicted label.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
             predictions (Dict[str, Any]): The model outputs.
             sample_index (int): The index of the sample in the batch.
-            sample_name (str): The name of the sample.
-            iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
             np.ndarray: The [24 + H, W', 3] uint8 BGR image of the sample.
@@ -341,7 +338,7 @@ class DummyTrainer(BaseTrainer):
         image = np.ascontiguousarray(batch["images"][sample_index].detach().cpu().to(dtype=torch.uint8)
                                      .permute(1, 2, 0).numpy())
         predicted_label = int(predictions["class_logits"][sample_index].argmax())
-        return add_caption_bar(image=image, caption=f"Iteration {iteration} | {sample_name} | {predicted_label}")
+        return add_caption_bar(image=image, caption=f"Predicted label {predicted_label}")
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

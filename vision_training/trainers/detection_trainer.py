@@ -284,8 +284,7 @@ class DetectionTrainer(BaseTrainer):
         """
         return str(PurePosixPath(self.test_image_file_names[sample_identifier]).with_suffix("")).replace("/", "_")
 
-    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
-                           sample_name: str, iteration: int) -> np.ndarray:
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
         Draws a fixed test image for the sample images of the evaluation: its ground truth boxes next to its
         detections whose score reaches the deployment score threshold ('Detector.inference.score_threshold'), the
@@ -295,8 +294,6 @@ class DetectionTrainer(BaseTrainer):
             batch (Dict[str, Any]): The prepared test batch.
             predictions (Dict[str, Any]): The detector outputs, with the final detections of every image.
             sample_index (int): The index of the image in the batch.
-            sample_name (str): The name of the image.
-            iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
             np.ndarray: The [H, W, 3] uint8 BGR image of the sample.
@@ -318,8 +315,8 @@ class DetectionTrainer(BaseTrainer):
             predicted_boxes=predicted_boxes.cpu().numpy()[kept_detections],
             predicted_labels=predicted_labels.cpu().numpy()[kept_detections], predicted_scores=scores[kept_detections],
             class_names=self.class_names, class_colours=self.class_colours,
-            caption=f"Iteration {iteration} | {sample_name} | {len(ground_truth_boxes)} ground truth boxes | "
-                    f"{int(kept_detections.sum())} detections with score >= {self.sample_score_threshold:.2f}")
+            caption=f"{len(ground_truth_boxes)} ground truth boxes | {int(kept_detections.sum())} detections with "
+                    f"score >= {self.sample_score_threshold:.2f}")
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

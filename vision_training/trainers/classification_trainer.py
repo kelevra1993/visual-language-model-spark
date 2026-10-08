@@ -320,8 +320,7 @@ class ClassificationTrainer(BaseTrainer):
         """
         return self.test_dataloader.dataset.get_sample_class_indices()
 
-    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
-                           sample_name: str, iteration: int) -> np.ndarray:
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
         Draws a fixed test sample for the sample images of the evaluation: its input (the image, or the frame grid of a
         window or of a pair) captioned with its true class and its predicted class with its probability, or in
@@ -333,8 +332,6 @@ class ClassificationTrainer(BaseTrainer):
             batch (Dict[str, Any]): The prepared test batch.
             predictions (Dict[str, Any]): The classifier outputs.
             sample_index (int): The index of the sample in the batch.
-            sample_name (str): The name of the sample.
-            iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
             np.ndarray: The [H, W, 3] uint8 BGR image of the sample.
@@ -358,7 +355,7 @@ class ClassificationTrainer(BaseTrainer):
 
         # Input of the sample captioned with its prediction, in green when right and in red when wrong
         return add_caption_bar(image=self.build_input_image(batch=batch, sample_index=sample_index),
-                               caption=f"Iteration {iteration} | {sample_name} | {prediction_text}",
+                               caption=prediction_text,
                                caption_colour=CORRECT_PREDICTION_COLOUR if correct_prediction else
                                WRONG_PREDICTION_COLOUR)
 

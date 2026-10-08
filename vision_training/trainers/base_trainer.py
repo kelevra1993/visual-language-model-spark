@@ -334,18 +334,17 @@ class BaseTrainer(ABC):
         """
 
     @abstractmethod
-    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
-                           sample_name: str, iteration: int) -> np.ndarray:
+    def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
         Draws one fixed test sample with its target and its prediction, saved and sent to TensorBoard at every
-        evaluation so that the predictions of the same samples can be followed over the training.
+        evaluation so that the predictions of the same samples can be followed over the training. Its caption only
+        describes the prediction: the iteration names the evaluation folder and the TensorBoard step, and the sample
+        name the file and the TensorBoard tag, so that a short caption keeps the image at its own width.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
             predictions (Dict[str, Any]): The predictions of predict_batch.
             sample_index (int): The index of the sample in the batch.
-            sample_name (str): The name of the sample, from get_test_sample_name.
-            iteration (int): The training iteration of the evaluated checkpoint, written in the caption.
 
         Returns:
             np.ndarray: The [H, W, 3] uint8 BGR image of the sample.
@@ -1230,8 +1229,7 @@ class BaseTrainer(ABC):
                 # Images of the fixed test samples of the batch, drawn while their inputs and predictions are at hand
                 if self.sample_image_identifiers and SAMPLE_IDENTIFIERS_KEY in test_batch:
                     self.save_sample_images(batch=test_batch, predictions=predictions, sample_indices=sample_indices,
-                                            iteration=iteration, samples_folder=samples_folder,
-                                            sample_images=sample_images)
+                                            samples_folder=samples_folder, sample_images=sample_images)
 
         # Results of the task, with the images of the fixed test samples reported at every evaluation
         results = self.compute_evaluation_results(accumulator=accumulator, iteration=iteration)
@@ -1243,7 +1241,7 @@ class BaseTrainer(ABC):
         return results
 
     def save_sample_images(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_indices: List[int],
-                           iteration: int, samples_folder: Path, sample_images: Dict[str, np.ndarray]) -> None:
+                           samples_folder: Path, sample_images: Dict[str, np.ndarray]) -> None:
         """
         Draws the fixed test samples of an evaluated test batch with the build_sample_image hook of the task, saves
         every image in the 'Samples' folder of the evaluated checkpoint, '<run>/Evaluation/Iteration_<n>/Samples/', and
@@ -1254,7 +1252,6 @@ class BaseTrainer(ABC):
             batch (Dict[str, Any]): The prepared test batch.
             predictions (Dict[str, Any]): The predictions of predict_batch.
             sample_indices (List[int]): The indices of the samples evaluated in this batch.
-            iteration (int): The training iteration of the evaluated checkpoint.
             samples_folder (Path): The 'Samples' folder of the evaluated checkpoint, created with its first image.
             sample_images (Dict[str, np.ndarray]): The RGB sample images keyed by TensorBoard tag, extended in place.
         """
@@ -1265,8 +1262,7 @@ class BaseTrainer(ABC):
 
             # Image of the sample drawn by the task, saved in BGR and kept in RGB for TensorBoard
             sample_name = self.get_test_sample_name(sample_identifier=sample_identifier)
-            sample_image = self.build_sample_image(batch=batch, predictions=predictions, sample_index=sample_index,
-                                                   sample_name=sample_name, iteration=iteration)
+            sample_image = self.build_sample_image(batch=batch, predictions=predictions, sample_index=sample_index)
             samples_folder.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(filename=str(samples_folder / f"{sample_name}.png"), img=sample_image)
             sample_images[f"Samples/{sample_name}"] = cv2.cvtColor(src=sample_image, code=cv2.COLOR_BGR2RGB)
