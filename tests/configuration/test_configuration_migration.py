@@ -1,8 +1,8 @@
 """
 Tests of vision_training/configuration/configuration_migration.py: every migration step (task, pretrained settings,
 normalization flag, evaluation outputs, per-class report, sample images, MLflow tracking, sequence augmentation,
-normalization scope, optimization section) is added once to an old configuration, and migrate_run_folder renames old
-run folders after their settings.
+normalization scope, optimization section, loading settings, batch padding) is added once to an old configuration, and
+migrate_run_folder renames old run folders after their settings.
 """
 
 import json
@@ -12,7 +12,7 @@ import yaml
 from pathlib import Path
 
 from vision_training.configuration.configuration_migration import (
-    TRACKING_SECTION_LINES, add_evaluation_outputs_to_configuration,
+    TRACKING_SECTION_LINES, add_batch_padding_to_configuration, add_evaluation_outputs_to_configuration,
     add_freeze_normalization_parameters_to_configuration, add_loading_settings_to_configuration,
     add_optimization_section_to_configuration,
     add_per_class_report_to_configuration, add_pretrained_settings_to_configuration,
@@ -233,6 +233,7 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
         del configuration[section_name]["pretrained"]
     del configuration["Optimization"]
     del configuration["Data"]["loading"]
+    del configuration["Data"]["sequence_settings"]["batch_padding"]
     mapping_path = tmp_path / "label_mapping.json"
     mapping_path.write_text(data=json.dumps(obj={"1": 0, "2": 1, "3": 2, "4": 3}))
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(mapping_path)
@@ -253,6 +254,7 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["number_sample_images"] == 0
     assert migrated_configuration["Data"]["data_augmentation"]["independent_frames"] is False
     assert migrated_configuration["Data"]["loading"] == {"number_workers": 4, "prefetch_batches": 2}
+    assert migrated_configuration["Data"]["sequence_settings"]["batch_padding"] == "sequence_length"
     assert migrate_run_folder(run_folder=renamed_folder, task="sequence_classification",
                               rename_folder=True) == renamed_folder
 
@@ -498,3 +500,34 @@ def test_loading_settings_are_added_once(tmp_path: Path) -> None:
     assert yaml.safe_load(stream=configuration_path.read_text())["Data"]["loading"] == {"number_workers": 4,
                                                                                         "prefetch_batches": 2}
     assert add_loading_settings_to_configuration(configuration_path=configuration_path) is False
+
+
+@pytest.mark.parametrize(argnames="configuration_path", argvalues=[SEQUENCE_CONFIGURATION_PATH,
+                                                                    COMPARISON_CONFIGURATION_PATH])
+def test_batch_padding_is_added_once(tmp_path: Path, configuration_path: Path) -> None:
+    """
+    Verifies that the padding of the batches of a sequence run written before it is added right after the handling of
+    the short sequences, every window padded to the sequence length as in the runs of that time, that a configuration
+    which already has it is left untouched, and that a configuration without sequence settings is not changed.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_path (Path): The shipped sequence configuration the old configuration is made from.
+    """
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    del configuration["Data"]["sequence_settings"]["batch_padding"]
+    old_configuration_path = tmp_path / "configuration.yaml"
+    old_configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+
+    assert add_batch_padding_to_configuration(configuration_path=old_configuration_path) is True
+    sequence_settings = yaml.safe_load(stream=old_configuration_path.read_text())["Data"]["sequence_settings"]
+    assert sequence_settings == {**configuration["Data"]["sequence_settings"], "batch_padding": "sequence_length"}
+    assert list(sequence_settings)[-2:] == ["short_sequences", "batch_padding"]
+    assert add_batch_padding_to_configuration(configuration_path=old_configuration_path) is False
+
+    # A configuration of an image task keeps its settings
+    image_text = EXAMPLE_CONFIGURATION_PATH.read_text()
+    image_path = tmp_path / "image_configuration.yaml"
+    image_path.write_text(data=image_text)
+    assert add_batch_padding_to_configuration(configuration_path=image_path) is False
+    assert image_path.read_text() == image_text

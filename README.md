@@ -58,7 +58,7 @@ The tables below list only the keys that are not in every task. Every other key 
 |---|---|
 | DET | `RegionProposal`, `Anchors`, `Detector`, `ExperimentConfiguration.evaluation.score_threshold` |
 | CLS, M2O, M2M, CMP | `ClassificationHead`, `ExperimentConfiguration.evaluation.top_k`, `target_precision`, `save_predictions`, `error_dumps` |
-| M2O, M2M, CMP | `TemporalModel`, `Data.sequence_settings` (`sequence_length`, `frame_stride`, `short_sequences`) |
+| M2O, M2M, CMP | `TemporalModel`, `Data.sequence_settings` (`sequence_length`, `frame_stride`, `short_sequences`, `batch_padding`) |
 | M2O, M2M | `Data.sequence_settings.window_stride` |
 | CMP | `Fusion` |
 | SEG | `SegmentationDecoder`, `SegmentationLoss`, `ExperimentConfiguration.evaluation.save_predicted_masks` |
@@ -201,6 +201,7 @@ What is logged:
 |---|---|
 | The configuration as parameters, the number of model parameters and of samples | all |
 | `train/<metric>`, `validation/<metric>`, `learning_rate`, `train/throughput` | all |
+| `train/frame_throughput` (real frames per second, padding frames excluded) | M2O, M2M, CMP |
 | `test/best_<headline metric>`, `Results.txt` and the configuration file | all |
 | `test/mAP@0.5`, `mAP@0.75`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test_class/AP@0.5/<class>`; `class_metrics.csv` | DET |
 | `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-<k> Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`); `test_class/Precision`, `Recall`, `F1` per class; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | CLS, M2O, M2M, CMP |

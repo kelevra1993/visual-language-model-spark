@@ -49,25 +49,27 @@ def compute_member_frame_indices(number_frames: int, sequence_length: int, short
     return [((2 * part_index + 1) * number_frames) // (2 * sequence_length) for part_index in range(sequence_length)]
 
 
-def split_pair_members(pair_tensor: torch.Tensor, sequence_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def split_pair_members(pair_tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Splits the frames or the sequence mask of a batch of pairs, stored as the before window followed by the after
-    window along the frame axis, into the before and after members given to the comparison model.
+    window along the frame axis, into the before and after members given to the comparison model. Both windows have
+    the same number of frames: the sequence length, or the longest member of the batch when the batches are padded to
+    their longest window, so the frame axis is split in two halves.
 
     Args:
-        pair_tensor (torch.Tensor): The [B, 2 x sequence_length, ...] frames or [B, 2 x sequence_length] mask.
-        sequence_length (int): The number of frames of a member window.
+        pair_tensor (torch.Tensor): The [B, 2 x T, ...] frames or [B, 2 x T] mask.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: The [B, sequence_length, ...] before member and after member.
+        Tuple[torch.Tensor, torch.Tensor]: The [B, T, ...] before member and after member.
 
     Raises:
-        ValueError: If the frame axis does not hold two member windows of sequence_length frames.
+        ValueError: If the frame axis does not hold two member windows of the same number of frames.
     """
-    if pair_tensor.shape[1] != 2 * sequence_length:
-        raise ValueError(f"A batch of pairs must hold 2 x {sequence_length} frames per pair, got "
-                         f"{pair_tensor.shape[1]}.")
-    return pair_tensor[:, :sequence_length], pair_tensor[:, sequence_length:]
+    if pair_tensor.shape[1] % 2 != 0:
+        raise ValueError(f"A batch of pairs must hold two member windows of the same number of frames, got "
+                         f"{pair_tensor.shape[1]} frames per pair.")
+    member_length = pair_tensor.shape[1] // 2
+    return pair_tensor[:, :member_length], pair_tensor[:, member_length:]
 
 
 class SequencePairDataset(Dataset):
@@ -80,7 +82,8 @@ class SequencePairDataset(Dataset):
     most 'sequence_length' frames (compute_member_frame_indices). A sample stores the before window followed by the
     after window along the frame axis, each padded to 'sequence_length' with black frames, so that the generic code
     of the trainers (augmentation, input viewer, evaluation) handles a pair as one sequence of 2 x sequence_length
-    frames, both members sharing the same augmentation draws.
+    frames, both members sharing the same augmentation draws. With 'batch_padding: "longest"', the collate of the
+    loader cuts both windows of every pair to the longest member of the batch.
     """
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,

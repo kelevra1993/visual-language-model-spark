@@ -1,7 +1,7 @@
 """
 Tests of MetricTracker of vision_training/trainers/metric_tracking.py: interval averages of the tracked metrics,
-validation sums divided by their count, the time interval format, the interval summary header, and the changes since
-the previous summary (metric changes and their colours, best marker).
+validation sums divided by their count, the real frames counted for the frame throughput, the time interval format, the
+interval summary header, and the changes since the previous summary (metric changes and their colours, best marker).
 """
 
 import pytest
@@ -11,21 +11,21 @@ from vision_training.trainers.metric_tracking import MetricTracker
 from vision_training.utilities.os_utilities import color_text
 
 
-def build_metric_tracker(sample_name: str, frames_per_sample: int | None) -> MetricTracker:
+def build_metric_tracker(sample_name: str, counts_frames: bool) -> MetricTracker:
     """
     Builds a metric tracker following the total loss (improving when it decreases) and the accuracy (improving when it
     increases), over intervals of 4 iterations of batches of 2 samples.
 
     Args:
-        sample_name (str): "Images" or "Sequences".
-        frames_per_sample (int | None): The number of frames of a sequence, or None for images.
+        sample_name (str): "Images", "Sequences" or "Pairs".
+        counts_frames (bool): Whether the real frames of the training batches are counted, False for images.
 
     Returns:
         MetricTracker: The tracker.
     """
     return MetricTracker(tracked_metrics_mapping={"total_loss": "Total Loss", "accuracy": "Accuracy"},
                          information_dump=4, batch_size=2, validation_iteration_ratio=2, sample_name=sample_name,
-                         frames_per_sample=frames_per_sample)
+                         counts_frames=counts_frames)
 
 
 def test_interval_average_of_the_tracked_metrics() -> None:
@@ -33,7 +33,7 @@ def test_interval_average_of_the_tracked_metrics() -> None:
     Verifies that the tracked metrics of the batches of an interval add up to their mean, that untracked outputs are
     ignored, and that nothing is tracked without trackers or divisor.
     """
-    tracker = build_metric_tracker(sample_name="Images", frames_per_sample=None)
+    tracker = build_metric_tracker(sample_name="Images", counts_frames=False)
     trackers = tracker.create_trackers()
 
     for loss_value in [1.0, 2.0, 3.0, 6.0]:
@@ -55,11 +55,38 @@ def test_validation_sums_are_divided_by_their_count() -> None:
     """
     Verifies that the validation sums of an interval become means once divided by the number of validation batches.
     """
-    tracker = build_metric_tracker(sample_name="Images", frames_per_sample=None)
+    tracker = build_metric_tracker(sample_name="Images", counts_frames=False)
     validation_trackers = {"start_time": 0.0, "total_loss": 9.0, "accuracy": 1.5}
     tracker.average_validation_trackers(validation_trackers=validation_trackers, validation_interval_count=3)
     assert validation_trackers["total_loss"] == pytest.approx(expected=3.0)
     assert validation_trackers["accuracy"] == pytest.approx(expected=0.5)
+
+
+def test_frame_throughput_counts_the_real_frames() -> None:
+    """
+    Verifies that the sequence tasks count the real frames of their training batches from the sequence mask, whatever
+    the number of padding frames, and divide them by the duration of the interval, while the image tasks count no
+    frames and have no frame throughput.
+    """
+    tracker = build_metric_tracker(sample_name="Sequences", counts_frames=True)
+    trackers = tracker.create_trackers()
+
+    # A batch padded to the sequence length and a batch cut to its longest window, holding 5 and 7 real frames
+    padded_mask = torch.tensor(data=[[True, True, True, False, False, False], [True, True, False, False, False, False]])
+    cut_mask = torch.tensor(data=[[True, True, True, True], [True, True, True, False]])
+    for sequence_mask in [padded_mask, cut_mask]:
+        tracker.count_frames(tracker_dictionary=trackers, batch={"sequence_mask": sequence_mask})
+    assert trackers["interval_frames"] == 12
+    assert tracker.compute_frame_throughput(training_tracker_dictionary=trackers, duration=4.0) == pytest.approx(
+        expected=3.0)
+    assert tracker.create_trackers()["interval_frames"] == 0
+
+    # The image tasks neither count frames nor report a frame throughput
+    image_tracker = build_metric_tracker(sample_name="Images", counts_frames=False)
+    image_trackers = image_tracker.create_trackers()
+    image_tracker.count_frames(tracker_dictionary=image_trackers, batch={"images": torch.zeros(size=(2, 3, 8, 8))})
+    assert "interval_frames" not in image_trackers
+    assert image_tracker.compute_frame_throughput(training_tracker_dictionary=image_trackers, duration=4.0) is None
 
 
 def test_time_interval_format() -> None:
@@ -69,11 +96,11 @@ def test_time_interval_format() -> None:
     assert MetricTracker.format_time_interval(duration_seconds=3725.4) == "01:02:05"
 
 
-@pytest.mark.parametrize(argnames=("sample_name", "frames_per_sample", "expected_fragments"), argvalues=[
-    ("Images", None, ["Total Images", "imgs/sec"]),
-    ("Sequences", 16, ["Total Sequences", "seqs/sec", "frames/sec"]),
-    ("Pairs", 8, ["Total Pairs", "pairs/sec", "frames/sec"])])
-def test_interval_summary_header(capsys: pytest.CaptureFixture, sample_name: str, frames_per_sample: int | None,
+@pytest.mark.parametrize(argnames=("sample_name", "counts_frames", "expected_fragments"), argvalues=[
+    ("Images", False, ["Total Images", "imgs/sec"]),
+    ("Sequences", True, ["Total Sequences", "seqs/sec", "frames/sec"]),
+    ("Pairs", True, ["Total Pairs", "pairs/sec", "frames/sec"])])
+def test_interval_summary_header(capsys: pytest.CaptureFixture, sample_name: str, counts_frames: bool,
                                  expected_fragments: list) -> None:
     """
     Verifies that the console summary counts images for the image tasks, sequences (or pairs of sequences) with their
@@ -82,11 +109,13 @@ def test_interval_summary_header(capsys: pytest.CaptureFixture, sample_name: str
     Args:
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
         sample_name (str): "Images", "Sequences" or "Pairs".
-        frames_per_sample (int | None): The number of frames of a sequence (or of a pair), or None for images.
+        counts_frames (bool): Whether the real frames of the training batches are counted, False for images.
         expected_fragments (list): Text fragments that must appear in the summary.
     """
-    tracker = build_metric_tracker(sample_name=sample_name, frames_per_sample=frames_per_sample)
+    tracker = build_metric_tracker(sample_name=sample_name, counts_frames=counts_frames)
     training_trackers = {"start_time": 0.0, "total_loss": 1.5, "accuracy": 0.5}
+    if counts_frames:
+        training_trackers["interval_frames"] = 64
 
     fresh_trackers = tracker.print_interval_summary(iterations=8, training_tracker_dictionary=training_trackers,
                                                     validation_tracker_dictionary=None, validation_interval_count=0)
@@ -103,7 +132,7 @@ def test_metric_changes_and_best_marker() -> None:
     decreasing, an accuracy increasing), red when it gets worse, in the line colour and as +0 when it rounds to zero,
     and the best marker only on a value improving on every previous summary.
     """
-    tracker = build_metric_tracker(sample_name="Images", frames_per_sample=None)
+    tracker = build_metric_tracker(sample_name="Images", counts_frames=False)
     loss_values_and_fragments = [(1.0, None), (0.5, color_text(color="green", text=" -0.5000")),
                                  (0.75, color_text(color="red", text=" +0.2500")),
                                  (0.75000001, color_text(color="blue", text=" +0.0000"))]
@@ -134,7 +163,7 @@ def test_valid_changes_skip_intervals_without_validation(capsys: pytest.CaptureF
     Args:
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
     """
-    tracker = build_metric_tracker(sample_name="Images", frames_per_sample=None)
+    tracker = build_metric_tracker(sample_name="Images", counts_frames=False)
     validation_values_and_counts = [({"start_time": 0.0, "total_loss": 1.0, "accuracy": 0.5}, 2),
                                     ({"start_time": 0.0, "total_loss": 0.0, "accuracy": 0.0}, 0),
                                     ({"start_time": 0.0, "total_loss": 0.8, "accuracy": 0.5}, 2)]

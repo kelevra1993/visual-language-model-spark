@@ -153,6 +153,6 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
 
     # No iteration failed along the way
     console_output = capsys.readouterr().out
-    assert "8 sequences, 48 frames, 16 windows of 4 frames" in console_output
+    assert "8 sequences, 48 frames, 16 windows of at most 4 frames" in console_output
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

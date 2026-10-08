@@ -1,8 +1,8 @@
 """
 SequenceDataset, the Native (OpenCV, CPU) dataset of the sequence classification and sequence labelling tasks, cutting
-every sequence of a 'labels.json' split into padded windows of frames with sequence or frame labels, and the window
-helpers shared with the sequence pair dataset and the split description. Instantiated by get_sequence_dataloaders of
-data/loaders.py.
+every sequence of a 'labels.json' split into padded windows of frames with sequence or frame labels, the window
+helpers shared with the sequence pair dataset and the split description, and the collate function padding the batches
+of both datasets to their longest window. Instantiated by get_sequence_dataloaders of data/loaders.py.
 """
 
 import json
@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 import torch
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, default_collate
 from pathlib import PurePosixPath
 from typing import Any, Dict, List, Tuple
 
@@ -23,6 +23,10 @@ from vision_training.utilities.os_utilities import print_color
 
 # Labels read from the manifest: one class per sequence (many to one) or one class per frame (many to many)
 VALID_LABEL_TYPES = ["sequence", "frame"]
+
+# Keys of a sample whose tensors have one entry per frame along their first axis, cut to the longest window of the batch
+# by collate_longest_windows (the labels only when they are given per frame)
+FRAME_AXIS_KEYS = ["images", "sequence_mask", "labels"]
 
 
 def compute_window_starts(number_frames: int, sequence_length: int, window_stride: int,
@@ -81,6 +85,41 @@ def read_window_frames(data_directory: str, frame_files: List[str], sequence_len
         frames[frame_index] = torch.from_numpy(np.ascontiguousarray(resized_image)).permute(2, 0, 1)
         sequence_mask[frame_index] = True
     return frames, sequence_mask
+
+
+def collate_longest_windows(samples: List[Dict[str, Any]], members_per_sample: int) -> Dict[str, Any]:
+    """
+    Batches the samples of the sequence datasets padded to the longest window of the batch instead of the sequence
+    length ('Data.sequence_settings.batch_padding: "longest"'), so that the loaders transfer, and the temporal modules
+    run over, fewer padding frames when the windows are shorter than the sequence length. Every sample holds
+    'members_per_sample' windows of sequence_length frames one after the other along its frame axis (one window, or
+    the before and after members of a pair), with its real frames first, so every window is cut to the number of real
+    frames of the longest window of the batch, the two members of the pairs keeping the same number of frames. Run by
+    the worker processes of the loaders, which then only send the cut batches.
+
+    Args:
+        samples (List[Dict[str, Any]]): The samples of the batch, as returned by SequenceDataset or SequencePairDataset.
+        members_per_sample (int): The number of windows of a sample: 1 for the sequence windows, 2 for the pairs.
+
+    Returns:
+        Dict[str, Any]: The batch of the default collate, with [B, members_per_sample x longest window, ...] frames,
+            sequence mask and frame labels.
+    """
+    # Frames of every window of the samples, and real frames of the longest window of the batch
+    window_length = samples[0]["sequence_mask"].shape[0] // members_per_sample
+    longest_window = max(int(sample["sequence_mask"].unflatten(dim=0, sizes=(members_per_sample, window_length))
+                             .sum(dim=1).max()) for sample in samples)
+
+    # Keep the first frames of every window of every sample, the labels of one class per window having no frame axis
+    cut_samples = []
+    for sample in samples:
+        cut_sample = dict(sample)
+        for key in FRAME_AXIS_KEYS:
+            if sample[key].dim() > 0:
+                cut_sample[key] = sample[key].unflatten(dim=0, sizes=(members_per_sample, window_length))[
+                    :, :longest_window].flatten(start_dim=0, end_dim=1)
+        cut_samples.append(cut_sample)
+    return default_collate(batch=cut_samples)
 
 
 class SequenceDataset(Dataset):

@@ -64,6 +64,9 @@ class BaseTrainer(ABC):
     # sequence comparison task
     SAMPLE_NAME = "Images"
 
+    # Whether the real frames of the training batches are counted for a frame throughput, True for the sequence tasks
+    COUNTS_FRAMES = False
+
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
         """
@@ -172,8 +175,7 @@ class BaseTrainer(ABC):
         self.metric_tracker = MetricTracker(tracked_metrics_mapping=self.tracked_metrics_mapping,
                                             information_dump=self.information_dump, batch_size=self.batch_size,
                                             validation_iteration_ratio=self.validation_iteration_ratio,
-                                            sample_name=self.SAMPLE_NAME,
-                                            frames_per_sample=self.get_frames_per_sample())
+                                            sample_name=self.SAMPLE_NAME, counts_frames=self.COUNTS_FRAMES)
 
         # Print experiment information to user so that they can know everything about the experiment
         # as well as input and output shapes of the model.
@@ -391,15 +393,6 @@ class BaseTrainer(ABC):
             str: The name of the sample.
         """
         return self.test_dataloader.dataset.get_sample_name(sample_identifier=sample_identifier)
-
-    def get_frames_per_sample(self) -> Optional[int]:
-        """
-        Gives the number of frames of a sample, printed as a frame throughput by the sequence tasks.
-
-        Returns:
-            Optional[int]: The number of frames of a sequence, or None for the image tasks.
-        """
-        return None
 
     def build_optimizer(self) -> torch.optim.Optimizer:
         """
@@ -911,6 +904,9 @@ class BaseTrainer(ABC):
                 training_batch, training_dataloader_iterator = self.get_next_batch(
                     dataloader_iterator=training_dataloader_iterator, dataloader=self.train_dataloader)
 
+                # Real frames of the training batch, counted for the frame throughput of the sequence tasks
+                self.metric_tracker.count_frames(tracker_dictionary=training_trackers, batch=training_batch)
+
                 self.set_training_mode()
                 self.optimizer.zero_grad()
 
@@ -1075,8 +1071,9 @@ class BaseTrainer(ABC):
         """
         Sends the averages of a console log interval to the MLflow run of the training, at its last iteration: the
         training and validation losses and batch metrics under their display names ('train/<name>',
-        'validation/<name>'), the throughput and duration of the interval and the learning rate of the first parameter
-        group. The per-iteration curves stay in TensorBoard.
+        'validation/<name>'), the throughput and duration of the interval (and its real frame throughput for the
+        sequence tasks) and the learning rate of the first parameter group. The per-iteration curves stay in
+        TensorBoard.
 
         Args:
             iteration (int): The last training iteration of the interval.
@@ -1095,6 +1092,10 @@ class BaseTrainer(ABC):
                             for metric_key, display_name in self.tracked_metrics_mapping.items()})
         metrics.update({"train/throughput": samples_per_second, "train/interval_seconds": duration,
                         "learning_rate": self.optimizer.param_groups[0]["lr"]})
+        frames_per_second = self.metric_tracker.compute_frame_throughput(training_tracker_dictionary=training_trackers,
+                                                                         duration=duration)
+        if frames_per_second is not None:
+            metrics["train/frame_throughput"] = frames_per_second
         self.experiment_tracker.log_metrics(metrics=metrics, step=iteration)
 
     def track_evaluation(self, iteration: int, results: EvaluationResults) -> None:

@@ -7,7 +7,7 @@ sequence classification trainer. Registered for the sequence comparison task in 
 import torch
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Tuple
 
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, split_pair_members
 from vision_training.data.split_description import count_split_pairs
@@ -32,15 +32,8 @@ class SequenceComparisonTrainer(SequenceClassificationTrainer):
     # Labels read from the manifests: one class per pair of sequences
     LABEL_TYPE = "pair"
 
-    def get_frames_per_sample(self) -> Optional[int]:
-        """
-        Gives the number of frames of a pair (two member windows), so that the frame throughput is printed with the
-        pair one.
-
-        Returns:
-            Optional[int]: The number of frames of a pair.
-        """
-        return 2 * self.sequence_settings["sequence_length"]
+    # Member windows of a pair stored one after the other along its frame axis, the before one then the after one
+    MEMBERS_PER_SAMPLE = len(PAIR_MEMBERS)
 
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
         """
@@ -56,7 +49,8 @@ class SequenceComparisonTrainer(SequenceClassificationTrainer):
         number_pairs, number_frames, number_kept_pairs = count_split_pairs(split_data_folder=split_data_folder,
                                                                            sequence_settings=self.sequence_settings)
         return number_kept_pairs, (f"{number_pairs} pairs, {number_frames} frames, {number_kept_pairs} kept pairs of "
-                                   f"2 x {self.sequence_settings['sequence_length']} frames")
+                                   f"{self.get_window_size_qualifier()}2 x "
+                                   f"{self.sequence_settings['sequence_length']} frames")
 
     def split_pair_batch(self, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         """
@@ -69,10 +63,9 @@ class SequenceComparisonTrainer(SequenceClassificationTrainer):
         Returns:
             Dict[str, torch.Tensor]: The 'before_images', 'after_images', 'before_mask' and 'after_mask' of the batch.
         """
-        sequence_length = self.sequence_settings["sequence_length"]
-        before_images, after_images = split_pair_members(pair_tensor=batch["images"], sequence_length=sequence_length)
-        before_mask, after_mask = split_pair_members(pair_tensor=batch["sequence_mask"],
-                                                     sequence_length=sequence_length)
+        # Both member windows have the number of frames of the batch, the sequence length or its longest member
+        before_images, after_images = split_pair_members(pair_tensor=batch["images"])
+        before_mask, after_mask = split_pair_members(pair_tensor=batch["sequence_mask"])
         return {"before_images": before_images, "after_images": after_images, "before_mask": before_mask,
                 "after_mask": after_mask}
 
@@ -114,9 +107,8 @@ class SequenceComparisonTrainer(SequenceClassificationTrainer):
         Returns:
             torch.Tensor: The [3, height, width] uint8 grid, the before member above the after member.
         """
-        sequence_length = self.sequence_settings["sequence_length"]
-        member_frames = split_pair_members(pair_tensor=frames.unsqueeze(dim=0), sequence_length=sequence_length)
-        member_masks = split_pair_members(pair_tensor=sequence_mask.unsqueeze(dim=0), sequence_length=sequence_length)
+        member_frames = split_pair_members(pair_tensor=frames.unsqueeze(dim=0))
+        member_masks = split_pair_members(pair_tensor=sequence_mask.unsqueeze(dim=0))
 
         # One grid per member, of the same width since it only depends on the number of columns
         member_grids = []

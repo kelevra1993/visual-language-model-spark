@@ -27,8 +27,9 @@ SMOKE_NUMBER_FRAMES = 4
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int) -> Path:
     """
     Writes a copy of the synthetic sequences configuration adapted to a quick training smoke test: the generated
-    dataset, 64 pixel frames, windows of 4 frames, batches of 2 sequences and a saving schedule that triggers an
-    intermediate save, a save with test evaluation and a validation pass within a handful of iterations.
+    dataset, 64 pixel frames, windows of 4 frames padded to the sequence length (the other smoke tests padding their
+    batches to their longest window), batches of 2 sequences and a saving schedule that triggers an intermediate save,
+    a save with test evaluation and a validation pass within a handful of iterations.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
@@ -57,7 +58,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     # Two loader workers per split, enough for the small generated dataset
     configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["sequence_settings"].update({"sequence_length": SMOKE_NUMBER_FRAMES,
-                                                       "window_stride": SMOKE_NUMBER_FRAMES})
+                                                       "window_stride": SMOKE_NUMBER_FRAMES,
+                                                       "batch_padding": "sequence_length"})
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["ClassificationHead"]["class_weighting"] = "balanced"
     configuration["ExperimentConfiguration"]["evaluation"]["error_dumps"] = {"activated": True,

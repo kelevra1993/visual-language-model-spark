@@ -31,6 +31,10 @@ METRIC_COLUMN_WIDTH = 8
 # Text of the marker of a value that is the best of the run for its split
 BEST_MARKER = "Best"
 
+# Key of the trackers of an interval counting the real frames of its training batches, for the frame throughput of the
+# sequence tasks
+INTERVAL_FRAMES_KEY = "interval_frames"
+
 
 class MetricTracker:
     """
@@ -45,7 +49,7 @@ class MetricTracker:
     """
 
     def __init__(self, tracked_metrics_mapping: Dict[str, str], information_dump: int, batch_size: int,
-                 validation_iteration_ratio: int, sample_name: str, frames_per_sample: Optional[int]) -> None:
+                 validation_iteration_ratio: int, sample_name: str, counts_frames: bool) -> None:
         """
         Keeps the settings of the console summaries.
 
@@ -56,15 +60,15 @@ class MetricTracker:
             validation_iteration_ratio (int): How often a validation batch is evaluated (0 for never).
             sample_name (str): "Images" for the image tasks, "Sequences" for the sequence tasks, "Pairs" for the
                 sequence comparison task.
-            frames_per_sample (Optional[int]): The number of frames of a sequence (or of a pair), to also print the
-                frame throughput, or None for the image tasks.
+            counts_frames (bool): Whether to count the real frames of the training batches (sequence tasks), to also
+                print the frame throughput, False for the image tasks.
         """
         self.tracked_metrics_mapping = tracked_metrics_mapping
         self.information_dump = information_dump
         self.batch_size = batch_size
         self.validation_iteration_ratio = validation_iteration_ratio
         self.sample_name = sample_name
-        self.frames_per_sample = frames_per_sample
+        self.counts_frames = counts_frames
 
         # Values of the last summary that printed them, and best values of the run, for every split and metric key.
         # The Valid values are only updated by the summaries whose interval ran validation batches.
@@ -76,13 +80,30 @@ class MetricTracker:
         Initializes a dictionary accumulating the rolling averages of the tracked metrics over a console log interval.
 
         Returns:
-            Dict[str, Any]: A dictionary with every metric key set to 0.0, and the start time of the interval.
+            Dict[str, Any]: A dictionary with every metric key set to 0.0, the start time of the interval, and its
+                count of real frames when the frames are counted.
         """
         tracker_dictionary = {"start_time": time.time()}
         for metric_key in self.tracked_metrics_mapping.keys():
             tracker_dictionary[metric_key] = 0.0
+        if self.counts_frames:
+            tracker_dictionary[INTERVAL_FRAMES_KEY] = 0
 
         return tracker_dictionary
+
+    def count_frames(self, tracker_dictionary: Dict[str, Any], batch: Dict[str, Any]) -> None:
+        """
+        Adds the real frames of a training batch of the sequence tasks to the count of its interval, from which the
+        console summary and the MLflow run of the training get the frame throughput. The padding frames are not
+        counted, so that the throughput is comparable whether the batches are padded to the sequence length or to
+        their longest window. The mask is read before the batch is moved to the device, without synchronising it.
+
+        Args:
+            tracker_dictionary (Dict[str, Any]): The training trackers of the interval, modified in place.
+            batch (Dict[str, Any]): The training batch yielded by the loader, with its [B, T] sequence mask on the CPU.
+        """
+        if self.counts_frames:
+            tracker_dictionary[INTERVAL_FRAMES_KEY] += int(batch["sequence_mask"].sum())
 
     @staticmethod
     def accumulate(tracker_dictionary: Optional[Dict[str, Any]], metric_dictionary: Dict[str, torch.Tensor],
@@ -236,6 +257,22 @@ class MetricTracker:
         duration = time.time() - training_tracker_dictionary["start_time"]
         return interval_samples / max(duration, 0.001), duration
 
+    def compute_frame_throughput(self, training_tracker_dictionary: Dict[str, Any], duration: float) -> Optional[float]:
+        """
+        Measures the real frames processed per second over the current console log interval by the sequence tasks,
+        printed by the console summary and sent to the MLflow run of the training ('train/frame_throughput').
+
+        Args:
+            training_tracker_dictionary (Dict[str, Any]): The training trackers of the interval, with its frame count.
+            duration (float): The duration of the interval in seconds, from compute_interval_statistics.
+
+        Returns:
+            Optional[float]: The real frames per second, or None when the frames are not counted (image tasks).
+        """
+        if not self.counts_frames:
+            return None
+        return training_tracker_dictionary[INTERVAL_FRAMES_KEY] / max(duration, 0.001)
+
     def print_interval_summary(self, iterations: int, training_tracker_dictionary: Dict[str, Any],
                                validation_tracker_dictionary: Optional[Dict[str, Any]],
                                validation_interval_count: int) -> Dict[str, Any]:
@@ -263,12 +300,14 @@ class MetricTracker:
         samples_per_second, duration = self.compute_interval_statistics(
             training_tracker_dictionary=training_tracker_dictionary)
 
-        # Display the formatted summary header, with the frame throughput of the sequence tasks
+        # Display the formatted summary header, with the real frame throughput of the sequence tasks
         header = (f"| Iteration: {iterations:<6} | Total {self.sample_name}: {total_samples:<8} "
                   f"| Interval {self.sample_name}: {interval_samples:<6} "
                   f"| Throughput: {samples_per_second:.1f} {THROUGHPUT_UNITS[self.sample_name]} |")
-        if self.frames_per_sample is not None:
-            header += f" {samples_per_second * self.frames_per_sample:.1f} frames/sec |"
+        frames_per_second = self.compute_frame_throughput(training_tracker_dictionary=training_tracker_dictionary,
+                                                          duration=duration)
+        if frames_per_second is not None:
+            header += f" {frames_per_second:.1f} frames/sec |"
         print(header)
         print("-" * print_length)
 

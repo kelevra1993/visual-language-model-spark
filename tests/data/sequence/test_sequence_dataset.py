@@ -1,7 +1,7 @@
 """
 Tests of SequenceDataset of vision_training/data/sequence/sequence_dataset.py: the window starts, the windows of
-sequences with one class per sequence or one class per frame, and the window counts of
-vision_training/data/split_description.py.
+sequences with one class per sequence or one class per frame, the batches cut to their longest window by
+collate_longest_windows, and the window counts of vision_training/data/split_description.py.
 """
 
 import json
@@ -10,11 +10,14 @@ import numpy as np
 import pytest
 import torch
 
+from functools import partial
 from pathlib import Path
+from torch.utils.data import DataLoader
 from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.data.sequence.sequence_dataset import SequenceDataset, compute_window_starts
+from vision_training.data.sequence.sequence_dataset import (SequenceDataset, collate_longest_windows,
+                                                            compute_window_starts)
 from vision_training.data.split_description import count_split_sequences
 
 
@@ -135,6 +138,44 @@ def test_sequence_windows_with_one_class_per_frame(tmp_path: Path) -> None:
     assert window["sequence_mask"].tolist() == [True, True, True, False]
     assert dataset.get_class_counts() == [1, 1]
     assert dataset.get_sample_class_indices() == {0: [0, 1]}
+
+
+@pytest.mark.parametrize(argnames="label_type", argvalues=["sequence", "frame"])
+def test_collate_longest_windows_cuts_the_batches_to_their_longest_window(tmp_path: Path, label_type: str) -> None:
+    """
+    Verifies that the batches of windows of 2, 3 and 5 real frames, padded to 8 frames by the dataset, are cut to the
+    5 frames of their longest window by collate_longest_windows: the frames, the sequence mask and the frame labels
+    are the first 5 positions of the batch of the default collate, while the labels of one class per window and the
+    window identifiers are unchanged.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        label_type (str): "sequence" (one class per window) or "frame" (one class per frame).
+    """
+    write_sequence_split(split_folder=tmp_path, sequences=[
+        {"id": 1, "name": "two", "number_frames": 2, "category_id": 1, "frame_category_ids": [1, 2]},
+        {"id": 2, "name": "three", "number_frames": 3, "category_id": 2, "frame_category_ids": [2, 1, 2]},
+        {"id": 3, "name": "five", "number_frames": 5, "category_id": 1, "frame_category_ids": [1, 1, 2, 2, 1]}])
+    sequence_settings = {"sequence_length": 8, "frame_stride": 1, "window_stride": 8, "short_sequences": "pad"}
+    dataset = SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
+                              image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1},
+                              sequence_settings=sequence_settings, label_type=label_type, shuffle=False)
+
+    # The same windows batched by the default collate and by the collate of the longest window
+    padded_batch = next(iter(DataLoader(dataset=dataset, batch_size=3, shuffle=False)))
+    cut_batch = next(iter(DataLoader(dataset=dataset, batch_size=3, shuffle=False,
+                                     collate_fn=partial(collate_longest_windows, members_per_sample=1))))
+
+    assert padded_batch["images"].shape == (3, 8, 3, 16, 16)
+    assert cut_batch["images"].shape == (3, 5, 3, 16, 16)
+    assert cut_batch["sequence_mask"].sum(dim=1).tolist() == [2, 3, 5]
+    assert torch.equal(input=cut_batch["images"], other=padded_batch["images"][:, :5])
+    assert torch.equal(input=cut_batch["sequence_mask"], other=padded_batch["sequence_mask"][:, :5])
+    assert torch.equal(input=cut_batch["sample_identifiers"], other=padded_batch["sample_identifiers"])
+    if label_type == "frame":
+        assert torch.equal(input=cut_batch["labels"], other=padded_batch["labels"][:, :5])
+    else:
+        assert torch.equal(input=cut_batch["labels"], other=padded_batch["labels"])
 
 
 def test_split_description_counts_windows(tmp_path: Path) -> None:

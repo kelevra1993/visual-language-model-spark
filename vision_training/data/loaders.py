@@ -7,6 +7,7 @@ comparison tasks with the Native loader. Called by the task trainers.
 import os
 import cv2
 
+from functools import partial
 from nvidia.dali.plugin.pytorch import DALIGenericIterator
 from typing import Any, Callable, Dict, Optional, Tuple, Union
 from torch.utils.data import DataLoader, Dataset
@@ -15,8 +16,8 @@ from vision_training.data.detection.coco_dali_pipeline import DALIDataloaderWrap
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
-from vision_training.data.sequence.sequence_dataset import SequenceDataset
-from vision_training.data.sequence.sequence_pair_dataset import SequencePairDataset
+from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_longest_windows
+from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset
 
 
 def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration: Dict[str, Any],
@@ -214,8 +215,10 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
     """
     Initializes the training, validation and testing loaders of the sequence tasks, read from the 'labels.json'
     manifest of every split with the Native loader (OpenCV decoding and CPU resizing). Every window of frames is
-    padded to the sequence length, so the default collate stacks them into [B, T, C, H, W] batches, or into
-    [B, 2T, C, H, W] batches of pairs (the before window followed by the after window) for the comparison task.
+    padded to the sequence length T by the datasets, so the default collate stacks them into [B, T, C, H, W] batches,
+    or into [B, 2T, C, H, W] batches of pairs (the before window followed by the after window) for the comparison task.
+    With 'Data.sequence_settings.batch_padding: "longest"', the windows of every batch are cut to its longest window
+    instead (collate_longest_windows), T then being the longest window, or the longest member of a pair, of the batch.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
@@ -230,6 +233,13 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
     """
     data_configuration = model_configuration["Data"]
     loaders = []
+
+    # Batches padded to their longest window, a pair holding two member windows, or every window padded to the sequence
+    # length by the default collate
+    collate_function = None
+    if data_configuration["sequence_settings"]["batch_padding"] == "longest":
+        collate_function = partial(collate_longest_windows,
+                                   members_per_sample=len(PAIR_MEMBERS) if label_type == "pair" else 1)
 
     # Build the loader of every split with the same settings
     for split_key in ["train_data_folder", "validation_data_folder", "test_data_folder"]:
@@ -252,6 +262,7 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
                                       sequence_settings=data_configuration["sequence_settings"],
                                       label_type=label_type)
         loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
-                                           loading_configuration=data_configuration["loading"]))
+                                           loading_configuration=data_configuration["loading"],
+                                           collate_function=collate_function))
 
     return loaders[0], loaders[1], loaders[2]

@@ -18,13 +18,17 @@ from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TY
 # Handling of the sequences shorter than one window: padded with black frames, or left out
 VALID_SHORT_SEQUENCES = ["pad", "skip"]
 
+# Number of frames the windows of a batch are padded to: the sequence length, or the longest window of the batch
+VALID_BATCH_PADDINGS = ["sequence_length", "longest"]
+
 
 def check_sequence_settings(model_configuration: Dict[str, Any], cuts_windows: bool) -> List[str]:
     """
     Verifies the 'Data.sequence_settings' section of the sequence tasks, which gives the windows of frames fed to the
-    models (cut from the sequences, or one window per member of a pair), that the classification head predicts one
-    class per sequence, per frame or per pair (the manifests give a single category per sequence, per frame or per
-    pair), and that every frame is pooled to one vector rather than flattened.
+    models (cut from the sequences, or one window per member of a pair) and the number of frames their batches are
+    padded to, that the classification head predicts one class per sequence, per frame or per pair (the manifests
+    give a single category per sequence, per frame or per pair), and that every frame is pooled to one vector rather
+    than flattened.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -45,6 +49,13 @@ def check_sequence_settings(model_configuration: Dict[str, Any], cuts_windows: b
     if short_sequences not in VALID_SHORT_SEQUENCES:
         errors.append(f"'Data.sequence_settings.short_sequences' must be one of {VALID_SHORT_SEQUENCES}, "
                       f"got {short_sequences!r}.")
+
+    # Windows of a batch padded to the sequence length, or to the longest window of the batch
+    batch_padding = get_configuration_value(configuration=model_configuration,
+                                            key_path="Data.sequence_settings.batch_padding")
+    if batch_padding not in VALID_BATCH_PADDINGS:
+        errors.append(f"'Data.sequence_settings.batch_padding' must be one of {VALID_BATCH_PADDINGS}, "
+                      f"got {batch_padding!r}.")
 
     # One class per sequence, per frame or per pair
     output_mode = get_configuration_value(configuration=model_configuration, key_path="ClassificationHead.output_mode")

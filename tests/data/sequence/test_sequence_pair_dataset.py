@@ -1,7 +1,7 @@
 """
 Tests of SequencePairDataset of vision_training/data/sequence/sequence_pair_dataset.py for the sequence comparison task:
 the member frame indices, pairs read as the before then the after member, short or empty members left out, the pair
-counts and pair batches split into their members.
+counts, pair batches split into their members, and pair batches cut to their longest member by collate_longest_windows.
 """
 
 import json
@@ -10,12 +10,14 @@ import numpy as np
 import pytest
 import torch
 
+from functools import partial
 from pathlib import Path
 from torch.utils.data import DataLoader
 from typing import Any, Dict, List
 
-from vision_training.data.sequence.sequence_pair_dataset import (SequencePairDataset, compute_member_frame_indices,
-                                                                 split_pair_members)
+from vision_training.data.sequence.sequence_dataset import collate_longest_windows
+from vision_training.data.sequence.sequence_pair_dataset import (PAIR_MEMBERS, SequencePairDataset,
+                                                                 compute_member_frame_indices, split_pair_members)
 from vision_training.data.split_description import count_split_pairs
 
 # Pixel value of the first frame of every member, the frame of index i holding the value plus i, so that the tests
@@ -169,7 +171,8 @@ def test_split_description_counts_pairs(tmp_path: Path) -> None:
 def test_pair_batches_split_into_members(tmp_path: Path) -> None:
     """
     Verifies that the default collate stacks the pairs into [B, 2T] batches, which split back into the before and
-    after members given to the comparison model, and that a batch holding another number of frames is refused.
+    after members given to the comparison model, and that a batch whose frame axis cannot hold two members of the
+    same number of frames is refused.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -183,13 +186,48 @@ def test_pair_batches_split_into_members(tmp_path: Path) -> None:
                                                      "short_sequences": "pad"}, shuffle=False)
     batch = next(iter(DataLoader(dataset=dataset, batch_size=2, shuffle=False)))
 
-    before_images, after_images = split_pair_members(pair_tensor=batch["images"], sequence_length=4)
-    before_mask, after_mask = split_pair_members(pair_tensor=batch["sequence_mask"], sequence_length=4)
+    before_images, after_images = split_pair_members(pair_tensor=batch["images"])
+    before_mask, after_mask = split_pair_members(pair_tensor=batch["sequence_mask"])
 
     assert batch["images"].shape == (2, 8, 3, 16, 16)
     assert before_images.shape == after_images.shape == (2, 4, 3, 16, 16)
     assert before_mask.tolist() == [[True, True, True, False], [True, True, True, True]]
     assert after_mask.tolist() == [[True, True, False, False], [True, False, False, False]]
     assert after_images[:, 0, 0, 0, 0].tolist() == [101, 101]
-    with pytest.raises(expected_exception=ValueError, match="2 x 3 frames"):
-        split_pair_members(pair_tensor=batch["images"], sequence_length=3)
+    with pytest.raises(expected_exception=ValueError, match="got 7 frames per pair"):
+        split_pair_members(pair_tensor=batch["images"][:, :7])
+
+
+def test_pair_batches_cut_to_their_longest_member(tmp_path: Path) -> None:
+    """
+    Verifies that collate_longest_windows cuts both members of every pair of a batch to the longest member of the
+    batch: members of (3, 2) and (1, 4) real frames padded to 6 frames by the dataset give [B, 2 x 4] batches, whose
+    before and after members are the first 4 frames of the members of the default collate.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    write_pair_split(split_folder=tmp_path, pairs=[
+        {"id": 1, "name": "pair_a", "category_id": 1, "before_frames": 3, "after_frames": 2},
+        {"id": 2, "name": "pair_b", "category_id": 2, "before_frames": 1, "after_frames": 4}])
+    dataset = SequencePairDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
+                                  image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1},
+                                  sequence_settings={"sequence_length": 6, "frame_stride": 1,
+                                                     "short_sequences": "pad"}, shuffle=False)
+
+    # The same pairs batched by the default collate and by the collate of the longest member
+    padded_batch = next(iter(DataLoader(dataset=dataset, batch_size=2, shuffle=False)))
+    cut_batch = next(iter(DataLoader(dataset=dataset, batch_size=2, shuffle=False,
+                                     collate_fn=partial(collate_longest_windows,
+                                                        members_per_sample=len(PAIR_MEMBERS)))))
+
+    assert padded_batch["images"].shape == (2, 12, 3, 16, 16)
+    assert cut_batch["images"].shape == (2, 8, 3, 16, 16)
+    for key in ["images", "sequence_mask"]:
+        padded_members = split_pair_members(pair_tensor=padded_batch[key])
+        cut_members = split_pair_members(pair_tensor=cut_batch[key])
+        for padded_member, cut_member in zip(padded_members, cut_members):
+            assert torch.equal(input=cut_member, other=padded_member[:, :4])
+    before_mask, after_mask = split_pair_members(pair_tensor=cut_batch["sequence_mask"])
+    assert before_mask.sum(dim=1).tolist() == [3, 1] and after_mask.sum(dim=1).tolist() == [2, 4]
+    assert torch.equal(input=cut_batch["labels"], other=padded_batch["labels"])

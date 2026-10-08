@@ -1,8 +1,8 @@
 """
 Migration of configuration files and run folders written by older versions of the code: inserts as text, keeping
 the comments, the keys and sections added since (task, pretrained settings, evaluation outputs, per-class report,
-sample images, MLflow tracking, sequence settings, Optimization), and renames the run folder to its current run name
-(without the training and dropout tokens no longer written in the run names). Called by
+sample images, MLflow tracking, sequence settings and batch padding, Optimization), and renames the run folder to its
+current run name (without the training and dropout tokens no longer written in the run names). Called by
 scripts/configuration/migrate_configuration.py.
 """
 
@@ -134,6 +134,13 @@ LOADING_SETTINGS_LINES = ("  # Worker processes of the loaders and batches prepa
                           "  loading:\n"
                           "    number_workers: 4\n"
                           "    prefetch_batches: 2\n")
+
+# Start of the line of the handling of the short sequences of the sequence settings, and the padding of the batches
+# inserted after it, every window padded to the sequence length as in every run written before it existed
+SHORT_SEQUENCES_LINE_START = "    short_sequences:"
+BATCH_PADDING_LINES = ("    # Frames the windows of a batch are padded to: \"sequence_length\" or \"longest\" (the longest "
+                       "window of the batch).\n"
+                       "    batch_padding: \"sequence_length\"\n")
 
 # Optimization section of a run trained with plain Adam at a constant learning rate, the training of every run
 # written before the section existed
@@ -514,6 +521,40 @@ def add_loading_settings_to_configuration(configuration_path: Path) -> bool:
     return True
 
 
+def add_batch_padding_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades the configuration file of a sequence run written before the padding of the batches to their longest
+    window by inserting 'Data.sequence_settings.batch_padding', every window padded to the sequence length as in the
+    runs of that time, right after the 'short_sequences' setting. The setting is inserted as text, so that every
+    comment of the file is kept, and a file that already has it, or that has no sequence settings (the image tasks), is
+    left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the setting was added, False if the file already had it or is not a sequence run.
+
+    Raises:
+        ValueError: If the sequence settings have no 'short_sequences' line of their own.
+    """
+    text = configuration_path.read_text()
+    data_configuration = yaml.safe_load(stream=text)["Data"]
+    if "sequence_settings" not in data_configuration or "batch_padding" in data_configuration["sequence_settings"]:
+        return False
+
+    # Insert the setting right after the line of the short sequences
+    lines = text.splitlines(keepends=True)
+    short_sequences_index = next((line_index for line_index, line in enumerate(lines)
+                                  if line.startswith(SHORT_SEQUENCES_LINE_START)), None)
+    if short_sequences_index is None:
+        raise ValueError(f"No 'short_sequences:' line in the sequence settings of "
+                         f"file://{configuration_path.absolute()}")
+    configuration_path.write_text(data="".join(lines[:short_sequences_index + 1] + [BATCH_PADDING_LINES] +
+                                               lines[short_sequences_index + 1:]))
+    return True
+
+
 def add_optimization_section_to_configuration(configuration_path: Path) -> bool:
     """
     Upgrades a configuration file written before the 'Optimization' section by appending the section of a run
@@ -541,13 +582,14 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     'Backbone.pretrained.freeze_normalization_parameters' flag (off), the evaluation outputs of the classification-like
     tasks (no predictions file nor error images), the per-class report switch of every task (on, the per-class
     report of that time), the number of sample images (none), the MLflow tracking settings (off), the sequence
-    augmentations (off), the scope of the
-    sequence normalization of the comparison task (per member), its 'Optimization' section (plain Adam at a constant
-    learning rate) and its loading settings (4 worker processes), and its folder is renamed to the run name the
-    current code builds from that configuration (the task code being now the first section of the run names, and the
-    augmentation, batch size, learning rate, schedule, gradient clipping, mixed precision and dropout tokens being no
-    longer written). The configuration is fully checked on the way, any other missing key being reported by the configuration
-    checker. Two old folders differing only by these settings get the same new name, the second one being refused.
+    augmentations (off), the scope of the sequence normalization of the comparison task (per member), its
+    'Optimization' section (plain Adam at a constant learning rate), its loading settings (4 worker processes) and the
+    padding of the batches of the sequence tasks (every window padded to the sequence length), and its folder is
+    renamed to the run name the current code builds from that configuration (the task code being now the first section
+    of the run names, and the augmentation, batch size, learning rate, schedule, gradient clipping, mixed precision and
+    dropout tokens being no longer written). The configuration is fully checked on the way, any other missing key
+    being reported by the configuration checker. Two old folders differing only by these settings get the same new
+    name, the second one being refused.
 
     Args:
         run_folder (Path): The run folder, holding 'training_configuration.yaml', 'Weights' and 'Tensorboard'.
@@ -592,6 +634,9 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
         print_color(color="green", output=f"Optimization Section Added To : file://{configuration_path.absolute()}")
     if add_loading_settings_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Loading Settings Added To : file://{configuration_path.absolute()}")
+    if add_batch_padding_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Batch Padding Of The Sequence Windows Added To : "
+                                          f"file://{configuration_path.absolute()}")
 
     # The run name the current code gives to this configuration
     experiment_configuration, model_configuration = load_experiment_configuration(

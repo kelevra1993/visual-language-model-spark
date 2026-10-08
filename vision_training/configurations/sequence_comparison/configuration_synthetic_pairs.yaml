@@ -160,6 +160,11 @@ Data:
     # Members shorter than sequence_length: "pad" (padded with black frames, ignored by the model through the sequence
     # mask) or "skip" (their pair is left out). An empty member always leaves its pair out.
     short_sequences: "pad"
+    # Frames the member windows of a batch are padded to: "sequence_length" (every member padded to sequence_length
+    # frames) or "longest" (both members of every pair cut to the longest member of its batch), which loads fewer
+    # padding frames and runs the temporal module over fewer positions when the members are shorter. The model outputs
+    # are the same.
+    batch_padding: "longest"
   label_mapping:
     # Must be "multi_class" for the sequence tasks: the mapping file gives the class index of every category of the
     # labels.json manifests, the classes being indexed 0 to K-1 (no background class).

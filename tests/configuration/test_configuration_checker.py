@@ -602,13 +602,14 @@ def set_causal_temporal_model(configuration: Dict[str, Any]) -> None:
 def set_invalid_transformer_and_settings(configuration: Dict[str, Any]) -> None:
     """
     Uses a transformer whose model size is not a multiple of its heads, empty windows, an unknown handling of the
-    short sequences and several classes per sequence.
+    short sequences, an unknown padding of the batches and several classes per sequence.
 
     Args:
         configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
     """
     configuration["TemporalModel"].update({"type": "transformer", "hidden_size": 100, "number_heads": 8})
-    configuration["Data"]["sequence_settings"].update({"sequence_length": 0, "short_sequences": "repeat"})
+    configuration["Data"]["sequence_settings"].update({"sequence_length": 0, "short_sequences": "repeat",
+                                                       "batch_padding": "shortest"})
     configuration["ClassificationHead"]["output_mode"] = "multi_label"
 
 
@@ -659,6 +660,8 @@ def test_sequence_classification_configurations_are_consistent(tmp_path: Path, c
                                             "'TemporalModel.number_heads' (8) for the transformer.",
                                             "'Data.sequence_settings.sequence_length' must be an integer >= 1",
                                             "'Data.sequence_settings.short_sequences' must be one of ['pad', 'skip']",
+                                            "'Data.sequence_settings.batch_padding' must be one of "
+                                            "['sequence_length', 'longest'], got 'shortest'.",
                                             "'ClassificationHead.output_mode' must be 'multi_class' for the sequence "
                                             "tasks"]),
     (set_even_temporal_kernel, ["'TemporalModel.kernel_size' must be odd for the temporal convolution, got 4."]),

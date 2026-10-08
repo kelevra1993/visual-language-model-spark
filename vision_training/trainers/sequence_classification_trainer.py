@@ -41,6 +41,12 @@ class SequenceClassificationTrainer(ClassificationTrainer):
     # Labels read from the manifests: one class per window (many to one)
     LABEL_TYPE = "sequence"
 
+    # Real frames of the training batches counted for the frame throughput of the console summaries
+    COUNTS_FRAMES = True
+
+    # Windows of a sample stored one after the other along its frame axis: one window, two for the pairs
+    MEMBERS_PER_SAMPLE = 1
+
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
         """
@@ -83,14 +89,30 @@ class SequenceClassificationTrainer(ClassificationTrainer):
                             for class_index in range(training_dataset.number_classes)]
         return loaders
 
-    def get_frames_per_sample(self) -> Optional[int]:
+    def get_window_length(self, batch: Dict[str, Any]) -> int:
         """
-        Gives the number of frames of a window, so that the frame throughput is printed with the sequence one.
+        Gives the number of frames of the windows of a batch, along which the training augmentation shuffles their real
+        frames: the sequence length, or the longest window of the batch when the batches are padded to their longest
+        window ('Data.sequence_settings.batch_padding'), a pair holding MEMBERS_PER_SAMPLE windows of that length.
+
+        Args:
+            batch (Dict[str, Any]): The batch, with its [B, MEMBERS_PER_SAMPLE x T] sequence mask.
 
         Returns:
-            Optional[int]: The number of frames of a window.
+            int: The number of frames T of a window of the batch.
         """
-        return self.sequence_settings["sequence_length"]
+        return batch["sequence_mask"].shape[1] // self.MEMBERS_PER_SAMPLE
+
+    def get_window_size_qualifier(self) -> str:
+        """
+        Gives the word placed before the number of frames of the windows in the split descriptions printed at
+        startup: the windows of a batch have at most sequence_length frames when the batches are padded to their
+        longest window, and exactly sequence_length frames otherwise.
+
+        Returns:
+            str: "at most " when the batches are padded to their longest window, an empty string otherwise.
+        """
+        return "at most " if self.sequence_settings["batch_padding"] == "longest" else ""
 
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
         """
@@ -106,7 +128,8 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         number_sequences, number_frames, number_windows = count_split_sequences(
             split_data_folder=split_data_folder, sequence_settings=self.sequence_settings)
         return number_windows, (f"{number_sequences} sequences, {number_frames} frames, {number_windows} windows of "
-                                f"{self.sequence_settings['sequence_length']} frames")
+                                f"{self.get_window_size_qualifier()}{self.sequence_settings['sequence_length']} "
+                                f"frames")
 
     def prepare_batch(self, batch: Dict[str, Any]) -> SequenceBatch:
         """
@@ -196,7 +219,8 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         Randomly augments the frames of a training batch of windows (one draw per window for every type, or per frame
         for the photometric types with 'independent_frames'), then shuffles the real frames of the windows when
         'shuffle_frames' is on, the frame labels of the sequence labelling task following their frames. The
-        comparison trainer inherits it, each member window of a pair being shuffled on its own.
+        comparison trainer inherits it, each member window of a pair being shuffled on its own. The windows have the
+        length of the batch, cut to its longest window when 'batch_padding' is "longest".
 
         Args:
             batch (Dict[str, Any]): The training batch, with its sequence mask.
@@ -207,7 +231,7 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         augmented_batch = super().augment_batch(batch=batch)
         shuffled_images, frame_orders = self.data_augmenter.shuffle_frames(
             images=augmented_batch["images"], sequence_mask=augmented_batch["sequence_mask"],
-            frame_block_length=self.sequence_settings["sequence_length"])
+            frame_block_length=self.get_window_length(batch=augmented_batch))
         augmented_batch["images"] = shuffled_images
 
         # One class per frame follows its frame, the sequence mask being unchanged since the real frames stay first
