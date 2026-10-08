@@ -50,8 +50,7 @@ def count_split_samples(split_data_folder: str | Path) -> Tuple[int, int]:
 def count_split_sequences(split_data_folder: str | Path, sequence_settings: Dict[str, Any]) -> Tuple[int, int, int]:
     """
     Counts the sequences, frames and windows of a sequence split from its 'labels.json' manifest, printed by the
-    sequence trainers at startup. The windows, cut as the sequence dataset does after the frame stride, are the
-    samples of an epoch.
+    sequence trainers at startup. The windows, cut as the sequence dataset does, are the samples of an epoch.
 
     Args:
         split_data_folder (str | Path): The root folder of the split, containing a 'labels.json'.
@@ -65,7 +64,7 @@ def count_split_sequences(split_data_folder: str | Path, sequence_settings: Dict
     for sequence in labels["sequences"]:
         number_frames += len(sequence["frames"])
         number_windows += len(compute_window_starts(
-            number_frames=len(sequence["frames"][::sequence_settings["frame_stride"]]),
+            number_frames=len(sequence["frames"]),
             sequence_length=sequence_settings["sequence_length"], window_stride=sequence_settings["window_stride"],
             short_sequences=sequence_settings["short_sequences"]))
     return len(labels["sequences"]), number_frames, number_windows
@@ -75,8 +74,7 @@ def count_split_pairs(split_data_folder: str | Path, sequence_settings: Dict[str
     """
     Counts the pairs, frames and kept pairs of a sequence comparison split from its 'labels.json' manifest, printed by
     the sequence comparison trainer at startup. A pair is kept, as in the sequence pair dataset, when both of its
-    members keep frames after the frame stride (compute_member_frame_indices); the kept pairs are the samples of an
-    epoch.
+    members keep frames (compute_member_frame_indices); the kept pairs are the samples of an epoch.
 
     Args:
         split_data_folder (str | Path): The root folder of the split, containing a 'labels.json'.
@@ -93,7 +91,7 @@ def count_split_pairs(split_data_folder: str | Path, sequence_settings: Dict[str
         for member_name in PAIR_MEMBERS:
             number_frames += len(pair[member_name])
             member_frame_indices.append(compute_member_frame_indices(
-                number_frames=len(pair[member_name][::sequence_settings["frame_stride"]]),
+                number_frames=len(pair[member_name]),
                 sequence_length=sequence_settings["sequence_length"],
                 short_sequences=sequence_settings["short_sequences"]))
         number_kept_pairs += int(all(len(frame_indices) > 0 for frame_indices in member_frame_indices))

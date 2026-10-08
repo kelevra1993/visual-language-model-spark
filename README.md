@@ -58,7 +58,7 @@ The tables below list only the keys that are not in every task. Every other key 
 |---|---|
 | DET | `RegionProposal`, `Anchors`, `Detector`, `ExperimentConfiguration.evaluation.score_threshold` |
 | CLS, M2O, M2M, CMP | `ClassificationHead`, `ExperimentConfiguration.evaluation.top_k`, `target_precision`, `save_predictions`, `error_dumps` |
-| M2O, M2M, CMP | `TemporalModel`, `Data.sequence_settings` (`sequence_length`, `frame_stride`, `short_sequences`, `batch_padding`) |
+| M2O, M2M, CMP | `TemporalModel`, `Data.sequence_settings` (`sequence_length`, `short_sequences`, `batch_padding`) |
 | M2O, M2M | `Data.sequence_settings.window_stride` |
 | CMP | `Fusion` |
 | SEG | `SegmentationDecoder`, `SegmentationLoss`, `ExperimentConfiguration.evaluation.save_predicted_masks` |
@@ -140,7 +140,6 @@ The training settings that can change between two resumptions of a run give no t
 | Decoder | `DPT`, then `DFRZ` or `DLR<multiplier>` | `SegmentationDecoder.pretrained` | | | | | | ✓ |
 | Classes | `BIN` or `MC<classes>` | `Data.label_mapping.mode`: binary or multi_class, foreground classes of the label dictionary | ✓ | | | | | ✓ |
 | Window | `T<frames>` | `Data.sequence_settings.sequence_length` (frames per member for CMP) | | | ✓ | ✓ | ✓ | |
-| Window | `S<stride>` | `Data.sequence_settings.frame_stride` is above 1 | | | ✓ | ✓ | ✓ | |
 | Temporal module | `MEAN`, `MAX`, `ATT<hidden size>` | `TemporalModel.type`: mean_pooling, max_pooling, attention_pooling | | | ✓ | | ✓ | |
 | Temporal module | `GRU<layers>x<hidden size>`, `LSTM<layers>x<hidden size>` | `TemporalModel.type`: gru, lstm | | | ✓ | ✓ | ✓ | |
 | Temporal module | `TRF<layers>x<hidden size>.<heads>` | `TemporalModel.type`: transformer | | | ✓ | ✓ | ✓ | |

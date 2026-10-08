@@ -82,8 +82,8 @@ def test_pairs_are_read_as_before_then_after_members(tmp_path: Path, capsys: pyt
     """
     Verifies the samples of the sequence pair dataset: the before window followed by the after window along the frame
     axis, a longer member reduced to evenly spaced frames, a shorter one padded with black frames marked by the
-    sequence mask, the frame stride applied before, the class of the pair, distinct identifiers naming the pairs, the
-    class names, counts and the class of every pair, and the pairs of unmapped categories left out with a warning.
+    sequence mask, the class of the pair, distinct identifiers naming the pairs, the class names, counts and the class
+    of every pair, and the pairs of unmapped categories left out with a warning.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -93,7 +93,7 @@ def test_pairs_are_read_as_before_then_after_members(tmp_path: Path, capsys: pyt
         {"id": 1, "name": "pair_a", "category_id": 1, "before_frames": 6, "after_frames": 2},
         {"id": 2, "name": "pair_b", "category_id": 2, "before_frames": 4, "after_frames": 4},
         {"id": 3, "name": "pair_c", "category_id": 3, "before_frames": 2, "after_frames": 2}])
-    sequence_settings = {"sequence_length": 4, "frame_stride": 1, "short_sequences": "pad"}
+    sequence_settings = {"sequence_length": 4, "short_sequences": "pad"}
     dataset = SequencePairDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                                   image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1},
                                   sequence_settings=sequence_settings, shuffle=False)
@@ -112,13 +112,6 @@ def test_pairs_are_read_as_before_then_after_members(tmp_path: Path, capsys: pyt
     assert first_sample["labels"].dtype == torch.int64 and int(first_sample["labels"]) == 0
     assert [dataset[pair_index]["sample_identifiers"] for pair_index in range(2)] == [0, 1]
     assert dataset.describe_sample(sample_identifier=1) == {"pair": "pair_b"}
-
-    # With a frame stride of 2, the before member keeps frames 0, 2 and 4, then is padded
-    strided_dataset = SequencePairDataset(data_directory=str(tmp_path / "data"),
-                                          labels_file=str(tmp_path / "labels.json"), image_size=16, keep_ratio=False,
-                                          label_dictionary={1: 0, 2: 1},
-                                          sequence_settings={**sequence_settings, "frame_stride": 2}, shuffle=False)
-    assert strided_dataset[0]["images"][:4, 0, 0, 0].tolist() == [1, 3, 5, 0]
 
 
 def test_pairs_with_a_short_or_empty_member_are_left_out(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -139,7 +132,7 @@ def test_pairs_with_a_short_or_empty_member_are_left_out(tmp_path: Path, capsys:
     datasets = {short_sequences: SequencePairDataset(
         data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"), image_size=16,
         keep_ratio=False, label_dictionary={1: 0, 2: 1},
-        sequence_settings={"sequence_length": 4, "frame_stride": 1, "short_sequences": short_sequences}, shuffle=False)
+        sequence_settings={"sequence_length": 4, "short_sequences": short_sequences}, shuffle=False)
         for short_sequences in ["skip", "pad"]}
 
     assert len(datasets["skip"]) == 1 and len(datasets["pad"]) == 2
@@ -164,8 +157,7 @@ def test_split_description_counts_pairs(tmp_path: Path) -> None:
 
     for short_sequences, expected_kept_pairs in [("skip", 1), ("pad", 2)]:
         assert count_split_pairs(split_data_folder=tmp_path, sequence_settings={
-            "sequence_length": 4, "frame_stride": 1, "short_sequences": short_sequences}) == (3, 18,
-                                                                                              expected_kept_pairs)
+            "sequence_length": 4, "short_sequences": short_sequences}) == (3, 18, expected_kept_pairs)
 
 
 def test_pair_batches_split_into_members(tmp_path: Path) -> None:
@@ -182,8 +174,7 @@ def test_pair_batches_split_into_members(tmp_path: Path) -> None:
         {"id": 2, "name": "pair_b", "category_id": 2, "before_frames": 4, "after_frames": 1}])
     dataset = SequencePairDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                                   image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1},
-                                  sequence_settings={"sequence_length": 4, "frame_stride": 1,
-                                                     "short_sequences": "pad"}, shuffle=False)
+                                  sequence_settings={"sequence_length": 4, "short_sequences": "pad"}, shuffle=False)
     batch = next(iter(DataLoader(dataset=dataset, batch_size=2, shuffle=False)))
 
     before_images, after_images = split_pair_members(pair_tensor=batch["images"])
@@ -212,8 +203,7 @@ def test_pair_batches_cut_to_their_longest_member(tmp_path: Path) -> None:
         {"id": 2, "name": "pair_b", "category_id": 2, "before_frames": 1, "after_frames": 4}])
     dataset = SequencePairDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                                   image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1},
-                                  sequence_settings={"sequence_length": 6, "frame_stride": 1,
-                                                     "short_sequences": "pad"}, shuffle=False)
+                                  sequence_settings={"sequence_length": 6, "short_sequences": "pad"}, shuffle=False)
 
     # The same pairs batched by the default collate and by the collate of the longest member
     padded_batch = next(iter(DataLoader(dataset=dataset, batch_size=2, shuffle=False)))

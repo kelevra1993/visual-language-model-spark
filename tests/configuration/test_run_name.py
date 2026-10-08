@@ -399,7 +399,7 @@ def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, A
                                                        "5": [2, 64]}
 
     # Windows, temporal module, classification head and classes
-    model_configuration["Data"]["sequence_settings"] = {"sequence_length": 8, "frame_stride": 1, "window_stride": 8,
+    model_configuration["Data"]["sequence_settings"] = {"sequence_length": 8, "window_stride": 8,
                                                         "short_sequences": "pad"}
     model_configuration["TemporalModel"] = {"type": "gru", "hidden_size": 128, "number_layers": 1, "number_heads": 4,
                                             "kernel_size": 3, "dropout_rate": 0.0, "bidirectional": True,
@@ -417,15 +417,15 @@ def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, A
     return experiment_configuration, model_configuration
 
 
-def skip_frames(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+def use_longer_windows(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
-    Cuts windows of 16 frames, keeping one frame every two.
+    Cuts windows of 16 frames.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
         model_configuration (Dict[str, Any]): The model configuration, modified in place.
     """
-    model_configuration["Data"]["sequence_settings"].update({"sequence_length": 16, "frame_stride": 2})
+    model_configuration["Data"]["sequence_settings"]["sequence_length"] = 16
 
 
 def use_deep_unidirectional_lstm(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
@@ -488,7 +488,7 @@ def use_mean_pooling(experiment_configuration: Dict[str, Any], model_configurati
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
     (None, SEQUENCE_REFERENCE_RUN_NAME),
-    (skip_frames, SEQUENCE_REFERENCE_RUN_NAME.replace("_T8_", "_T16S2_")),
+    (use_longer_windows, SEQUENCE_REFERENCE_RUN_NAME.replace("_T8_", "_T16_")),
     (use_deep_unidirectional_lstm, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_LSTM3x64_")),
     (use_causal_transformer, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_TRF2x128.8-CAU_")),
     (use_temporal_convolution, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_TCN4x128.5_")),
@@ -582,23 +582,11 @@ def use_cross_attention_with_dropout(experiment_configuration: Dict[str, Any],
     model_configuration["Fusion"].update({"type": "cross_attention", "dropout_rate": 0.1})
 
 
-def skip_member_frames(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
-    """
-    Keeps one frame every two of every member.
-
-    Args:
-        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
-        model_configuration (Dict[str, Any]): The model configuration, modified in place.
-    """
-    model_configuration["Data"]["sequence_settings"]["frame_stride"] = 2
-
-
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
     (None, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME),
     (use_concatenation, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_FDIF_", "_FCAT_")),
     (use_cross_attention, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_FDIF_", "_FXA4_")),
-    (use_cross_attention_with_dropout, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_FDIF_", "_FXA4_")),
-    (skip_member_frames, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_T8_", "_T8S2_"))])
+    (use_cross_attention_with_dropout, SEQUENCE_COMPARISON_REFERENCE_RUN_NAME.replace("_FDIF_", "_FXA4_"))])
 def test_sequence_comparison_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                        expected_run_name: str) -> None:
     """

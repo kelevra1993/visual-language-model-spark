@@ -153,8 +153,6 @@ Data:
   sequence_settings:
     # Number of frames of the windows fed to the model, cut from the sequences of the manifests.
     sequence_length: 8
-    # Keeps one frame every frame_stride frames of a sequence, before cutting it into windows (1 keeps every frame).
-    frame_stride: 1
     # Number of frames between the starts of two consecutive windows of a sequence (sequence_length for windows that
     # do not overlap). A last window ending on the last frame is added when the stride does not reach it.
     window_stride: 8

@@ -154,7 +154,7 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     console_output = capsys.readouterr().out
     number_pairs, number_frames, number_kept_pairs = count_split_pairs(
         split_data_folder=dataset_folder / "train",
-        sequence_settings={"sequence_length": SMOKE_NUMBER_FRAMES, "frame_stride": 1, "short_sequences": "pad"})
+        sequence_settings={"sequence_length": SMOKE_NUMBER_FRAMES, "short_sequences": "pad"})
     assert number_pairs == number_kept_pairs == 8
     assert "pairs/sec" in console_output and "frames/sec" in console_output
     assert f"8 pairs, {number_frames} frames, 8 kept pairs of at most 2 x 4 frames" in console_output

@@ -30,7 +30,7 @@ def compute_member_frame_indices(number_frames: int, sequence_length: int, short
     leaves the pair out. Shared by the sequence pair dataset and the split description printed at startup.
 
     Args:
-        number_frames (int): The number of frames of the member, after the frame stride.
+        number_frames (int): The number of frames of the member.
         sequence_length (int): The maximum number of frames of a member window.
         short_sequences (str): "pad" (a shorter member is padded with black frames) or "skip" (its pair is left out).
 
@@ -78,12 +78,12 @@ class SequencePairDataset(Dataset):
 
     A split is a folder holding the frames in 'data/' and a 'labels.json' manifest listing the 'categories' and the
     'pairs', each pair giving its 'id', 'name', the ordered frames of its 'before' and 'after' members (paths relative
-    to 'data/') and its 'category_id'. Each member is subsampled by the frame stride, then becomes one window of at
-    most 'sequence_length' frames (compute_member_frame_indices). A sample stores the before window followed by the
-    after window along the frame axis, each padded to 'sequence_length' with black frames, so that the generic code
-    of the trainers (augmentation, input viewer, evaluation) handles a pair as one sequence of 2 x sequence_length
-    frames, both members sharing the same augmentation draws. With 'batch_padding: "longest"', the collate of the
-    loader cuts both windows of every pair to the longest member of the batch.
+    to 'data/') and its 'category_id'. Each member becomes one window of at most 'sequence_length' frames
+    (compute_member_frame_indices). A sample stores the before window followed by the after window along the frame
+    axis, each padded to 'sequence_length' with black frames, so that the generic code of the trainers (augmentation,
+    input viewer, evaluation) handles a pair as one sequence of 2 x sequence_length frames, both members sharing the
+    same augmentation draws. With 'batch_padding: "longest"', the collate of the loader cuts both windows of every pair
+    to the longest member of the batch.
     """
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
@@ -99,7 +99,7 @@ class SequencePairDataset(Dataset):
             label_dictionary (Dict[Any, int]): The class index of every raw category identifier, the pairs of unmapped
                 categories being left out.
             sequence_settings (Dict[str, Any]): The 'Data.sequence_settings' section: 'sequence_length' (maximum number
-                of frames of a member), 'frame_stride' and 'short_sequences'.
+                of frames of a member) and 'short_sequences'.
             shuffle (bool): Whether to shuffle the pairs once at creation. Defaults to True.
         """
         self.data_directory = data_directory
@@ -119,14 +119,13 @@ class SequencePairDataset(Dataset):
                 number_left_out_pairs += 1
                 continue
 
-            # Frames of every member, after the frame stride and the choice of its window frames
+            # Frames of every member kept in its window
             member_frames = {}
             for member_name in PAIR_MEMBERS:
-                strided_frames = pair[member_name][::sequence_settings["frame_stride"]]
-                frame_indices = compute_member_frame_indices(number_frames=len(strided_frames),
+                frame_indices = compute_member_frame_indices(number_frames=len(pair[member_name]),
                                                              sequence_length=self.sequence_length,
                                                              short_sequences=sequence_settings["short_sequences"])
-                member_frames[member_name] = [strided_frames[frame_index] for frame_index in frame_indices]
+                member_frames[member_name] = [pair[member_name][frame_index] for frame_index in frame_indices]
             if any(len(frames) == 0 for frames in member_frames.values()):
                 number_left_out_pairs += 1
                 continue

@@ -153,8 +153,6 @@ Data:
     # Maximum number of frames of a member of a pair (its before or after sequence), each member being fed as one
     # window: a longer member keeps evenly spaced frames covering it, a shorter one is padded.
     sequence_length: 16
-    # Keeps one frame every frame_stride frames of a member, before choosing its window frames (1 keeps every frame).
-    frame_stride: 1
     # Members shorter than sequence_length: "pad" (padded with black frames, ignored by the model through the sequence
     # mask) or "skip" (their pair is left out). An empty member always leaves its pair out.
     short_sequences: "pad"

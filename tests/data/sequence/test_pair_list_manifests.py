@@ -75,6 +75,5 @@ def test_pair_lists_are_converted_to_manifests(tmp_path: Path) -> None:
     dataset = SequencePairDataset(data_directory=str(output_folder / "train" / "data"),
                                   labels_file=str(output_folder / "train" / "labels.json"), image_size=16,
                                   keep_ratio=True, label_dictionary={1: 0, 2: 1, 3: 2},
-                                  sequence_settings={"sequence_length": 2, "frame_stride": 1,
-                                                     "short_sequences": "pad"}, shuffle=False)
+                                  sequence_settings={"sequence_length": 2, "short_sequences": "pad"}, shuffle=False)
     assert len(dataset) == 2 and dataset[0]["sequence_mask"].tolist() == [True, True, True, False]

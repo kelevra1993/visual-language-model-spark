@@ -284,8 +284,7 @@ def build_classification_sections(model_configuration: Dict[str, Any]) -> List[L
 def build_window_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the token of the run name describing the windows of frames fed to the sequence models: T<frames per window>
-    (frames per member of a pair for the comparison task), followed by S<frame stride> when frames are skipped, e.g.
-    'T16S2'.
+    (frames per member of a pair for the comparison task), e.g. 'T16'.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -293,11 +292,7 @@ def build_window_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     Returns:
         List[str]: The window token.
     """
-    sequence_settings = model_configuration["Data"]["sequence_settings"]
-    sequence_token = f"T{sequence_settings['sequence_length']}"
-    if sequence_settings["frame_stride"] > 1:
-        sequence_token += f"S{sequence_settings['frame_stride']}"
-    return [sequence_token]
+    return [f"T{model_configuration['Data']['sequence_settings']['sequence_length']}"]
 
 
 def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:

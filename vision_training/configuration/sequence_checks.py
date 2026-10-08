@@ -38,9 +38,8 @@ def check_sequence_settings(model_configuration: Dict[str, Any], cuts_windows: b
     Returns:
         List[str]: The description of every inconsistency found.
     """
-    # Frames per window, frames skipped between two kept frames, and frames between the starts of two windows when the
-    # sequences are cut into windows
-    key_paths = ["Data.sequence_settings.sequence_length", "Data.sequence_settings.frame_stride"]
+    # Frames per window, and frames between the starts of two windows when the sequences are cut into windows
+    key_paths = ["Data.sequence_settings.sequence_length"]
     if cuts_windows:
         key_paths.append("Data.sequence_settings.window_stride")
     errors = check_positive_integers(configuration=model_configuration, key_paths=key_paths, allow_zero=False)

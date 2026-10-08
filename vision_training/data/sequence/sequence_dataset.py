@@ -38,7 +38,7 @@ def compute_window_starts(number_frames: int, sequence_length: int, window_strid
     none ("skip"). Shared by the sequence dataset and the split description printed at startup.
 
     Args:
-        number_frames (int): The number of frames of the sequence, after the frame stride.
+        number_frames (int): The number of frames of the sequence.
         sequence_length (int): The number of frames of a window.
         window_stride (int): The number of frames between the starts of two windows.
         short_sequences (str): "pad" or "skip", for the sequences shorter than a window.
@@ -128,10 +128,10 @@ class SequenceDataset(Dataset):
 
     A split is a folder holding the frames of every sequence in 'data/<sequence name>/' and a 'labels.json' manifest
     listing the 'categories' and the 'sequences', each sequence giving its 'id', 'name', ordered 'frames' (paths
-    relative to 'data/'), and its 'category_id' (many to one) or 'frame_category_ids' (many to many). The frames are
-    subsampled by the frame stride, then every sequence is cut into windows of 'sequence_length' frames, the samples
-    of the dataset. The frames are resized and padded like the images of the other tasks, and a window shorter than
-    'sequence_length' is padded with black frames, marked as padding by its sequence mask.
+    relative to 'data/'), and its 'category_id' (many to one) or 'frame_category_ids' (many to many). Every sequence
+    is cut into windows of 'sequence_length' frames, the samples of the dataset. The frames are resized and padded
+    like the images of the other tasks, and a window shorter than 'sequence_length' is padded with black frames,
+    marked as padding by its sequence mask.
     """
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
@@ -147,7 +147,7 @@ class SequenceDataset(Dataset):
             keep_ratio (bool): Whether to keep the aspect ratio of the frames, padding them.
             label_dictionary (Dict[Any, int]): The class index of every raw category identifier.
             sequence_settings (Dict[str, Any]): The 'Data.sequence_settings' section: 'sequence_length',
-                'frame_stride', 'window_stride' and 'short_sequences'.
+                'window_stride' and 'short_sequences'.
             label_type (str): "sequence" (one class per window, from 'category_id', windows of unmapped categories
                 being left out) or "frame" (one class per frame, from 'frame_category_ids', frames of unmapped
                 categories being ignored by the loss and the metrics).
@@ -167,7 +167,7 @@ class SequenceDataset(Dataset):
         self.windows = []
         number_left_out_sequences = 0
         for sequence in manifest["sequences"]:
-            frames = sequence["frames"][::sequence_settings["frame_stride"]]
+            frames = sequence["frames"]
             if label_type == "sequence":
                 if sequence["category_id"] not in label_dictionary:
                     number_left_out_sequences += 1
@@ -175,7 +175,7 @@ class SequenceDataset(Dataset):
                 frame_labels = [label_dictionary[sequence["category_id"]]] * len(frames)
             else:
                 frame_labels = [label_dictionary[category] if category in label_dictionary else IGNORED_LABEL_INDEX
-                                for category in sequence["frame_category_ids"][::sequence_settings["frame_stride"]]]
+                                for category in sequence["frame_category_ids"]]
 
             window_starts = compute_window_starts(number_frames=len(frames), sequence_length=self.sequence_length,
                                                   window_stride=sequence_settings["window_stride"],
