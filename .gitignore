@@ -35,8 +35,8 @@ datasets/
 mlflow.db
 mlartifacts/
 mlruns/
-classifier_insipiration_code/
+inspiration_projects/
 previous_classifiers/
-previous_semantic_segmentation/
+*experiments*/
 # Exported models served by Triton
 vision_training/deployment/triton/served_models/
