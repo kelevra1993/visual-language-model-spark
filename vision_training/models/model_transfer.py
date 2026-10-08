@@ -329,6 +329,7 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     component_name = get_component_name(section_name=section_name)
     pretrained_configuration = model_configuration[section_name]["pretrained"]
     source_folder = Path(pretrained_configuration["experiment_folder"])
+    print(source_folder)
 
     # Only the configuration of the source run is read, not checked, so that a run of any task and any age can serve
     source_configuration = load_configuration(configuration_path=source_folder / "training_configuration.yaml")
