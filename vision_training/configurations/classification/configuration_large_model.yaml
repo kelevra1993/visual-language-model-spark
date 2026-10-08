@@ -21,7 +21,7 @@ ExperimentConfiguration:
   # ImageNet-1k validation set).
   test_data_folder: "/home/robert_kelevra/Data/classifier_data/imagenet-1k/manifests/test"
   # Number of images processed in a single forward/backward pass.
-  batch_size: 256
+  batch_size: 512
   # Frequency (in iterations) to log performance metrics.
   information_dump: 1000
   # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
@@ -90,7 +90,7 @@ ExperimentConfiguration:
     # Sends the configuration, the confusion matrices, the class metrics and thresholds and Results.txt as artifacts.
     log_artifacts: True
   # Base learning rate used by the optimizer.
-  learning_rate: 5.0e-4
+  learning_rate: 2.0e-3
   # Global tensor data type, either "float32" or "float64".
   dtype: "float32"
   # Flag to attempt loading the most recent checkpoint to resume training.
@@ -144,7 +144,7 @@ Data:
     prefetch_batches: 2
   image_settings:
     # Target resolution to resize all input images.
-    size: 256
+    size: 128
     # Flag to maintain the original aspect ratio when resizing.
     keep_ratio: True
   label_mapping:
@@ -274,7 +274,7 @@ ClassificationHead:
   # "average" or "max" (global pooling, C values whatever the image size), or "flatten" (its C x H x W values, which
   # keep where the features are in the image, e.g. 64 x 8 x 8 = 4096 for 256 pixel images and 6 blocks). A flattened
   # head is tied to Data.image_settings.size and Backbone.last_max_pooling, and its first layer is much larger.
-  global_pooling: "flatten"
+  global_pooling: "average"
   # Units of the hidden fully connected layers between the pooled features and the class logits, [] for none.
   fully_connected: [512,256]
   # Dropout applied before every fully connected layer, within [0, 1), 0 to disable.

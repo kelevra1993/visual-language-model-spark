@@ -16,7 +16,7 @@ def main() -> None:
     """
     # Define configuration path
     experiment_configuration_path = (Path(__file__).parent / "configurations" / "classification" /
-                                     "configuration_example.yaml")
+                                     "configuration_large_model.yaml")
 
     # Load configuration
     experiment_configuration, model_configuration = load_experiment_configuration(
