@@ -1,7 +1,8 @@
 """
 Tests of SequenceDataset of vision_training/data/sequence/sequence_dataset.py: the window starts, the windows of
-sequences with one class per sequence or one class per frame, the batches cut to their longest window by
-collate_longest_windows, and the window counts of vision_training/data/split_description.py.
+sequences with one class per sequence or one class per frame, the whole sequences of the frame selection with their
+unselected frames and their check, the batches cut to their longest window by collate_longest_windows, and the window
+counts of vision_training/data/split_description.py.
 """
 
 import json
@@ -190,4 +191,90 @@ def test_split_description_counts_windows(tmp_path: Path) -> None:
         {"id": 1, "name": "long", "number_frames": 12, "category_id": 1},
         {"id": 2, "name": "short", "number_frames": 2, "category_id": 2}])
     sequence_settings = {"sequence_length": 4, "window_stride": 4, "short_sequences": "skip"}
-    assert count_split_sequences(split_data_folder=tmp_path, sequence_settings=sequence_settings) == (2, 14, 3)
+    assert count_split_sequences(split_data_folder=tmp_path, sequence_settings=sequence_settings,
+                                 whole_sequences=False) == (2, 14, 3)
+
+
+def test_selection_sequences_are_whole_windows_with_unselected_frames(tmp_path: Path) -> None:
+    """
+    Verifies the frame selection dataset: every sequence is one window holding the whole sequence, the unselected
+    class is found by the name of its category, the frames of unmapped categories become unselected frames, the
+    padding frames are ignored, the windows are named after their sequence, and the classes of a window used to
+    spread the sample images leave the unselected frames out.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Category 1 is wanted (class 0), category 3 is the unselected one (class 1), category 2 is unmapped
+    write_sequence_split(split_folder=tmp_path, sequences=[
+        {"id": 1, "name": "first", "number_frames": 5, "frame_category_ids": [3, 1, 2, 3, 3]},
+        {"id": 2, "name": "second", "number_frames": 2, "frame_category_ids": [1, 2]}])
+    dataset = SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
+                              image_size=16, keep_ratio=False, label_dictionary={1: 0, 3: 1},
+                              sequence_settings={"sequence_length": 6, "batch_padding": "longest"},
+                              label_type="selection",
+                              selection_settings={"unselected_category": "still", "frames_per_class": 1},
+                              shuffle=False)
+
+    assert dataset.unselected_class_index == 1 and len(dataset) == 2
+    assert dataset[0]["labels"].tolist() == [1, 0, 1, 1, 1, IGNORED_LABEL_INDEX]
+    assert dataset[1]["labels"].tolist() == [0, 1] + [IGNORED_LABEL_INDEX] * 4
+    assert dataset[0]["sequence_mask"].sum() == 5
+    assert dataset.get_sample_name(sample_identifier=0) == "first"
+    assert dataset.get_sample_class_indices() == {0: [0], 1: [0]}
+    assert count_split_sequences(split_data_folder=tmp_path, sequence_settings={"sequence_length": 6},
+                                 whole_sequences=True) == (2, 7, 2)
+
+
+def test_selection_sequences_that_do_not_fit_are_all_listed(tmp_path: Path) -> None:
+    """
+    Verifies that the frame selection dataset refuses the sequences it cannot train on, listing all of them in one
+    error: a sequence holding a wanted class twice, one missing a wanted class, and one longer than the sequence
+    length.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    write_sequence_split(split_folder=tmp_path, sequences=[
+        {"id": 1, "name": "valid", "number_frames": 3, "frame_category_ids": [1, 2, 3]},
+        {"id": 2, "name": "twice", "number_frames": 3, "frame_category_ids": [1, 1, 2]},
+        {"id": 3, "name": "missing", "number_frames": 2, "frame_category_ids": [3, 2]},
+        {"id": 4, "name": "long", "number_frames": 5, "frame_category_ids": [1, 2, 3, 3, 3]}])
+
+    with pytest.raises(expected_exception=ValueError) as raised_error:
+        SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
+                        image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1, 3: 2},
+                        sequence_settings={"sequence_length": 4, "batch_padding": "longest"},
+                        label_type="selection",
+                        selection_settings={"unselected_category": "still", "frames_per_class": 1})
+    error_message = str(raised_error.value)
+    assert error_message.startswith("3 sequences cannot be used for the frame selection")
+    assert " - twice : left 2 frames" in error_message
+    assert " - missing : left 0 frames\n" in error_message
+    assert " - long : 5 frames, more than the sequence length 4" in error_message
+    assert "valid" not in error_message
+
+
+@pytest.mark.parametrize(argnames=("unselected_category", "label_dictionary", "expected_message"), argvalues=[
+    ("discarded", {1: 0, 3: 1}, "No category is named 'discarded'"),
+    ("still", {1: 0, 2: 1}, "The unselected category 'still' (identifier 3) is not mapped")])
+def test_selection_needs_a_mapped_unselected_category(tmp_path: Path, unselected_category: str,
+                                                      label_dictionary: Dict[int, int], expected_message: str) -> None:
+    """
+    Verifies that the frame selection dataset refuses an unselected category missing from the manifest or left out
+    of the label mapping, whose frames would have no class.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        unselected_category (str): The name of the unselected category of the selection settings.
+        label_dictionary (Dict[int, int]): The label mapping of the dataset.
+        expected_message (str): The start of the expected error.
+    """
+    write_sequence_split(split_folder=tmp_path, sequences=[
+        {"id": 1, "name": "first", "number_frames": 2, "frame_category_ids": [1, 3]}])
+    with pytest.raises(expected_exception=ValueError, match=expected_message.replace("(", r"\(").replace(")", r"\)")):
+        SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
+                        image_size=16, keep_ratio=False, label_dictionary=label_dictionary,
+                        sequence_settings={"sequence_length": 4, "batch_padding": "longest"},
+                        label_type="selection",
+                        selection_settings={"unselected_category": unselected_category, "frames_per_class": 1})

@@ -1,7 +1,7 @@
 """
 Registry of the model class of every task, keyed by 'ExperimentConfiguration.task' (object detection, classification,
-semantic segmentation, sequence classification, labelling and comparison). Read by the trainers and by model_loading.py to rebuild a run from
-its saved configuration.
+semantic segmentation, sequence classification, labelling and comparison, frame selection). Read by the trainers and by
+model_loading.py to rebuild a run from its saved configuration.
 """
 
 from typing import Dict, Type
@@ -9,6 +9,7 @@ from typing import Dict, Type
 from vision_training.models.classification.image_classifier import ImageClassifier
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.segmentation.semantic_segmenter import SemanticSegmenter
+from vision_training.models.sequence.frame_selector import FrameSelector
 from vision_training.models.sequence.sequence_classifier import SequenceClassifier
 from vision_training.models.sequence.sequence_comparator import SequenceComparator
 from vision_training.models.sequence.sequence_labeller import SequenceLabeller
@@ -21,4 +22,5 @@ TASK_MODEL_CLASSES: Dict[str, Type[TaskModel]] = {"object_detection": TwoStageDe
                                                   "semantic_segmentation": SemanticSegmenter,
                                                   "sequence_classification": SequenceClassifier,
                                                   "sequence_labelling": SequenceLabeller,
-                                                  "sequence_comparison": SequenceComparator}
+                                                  "sequence_comparison": SequenceComparator,
+                                                  "frame_selection": FrameSelector}

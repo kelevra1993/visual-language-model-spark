@@ -246,15 +246,31 @@ class ClassificationTrainer(BaseTrainer):
         Returns:
             Optional[Path]: The folder of the class pair, created, or None when the pair is full.
         """
-        pair_name = f"{self.class_names[true_class_index]}-TO-{self.class_names[predicted_class_index]}"
+        return self.reserve_error_folder(
+            accumulator=accumulator,
+            folder_name=f"{self.class_names[true_class_index]}-TO-{self.class_names[predicted_class_index]}")
+
+    def reserve_error_folder(self, accumulator: Dict[str, Any], folder_name: str) -> Optional[Path]:
+        """
+        Counts one more error image in a folder of the 'Errors' folder of the evaluation (a pair of classes, or a
+        wanted class for the frame selection), and gives that folder, or None when it already holds
+        'maximum_per_class_pair' images, so that the image is only built when it is saved.
+
+        Args:
+            accumulator (Dict[str, Any]): The evaluation accumulator, holding the 'errors_folder' and 'error_counts'.
+            folder_name (str): The name of the folder of the error image.
+
+        Returns:
+            Optional[Path]: The folder, created, or None when it is full.
+        """
         error_counts = accumulator["error_counts"]
-        number_images = error_counts[pair_name] if pair_name in error_counts else 0
+        number_images = error_counts[folder_name] if folder_name in error_counts else 0
         if number_images >= self.error_dumps_configuration["maximum_per_class_pair"]:
             return None
-        error_counts[pair_name] = number_images + 1
-        pair_folder = accumulator["errors_folder"] / pair_name
-        pair_folder.mkdir(parents=True, exist_ok=True)
-        return pair_folder
+        error_counts[folder_name] = number_images + 1
+        error_folder = accumulator["errors_folder"] / folder_name
+        error_folder.mkdir(parents=True, exist_ok=True)
+        return error_folder
 
     def build_input_image(self, batch: Dict[str, Any], sample_index: int) -> np.ndarray:
         """

@@ -8,6 +8,7 @@ from typing import Dict, Type
 from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.trainers.classification_trainer import ClassificationTrainer
 from vision_training.trainers.detection_trainer import DetectionTrainer
+from vision_training.trainers.frame_selection_trainer import FrameSelectionTrainer
 from vision_training.trainers.segmentation_trainer import SegmentationTrainer
 from vision_training.trainers.sequence_classification_trainer import SequenceClassificationTrainer
 from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
@@ -19,7 +20,8 @@ TASK_TRAINER_CLASSES: Dict[str, Type[BaseTrainer]] = {"object_detection": Detect
                                                       "semantic_segmentation": SegmentationTrainer,
                                                       "sequence_classification": SequenceClassificationTrainer,
                                                       "sequence_labelling": SequenceLabellingTrainer,
-                                                      "sequence_comparison": SequenceComparisonTrainer}
+                                                      "sequence_comparison": SequenceComparisonTrainer,
+                                                      "frame_selection": FrameSelectionTrainer}
 
 
 def get_trainer_class(task: str) -> Type[BaseTrainer]:

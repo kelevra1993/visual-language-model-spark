@@ -1,7 +1,8 @@
 """
 Exports a trained experiment of any task to the Triton model repository as TorchScript and ONNX (optionally run with
-TensorRT), writes the Triton configurations and checks every export against the eager inference model. Run as a
-script with the experiment, iteration and formats set in its main block.
+TensorRT), writes the Triton configurations and checks every export against the eager inference model, adding for the
+frame selection the decoder and the ensembles returning the chosen frames. Run as a script with the experiment,
+iteration and formats set in its main block.
 """
 
 import logging
@@ -17,6 +18,8 @@ from typing import Any, Dict, List, Optional
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.deployment.export_specifications import (build_inference_model, convert_outputs_to_numpy,
                                                               create_random_inputs, get_export_specification)
+from vision_training.deployment.frame_selection_deployment import (build_decoding_settings,
+                                                                   export_frame_selection_decoding)
 from vision_training.deployment.triton_configuration import write_triton_configuration
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.models.model_loading import load_trained_model
@@ -177,6 +180,8 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], formats
     Triton configurations, and checks each export against the eager inference model on a random batch of another
     size (and, for the sequence models, of another number of frames) than the traced one. The inference model, the
     Triton model names, the outputs and the comparison come from the export specification of the task of the run.
+    A frame selector also gets its decoder and one ensemble per format, with the decoding settings of the run and
+    the confidence thresholds of the evaluation of the exported checkpoint.
 
     Args:
         experiment_folder (Path): The experiment folder holding 'Weights' and 'training_configuration.yaml'.
@@ -200,7 +205,8 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], formats
     try:
         device = torch.device("cuda")
         configuration_path = experiment_folder / "training_configuration.yaml"
-        experiment_configuration, _ = load_experiment_configuration(configuration_path=configuration_path)
+        experiment_configuration, model_configuration = load_experiment_configuration(
+            configuration_path=configuration_path)
         checkpoint_path = get_checkpoint_path(experiment_folder=experiment_folder, iteration=iteration)
         model = load_trained_model(configuration_path=configuration_path, checkpoint_path=checkpoint_path,
                                    device=device)
@@ -250,6 +256,17 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], formats
                                    "\n".join(mismatches))
             print_color(color="green", output=f"{export_format} Export Matches The Eager Model : ", indent=1)
             print_color(color="green", output=f"file://{model_directory.absolute()}", indent=2)
+
+        # Frame selector: the decoder of the selection and the ensembles the clients query
+        if experiment_configuration["task"] == "frame_selection":
+            decoding_settings = build_decoding_settings(
+                experiment_configuration=experiment_configuration, model_configuration=model_configuration,
+                unselected_class_index=model.get_unselected_class_index(), checkpoint_path=checkpoint_path,
+                experiment_folder=experiment_folder)
+            export_frame_selection_decoding(repository=repository, model_version=model_version, formats=formats,
+                                            specification=specification, decoding_settings=decoding_settings,
+                                            number_classes=inference_model.number_classes,
+                                            maximum_batch_size=maximum_batch_size)
     # 'finally' runs whether the export succeeds or raises an error (missing checkpoint, export mismatch...), so the
     # TF32 settings are always restored, and any error still reaches the caller afterwards
     finally:

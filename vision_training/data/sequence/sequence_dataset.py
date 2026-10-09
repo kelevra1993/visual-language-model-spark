@@ -1,8 +1,9 @@
 """
-SequenceDataset, the Native (OpenCV, CPU) dataset of the sequence classification and sequence labelling tasks, cutting
-every sequence of a 'labels.json' split into padded windows of frames with sequence or frame labels, the window
-helpers shared with the sequence pair dataset and the split description, and the collate function padding the batches
-of both datasets to their longest window. Instantiated by get_sequence_dataloaders of data/loaders.py.
+SequenceDataset, the Native (OpenCV, CPU) dataset of the sequence classification, sequence labelling and frame
+selection tasks, cutting every sequence of a 'labels.json' split into padded windows of frames with sequence or frame
+labels (one window per whole sequence for the frame selection, whose sequences are checked to hold every wanted class),
+the window helpers shared with the sequence pair dataset and the split description, and the collate function padding
+the batches of both datasets to their longest window. Instantiated by get_sequence_dataloaders of data/loaders.py.
 """
 
 import json
@@ -14,15 +15,19 @@ import torch
 
 from torch.utils.data import Dataset, default_collate
 from pathlib import PurePosixPath
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.preprocessing import preprocess_image
 from vision_training.utilities.os_utilities import print_color
 
-# Labels read from the manifest: one class per sequence (many to one) or one class per frame (many to many)
-VALID_LABEL_TYPES = ["sequence", "frame"]
+# Labels read from the manifest: one class per sequence (many to one), one class per frame (many to many), or one class
+# per frame of a whole sequence for the frame selection, the frames of unmapped categories being unselected
+VALID_LABEL_TYPES = ["sequence", "frame", "selection"]
+
+# Largest number of invalid sequences listed in the error of the frame selection data check, the others being counted
+MAXIMUM_LISTED_INVALID_SEQUENCES = 20
 
 # Keys of a sample whose tensors have one entry per frame along their first axis, cut to the longest window of the batch
 # by collate_longest_windows (the labels only when they are given per frame)
@@ -122,6 +127,65 @@ def collate_longest_windows(samples: List[Dict[str, Any]], members_per_sample: i
     return default_collate(batch=cut_samples)
 
 
+def find_unselected_class_index(categories: List[Dict[str, Any]], label_dictionary: Dict[Any, int],
+                                unselected_category: str, labels_file: str) -> int:
+    """
+    Finds the class index of the unselected frames of the frame selection task, from the name of their category in
+    the manifest ('Selection.unselected_category') and the label mapping, every other class being a wanted class.
+
+    Args:
+        categories (List[Dict[str, Any]]): The 'id' and 'name' of every category of the manifest.
+        label_dictionary (Dict[Any, int]): The class index of every raw category identifier.
+        unselected_category (str): The name of the category of the unselected frames.
+        labels_file (str): The 'labels.json' manifest, named in the errors.
+
+    Returns:
+        int: The class index of the unselected frames.
+
+    Raises:
+        ValueError: If no category has that name, or if the label mapping does not map it.
+    """
+    category_identifiers = [category["id"] for category in categories if category["name"] == unselected_category]
+    if not category_identifiers:
+        raise ValueError(f"No category is named {unselected_category!r} ('Selection.unselected_category') in : "
+                         f"file://{os.path.abspath(labels_file)}")
+    mapped_identifiers = [identifier for identifier in category_identifiers if identifier in label_dictionary]
+    if not mapped_identifiers:
+        raise ValueError(f"The unselected category {unselected_category!r} (identifier {category_identifiers[0]}) is "
+                         f"not mapped by the label mapping file, its frames would have no class : "
+                         f"file://{os.path.abspath(labels_file)}")
+    return label_dictionary[mapped_identifiers[0]]
+
+
+def describe_selection_problem(frame_labels: List[int], wanted_class_indices: List[int], frames_per_class: int,
+                               sequence_length: int, class_names: Dict[int, str]) -> Optional[str]:
+    """
+    Checks that one sequence of the frame selection task can be decoded and trained on: it fits in one window of
+    'sequence_length' frames, and every wanted class holds exactly 'frames_per_class' of its frames, the selection
+    choosing that many frames of every class.
+
+    Args:
+        frame_labels (List[int]): The class index of every frame of the sequence, the unmapped ones being unselected.
+        wanted_class_indices (List[int]): The class indices of the wanted classes.
+        frames_per_class (int): The number of frames of every wanted class ('Selection.frames_per_class').
+        sequence_length (int): The number of frames of a window ('Data.sequence_settings.sequence_length').
+        class_names (Dict[int, str]): The name of every class index.
+
+    Returns:
+        Optional[str]: The description of what is wrong with the sequence, or None when it is valid.
+    """
+    problems = []
+    if len(frame_labels) > sequence_length:
+        problems.append(f"{len(frame_labels)} frames, more than the sequence length {sequence_length}")
+
+    # Wanted classes holding another number of frames than the selection chooses
+    wrong_counts = [f"{class_names[class_index]} {frame_labels.count(class_index)} frames"
+                    for class_index in wanted_class_indices if frame_labels.count(class_index) != frames_per_class]
+    if wrong_counts:
+        problems.append(", ".join(wrong_counts))
+    return "; ".join(problems) if problems else None
+
+
 class SequenceDataset(Dataset):
     """
     Dataset of the sequence tasks, read with OpenCV on the CPU (Native loader).
@@ -132,11 +196,15 @@ class SequenceDataset(Dataset):
     is cut into windows of 'sequence_length' frames, the samples of the dataset. The frames are resized and padded
     like the images of the other tasks, and a window shorter than 'sequence_length' is padded with black frames,
     marked as padding by its sequence mask.
+
+    For the frame selection, every sequence is one window holding the whole sequence, the frames of unmapped
+    categories are unselected frames, and every sequence must hold every wanted class exactly 'frames_per_class'
+    times and fit in 'sequence_length' frames.
     """
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
                  label_dictionary: Dict[Any, int], sequence_settings: Dict[str, Any], label_type: str,
-                 shuffle: bool = True) -> None:
+                 selection_settings: Optional[Dict[str, Any]] = None, shuffle: bool = True) -> None:
         """
         Reads the manifest of the split and cuts its sequences into windows.
 
@@ -146,12 +214,20 @@ class SequenceDataset(Dataset):
             image_size (int): The size of the square network input.
             keep_ratio (bool): Whether to keep the aspect ratio of the frames, padding them.
             label_dictionary (Dict[Any, int]): The class index of every raw category identifier.
-            sequence_settings (Dict[str, Any]): The 'Data.sequence_settings' section: 'sequence_length',
-                'window_stride' and 'short_sequences'.
+            sequence_settings (Dict[str, Any]): The 'Data.sequence_settings' section: 'sequence_length', and
+                'window_stride' and 'short_sequences' unless the label type is "selection".
             label_type (str): "sequence" (one class per window, from 'category_id', windows of unmapped categories
-                being left out) or "frame" (one class per frame, from 'frame_category_ids', frames of unmapped
-                categories being ignored by the loss and the metrics).
+                being left out), "frame" (one class per frame, from 'frame_category_ids', frames of unmapped
+                categories being ignored by the loss and the metrics) or "selection" (one class per frame of a whole
+                sequence, frames of unmapped categories being unselected).
+            selection_settings (Optional[Dict[str, Any]]): The 'Selection' section ('unselected_category' and
+                'frames_per_class') for the "selection" label type, None otherwise. Defaults to None.
             shuffle (bool): Whether to shuffle the windows once at creation. Defaults to True.
+
+        Raises:
+            ValueError: For the "selection" label type, if the unselected category is missing or unmapped, or if
+                sequences do not hold every wanted class 'frames_per_class' times or are longer than
+                'sequence_length', all of them being listed.
         """
         self.data_directory = data_directory
         self.image_size = image_size
@@ -163,9 +239,25 @@ class SequenceDataset(Dataset):
         with open(file=labels_file, mode="r") as labels_file_handler:
             manifest = json.load(fp=labels_file_handler)
 
+        # Name of every class, taken from the categories of the manifest
+        self.class_names = get_class_names(categories=manifest["categories"], label_dictionary=label_dictionary)
+
+        # Frame selection: class of the unselected frames, given to the frames of unmapped categories, the other
+        # classes being the wanted ones; the other label types ignore the frames of unmapped categories
+        self.unselected_class_index = None
+        unmapped_frame_label = IGNORED_LABEL_INDEX
+        if label_type == "selection":
+            self.unselected_class_index = find_unselected_class_index(
+                categories=manifest["categories"], label_dictionary=label_dictionary,
+                unselected_category=selection_settings["unselected_category"], labels_file=labels_file)
+            unmapped_frame_label = self.unselected_class_index
+        wanted_class_indices = [class_index for class_index in range(self.number_classes)
+                                if class_index != self.unselected_class_index]
+
         # Cut every sequence into windows of frames, with the class of the window or of each of its frames
         self.windows = []
         number_left_out_sequences = 0
+        invalid_sequences = []
         for sequence in manifest["sequences"]:
             frames = sequence["frames"]
             if label_type == "sequence":
@@ -174,18 +266,39 @@ class SequenceDataset(Dataset):
                     continue
                 frame_labels = [label_dictionary[sequence["category_id"]]] * len(frames)
             else:
-                frame_labels = [label_dictionary[category] if category in label_dictionary else IGNORED_LABEL_INDEX
+                frame_labels = [label_dictionary[category] if category in label_dictionary else unmapped_frame_label
                                 for category in sequence["frame_category_ids"]]
 
-            window_starts = compute_window_starts(number_frames=len(frames), sequence_length=self.sequence_length,
-                                                  window_stride=sequence_settings["window_stride"],
-                                                  short_sequences=sequence_settings["short_sequences"])
+            # A whole sequence per window for the frame selection, checked to hold every wanted class, or windows cut
+            # every window stride frames
+            if label_type == "selection":
+                selection_problem = describe_selection_problem(
+                    frame_labels=frame_labels, wanted_class_indices=wanted_class_indices,
+                    frames_per_class=selection_settings["frames_per_class"], sequence_length=self.sequence_length,
+                    class_names=self.class_names)
+                if selection_problem is not None:
+                    invalid_sequences.append(f"{sequence['name']} : {selection_problem}")
+                window_starts = [0]
+            else:
+                window_starts = compute_window_starts(number_frames=len(frames), sequence_length=self.sequence_length,
+                                                      window_stride=sequence_settings["window_stride"],
+                                                      short_sequences=sequence_settings["short_sequences"])
             number_left_out_sequences += int(len(window_starts) == 0)
             for window_start in window_starts:
                 window_end = window_start + self.sequence_length
                 self.windows.append({"identifier": len(self.windows), "sequence_identifier": sequence["id"],
                                      "sequence_name": sequence["name"], "frames": frames[window_start:window_end],
                                      "frame_labels": frame_labels[window_start:window_end]})
+        # Every sequence of the frame selection must be valid, all the invalid ones being listed at once
+        if invalid_sequences:
+            listed_sequences = invalid_sequences[:MAXIMUM_LISTED_INVALID_SEQUENCES]
+            if len(invalid_sequences) > MAXIMUM_LISTED_INVALID_SEQUENCES:
+                listed_sequences.append(f"... and {len(invalid_sequences) - MAXIMUM_LISTED_INVALID_SEQUENCES} more")
+            raise ValueError(f"{len(invalid_sequences)} sequences cannot be used for the frame selection, which needs "
+                             f"every wanted class exactly {selection_settings['frames_per_class']} times "
+                             f"('Selection.frames_per_class') and at most {self.sequence_length} frames per sequence "
+                             f"('Data.sequence_settings.sequence_length') : file://{os.path.abspath(labels_file)}\n" +
+                             "\n".join(f" - {listed_sequence}" for listed_sequence in listed_sequences))
         if number_left_out_sequences > 0:
             print_color(color="yellow", output=f"{number_left_out_sequences} sequences of unmapped categories or "
                                                f"shorter than {self.sequence_length} frames left out : "
@@ -195,9 +308,6 @@ class SequenceDataset(Dataset):
 
         # Every window by identifier, to name the evaluated windows and frames in the evaluation outputs
         self.window_records = {window["identifier"]: window for window in self.windows}
-
-        # Name of every class, taken from the categories of the manifest
-        self.class_names = get_class_names(categories=manifest["categories"], label_dictionary=label_dictionary)
 
     def __len__(self) -> int:
         """
@@ -257,16 +367,19 @@ class SequenceDataset(Dataset):
     def get_sample_name(self, sample_identifier: int) -> str:
         """
         Gives the short name of an evaluated window used in the file names of the error images of the evaluation: its
-        sequence followed by its first real frame, a sequence being cut into several windows.
+        sequence followed by its first real frame, a sequence being cut into several windows, or its sequence alone for
+        the frame selection, whose window is the whole sequence.
 
         Args:
             sample_identifier (int): The identifier of the window, as given in the 'sample_identifiers' of a batch.
 
         Returns:
             str: The name of the window, e.g. 'test_000003_000004' for the window of 'test_000003' starting at
-                'test_000003/000004.png'.
+                'test_000003/000004.png', or 'test_000003' for the frame selection.
         """
         window = self.window_records[sample_identifier]
+        if self.label_type == "selection":
+            return window["sequence_name"].replace("/", "_")
         return f"{window['sequence_name']}_{PurePosixPath(window['frames'][0]).stem}".replace("/", "_")
 
     def get_window_frame_names(self, sample_identifier: int) -> List[str]:
@@ -286,13 +399,15 @@ class SequenceDataset(Dataset):
         """
         Lists the classes of every window, from which the sequence trainers spread the fixed test windows drawn at
         every evaluation over the classes: the class of the window (one class per window), or the class of every
-        labelled frame (one class per frame), so that a window counts for the class of most of its frames.
+        labelled frame (one class per frame), so that a window counts for the class of most of its frames. The
+        unselected frames of the frame selection are left out, every sequence holding the same wanted classes.
 
         Returns:
             Dict[int, List[int]]: The class indices of every window keyed by its identifier.
         """
         return {window["identifier"]: window["frame_labels"][:1] if self.label_type == "sequence" else
-                [class_index for class_index in window["frame_labels"] if class_index != IGNORED_LABEL_INDEX]
+                [class_index for class_index in window["frame_labels"]
+                 if class_index not in [IGNORED_LABEL_INDEX, self.unselected_class_index]]
                 for window in self.windows}
 
     def get_class_counts(self) -> List[int]:

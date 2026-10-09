@@ -126,7 +126,7 @@ class SequenceClassificationTrainer(ClassificationTrainer):
                 sequences and frames.
         """
         number_sequences, number_frames, number_windows = count_split_sequences(
-            split_data_folder=split_data_folder, sequence_settings=self.sequence_settings)
+            split_data_folder=split_data_folder, sequence_settings=self.sequence_settings, whole_sequences=False)
         return number_windows, (f"{number_sequences} sequences, {number_frames} frames, {number_windows} windows of "
                                 f"{self.get_window_size_qualifier()}{self.sequence_settings['sequence_length']} "
                                 f"frames")

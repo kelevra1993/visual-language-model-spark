@@ -1,8 +1,8 @@
 """
 Creates the synthetic shapes datasets of every task (object detection, classification, semantic segmentation,
-sequence classification, sequence labelling, sequence comparison) with their labels and 'label_mapping.json': trivial
-datasets used by the synthetic configurations and the trainer tests to check that a model learns. Run as a script with
-the task set in its main block.
+sequence classification, sequence labelling, sequence comparison, frame selection) with their labels and
+'label_mapping.json': trivial datasets used by the synthetic configurations and the trainer tests to check that a model
+learns. Run as a script with the task set in its main block.
 """
 
 import json
@@ -56,6 +56,21 @@ MAXIMUM_SHAPE_CHANGES = 3
 # before member, or shows all of them
 PAIR_CATEGORIES = {"loss_of_object": 1, "same_number_of_objects": 2}
 
+# Classes of the synthetic frame selection dataset: the largest copy of every wanted shape of a sequence is the frame to
+# select, every other frame (a smaller copy of a wanted shape, or another shape) being unselected
+SELECTION_CATEGORIES = {"unselected": 1, "circle": 2, "triangle": 3, "star": 4}
+SELECTION_WANTED_SHAPES = ["circle", "triangle", "star"]
+SELECTION_OTHER_SHAPES = ["square", "rectangle", "plus_sign"]
+
+# Frame selection shapes: size of the largest copies as a fraction of the image side, probability that an unselected
+# frame shows a smaller copy of a wanted shape rather than another shape, largest size of a smaller copy relative to
+# the largest copy, and largest area of a smaller copy relative to the largest copy (a triangle filling its square more
+# or less), so that the largest copy is always clearly the largest
+SELECTION_LARGEST_SIZE_RANGE = (0.4, 0.6)
+SELECTION_SMALLER_COPY_PROBABILITY = 0.5
+SELECTION_SMALLER_SIZE_RATIO = 0.7
+SELECTION_SMALLER_AREA_RATIO = 0.6
+
 # Minimum number of objects of the before member of a pair
 PAIR_MINIMUM_OBJECTS = 2
 
@@ -72,19 +87,20 @@ MAXIMUM_FRAME_ATTEMPTS = 20
 # or a pair of sequences)
 TASK_CATEGORIES = {"object_detection": SHAPE_CATEGORIES, "classification": SHAPE_CATEGORIES,
                    "semantic_segmentation": SHAPE_CATEGORIES, "sequence_classification": MOVEMENT_CATEGORIES,
-                   "sequence_labelling": SHAPE_CATEGORIES, "sequence_comparison": PAIR_CATEGORIES}
+                   "sequence_labelling": SHAPE_CATEGORIES, "sequence_comparison": PAIR_CATEGORIES,
+                   "frame_selection": SELECTION_CATEGORIES}
 
 # Tasks whose model predicts a background class at index 0, so that the category identifiers numbered from 1 are their
 # class indices; the other tasks predict their categories from class index 0
 TASKS_WITH_BACKGROUND_CLASS = ["object_detection", "semantic_segmentation"]
-SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison"]
+SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison", "frame_selection"]
 
 # Key of the samples in the manifest of every sequence task, and name of the samples of every task in the console
 TASK_MANIFEST_KEYS = {"sequence_classification": "sequences", "sequence_labelling": "sequences",
-                      "sequence_comparison": "pairs"}
+                      "sequence_comparison": "pairs", "frame_selection": "sequences"}
 TASK_SAMPLE_NAMES = {"object_detection": "images", "classification": "images", "semantic_segmentation": "images",
                      "sequence_classification": "sequences", "sequence_labelling": "sequences",
-                     "sequence_comparison": "pairs"}
+                     "sequence_comparison": "pairs", "frame_selection": "sequences"}
 
 
 def draw_square_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
@@ -702,6 +718,97 @@ def generate_changing_shape_sequence(image_size: int, number_frames: int,
     return frames, frame_category_ids
 
 
+def draw_selection_frame(background: np.ndarray, shape_name: str, size: int, colour: np.ndarray,
+                         random_generator: np.random.Generator) -> Tuple[np.ndarray, int]:
+    """
+    Draws one frame of a synthetic frame selection sequence: a single shape of the given class and size at a random
+    position of the background shared by the sequence, with the area of its pixels, which tells the largest copy of a
+    shape apart from its smaller copies.
+
+    Args:
+        background (np.ndarray): The [H, W, 3] uint8 BGR background shared by the frames of the sequence.
+        shape_name (str): The class of the shape, a key of SHAPE_DRAWING_FUNCTIONS.
+        size (int): The size of the shape in pixels, smaller than the image side minus 2.
+        colour (np.ndarray): The [3] uint8 BGR colour of the shape.
+        random_generator (np.random.Generator): The random generator of the position and of the shape.
+
+    Returns:
+        Tuple[np.ndarray, int]: The [H, W, 3] uint8 BGR frame and the number of pixels of the shape.
+    """
+    image_size = background.shape[0]
+    mask = np.zeros(shape=(image_size, image_size), dtype=np.uint8)
+    center_x, center_y = random_generator.integers(low=size // 2 + 1, high=image_size - size // 2 - 1, size=2)
+    SHAPE_DRAWING_FUNCTIONS[shape_name](mask=mask, center_x=int(center_x), center_y=int(center_y), size=size,
+                                        random_generator=random_generator)
+    frame = background.copy()
+    frame[mask > 0] = colour
+    return frame, int(np.count_nonzero(mask))
+
+
+def generate_selection_sequence(image_size: int, number_frames: int,
+                                random_generator: np.random.Generator) -> Tuple[List[np.ndarray], List[int]]:
+    """
+    Generates one synthetic frame selection sample: a sequence of frames showing one shape each, over a background and
+    in a colour shared by its frames. Every wanted shape (circle, triangle, star) appears once at a large size, the
+    frame to select for its class, and the other frames show a smaller copy of a wanted shape (at most 70 % of its
+    size and 60 % of its area) or another shape (square, rectangle, plus sign), all unselected. Whether a circle is
+    the one to select depends on the other circles of the sequence, so that the model must compare the frames. The
+    frames come in random order.
+
+    Args:
+        image_size (int): The height and width of the square frames in pixels.
+        number_frames (int): The number of frames of the sequence, at least the number of wanted shapes.
+        random_generator (np.random.Generator): The random generator of the sequence.
+
+    Returns:
+        Tuple[List[np.ndarray], List[int]]: The [H, W, 3] uint8 BGR frames and the category identifier of every frame.
+    """
+    background, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
+    colour = draw_contrasting_colour(background_colour=background_colour, random_generator=random_generator)
+    minimum_size = max(6, image_size // 8)
+    largest_size_low, largest_size_high = [int(image_size * fraction) for fraction in SELECTION_LARGEST_SIZE_RANGE]
+    frames, frame_category_ids, largest_copies = [], [], {}
+
+    # Largest copy of every wanted shape, the frame to select for its class
+    for shape_name in SELECTION_WANTED_SHAPES:
+        size = int(random_generator.integers(low=largest_size_low, high=largest_size_high + 1))
+        frame, area = draw_selection_frame(background=background, shape_name=shape_name, size=size, colour=colour,
+                                           random_generator=random_generator)
+        frames.append(frame)
+        frame_category_ids.append(SELECTION_CATEGORIES[shape_name])
+        largest_copies[shape_name] = (size, area)
+
+    # Unselected frames: a clearly smaller copy of a wanted shape, redrawn until its area is small enough, or else
+    # another shape
+    for _ in range(number_frames - len(SELECTION_WANTED_SHAPES)):
+        frame = None
+        if random_generator.random() < SELECTION_SMALLER_COPY_PROBABILITY:
+            shape_name = SELECTION_WANTED_SHAPES[int(random_generator.integers(low=0,
+                                                                                high=len(SELECTION_WANTED_SHAPES)))]
+            largest_size, largest_area = largest_copies[shape_name]
+            maximum_size = max(minimum_size, int(largest_size * SELECTION_SMALLER_SIZE_RATIO))
+            for _ in range(MAXIMUM_FRAME_ATTEMPTS):
+                size = int(random_generator.integers(low=minimum_size, high=maximum_size + 1))
+                candidate_frame, area = draw_selection_frame(background=background, shape_name=shape_name, size=size,
+                                                             colour=colour, random_generator=random_generator)
+                if area <= SELECTION_SMALLER_AREA_RATIO * largest_area:
+                    frame = candidate_frame
+                    break
+        if frame is None:
+            shape_name = SELECTION_OTHER_SHAPES[int(random_generator.integers(low=0,
+                                                                               high=len(SELECTION_OTHER_SHAPES)))]
+            size = int(random_generator.integers(low=minimum_size, high=largest_size_high + 1))
+            frame, _ = draw_selection_frame(background=background, shape_name=shape_name, size=size, colour=colour,
+                                            random_generator=random_generator)
+        frames.append(frame)
+        frame_category_ids.append(SELECTION_CATEGORIES["unselected"])
+
+    # Frames in random order, the frames to select anywhere in the sequence
+    frame_order = random_generator.permutation(number_frames).tolist()
+    return [frames[frame_index] for frame_index in frame_order], [frame_category_ids[frame_index]
+                                                                  for frame_index in frame_order]
+
+
 def draw_shapes_frame(background: np.ndarray, shape_descriptors: List[Dict[str, Any]],
                       random_generator: np.random.Generator) -> np.ndarray:
     """
@@ -826,7 +933,7 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     Returns:
         List[Dict[str, Any]]: For every sample, its 'index', 'name', its 'frames' (or the frames of its 'before' and
             'after' members, paths relative to the data folder) and 'category_id' (sequence classification and
-            comparison) or 'frame_category_ids' (sequence labelling).
+            comparison) or 'frame_category_ids' (sequence labelling and frame selection).
     """
     random_generator = np.random.default_rng()
     sequence_records = []
@@ -837,8 +944,9 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
         # Number of frames of the sequence, the members of a pair drawing their own
         number_frames = int(random_generator.integers(low=chunk["minimum_frames"], high=chunk["maximum_frames"] + 1))
 
-        # A shape crossing the frames labelled with its direction, a shape changing class labelled per frame, or two
-        # members labelled with the comparison of their numbers of objects, the frames saved in their folders
+        # A shape crossing the frames labelled with its direction, a shape changing class labelled per frame, two
+        # members labelled with the comparison of their numbers of objects, or shapes of several sizes whose largest
+        # copies are selected, the frames saved in their folders
         if chunk["task"] == "sequence_comparison":
             member_frames, category_identifier = generate_object_loss_pair(
                 image_size=chunk["image_size"], minimum_frames=chunk["minimum_frames"],
@@ -855,6 +963,13 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
             sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
                                                      frames=frames)}
             sequence_labels = {"category_id": category_identifier}
+        elif chunk["task"] == "frame_selection":
+            frames, frame_category_ids = generate_selection_sequence(image_size=chunk["image_size"],
+                                                                     number_frames=number_frames,
+                                                                     random_generator=random_generator)
+            sequence_frames = {"frames": save_frames(data_folder=chunk["data_folder"], frame_folder=sequence_name,
+                                                     frames=frames)}
+            sequence_labels = {"frame_category_ids": frame_category_ids}
         else:
             frames, frame_category_ids = generate_changing_shape_sequence(image_size=chunk["image_size"],
                                                                           number_frames=number_frames,
@@ -873,8 +988,8 @@ def build_sequence_labels(sequence_records: List[Dict[str, Any]], split_name: st
     """
     Assembles the 'labels.json' manifest of a synthetic sequence split, read by the sequence loader: every sequence
     with its ordered frames and its category (sequence classification) or the category of every frame (sequence
-    labelling), or every pair with the ordered frames of its before and after members and its category (sequence
-    comparison, under the 'pairs' key).
+    labelling, frame selection), or every pair with the ordered frames of its before and after members and its
+    category (sequence comparison, under the 'pairs' key).
 
     Args:
         sequence_records (List[Dict[str, Any]]): The 'index', 'name', frames ('frames', or 'before' and 'after') and
@@ -913,8 +1028,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
     the frame folders of the sequences) in '<split_folder>/data', the class masks of the segmentation images in
     '<split_folder>/masks', and their labels in '<split_folder>/labels.json' (COCO annotations for object detection, a
     samples manifest with one shape per image for classification, a samples manifest with the mask of every image for
-    semantic segmentation, a sequences manifest for the sequence tasks, a pairs manifest for the sequence
-    comparison).
+    semantic segmentation, a sequences manifest for the sequence tasks and the frame selection, a pairs manifest for the
+    sequence comparison).
 
     Args:
         split_folder (str): The folder of the split.
@@ -929,7 +1044,7 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
             only).
         number_workers (int): The number of worker processes generating the images.
         task (str): "object_detection", "classification", "semantic_segmentation", "sequence_classification",
-            "sequence_labelling" or "sequence_comparison".
+            "sequence_labelling", "sequence_comparison" or "frame_selection".
 
     Returns:
         Dict[str, int]: The number of labels (objects, images, sequences, frames or pairs) of every class in the split.
@@ -988,9 +1103,10 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
     trivial task used to check that a model learns (it should overfit it within minutes): several shapes per image
     to detect or to segment, a single shape per image to classify, a shape crossing the frames of a sequence whose
     movement
-    direction is classified, a shape changing class during a sequence whose every frame is classified, or a pair of
-    sequences of the same objects whose after member may have lost one of them. Every sequence, and every member of a
-    pair, has its own number of frames between minimum_frames and maximum_frames.
+    direction is classified, a shape changing class during a sequence whose every frame is classified, a pair of
+    sequences of the same objects whose after member may have lost one of them, or shapes of several sizes whose
+    largest circle, triangle and star are the frames to select. Every sequence, and every member of a pair, has its
+    own number of frames between minimum_frames and maximum_frames.
 
     Args:
         output_folder (str): The root folder of the dataset.
@@ -999,20 +1115,23 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
             name.
         maximum_objects (int): The maximum number of objects per image (object detection, semantic segmentation) or
             per before member of a pair (sequence comparison).
-        minimum_frames (int): The minimum number of frames of a sequence or of a member of a pair, at least 2
-            (sequence tasks only).
+        minimum_frames (int): The minimum number of frames of a sequence or of a member of a pair, at least 2, and at
+            least the 3 wanted shapes for the frame selection (sequence tasks only).
         maximum_frames (int): The maximum number of frames of a sequence or of a member of a pair, at least
             minimum_frames (sequence tasks only).
         number_workers (int): The number of worker processes generating the images.
         task (str): "object_detection", "classification", "semantic_segmentation", "sequence_classification",
-            "sequence_labelling" or "sequence_comparison".
+            "sequence_labelling", "sequence_comparison" or "frame_selection".
 
     Raises:
-        ValueError: If the frame range of a sequence task starts below 2 or is empty.
+        ValueError: If the frame range of a sequence task starts below 2 (below the number of wanted shapes for the
+            frame selection) or is empty.
     """
-    # A movement, a change of class or a comparison needs two frames, in a range that holds at least one length
-    if task in SEQUENCE_TASKS and not MINIMUM_SEQUENCE_FRAMES <= minimum_frames <= maximum_frames:
-        raise ValueError(f"The sequences need {MINIMUM_SEQUENCE_FRAMES} <= minimum_frames <= maximum_frames, got "
+    # A movement, a change of class or a comparison needs two frames, a selection one frame per wanted shape, in a
+    # range that holds at least one length
+    minimum_sequence_frames = len(SELECTION_WANTED_SHAPES) if task == "frame_selection" else MINIMUM_SEQUENCE_FRAMES
+    if task in SEQUENCE_TASKS and not minimum_sequence_frames <= minimum_frames <= maximum_frames:
+        raise ValueError(f"The sequences need {minimum_sequence_frames} <= minimum_frames <= maximum_frames, got "
                          f"minimum_frames {minimum_frames} and maximum_frames {maximum_frames}.")
 
     # Generate every split in its own folder
@@ -1041,8 +1160,9 @@ if __name__ == "__main__":
     # Task of the dataset: "object_detection" (several shapes per image), "classification" (one shape per image),
     # "semantic_segmentation" (several shapes per image, with the class mask of every image),
     # "sequence_classification" (one shape crossing the frames, labelled with its movement direction),
-    # "sequence_labelling" (one shape changing class during the sequence, labelled per frame) or "sequence_comparison"
-    # (a before and an after sequence of the same objects, labelled with whether the after member lost one of them)
+    # "sequence_labelling" (one shape changing class during the sequence, labelled per frame), "sequence_comparison"
+    # (a before and an after sequence of the same objects, labelled with whether the after member lost one of them) or
+    # "frame_selection" (one shape per frame, the largest circle, triangle and star being the frames to select)
     task = "object_detection"
     # Root folder of the created dataset of every task, the ones expected by the synthetic configurations of
     # vision_training/configurations/. Existing images and labels of the same splits are overwritten
@@ -1051,28 +1171,35 @@ if __name__ == "__main__":
                       "semantic_segmentation": "/home/robert_kelevra/Data/segmentation_data/synthetic_shapes",
                       "sequence_classification": "/home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes",
                       "sequence_labelling": "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes",
-                      "sequence_comparison": "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs"}
+                      "sequence_comparison": "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs",
+                      "frame_selection": "/home/robert_kelevra/Data/sequence_data/synthetic_selected_shapes"}
     # Height and width of the square images in pixels, for every task
     image_sizes = {"object_detection": 1024, "classification": 512, "semantic_segmentation": 512,
-                   "sequence_classification": 512, "sequence_labelling": 512, "sequence_comparison": 512}
+                   "sequence_classification": 512, "sequence_labelling": 512, "sequence_comparison": 512,
+                   "frame_selection": 256}
     # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task
     split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
                    "classification": {"train": 4000, "validation": 500, "test": 500},
                    "semantic_segmentation": {"train": 2000, "validation": 200, "test": 200},
                    "sequence_classification": {"train": 2000, "validation": 200, "test": 200},
                    "sequence_labelling": {"train": 2000, "validation": 200, "test": 200},
-                   "sequence_comparison": {"train": 2000, "validation": 200, "test": 200}}
+                   "sequence_comparison": {"train": 2000, "validation": 200, "test": 200},
+                   "frame_selection": {"train": 2000, "validation": 200, "test": 200}}
     # Maximum number of shapes drawn in one image (at least one is always drawn, object detection and semantic
     # segmentation) or in the before member of a pair (at least two, sequence comparison), for every task (unused by
     # the other tasks)
     maximum_objects = {"object_detection": 6, "classification": 1, "semantic_segmentation": 6,
-                       "sequence_classification": 1, "sequence_labelling": 1, "sequence_comparison": 6}
+                       "sequence_classification": 1, "sequence_labelling": 1, "sequence_comparison": 6,
+                       "frame_selection": 1}
     # Minimum and maximum number of frames of a sequence or of a member of a pair, every sequence and every member
-    # drawing its own number of frames in that range (at least two, unused by the image tasks)
+    # drawing its own number of frames in that range (at least two, at least three for the frame selection, unused by
+    # the image tasks)
     minimum_frames = {"object_detection": 1, "classification": 1, "semantic_segmentation": 1,
-                      "sequence_classification": 2, "sequence_labelling": 2, "sequence_comparison": 2}
+                      "sequence_classification": 2, "sequence_labelling": 2, "sequence_comparison": 2,
+                      "frame_selection": 4}
     maximum_frames = {"object_detection": 1, "classification": 1, "semantic_segmentation": 1,
-                      "sequence_classification": 12, "sequence_labelling": 12, "sequence_comparison": 12}
+                      "sequence_classification": 12, "sequence_labelling": 12, "sequence_comparison": 12,
+                      "frame_selection": 12}
     # Number of worker processes generating the images
     number_workers = 8
 

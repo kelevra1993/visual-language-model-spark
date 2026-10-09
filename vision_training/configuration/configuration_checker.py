@@ -14,7 +14,8 @@ from vision_training.configuration.common_checks import (check_backbone_configur
 from vision_training.configuration.configuration_values import ConfigurationError
 from vision_training.configuration.detection_checks import check_detection_configuration
 from vision_training.configuration.segmentation_checks import check_segmentation_configuration
-from vision_training.configuration.sequence_checks import (check_sequence_classification_configuration,
+from vision_training.configuration.sequence_checks import (check_frame_selection_configuration,
+                                                           check_sequence_classification_configuration,
                                                            check_sequence_comparison_configuration,
                                                            check_sequence_labelling_configuration)
 
@@ -25,7 +26,8 @@ TASK_CONFIGURATION_CHECKS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], 
     "semantic_segmentation": check_segmentation_configuration,
     "sequence_classification": check_sequence_classification_configuration,
     "sequence_labelling": check_sequence_labelling_configuration,
-    "sequence_comparison": check_sequence_comparison_configuration}
+    "sequence_comparison": check_sequence_comparison_configuration,
+    "frame_selection": check_frame_selection_configuration}
 
 
 def check_configuration(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:

@@ -47,14 +47,18 @@ def count_split_samples(split_data_folder: str | Path) -> Tuple[int, int]:
     return len(labels["samples"]), len(labels["categories"])
 
 
-def count_split_sequences(split_data_folder: str | Path, sequence_settings: Dict[str, Any]) -> Tuple[int, int, int]:
+def count_split_sequences(split_data_folder: str | Path, sequence_settings: Dict[str, Any],
+                          whole_sequences: bool) -> Tuple[int, int, int]:
     """
     Counts the sequences, frames and windows of a sequence split from its 'labels.json' manifest, printed by the
-    sequence trainers at startup. The windows, cut as the sequence dataset does, are the samples of an epoch.
+    sequence trainers at startup. The windows, cut as the sequence dataset does (one window per whole sequence for
+    the frame selection), are the samples of an epoch.
 
     Args:
         split_data_folder (str | Path): The root folder of the split, containing a 'labels.json'.
         sequence_settings (Dict[str, Any]): The 'Data.sequence_settings' section.
+        whole_sequences (bool): Whether every sequence is one window (frame selection, without 'window_stride' nor
+            'short_sequences'), or is cut into windows.
 
     Returns:
         Tuple[int, int, int]: The number of sequences, of frames and of windows (before label mapping).
@@ -63,10 +67,15 @@ def count_split_sequences(split_data_folder: str | Path, sequence_settings: Dict
     number_frames, number_windows = 0, 0
     for sequence in labels["sequences"]:
         number_frames += len(sequence["frames"])
-        number_windows += len(compute_window_starts(
-            number_frames=len(sequence["frames"]),
-            sequence_length=sequence_settings["sequence_length"], window_stride=sequence_settings["window_stride"],
-            short_sequences=sequence_settings["short_sequences"]))
+
+        # One window per whole sequence, or the windows cut every window stride frames
+        if whole_sequences:
+            number_windows += 1
+        else:
+            number_windows += len(compute_window_starts(
+                number_frames=len(sequence["frames"]), sequence_length=sequence_settings["sequence_length"],
+                window_stride=sequence_settings["window_stride"],
+                short_sequences=sequence_settings["short_sequences"]))
     return len(labels["sequences"]), number_frames, number_windows
 
 

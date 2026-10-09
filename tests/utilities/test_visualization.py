@@ -2,17 +2,21 @@
 Tests of the evaluation drawings of vision_training/utilities/visualization.py: the class colours are distinct with
 an unpainted background, the mask overlay paints the classes and grays the ignored pixels only, the error map gives
 every kind of pixel its colour, the segmentation sample grid lays out its four panels and the detection sample grid its
-two panels between their caption and legend bars, and the caption bar is written in the given colour.
+two panels between their caption and legend bars, the caption bar is written in the given colour, and the frame
+selection image draws the borders of the selection over its grid of thumbnails above the probability heat map.
 """
 
 import numpy as np
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, CORRECT_PREDICTION_COLOUR, GRID_GAP,
-                                                     IGNORED_PIXEL_COLOUR, LEGEND_BAR_HEIGHT, WRONG_PREDICTION_COLOUR,
+                                                     HEAT_MAP_ROW_HEIGHT, IGNORED_PIXEL_COLOUR, LEGEND_BAR_HEIGHT,
+                                                     SELECTION_COLOURS, SELECTION_THUMBNAIL_SIZE,
+                                                     UNSELECTED_FRAME_BRIGHTNESS, WRONG_PREDICTION_COLOUR,
                                                      add_caption_bar, build_class_colours,
-                                                     build_detection_sample_grid, build_segmentation_error_map,
-                                                     build_segmentation_sample_grid, overlay_segmentation_mask)
+                                                     build_detection_sample_grid, build_frame_selection_image,
+                                                     build_segmentation_error_map, build_segmentation_sample_grid,
+                                                     overlay_segmentation_mask)
 
 
 def build_image_and_masks() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -140,3 +144,37 @@ def test_caption_bar_is_written_in_its_colour() -> None:
             assert colour_present == (other_colour == caption_colour)
     assert np.array_equal(add_caption_bar(image=image, caption="test"),
                           add_caption_bar(image=image, caption="test", caption_colour=(255, 255, 255)))
+
+
+def test_frame_selection_image_draws_the_selection() -> None:
+    """
+    Verifies the image of a sequence of 10 frames whose class A is chosen right (frame 0) and class B wrong (frame 3
+    instead of frame 1): two rows of 8 thumbnails, a solid green border on frame 0, a solid red border on frame 3, a
+    dashed yellow border on frame 1, the rightly unselected frames dimmed, the heat map of the two wanted classes and
+    the legend below, and the caption in red for 1 of 2 selections right.
+    """
+    frames = np.full(shape=(10, 32, 32, 3), fill_value=100, dtype=np.uint8)
+    probabilities = np.full(shape=(10, 3), fill_value=0.1)
+    probabilities[:, 2] = 0.8
+    frame_labels = np.array(object=[0, 1] + [2] * 8)
+    image = build_frame_selection_image(frames=frames, probabilities=probabilities, frame_labels=frame_labels,
+                                        selected_frames=np.array(object=[[0], [3]]), wanted_class_indices=[0, 1],
+                                        unselected_class_index=2, class_names=["A", "B", "unselected"])
+
+    # Caption, two rows of thumbnails, the heat map of the header row and two classes, and the legend
+    cell_size = SELECTION_THUMBNAIL_SIZE + GRID_GAP
+    assert image.shape == (CAPTION_BAR_HEIGHT + 2 * cell_size + GRID_GAP + 3 * HEAT_MAP_ROW_HEIGHT + GRID_GAP +
+                           LEGEND_BAR_HEIGHT, 8 * cell_size + GRID_GAP, 3)
+    assert np.any(np.all(image[:CAPTION_BAR_HEIGHT] == np.array(object=WRONG_PREDICTION_COLOUR), axis=-1))
+
+    # Border colour on the top edge of the thumbnails of the chosen and missed frames
+    thumbnail_top = CAPTION_BAR_HEIGHT + GRID_GAP
+    for frame_index, colour_name in [(0, "Chosen right"), (3, "Chosen wrong"), (1, "True not chosen")]:
+        assert image[thumbnail_top + 1, GRID_GAP + frame_index * cell_size + 7].tolist() == list(
+            SELECTION_COLOURS[colour_name])
+
+    # A chosen frame keeps its brightness, a rightly unselected frame is dimmed
+    thumbnail_centre = thumbnail_top + SELECTION_THUMBNAIL_SIZE // 2
+    assert image[thumbnail_centre, GRID_GAP + SELECTION_THUMBNAIL_SIZE // 2].tolist() == [100, 100, 100]
+    assert image[thumbnail_centre, GRID_GAP + 2 * cell_size + SELECTION_THUMBNAIL_SIZE // 2].tolist() == [
+        int(100 * UNSELECTED_FRAME_BRIGHTNESS)] * 3

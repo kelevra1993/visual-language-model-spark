@@ -22,15 +22,21 @@ INFERENCE_MODEL_CLASSES = {"object_detection": InferenceDetector, "classificatio
                            "semantic_segmentation": InferenceSegmenter,
                            "sequence_classification": InferenceSequenceModel,
                            "sequence_labelling": InferenceSequenceModel,
-                           "sequence_comparison": InferenceSequenceComparator}
+                           "sequence_comparison": InferenceSequenceComparator,
+                           "frame_selection": InferenceSequenceModel}
 
-# Triton model name of every task, followed by '_<export format>' in the model repository
+# Triton model name of every task, followed by '_<export format>' in the model repository (and by '_decoder' and
+# '_<export format>_ensemble' for the decoder and the ensembles of the frame selector)
 TASK_MODEL_NAMES = {"object_detection": "object_detector", "classification": "image_classifier",
                     "semantic_segmentation": "semantic_segmenter", "sequence_classification": "sequence_classifier",
-                    "sequence_labelling": "sequence_labeller", "sequence_comparison": "sequence_comparator"}
+                    "sequence_labelling": "sequence_labeller", "sequence_comparison": "sequence_comparator",
+                    "frame_selection": "frame_selector"}
 
 # Tasks whose inputs are windows of frames [B, T, 3, H, W] instead of images [B, 3, H, W]
-SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison"]
+SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison", "frame_selection"]
+
+# Tasks whose model gives the class probabilities of every frame [B, T, K] instead of every window or pair [B, K]
+FRAME_OUTPUT_TASKS = ["sequence_labelling", "frame_selection"]
 
 # Names of the inputs of the inference model of every task, in the order of the arguments of its forward method:
 # they name the inputs of the ONNX exports, and match the argument names kept by the TorchScript exports, which the
@@ -38,7 +44,7 @@ SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_com
 TASK_INPUT_NAMES = {"object_detection": ["images"], "classification": ["images"],
                     "semantic_segmentation": ["images"], "sequence_classification": ["images"],
                     "sequence_labelling": ["images"],
-                    "sequence_comparison": ["before_images", "after_images"]}
+                    "sequence_comparison": ["before_images", "after_images"], "frame_selection": ["images"]}
 
 
 def build_inference_model(task: str, model: TaskModel) -> nn.Module:
@@ -293,8 +299,8 @@ def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str,
                 "comparison_tolerances": {"tolerance": 1e-4, "minimum_equal_share": 0.999}}
 
     # Classification and sequence tasks: the class probabilities of every image, window or pair, or of every frame
-    # for the sequence labeller
-    output_dimensions = [-1, number_classes] if task == "sequence_labelling" else [number_classes]
+    # for the sequence labeller and the frame selector
+    output_dimensions = [-1, number_classes] if task in FRAME_OUTPUT_TASKS else [number_classes]
     return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs,
             "outputs": [{"name": "class_probabilities", "dimensions": output_dimensions, "data_type": "TYPE_FP32",
                          "reshape_to_scalar": False}],

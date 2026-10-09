@@ -1,6 +1,7 @@
 """
 Writes the 'config.pbtxt' Triton model configuration of an exported model of any task (platform, inputs, outputs,
-batching, TensorRT acceleration) from its export specification. Called by deployment/export_model.py.
+batching, TensorRT acceleration) from its export specification, and names its outputs as Triton serves them. Called by
+deployment/export_model.py and by the frame selection ensembles of deployment/frame_selection_deployment.py.
 """
 
 from pathlib import Path
@@ -18,6 +19,24 @@ def format_dimensions(dimensions: List[int]) -> str:
         str: The formatted dimensions.
     """
     return "[ " + ", ".join(str(dimension) for dimension in dimensions) + " ]"
+
+
+def get_served_output_names(export_format: str, specification: Dict[str, Any]) -> List[str]:
+    """
+    Names the outputs of an exported model as Triton serves them, for its configuration and for the ensembles reading
+    them: '<name>__<index>' for TorchScript, following the convention of the Triton PyTorch backend, and the plain
+    names of the export specification for ONNX.
+
+    Args:
+        export_format (str): Either 'torchscript' or 'onnx'.
+        specification (Dict[str, Any]): The export specification of the task, giving the outputs in order.
+
+    Returns:
+        List[str]: The served name of every output, in order.
+    """
+    if export_format == "torchscript":
+        return [f"{output['name']}__{index}" for index, output in enumerate(specification["outputs"])]
+    return [output["name"] for output in specification["outputs"]]
 
 
 def write_triton_configuration(model_directory: Path, model_name: str, model_version: int, export_format: str,
@@ -38,13 +57,10 @@ def write_triton_configuration(model_directory: Path, model_name: str, model_ver
         maximum_batch_size (int): The largest batch size Triton may send to the model.
         tensorrt_precision (Optional[str]): 'FP16' or 'FP32' to accelerate the ONNX model with TensorRT, or None.
     """
-    # TorchScript outputs follow the '<name>__<index>' naming convention of the Triton PyTorch backend
-    if export_format == "torchscript":
-        platform = "pytorch_libtorch"
-        output_names = [f"{output['name']}__{index}" for index, output in enumerate(specification["outputs"])]
-    else:
-        platform = "onnxruntime_onnx"
-        output_names = [output["name"] for output in specification["outputs"]]
+    # Backend of the format, the TorchScript outputs following the '<name>__<index>' naming convention of the Triton
+    # PyTorch backend
+    platform = "pytorch_libtorch" if export_format == "torchscript" else "onnxruntime_onnx"
+    output_names = get_served_output_names(export_format=export_format, specification=specification)
 
     # One line per input, in the order of the forward arguments of the model, whose names the inputs carry
     inputs = [f'  {{ name: "{input_specification["name"]}" data_type: {input_specification["data_type"]} '

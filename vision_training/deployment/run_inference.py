@@ -1,12 +1,14 @@
 """
 Measures the inference throughput of a trained experiment of any task, run locally in this process and served by
-Triton as TorchScript and ONNX (TensorRT), on the images of deployment/inference_data. Run as a script once the
-models are exported by deployment/export_model.py and the Triton server is started.
+Triton as TorchScript and ONNX (TensorRT), on the images of deployment/inference_data, a frame selector being measured
+with the decoding of its selection (its Triton ensembles). Run as a script once the models are exported by
+deployment/export_model.py and the Triton server is started.
 """
 
 from pathlib import Path
 
-from vision_training.deployment.deployment_utilities import (load_inference_inputs, load_local_inference_model,
+from vision_training.deployment.deployment_utilities import (get_served_model, load_decoding_settings,
+                                                             load_inference_inputs, load_local_inference_model,
                                                              measure_local_throughput, measure_triton_throughput)
 
 if __name__ == "__main__":
@@ -29,16 +31,20 @@ if __name__ == "__main__":
 
     inputs = load_inference_inputs(image_folder=image_folder, experiment_folder=experiment_folder)
 
-    # Local run, the inference model in this process without Triton
+    # Local run, the inference model in this process without Triton, followed by the decoding of the selection for a
+    # frame selector
     inference_model, specification = load_local_inference_model(experiment_folder=experiment_folder,
                                                                 iteration=iteration)
-    measure_local_throughput(inputs=inputs, inference_model=inference_model, number_iterations=number_iterations,
-                             number_warmup_iterations=number_warmup_iterations)
+    decoding_settings = load_decoding_settings(experiment_folder=experiment_folder, iteration=iteration,
+                                               inference_model=inference_model)
+    measure_local_throughput(inputs=inputs, inference_model=inference_model, decoding_settings=decoding_settings,
+                             number_iterations=number_iterations, number_warmup_iterations=number_warmup_iterations)
 
-    # Triton runs, the TorchScript model and the ONNX model accelerated by TensorRT
-    output_names = [output["name"] for output in specification["outputs"]]
+    # Triton runs, the TorchScript model and the ONNX model accelerated by TensorRT (their ensembles with the decoder
+    # for a frame selector)
     for export_format in ["torchscript", "onnx"]:
-        measure_triton_throughput(inputs=inputs, model_name=f"{specification['model_name']}_{export_format}",
-                                  output_names=output_names, url=url, use_shared_memory=use_shared_memory,
-                                  number_iterations=number_iterations,
+        model_name, output_names = get_served_model(specification=specification, export_format=export_format,
+                                                    decoding_settings=decoding_settings)
+        measure_triton_throughput(inputs=inputs, model_name=model_name, output_names=output_names, url=url,
+                                  use_shared_memory=use_shared_memory, number_iterations=number_iterations,
                                   number_warmup_iterations=number_warmup_iterations)

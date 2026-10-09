@@ -1,8 +1,8 @@
 """
 Tests of the model exports of vision_training/deployment/export_model.py and export_specifications.py: the TorchScript
-and ONNX exports of every task (the image classifier with a pooled or flattened feature map, the semantic segmenter)
-match the eager model, keep their dynamic frames, the comparison of the segmenter outputs reports their differences,
-and the inference models match the training path on full windows.
+and ONNX exports of every task (the image classifier with a pooled or flattened feature map, the semantic segmenter,
+the frame selector) match the eager model, keep their dynamic frames, the comparison of the segmenter outputs reports
+their differences, and the inference models match the training path on full windows.
 """
 
 import numpy as np
@@ -16,9 +16,10 @@ from typing import Optional
 
 from vision_training.deployment.export_model import (export_onnx, export_torchscript, find_fixed_dynamic_dimensions,
                                                      hide_known_export_warnings)
-from vision_training.deployment.export_specifications import (TASK_INPUT_NAMES, build_inference_model,
-                                                              compare_segmentations, convert_outputs_to_numpy,
-                                                              create_random_inputs, get_export_specification)
+from vision_training.deployment.export_specifications import (FRAME_OUTPUT_TASKS, TASK_INPUT_NAMES,
+                                                              build_inference_model, compare_segmentations,
+                                                              convert_outputs_to_numpy, create_random_inputs,
+                                                              get_export_specification)
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
@@ -34,11 +35,12 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
                      global_pooling: str) -> TaskModel:
     """
     Builds a small untrained model of a task on the CPU, in evaluation mode, with seeded weights: bidirectional
-    recurrent modules, and a causal transformer for the sequence labeller.
+    recurrent modules, a causal transformer for the sequence labeller, and the selection settings of the frame
+    selector.
 
     Args:
-        task (str): "classification", "semantic_segmentation", "sequence_classification", "sequence_labelling" or
-            "sequence_comparison".
+        task (str): "classification", "semantic_segmentation", "sequence_classification", "sequence_labelling",
+            "sequence_comparison" or "frame_selection".
         temporal_type (Optional[str]): The temporal module of the sequence models, None for the classifier and the
             segmenter.
         fusion_type (Optional[str]): The fusion of the members of the comparison model, None for the other tasks.
@@ -62,6 +64,8 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
             configuration, device, dtype = get_sequence_model_configuration(temporal_type=temporal_type)
         configuration["TemporalModel"]["bidirectional"] = temporal_type in ["gru", "lstm"]
         configuration["TemporalModel"]["causal"] = task == "sequence_labelling" and temporal_type == "transformer"
+        configuration["Selection"] = {"unselected_category": "unselected", "decoding": "hungarian",
+                                      "frames_per_class": 1, "selection_loss_weight": 1.0}
     return TASK_MODEL_CLASSES[task](configuration=configuration, device=device, dtype=dtype).eval()
 
 
@@ -71,7 +75,7 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
     ("sequence_labelling", "lstm", None, "average"), ("sequence_labelling", "transformer", None, "average"),
     ("sequence_labelling", "temporal_convolution", None, "average"),
     ("sequence_comparison", "gru", "cross_attention", "average"),
-    ("sequence_comparison", "transformer", "difference", "average")])
+    ("sequence_comparison", "transformer", "difference", "average"), ("frame_selection", "gru", None, "average")])
 def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type: Optional[str],
                                        fusion_type: Optional[str], global_pooling: str) -> None:
     """
@@ -111,13 +115,13 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
         assert [input_batch.shape[1] for input_batch in example_inputs.values()] == [4, 4]
         assert [input_batch.shape[1] for input_batch in check_inputs.values()] == [3, 2]
 
-    # One vector of class probabilities per sample, or per frame for the sequence labeller, or a class map and the
-    # class probabilities of every pixel for the segmenter
+    # One vector of class probabilities per sample, or per frame for the sequence labeller and the frame selector, or a
+    # class map and the class probabilities of every pixel for the segmenter
     check_shape = specification["inputs"][0]["check_shape"]
     if task == "semantic_segmentation":
         assert [output.shape for output in reference_outputs] == [(3, 64, 64), (3, 3, 64, 64)]
     else:
-        expected_shape = (check_shape[0], check_shape[1], 3) if task == "sequence_labelling" else (3, 3)
+        expected_shape = (check_shape[0], check_shape[1], 3) if task in FRAME_OUTPUT_TASKS else (3, 3)
         assert reference_outputs[0].shape == expected_shape
 
     # TorchScript export, traced on the example batch, keeping the input names as the names of its arguments, and run

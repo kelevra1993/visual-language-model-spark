@@ -1,7 +1,8 @@
 """
 OpenCV drawing helpers: bounding boxes and anchors for the detection debugging scripts, the input viewer of the
-trainers, the frame grids of the sequence tasks, the caption bars of the evaluation error images, and the class
-colours, mask overlays, error maps and sample grids of the semantic segmentation. Used by the trainers and the scripts.
+trainers, the frame grids of the sequence tasks, the caption bars of the evaluation error images, the class colours,
+mask overlays, error maps and sample grids of the semantic segmentation, and the selection grids with their
+probability heat map of the frame selection. Used by the trainers and the scripts.
 """
 
 import os
@@ -13,6 +14,7 @@ import torch
 from typing import Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
+from vision_training.models.sequence.frame_selection_decoding import NO_FRAME
 from vision_training.utilities.os_utilities import print_color
 
 # Height in pixels of the caption bar written above the error images of the evaluation
@@ -42,6 +44,24 @@ DARK_CLASS_COLOUR_VALUE = 160
 # Height in pixels of the legend bar written below the segmentation sample grids, and gap between their panels
 LEGEND_BAR_HEIGHT = 24
 GRID_GAP = 4
+
+# Frame selection drawings: side in pixels of the thumbnails of the frames, thumbnails per row, width of the selection
+# borders, length of the dashes of the missed true frames, brightness kept by the frames rightly unselected, height of
+# the rows and width of the class names of the probability heat map, and width of a heat map cell from which its
+# probability is written in it
+SELECTION_THUMBNAIL_SIZE = 160
+SELECTION_GRID_COLUMNS = 8
+SELECTION_BORDER_WIDTH = 4
+SELECTION_DASH_LENGTH = 10
+UNSELECTED_FRAME_BRIGHTNESS = 0.35
+HEAT_MAP_ROW_HEIGHT = 24
+HEAT_MAP_LABEL_WIDTH = 120
+HEAT_MAP_MINIMUM_VALUE_WIDTH = 36
+
+# BGR colours of the frame selection borders, those of the segmentation error maps: a frame chosen for its true class,
+# a frame chosen for a class it does not hold, and a true frame left unchosen
+SELECTION_COLOURS = {"Chosen right": ERROR_MAP_COLOURS["Correct"], "Chosen wrong": ERROR_MAP_COLOURS["Wrong Class"],
+                     "True not chosen": ERROR_MAP_COLOURS["Missed"]}
 
 
 def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_image_size: int,
@@ -547,3 +567,222 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
                       for class_index in drawn_class_indices]
     legend_bar = draw_legend_bar(width=grid.shape[1], legend_entries=legend_entries)
     return add_caption_bar(image=np.concatenate([grid, legend_bar], axis=0), caption=caption)
+
+
+def draw_dashed_rectangle(image: np.ndarray, top_left: Tuple[int, int], bottom_right: Tuple[int, int],
+                          colour: Tuple[int, int, int], thickness: int, dash_length: int) -> None:
+    """
+    Draws the outline of a rectangle as dashes, the border of the true frames left unchosen in the selection grids of
+    the frame selection, which stays distinguishable from the solid border of a chosen frame drawn on the same frame.
+
+    Args:
+        image (np.ndarray): The [H, W, 3] uint8 BGR image drawn in place.
+        top_left (Tuple[int, int]): The (x, y) top left corner.
+        bottom_right (Tuple[int, int]): The (x, y) bottom right corner.
+        colour (Tuple[int, int, int]): The BGR colour of the dashes.
+        thickness (int): The thickness of the dashes in pixels.
+        dash_length (int): The length of a dash, and of the gap after it, in pixels.
+    """
+    left, top = top_left
+    right, bottom = bottom_right
+    for side_start, side_end in [((left, top), (right, top)), ((right, top), (right, bottom)),
+                                 ((right, bottom), (left, bottom)), ((left, bottom), (left, top))]:
+        # Dashes along the side, every other piece of dash_length pixels
+        side_length = max(abs(side_end[0] - side_start[0]), abs(side_end[1] - side_start[1]), 1)
+        for dash_start in range(0, side_length, 2 * dash_length):
+            dash_end = min(dash_start + dash_length, side_length)
+            start_point = (int(round(side_start[0] + (side_end[0] - side_start[0]) * dash_start / side_length)),
+                           int(round(side_start[1] + (side_end[1] - side_start[1]) * dash_start / side_length)))
+            end_point = (int(round(side_start[0] + (side_end[0] - side_start[0]) * dash_end / side_length)),
+                         int(round(side_start[1] + (side_end[1] - side_start[1]) * dash_end / side_length)))
+            cv2.line(img=image, pt1=start_point, pt2=end_point, color=colour, thickness=thickness)
+
+
+def draw_selection_thumbnail(frame: np.ndarray, frame_index: int,
+                             chosen_entry: Optional[Tuple[str, Tuple[int, int, int]]],
+                             missed_entry: Optional[Tuple[str, Tuple[int, int, int]]], dimmed: bool) -> np.ndarray:
+    """
+    Draws one frame of a sequence in the selection grid of the frame selection: a numbered thumbnail with a solid
+    border when it was chosen (green for its true class, red for a class it does not hold), a dashed yellow border
+    when it is a true frame left unchosen (inside the solid border when both apply), each labelled at the bottom with
+    its class and probability, and dimmed when it was rightly left unselected so that the eye goes to the selections.
+
+    Args:
+        frame (np.ndarray): The [H, W, 3] uint8 BGR frame.
+        frame_index (int): The position of the frame in its sequence, written in its top left corner.
+        chosen_entry (Optional[Tuple[str, Tuple[int, int, int]]]): The label and BGR colour of the class the frame was
+            chosen for, or None.
+        missed_entry (Optional[Tuple[str, Tuple[int, int, int]]]): The label and BGR colour of the true class the frame
+            was not chosen for, or None.
+        dimmed (bool): Whether the frame is darkened, being rightly unselected.
+
+    Returns:
+        np.ndarray: The [SELECTION_THUMBNAIL_SIZE, SELECTION_THUMBNAIL_SIZE, 3] uint8 BGR thumbnail.
+    """
+    size, border_width = SELECTION_THUMBNAIL_SIZE, SELECTION_BORDER_WIDTH
+    thumbnail = cv2.resize(src=frame, dsize=(size, size), interpolation=cv2.INTER_AREA)
+    if dimmed:
+        thumbnail = (thumbnail.astype(np.float32) * UNSELECTED_FRAME_BRIGHTNESS).astype(np.uint8)
+
+    # Solid border of a chosen frame on the edge, dashed border of a missed true frame inside it
+    if chosen_entry is not None:
+        cv2.rectangle(img=thumbnail, pt1=(border_width // 2, border_width // 2),
+                      pt2=(size - 1 - border_width // 2, size - 1 - border_width // 2), color=chosen_entry[1],
+                      thickness=border_width)
+    if missed_entry is not None:
+        inset = border_width // 2 + (border_width + 2 if chosen_entry is not None else 0)
+        draw_dashed_rectangle(image=thumbnail, top_left=(inset, inset),
+                              bottom_right=(size - 1 - inset, size - 1 - inset), colour=missed_entry[1],
+                              thickness=border_width, dash_length=SELECTION_DASH_LENGTH)
+
+    # Number of the frame in the top left corner, and the label of every border at the bottom
+    frame_text = str(frame_index)
+    cv2.rectangle(img=thumbnail, pt1=(border_width, border_width),
+                  pt2=(border_width + 8 + 9 * len(frame_text), border_width + 18), color=(0, 0, 0), thickness=-1)
+    cv2.putText(img=thumbnail, text=frame_text, org=(border_width + 4, border_width + 14),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45, color=(255, 255, 255), thickness=1)
+    labelled_entries = [entry for entry in [missed_entry, chosen_entry] if entry is not None]
+    for line_index, (entry_text, entry_colour) in enumerate(labelled_entries):
+        (text_width, _), _ = cv2.getTextSize(text=entry_text, fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45,
+                                             thickness=1)
+        line_bottom = size - 2 * border_width - 2 - line_index * 18
+        cv2.rectangle(img=thumbnail, pt1=(2 * border_width, line_bottom - 15),
+                      pt2=(min(size - 2 * border_width, 2 * border_width + text_width + 8), line_bottom + 3),
+                      color=(0, 0, 0), thickness=-1)
+        cv2.putText(img=thumbnail, text=entry_text, org=(2 * border_width + 4, line_bottom - 2),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45, color=entry_colour, thickness=1)
+    return thumbnail
+
+
+def draw_probability_heat_map(probabilities: np.ndarray, frame_labels: np.ndarray, selected_frames: np.ndarray,
+                              wanted_class_indices: List[int], class_names: List[str], width: int) -> np.ndarray:
+    """
+    Draws the probability of every frame (columns) for every wanted class (rows) of a sequence under its selection
+    grid, so that the frames competing for a class can be compared: every cell coloured by its probability (viridis,
+    dark for 0 and yellow for 1, the value written in wide enough cells), the frames chosen for the class marked with a
+    dot and its true frames outlined in white.
+
+    Args:
+        probabilities (np.ndarray): The [T, K] class probabilities of every frame.
+        frame_labels (np.ndarray): The [T] true class of every frame.
+        selected_frames (np.ndarray): The [W, N] chosen frames of every wanted class, NO_FRAME for no frame.
+        wanted_class_indices (List[int]): The class indices of the wanted classes, one per row.
+        class_names (List[str]): The name of every class, in class index order.
+        width (int): The width of the heat map, the one of the grid above it.
+
+    Returns:
+        np.ndarray: The [(W + 1) x HEAT_MAP_ROW_HEIGHT + GRID_GAP, width, 3] uint8 BGR heat map.
+    """
+    number_frames, row_height = probabilities.shape[0], HEAT_MAP_ROW_HEIGHT
+    cell_width = max(1, (width - HEAT_MAP_LABEL_WIDTH - GRID_GAP) // number_frames)
+    heat_map = np.zeros(shape=((len(wanted_class_indices) + 1) * row_height + GRID_GAP, width, 3), dtype=np.uint8)
+
+    # Frame numbers above the columns, one every few columns when the cells are narrow
+    number_step = max(1, int(np.ceil(16 / cell_width)))
+    for frame_index in range(0, number_frames, number_step):
+        cv2.putText(img=heat_map, text=str(frame_index), org=(HEAT_MAP_LABEL_WIDTH + frame_index * cell_width + 2, 16),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.4, color=(255, 255, 255), thickness=1)
+
+    for wanted_index, class_index in enumerate(wanted_class_indices):
+        row_top = (wanted_index + 1) * row_height
+        cv2.putText(img=heat_map, text=class_names[class_index][:14], org=(4, row_top + 16),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45, color=(255, 255, 255), thickness=1)
+
+        # Cell of every frame coloured by its probability for the class
+        class_probabilities = probabilities[:, class_index]
+        cell_colours = cv2.applyColorMap(src=np.round(class_probabilities * 255.0).astype(np.uint8)[None, :],
+                                         colormap=cv2.COLORMAP_VIRIDIS)[0]
+        chosen_frames = set(selected_frames[wanted_index][selected_frames[wanted_index] != NO_FRAME].tolist())
+        for frame_index in range(number_frames):
+            cell_left = HEAT_MAP_LABEL_WIDTH + frame_index * cell_width
+            cell_top_left = (cell_left, row_top + 1)
+            cell_bottom_right = (cell_left + cell_width - 2, row_top + row_height - 2)
+            cv2.rectangle(img=heat_map, pt1=cell_top_left, pt2=cell_bottom_right,
+                          color=tuple(int(component) for component in cell_colours[frame_index]), thickness=-1)
+
+            # Probability written in the wide cells, dark on the bright colours
+            if cell_width >= HEAT_MAP_MINIMUM_VALUE_WIDTH:
+                text_colour = (0, 0, 0) if class_probabilities[frame_index] > 0.6 else (255, 255, 255)
+                cv2.putText(img=heat_map, text=f"{class_probabilities[frame_index]:.2f}",
+                            org=(cell_left + 2, row_top + 16), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.35,
+                            color=text_colour, thickness=1)
+
+            # True frames of the class outlined, chosen frames marked with a dot
+            if frame_labels[frame_index] == class_index:
+                cv2.rectangle(img=heat_map, pt1=cell_top_left, pt2=cell_bottom_right, color=(255, 255, 255),
+                              thickness=2)
+            if frame_index in chosen_frames:
+                dot_center = (cell_left + cell_width // 2 - 1, row_top + row_height // 2)
+                dot_radius = max(2, min(cell_width, row_height) // 5)
+                cv2.circle(img=heat_map, center=dot_center, radius=dot_radius + 1, color=(255, 255, 255), thickness=-1)
+                cv2.circle(img=heat_map, center=dot_center, radius=dot_radius, color=(0, 0, 0), thickness=-1)
+    return heat_map
+
+
+def build_frame_selection_image(frames: np.ndarray, probabilities: np.ndarray, frame_labels: np.ndarray,
+                                selected_frames: np.ndarray, wanted_class_indices: List[int],
+                                unselected_class_index: int, class_names: List[str]) -> np.ndarray:
+    """
+    Draws one evaluated test sequence of the frame selection, for its sample images and error images: the whole
+    sequence as a grid of numbered thumbnails (8 per row) with the borders of the selection (solid green for a frame
+    chosen for its true class, solid red for a frame chosen for a class it does not hold, dashed yellow for a true frame
+    left unchosen, the rightly unselected frames dimmed), the probability heat map of every wanted class below it, a
+    caption bar giving the number of right selections (green when all are right, red otherwise) and a legend bar.
+
+    Args:
+        frames (np.ndarray): The [T, H, W, 3] uint8 BGR frames of the sequence.
+        probabilities (np.ndarray): The [T, K] class probabilities of every frame.
+        frame_labels (np.ndarray): The [T] true class of every frame.
+        selected_frames (np.ndarray): The [W, N] frames chosen for every wanted class, NO_FRAME for no frame.
+        wanted_class_indices (List[int]): The class indices of the wanted classes, one per row of the selection.
+        unselected_class_index (int): The class index of the unselected frames.
+        class_names (List[str]): The name of every class, in class index order.
+
+    Returns:
+        np.ndarray: The [H', W', 3] uint8 BGR image of the sequence.
+    """
+    # Class each chosen frame was chosen for
+    chosen_classes = {}
+    for wanted_index, class_index in enumerate(wanted_class_indices):
+        for frame_index in selected_frames[wanted_index][selected_frames[wanted_index] != NO_FRAME].tolist():
+            chosen_classes[frame_index] = class_index
+
+    # Thumbnail of every frame with the borders of its selection
+    thumbnails, number_right_selections = [], 0
+    for frame_index in range(len(frames)):
+        true_class_index = int(frame_labels[frame_index])
+        chosen_class_index = chosen_classes[frame_index] if frame_index in chosen_classes else None
+        chosen_entry, missed_entry = None, None
+        if chosen_class_index is not None:
+            chosen_right = chosen_class_index == true_class_index
+            number_right_selections += int(chosen_right)
+            chosen_entry = (f"{class_names[chosen_class_index]} {probabilities[frame_index, chosen_class_index]:.2f}",
+                            SELECTION_COLOURS["Chosen right" if chosen_right else "Chosen wrong"])
+        if true_class_index != unselected_class_index and chosen_class_index != true_class_index:
+            missed_entry = (f"{class_names[true_class_index]} {probabilities[frame_index, true_class_index]:.2f}",
+                            SELECTION_COLOURS["True not chosen"])
+        thumbnails.append(draw_selection_thumbnail(
+            frame=frames[frame_index], frame_index=frame_index, chosen_entry=chosen_entry, missed_entry=missed_entry,
+            dimmed=true_class_index == unselected_class_index and chosen_class_index is None))
+
+    # Thumbnails in reading order on a gray canvas, with a gap around every thumbnail
+    size, number_columns = SELECTION_THUMBNAIL_SIZE, min(SELECTION_GRID_COLUMNS, len(frames))
+    number_rows = (len(frames) + number_columns - 1) // number_columns
+    grid = np.full(shape=(number_rows * (size + GRID_GAP) + GRID_GAP, number_columns * (size + GRID_GAP) + GRID_GAP, 3),
+                   fill_value=128, dtype=np.uint8)
+    for frame_index, thumbnail in enumerate(thumbnails):
+        top = GRID_GAP + (frame_index // number_columns) * (size + GRID_GAP)
+        left = GRID_GAP + (frame_index % number_columns) * (size + GRID_GAP)
+        grid[top:top + size, left:left + size] = thumbnail
+
+    # Heat map and legend under the grid, caption above it
+    heat_map = draw_probability_heat_map(probabilities=probabilities, frame_labels=frame_labels,
+                                         selected_frames=selected_frames, wanted_class_indices=wanted_class_indices,
+                                         class_names=class_names, width=grid.shape[1])
+    legend_bar = draw_legend_bar(width=grid.shape[1], legend_entries=list(SELECTION_COLOURS.items()) +
+                                 [("Map: dot chosen, box true", (255, 255, 255))])
+    number_selections = int(selected_frames.size)
+    return add_caption_bar(image=np.concatenate([grid, heat_map, legend_bar], axis=0),
+                           caption=f"{number_right_selections}/{number_selections} selections right",
+                           caption_colour=CORRECT_PREDICTION_COLOUR if number_right_selections == number_selections
+                           else WRONG_PREDICTION_COLOUR)

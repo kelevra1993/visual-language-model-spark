@@ -4,7 +4,10 @@
 #   served_models/object_detector_torchscript/1/model.pt    (TorchScript, PyTorch libtorch backend)
 #   served_models/object_detector_onnx/1/model.onnx         (ONNX, ONNX Runtime backend accelerated by TensorRT)
 # and likewise image_classifier_*, sequence_classifier_*, sequence_labeller_* and sequence_comparator_* for the other
-# tasks.
+# tasks. A frame selector adds its decoder, run by the Python backend (the numpy and scipy of the image), and one
+# ensemble per format chaining the network with it, the model its clients query:
+#   served_models/frame_selector_decoder/1/model.py          (decoding of the selection, with its settings)
+#   served_models/frame_selector_onnx_ensemble/1/            (frame_selector_onnx followed by the decoder)
 # Start it from this folder with "docker compose up", keep it running, and query it with
 # vision_training/deployment/run_inference.py.
 # Explicit project name, so that this server never collides with another compose project in a folder also

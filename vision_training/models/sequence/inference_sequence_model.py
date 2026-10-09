@@ -1,7 +1,7 @@
 """
-Inference-only wrapper of the trained sequence classifier and sequence labeller returning the class probabilities of
-windows of real frames (per window or per frame). Built by vision_training/deployment/export_specifications.py for
-the TorchScript and ONNX exports served by Triton.
+Inference-only wrapper of the trained sequence classifier, sequence labeller and frame selector returning the class
+probabilities of windows of real frames (per window or per frame). Built by
+vision_training/deployment/export_specifications.py for the TorchScript and ONNX exports served by Triton.
 """
 
 import torch
@@ -13,9 +13,10 @@ from vision_training.models.task_model import TaskModel
 
 class InferenceSequenceModel(nn.Module):
     """
-    Inference-only version of the trained sequence models (sequence classifier and sequence labeller), used for
-    deployment (TorchScript and ONNX exports served by Triton) and for local inference: it returns the class
-    probabilities of windows of real frames, one vector per window (many to one) or per frame (many to many). The
+    Inference-only version of the trained sequence models (sequence classifier, sequence labeller and frame selector),
+    used for deployment (TorchScript and ONNX exports served by Triton) and for local inference: it returns the class
+    probabilities of windows of real frames, one vector per window (many to one) or per frame (many to many, and the
+    whole sequences of the frame selection, whose selection is decoded afterwards). The
     windows sent to it hold no padding frame, so it runs the path of the models without sequence mask, whose
     operations keep fixed shapes (no gathering of the real frames, no packed sequences), as the exports require. The
     number of frames may change from one call to the next, up to the sequence length of the training.
@@ -23,7 +24,7 @@ class InferenceSequenceModel(nn.Module):
 
     def __init__(self, model: TaskModel) -> None:
         """
-        Wraps a trained sequence classifier or sequence labeller.
+        Wraps a trained sequence classifier, sequence labeller or frame selector.
 
         Args:
             model (TaskModel): The trained sequence model.
@@ -44,6 +45,6 @@ class InferenceSequenceModel(nn.Module):
 
         Returns:
             torch.Tensor: The [B, K] class probabilities of every window, or the [B, T, K] class probabilities of every
-                frame for the sequence labeller.
+                frame for the sequence labeller and the frame selector.
         """
         return self.model(input_tensor=images)["class_probabilities"]

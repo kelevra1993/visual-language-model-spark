@@ -26,6 +26,7 @@ dependencies = [
     "gdown>=6.4.1",
     "boto3>=1.43.93",
     "mlflow>=3.17.0",
+    "scipy>=1.18.1",
 ]
 
 [tool.pytest.ini_options]
