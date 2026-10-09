@@ -1,8 +1,8 @@
 """
 Tests of vision_training/models/model_transfer.py: backbones, temporal modules, heads and segmentation decoders of a
 saved run initialising other models and tasks, rejected architectures and components (flattened heads and decoders of
-other levels included), frozen and fixed normalization parameters and backbones moving between batch and sequence
-normalization.
+other levels included), order-blind transformers moving between window lengths, source runs missing a setting, frozen
+and fixed normalization parameters and backbones moving between batch and sequence normalization.
 """
 
 import copy
@@ -326,6 +326,16 @@ def lengthen_windows(configuration: Dict[str, Any]) -> None:
     configuration["Data"]["sequence_settings"]["sequence_length"] = 6
 
 
+def remove_positional_embedding(configuration: Dict[str, Any]) -> None:
+    """
+    Removes the positional embedding of the transformer, one of its weights.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
+    """
+    configuration["TemporalModel"]["positional_embedding"] = False
+
+
 def widen_last_backbone_block(configuration: Dict[str, Any]) -> None:
     """
     Widens the last backbone block, and so the frame vectors read by the temporal module.
@@ -360,6 +370,8 @@ def add_head_dropout(configuration: Dict[str, Any]) -> None:
     ("transformer", lengthen_windows, "TemporalModel",
      "'Data.sequence_settings.sequence_length' is 4 in the source run and 6 in this run, the size of the positional "
      "embedding of the transformer."),
+    ("transformer", remove_positional_embedding, "TemporalModel",
+     "'TemporalModel.positional_embedding' is True in the source run and False in this run."),
     ("gru", widen_last_backbone_block, "TemporalModel",
      "The last backbone block has 32 channels in the source run and 64 in this run")])
 def test_different_components_are_rejected(tmp_path: Path, source_temporal_type: str,
@@ -392,6 +404,55 @@ def test_different_components_are_rejected(tmp_path: Path, source_temporal_type:
                                   device=torch.device("cpu"))
     assert "Cannot Initialise This Run, Their Architectures Differ" in str(error_information.value)
     assert expected_message in str(error_information.value)
+
+
+def test_order_blind_transformer_initialises_runs_of_other_sequence_lengths(tmp_path: Path) -> None:
+    """
+    Verifies that a transformer without positional embedding, whose weights do not depend on the number of frames,
+    initialises the transformer of a run with longer windows with exactly its weights.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration, _, _ = get_sequence_model_configuration(temporal_type="transformer")
+    configuration["TemporalModel"]["positional_embedding"] = False
+    source_model = build_task_model(task="sequence_classification", configuration=configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "source_run", configuration=configuration, model=source_model)
+    target_configuration = copy.deepcopy(configuration)
+    lengthen_windows(configuration=target_configuration)
+    target_model = build_task_model(task="sequence_classification", configuration=target_configuration, seed=1)
+
+    load_pretrained_component(component=target_model.temporal_module, section_name="TemporalModel",
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="TemporalModel",
+                                                                      source_folder=tmp_path / "source_run"),
+                              device=torch.device("cpu"))
+    for tensor_name, tensor_value in source_model.temporal_module.state_dict().items():
+        assert torch.equal(input=target_model.temporal_module.state_dict()[tensor_name], other=tensor_value), \
+            tensor_name
+
+
+def test_source_run_written_before_a_temporal_setting_is_rejected(tmp_path: Path) -> None:
+    """
+    Verifies that a transformer run written before the positional embedding flag existed is not read with a guessed
+    value: the transfer stops with the missing setting and the script migrating the run.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration, source_model = write_sequence_classifier_run(run_folder=tmp_path / "source_run",
+                                                                temporal_type="transformer")
+    old_configuration = copy.deepcopy(configuration)
+    del old_configuration["TemporalModel"]["positional_embedding"]
+    (tmp_path / "source_run" / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=old_configuration))
+    target_model = build_task_model(task="sequence_classification", configuration=configuration, seed=1)
+
+    with pytest.raises(expected_exception=ValueError, match="positional_embedding' is missing from the source run"):
+        load_pretrained_component(component=target_model.temporal_module, section_name="TemporalModel",
+                                  model_configuration=point_to_source_run(configuration=configuration,
+                                                                          section_name="TemporalModel",
+                                                                          source_folder=tmp_path / "source_run"),
+                                  device=torch.device("cpu"))
 
 
 def test_head_with_another_dropout_rate_is_transferred(tmp_path: Path) -> None:

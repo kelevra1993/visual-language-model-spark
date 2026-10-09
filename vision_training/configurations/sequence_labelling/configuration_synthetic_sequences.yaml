@@ -308,12 +308,18 @@ TemporalModel:
   # Every frame only sees the frames before it (transformer, temporal convolution), for online use where the future
   # frames are not available yet. The GRU and LSTM are causal when they are not bidirectional.
   causal: False
+  # Gives every frame its position with a learned embedding added to its vector (transformer), so that the
+  # transformer uses the order of the frames. False treats a window as a set of frames, e.g. photos taken in any
+  # order: shuffling the frames then only shuffles the per-frame outputs along with them, and the transformer
+  # weights no longer depend on Data.sequence_settings.sequence_length. A causal transformer still sees the order
+  # through its attention mask.
+  positional_embedding: True
   # Temporal module of another training run (of a sequence task) initialising this run instead of random weights.
   # Its type, the settings defining its weights for that type (hidden_size, plus number_layers and bidirectional
-  # for GRU and LSTM, number_layers and number_heads for the transformer, number_layers and kernel_size for the
-  # temporal convolution), the channels of the last backbone block and, for the transformer,
-  # Data.sequence_settings.sequence_length must be identical in both runs. The poolings without weights
-  # (mean_pooling, max_pooling) have nothing to transfer.
+  # for GRU and LSTM, number_layers, number_heads and positional_embedding for the transformer, number_layers and
+  # kernel_size for the temporal convolution), the channels of the last backbone block and, for a transformer with
+  # its positional embedding, Data.sequence_settings.sequence_length must be identical in both runs. The poolings
+  # without weights (mean_pooling, max_pooling) have nothing to transfer.
   pretrained:
     # Run folder whose trained temporal module initialises this run, null to start from random weights. A run
     # resuming from its own checkpoints does not load it again.

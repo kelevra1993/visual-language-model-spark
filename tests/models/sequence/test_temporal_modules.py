@@ -1,7 +1,7 @@
 """
 Tests of the temporal modules of vision_training/models/sequence/temporal_modules.py: output shapes with padding frames,
-poolings ignoring the frame order, ordered modules depending on it, causal and non-causal look-ahead and the module
-summary.
+poolings and the transformer without positional embedding ignoring the frame order, ordered modules depending on it,
+causal and non-causal look-ahead and the module summary.
 """
 
 import pytest
@@ -16,7 +16,8 @@ from vision_training.models.sequence.temporal_modules import (ORDERED_TEMPORAL_T
 BATCH_SIZE, SEQUENCE_LENGTH, INPUT_FEATURES = 3, 6, 8
 
 
-def get_temporal_configuration(temporal_type: str, bidirectional: bool, causal: bool) -> Dict[str, Any]:
+def get_temporal_configuration(temporal_type: str, bidirectional: bool, causal: bool,
+                               positional_embedding: bool) -> Dict[str, Any]:
     """
     Supplies a small 'TemporalModel' section for the temporal module tests.
 
@@ -24,16 +25,18 @@ def get_temporal_configuration(temporal_type: str, bidirectional: bool, causal: 
         temporal_type (str): The type of the temporal module.
         bidirectional (bool): Whether the recurrent modules read the sequence in both directions.
         causal (bool): Whether the transformer and temporal convolution only see the past frames.
+        positional_embedding (bool): Whether the transformer gives every frame its position.
 
     Returns:
         Dict[str, Any]: The temporal module settings.
     """
     return {"type": temporal_type, "hidden_size": 12, "number_layers": 2, "number_heads": 3, "kernel_size": 3,
-            "dropout_rate": 0.0, "bidirectional": bidirectional, "causal": causal}
+            "dropout_rate": 0.0, "bidirectional": bidirectional, "causal": causal,
+            "positional_embedding": positional_embedding}
 
 
 def build_test_module(temporal_type: str, keep_time_axis: bool, bidirectional: bool = False,
-                      causal: bool = False) -> torch.nn.Module:
+                      causal: bool = False, positional_embedding: bool = True) -> torch.nn.Module:
     """
     Builds a temporal module of the tests in evaluation mode, on the CPU in float64 so that the comparisons are exact
     up to rounding.
@@ -43,15 +46,16 @@ def build_test_module(temporal_type: str, keep_time_axis: bool, bidirectional: b
         keep_time_axis (bool): Whether the module returns one vector per frame.
         bidirectional (bool): Whether the recurrent modules read the sequence in both directions.
         causal (bool): Whether the transformer and temporal convolution only see the past frames.
+        positional_embedding (bool): Whether the transformer gives every frame its position.
 
     Returns:
         torch.nn.Module: The temporal module.
     """
     torch.manual_seed(seed=0)
     module = build_temporal_module(temporal_configuration=get_temporal_configuration(
-        temporal_type=temporal_type, bidirectional=bidirectional, causal=causal), input_features=INPUT_FEATURES,
-        maximum_length=SEQUENCE_LENGTH, keep_time_axis=keep_time_axis, device=torch.device(device="cpu"),
-        dtype=torch.float64)
+        temporal_type=temporal_type, bidirectional=bidirectional, causal=causal,
+        positional_embedding=positional_embedding), input_features=INPUT_FEATURES, maximum_length=SEQUENCE_LENGTH,
+        keep_time_axis=keep_time_axis, device=torch.device(device="cpu"), dtype=torch.float64)
     return module.eval()
 
 
@@ -120,6 +124,49 @@ def test_poolings_ignore_the_frame_order(temporal_type: str) -> None:
         reversed_outputs = module(frame_features=frame_features.flip(dims=[1]), sequence_mask=sequence_mask.flip(
             dims=[1]))
     assert torch.allclose(input=outputs[0], other=reversed_outputs[0])
+
+
+def test_transformer_without_positional_embedding_ignores_the_frame_order() -> None:
+    """
+    Verifies that the transformer without positional embedding treats a window as a set of frames: it holds no
+    embedding parameter, its weights are the same whatever the maximum number of frames, shuffling the real frames of
+    a window leaves its sequence vector unchanged (many to one), and the frame vectors follow their frames (many to
+    many).
+    """
+    frame_features, sequence_mask = get_test_inputs()
+    permutation = torch.tensor(data=[3, 0, 5, 1, 4, 2])
+
+    # No positional embedding among the weights, which no longer depend on the maximum number of frames
+    sequence_module = build_test_module(temporal_type="transformer", keep_time_axis=False, positional_embedding=False)
+    assert sequence_module.positional_embedding is None
+    assert all("positional_embedding" not in parameter_name for parameter_name, _ in
+               sequence_module.named_parameters())
+    longer_module = build_temporal_module(temporal_configuration=get_temporal_configuration(
+        temporal_type="transformer", bidirectional=False, causal=False, positional_embedding=False),
+        input_features=INPUT_FEATURES, maximum_length=4 * SEQUENCE_LENGTH, keep_time_axis=False,
+        device=torch.device(device="cpu"), dtype=torch.float64)
+    assert {name: tensor.shape for name, tensor in longer_module.state_dict().items()} == {
+        name: tensor.shape for name, tensor in sequence_module.state_dict().items()}
+
+    # Same sequence vector for the shuffled frames of the full window, frame vectors shuffled with their frames
+    frame_module = build_test_module(temporal_type="transformer", keep_time_axis=True, positional_embedding=False)
+    with torch.no_grad():
+        sequence_vectors = sequence_module(frame_features=frame_features, sequence_mask=sequence_mask)
+        shuffled_sequence_vectors = sequence_module(frame_features=frame_features[:, permutation],
+                                                    sequence_mask=sequence_mask[:, permutation])
+        frame_vectors = frame_module(frame_features=frame_features, sequence_mask=sequence_mask)
+        shuffled_frame_vectors = frame_module(frame_features=frame_features[:, permutation],
+                                              sequence_mask=sequence_mask[:, permutation])
+    assert torch.allclose(input=shuffled_sequence_vectors[0], other=sequence_vectors[0])
+    assert torch.allclose(input=shuffled_frame_vectors[0], other=frame_vectors[0, permutation])
+
+    # The transformer with its positional embedding depends on the order of the same frames
+    ordered_module = build_test_module(temporal_type="transformer", keep_time_axis=False)
+    with torch.no_grad():
+        ordered_vectors = ordered_module(frame_features=frame_features, sequence_mask=sequence_mask)
+        shuffled_ordered_vectors = ordered_module(frame_features=frame_features[:, permutation],
+                                                  sequence_mask=sequence_mask[:, permutation])
+    assert not torch.allclose(input=shuffled_ordered_vectors[0], other=ordered_vectors[0])
 
 
 @pytest.mark.parametrize(argnames="temporal_type", argvalues=ORDERED_TEMPORAL_TYPES)
@@ -198,7 +245,8 @@ def test_module_summary_leaves_out_the_pretrained_settings(capsys: pytest.Captur
     Args:
         capsys (pytest.CaptureFixture): The pytest fixture capturing the printed panel.
     """
-    temporal_configuration = {**get_temporal_configuration(temporal_type="gru", bidirectional=True, causal=False),
+    temporal_configuration = {**get_temporal_configuration(temporal_type="gru", bidirectional=True, causal=False,
+                                                           positional_embedding=True),
                               "pretrained": {"experiment_folder": "/runs/source", "iteration": None, "freeze": True,
                                              "learning_rate_multiplier": 1.0}}
     print_sequence_module_summary(title="Temporal Module", module_configuration=temporal_configuration,

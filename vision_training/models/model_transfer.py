@@ -33,10 +33,11 @@ BATCH_STATISTICS_NORMALIZATIONS = ["batch", "sequence"]
 
 # Temporal module settings defining its weights, for every type that has weights. The dropout only acts in training
 # and the causal flag only changes which frames attend to each other, so neither changes the weights. The number of
-# heads of the transformer does not change the shape of its weights, but it splits them differently between the heads
+# heads of the transformer does not change the shape of its weights, but it splits them differently between the heads,
+# and its positional embedding is a weight of its own
 TEMPORAL_WEIGHT_KEYS = {"attention_pooling": ["hidden_size"], "gru": ["hidden_size", "number_layers", "bidirectional"],
                         "lstm": ["hidden_size", "number_layers", "bidirectional"],
-                        "transformer": ["hidden_size", "number_layers", "number_heads"],
+                        "transformer": ["hidden_size", "number_layers", "number_heads", "positional_embedding"],
                         "temporal_convolution": ["hidden_size", "number_layers", "kernel_size"]}
 
 # Temporal modules whose frames may only see the frames before them
@@ -119,7 +120,8 @@ def compare_temporal_modules(source_configuration: Dict[str, Any], target_config
     Lists the differences between the settings defining the weights of the temporal modules of two runs, so that a
     temporal module is only transferred to a module of the same type and sizes: the type, the settings of that type
     (TEMPORAL_WEIGHT_KEYS), the channels of the last backbone block, which give the size of the frame vectors the
-    module reads, and for the transformer the sequence length, which gives the size of its positional embedding.
+    module reads, and for a transformer with a positional embedding the sequence length, which gives the size of the
+    embedding.
 
     Args:
         source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
@@ -136,11 +138,17 @@ def compare_temporal_modules(source_configuration: Dict[str, Any], target_config
         return [f"'TemporalModel.type' is {source_temporal_configuration['type']!r} in the source run and "
                 f"{target_temporal_configuration['type']!r} in this run."]
 
-    # Settings defining the weights of the type
+    # Settings defining the weights of the type, a source run written before one of them having to be migrated
     differences = []
+    differing_keys = []
     temporal_type = target_temporal_configuration["type"]
     for key_name in TEMPORAL_WEIGHT_KEYS[temporal_type]:
-        if source_temporal_configuration[key_name] != target_temporal_configuration[key_name]:
+        if key_name not in source_temporal_configuration:
+            differing_keys.append(key_name)
+            differences.append(f"'TemporalModel.{key_name}' is missing from the source run, written before the "
+                               f"setting existed: migrate it with scripts/configuration/migrate_configuration.py.")
+        elif source_temporal_configuration[key_name] != target_temporal_configuration[key_name]:
+            differing_keys.append(key_name)
             differences.append(f"'TemporalModel.{key_name}' is {source_temporal_configuration[key_name]!r} in the "
                                f"source run and {target_temporal_configuration[key_name]!r} in this run.")
 
@@ -152,8 +160,9 @@ def compare_temporal_modules(source_configuration: Dict[str, Any], target_config
                            f"{target_frame_features} in this run, the size of the frame vectors of the temporal "
                            f"module.")
 
-    # Positional embedding of the transformer, one vector per frame of a window
-    if temporal_type == "transformer":
+    # Positional embedding of both transformers, one vector per frame of a window, absent from an order-blind one
+    if temporal_type == "transformer" and target_temporal_configuration["positional_embedding"] and \
+            "positional_embedding" not in differing_keys:
         source_sequence_length = source_configuration["Data"]["sequence_settings"]["sequence_length"]
         target_sequence_length = target_configuration["Data"]["sequence_settings"]["sequence_length"]
         if source_sequence_length != target_sequence_length:

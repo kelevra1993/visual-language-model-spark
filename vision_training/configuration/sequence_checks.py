@@ -1,7 +1,8 @@
 """
-Checks of the configuration sections specific to the sequence tasks: the window settings, the temporal module and
-the fusion of the pairs, for sequence classification (M2O), sequence labelling (M2M) and sequence comparison (CMP).
-Run by configuration_checker.py for these tasks, on top of the classification head and data checks.
+Checks of the configuration sections specific to the sequence tasks: the window settings, the temporal module, the
+fusion of the pairs and the selection settings, for sequence classification (M2O), sequence labelling (M2M), sequence
+comparison (CMP) and frame selection (SEL). Run by configuration_checker.py for these tasks, on top of the
+classification head and data checks.
 """
 
 from typing import Any, Dict, List
@@ -12,6 +13,7 @@ from vision_training.configuration.classification_checks import (check_classific
 from vision_training.configuration.common_checks import check_pretrained_configuration
 from vision_training.configuration.configuration_values import (check_boolean_flags, check_positive_integers,
                                                                 get_configuration_value)
+from vision_training.models.sequence.frame_selection_decoding import VALID_DECODINGS
 from vision_training.models.sequence.member_fusion import FUSION_TYPES, SEQUENCE_NORMALIZATION_SCOPES
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES
 
@@ -22,32 +24,37 @@ VALID_SHORT_SEQUENCES = ["pad", "skip"]
 VALID_BATCH_PADDINGS = ["sequence_length", "longest"]
 
 
-def check_sequence_settings(model_configuration: Dict[str, Any], cuts_windows: bool) -> List[str]:
+def check_sequence_settings(model_configuration: Dict[str, Any], window_settings: List[str]) -> List[str]:
     """
     Verifies the 'Data.sequence_settings' section of the sequence tasks, which gives the windows of frames fed to the
-    models (cut from the sequences, or one window per member of a pair) and the number of frames their batches are
-    padded to, that the classification head predicts one class per sequence, per frame or per pair (the manifests
-    give a single category per sequence, per frame or per pair), and that every frame is pooled to one vector rather
-    than flattened.
+    models (cut from the sequences, one window per member of a pair, or one window per whole sequence) and the number
+    of frames their batches are padded to, that the classification head predicts one class per sequence, per frame or
+    per pair (the manifests give a single category per sequence, per frame or per pair), and that every frame is
+    pooled to one vector rather than flattened.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
-        cuts_windows (bool): Whether the task cuts the sequences into windows (sequence classification and labelling),
-            which needs 'window_stride'. The comparison task feeds one window per member and does not read it.
+        window_settings (List[str]): The window settings read by the task, among "window_stride" (the sequences are
+            cut into windows: sequence classification and labelling) and "short_sequences" (a sequence or member may
+            be shorter than a window: sequence classification, labelling and comparison). The frame selection reads
+            neither, every sequence being one window.
 
     Returns:
         List[str]: The description of every inconsistency found.
     """
     # Frames per window, and frames between the starts of two windows when the sequences are cut into windows
     key_paths = ["Data.sequence_settings.sequence_length"]
-    if cuts_windows:
+    if "window_stride" in window_settings:
         key_paths.append("Data.sequence_settings.window_stride")
     errors = check_positive_integers(configuration=model_configuration, key_paths=key_paths, allow_zero=False)
-    short_sequences = get_configuration_value(configuration=model_configuration,
-                                              key_path="Data.sequence_settings.short_sequences")
-    if short_sequences not in VALID_SHORT_SEQUENCES:
-        errors.append(f"'Data.sequence_settings.short_sequences' must be one of {VALID_SHORT_SEQUENCES}, "
-                      f"got {short_sequences!r}.")
+
+    # Sequences shorter than a window, padded or left out
+    if "short_sequences" in window_settings:
+        short_sequences = get_configuration_value(configuration=model_configuration,
+                                                  key_path="Data.sequence_settings.short_sequences")
+        if short_sequences not in VALID_SHORT_SEQUENCES:
+            errors.append(f"'Data.sequence_settings.short_sequences' must be one of {VALID_SHORT_SEQUENCES}, "
+                          f"got {short_sequences!r}.")
 
     # Windows of a batch padded to the sequence length, or to the longest window of the batch
     batch_padding = get_configuration_value(configuration=model_configuration,
@@ -77,8 +84,8 @@ def check_temporal_model_configuration(model_configuration: Dict[str, Any], vali
     """
     Verifies the 'TemporalModel' section of the sequence tasks: the module type allowed by the task, its sizes, its
     dropout, the consistency of the causal and bidirectional flags (a causal model never looks at the future frames,
-    so it cannot read the sequence backwards), and the 'pretrained' settings initialising the module with the one of
-    another run, which the poolings without weights cannot use.
+    so it cannot read the sequence backwards), the positional embedding flag of the transformer, and the 'pretrained'
+    settings initialising the module with the one of another run, which the poolings without weights cannot use.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -113,9 +120,11 @@ def check_temporal_model_configuration(model_configuration: Dict[str, Any], vali
     if not size_errors and temporal_type == "temporal_convolution" and kernel_size % 2 == 0:
         errors.append(f"'TemporalModel.kernel_size' must be odd for the temporal convolution, got {kernel_size}.")
 
-    # Causal modules only see the past frames, which excludes reading the sequence backwards
+    # Causal modules only see the past frames, which excludes reading the sequence backwards. The positional
+    # embedding flag is required for every type, like the sizes, and only read by the transformer
     flag_errors = check_boolean_flags(configuration=model_configuration,
-                                      key_paths=["TemporalModel.bidirectional", "TemporalModel.causal"])
+                                      key_paths=["TemporalModel.bidirectional", "TemporalModel.causal",
+                                                 "TemporalModel.positional_embedding"])
     errors += flag_errors
     causal = get_configuration_value(configuration=model_configuration, key_path="TemporalModel.causal")
     bidirectional = get_configuration_value(configuration=model_configuration, key_path="TemporalModel.bidirectional")
@@ -155,7 +164,8 @@ def check_sequence_classification_configuration(experiment_configuration: Dict[s
     errors += check_classification_head_configuration(model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
-    errors += check_sequence_settings(model_configuration=model_configuration, cuts_windows=True)
+    errors += check_sequence_settings(model_configuration=model_configuration,
+                                      window_settings=["window_stride", "short_sequences"])
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=POOLING_TEMPORAL_TYPES + ORDERED_TEMPORAL_TYPES,
                                                  allow_causal=False)
@@ -181,7 +191,8 @@ def check_sequence_labelling_configuration(experiment_configuration: Dict[str, A
     errors += check_classification_head_configuration(model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
-    errors += check_sequence_settings(model_configuration=model_configuration, cuts_windows=True)
+    errors += check_sequence_settings(model_configuration=model_configuration,
+                                      window_settings=["window_stride", "short_sequences"])
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=ORDERED_TEMPORAL_TYPES, allow_causal=True)
     return errors
@@ -251,9 +262,68 @@ def check_sequence_comparison_configuration(experiment_configuration: Dict[str, 
     errors += check_classification_head_configuration(model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
-    errors += check_sequence_settings(model_configuration=model_configuration, cuts_windows=False)
+    errors += check_sequence_settings(model_configuration=model_configuration,
+                                      window_settings=["short_sequences"])
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=POOLING_TEMPORAL_TYPES + ORDERED_TEMPORAL_TYPES,
                                                  allow_causal=False)
     errors += check_fusion_configuration(model_configuration=model_configuration)
+    return errors
+
+
+def check_selection_configuration(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the 'Selection' section of the frame selection task: the name of the manifest category of the unselected
+    frames (its presence in the manifests being checked by the dataset), the decoding of the selection, the number of
+    frames chosen for every wanted class and the weight of the selection loss.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model sections.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    unselected_category = get_configuration_value(configuration=model_configuration,
+                                                  key_path="Selection.unselected_category")
+    if not isinstance(unselected_category, str) or not unselected_category.strip():
+        errors.append(f"'Selection.unselected_category' must be the non-empty name of a manifest category, got "
+                      f"{unselected_category!r}.")
+    decoding = get_configuration_value(configuration=model_configuration, key_path="Selection.decoding")
+    if decoding not in VALID_DECODINGS:
+        errors.append(f"'Selection.decoding' must be one of {VALID_DECODINGS}, got {decoding!r}.")
+    errors += check_positive_integers(configuration=model_configuration, key_paths=["Selection.frames_per_class"],
+                                      allow_zero=False)
+
+    # Weight of the selection loss, 0 training with the per-frame loss alone
+    loss_weight = get_configuration_value(configuration=model_configuration, key_path="Selection.selection_loss_weight")
+    if isinstance(loss_weight, bool) or not isinstance(loss_weight, (int, float)) or loss_weight < 0:
+        errors.append(f"'Selection.selection_loss_weight' must be a number >= 0, got {loss_weight!r}.")
+    return errors
+
+
+def check_frame_selection_configuration(experiment_configuration: Dict[str, Any],
+                                        model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Runs every check specific to the frame selection task: the data settings, classification head and evaluation
+    settings shared with the classification task, the sequence length and batch padding (no window stride nor short
+    sequences, every sequence being one window), a temporal module keeping one vector per frame, possibly causal, and
+    the selection settings.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration.
+        model_configuration (Dict[str, Any]): The processed model sections.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    errors += check_classification_data_configuration(model_configuration=model_configuration)
+    errors += check_classification_head_configuration(model_configuration=model_configuration)
+    errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
+                                                            model_configuration=model_configuration)
+    errors += check_sequence_settings(model_configuration=model_configuration, window_settings=[])
+    errors += check_temporal_model_configuration(model_configuration=model_configuration,
+                                                 valid_types=ORDERED_TEMPORAL_TYPES, allow_causal=True)
+    errors += check_selection_configuration(model_configuration=model_configuration)
     return errors

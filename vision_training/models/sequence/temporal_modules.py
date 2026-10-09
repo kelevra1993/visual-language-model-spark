@@ -245,13 +245,17 @@ class TransformerTemporalModule(nn.Module):
     projected to the model size, a learned positional embedding gives them their position, and the padding frames are
     masked out of the attention. When causal, every frame only attends to itself and the frames before it. For many to
     one, the sequence vector is the mean of the outputs of the real frames.
+
+    Without the positional embedding, a non-causal transformer treats a window as a set of frames: shuffling the frames
+    leaves the sequence vector unchanged and shuffles the frame vectors with them, for sequences whose order carries no
+    information (sets of photos), and its weights no longer depend on the maximum number of frames.
     """
 
     def __init__(self, input_features: int, hidden_size: int, number_layers: int, number_heads: int,
-                 dropout_rate: float, causal: bool, keep_time_axis: bool, maximum_length: int, device: torch.device,
-                 dtype: torch.dtype) -> None:
+                 dropout_rate: float, causal: bool, positional_embedding: bool, keep_time_axis: bool,
+                 maximum_length: int, device: torch.device, dtype: torch.dtype) -> None:
         """
-        Builds the input projection, the positional embedding and the encoder layers.
+        Builds the input projection, the positional embedding when asked and the encoder layers.
 
         Args:
             input_features (int): The number of features of the frame vectors.
@@ -260,6 +264,8 @@ class TransformerTemporalModule(nn.Module):
             number_heads (int): The number of attention heads of every layer.
             dropout_rate (float): The dropout of the attention and feed forward layers.
             causal (bool): Whether every frame only attends to the frames before it (online use).
+            positional_embedding (bool): Whether to give every frame its position with a learned embedding, False to
+                treat a window as a set of frames.
             keep_time_axis (bool): Whether to return one vector per frame (many to many) instead of per sequence.
             maximum_length (int): The maximum number of frames of a sequence, the size of the positional embedding.
             device (torch.device): The device of the parameters.
@@ -270,11 +276,14 @@ class TransformerTemporalModule(nn.Module):
         self.keep_time_axis = keep_time_axis
         self.output_features = hidden_size
 
-        # Projection of the frame vectors to the model size, and learned position of every frame
+        # Projection of the frame vectors to the model size, and learned position of every frame when asked, so that
+        # an order-blind transformer has no weight depending on the maximum number of frames
         self.input_projection = nn.Linear(in_features=input_features, out_features=hidden_size, device=device,
                                           dtype=dtype)
-        self.positional_embedding = nn.Parameter(data=torch.randn(size=(1, maximum_length, hidden_size),
-                                                                  device=device, dtype=dtype) * 0.02)
+        self.positional_embedding = None
+        if positional_embedding:
+            self.positional_embedding = nn.Parameter(data=torch.randn(size=(1, maximum_length, hidden_size),
+                                                                      device=device, dtype=dtype) * 0.02)
 
         # Pre-normalization encoder layers with a feed forward layer four times wider than the model
         encoder_layer = nn.TransformerEncoderLayer(d_model=hidden_size, nhead=number_heads,
@@ -297,8 +306,11 @@ class TransformerTemporalModule(nn.Module):
             torch.Tensor: The [B, hidden_size] sequence vectors, or the [B, T, hidden_size] frame vectors when keeping
                 the time axis.
         """
+        # Project the frames to the model size, and give them their position unless the window is a set of frames
         sequence_length = frame_features.shape[1]
-        frame_tokens = self.input_projection(input=frame_features) + self.positional_embedding[:, :sequence_length]
+        frame_tokens = self.input_projection(input=frame_features)
+        if self.positional_embedding is not None:
+            frame_tokens = frame_tokens + self.positional_embedding[:, :sequence_length]
 
         # Forbid the attention to the future frames when causal (True marks a forbidden pair)
         attention_mask = None
@@ -398,7 +410,7 @@ def build_temporal_module(temporal_configuration: Dict[str, Any], input_features
 
     Args:
         temporal_configuration (Dict[str, Any]): The 'TemporalModel' section: 'type', 'hidden_size', 'number_layers',
-            'number_heads', 'kernel_size', 'dropout_rate', 'bidirectional' and 'causal'.
+            'number_heads', 'kernel_size', 'dropout_rate', 'bidirectional', 'causal' and 'positional_embedding'.
         input_features (int): The number of features of the frame vectors.
         maximum_length (int): The maximum number of frames of a sequence.
         keep_time_axis (bool): Whether to return one vector per frame (many to many) instead of per sequence.
@@ -433,8 +445,10 @@ def build_temporal_module(temporal_configuration: Dict[str, Any], input_features
                                          number_layers=temporal_configuration["number_layers"],
                                          number_heads=temporal_configuration["number_heads"],
                                          dropout_rate=temporal_configuration["dropout_rate"],
-                                         causal=temporal_configuration["causal"], keep_time_axis=keep_time_axis,
-                                         maximum_length=maximum_length, device=device, dtype=dtype)
+                                         causal=temporal_configuration["causal"],
+                                         positional_embedding=temporal_configuration["positional_embedding"],
+                                         keep_time_axis=keep_time_axis, maximum_length=maximum_length, device=device,
+                                         dtype=dtype)
     return TemporalConvolutionModule(input_features=input_features, hidden_size=temporal_configuration["hidden_size"],
                                      number_layers=temporal_configuration["number_layers"],
                                      kernel_size=temporal_configuration["kernel_size"],

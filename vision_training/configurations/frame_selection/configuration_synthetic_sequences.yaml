@@ -1,0 +1,394 @@
+# Configuration of the synthetic selected shapes dataset (sequences of 4 to 12 frames showing one shape each, the
+# largest circle, triangle and star of every sequence being the frames to select and every other frame being
+# unselected), created with vision_training/data/synthetic/create_synthetic_dataset.py and its task set to
+# "frame_selection". The choice of a frame depends on the other frames of its sequence, which checks that the frame
+# selector compares them.
+ExperimentConfiguration:
+  # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
+  # "frame_selection" trains the frame selector (the best frames of every wanted class of a whole sequence, every
+  # other frame being unselected), and requires the Data.sequence_settings, TemporalModel, ClassificationHead and
+  # Selection sections.
+  task: "frame_selection"
+  # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
+  # backbone modules, normalization and blocks, window, temporal module, classification head, classes, optimizer and
+  # weight decay unless plain Adam), so that the same settings resume in the same folder and changed settings start a
+  # new one, e.g. SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T12_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1. The
+  # augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision, dropout rates and
+  # decoding give no token, so that a run can be resumed in its folder with changed values. The format is described in
+  # vision_training/configuration/run_name.py.
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
+  # Root directory containing the training sequences (frames in data/<sequence name>/) and labels.json manifest.
+  train_data_folder: "/home/robert_kelevra/Data/sequence_data/synthetic_selected_shapes/train"
+  # Root directory containing the validation sequences and labels.json manifest.
+  validation_data_folder: "/home/robert_kelevra/Data/sequence_data/synthetic_selected_shapes/validation"
+  # Root directory containing the test sequences and labels.json manifest.
+  test_data_folder: "/home/robert_kelevra/Data/sequence_data/synthetic_selected_shapes/test"
+  # Number of sequences (each one window holding the whole sequence) processed in a single forward/backward pass. A
+  # step runs the backbone on up to batch_size x sequence_length frames.
+  batch_size: 16
+  # Frequency (in iterations) to log performance metrics.
+  information_dump: 100
+  # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
+  weight_saving_iterations: 1000
+  # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
+  # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
+  intermediate_weight_saving_iterations: 500
+  # Total number of training iterations before stopping.
+  number_iterations: 1e10
+  # Ratio controlling how often validation is run during training.
+  # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
+  validation_iteration_ratio: 25
+  # Test evaluation run at every weight_saving_iterations checkpoint on every sequence of the test split, the frames of
+  # every wanted class being chosen with both decodings (Hungarian and greedy) on the same probabilities: for each
+  # decoding the selection accuracy (share of the true frames chosen), the share of sequences with every selection
+  # right and the precision and recall of the unselected class; before decoding the top-k selection accuracy and the
+  # mean rank of the true frames; and the per-frame accuracy, balanced accuracy and macro F1. The class metrics, the
+  # confidence thresholds and the confusion matrix of the decoded frames are saved in
+  # <run folder>/Evaluation/Iteration_<iteration>/.
+  evaluation:
+    # Reports every wanted class at every evaluation: the table of the classes (true frames, selection accuracy of both
+    # decodings, top-k accuracy, mean rank of the true frames, and the confidence threshold reaching target_precision
+    # with the share of the true frames it keeps, worst accuracy of Selection.decoding first) in the console and
+    # Results.txt, their selection accuracy and mean rank Test scalars in TensorBoard, and the confusion matrix image
+    # of the decoded frames (confusion_matrix.png and TensorBoard). False keeps the global metrics only:
+    # class_metrics.csv, class_thresholds.json and confusion_matrix.csv are saved either way.
+    per_class_report: True
+    # Number of test sequences drawn once and shown at every evaluation with the selection of Selection.decoding: the
+    # grid of their frames (160 pixel thumbnails, 8 per row) with a solid green border on a frame chosen for its true
+    # class, a solid red border on a frame chosen for a class it does not hold, a dashed yellow border on a true frame
+    # left unchosen and the rightly unselected frames dimmed, the heat map of the probability of every frame for every
+    # wanted class below it (chosen frames dotted, true frames outlined), under the number of right selections (green
+    # when they all are, red otherwise), saved in Evaluation/Iteration_<n>/Samples/ and sent to TensorBoard. 0 to
+    # disable.
+    number_sample_images: 8
+    # Number of most probable frames of a class among which its true frames must be for the top-k selection accuracy,
+    # and number of candidate frames of every class returned by the deployed decoder. Must be a positive integer.
+    top_k: 2
+    # Precision that the confidence threshold of every wanted class must reach: the lowest probability from which the
+    # frames chosen for the class by Selection.decoding are true frames with that precision, saved in
+    # class_thresholds.json. A chosen frame below it is flagged as low confidence (in selections.csv and by the
+    # deployed decoder) for a human to check. Must be within [0, 1].
+    target_precision: 0.99
+    # Saves 'selections.csv' in the evaluation folder of every evaluated checkpoint: one row per test sequence and
+    # wanted class with its true frames (probabilities and ranks), the frames chosen by both decodings with their
+    # probabilities and number of right ones, and the low-confidence flags of Selection.decoding, to study the choices
+    # again without running the model. False to skip it on large test sets.
+    save_predictions: True
+    # Saves every test sequence whose selection of Selection.decoding is wrong as an image at every evaluation (the
+    # image of the sample images), in 'Evaluation/Iteration_<n>/Errors/<CLASS>/<sequence>.png' for every wanted class
+    # picked wrong.
+    error_dumps:
+      # Turns the error images on.
+      activated: False
+      # Largest number of images saved for every wanted class, the first ones met.
+      maximum_per_class_pair: 20
+  # Tracking of the run in MLflow, next to TensorBoard and Results.txt: the hyperparameters, the averages of the
+  # training and validation metrics of every information_dump interval, the learning rate, the test metrics of every
+  # evaluated checkpoint and a few small artifacts (configuration, confusion matrices, class metrics and thresholds,
+  # Results.txt). The tracking never blocks nor stops the training: any MLflow error prints one warning and the
+  # training continues without it.
+  tracking:
+    # Turns the MLflow tracking on.
+    activated: False
+    # Address of an MLflow tracking server, e.g. "http://192.168.1.20:5000", or null for the local database of the
+    # experiments root folder (sqlite:///<experiment_folder>/mlflow.db, artifacts in <experiment_folder>/mlartifacts),
+    # browsed with "mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db". The credentials of a
+    # server are read from the MLFLOW_TRACKING_USERNAME / MLFLOW_TRACKING_PASSWORD environment variables, never from
+    # this file.
+    tracking_uri: null
+    # MLflow experiment grouping the runs, null for the task name (e.g. "frame_selection").
+    experiment_name: null
+    # Sends the configuration, the confusion matrices, the class metrics and thresholds and Results.txt as artifacts.
+    log_artifacts: True
+  # Base learning rate used by the optimizer.
+  learning_rate: 1.0e-3
+  # Global tensor data type, either "float32" or "float64".
+  dtype: "float32"
+  # Flag to attempt loading the most recent checkpoint to resume training.
+  resume_training: true
+  diagnosis_modes:
+      # Choice to print out everything about the model
+      verbose: False
+      # Choice to compute Receptive-Field
+      compute_receptive_field: True
+      # Choice to compute final model size
+      compute_model_size: True
+      # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
+      # frames of a sequence on a grid, the frames to select captioned with their class. SPACE shows the next
+      # sequences, ENTER closes the viewer and exits the program without training, so set it to False to train.
+      # Requires a display (skipped with a warning otherwise). No run folder is created in this mode.
+      view_input_images: False
+
+Optimization:
+  # Optimizer of the model parameters: "adam", "adamw" (Adam with the weight decay decoupled from the gradients) or
+  # "sgd" (stochastic gradient descent with Nesterov momentum 0.9), at ExperimentConfiguration.learning_rate.
+  optimizer: "adam"
+  # Weight decay of the optimizer, 0 to disable.
+  weight_decay: 0.0
+  # Learning rate schedule after the warm-up: "constant", or "cosine" (decay to minimum_learning_rate_ratio times the
+  # learning rate over decay_iterations, constant afterwards).
+  learning_rate_schedule: "constant"
+  # Iterations of the linear warm-up of the learning rate from 0, 0 to disable.
+  warmup_iterations: 0
+  # Iterations of the cosine decay, counted after the warm-up (cosine schedule only).
+  decay_iterations: 100000
+  # Learning rate at the end of the cosine decay, as a fraction of the learning rate (cosine schedule only).
+  minimum_learning_rate_ratio: 0.01
+  # Maximum norm of all the gradients together, clipped before every step, null to disable.
+  gradient_clipping_norm: null
+  # Runs the training and validation forward passes in bfloat16 (faster and lighter on recent GPUs), the weights and
+  # the test evaluation staying in float32. Requires ExperimentConfiguration.dtype "float32".
+  mixed_precision: False
+
+Data:
+  DALI:
+    # Flag to enable the NVIDIA DALI hardware-accelerated pipeline, only available for the object detection task.
+    # It must stay False here: the sequence tasks read their frames with the Native PyTorch loader (OpenCV decoding
+    # and CPU resizing).
+    activated: False
+  loading:
+    # Number of worker processes reading and resizing the images. They stay alive between epochs and evaluations,
+    # each decodes with a single OpenCV thread, and the training, validation and test loaders each have their own
+    # workers. 8 workers already feed the GPU of the example models; 0 loads in the main process (debugging).
+    number_workers: 8
+    # Number of batches prepared in advance by every worker.
+    prefetch_batches: 2
+  image_settings:
+    # Target resolution to resize all the frames.
+    size: 256
+    # Flag to maintain the original aspect ratio when resizing.
+    keep_ratio: True
+  sequence_settings:
+    # Largest number of frames of a sequence, every sequence being fed whole as one window (no window_stride nor
+    # short_sequences for the frame selection). A longer sequence of the manifests stops the training at startup,
+    # with the list of such sequences. The shorter ones are padded with black frames, ignored through the sequence
+    # mask.
+    sequence_length: 12
+    # Frames the sequences of a batch are padded to: "sequence_length" (every sequence padded to sequence_length
+    # frames) or "longest" (every sequence cut to the longest sequence of its batch), which loads fewer padding frames
+    # and runs the temporal module over fewer positions. The model outputs are the same.
+    batch_padding: "longest"
+  label_mapping:
+    # Must be "multi_class" for the sequence tasks: the mapping file gives the class index of every category of the
+    # labels.json manifests, the classes being indexed 0 to K-1 (no background class). It must map the unselected
+    # category (Selection.unselected_category); the frames of the categories it leaves out become unselected frames,
+    # so that leaving a wanted class out of the mapping turns its frames into unselected ones.
+    mode: "multi_class"
+    # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs.
+    mapping_file_path: "/home/robert_kelevra/Data/sequence_data/synthetic_selected_shapes/label_mapping.json"
+  data_augmentation:
+    # Global switch to enable or disable all data augmentation (applied on the GPU to training batches only).
+    activated: True
+    # Probability that a training sequence is augmented at all. Each activated type below is then applied to that
+    # sequence with its own probability, all the frames of a sequence sharing the same augmentation.
+    probability: 0.4
+    # Sequence tasks only (False for the image tasks): draws the photometric augmentations below frame by frame,
+    # every frame of an augmented sequence getting its own brightness, noise, colour... while the geometric
+    # augmentations stay the same for all its frames, a crop or a rotation per frame making the objects jump.
+    independent_frames: False
+    # Sequence tasks only (activated False for the image tasks): shuffles the real frames of a training sequence with
+    # this probability, independently of the probability above, the padding frames staying last and the class of
+    # every frame following it. For the sequences whose frame order carries no information (sets of photos); the
+    # frames of the synthetic sequences are already in random order.
+    shuffle_frames: { activated: False, probability: 0.5 }
+    types:
+      # Geometric augmentations : the class of a shape, and which copy is the largest, do not change with them.
+      # Random Crop : crop keeping 75% to 100% of each side (same aspect ratio), resized back to the input size
+      random_crop: { activated: True, probability: 0.3 }
+      # Random Left to Right Flip (mirror)
+      random_left_right_flip: { activated: True, probability: 0.5 }
+      # Random Up to Down Flip
+      random_up_down_flip: { activated: True, probability: 0.5 }
+      # Random Rotation between -5° and 5°
+      random_rotation: { activated: True, probability: 0.3 }
+      # Random -90° or 90° rotation (square images only)
+      random_90_rotation: { activated: True, probability: 0.3 }
+
+      # Photometric augmentations.
+      # Brightness (+-40 intensity levels), contrast and saturation (both x0.7 to x1.0) adjustments
+      brightness_contrast_saturation: { activated: True, probability: 0.3 }
+      # Contrast-limited Adaptive Histogram Equalization (CLAHE), clip limit 2.0 on a 4x4 grid of tiles
+      clahe_augment: { activated: False, probability: 0.3 }
+      # Image Sharpening with a Laplacian of Gaussian unsharp mask (sigma 1.5, strength 3)
+      sharp_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of the luminance (Y channel of YUV)
+      equalize_histogram_augment: { activated: False, probability: 0.3 }
+      # Histogram Equalization of one random channel (B, G or R) or of all three channels
+      equalize_bgr_histogram_augment: { activated: False, probability: 0.3 }
+      # Random Noise : Gaussian noise with a standard deviation of 40 intensity levels
+      random_noise: { activated: True, probability: 0.3 }
+      # Grayscale conversion, kept on three channels
+      gray_scale_augment: { activated: False, probability: 0.3 }
+      # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
+      random_colour_augmentation: { activated: True, probability: 0.3 }
+      # Random Image Blurring : 9x9 Gaussian kernel with sigma 2.5
+      random_blur: { activated: False, probability: 0.3 }
+
+Backbone:
+  # Number of input channels for the initial convolution block (e.g., 3 for RGB images)
+  input_channels : 3
+
+  # First axis : Number of convolution Kernel maps per Convolution Block
+  # Second axis : Number of output filters per kernel per convolution Block
+  convolutions:
+    {
+      "1": [ 1, 16 ],
+      "2": [ 2, 32 ],
+      "3": [ 2, 32 ],
+      "4": [ 2, 64 ],
+      "5": [ 2, 64 ],
+    }
+
+  # Choice to add last max pooling layer on last* convolution layer
+  last_max_pooling: False
+
+  normalization:
+    # Input Normalization : Setting image range values between [-0.5:0.5]
+    input_normalization: True
+
+    # Per Sample Input Normalization : Normalizing each image to zero mean and unit variance
+    # Applied after input_normalization when both are activated
+    per_sample_normalization: False
+
+    # Strategy for normalizing the feature maps in the convolution blocks.
+    # Options are "batch" (Batch Normalization), "layer" (Layer Normalization over channels), "none" (no
+    # normalization) or "sequence" (Batch Normalization with the statistics of each window, at training
+    # and at inference alike, a window being normalised by its own frames).
+    feature_map_normalization: "batch"
+
+  modules:
+    # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
+    # Shortcuts are added every two convolution layers, starting from the second convolution block
+    residual_nets: True
+
+    # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
+    # Output channels of every block using inception must be multiples of 8
+    inception: False
+
+    # Convolution block (1-indexed) from which inception modules replace the plain convolutions
+    inception_starting_block: 3
+
+    # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
+    squeeze_and_excite: True
+
+  # Backbone blocks branching out to the object detection heads. Must be [] for the sequence tasks, whose frame
+  # vectors are pooled from the final feature map of the backbone.
+  detection_convolution_block_indices: []
+
+  # Backbone of another training run (of any task) initialising this run instead of random weights. Its settings
+  # defining the layers (input_channels, convolutions, modules, normalization, last_max_pooling) must be identical to
+  # the ones above, the detection blocks and the image size may differ.
+  pretrained:
+    # Run folder whose trained backbone initialises this run, null to start from random weights. A run resuming
+    # from its own checkpoints does not load it again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded backbone fixed (no gradient, batch normalization statistics frozen) so that only the heads of
+    # the task learn. Requires an experiment_folder.
+    freeze: False
+    # Keeps the scale and shift of the batch or layer normalization layers of the loaded backbone fixed while its
+    # convolutions learn, the batch normalization statistics still following the data of this run. Requires an
+    # experiment_folder, freeze False and a feature_map_normalization other than "none".
+    freeze_normalization_parameters: False
+    # Multiplies the learning rate of the loaded backbone, e.g. 0.1 to fine-tune it ten times slower than the heads.
+    learning_rate_multiplier: 1.0
+
+TemporalModel:
+  # Module relating every frame to the frames it may see while keeping one vector per frame: "gru", "lstm",
+  # "transformer" or "temporal_convolution".
+  type: "gru"
+  # Size of the recurrent state (GRU, LSTM), model size (transformer, a multiple of number_heads) or channels
+  # (temporal convolution).
+  hidden_size: 128
+  # Number of stacked layers (GRU, LSTM, transformer, temporal convolution).
+  number_layers: 1
+  # Number of attention heads of every transformer layer.
+  number_heads: 4
+  # Odd number of frames covered by a kernel of the temporal convolution, whose dilation doubles at every layer.
+  kernel_size: 3
+  # Dropout between the stacked layers (GRU, LSTM), of the attention and feed forward layers (transformer) or after
+  # every convolution (temporal convolution), within [0, 1).
+  dropout_rate: 0.0
+  # Reads the sequence in both directions (GRU, LSTM), so that every frame also sees the frames after it, which the
+  # selection needs to compare a frame with the whole sequence. Must be False when causal.
+  bidirectional: True
+  # Every frame only sees the frames before it (transformer, temporal convolution), for online use where the future
+  # frames are not available yet. The GRU and LSTM are causal when they are not bidirectional.
+  causal: False
+  # Gives every frame its position with a learned embedding added to its vector (transformer), so that the
+  # transformer uses the order of the frames. False treats a window as a set of frames, e.g. photos taken in any
+  # order: shuffling the frames then only shuffles the per-frame outputs along with them, and the transformer
+  # weights no longer depend on Data.sequence_settings.sequence_length. A causal transformer still sees the order
+  # through its attention mask.
+  positional_embedding: True
+  # Temporal module of another training run (of a sequence task) initialising this run instead of random weights.
+  # Its type, the settings defining its weights for that type (hidden_size, plus number_layers and bidirectional
+  # for GRU and LSTM, number_layers, number_heads and positional_embedding for the transformer, number_layers and
+  # kernel_size for the temporal convolution), the channels of the last backbone block and, for a transformer with
+  # its positional embedding, Data.sequence_settings.sequence_length must be identical in both runs. The poolings
+  # without weights (mean_pooling, max_pooling) have nothing to transfer.
+  pretrained:
+    # Run folder whose trained temporal module initialises this run, null to start from random weights. A run
+    # resuming from its own checkpoints does not load it again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded temporal module fixed (no gradient) so that only the other components learn. Requires an
+    # experiment_folder.
+    freeze: False
+    # Multiplies the learning rate of the loaded temporal module, e.g. 0.1 to fine-tune it ten times slower than
+    # the new layers.
+    learning_rate_multiplier: 1.0
+
+ClassificationHead:
+  # Global pooling reducing the final backbone feature map of every frame to one feature vector, "average" or "max"
+  # ("flatten" is for the classification task only).
+  global_pooling: "average"
+  # Units of the hidden fully connected layers between the vector of every frame and its class logits, [] for none.
+  fully_connected: [64]
+  # Dropout applied before every fully connected layer, within [0, 1), 0 to disable.
+  dropout_rate: 0.2
+  # Must be "multi_class" for the sequence tasks: one class per frame (softmax), a wanted class or the unselected
+  # class.
+  output_mode: "multi_class"
+  # Label smoothing of the classification loss, within [0, 1), 0 to disable.
+  label_smoothing: 0.0
+  # Weighting of the classes in the per-frame loss: "none" (every frame weighs the same) or "balanced" (every class
+  # weighs the same, the weights being inversely proportional to the number of training frames of each class, the
+  # unselected frames being the most numerous).
+  class_weighting: "none"
+  # Classification head of another training run initialising this run instead of random weights. Its
+  # fully_connected layers must be identical in both runs (the dropout rate may differ), as well as the size of
+  # the vectors it reads and the classes it predicts, in the same order.
+  pretrained:
+    # Run folder whose trained classification head initialises this run, null to start from random weights. A
+    # run resuming from its own checkpoints does not load it again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded classification head fixed (no gradient) so that only the other components learn.
+    # Requires an experiment_folder.
+    freeze: False
+    # Multiplies the learning rate of the loaded classification head, e.g. 0.1 to fine-tune it ten times slower
+    # than the new layers.
+    learning_rate_multiplier: 1.0
+
+Selection:
+  # Name of the manifest category of the frames that are not selected. Every other class of the label mapping is a
+  # wanted class, of which every sequence of the manifests must hold exactly frames_per_class frames (the sequences
+  # that do not are listed at startup and the training stops).
+  unselected_category: "unselected"
+  # Decoding choosing the frames of every wanted class from the per-frame probabilities: "hungarian" (the optimal
+  # assignment, the most probable labelling of the whole sequence with every wanted class chosen frames_per_class
+  # times) or "greedy" (every frame takes its most probable class, a class taken by too many frames keeping the most
+  # probable ones, a class taken by too few completed with the unselected frames most probable for it). Both are
+  # scored at every evaluation; this one is drawn in the sample and error images, gives the confidence thresholds and
+  # is run by the deployed decoder.
+  decoding: "hungarian"
+  # Number of frames chosen for every wanted class in every sequence.
+  frames_per_class: 1
+  # Weight of the selection loss added to the per-frame loss: for every wanted class, the softmax of its logit over
+  # the frames of the sequence is trained towards its true frames, so that the frames compete for the class. 0 trains
+  # with the per-frame loss alone.
+  selection_loss_weight: 1.0
