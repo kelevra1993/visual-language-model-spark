@@ -50,16 +50,7 @@ classes (e.g. marked 255 and ignored).
 
 **Worth it if:** your data comes in that format. Otherwise not needed.
 
-### 3. GIF of the sample images (S)
-**What:** a script stacking the sample images saved at every evaluation (`<run>/Evaluation/Iteration_<n>/Samples/`)
-into one animation per sample. The sample images exist for every task, so it would work for all of them.
-
-**Example:** a sample of a segmentation run evaluated at iterations 500, 1000, …, 5000 becomes a 10-frame GIF where the
-predicted mask sharpens over the training.
-
-**Worth it if:** you want to show a training to others. TensorBoard already has a slider over the same images.
-
-### 4. Export of the class map alone (S)
+### 3. Export of the class map alone (S)
 **What:** the exported segmenter returns the class of every pixel and the probabilities of every class for every
 pixel. An option would export the class map only.
 
@@ -74,7 +65,7 @@ throughput.
 
 ## 3. Training Infrastructure
 
-### 5. `torch.compile` (M)
+### 4. `torch.compile` (M)
 **What:** compiling the model into fused GPU kernels, often 10 to 40 % faster per iteration, measured case by case.
 
 **Example:** two costs. The compiled model prefixes every weight name with `_orig_mod.`, so the checkpoints would have
@@ -85,7 +76,7 @@ be told the frame axis is dynamic.
 **Worth it if:** long trainings with fixed input shapes (classification, segmentation, detection) where 10 to 40 % of
 the training time matters.
 
-### 6. Gradient checkpointing (S)
+### 5. Gradient checkpointing (S)
 **What:** instead of keeping every intermediate activation of the backbone for the backward pass, keep only those at
 the boundaries of its blocks and recompute the rest during the backward pass. Less memory, about 30 % more compute.
 
