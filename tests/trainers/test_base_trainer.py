@@ -1,7 +1,8 @@
 """
 Tests of BaseTrainer of vision_training/trainers/base_trainer.py on the dummy task: a model iteration sums the losses
-and tracks the metrics, training saves, evaluates and resumes from its checkpoints, the final checkpoint is evaluated on
-the weights it holds, the evaluation draws the fixed sample images, and the input viewer creates no run folder.
+and tracks the metrics, training saves, evaluates and resumes from its checkpoints, the interval averages of a run
+resumed between two summaries cover the iterations it really ran, the final checkpoint is evaluated on the weights it
+holds, the evaluation draws the fixed sample images, and the input viewer creates no run folder.
 """
 
 import copy
@@ -12,11 +13,13 @@ import torch
 from pathlib import Path
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from typing import Callable, Dict
+from unittest.mock import patch
 
 from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_configurations
 from tests.fixtures.evaluation_checks import read_results_blocks
 from vision_training.core.contracts import EvaluationResults
 from vision_training.trainers.checkpointing import CHECKPOINT_FORMAT_VERSION
+from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY
 
 
 class EvaluationRecorder:
@@ -81,7 +84,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
 def test_model_iteration_sums_the_losses_and_tracks_the_metrics(tmp_path: Path) -> None:
     """
     Verifies the generic step of the trainer: every '_loss' output of the model is summed into the total loss, and the
-    losses and batch metrics are accumulated into the trackers divided by the number of batches of the interval.
+    losses and batch metrics are added to the sums of the trackers, which count the batch.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -94,13 +97,14 @@ def test_model_iteration_sums_the_losses_and_tracks_the_metrics(tmp_path: Path) 
     with torch.no_grad():
         total_loss, model_outputs = trainer.run_model_iteration(batch=batch, writer=None, iteration=1,
                                                                 tracker_dictionary=tracker_dictionary,
-                                                                apply_augmentation=False, tracker_divisor=2)
+                                                                apply_augmentation=False)
 
     assert torch.isclose(input=total_loss, other=model_outputs["first_loss"] + model_outputs["second_loss"])
-    assert tracker_dictionary["total_loss"] == pytest.approx(expected=total_loss.item() / 2)
-    assert tracker_dictionary["first_loss"] == pytest.approx(expected=model_outputs["first_loss"].item() / 2)
-    assert tracker_dictionary["second_loss"] == pytest.approx(expected=model_outputs["second_loss"].item() / 2)
-    assert 0.0 <= tracker_dictionary["accuracy"] <= 0.5
+    assert tracker_dictionary[INTERVAL_BATCHES_KEY] == 1
+    assert tracker_dictionary["total_loss"] == pytest.approx(expected=total_loss.item())
+    assert tracker_dictionary["first_loss"] == pytest.approx(expected=model_outputs["first_loss"].item())
+    assert tracker_dictionary["second_loss"] == pytest.approx(expected=model_outputs["second_loss"].item())
+    assert 0.0 <= tracker_dictionary["accuracy"] <= 1.0
 
 
 def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -151,6 +155,59 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_resumed_interval_averages_the_iterations_it_ran(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a run resumed between two summaries (saved at iteration 3, a summary every 2 iterations) averages
+    its first interval over the single iteration 4 it ran instead of over information_dump iterations, and its next
+    interval over iterations 5 and 6, for the console summary and the MLflow values, the validation averaging its
+    batches the same way.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    build_dummy_trainer(temporary_directory=tmp_path, number_iterations=3, view_input_images=False,
+                        number_sample_images=0).run_training_loop()
+    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=3, view_input_images=False,
+                                          number_sample_images=0)
+    assert resumed_trainer.start_iteration == 4
+    capsys.readouterr()
+
+    # Record the metrics of every batch written to TensorBoard and the interval averages sent to MLflow
+    with patch.object(target=resumed_trainer.metric_tracker, attribute="log_to_tensorboard",
+                      wraps=resumed_trainer.metric_tracker.log_to_tensorboard) as tensorboard_mock, \
+            patch.object(target=resumed_trainer, attribute="log_interval_metrics",
+                         wraps=resumed_trainer.log_interval_metrics) as interval_mock:
+        resumed_trainer.run_training_loop()
+
+    # Total loss of every training and validation batch, keyed by iteration
+    batch_losses = {"training": {}, "validation": {}}
+    for tensorboard_call in tensorboard_mock.call_args_list:
+        is_training_batch = tensorboard_call.kwargs["writer"] is resumed_trainer.training_writer
+        batch_losses["training" if is_training_batch else "validation"][tensorboard_call.kwargs["iteration"]] = \
+            tensorboard_call.kwargs["metric_dictionary"]["total_loss"].item()
+    assert sorted(batch_losses["training"]) == [4, 5, 6] and sorted(batch_losses["validation"]) == [4, 6]
+
+    # Summaries at iterations 4 (iteration 4 alone) and 6 (iterations 5 and 6), one validation batch each
+    interval_calls = {interval_call.kwargs["iteration"]: interval_call.kwargs
+                      for interval_call in interval_mock.call_args_list}
+    assert sorted(interval_calls) == [4, 6]
+    for iteration, interval_iterations in [(4, [4]), (6, [5, 6])]:
+        training_trackers = interval_calls[iteration]["training_trackers"]
+        assert training_trackers[INTERVAL_BATCHES_KEY] == len(interval_iterations)
+        assert training_trackers["total_loss"] == pytest.approx(expected=sum(
+            batch_losses["training"][interval_iteration] for interval_iteration in interval_iterations) /
+            len(interval_iterations))
+        validation_trackers = interval_calls[iteration]["validation_trackers"]
+        assert validation_trackers[INTERVAL_BATCHES_KEY] == 1
+        assert validation_trackers["total_loss"] == pytest.approx(expected=batch_losses["validation"][iteration])
+
+    # The console summaries count the iterations and samples of their own interval
+    console_output = capsys.readouterr().out
+    assert "Interval Of 1 Iterations Took" in console_output and "Interval Of 2 Iterations Took" in console_output
+    assert "Interval Images: 2 " in console_output and "Interval Images: 4 " in console_output
 
 
 def test_final_checkpoint_is_evaluated_on_its_weights(tmp_path: Path) -> None:

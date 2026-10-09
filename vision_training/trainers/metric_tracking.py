@@ -1,8 +1,9 @@
 """
-Metric tracking of the general trainer: the rolling averages of the training and validation losses and batch metrics
-over every console interval, the throughput of the interval, the console summary printed at every information dump
-(with the change of every value since the previous summary) and the TensorBoard curves. The interval averages and the
-throughput are also sent to the MLflow run of the training by the general trainer.
+Metric tracking of the general trainer: the averages of the training and validation losses and batch metrics over
+every console interval, divided by the number of batches the interval really ran (fewer than information_dump in the
+first interval of a resumed run), the throughput of the interval, the console summary printed at every information
+dump (with the change of every value since the previous summary) and the TensorBoard curves. The interval averages and
+the throughput are also sent to the MLflow run of the training by the general trainer.
 """
 
 import time
@@ -35,27 +36,29 @@ BEST_MARKER = "Best"
 # sequence tasks
 INTERVAL_FRAMES_KEY = "interval_frames"
 
+# Key of the trackers of an interval counting the batches accumulated in it, by which its sums are divided into means
+INTERVAL_BATCHES_KEY = "interval_batches"
+
 
 class MetricTracker:
     """
-    Tracks the metrics of the training and validation batches for the general trainer: rolling averages over every
-    console log interval, the console summary printed at every information dump, and the TensorBoard curves written at
-    every iteration. The tracked metrics are given by the task, as a mapping from model output keys (its losses and
-    batch metrics, plus the total loss) to their display names.
+    Tracks the metrics of the training and validation batches for the general trainer: averages over the batches of
+    every console log interval, the console summary printed at every information dump, and the TensorBoard curves
+    written at every iteration. The tracked metrics are given by the task, as a mapping from model output keys (its
+    losses and batch metrics, plus the total loss) to their display names.
 
     The tracker keeps the values of the previous summary, so that every summary shows the change of each value, green
     when it improved and red when it got worse, and the best value of the run marked. Nothing is kept across a
     resume, so the first summary of a resumed run has no change.
     """
 
-    def __init__(self, tracked_metrics_mapping: Dict[str, str], information_dump: int, batch_size: int,
-                 validation_iteration_ratio: int, sample_name: str, counts_frames: bool) -> None:
+    def __init__(self, tracked_metrics_mapping: Dict[str, str], batch_size: int, validation_iteration_ratio: int,
+                 sample_name: str, counts_frames: bool) -> None:
         """
         Keeps the settings of the console summaries.
 
         Args:
             tracked_metrics_mapping (Dict[str, str]): The display name of every tracked metric key.
-            information_dump (int): The number of iterations of a console log interval.
             batch_size (int): The number of samples of a batch.
             validation_iteration_ratio (int): How often a validation batch is evaluated (0 for never).
             sample_name (str): "Images" for the image tasks, "Sequences" for the sequence tasks, "Pairs" for the
@@ -64,7 +67,6 @@ class MetricTracker:
                 print the frame throughput, False for the image tasks.
         """
         self.tracked_metrics_mapping = tracked_metrics_mapping
-        self.information_dump = information_dump
         self.batch_size = batch_size
         self.validation_iteration_ratio = validation_iteration_ratio
         self.sample_name = sample_name
@@ -77,13 +79,14 @@ class MetricTracker:
 
     def create_trackers(self) -> Dict[str, Any]:
         """
-        Initializes a dictionary accumulating the rolling averages of the tracked metrics over a console log interval.
+        Initializes a dictionary accumulating the sums of the tracked metrics over a console log interval, turned into
+        means by average_trackers at its end.
 
         Returns:
-            Dict[str, Any]: A dictionary with every metric key set to 0.0, the start time of the interval, and its
-                count of real frames when the frames are counted.
+            Dict[str, Any]: A dictionary with every metric key set to 0.0, the start time of the interval, its count
+                of batches, and its count of real frames when the frames are counted.
         """
-        tracker_dictionary = {"start_time": time.time()}
+        tracker_dictionary = {"start_time": time.time(), INTERVAL_BATCHES_KEY: 0}
         for metric_key in self.tracked_metrics_mapping.keys():
             tracker_dictionary[metric_key] = 0.0
         if self.counts_frames:
@@ -106,33 +109,37 @@ class MetricTracker:
             tracker_dictionary[INTERVAL_FRAMES_KEY] += int(batch["sequence_mask"].sum())
 
     @staticmethod
-    def accumulate(tracker_dictionary: Optional[Dict[str, Any]], metric_dictionary: Dict[str, torch.Tensor],
-                   tracker_divisor: int) -> None:
+    def accumulate(tracker_dictionary: Optional[Dict[str, Any]], metric_dictionary: Dict[str, torch.Tensor]) -> None:
         """
-        Adds the metrics of one batch to the rolling averages of the interval: every value is divided by the number of
-        batches contributing to the average, so that the accumulated values are the interval means.
+        Adds the metrics of one training or validation batch to the sums of its interval and counts the batch, the
+        number of batches of an interval being only known at its end (fewer than information_dump in the first
+        interval of a resumed run, every validation_iteration_ratio iterations for the validation).
 
         Args:
             tracker_dictionary (Optional[Dict[str, Any]]): The trackers of the interval, or None to track nothing.
             metric_dictionary (Dict[str, torch.Tensor]): The scalar metrics of the batch.
-            tracker_divisor (int): The number of batches contributing to the average (0 to track nothing).
         """
-        if tracker_dictionary is not None and tracker_divisor > 0:
-            for metric_key, metric_value in metric_dictionary.items():
-                if metric_key in tracker_dictionary:
-                    tracker_dictionary[metric_key] += metric_value.item() / tracker_divisor
+        if tracker_dictionary is None:
+            return
+        for metric_key, metric_value in metric_dictionary.items():
+            if metric_key in tracker_dictionary:
+                tracker_dictionary[metric_key] += metric_value.item()
+        tracker_dictionary[INTERVAL_BATCHES_KEY] += 1
 
-    def average_validation_trackers(self, validation_trackers: Dict[str, Any], validation_interval_count: int) -> None:
+    def average_trackers(self, tracker_dictionary: Dict[str, Any]) -> None:
         """
-        Turns the validation sums of an interval into means: validation batches are accumulated with a divisor of 1,
-        since their number in the interval is only known at its end.
+        Turns the sums of the training or validation trackers of an interval into means over the batches the interval
+        really ran, at its console summary, before they are printed and sent to MLflow. An interval without batches
+        keeps its sums of 0.
 
         Args:
-            validation_trackers (Dict[str, Any]): The validation trackers of the interval, modified in place.
-            validation_interval_count (int): The number of validation batches of the interval.
+            tracker_dictionary (Dict[str, Any]): The trackers of the interval, modified in place.
         """
+        number_batches = tracker_dictionary[INTERVAL_BATCHES_KEY]
+        if number_batches == 0:
+            return
         for metric_key in self.tracked_metrics_mapping.keys():
-            validation_trackers[metric_key] /= validation_interval_count
+            tracker_dictionary[metric_key] /= number_batches
 
     def log_to_tensorboard(self, writer: Optional[SummaryWriter], iteration: int,
                            metric_dictionary: Dict[str, torch.Tensor]) -> None:
@@ -253,7 +260,7 @@ class MetricTracker:
         Returns:
             Tuple[float, float]: The throughput in samples per second, and the duration of the interval in seconds.
         """
-        interval_samples = self.information_dump * self.batch_size
+        interval_samples = training_tracker_dictionary[INTERVAL_BATCHES_KEY] * self.batch_size
         duration = time.time() - training_tracker_dictionary["start_time"]
         return interval_samples / max(duration, 0.001), duration
 
@@ -274,19 +281,18 @@ class MetricTracker:
         return training_tracker_dictionary[INTERVAL_FRAMES_KEY] / max(duration, 0.001)
 
     def print_interval_summary(self, iterations: int, training_tracker_dictionary: Dict[str, Any],
-                               validation_tracker_dictionary: Optional[Dict[str, Any]],
-                               validation_interval_count: int) -> Dict[str, Any]:
+                               validation_tracker_dictionary: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Prints the rolling average of the training and validation metrics at the end of a console log interval.
-        It is the primary training feedback of the pipeline, showing the throughput and every tracked metric with its
-        change since the previous summary, so that the user can monitor the convergence at a glance.
+        Prints the average of the training and validation metrics at the end of a console log interval, over the
+        batches the interval really ran. It is the primary training feedback of the pipeline, showing the throughput
+        and every tracked metric with its change since the previous summary, so that the user can monitor the
+        convergence at a glance.
 
         Args:
             iterations (int): Current global training iteration.
-            training_tracker_dictionary (Dict[str, Any]): Rolling average trackers for training.
-            validation_tracker_dictionary (Optional[Dict[str, Any]]): Rolling average trackers for validation.
-            validation_interval_count (int): The number of validation forward passes that occurred in this
-                console-log interval. Used to inform the user and to gate validation metric display.
+            training_tracker_dictionary (Dict[str, Any]): The averaged training trackers of the interval.
+            validation_tracker_dictionary (Optional[Dict[str, Any]]): The averaged validation trackers of the interval,
+                None without validation; the Valid lines are only printed when it holds at least one batch.
 
         Returns:
             Dict[str, Any]: A fresh training tracker dictionary for the next interval.
@@ -294,9 +300,12 @@ class MetricTracker:
         print_length = 100
         print("=" * print_length)
 
-        # Calculate sample scale and throughput metrics
+        # Calculate sample scale and throughput metrics over the training iterations of the interval
+        interval_iterations = training_tracker_dictionary[INTERVAL_BATCHES_KEY]
+        validation_interval_count = (validation_tracker_dictionary[INTERVAL_BATCHES_KEY]
+                                     if validation_tracker_dictionary is not None else 0)
         total_samples = iterations * self.batch_size
-        interval_samples = self.information_dump * self.batch_size
+        interval_samples = interval_iterations * self.batch_size
         samples_per_second, duration = self.compute_interval_statistics(
             training_tracker_dictionary=training_tracker_dictionary)
 
@@ -318,14 +327,14 @@ class MetricTracker:
 
             # Only display validation metrics if at least one validation iteration ran in this interval, so that the
             # Valid changes compare with the last interval that ran validation
-            if validation_tracker_dictionary is not None and validation_interval_count > 0:
+            if validation_interval_count > 0:
                 validation_value = validation_tracker_dictionary[metric_key]
                 print(self.format_metric_line(split_name="Valid", metric_key=metric_key, display_name=display_name,
                                               current_value=validation_value))
 
         print("-" * print_length)
         formatted_duration = self.format_time_interval(duration_seconds=duration)
-        print(f"Interval Of {self.information_dump} Iterations Took {formatted_duration}.")
+        print(f"Interval Of {interval_iterations} Iterations Took {formatted_duration}.")
 
         # Show how many validation iterations contributed to the reported averages
         if self.validation_iteration_ratio > 0:

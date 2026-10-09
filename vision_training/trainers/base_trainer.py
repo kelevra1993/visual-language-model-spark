@@ -31,7 +31,7 @@ from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, free
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import get_last_checkpoint_iteration, load_checkpoint, save_checkpoint
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
-from vision_training.trainers.metric_tracking import MetricTracker
+from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY, MetricTracker
 from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED_STATUS, KILLED_STATUS,
                                                          RUN_RECORD_FILE_NAME, DisabledTracker,
                                                          create_experiment_tracker, resolve_tracking_uri)
@@ -173,7 +173,7 @@ class BaseTrainer(ABC):
         # Metric tracking of the losses and batch metrics chosen by the task
         self.tracked_metrics_mapping = self.get_tracked_metrics()
         self.metric_tracker = MetricTracker(tracked_metrics_mapping=self.tracked_metrics_mapping,
-                                            information_dump=self.information_dump, batch_size=self.batch_size,
+                                            batch_size=self.batch_size,
                                             validation_iteration_ratio=self.validation_iteration_ratio,
                                             sample_name=self.SAMPLE_NAME, counts_frames=self.COUNTS_FRAMES)
 
@@ -770,7 +770,7 @@ class BaseTrainer(ABC):
             # Forward pass For Training
             training_loss, _ = self.run_model_iteration(batch=training_batch, writer=self.training_writer,
                                                         apply_augmentation=True, iteration=training_iteration,
-                                                        tracker_dictionary=None, tracker_divisor=0)
+                                                        tracker_dictionary=None)
 
             # Backward and Step
             training_loss.backward()
@@ -787,10 +787,10 @@ class BaseTrainer(ABC):
                     # Forward pass For Validation
                     _, _ = self.run_model_iteration(batch=validation_batch, writer=self.validation_writer,
                                                     apply_augmentation=False, iteration=training_iteration,
-                                                    tracker_dictionary=None, tracker_divisor=0)
+                                                    tracker_dictionary=None)
 
     def initialize_training_loop_state(self) -> Tuple[
-            Iterator, Iterator, bool, Dict[str, float], Optional[Dict[str, float]], int, int]:
+            Iterator, Iterator, bool, Dict[str, float], Optional[Dict[str, float]], int]:
         """
         Initializes and returns the state variables required for the main training loop.
 
@@ -805,7 +805,6 @@ class BaseTrainer(ABC):
                 - validation_enabled (bool): Flag indicating if validation is enabled.
                 - training_trackers (Dict[str, float]): Dictionary for accumulating training metrics.
                 - validation_trackers (Optional[Dict[str, float]]): Dictionary for validation metrics, or None.
-                - validation_interval_count (int): Counter for the number of validation passes in the current interval.
                 - consecutive_errors (int): Counter for consecutive errors encountered during training.
         """
         # Get dataloader
@@ -815,19 +814,14 @@ class BaseTrainer(ABC):
         # Determine whether validation is enabled based on the configured ratio
         validation_enabled = self.validation_iteration_ratio > 0
 
-        # Get the metric trackers of the training and validation batches
+        # Get the metric trackers of the training and validation batches, which count the batches of their interval
         training_trackers = self.metric_tracker.create_trackers()
         validation_trackers = self.metric_tracker.create_trackers() if validation_enabled else None
-
-        # Counter tracking how many validation forward passes occurred within the current console-log interval.
-        # This is needed to compute the correct rolling average divisor for validation metrics, since
-        # validation may run less frequently than training iterations depending on validation_iteration_ratio.
-        validation_interval_count = 0
 
         consecutive_errors = 0
 
         return (training_dataloader_iterator, validation_dataloader_iterator, validation_enabled,
-                training_trackers, validation_trackers, validation_interval_count, consecutive_errors)
+                training_trackers, validation_trackers, consecutive_errors)
 
     def run_training_loop(self, maximum_consecutive_errors: int = 5) -> None:
         """
@@ -869,8 +863,7 @@ class BaseTrainer(ABC):
 
         # Initialize core loop state variables, dataloader iterators, and metric trackers
         (training_dataloader_iterator, validation_dataloader_iterator, validation_enabled,
-         training_trackers, validation_trackers, validation_interval_count,
-         consecutive_errors) = self.initialize_training_loop_state()
+         training_trackers, validation_trackers, consecutive_errors) = self.initialize_training_loop_state()
 
         # MLflow run of the training, opened after the loader worker processes are forked from this process so that
         # they never inherit the thread of the tracker
@@ -912,8 +905,7 @@ class BaseTrainer(ABC):
                 # Forward pass For Training
                 training_loss, _ = self.run_model_iteration(batch=training_batch, writer=self.training_writer,
                                                             apply_augmentation=True, iteration=training_iteration,
-                                                            tracker_dictionary=training_trackers,
-                                                            tracker_divisor=self.information_dump)
+                                                            tracker_dictionary=training_trackers)
 
                 # Backward and Step
                 training_loss.backward()
@@ -926,35 +918,29 @@ class BaseTrainer(ABC):
                     with torch.no_grad():
                         validation_batch, validation_dataloader_iterator = self.get_next_batch(
                             dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader)
-                        # Forward pass for validation — accumulates raw metric sums (divisor=1) into
-                        # validation_trackers. The actual averaging by validation_interval_count is
-                        # deferred to the console log dump so the moving average is correct.
+                        # Forward pass for validation, its metrics added to the sums of the interval
                         _, _ = self.run_model_iteration(batch=validation_batch, writer=self.validation_writer,
                                                         apply_augmentation=False, iteration=training_iteration,
-                                                        tracker_dictionary=validation_trackers, tracker_divisor=1)
-                        validation_interval_count += 1
+                                                        tracker_dictionary=validation_trackers)
 
-                # Console log dump
+                # Console log dump, on the multiples of information_dump
                 if training_iteration % self.information_dump == 0:
-                    # Normalize accumulated validation metrics by the actual validation count in this interval
-                    if validation_enabled and validation_trackers is not None and validation_interval_count > 0:
-                        self.metric_tracker.average_validation_trackers(
-                            validation_trackers=validation_trackers,
-                            validation_interval_count=validation_interval_count)
+                    # Divide the sums of both splits by the batches the interval really ran: fewer than
+                    # information_dump training batches in the first interval of a run resumed between two summaries
+                    self.metric_tracker.average_trackers(tracker_dictionary=training_trackers)
+                    if validation_trackers is not None:
+                        self.metric_tracker.average_trackers(tracker_dictionary=validation_trackers)
 
                     # Interval averages sent to MLflow before the summary starts the trackers of the next interval
                     self.log_interval_metrics(iteration=training_iteration, training_trackers=training_trackers,
-                                              validation_trackers=validation_trackers if validation_interval_count > 0
-                                              else None)
+                                              validation_trackers=validation_trackers)
 
                     training_trackers = self.metric_tracker.print_interval_summary(
                         iterations=training_iteration, training_tracker_dictionary=training_trackers,
-                        validation_tracker_dictionary=validation_trackers,
-                        validation_interval_count=validation_interval_count)
+                        validation_tracker_dictionary=validation_trackers)
 
                     if validation_enabled:
                         validation_trackers = self.metric_tracker.create_trackers()
-                        validation_interval_count = 0
 
                 # Reset the consecutive errors counter after a fully successful iteration, the run being completed once
                 # its last iteration succeeds
@@ -1077,8 +1063,8 @@ class BaseTrainer(ABC):
         Args:
             iteration (int): The last training iteration of the interval.
             training_trackers (Dict[str, Any]): The training averages of the interval, with its start time.
-            validation_trackers (Optional[Dict[str, Any]]): The validation averages of the interval, None when no
-                validation batch ran in it.
+            validation_trackers (Optional[Dict[str, Any]]): The validation averages of the interval, None without
+                validation; they are left out when no validation batch ran in the interval.
         """
         samples_per_second, duration = self.metric_tracker.compute_interval_statistics(
             training_tracker_dictionary=training_trackers)
@@ -1086,7 +1072,7 @@ class BaseTrainer(ABC):
         # Averages of the tracked metrics under their display names, then the speed and the learning rate
         metrics = {f"train/{display_name}": training_trackers[metric_key]
                    for metric_key, display_name in self.tracked_metrics_mapping.items()}
-        if validation_trackers is not None:
+        if validation_trackers is not None and validation_trackers[INTERVAL_BATCHES_KEY] > 0:
             metrics.update({f"validation/{display_name}": validation_trackers[metric_key]
                             for metric_key, display_name in self.tracked_metrics_mapping.items()})
         metrics.update({"train/throughput": samples_per_second, "train/interval_seconds": duration,
@@ -1136,8 +1122,8 @@ class BaseTrainer(ABC):
         self.experiment_tracker.close(status=run_status)
 
     def run_model_iteration(self, batch: Dict[str, Any], writer: Optional[SummaryWriter], iteration: int,
-                            tracker_dictionary: Optional[Dict[str, Any]], apply_augmentation: bool,
-                            tracker_divisor: int = 0) -> Tuple[torch.Tensor, Dict[str, Any]]:
+                            tracker_dictionary: Optional[Dict[str, Any]],
+                            apply_augmentation: bool) -> Tuple[torch.Tensor, Dict[str, Any]]:
         """
         Executes one forward pass of the model on a training or validation batch, the same for every task: the batch
         is prepared (and augmented for training), the model returns its losses, which are summed into the total loss,
@@ -1147,13 +1133,11 @@ class BaseTrainer(ABC):
             batch (Dict[str, Any]): The batch dictionary yielded by a loader.
             writer (Optional[SummaryWriter]): TensorBoard writer for logging. If None, logging is skipped.
             iteration (int): The current training iteration step.
-            tracker_dictionary (Optional[Dict[str, Any]]): Dictionary tracking rolling average metrics.
+            tracker_dictionary (Optional[Dict[str, Any]]): The trackers of the interval, summing the metrics and
+                counting the batches, or None to track nothing (benchmarking).
             apply_augmentation (bool): Whether to augment the batch, True for training batches only (validation and
                 test batches must be evaluated on the original images). Augmentation also requires
                 'Data.data_augmentation.activated'.
-            tracker_divisor (int): The number of iterations contributing to the rolling average within a
-                console log interval. For training this equals information_dump; for validation this equals
-                the actual number of validation runs in the interval so that the moving average is correct.
 
         Returns:
             Tuple[torch.Tensor, Dict[str, Any]]: A tuple containing the total loss and the model outputs.
@@ -1178,9 +1162,8 @@ class BaseTrainer(ABC):
         metric_dictionary["total_loss"] = total_loss
         metric_dictionary.update(self.compute_batch_metrics(batch=batch, model_outputs=model_outputs))
 
-        # Update the rolling averages of the interval and log the metrics to tensorboard (per-iteration)
-        self.metric_tracker.accumulate(tracker_dictionary=tracker_dictionary, metric_dictionary=metric_dictionary,
-                                       tracker_divisor=tracker_divisor)
+        # Add the metrics to the sums of the interval and log them to tensorboard (per-iteration)
+        self.metric_tracker.accumulate(tracker_dictionary=tracker_dictionary, metric_dictionary=metric_dictionary)
         self.metric_tracker.log_to_tensorboard(writer=writer, iteration=iteration, metric_dictionary=metric_dictionary)
 
         return total_loss, model_outputs

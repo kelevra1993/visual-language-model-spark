@@ -1,20 +1,21 @@
 """
-Tests of MetricTracker of vision_training/trainers/metric_tracking.py: interval averages of the tracked metrics,
-validation sums divided by their count, the real frames counted for the frame throughput, the time interval format, the
-interval summary header, and the changes since the previous summary (metric changes and their colours, best marker).
+Tests of MetricTracker of vision_training/trainers/metric_tracking.py: interval averages of the tracked metrics over
+the batches really accumulated, the real frames counted for the frame throughput, the time interval format, the
+interval summary header with the iterations of the interval, and the changes since the previous summary (metric
+changes and their colours, best marker).
 """
 
 import pytest
 import torch
 
-from vision_training.trainers.metric_tracking import MetricTracker
+from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY, MetricTracker
 from vision_training.utilities.os_utilities import color_text
 
 
 def build_metric_tracker(sample_name: str, counts_frames: bool) -> MetricTracker:
     """
     Builds a metric tracker following the total loss (improving when it decreases) and the accuracy (improving when it
-    increases), over intervals of 4 iterations of batches of 2 samples.
+    increases), for batches of 2 samples and a validation batch every 2 iterations.
 
     Args:
         sample_name (str): "Images", "Sequences" or "Pairs".
@@ -23,43 +24,36 @@ def build_metric_tracker(sample_name: str, counts_frames: bool) -> MetricTracker
     Returns:
         MetricTracker: The tracker.
     """
-    return MetricTracker(tracked_metrics_mapping={"total_loss": "Total Loss", "accuracy": "Accuracy"},
-                         information_dump=4, batch_size=2, validation_iteration_ratio=2, sample_name=sample_name,
-                         counts_frames=counts_frames)
+    return MetricTracker(tracked_metrics_mapping={"total_loss": "Total Loss", "accuracy": "Accuracy"}, batch_size=2,
+                         validation_iteration_ratio=2, sample_name=sample_name, counts_frames=counts_frames)
 
 
-def test_interval_average_of_the_tracked_metrics() -> None:
+def test_interval_average_over_the_accumulated_batches() -> None:
     """
-    Verifies that the tracked metrics of the batches of an interval add up to their mean, that untracked outputs are
-    ignored, and that nothing is tracked without trackers or divisor.
+    Verifies that the tracked metrics of an interval are summed with their number of batches, then averaged over the
+    batches really accumulated (3 here, as in the short first interval of a resumed run), that untracked outputs are
+    ignored, that nothing is tracked without trackers, and that an interval without batches keeps its zeros.
     """
     tracker = build_metric_tracker(sample_name="Images", counts_frames=False)
     trackers = tracker.create_trackers()
 
-    for loss_value in [1.0, 2.0, 3.0, 6.0]:
+    for loss_value, accuracy_value in [(1.0, 0.5), (2.0, 0.25), (6.0, 0.75)]:
         MetricTracker.accumulate(tracker_dictionary=trackers,
                                  metric_dictionary={"total_loss": torch.tensor(data=loss_value),
-                                                    "untracked_loss": torch.tensor(data=5.0)}, tracker_divisor=4)
-    assert trackers["total_loss"] == pytest.approx(expected=3.0)
+                                                    "accuracy": torch.tensor(data=accuracy_value),
+                                                    "untracked_loss": torch.tensor(data=5.0)})
+    MetricTracker.accumulate(tracker_dictionary=None, metric_dictionary={"total_loss": torch.tensor(data=9.0)})
+    assert trackers[INTERVAL_BATCHES_KEY] == 3 and trackers["total_loss"] == pytest.approx(expected=9.0)
     assert "untracked_loss" not in trackers
 
-    # Nothing is tracked without divisor, and missing trackers are accepted
-    MetricTracker.accumulate(tracker_dictionary=trackers, metric_dictionary={"total_loss": torch.tensor(data=9.0)},
-                             tracker_divisor=0)
-    MetricTracker.accumulate(tracker_dictionary=None, metric_dictionary={"total_loss": torch.tensor(data=9.0)},
-                             tracker_divisor=4)
+    tracker.average_trackers(tracker_dictionary=trackers)
     assert trackers["total_loss"] == pytest.approx(expected=3.0)
+    assert trackers["accuracy"] == pytest.approx(expected=0.5)
 
-
-def test_validation_sums_are_divided_by_their_count() -> None:
-    """
-    Verifies that the validation sums of an interval become means once divided by the number of validation batches.
-    """
-    tracker = build_metric_tracker(sample_name="Images", counts_frames=False)
-    validation_trackers = {"start_time": 0.0, "total_loss": 9.0, "accuracy": 1.5}
-    tracker.average_validation_trackers(validation_trackers=validation_trackers, validation_interval_count=3)
-    assert validation_trackers["total_loss"] == pytest.approx(expected=3.0)
-    assert validation_trackers["accuracy"] == pytest.approx(expected=0.5)
+    # An interval without batches, such as a validation never run, keeps its zeros
+    empty_trackers = tracker.create_trackers()
+    tracker.average_trackers(tracker_dictionary=empty_trackers)
+    assert empty_trackers["total_loss"] == 0.0 and empty_trackers[INTERVAL_BATCHES_KEY] == 0
 
 
 def test_frame_throughput_counts_the_real_frames() -> None:
@@ -104,7 +98,8 @@ def test_interval_summary_header(capsys: pytest.CaptureFixture, sample_name: str
                                  expected_fragments: list) -> None:
     """
     Verifies that the console summary counts images for the image tasks, sequences (or pairs of sequences) with their
-    frame throughput for the sequence tasks, and that it returns fresh trackers for the next interval.
+    frame throughput for the sequence tasks, that it counts the samples and iterations the interval really ran, and
+    that it returns fresh trackers for the next interval.
 
     Args:
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
@@ -113,17 +108,17 @@ def test_interval_summary_header(capsys: pytest.CaptureFixture, sample_name: str
         expected_fragments (list): Text fragments that must appear in the summary.
     """
     tracker = build_metric_tracker(sample_name=sample_name, counts_frames=counts_frames)
-    training_trackers = {"start_time": 0.0, "total_loss": 1.5, "accuracy": 0.5}
+    training_trackers = {"start_time": 0.0, "total_loss": 1.5, "accuracy": 0.5, INTERVAL_BATCHES_KEY: 3}
     if counts_frames:
         training_trackers["interval_frames"] = 64
 
     fresh_trackers = tracker.print_interval_summary(iterations=8, training_tracker_dictionary=training_trackers,
-                                                    validation_tracker_dictionary=None, validation_interval_count=0)
+                                                    validation_tracker_dictionary=None)
 
     console_output = capsys.readouterr().out
-    for expected_fragment in expected_fragments:
+    for expected_fragment in expected_fragments + [f"Interval {sample_name}: 6 ", "Interval Of 3 Iterations Took"]:
         assert expected_fragment in console_output
-    assert fresh_trackers["total_loss"] == 0.0
+    assert fresh_trackers["total_loss"] == 0.0 and fresh_trackers[INTERVAL_BATCHES_KEY] == 0
 
 
 def test_metric_changes_and_best_marker() -> None:
@@ -164,17 +159,17 @@ def test_valid_changes_skip_intervals_without_validation(capsys: pytest.CaptureF
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
     """
     tracker = build_metric_tracker(sample_name="Images", counts_frames=False)
-    validation_values_and_counts = [({"start_time": 0.0, "total_loss": 1.0, "accuracy": 0.5}, 2),
-                                    ({"start_time": 0.0, "total_loss": 0.0, "accuracy": 0.0}, 0),
-                                    ({"start_time": 0.0, "total_loss": 0.8, "accuracy": 0.5}, 2)]
+    validation_trackers_of_summaries = [
+        {"start_time": 0.0, "total_loss": 1.0, "accuracy": 0.5, INTERVAL_BATCHES_KEY: 2},
+        {"start_time": 0.0, "total_loss": 0.0, "accuracy": 0.0, INTERVAL_BATCHES_KEY: 0},
+        {"start_time": 0.0, "total_loss": 0.8, "accuracy": 0.5, INTERVAL_BATCHES_KEY: 2}]
 
     # Print three summaries, the second one without validation batches
-    for validation_trackers, validation_interval_count in validation_values_and_counts:
+    for validation_trackers in validation_trackers_of_summaries:
         tracker.print_interval_summary(iterations=8,
                                        training_tracker_dictionary={"start_time": 0.0, "total_loss": 1.0,
-                                                                    "accuracy": 0.5},
-                                       validation_tracker_dictionary=validation_trackers,
-                                       validation_interval_count=validation_interval_count)
+                                                                    "accuracy": 0.5, INTERVAL_BATCHES_KEY: 4},
+                                       validation_tracker_dictionary=validation_trackers)
 
     console_output = capsys.readouterr().out
     assert console_output.count("Moving Average of Valid Total Loss") == 2
