@@ -11,8 +11,6 @@ large feature).
 
 ## Table Of Contents
 1. Sequence Tasks
-2. Semantic Segmentation
-3. Training Infrastructure
 
 ---
 
@@ -35,54 +33,3 @@ Predicted: A A B A A B B A B B   → 6 segments: A, B, A, B, A, B
 
 **Worth it if:** you care about when events start and stop (an action in a video). If every frame matters on its own,
 the frame metrics are enough.
-
----
-
-## 2. Semantic Segmentation
-
-### 2. Converter of per-class binary mask datasets (S)
-**What:** a script turning datasets that store one black and white mask per class into the single-channel masks read
-by the segmentation dataset (category of every pixel, 0 background, 255 unlabelled).
-
-**Example:** `image_001.png` with `image_001_car.png` and `image_001_road.png` (0 or 255 each) becomes one
-`image_001.png` mask holding 1 for the car pixels and 2 for the road pixels, with a rule for pixels claimed by two
-classes (e.g. marked 255 and ignored).
-
-**Worth it if:** your data comes in that format. Otherwise not needed.
-
-### 3. Export of the class map alone (S)
-**What:** the exported segmenter returns the class of every pixel and the probabilities of every class for every
-pixel. An option would export the class map only.
-
-**Example:** a 512 × 512 image with 150 classes. The probabilities weigh 150 × 512 × 512 × 4 bytes = 157 MB per image,
-the class map 2 MB (0.26 MB stored as uint8). Sending the probabilities to and from Triton would limit the
-throughput.
-
-**Worth it if:** you have many classes and only need the map in deployment. With 10 classes the probabilities weigh
-10 MB, usually fine.
-
----
-
-## 3. Training Infrastructure
-
-### 4. `torch.compile` (M)
-**What:** compiling the model into fused GPU kernels, often 10 to 40 % faster per iteration, measured case by case.
-
-**Example:** two costs. The compiled model prefixes every weight name with `_orig_mod.`, so the checkpoints would have
-to be saved from the uncompiled model to stay loadable. And every new input shape triggers a new compilation: with
-`batch_padding: "longest"`, every batch of a sequence task can have another number of frames, so the compilation must
-be told the frame axis is dynamic.
-
-**Worth it if:** long trainings with fixed input shapes (classification, segmentation, detection) where 10 to 40 % of
-the training time matters.
-
-### 5. Gradient checkpointing (S)
-**What:** instead of keeping every intermediate activation of the backbone for the backward pass, keep only those at
-the boundaries of its blocks and recompute the rest during the backward pass. Less memory, about 30 % more compute.
-
-**Example:** a many to one batch of 16 sequences of 50 frames runs 800 images through the backbone at once, and the
-memory of their activations limits the batch size. With checkpointing, the same GPU fits a batch several times larger,
-or longer sequences.
-
-**Worth it if:** the sequence trainings run out of GPU memory, which becomes likely with `sequence_length` set to the
-longest sequence of the dataset.
