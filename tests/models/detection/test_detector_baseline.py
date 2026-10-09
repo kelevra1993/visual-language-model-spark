@@ -15,9 +15,10 @@ FIXED_GROUND_TRUTH_BOXES = [[[40.0, 60.0, 200.0, 220.0], [300.0, 280.0, 460.0, 4
                             [[20.0, 20.0, 150.0, 120.0], [250.0, 100.0, 480.0, 330.0]]]
 FIXED_GROUND_TRUTH_LABELS = [[1, 3, 5], [2, 4]]
 
-# Values computed by the detector before the major refactoring (major_refactoring.md, Phase 0). They are not ground
-# truth: they record the current behaviour, so that moving, splitting or generalising the detector code is proven to
-# leave every number unchanged. They may only be updated together with a deliberate change of the detector behaviour
+# Values computed by the detector before the major refactoring (Phase 0 of its plan, kept in the git history:
+# git show bdaa51d:markdown_files/major_refactoring.md). They are not ground truth: they record the current behaviour,
+# so that moving, splitting or generalising the detector code is proven to leave every number unchanged. They may only
+# be updated together with a deliberate change of the detector behaviour
 EXPECTED_TRAINING_LOSSES = {"region_proposal_classification_loss": 0.6914948225021362,
                             "region_proposal_localisation_loss": 0.9389231171898904,
                             "detection_classification_loss": 1.8252800713607074,

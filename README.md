@@ -448,6 +448,12 @@ The sequence labeller predicts one class per frame (many to many), the temporal 
 
 **Evaluation.** The metrics of CLS computed on the labelled frames, and the sequence exact match: the share of windows with every frame right.
 
+The segment metrics score the events instead of the frames, a segment being a run of consecutive labelled frames of one class. The windows of every test sequence are first merged back into the whole sequence, the probabilities of a frame held by several windows being averaged, and an unlabelled frame ends a segment.
+- Edit Score: 1 minus the number of segments to insert, remove or replace to turn the predicted order of segment classes into the true one, divided by the larger number of segments, averaged over the sequences. It is low when the prediction is fragmented, even with most frames right.
+- Segment F1@10, @25 and @50: every predicted segment, in order, is right when it overlaps the true segment of its class it overlaps most by at least 10, 25 or 50 % (intersection over union) and that true segment was not matched before. The F1 comes from the matches counted over all the sequences.
+
+For example, a sequence true `A A A A A B B B B B` predicted `A A B A A B B A B B` has 80 % of its frames right, an edit score of 0.33 (`A B` against `A B A B A B`), a segment F1@10 of 0.50 and a segment F1@50 of 0. The note `Segments` of the report gives the number of true and predicted segments and of whole test sequences.
+
 <p align="center">
   <img src="README/sequence_labelling_sample.png" width="80%" />
 </p>
@@ -854,7 +860,7 @@ What is logged:
 | `test/best_<headline metric>`, `Results.txt` and the configuration file | all |
 | `test/mAP@0.5`, `mAP@0.75`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test_class/AP@0.5/<class>`; `class_metrics.csv` | DET |
 | `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-<k> Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`); `test_class/Precision`, `Recall`, `F1` per class; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | CLS, M2O, M2M, CMP |
-| `test/Sequence Exact Match` | M2M |
+| `test/Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `Segment F1@25`, `Segment F1@50` | M2M |
 | `test/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `<Decoding> Fully Right Sequences`, `<Decoding> Unselected Precision`, `<Decoding> Unselected Recall`, `Top-<k> Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`; `test_class/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `Mean True Frame Rank` per wanted class; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | SEL |
 | `test/Mean IoU`, `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`; `test_class/IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall` per class; `class_metrics.csv`, `confusion_matrix.png` | SEG |
 
@@ -884,7 +890,7 @@ The debugging scripts kept in the repository are in `scripts/`, also in folders 
 ├── README/                            # Images used in the documentation
 ├── pyproject.toml                     # Project package and dependency configuration
 ├── uv.lock                            # Locked dependencies for reproducible environments
-├── markdown_files/                    # Remaining work items and proposed improvements
+├── markdown_files/                    # Proposed improvements
 ├── vision_training/                   # Training framework
 │   ├── main.py                        # Entry point of the trainings
 │   ├── configurations/                # Example and synthetic configuration of every task
