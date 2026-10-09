@@ -1,7 +1,7 @@
 """
 Tests of vision_training/data/synthetic/create_synthetic_dataset.py: the synthetic detection, classification, semantic
-segmentation, sequence classification, sequence labelling and sequence comparison datasets are valid, load with the
-datasets of the framework and follow their labels.
+segmentation, sequence classification, sequence labelling, sequence comparison and frame selection datasets are valid,
+load with the datasets of the framework and follow their labels.
 """
 
 import json
@@ -14,10 +14,12 @@ from pathlib import Path
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
+from vision_training.data.sequence.sequence_dataset import SequenceDataset
 from vision_training.data.synthetic.create_synthetic_dataset import (MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS,
-                                                                     PAIR_CATEGORIES, SHAPE_CATEGORIES,
-                                                                     SHAPE_DRAWING_FUNCTIONS, create_synthetic_dataset,
-                                                                     draw_shapes_frame, get_mask_bounding_box)
+                                                                     PAIR_CATEGORIES, SELECTION_CATEGORIES,
+                                                                     SHAPE_CATEGORIES, SHAPE_DRAWING_FUNCTIONS,
+                                                                     create_synthetic_dataset, draw_shapes_frame,
+                                                                     get_mask_bounding_box)
 
 IMAGE_SIZE = 256
 
@@ -159,7 +161,9 @@ def test_created_segmentation_dataset_masks_match_the_shapes(tmp_path: Path) -> 
     dataset = SegmentationDataset(data_directory=str(tmp_path / "train" / "data"),
                                   masks_directory=str(tmp_path / "train" / "masks"),
                                   labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
-                                  keep_ratio=True, label_mode="multi_class", label_dictionary=label_dictionary)
+                                  keep_ratio=True, label_mode="multi_class", label_dictionary=label_dictionary,
+                                  tiling_configuration={"activated": False, "scale": 1.0, "overlap": 0},
+                                  tile_sampling="random")
     assert dataset.class_names == {0: "background", **{class_index: shape_name for shape_name, class_index
                                                        in SHAPE_CATEGORIES.items()}}
     assert set(dataset[0]["masks"].unique().tolist()) <= set(range(len(SHAPE_CATEGORIES) + 1))
@@ -315,18 +319,59 @@ def test_pair_frames_fail_loudly_when_objects_do_not_fit() -> None:
                           random_generator=np.random.default_rng())
 
 
-@pytest.mark.parametrize(argnames=("minimum_frames", "maximum_frames"), argvalues=[(1, 4), (5, 4)])
-def test_sequence_frame_range_is_checked(tmp_path: Path, minimum_frames: int, maximum_frames: int) -> None:
+@pytest.mark.parametrize(argnames=("task", "minimum_frames", "maximum_frames"), argvalues=[
+    ("sequence_classification", 1, 4), ("sequence_classification", 5, 4), ("frame_selection", 2, 6)])
+def test_sequence_frame_range_is_checked(tmp_path: Path, task: str, minimum_frames: int, maximum_frames: int) -> None:
     """
     Verifies that a sequence dataset is refused when its sequences could have a single frame, which shows no movement,
-    no change of class and no comparison, or when its frame range is empty.
+    no change of class and no comparison, when a selection sequence could have fewer frames than wanted shapes, or
+    when its frame range is empty.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
+        task (str): The sequence task of the dataset.
         minimum_frames (int): The minimum number of frames of a sequence.
         maximum_frames (int): The maximum number of frames of a sequence.
     """
     with pytest.raises(expected_exception=ValueError, match="minimum_frames"):
         create_synthetic_dataset(output_folder=str(tmp_path), image_size=64, split_sizes={"train": 2},
                                  maximum_objects=1, minimum_frames=minimum_frames, maximum_frames=maximum_frames,
-                                 number_workers=1, task="sequence_classification")
+                                 number_workers=1, task=task)
+
+
+def test_created_frame_selection_dataset_holds_every_wanted_shape_once(tmp_path: Path) -> None:
+    """
+    Verifies the frame selection mode of the generator: the wanted shapes and the unselected category with their
+    label mapping (the unselected frames giving the class 0), sequences of 4 to 8 frames whose number varies, every
+    wanted shape selected in exactly one frame of every sequence, every frame showing a single shape, and the splits
+    loading with the frame selection dataset, which checks every sequence.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=64,
+                             split_sizes={"train": 10, "validation": 2, "test": 2}, maximum_objects=1,
+                             minimum_frames=4, maximum_frames=8, number_workers=2, task="frame_selection")
+
+    labels = json.loads((tmp_path / "train" / "labels.json").read_text())
+    assert [category["name"] for category in labels["categories"]] == list(SELECTION_CATEGORIES)
+    label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
+    assert label_mapping == {"1": 0, "2": 1, "3": 2, "4": 3}
+    sequence_lengths = [len(sequence["frames"]) for sequence in labels["sequences"]]
+    assert all(4 <= sequence_length <= 8 for sequence_length in sequence_lengths) and len(set(sequence_lengths)) > 1
+
+    for sequence in labels["sequences"]:
+        # One frame of every wanted shape, every other frame unselected, one shape per frame
+        assert sorted(category_identifier for category_identifier in sequence["frame_category_ids"]
+                      if category_identifier != SELECTION_CATEGORIES["unselected"]) == [2, 3, 4]
+        for frame_file in sequence["frames"]:
+            assert count_frame_objects(frame=cv2.imread(filename=str(tmp_path / "train" / "data" / frame_file))) == 1
+
+    # Every sequence of the split passes the check of the frame selection dataset
+    dataset = SequenceDataset(data_directory=str(tmp_path / "train" / "data"),
+                              labels_file=str(tmp_path / "train" / "labels.json"), image_size=64, keep_ratio=True,
+                              label_dictionary={int(key): value for key, value in label_mapping.items()},
+                              sequence_settings={"sequence_length": 8, "batch_padding": "longest"},
+                              label_type="selection",
+                              selection_settings={"unselected_category": "unselected", "frames_per_class": 1})
+    assert len(dataset) == 10 and dataset.unselected_class_index == 0

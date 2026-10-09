@@ -1,7 +1,9 @@
 """
 SegmentationDataset, the Native (OpenCV, CPU) dataset of the semantic segmentation task, reading the images and their
-class-index masks of a split from its 'labels.json' manifest, with the label dictionary of the configuration.
-Instantiated by get_segmentation_dataloaders of data/loaders.py.
+class-index masks of a split from its 'labels.json' manifest, with the label dictionary of the configuration, either
+resized to the network input or, with 'Data.tiling', scaled and cut into tiles of the network size. Instantiated by
+get_segmentation_dataloaders of data/loaders.py, and read again by the segmentation trainer for the original masks of
+the evaluation at the original resolution.
 """
 
 import json
@@ -13,7 +15,7 @@ import torch
 
 from pathlib import PurePosixPath
 from torch.utils.data import Dataset
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
@@ -25,6 +27,11 @@ IGNORED_MASK_VALUE = 255
 
 # Number of values of a uint8 mask, the size of the lookup table converting the categories to class indices
 NUMBER_MASK_VALUES = 256
+
+# Ways a split cuts its samples out of the scaled images with 'Data.tiling': a random tile at every read (training),
+# a tile fixed per image so that the passes stay comparable (validation), or the whole image, segmented tile by tile
+# by the trainer (test)
+VALID_TILE_SAMPLINGS = ["random", "fixed", "whole"]
 
 
 def build_class_lookup_table(label_mode: str, label_dictionary: Dict[Any, int]) -> np.ndarray:
@@ -65,10 +72,16 @@ class SegmentationDataset(Dataset):
     pixel (0 for the background, 255 for the unlabelled pixels). The images are resized and padded exactly like the
     other loaders, the masks with the nearest interpolation and the ignored value on the padding, and their categories
     are converted to the class indices of the label dictionary.
+
+    With 'Data.tiling' activated, the images and masks are scaled by 'Data.tiling.scale' instead (1 for their full
+    resolution), then cut into a square tile of the network size at a random place (training) or at a place fixed per
+    image (validation), or kept whole (test, segmented tile by tile by the trainer). An image smaller than a tile is
+    padded on its bottom and right sides, black for the image and ignored for the mask.
     """
 
     def __init__(self, data_directory: str, masks_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
-                 label_mode: str, label_dictionary: Dict[Any, int], shuffle: bool = True) -> None:
+                 label_mode: str, label_dictionary: Dict[Any, int], tiling_configuration: Dict[str, Any],
+                 tile_sampling: str, shuffle: bool = True) -> None:
         """
         Reads the manifest of the split and prepares the conversion of the mask categories to class indices.
 
@@ -80,12 +93,17 @@ class SegmentationDataset(Dataset):
             keep_ratio (bool): Whether to keep the aspect ratio of the images and masks, padding them.
             label_mode (str): "binary" (every category is the foreground) or "multi_class".
             label_dictionary (Dict[Any, int]): The class index of every raw category identifier.
+            tiling_configuration (Dict[str, Any]): The 'Data.tiling' section: 'activated', 'scale' and 'overlap'.
+            tile_sampling (str): How the split cuts its tiles with tiling, one of VALID_TILE_SAMPLINGS.
             shuffle (bool): Whether to shuffle the samples once at creation. Defaults to True.
         """
         self.data_directory = data_directory
         self.masks_directory = masks_directory
         self.image_size = image_size
         self.keep_ratio = keep_ratio
+        self.tiling_activated = tiling_configuration["activated"]
+        self.tiling_scale = tiling_configuration["scale"]
+        self.tile_sampling = tile_sampling
         self.number_classes = len(set(label_dictionary.values()))
         self.class_lookup_table = build_class_lookup_table(label_mode=label_mode, label_dictionary=label_dictionary)
 
@@ -132,6 +150,62 @@ class SegmentationDataset(Dataset):
             raise ValueError(f"The mask must be a single-channel uint8 image : file://{os.path.abspath(mask_path)}")
         return mask
 
+    def read_class_mask(self, sample_identifier: int) -> np.ndarray:
+        """
+        Reads the mask of a sample at its original resolution as class indices, the ground truth of the evaluation of
+        the segmenter at the original resolution of the test images.
+
+        Args:
+            sample_identifier (int): The identifier of the sample, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            np.ndarray: The [H, W] int64 class index of every pixel of the original mask, IGNORED_LABEL_INDEX on the
+                unlabelled pixels.
+        """
+        return self.class_lookup_table[self.read_mask(sample=self.sample_records[sample_identifier])]
+
+    def cut_tile(self, image: np.ndarray, mask: np.ndarray, sample_identifier: int) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Prepares an image and its mask for the training on tiles ('Data.tiling'): both are scaled by the tiling scale
+        (the image by area averaging when shrinking, the mask with the nearest interpolation), then the test split keeps
+        the whole scaled image, and the other splits pad it to at least a tile on its bottom and right sides and cut a
+        tile of the network size, at a random place for the training split and at a place drawn from the identifier
+        of the image for the validation split.
+
+        Args:
+            image (np.ndarray): The [H, W, 3] uint8 BGR image.
+            mask (np.ndarray): The [H, W] uint8 category identifier of every pixel.
+            sample_identifier (int): The identifier of the sample, seeding the place of its validation tile.
+
+        Returns:
+            Tuple[np.ndarray, np.ndarray]: The [S, S, 3] image tile and [S, S] mask tile, or the whole scaled image and
+                mask for the test split.
+        """
+        # Scale of the tiles, 1 keeping the full resolution
+        if self.tiling_scale != 1.0:
+            scaled_size = (max(1, int(round(image.shape[1] * self.tiling_scale))),
+                           max(1, int(round(image.shape[0] * self.tiling_scale))))
+            image = cv2.resize(src=image, dsize=scaled_size,
+                               interpolation=cv2.INTER_AREA if self.tiling_scale < 1.0 else cv2.INTER_LINEAR)
+            mask = cv2.resize(src=mask, dsize=scaled_size, interpolation=cv2.INTER_NEAREST)
+        if self.tile_sampling == "whole":
+            return image, mask
+
+        # Bottom and right padding of the sides shorter than a tile, the padded mask pixels being ignored
+        padding_height = max(0, self.image_size - image.shape[0])
+        padding_width = max(0, self.image_size - image.shape[1])
+        image = np.pad(array=image, pad_width=((0, padding_height), (0, padding_width), (0, 0)), mode="constant",
+                       constant_values=0)
+        mask = np.pad(array=mask, pad_width=((0, padding_height), (0, padding_width)), mode="constant",
+                      constant_values=IGNORED_MASK_VALUE)
+
+        # Place of the tile, random at every read, or fixed for the image so that the validation passes are comparable
+        position_generator = random.Random(sample_identifier) if self.tile_sampling == "fixed" else random
+        tile_top = position_generator.randint(0, image.shape[0] - self.image_size)
+        tile_left = position_generator.randint(0, image.shape[1] - self.image_size)
+        return (image[tile_top:tile_top + self.image_size, tile_left:tile_left + self.image_size],
+                mask[tile_top:tile_top + self.image_size, tile_left:tile_left + self.image_size])
+
     def __getitem__(self, sample_index: int) -> Dict[str, Any]:
         """
         Reads and preprocesses one image and its mask.
@@ -142,6 +216,7 @@ class SegmentationDataset(Dataset):
         Returns:
             Dict[str, Any]: The uint8 [3, image_size, image_size] BGR image, its int64 [image_size, image_size] class
                 mask ('masks', IGNORED_LABEL_INDEX on the padding and the unlabelled pixels) and its sample identifier.
+                With tiling, a tile of the network size, or the whole scaled image and mask for the test split.
 
         Raises:
             ValueError: If the mask does not have the size of its image.
@@ -153,10 +228,14 @@ class SegmentationDataset(Dataset):
             raise ValueError(f"The mask {sample['mask_file_name']} has the size {mask.shape}, its image "
                              f"{sample['file_name']} has the size {image.shape[:2]}.")
 
-        # Resize the image bilinearly and the mask with the nearest interpolation, with the same scale and padding
-        resized_image = preprocess_image(image=image, image_size=self.image_size, keep_ratio=self.keep_ratio)
-        resized_mask = preprocess_image(image=mask, image_size=self.image_size, keep_ratio=self.keep_ratio,
-                                        interpolation=cv2.INTER_NEAREST, padding_value=IGNORED_MASK_VALUE)
+        # Resize the image bilinearly and the mask with the nearest interpolation, with the same scale and padding, or
+        # cut the tile of the split out of the scaled image and mask
+        if self.tiling_activated:
+            resized_image, resized_mask = self.cut_tile(image=image, mask=mask, sample_identifier=sample["identifier"])
+        else:
+            resized_image = preprocess_image(image=image, image_size=self.image_size, keep_ratio=self.keep_ratio)
+            resized_mask = preprocess_image(image=mask, image_size=self.image_size, keep_ratio=self.keep_ratio,
+                                            interpolation=cv2.INTER_NEAREST, padding_value=IGNORED_MASK_VALUE)
 
         # Convert the categories of every pixel to class indices
         image_tensor = torch.from_numpy(np.ascontiguousarray(resized_image)).permute(2, 0, 1)

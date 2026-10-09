@@ -1,8 +1,10 @@
 """
 Smoke tests of SegmentationTrainer of vision_training/trainers/segmentation_trainer.py on a synthetic dataset: a
-training with balanced class weights saves, evaluates and resumes, with the report, the per-class metrics, the pixel
-confusion matrix, the sample grids, the predicted masks and the cached class pixel counts checked, and a training with
-the Dice loss alone, binary labels and bilinear upsampling runs without the optional outputs.
+training with balanced class weights saves, evaluates and resumes, with the report, the per-class and boundary
+metrics, the pixel confusion matrix, the sample grids, the predicted masks and the cached class pixel counts checked, a
+training with the Dice loss alone, binary labels and bilinear upsampling runs without the optional outputs, and a
+training on tiles of scaled images with deep supervision and the Lovász and boundary losses evaluates the whole test
+images tile by tile at their original resolution.
 """
 
 import csv
@@ -92,15 +94,17 @@ def build_trainer(configuration_path: Path) -> SegmentationTrainer:
                                model_configuration=model_configuration, configuration_path=configuration_path)
 
 
-def create_smoke_dataset(dataset_folder: Path) -> None:
+def create_smoke_dataset(dataset_folder: Path, image_size: int = SMOKE_IMAGE_SIZE) -> None:
     """
-    Generates the synthetic shapes segmentation dataset of the smoke tests: 64 pixel images holding up to 3 shapes
-    with their class masks, 16 training, 8 validation and 6 test images.
+    Generates the synthetic shapes segmentation dataset of the smoke tests: images holding up to 3 shapes with their
+    class masks, 16 training, 8 validation and 6 test images, of the network input size or larger for the training on
+    tiles.
 
     Args:
         dataset_folder (Path): The root folder of the generated dataset.
+        image_size (int): The side of the generated images. Defaults to SMOKE_IMAGE_SIZE.
     """
-    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=image_size,
                              split_sizes={"train": 16, "validation": 8, "test": NUMBER_TEST_IMAGES}, maximum_objects=3,
                              minimum_frames=1, maximum_frames=1, number_workers=2, task="semantic_segmentation")
 
@@ -152,12 +156,14 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
         (4, f"{NUMBER_TEST_IMAGES} Test Images")]
-    assert list(results["metrics"]) == ["Mean IoU", "Mean Dice", "Pixel Accuracy", "Frequency Weighted IoU"]
+    assert list(results["metrics"]) == ["Mean IoU", "Mean Dice", "Mean Boundary IoU", "Mean Boundary F1",
+                                        "Pixel Accuracy", "Frequency Weighted IoU"]
     assert all(0.0 <= metric_value <= 1.0 for metric_value in results["metrics"].values())
     assert results["headline_metric"] == "Mean IoU" and "Per Class Metrics" in results_blocks[0]["text"]
     assert list(results["images"]) == ["Confusion Matrix"]
-    assert results["notes"][0] == (f"Labelled Pixels : {NUMBER_TEST_IMAGES * SMOKE_IMAGE_SIZE * SMOKE_IMAGE_SIZE}, "
-                                   f"the padding and the unlabelled pixels being ignored")
+    assert results["notes"][:2] == [f"Labelled Pixels : {NUMBER_TEST_IMAGES * SMOKE_IMAGE_SIZE * SMOKE_IMAGE_SIZE} at "
+                                    f"the network resolution, the padding and the unlabelled pixels being ignored",
+                                    "Boundary Tolerance : 2 pixels"]
 
     # Sample grids of the two fixed test images: four 64 pixel panels with their caption and legend bars, the caption
     # bar being wider than the panels when its text is
@@ -173,11 +179,13 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
         "Predicted_Masks", "Samples", "class_metrics.csv", "confusion_matrix.csv", "confusion_matrix.png"]
     with open(file=evaluation_folder / "class_metrics.csv", mode="r", newline="") as class_metrics_file:
         class_rows = list(csv.DictReader(f=class_metrics_file))
-    assert list(class_rows[0]) == ["class_index", "class", "pixels", "iou", "dice", "precision", "recall"]
+    assert list(class_rows[0]) == ["class_index", "class", "pixels", "iou", "dice", "boundary_iou", "boundary_f1",
+                                   "precision", "recall"]
     assert [row["class"] for row in class_rows] == trainer.class_names
     assert sum(int(row["pixels"]) for row in class_rows) == NUMBER_TEST_IMAGES * SMOKE_IMAGE_SIZE * SMOKE_IMAGE_SIZE
     assert all(row["iou"] == "" for row in class_rows if row["pixels"] == "0")
-    assert len(results["class_scalars"]) == 4 * sum(row["pixels"] != "0" for row in class_rows)
+    assert len(results["class_scalars"]) == sum(value != "" for row in class_rows for key, value in row.items()
+                                                if key not in ["class_index", "class", "pixels"])
 
     # Predicted mask of every test image, a single-channel image of class indices at the network resolution
     predicted_mask_paths = sorted((evaluation_folder / "Predicted_Masks").iterdir())
@@ -263,6 +271,71 @@ def test_dice_only_binary_segmentation_training(tmp_path: Path, capsys: pytest.C
     test_events = EventAccumulator(path=str(trainer.tensorboard_directory / "Test"))
     test_events.Reload()
     assert test_events.Tags()["images"] == []
+
+    console_output = capsys.readouterr().out
+    assert "Error encountered during iteration" not in console_output
+    assert "Critical Error" not in console_output
+
+
+def test_tiled_segmentation_training_evaluates_at_the_original_resolution(tmp_path: Path,
+                                                                        capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies a short training on 64 pixel tiles of 96 pixel images scaled by 0.75, with deep supervision heads on two
+    decoder levels and the Lovász and boundary losses next to the cross entropy and the Dice loss: the run is named
+    after its tiling and deep supervision, trains on tiles, segments every whole test image alone tile by tile and
+    scores it at its original resolution, the predicted masks being saved at that resolution, and the checkpoint
+    keeps the deep supervision heads for the resumption.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    original_image_size = 96
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_smoke_dataset(dataset_folder=dataset_folder, image_size=original_image_size)
+    section_settings = {"SegmentationLoss": {"lovasz_weight": 0.5, "boundary_weight": 0.5, "boundary_distance": 2},
+                        "SegmentationDecoder": {"deep_supervision_weights": {"5": 0.5, "3": 0.25}},
+                        "Data": {"tiling": {"activated": True, "scale": 0.75, "overlap": 16}}}
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4,
+        section_settings=section_settings,
+        evaluation_settings={"number_sample_images": 1, "save_predicted_masks": True, "per_class_report": True,
+                             "original_resolution": True, "boundary_tolerance": 1}))
+    assert trainer.run_name.endswith("_TL0.75_UTC-DBN-D2x64.2x64.2x32.2x32.1x16-AUX5.3_MC9")
+    assert list(trainer.tracked_metrics_mapping) == ["total_loss", "segmentation_loss", "dice_loss", "lovasz_loss",
+                                                     "boundary_loss", "deep_supervision_loss", "pixel_accuracy",
+                                                     "mean_iou"]
+
+    # Training samples are tiles of the network size, the test images whole scaled images given one at a time
+    training_sample = trainer.train_dataloader.dataset[0]
+    assert tuple(training_sample["images"].shape[-2:]) == (SMOKE_IMAGE_SIZE, SMOKE_IMAGE_SIZE)
+    test_batch = next(iter(trainer.test_dataloader))
+    assert tuple(test_batch["images"].shape) == (1, 3, 72, 72)
+    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
+        trainer.run_training_loop()
+    results = report_mock.call_args.kwargs["results"]
+
+    # Metrics of the original test pixels, with the boundary tolerance of the configuration
+    assert results["evaluated_samples"] == f"{NUMBER_TEST_IMAGES} Test Images"
+    assert results["notes"][:2] == [f"Labelled Pixels : {NUMBER_TEST_IMAGES * original_image_size ** 2} at the "
+                                    f"original resolution of the images, the padding and the unlabelled pixels being "
+                                    f"ignored", "Boundary Tolerance : 1 pixels"]
+    assert all(0.0 <= metric_value <= 1.0 for metric_value in results["metrics"].values())
+
+    # Predicted masks at the original size of the test images, and one sample grid of the scaled test image
+    evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
+    predicted_mask_paths = sorted((evaluation_folder / "Predicted_Masks").iterdir())
+    assert len(predicted_mask_paths) == NUMBER_TEST_IMAGES
+    predicted_mask = cv2.imread(filename=str(predicted_mask_paths[0]), flags=cv2.IMREAD_UNCHANGED)
+    assert predicted_mask.shape == (original_image_size, original_image_size)
+    sample_image, = results["sample_images"].values()
+    assert sample_image.shape[0] == 24 + 72 + 24
+
+    # The deep supervision heads of both levels are saved with the checkpoint for the resumption
+    saved_model_state = torch.load(f=trainer.weights_directory / "Iteration_4" / "model_000004.pt", map_location="cpu",
+                                   weights_only=True)["model_state"]
+    assert sorted({parameter_name.split(".")[1] for parameter_name in saved_model_state
+                   if parameter_name.startswith("deep_supervision_heads.")}) == ["3", "5"]
 
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output

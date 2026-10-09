@@ -1,8 +1,10 @@
 """
 Inference helpers of the deployment stage: preprocessing the images of the inference folder into the requests of the
-model of any task, restoring a predicted segmentation class map to its original image, loading the local inference
-model of a run, sending requests to Triton over gRPC (optionally through shared memory), and measuring the throughput
-of the local and served models. Used by deployment/run_inference.py.
+model of any task (a predicted segmentation being restored to its original image by
+data/preprocessing.py:restore_prediction_to_original_image), loading the local inference model of a run (with the
+decoding settings of a frame selector, decoded after it like in the Triton ensembles), sending requests to Triton over
+gRPC (optionally through shared memory), and measuring the throughput of the local and served models. Used by
+deployment/run_inference.py.
 """
 
 import os
@@ -20,6 +22,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from vision_training.deployment.export_specifications import (SEQUENCE_TASKS, TASK_INPUT_NAMES,
                                                               build_inference_model, convert_outputs_to_numpy,
                                                               get_export_specification)
+from vision_training.deployment.frame_selection_deployment import (DECODER_OUTPUT_TYPES, ENSEMBLE_MODEL_SUFFIX,
+                                                                   build_decoding_settings)
+from vision_training.models.sequence.frame_selection_decoding import run_frame_selection
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.models.model_loading import load_trained_model
 from vision_training.data.preprocessing import preprocess_image
@@ -60,8 +65,8 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
     Returns:
         List[Dict[str, np.ndarray]]: One request per image of the folder, the float32 BGR batch in [0, 255] of every
             input of the task: {'images': [1, 3, image_size, image_size]}, {'images': [1, T, 3, image_size,
-            image_size]} for the sequence classification and labelling, and the 'before_images' and 'after_images'
-            windows for the comparison.
+            image_size]} for the sequence classification, labelling and frame selection, and the 'before_images' and
+            'after_images' windows for the comparison.
     """
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=experiment_folder / "training_configuration.yaml")
@@ -84,40 +89,6 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
     return [{input_name: build_frame_window(images=images, window_start=window_start + input_index * sequence_length,
                                             sequence_length=sequence_length)[None]
              for input_index, input_name in enumerate(TASK_INPUT_NAMES[task])} for window_start in range(len(images))]
-
-
-def restore_mask_to_original_image(class_map: np.ndarray, original_height: int, original_width: int,
-                                   keep_ratio: bool) -> np.ndarray:
-    """
-    Brings a class map predicted by the segmenter at the network resolution back to its original image, undoing the
-    preprocessing of the inference inputs (preprocess_image): the centred padding added to keep the aspect ratio is
-    cut off, then the map is resized to the size of the original image with the nearest interpolation, so that every
-    pixel keeps one of the predicted classes.
-
-    Args:
-        class_map (np.ndarray): The [S, S] class index of every pixel of the network input.
-        original_height (int): The height of the original image in pixels.
-        original_width (int): The width of the original image in pixels.
-        keep_ratio (bool): Whether the image was padded to keep its aspect ratio ('Data.image_settings.keep_ratio'),
-            or stretched to the square network input.
-
-    Returns:
-        np.ndarray: The [original_height, original_width] class index of every pixel of the original image, of the
-            type of the class map.
-    """
-    # Part of the network input holding the image, centred between the padding exactly as preprocess_image places it
-    image_size = class_map.shape[0]
-    image_part = class_map
-    if keep_ratio:
-        scale = image_size / max(original_height, original_width)
-        resized_width, resized_height = int(round(original_width * scale)), int(round(original_height * scale))
-        start_x, start_y = (image_size - resized_width) // 2, (image_size - resized_height) // 2
-        image_part = class_map[start_y:start_y + resized_height, start_x:start_x + resized_width]
-
-    # Nearest resizing to the original size, OpenCV resizing the class indices as 32 bit integers
-    restored_class_map = cv2.resize(src=image_part.astype(np.int32), dsize=(original_width, original_height),
-                                    interpolation=cv2.INTER_NEAREST)
-    return restored_class_map.astype(class_map.dtype)
 
 
 def load_local_inference_model(experiment_folder: Path, iteration: Optional[int]) -> Tuple[nn.Module,
@@ -143,6 +114,52 @@ def load_local_inference_model(experiment_folder: Path, iteration: Optional[int]
     inference_model = build_inference_model(task=experiment_configuration["task"], model=model)
     return inference_model, get_export_specification(task=experiment_configuration["task"],
                                                      inference_model=inference_model)
+
+
+def load_decoding_settings(experiment_folder: Path, iteration: Optional[int],
+                           inference_model: nn.Module) -> Optional[Dict[str, Any]]:
+    """
+    Gives the decoding settings of a frame selection run, so that its local inference decodes the chosen frames after
+    the network exactly like its Triton ensembles, or None for the runs of the other tasks.
+
+    Args:
+        experiment_folder (Path): The trained experiment holding 'Weights' and 'training_configuration.yaml'.
+        iteration (Optional[int]): The checkpoint iteration, None for the last saved one.
+        inference_model (nn.Module): The inference model of the run, wrapping the trained model.
+
+    Returns:
+        Optional[Dict[str, Any]]: The decoding settings (frame_selection_deployment.build_decoding_settings), or None.
+    """
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=experiment_folder / "training_configuration.yaml")
+    if experiment_configuration["task"] != "frame_selection":
+        return None
+    return build_decoding_settings(experiment_configuration=experiment_configuration,
+                                   model_configuration=model_configuration,
+                                   unselected_class_index=inference_model.model.get_unselected_class_index(),
+                                   checkpoint_path=get_checkpoint_path(experiment_folder=experiment_folder,
+                                                                       iteration=iteration),
+                                   experiment_folder=experiment_folder)
+
+
+def get_served_model(specification: Dict[str, Any], export_format: str,
+                     decoding_settings: Optional[Dict[str, Any]]) -> Tuple[str, List[str]]:
+    """
+    Names the Triton model the clients query for an export format, with its outputs: the exported model itself, or
+    for a frame selector its ensemble returning the chosen frames.
+
+    Args:
+        specification (Dict[str, Any]): The export specification of the task.
+        export_format (str): Either 'torchscript' or 'onnx'.
+        decoding_settings (Optional[Dict[str, Any]]): The decoding settings of a frame selector, None otherwise.
+
+    Returns:
+        Tuple[str, List[str]]: The Triton model name and the names of its outputs, in order.
+    """
+    model_name = f"{specification['model_name']}_{export_format}"
+    if decoding_settings is None:
+        return model_name, [output["name"] for output in specification["outputs"]]
+    return f"{model_name}{ENSEMBLE_MODEL_SUFFIX}", list(DECODER_OUTPUT_TYPES)
 
 
 def get_triton_output_names(client: triton_client.InferenceServerClient, model_name: str,
@@ -245,42 +262,59 @@ def run_triton_inference(inputs: Dict[str, np.ndarray], client: triton_client.In
     return [result.as_numpy(name=name) for name in output_names]
 
 
-def run_local_inference(inputs: Dict[str, np.ndarray], inference_model: nn.Module) -> List[np.ndarray]:
+def run_local_inference(inputs: Dict[str, np.ndarray], inference_model: nn.Module,
+                        decoding_settings: Optional[Dict[str, Any]]) -> List[np.ndarray]:
     """
     Runs the preprocessed inputs of a request through the inference model in this process, without Triton, every
-    input being passed to the forward argument of the same name.
+    input being passed to the forward argument of the same name. A frame selector then decodes the chosen frames of
+    every sequence on the CPU, with the function run by its Triton decoder.
 
     Args:
         inputs (Dict[str, np.ndarray]): The float32 [B, 3, H, W] (or [B, T, 3, H, W]) batch of every input, keyed by
             input name.
         inference_model (nn.Module): The inference model on the GPU.
+        decoding_settings (Optional[Dict[str, Any]]): The decoding settings of a frame selector, None otherwise.
 
     Returns:
-        List[np.ndarray]: The outputs of the inference model, in the order of its export specification.
+        List[np.ndarray]: The outputs of the inference model, in the order of its export specification, or the
+            outputs of the decoder (DECODER_OUTPUT_TYPES) stacked over the sequences for a frame selector.
     """
     with torch.no_grad():
         outputs = inference_model(**{input_name: torch.from_numpy(input_batch).to(device=torch.device("cuda"))
                                      for input_name, input_batch in inputs.items()})
-    return convert_outputs_to_numpy(outputs=outputs)
+    if decoding_settings is None:
+        return convert_outputs_to_numpy(outputs=outputs)
+
+    # Selection of every sequence of the request, decoded from its [T, K] class probabilities
+    sequence_outputs = [run_frame_selection(probabilities=sequence_probabilities,
+                                            decoding_settings=decoding_settings)
+                        for sequence_probabilities in convert_outputs_to_numpy(outputs=outputs)[0]]
+    return [np.stack([sequence_output[output_name] for sequence_output in sequence_outputs])
+            for output_name in DECODER_OUTPUT_TYPES]
 
 
-def measure_local_throughput(inputs: List[Dict[str, np.ndarray]], inference_model: nn.Module, number_iterations: int,
+def measure_local_throughput(inputs: List[Dict[str, np.ndarray]], inference_model: nn.Module,
+                             decoding_settings: Optional[Dict[str, Any]], number_iterations: int,
                              number_warmup_iterations: int) -> None:
     """
     Measures the raw throughput of the local inference model, one image (or window, or pair of windows) per call, the
-    tqdm bar showing the calls per second. The first calls are left out, while CUDA is still initialising.
+    tqdm bar showing the calls per second, the decoding of a frame selector included as in its Triton ensembles. The
+    first calls are left out, while CUDA is still initialising.
 
     Args:
         inputs (List[Dict[str, np.ndarray]]): The requests, from load_inference_inputs, sent in turn.
         inference_model (nn.Module): The inference model on the GPU.
+        decoding_settings (Optional[Dict[str, Any]]): The decoding settings of a frame selector, None otherwise.
         number_iterations (int): The number of timed calls.
         number_warmup_iterations (int): The number of untimed calls made first.
     """
     for iteration_index in range(number_warmup_iterations):
-        run_local_inference(inputs=inputs[iteration_index % len(inputs)], inference_model=inference_model)
+        run_local_inference(inputs=inputs[iteration_index % len(inputs)], inference_model=inference_model,
+                            decoding_settings=decoding_settings)
 
     for iteration_index in tqdm(range(number_iterations), desc="local", unit="sample"):
-        run_local_inference(inputs=inputs[iteration_index % len(inputs)], inference_model=inference_model)
+        run_local_inference(inputs=inputs[iteration_index % len(inputs)], inference_model=inference_model,
+                            decoding_settings=decoding_settings)
 
 
 def measure_triton_throughput(inputs: List[Dict[str, np.ndarray]], model_name: str, output_names: List[str], url: str,
@@ -292,7 +326,8 @@ def measure_triton_throughput(inputs: List[Dict[str, np.ndarray]], model_name: s
 
     Args:
         inputs (List[Dict[str, np.ndarray]]): The requests, from load_inference_inputs, sent in turn.
-        model_name (str): The Triton model name, e.g. 'object_detector_torchscript' or 'image_classifier_onnx'.
+        model_name (str): The Triton model name, e.g. 'object_detector_torchscript', 'image_classifier_onnx' or
+            'frame_selector_onnx_ensemble'.
         output_names (List[str]): The output names of the export specification of the model, in order.
         url (str): The Triton gRPC address, e.g. 'localhost:8001'.
         use_shared_memory (bool): Whether Triton reads the images from system shared memory instead of receiving them

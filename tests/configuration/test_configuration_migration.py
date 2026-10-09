@@ -1,8 +1,8 @@
 """
 Tests of vision_training/configuration/configuration_migration.py: every migration step (task, pretrained settings,
 normalization flag, evaluation outputs, per-class report, sample images, MLflow tracking, sequence augmentation,
-normalization scope, optimization section, loading settings, batch padding) is added once to an old configuration, and
-migrate_run_folder renames old run folders after their settings.
+normalization scope, optimization section, loading settings, batch padding, positional embedding, segmentation
+settings) is added once to an old configuration, and migrate_run_folder renames old run folders after their settings.
 """
 
 import json
@@ -14,11 +14,11 @@ from pathlib import Path
 from vision_training.configuration.configuration_migration import (
     TRACKING_SECTION_LINES, add_batch_padding_to_configuration, add_evaluation_outputs_to_configuration,
     add_freeze_normalization_parameters_to_configuration, add_loading_settings_to_configuration,
-    add_optimization_section_to_configuration,
-    add_per_class_report_to_configuration, add_pretrained_settings_to_configuration,
-    add_sample_images_to_configuration, add_sequence_augmentation_to_configuration,
-    add_sequence_normalization_scope_to_configuration, add_task_to_configuration, add_tracking_to_configuration,
-    migrate_run_folder)
+    add_optimization_section_to_configuration, add_per_class_report_to_configuration,
+    add_positional_embedding_to_configuration, add_pretrained_settings_to_configuration,
+    add_sample_images_to_configuration, add_segmentation_settings_to_configuration,
+    add_sequence_augmentation_to_configuration, add_sequence_normalization_scope_to_configuration,
+    add_task_to_configuration, add_tracking_to_configuration, migrate_run_folder)
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -234,6 +234,7 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     del configuration["Optimization"]
     del configuration["Data"]["loading"]
     del configuration["Data"]["sequence_settings"]["batch_padding"]
+    del configuration["TemporalModel"]["positional_embedding"]
     mapping_path = tmp_path / "label_mapping.json"
     mapping_path.write_text(data=json.dumps(obj={"1": 0, "2": 1, "3": 2, "4": 3}))
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(mapping_path)
@@ -255,6 +256,7 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     assert migrated_configuration["Data"]["data_augmentation"]["independent_frames"] is False
     assert migrated_configuration["Data"]["loading"] == {"number_workers": 4, "prefetch_batches": 2}
     assert migrated_configuration["Data"]["sequence_settings"]["batch_padding"] == "sequence_length"
+    assert migrated_configuration["TemporalModel"]["positional_embedding"] is True
     assert migrate_run_folder(run_folder=renamed_folder, task="sequence_classification",
                               rename_folder=True) == renamed_folder
 
@@ -531,3 +533,72 @@ def test_batch_padding_is_added_once(tmp_path: Path, configuration_path: Path) -
     image_path.write_text(data=image_text)
     assert add_batch_padding_to_configuration(configuration_path=image_path) is False
     assert image_path.read_text() == image_text
+
+
+@pytest.mark.parametrize(argnames="configuration_path", argvalues=[SEQUENCE_CONFIGURATION_PATH,
+                                                                    COMPARISON_CONFIGURATION_PATH])
+def test_positional_embedding_is_added_once(tmp_path: Path, configuration_path: Path) -> None:
+    """
+    Verifies that the positional embedding flag of a sequence run written before it is added to its temporal module,
+    on as in the transformers of that time, that a configuration which already has it is left untouched, and that a
+    configuration without temporal module is not changed.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_path (Path): The shipped sequence configuration the old configuration is made from.
+    """
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    del configuration["TemporalModel"]["positional_embedding"]
+    old_configuration_path = tmp_path / "configuration.yaml"
+    old_configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+
+    assert add_positional_embedding_to_configuration(configuration_path=old_configuration_path) is True
+    temporal_configuration = yaml.safe_load(stream=old_configuration_path.read_text())["TemporalModel"]
+    assert temporal_configuration == {**configuration["TemporalModel"], "positional_embedding": True}
+    assert add_positional_embedding_to_configuration(configuration_path=old_configuration_path) is False
+
+    # A configuration of an image task keeps its settings
+    image_text = EXAMPLE_CONFIGURATION_PATH.read_text()
+    image_path = tmp_path / "image_configuration.yaml"
+    image_path.write_text(data=image_text)
+    assert add_positional_embedding_to_configuration(configuration_path=image_path) is False
+    assert image_path.read_text() == image_text
+
+
+def test_segmentation_settings_are_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that the settings of a segmentation run written before the tiling, the deep supervision, the Lovász and
+    boundary losses and the boundary metrics are inserted in their sections, off as in the runs of that time, that a
+    configuration which already has them is left untouched, and that a configuration of another task is not changed.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration = yaml.safe_load(stream=SEGMENTATION_CONFIGURATION_PATH.read_text())
+    del configuration["Data"]["tiling"]
+    del configuration["SegmentationDecoder"]["deep_supervision_weights"]
+    for key_name in ["lovasz_weight", "boundary_weight", "boundary_distance"]:
+        del configuration["SegmentationLoss"][key_name]
+    for key_name in ["original_resolution", "boundary_tolerance"]:
+        del configuration["ExperimentConfiguration"]["evaluation"][key_name]
+    old_configuration_path = tmp_path / "configuration.yaml"
+    old_configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+
+    assert add_segmentation_settings_to_configuration(configuration_path=old_configuration_path) is True
+    migrated_configuration = yaml.safe_load(stream=old_configuration_path.read_text())
+    assert migrated_configuration["Data"]["tiling"] == {"activated": False, "scale": 1.0, "overlap": 128}
+    assert migrated_configuration["SegmentationDecoder"]["deep_supervision_weights"] == {}
+    assert {key_name: migrated_configuration["SegmentationLoss"][key_name]
+            for key_name in ["lovasz_weight", "boundary_weight", "boundary_distance"]} == {
+        "lovasz_weight": 0.0, "boundary_weight": 0.0, "boundary_distance": 3}
+    evaluation_configuration = migrated_configuration["ExperimentConfiguration"]["evaluation"]
+    assert evaluation_configuration["original_resolution"] is False and evaluation_configuration[
+        "boundary_tolerance"] == 2
+    assert add_segmentation_settings_to_configuration(configuration_path=old_configuration_path) is False
+
+    # A configuration of another task keeps its settings
+    classification_text = CLASSIFICATION_CONFIGURATION_PATH.read_text()
+    classification_path = tmp_path / "classification_configuration.yaml"
+    classification_path.write_text(data=classification_text)
+    assert add_segmentation_settings_to_configuration(configuration_path=classification_path) is False
+    assert classification_path.read_text() == classification_text

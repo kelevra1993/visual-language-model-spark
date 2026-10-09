@@ -1,7 +1,8 @@
 """
 Migration of configuration files and run folders written by older versions of the code: inserts as text, keeping
 the comments, the keys and sections added since (task, pretrained settings, evaluation outputs, per-class report,
-sample images, MLflow tracking, sequence settings and batch padding, Optimization), and renames the run folder to its
+sample images, MLflow tracking, sequence settings and batch padding, positional embedding of the transformer,
+segmentation losses, deep supervision, tiles and evaluation settings, Optimization), and renames the run folder to its
 current run name (without the training and dropout tokens no longer written in the run names). Called by
 scripts/configuration/migrate_configuration.py.
 """
@@ -141,6 +142,40 @@ SHORT_SEQUENCES_LINE_START = "    short_sequences:"
 BATCH_PADDING_LINES = ("    # Frames the windows of a batch are padded to: \"sequence_length\" or \"longest\" (the longest "
                        "window of the batch).\n"
                        "    batch_padding: \"sequence_length\"\n")
+
+# Header of the temporal module section of the sequence configurations, and the positional embedding flag inserted
+# below it, the transformer of every run written before the flag existed giving its frames their position
+TEMPORAL_SECTION_HEADER = "TemporalModel:\n"
+POSITIONAL_EMBEDDING_LINES = ("  # Gives every frame its position with a learned embedding (transformer).\n"
+                              "  positional_embedding: True\n")
+
+# Settings of the semantic segmentation added after its first runs, all off as in these runs: the path of the section
+# holding each one, its name, the header line below which it is inserted, and its inserted lines
+SEGMENTATION_SETTINGS_INSERTIONS = [
+    (["Data"], "tiling", DATA_SECTION_HEADER,
+     "  # Training on tiles of the scaled images instead of the images resized to the network input (off).\n"
+     "  tiling:\n"
+     "    activated: False\n"
+     "    scale: 1.0\n"
+     "    overlap: 128\n"),
+    (["SegmentationDecoder"], "deep_supervision_weights", "SegmentationDecoder:\n",
+     "  # Deep supervision heads of the intermediate decoder levels (none).\n"
+     "  deep_supervision_weights: {}\n"),
+    (["SegmentationLoss"], "lovasz_weight", "SegmentationLoss:\n",
+     "  # Weight of the Lovasz-Softmax loss (off).\n"
+     "  lovasz_weight: 0.0\n"),
+    (["SegmentationLoss"], "boundary_weight", "SegmentationLoss:\n",
+     "  # Weight of the boundary loss (off).\n"
+     "  boundary_weight: 0.0\n"),
+    (["SegmentationLoss"], "boundary_distance", "SegmentationLoss:\n",
+     "  # Distance in pixels from the true edges over which the boundary loss weighs the pixels.\n"
+     "  boundary_distance: 3\n"),
+    (["ExperimentConfiguration", "evaluation"], "original_resolution", EVALUATION_SECTION_LINE,
+     "    # Metrics at the original resolution of the test images (off, at the network resolution).\n"
+     "    original_resolution: False\n"),
+    (["ExperimentConfiguration", "evaluation"], "boundary_tolerance", EVALUATION_SECTION_LINE,
+     "    # Distance in pixels within which a predicted contour counts as right for the boundary metrics.\n"
+     "    boundary_tolerance: 2\n")]
 
 # Optimization section of a run trained with plain Adam at a constant learning rate, the training of every run
 # written before the section existed
@@ -555,6 +590,80 @@ def add_batch_padding_to_configuration(configuration_path: Path) -> bool:
     return True
 
 
+def add_positional_embedding_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades the configuration file of a sequence run written before the order-blind transformer by inserting
+    'TemporalModel.positional_embedding', the transformer giving every frame its position as in the runs of that time,
+    right below the header of its temporal module section. The setting is inserted as text, so that every comment of the
+    file is kept, and a file that already has it, or that has no temporal module (the image tasks), is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the setting was added, False if the file already had it or is not a sequence run.
+
+    Raises:
+        ValueError: If the temporal module section exists but its header is not a line of its own.
+    """
+    text = configuration_path.read_text()
+    configuration = yaml.safe_load(stream=text)
+    if "TemporalModel" not in configuration or "positional_embedding" in configuration["TemporalModel"]:
+        return False
+    lines = text.splitlines(keepends=True)
+    if TEMPORAL_SECTION_HEADER not in lines:
+        raise ValueError(f"No 'TemporalModel:' section header in file://{configuration_path.absolute()}")
+
+    # Insert the setting below the header line
+    header_index = lines.index(TEMPORAL_SECTION_HEADER)
+    configuration_path.write_text(data="".join(lines[:header_index + 1] + [POSITIONAL_EMBEDDING_LINES] +
+                                               lines[header_index + 1:]))
+    return True
+
+
+def add_segmentation_settings_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades the configuration file of a semantic segmentation run written before the settings added since its first
+    runs (SEGMENTATION_SETTINGS_INSERTIONS: the training on tiles, the deep supervision, the Lovász and boundary
+    losses, the evaluation at the original resolution and the boundary tolerance) by inserting every missing one, off
+    as in the runs of that time, right below the header of its section. The settings are inserted as text, so that
+    every comment of the file is kept, and a file that already has them, or that is not a segmentation run, is left
+    untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if at least one setting was added, False if the file had them all or is not a segmentation run.
+
+    Raises:
+        ValueError: If the section of a missing setting has no header line of its own.
+    """
+    text = configuration_path.read_text()
+    if "SegmentationDecoder" not in yaml.safe_load(stream=text):
+        return False
+
+    # Insert every missing setting below the header of its section, reading the file again after every insertion
+    settings_added = False
+    for section_path, key_name, header_line, inserted_lines in SEGMENTATION_SETTINGS_INSERTIONS:
+        section = yaml.safe_load(stream=text)
+        for section_name in section_path:
+            section = section[section_name]
+        if key_name in section:
+            continue
+        lines = text.splitlines(keepends=True)
+        if header_line not in lines:
+            raise ValueError(f"No {header_line.strip()!r} header line for '{key_name}' in "
+                             f"file://{configuration_path.absolute()}")
+        header_index = lines.index(header_line)
+        text = "".join(lines[:header_index + 1] + [inserted_lines] + lines[header_index + 1:])
+        settings_added = True
+
+    if settings_added:
+        configuration_path.write_text(data=text)
+    return settings_added
+
+
 def add_optimization_section_to_configuration(configuration_path: Path) -> bool:
     """
     Upgrades a configuration file written before the 'Optimization' section by appending the section of a run
@@ -583,12 +692,13 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     tasks (no predictions file nor error images), the per-class report switch of every task (on, the per-class
     report of that time), the number of sample images (none), the MLflow tracking settings (off), the sequence
     augmentations (off), the scope of the sequence normalization of the comparison task (per member), its
-    'Optimization' section (plain Adam at a constant learning rate), its loading settings (4 worker processes) and the
-    padding of the batches of the sequence tasks (every window padded to the sequence length), and its folder is
-    renamed to the run name the current code builds from that configuration (the task code being now the first section
-    of the run names, and the augmentation, batch size, learning rate, schedule, gradient clipping, mixed precision and
-    dropout tokens being no longer written). The configuration is fully checked on the way, any other missing key
-    being reported by the configuration checker. Two old folders differing only by these settings get the same new
+    'Optimization' section (plain Adam at a constant learning rate), its loading settings (4 worker processes), the
+    padding of the batches of the sequence tasks (every window padded to the sequence length), the positional
+    embedding of their transformer (on) and the settings of the segmentation added since its first runs (off), and its
+    folder is renamed to the run name the current code builds from that configuration (the task code being now the
+    first section of the run names, and the augmentation, batch size, learning rate, schedule, gradient clipping, mixed
+    precision and dropout tokens being no longer written). The configuration is fully checked on the way, any other
+    missing key being reported by the configuration checker. Two old folders differing only by these settings get the same new
     name, the second one being refused.
 
     Args:
@@ -637,6 +747,12 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     if add_batch_padding_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Batch Padding Of The Sequence Windows Added To : "
                                           f"file://{configuration_path.absolute()}")
+    if add_positional_embedding_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Positional Embedding Flag Of The Transformer Added To : "
+                                          f"file://{configuration_path.absolute()}")
+    if add_segmentation_settings_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Segmentation Losses, Deep Supervision, Tiles And Evaluation Settings "
+                                          f"Added To : file://{configuration_path.absolute()}")
 
     # The run name the current code gives to this configuration
     experiment_configuration, model_configuration = load_experiment_configuration(

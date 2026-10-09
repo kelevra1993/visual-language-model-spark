@@ -1,7 +1,8 @@
 """
 Checks of the configuration sections specific to the semantic segmentation task: the data settings (Native loader,
-label mapping with the background class 0), the decoder levels against the backbone blocks, the losses and the
-evaluation settings. Run by configuration_checker.py for the semantic_segmentation task.
+label mapping with the background class 0, training on tiles), the decoder levels against the backbone blocks with
+their deep supervision weights, the losses and the evaluation settings. Run by configuration_checker.py for the
+semantic_segmentation task.
 """
 
 from typing import Any, Dict, List
@@ -10,7 +11,8 @@ from vision_training.configuration.classification_checks import VALID_CLASS_WEIG
 from vision_training.configuration.common_checks import (check_image_task_sequence_settings,
                                                          check_pretrained_configuration)
 from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
-                                                                check_boolean_flags, get_configuration_value)
+                                                                check_boolean_flags, check_positive_integers,
+                                                                get_configuration_value)
 from vision_training.data.segmentation.segmentation_dataset import IGNORED_MASK_VALUE
 from vision_training.models.segmentation.segmentation_decoder import compute_skip_block_numbers
 
@@ -19,11 +21,26 @@ from vision_training.models.segmentation.segmentation_decoder import compute_ski
 VALID_UPSAMPLINGS = ["transposed", "bilinear"]
 
 
+def is_number(value: Any) -> bool:
+    """
+    Tells whether a configuration value is a number, the booleans (a subclass of int in Python) being refused, for
+    the weights, scales and rates of the segmentation sections.
+
+    Args:
+        value (Any): The configuration value.
+
+    Returns:
+        bool: True for an int or a float that is not a boolean.
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def check_segmentation_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the data settings of the semantic segmentation task: the Native loader, a label mapping whose classes are
     indexed 0 to K-1 with the background at 0, whose categories are mask values (1 to 254, 0 being the background and
-    255 the unlabelled pixels), and no detection block, the decoder reading every block of the backbone.
+    255 the unlabelled pixels), no detection block, the decoder reading every block of the backbone, and the training
+    on tiles (a positive scale of the images and an overlap of the evaluation tiles smaller than a tile).
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -62,6 +79,24 @@ def check_segmentation_data_configuration(model_configuration: Dict[str, Any]) -
     if detection_block_indices != []:
         errors.append(f"'Backbone.detection_convolution_block_indices' must be [] for the semantic segmentation "
                       f"task, its decoder reads every block, got {detection_block_indices!r}.")
+
+    # Training on tiles of the scaled images, and overlap of the tiles of the evaluation, smaller than a tile so that
+    # the tiles advance, the tile size being only checked against it when the tiling is on
+    tiling_errors = check_boolean_flags(configuration=model_configuration, key_paths=["Data.tiling.activated"])
+    errors += tiling_errors
+    scale = get_configuration_value(configuration=model_configuration, key_path="Data.tiling.scale")
+    if not is_number(value=scale) or scale <= 0:
+        errors.append(f"'Data.tiling.scale' must be a number > 0, got {scale!r}.")
+    overlap_errors = check_positive_integers(configuration=model_configuration, key_paths=["Data.tiling.overlap"],
+                                             allow_zero=True)
+    errors += overlap_errors
+    overlap = get_configuration_value(configuration=model_configuration, key_path="Data.tiling.overlap")
+    image_size = get_configuration_value(configuration=model_configuration, key_path="Data.image_settings.size")
+    tiling_activated = not tiling_errors and get_configuration_value(configuration=model_configuration,
+                                                                     key_path="Data.tiling.activated")
+    if tiling_activated and not overlap_errors and is_number(value=image_size) and overlap >= image_size:
+        errors.append(f"'Data.tiling.overlap' must be smaller than the tile size 'Data.image_settings.size' "
+                      f"({image_size}), got {overlap}.")
     return errors
 
 
@@ -69,8 +104,9 @@ def check_segmentation_decoder_configuration(model_configuration: Dict[str, Any]
     """
     Verifies the 'SegmentationDecoder' section: the upsampling, one convolution block per skip connection of the
     backbone (every block before the last one, and the last one too with Backbone.last_max_pooling), the modules, the
-    normalization, the dropout of the segmentation head, and the 'pretrained' settings initialising the decoder with
-    the one of another segmentation run.
+    normalization, the dropout of the segmentation head, the deep supervision weights (positive weights of decoder
+    levels other than the finest one, whose output is the final segmentation), and the 'pretrained' settings
+    initialising the decoder with the one of another segmentation run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -117,6 +153,25 @@ def check_segmentation_decoder_configuration(model_configuration: Dict[str, Any]
     if isinstance(dropout_rate, bool) or not isinstance(dropout_rate, (int, float)) or not 0.0 <= dropout_rate < 1.0:
         errors.append(f"'SegmentationDecoder.dropout_rate' must be a number within [0, 1), got {dropout_rate!r}.")
 
+    # Deep supervision heads on the intermediate levels, each with a positive loss weight
+    deep_supervision_weights = get_configuration_value(configuration=model_configuration,
+                                                       key_path="SegmentationDecoder.deep_supervision_weights")
+    intermediate_levels = expected_levels[:-1]
+    if not isinstance(deep_supervision_weights, dict):
+        errors.append(f"'SegmentationDecoder.deep_supervision_weights' must be a mapping of decoder levels to loss "
+                      f"weights, {{}} for no deep supervision, got {deep_supervision_weights!r}.")
+    else:
+        unexpected_supervised_levels = [level_key for level_key in deep_supervision_weights
+                                        if level_key not in intermediate_levels]
+        if unexpected_supervised_levels:
+            errors.append(f"'SegmentationDecoder.deep_supervision_weights' keys must be intermediate decoder levels "
+                          f"{intermediate_levels} (the finest level gives the final segmentation), got "
+                          f"{unexpected_supervised_levels}.")
+        for level_key, level_weight in deep_supervision_weights.items():
+            if not is_number(value=level_weight) or level_weight <= 0:
+                errors.append(f"'SegmentationDecoder.deep_supervision_weights.{level_key}' must be a number > 0, "
+                              f"got {level_weight!r}.")
+
     errors += check_pretrained_configuration(model_configuration=model_configuration,
                                              section_name="SegmentationDecoder")
     return errors
@@ -124,9 +179,9 @@ def check_segmentation_decoder_configuration(model_configuration: Dict[str, Any]
 
 def check_segmentation_loss_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'SegmentationLoss' section: the non-negative weights of the cross entropy and of the Dice loss, not
-    both 0, the focusing parameter of the focal factor, the label smoothing and the class weighting of the cross
-    entropy.
+    Verifies the 'SegmentationLoss' section: the non-negative weights of the cross entropy, Dice, Lovász and boundary
+    losses, the losses of the regions (cross entropy, Dice, Lovász) not all 0, the focusing parameter of the focal
+    factor, the label smoothing and the class weighting of the cross entropy, and the distance of the boundary loss.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -136,18 +191,22 @@ def check_segmentation_loss_configuration(model_configuration: Dict[str, Any]) -
     """
     errors = []
 
-    # Weights of the two losses and focusing parameter, non-negative numbers
-    for key_name in ["cross_entropy_weight", "dice_weight", "focal_gamma"]:
+    # Weights of the losses and focusing parameter, non-negative numbers
+    for key_name in ["cross_entropy_weight", "dice_weight", "lovasz_weight", "boundary_weight", "focal_gamma"]:
         key_path = f"SegmentationLoss.{key_name}"
         value = get_configuration_value(configuration=model_configuration, key_path=key_path)
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
+        if not is_number(value=value) or value < 0:
             errors.append(f"'{key_path}' must be a number >= 0, got {value!r}.")
-    cross_entropy_weight = get_configuration_value(configuration=model_configuration,
-                                                   key_path="SegmentationLoss.cross_entropy_weight")
-    dice_weight = get_configuration_value(configuration=model_configuration, key_path="SegmentationLoss.dice_weight")
-    if cross_entropy_weight == 0 and dice_weight == 0:
-        errors.append("'SegmentationLoss.cross_entropy_weight' and 'SegmentationLoss.dice_weight' cannot both be 0, "
-                      "the model would have no loss.")
+
+    # At least one loss of the regions, the boundary loss only scoring the pixels near the edges
+    region_loss_weights = [get_configuration_value(configuration=model_configuration,
+                                                   key_path=f"SegmentationLoss.{key_name}")
+                           for key_name in ["cross_entropy_weight", "dice_weight", "lovasz_weight"]]
+    if all(region_loss_weight == 0 for region_loss_weight in region_loss_weights):
+        errors.append("'SegmentationLoss.cross_entropy_weight', 'SegmentationLoss.dice_weight' and "
+                      "'SegmentationLoss.lovasz_weight' cannot all be 0, the regions would have no loss.")
+    errors += check_positive_integers(configuration=model_configuration,
+                                      key_paths=["SegmentationLoss.boundary_distance"], allow_zero=True)
 
     # Label smoothing strictly below 1 so that some signal always remains, and class weighting of the cross entropy
     label_smoothing = get_configuration_value(configuration=model_configuration,
@@ -166,8 +225,9 @@ def check_segmentation_loss_configuration(model_configuration: Dict[str, Any]) -
 def check_segmentation_evaluation_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'ExperimentConfiguration.evaluation' settings of the semantic segmentation task: whether the predicted
-    mask of every test image is saved. The number of sample images, shared by every task, is checked with the
-    experiment settings.
+    mask of every test image is saved, whether the metrics are computed at the original resolution of the images, and
+    the tolerance of the boundary metrics in pixels. The number of sample images, shared by every task, is checked
+    with the experiment settings.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -177,8 +237,13 @@ def check_segmentation_evaluation_configuration(experiment_configuration: Dict[s
     """
     # Nest the section under its name so that every reported key path matches its location in the YAML file
     configuration = {"ExperimentConfiguration": experiment_configuration}
-    return check_boolean_flags(configuration=configuration,
-                               key_paths=["ExperimentConfiguration.evaluation.save_predicted_masks"])
+    errors = check_boolean_flags(configuration=configuration,
+                                 key_paths=["ExperimentConfiguration.evaluation.save_predicted_masks",
+                                            "ExperimentConfiguration.evaluation.original_resolution"])
+    errors += check_positive_integers(configuration=configuration,
+                                      key_paths=["ExperimentConfiguration.evaluation.boundary_tolerance"],
+                                      allow_zero=False)
+    return errors
 
 
 def check_segmentation_configuration(experiment_configuration: Dict[str, Any],

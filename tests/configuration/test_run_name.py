@@ -403,7 +403,8 @@ def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, A
                                                         "short_sequences": "pad"}
     model_configuration["TemporalModel"] = {"type": "gru", "hidden_size": 128, "number_layers": 1, "number_heads": 4,
                                             "kernel_size": 3, "dropout_rate": 0.0, "bidirectional": True,
-                                            "causal": False, "pretrained": dict(NO_TRANSFER_SETTINGS)}
+                                            "causal": False, "positional_embedding": True,
+                                            "pretrained": dict(NO_TRANSFER_SETTINGS)}
     model_configuration["ClassificationHead"] = {"global_pooling": "average", "fully_connected": [64],
                                                  "dropout_rate": 0.2, "output_mode": "multi_class",
                                                  "label_smoothing": 0.0, "class_weighting": "none",
@@ -452,6 +453,18 @@ def use_causal_transformer(experiment_configuration: Dict[str, Any], model_confi
                                                  "bidirectional": False, "causal": True})
 
 
+def use_order_blind_transformer(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Uses a transformer of 2 layers with 8 heads without positional embedding, treating a window as a set of frames.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["TemporalModel"].update({"type": "transformer", "number_layers": 2, "number_heads": 8,
+                                                 "bidirectional": False, "positional_embedding": False})
+
+
 def use_temporal_convolution(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
     Uses a temporal convolution of 4 layers with kernels of 5 frames.
@@ -491,6 +504,7 @@ def use_mean_pooling(experiment_configuration: Dict[str, Any], model_configurati
     (use_longer_windows, SEQUENCE_REFERENCE_RUN_NAME.replace("_T8_", "_T16_")),
     (use_deep_unidirectional_lstm, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_LSTM3x64_")),
     (use_causal_transformer, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_TRF2x128.8-CAU_")),
+    (use_order_blind_transformer, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_TRF2x128.8-NPE_")),
     (use_temporal_convolution, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_TCN4x128.5_")),
     (use_attention_pooling, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_ATT128_")),
     (use_mean_pooling, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_MEAN_"))])
@@ -524,6 +538,32 @@ def test_sequence_labelling_run_name() -> None:
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME.replace(
         "M2O_", "M2M_").replace("_GRU1x128-BI_", "_TCN3x128.3-CAU_")
+
+
+@pytest.mark.parametrize(argnames=("frames_per_class", "selection_loss_weight", "decoding", "expected_section"),
+                         argvalues=[(1, 1.0, "hungarian", "_FPC1-SLW1"), (2, 0.5, "hungarian", "_FPC2-SLW0.5"),
+                                    (1, 0.0, "hungarian", "_FPC1"), (1, 1.0, "greedy", "_FPC1-SLW1")])
+def test_frame_selection_run_names(frames_per_class: int, selection_loss_weight: float, decoding: str,
+                                   expected_section: str) -> None:
+    """
+    Verifies the run names of the frame selection task: the SEL task code, the sections of the sequence tasks, then
+    the selection section with the frames per class and the weight of the selection loss when it is used, the
+    decoding giving no token since both decodings are scored at every evaluation.
+
+    Args:
+        frames_per_class (int): The number of frames chosen for every wanted class.
+        selection_loss_weight (float): The weight of the selection loss.
+        decoding (str): The decoding of the selection.
+        expected_section (str): The expected selection section of the run name, with its separator.
+    """
+    experiment_configuration, model_configuration = get_sequence_reference_configurations()
+    experiment_configuration["task"] = "frame_selection"
+    model_configuration["Selection"] = {"unselected_category": "unselected", "decoding": decoding,
+                                        "frames_per_class": frames_per_class,
+                                        "selection_loss_weight": selection_loss_weight}
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == SEQUENCE_REFERENCE_RUN_NAME.replace(
+        "M2O_", "SEL_") + expected_section
 
 
 # Run name of the sequence comparison reference settings set by get_sequence_comparison_reference_configurations
@@ -775,6 +815,7 @@ def get_segmentation_reference_configurations() -> Tuple[Dict[str, Any], Dict[st
     # Task, input and backbone of the run
     experiment_configuration["task"] = "semantic_segmentation"
     model_configuration["Data"]["image_settings"].update({"size": 512, "keep_ratio": True})
+    model_configuration["Data"]["tiling"] = {"activated": False, "scale": 1.0, "overlap": 128}
     model_configuration["Backbone"]["normalization"].update({"input_normalization": True,
                                                              "per_sample_normalization": False,
                                                              "feature_map_normalization": "batch"})
@@ -789,9 +830,11 @@ def get_segmentation_reference_configurations() -> Tuple[Dict[str, Any], Dict[st
                                                                    "2": [2, 32], "1": [1, 16]},
                                                   "modules": {"squeeze_and_excite": False, "residual_nets": False},
                                                   "feature_map_normalization": "batch", "dropout_rate": 0.0,
+                                                  "deep_supervision_weights": {},
                                                   "pretrained": dict(NO_TRANSFER_SETTINGS)}
     model_configuration["SegmentationLoss"] = {"cross_entropy_weight": 1.0, "focal_gamma": 0.0,
-                                               "label_smoothing": 0.0, "class_weighting": "none", "dice_weight": 1.0}
+                                               "label_smoothing": 0.0, "class_weighting": "none", "dice_weight": 1.0,
+                                               "lovasz_weight": 0.0, "boundary_weight": 0.0, "boundary_distance": 3}
     model_configuration["Data"]["label_mode"] = "multi_class"
     model_configuration["Data"]["label_dictionary"] = {1: 1, 2: 2, 3: 3, 4: 4, "background": 0}
     return experiment_configuration, model_configuration
@@ -862,6 +905,43 @@ def use_weighted_focal_cross_entropy(experiment_configuration: Dict[str, Any],
                                                     "dice_weight": 0.5})
 
 
+def use_lovasz_and_boundary_losses(experiment_configuration: Dict[str, Any],
+                                   model_configuration: Dict[str, Any]) -> None:
+    """
+    Adds the Lovasz-Softmax and boundary losses, and evaluates at the original resolution with a wider boundary
+    tolerance.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["SegmentationLoss"].update({"lovasz_weight": 0.5, "boundary_weight": 1.0,
+                                                    "boundary_distance": 5})
+    experiment_configuration["evaluation"].update({"original_resolution": True, "boundary_tolerance": 4})
+
+
+def add_deep_supervision(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Puts deep supervision heads on the decoder levels of the blocks 3 and 5.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["SegmentationDecoder"]["deep_supervision_weights"] = {"3": 0.3, "5": 0.1}
+
+
+def train_on_half_scale_tiles(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Trains on tiles of the images scaled by one half, with evaluation tiles overlapping by 64 pixels.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Data"]["tiling"] = {"activated": True, "scale": 0.5, "overlap": 64}
+
+
 def use_binary_segmentation_labels(experiment_configuration: Dict[str, Any],
                                    model_configuration: Dict[str, Any]) -> None:
     """
@@ -883,13 +963,17 @@ def use_binary_segmentation_labels(experiment_configuration: Dict[str, Any],
     (use_cross_entropy_only, SEGMENTATION_REFERENCE_RUN_NAME),
     (use_dice_only, SEGMENTATION_REFERENCE_RUN_NAME),
     (use_weighted_focal_cross_entropy, SEGMENTATION_REFERENCE_RUN_NAME),
+    (use_lovasz_and_boundary_losses, SEGMENTATION_REFERENCE_RUN_NAME),
+    (add_deep_supervision, SEGMENTATION_REFERENCE_RUN_NAME.replace("1x16_", "1x16-AUX5.3_")),
+    (train_on_half_scale_tiles, SEGMENTATION_REFERENCE_RUN_NAME.replace("_UTC-", "_TL0.5_UTC-")),
     (use_binary_segmentation_labels, SEGMENTATION_REFERENCE_RUN_NAME.replace("_MC4", "_BIN"))])
 def test_segmentation_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                 expected_run_name: str) -> None:
     """
     Verifies the run names of the semantic segmentation task: the SEG task code, the shared input and backbone
-    sections, the decoder section with its levels from the deepest one and the classes section counting the
-    foreground classes, the loss settings giving no token so that they can change between two resumptions of a run.
+    sections, the tiling section with the scale of the tiles, the decoder section with its levels from the deepest
+    one and the levels of its deep supervision heads, and the classes section counting the foreground classes, the
+    loss and evaluation settings giving no token so that they can change between two resumptions of a run.
 
     Args:
         modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the settings, or

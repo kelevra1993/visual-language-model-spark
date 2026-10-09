@@ -1,9 +1,10 @@
 """
-Trainer of the semantic segmentation task: the data loaders of the images and their masks, the U-Net segmenter with
-the balanced class weights of its cross entropy, the augmentation of the masks with the images, the pixel accuracy and
-mean IoU tracked on every batch, and the evaluation of the checkpoints on the test split (pixel confusion matrix,
-global and per-class metrics, sample grids of fixed test images and the predicted masks). Registered for the
-semantic_segmentation task.
+Trainer of the semantic segmentation task: the data loaders of the images and their masks (or of their tiles), the
+U-Net segmenter with the balanced class weights of its cross entropy, the augmentation of the masks with the images,
+the pixel accuracy and mean IoU tracked on every batch, and the evaluation of the checkpoints on the test split, the
+test images being segmented tile by tile when the run trains on tiles and scored at the network or at their original
+resolution (pixel confusion matrix, boundary counts, global and per-class metrics, sample grids of fixed test images
+and the predicted masks). Registered for the semantic_segmentation task.
 """
 
 import json
@@ -17,10 +18,13 @@ from typing import Any, Dict, Iterable, List, Tuple
 from vision_training.core.contracts import (IGNORED_LABEL_INDEX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults,
                                             SegmentationBatch)
 from vision_training.data.loaders import get_segmentation_dataloaders
+from vision_training.data.preprocessing import restore_prediction_to_original_image
 from vision_training.data.split_description import count_split_samples
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
+from vision_training.evaluation.segmentation.boundary_metrics import (BOUNDARY_COUNT_COLUMNS, compute_boundary_counts,
+                                                                      compute_boundary_metrics)
 from vision_training.evaluation.segmentation.segmentation_metrics import (compute_pixel_confusion_matrix,
                                                                           compute_segmentation_metrics)
 from vision_training.evaluation.segmentation.segmentation_report import (build_segmentation_class_rows,
@@ -28,6 +32,7 @@ from vision_training.evaluation.segmentation.segmentation_report import (build_s
                                                                          build_segmentation_class_table)
 from vision_training.losses.classification_losses import compute_balanced_class_weights
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
+from vision_training.models.segmentation.sliding_window import segment_image_by_tiles
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.utilities.os_utilities import print_color
@@ -37,15 +42,20 @@ from vision_training.utilities.visualization import (build_class_colours, build_
 # File of the run folder caching the pixels of every class in the training masks, read back when the run resumes
 CLASS_PIXEL_COUNTS_FILE_NAME = "class_pixel_counts.json"
 
+# Longest side of the panels of a sample image, the large test images segmented tile by tile being reduced to it
+SAMPLE_PANEL_MAXIMUM_SIZE = 1024
+
 
 class SegmentationTrainer(BaseTrainer):
     """
     Trainer of the semantic segmentation task: the U-Net segmenter trained on images and class-index masks (Native
     loader), the masks following every geometric augmentation of the images, with its cross entropy and Dice losses,
-    pixel accuracy and mean IoU tracked on every batch, and every evaluated checkpoint scored at the network resolution
-    on the labelled pixels of the test split: pixel accuracy, mean IoU, frequency-weighted IoU and mean Dice, the IoU,
-    Dice, precision and recall of every class, the pixel confusion matrix, the sample grids of a few fixed test images
-    and, when asked, the predicted mask of every test image.
+    pixel accuracy and mean IoU tracked on every batch, and every evaluated checkpoint scored on the labelled pixels of
+    the test split, at the network resolution or at the original resolution of the images: pixel accuracy, mean IoU,
+    frequency-weighted IoU, mean Dice, mean boundary IoU and boundary F1, the IoU, Dice, boundary IoU, boundary F1,
+    precision and recall of every class, the pixel confusion matrix, the sample grids of a few fixed test images and,
+    when asked, the predicted mask of every test image. With 'Data.tiling', the run trains on tiles of the scaled
+    images and segments the whole test images tile by tile.
     """
 
     TASK_NAME = "semantic_segmentation"
@@ -61,10 +71,14 @@ class SegmentationTrainer(BaseTrainer):
                 SegmentationLoss).
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
-        # Losses of the model, the weighting of the classes in the cross entropy, and whether the predicted masks are
-        # saved at every evaluation
+        # Losses of the model, the weighting of the classes in the cross entropy, the deep supervision heads, the
+        # training on tiles, and the evaluation settings: saved predicted masks, resolution and boundary tolerance
         self.loss_configuration = model_configuration["SegmentationLoss"]
+        self.deep_supervision_weights = model_configuration["SegmentationDecoder"]["deep_supervision_weights"]
+        self.tiling_configuration = model_configuration["Data"]["tiling"]
         self.save_predicted_masks = experiment_configuration["evaluation"]["save_predicted_masks"]
+        self.original_resolution = experiment_configuration["evaluation"]["original_resolution"]
+        self.boundary_tolerance = experiment_configuration["evaluation"]["boundary_tolerance"]
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
@@ -168,17 +182,22 @@ class SegmentationTrainer(BaseTrainer):
 
     def get_tracked_metrics(self) -> Dict[str, str]:
         """
-        Lists the losses returned by the segmenter (the cross entropy and the Dice loss whose weight is not 0), the
-        total loss, and the pixel accuracy and mean IoU tracked on every training and validation batch.
+        Lists the losses returned by the segmenter (the cross entropy, Dice, Lovász and boundary losses whose weight is
+        not 0, and the loss of the deep supervision heads), the total loss, and the pixel accuracy and mean IoU tracked
+        on every training and validation batch.
 
         Returns:
             Dict[str, str]: The display name of every tracked metric.
         """
         tracked_metrics = {"total_loss": "Total Loss"}
-        if self.loss_configuration["cross_entropy_weight"] > 0:
-            tracked_metrics["segmentation_loss"] = "Cross Entropy Loss"
-        if self.loss_configuration["dice_weight"] > 0:
-            tracked_metrics["dice_loss"] = "Dice Loss"
+        for loss_key, weight_key, display_name in [("segmentation_loss", "cross_entropy_weight", "Cross Entropy Loss"),
+                                                   ("dice_loss", "dice_weight", "Dice Loss"),
+                                                   ("lovasz_loss", "lovasz_weight", "Lovasz Loss"),
+                                                   ("boundary_loss", "boundary_weight", "Boundary Loss")]:
+            if self.loss_configuration[weight_key] > 0:
+                tracked_metrics[loss_key] = display_name
+        if self.deep_supervision_weights:
+            tracked_metrics["deep_supervision_loss"] = "Deep Supervision Loss"
         tracked_metrics.update({"pixel_accuracy": "Pixel Accuracy", "mean_iou": "Mean IoU"})
         return tracked_metrics
 
@@ -239,15 +258,36 @@ class SegmentationTrainer(BaseTrainer):
 
     def predict_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Runs the segmenter without masks, as in deployment.
+        Runs the segmenter without masks, as in deployment, on the whole test images: at once on the images resized
+        to the network input, or tile by tile on the scaled images of a run trained on tiles, the probabilities of the
+        overlapping tiles being averaged.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
 
         Returns:
-            Dict[str, Any]: The class logits and probabilities of every pixel.
+            Dict[str, Any]: The [B, K, H, W] 'class_probabilities' of every pixel, with the 'class_logits' without
+                tiling.
         """
-        return self.model(input_tensor=batch["images"])
+        if not self.tiling_configuration["activated"]:
+            return self.model(input_tensor=batch["images"])
+        return {"class_probabilities": torch.stack(tensors=[
+            segment_image_by_tiles(image=image, predict_tile_probabilities=self.predict_tile_probabilities,
+                                   tile_size=self.input_image_size, overlap=self.tiling_configuration["overlap"],
+                                   tiles_per_batch=self.batch_size) for image in batch["images"]])}
+
+    def predict_tile_probabilities(self, tiles: torch.Tensor) -> torch.Tensor:
+        """
+        Gives the class probabilities of a batch of tiles of the test images, for the segmentation tile by tile of a
+        run trained on tiles (segment_image_by_tiles).
+
+        Args:
+            tiles (torch.Tensor): The [N, 3, S, S] tiles, in the precision of the model.
+
+        Returns:
+            torch.Tensor: The [N, K, S, S] class probabilities of the tiles.
+        """
+        return self.model(input_tensor=tiles)["class_probabilities"]
 
     def compute_batch_metrics(self, batch: Dict[str, Any], model_outputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         """
@@ -271,27 +311,31 @@ class SegmentationTrainer(BaseTrainer):
 
     def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
-        Creates the pixel confusion matrix filled on the device during the evaluation of the test split, with the
-        folder of the predicted masks of the checkpoint.
+        Creates the pixel confusion matrix and the boundary counts filled on the device during the evaluation of the
+        test split, with the folder of the predicted masks of the checkpoint.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint, which names its evaluation folder.
 
         Returns:
-            Dict[str, Any]: The empty [K, K] 'confusion_matrix', the 'number_images' evaluated and the
-                'predicted_masks_folder'.
+            Dict[str, Any]: The empty [K, K] 'confusion_matrix' and [K, 6] 'boundary_counts', the 'number_images'
+                evaluated and the 'predicted_masks_folder'.
         """
         evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
         number_classes = len(self.class_names)
         return {"confusion_matrix": torch.zeros(size=(number_classes, number_classes), dtype=torch.int64,
                                                 device=self.device),
+                "boundary_counts": torch.zeros(size=(number_classes, len(BOUNDARY_COUNT_COLUMNS)), dtype=torch.int64,
+                                               device=self.device),
                 "number_images": 0, "predicted_masks_folder": evaluation_folder / "Predicted_Masks"}
 
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
         """
-        Adds the labelled pixels of the kept images of a test batch to the confusion matrix, on the device, then, when
-        asked, saves the predicted mask of every image.
+        Adds the labelled pixels of the kept images of a test batch to the confusion matrix and to the boundary
+        counts, on the device, then, when asked, saves the predicted mask of every image. The predictions are compared
+        with the masks of the batch (network input, or scaled image with tiling), or with 'original_resolution' with
+        the original mask of every image, its probabilities being restored to the original image first.
 
         Args:
             accumulator (Dict[str, Any]): The evaluation accumulator, modified in place.
@@ -299,27 +343,52 @@ class SegmentationTrainer(BaseTrainer):
             predictions (Dict[str, Any]): The segmenter outputs.
             sample_indices (List[int]): The indices of the images to keep.
         """
-        class_maps = predictions["class_logits"].argmax(dim=1)[sample_indices]
-        masks = batch["masks"][sample_indices]
-        accumulator["confusion_matrix"] += compute_pixel_confusion_matrix(class_maps=class_maps, masks=masks,
-                                                                          number_classes=len(self.class_names))
+        test_dataset = self.test_dataloader.dataset
+        number_classes = len(self.class_names)
+        sample_identifiers = batch[SAMPLE_IDENTIFIERS_KEY][sample_indices].tolist()
+
+        # Groups of predicted class maps and masks of the same size: the whole batch at the resolution of its masks, or
+        # every image at its own original size, the letterbox padding being cut off unless the run trains on tiles
+        if self.original_resolution:
+            evaluated_groups = []
+            for sample_index, sample_identifier in zip(sample_indices, sample_identifiers):
+                original_mask = torch.from_numpy(test_dataset.read_class_mask(sample_identifier=sample_identifier))
+                restored_probabilities = restore_prediction_to_original_image(
+                    prediction=predictions["class_probabilities"][sample_index], original_height=original_mask.shape[0],
+                    original_width=original_mask.shape[1],
+                    keep_ratio=self.data_configuration["image_settings"]["keep_ratio"] and
+                    not self.tiling_configuration["activated"])
+                evaluated_groups.append((restored_probabilities.argmax(dim=0, keepdim=True),
+                                         original_mask.unsqueeze(dim=0).to(device=self.device)))
+        else:
+            evaluated_groups = [(predictions["class_probabilities"][sample_indices].argmax(dim=1),
+                                 batch["masks"][sample_indices])]
+
+        # Pixel confusion matrix and boundary counts of the labelled pixels
+        for class_maps, masks in evaluated_groups:
+            accumulator["confusion_matrix"] += compute_pixel_confusion_matrix(class_maps=class_maps, masks=masks,
+                                                                              number_classes=number_classes)
+            accumulator["boundary_counts"] += compute_boundary_counts(class_maps=class_maps, masks=masks,
+                                                                      number_classes=number_classes,
+                                                                      tolerance=self.boundary_tolerance)
         accumulator["number_images"] += len(sample_indices)
         if not self.save_predicted_masks:
             return
 
-        # Predicted class index of every pixel at the network resolution, as a single-channel image
-        test_dataset = self.test_dataloader.dataset
+        # Predicted class index of every pixel at the evaluated resolution, as a single-channel image
         accumulator["predicted_masks_folder"].mkdir(parents=True, exist_ok=True)
-        class_maps = class_maps.cpu().numpy()
-        for position, sample_identifier in enumerate(batch[SAMPLE_IDENTIFIERS_KEY][sample_indices].tolist()):
+        evaluated_class_maps = [class_map for class_maps, _ in evaluated_groups
+                                for class_map in class_maps.cpu().numpy()]
+        for class_map, sample_identifier in zip(evaluated_class_maps, sample_identifiers):
             sample_name = test_dataset.get_sample_name(sample_identifier=sample_identifier)
             cv2.imwrite(filename=str(accumulator["predicted_masks_folder"] / f"{sample_name}.png"),
-                        img=class_maps[position].astype(np.uint8))
+                        img=class_map.astype(np.uint8))
 
     def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
         Draws a fixed test image for the sample images of the evaluation: its input, its true and predicted masks and
-        its error map side by side, captioned with its pixel accuracy over its labelled pixels.
+        its error map side by side, captioned with its pixel accuracy over its labelled pixels, the panels of a large
+        test image segmented tile by tile being reduced to SAMPLE_PANEL_MAXIMUM_SIZE pixels on their longest side.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -332,12 +401,21 @@ class SegmentationTrainer(BaseTrainer):
         image = np.ascontiguousarray(batch["images"][sample_index].detach().cpu().clamp(min=0.0, max=255.0)
                                      .to(dtype=torch.uint8).permute(1, 2, 0).numpy())
         mask = batch["masks"][sample_index].cpu().numpy()
-        class_map = predictions["class_logits"][sample_index].argmax(dim=0).cpu().numpy()
+        class_map = predictions["class_probabilities"][sample_index].argmax(dim=0).cpu().numpy()
 
         # Share of the labelled pixels given their class
         labelled_pixels = mask != IGNORED_LABEL_INDEX
         pixel_accuracy = float((class_map[labelled_pixels] == mask[labelled_pixels]).mean()) \
             if labelled_pixels.any() else 0.0
+
+        # Panels of a large image reduced for display, the class indices keeping their values
+        reduction = SAMPLE_PANEL_MAXIMUM_SIZE / max(image.shape[:2])
+        if reduction < 1.0:
+            panel_size = (max(1, int(round(image.shape[1] * reduction))),
+                          max(1, int(round(image.shape[0] * reduction))))
+            image = cv2.resize(src=image, dsize=panel_size, interpolation=cv2.INTER_AREA)
+            mask = cv2.resize(src=mask.astype(np.int32), dsize=panel_size, interpolation=cv2.INTER_NEAREST)
+            class_map = cv2.resize(src=class_map.astype(np.int32), dsize=panel_size, interpolation=cv2.INTER_NEAREST)
         return build_segmentation_sample_grid(
             image=image, mask=mask, class_map=class_map, class_names=self.class_names,
             class_colours=self.class_colours,
@@ -345,9 +423,10 @@ class SegmentationTrainer(BaseTrainer):
 
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
-        Computes the segmentation metrics of the labelled pixels of the test split and organises them for the report:
-        the headline metrics, the evaluated pixels and the saved images as notes, the per-class table (shown with the
-        per-class report, worst IoU first) and the per-class scalars. The metrics of every class and the pixel
+        Computes the segmentation and boundary metrics of the labelled pixels of the test split and organises them for
+        the report: the headline metrics, the evaluated pixels, their resolution, the boundary tolerance and the saved
+        images as notes, the per-class table (shown with the per-class report, worst IoU first) and the per-class
+        scalars. The metrics of every class and the pixel
         confusion matrix table are saved in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/',
         whatever the per-class report; the confusion matrix image only with it, also logged to TensorBoard, with the
         shares of every true class in its cells, the pixel counts being too large to print.
@@ -361,9 +440,12 @@ class SegmentationTrainer(BaseTrainer):
         """
         confusion_matrix = accumulator["confusion_matrix"].cpu()
         metrics = compute_segmentation_metrics(confusion_matrix=confusion_matrix)
+        metrics.update(compute_boundary_metrics(boundary_counts=accumulator["boundary_counts"].cpu()))
         evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
         evaluation_folder.mkdir(parents=True, exist_ok=True)
         headline_metrics = {"Mean IoU": metrics["mean_iou"], "Mean Dice": metrics["mean_dice"],
+                            "Mean Boundary IoU": metrics["mean_boundary_iou"],
+                            "Mean Boundary F1": metrics["mean_boundary_f1"],
                             "Pixel Accuracy": metrics["pixel_accuracy"],
                             "Frequency Weighted IoU": metrics["frequency_weighted_iou"]}
 
@@ -382,9 +464,16 @@ class SegmentationTrainer(BaseTrainer):
                 title=f"Pixel Confusion Matrix · Iteration {iteration} · Mean IoU {metrics['mean_iou']:.4f} · Pixel "
                       f"Accuracy {metrics['pixel_accuracy']:.4f}", show_counts=False)
 
-        # Evaluated pixels, and the folder of the predicted masks
-        notes = [f"Labelled Pixels : {int(confusion_matrix.sum())}, the padding and the unlabelled pixels being "
-                 f"ignored"]
+        # Evaluated pixels and their resolution, the boundary tolerance, and the folder of the predicted masks
+        if self.original_resolution:
+            evaluated_resolution = "original resolution of the images"
+        elif self.tiling_configuration["activated"]:
+            evaluated_resolution = f"images scaled by {self.tiling_configuration['scale']:g}, segmented tile by tile"
+        else:
+            evaluated_resolution = "network resolution"
+        notes = [f"Labelled Pixels : {int(confusion_matrix.sum())} at the {evaluated_resolution}, the padding and the "
+                 f"unlabelled pixels being ignored",
+                 f"Boundary Tolerance : {self.boundary_tolerance} pixels"]
         if self.save_predicted_masks:
             notes.append(f"Predicted Masks : {accumulator['number_images']} class index images")
             files["Predicted Masks"] = accumulator["predicted_masks_folder"]

@@ -36,14 +36,16 @@ ExperimentConfiguration:
   # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
   validation_iteration_ratio: 25
   # Test evaluation run at every weight_saving_iterations checkpoint on the whole test split, at the network input
-  # resolution, the padding and the unlabelled pixels being ignored: pixel accuracy, mean IoU, frequency-weighted IoU,
-  # mean Dice, IoU / Dice / precision / recall of every class, and the confusion matrix of the pixels and the sample
-  # images saved in <run folder>/Evaluation/Iteration_<iteration>/.
+  # resolution (see original_resolution), the padding and the unlabelled pixels being ignored: pixel accuracy, mean
+  # IoU, frequency-weighted IoU, mean Dice, mean boundary IoU and boundary F1, IoU / Dice / boundary IoU / boundary F1
+  # / precision / recall of every class, and the confusion matrix of the pixels and the sample images saved in
+  # <run folder>/Evaluation/Iteration_<iteration>/.
   evaluation:
-    # Reports every class at every evaluation: the table of the classes (test pixels, IoU, Dice, precision, recall,
-    # worst IoU first) in the console and Results.txt, their IoU / Dice / Precision / Recall Test scalars in
-    # TensorBoard, and the confusion matrix image (confusion_matrix.png and TensorBoard). False keeps the global
-    # metrics only, e.g. for many classes: class_metrics.csv and confusion_matrix.csv are saved either way.
+    # Reports every class at every evaluation: the table of the classes (test pixels, IoU, Dice, boundary IoU,
+    # boundary F1, precision, recall, worst IoU first) in the console and Results.txt, their IoU / Dice / Boundary IoU /
+    # Boundary F1 / Precision / Recall Test scalars in TensorBoard, and the confusion matrix image (confusion_matrix.png
+    # and TensorBoard). False keeps the global metrics only, e.g. for many classes: class_metrics.csv and
+    # confusion_matrix.csv are saved either way.
     per_class_report: True
     # Number of test images drawn once and shown at every evaluation, each as a grid of its input, its ground truth
     # mask, its predicted mask and its error map (correct pixels of the classes in green, pixels given a wrong class in
@@ -51,9 +53,18 @@ ExperimentConfiguration:
     # TensorBoard. The images are evenly spread over the test images. 0 to disable.
     number_sample_images: 8
     # Saves the predicted mask of every test image at every evaluation in Evaluation/Iteration_<n>/Predicted_Masks/, a
-    # single-channel PNG at the network input resolution holding the class index of every pixel. Its size grows with
-    # the number of test images, False to skip it on large test sets.
+    # single-channel PNG holding the class index of every pixel, at the evaluated resolution (see original_resolution).
+    # Its size grows with the number of test images, False to skip it on large test sets.
     save_predicted_masks: False
+    # Computes the metrics at the original resolution of every test image against its original mask, the predicted
+    # probabilities being resized back to the image (without the padding of keep_ratio), as the deployed output is
+    # used: thin structures lost by the resizing of the masks are then scored. False scores the masks at the network
+    # resolution (or at the scale of the tiles with Data.tiling). The predicted masks are saved at the same resolution.
+    original_resolution: False
+    # Distance in pixels, at the evaluated resolution, within which a predicted contour counts as right for the
+    # boundary metrics (boundary IoU of the bands of that width inside the true and predicted regions, boundary F1
+    # of their edges), at least 1.
+    boundary_tolerance: 2
   # Tracking of the run in MLflow, next to TensorBoard and Results.txt: the hyperparameters, the averages of the
   # training and validation metrics of every information_dump interval, the learning rate, the test metrics of every
   # evaluated checkpoint and a few small artifacts (configuration, confusion matrices, class metrics, Results.txt).
@@ -130,6 +141,18 @@ Data:
     size: 512
     # Flag to maintain the original aspect ratio when resizing, the padding of the masks being ignored.
     keep_ratio: True
+  # Training on tiles instead of whole images resized to the network input, for images much larger than the network
+  # input holding small objects: the images and masks are scaled by 'scale', the training samples are tiles of
+  # image_settings.size pixels cut at random places (at a place fixed per image for the validation), and the whole
+  # test images are segmented tile by tile, the probabilities of the overlapping tiles being averaged, one image per
+  # batch. keep_ratio is then unused. Inference clients segment large images the same way with
+  # vision_training/models/segmentation/sliding_window.py.
+  tiling:
+    activated: False
+    # Factor applied to the images and masks before cutting the tiles, 1.0 for their full resolution.
+    scale: 1.0
+    # Pixels shared by two neighbouring tiles of the test images, smaller than image_settings.size.
+    overlap: 128
   label_mapping:
     # "binary" maps every category of the masks (pixel values 1 to 254) to the foreground class 1, next to the
     # background class 0. "multi_class" uses the mapping file, which gives the class index of every category, class 0
@@ -284,6 +307,12 @@ SegmentationDecoder:
   feature_map_normalization: "batch"
   # Dropout of whole channels before the final 1x1 convolution giving the class logits, within [0, 1), 0 to disable.
   dropout_rate: 0.0
+  # Deep supervision: a 1x1 head on every listed decoder level, keyed like convolutions, whose class logits are
+  # upsampled to the input size and trained with the same losses times the weight of the level, so that the gradient
+  # reaches the early layers more directly; the heads only serve the training, the inference and the exported models
+  # never run them. Only the intermediate levels can be listed (the finest level gives the final segmentation), e.g.
+  # { "5": 0.1, "4": 0.2, "3": 0.3, "2": 0.4 }. {} for no deep supervision.
+  deep_supervision_weights: {}
   # Decoder of another semantic segmentation run initialising this run instead of random weights. Its upsampling,
   # convolutions, modules and normalization must be identical in both runs, as well as the channels of the backbone
   # blocks feeding its skip connections. The final 1x1 convolution giving the class logits is never transferred, so
@@ -314,5 +343,16 @@ SegmentationLoss:
   # masks, counted once and saved in the run folder).
   class_weighting: "none"
   # Weight of the soft Dice loss (one minus the mean Dice of the classes present in the batch), which counts every
-  # class the same whatever its area, 0 to disable. The cross entropy and Dice weights cannot both be 0.
+  # class the same whatever its area, 0 to disable.
   dice_weight: 1.0
+  # Weight of the Lovasz-Softmax loss, which optimises the IoU of every class directly (a convex surrogate of
+  # 1 - IoU, averaged over the classes present in the batch), often added for the last part of a training to push
+  # the mean IoU further, 0 to disable. The cross entropy, Dice and Lovasz weights cannot all be 0.
+  lovasz_weight: 0.0
+  # Weight of the boundary loss, the cross entropy of the pixels near the true edges (pixels with a neighbour of
+  # another class), weighted 1 on the edges and decreasing linearly to 0 beyond boundary_distance pixels, for precise
+  # contours, 0 to disable.
+  boundary_weight: 0.0
+  # Distance in pixels from the true edges over which the boundary loss weighs the pixels, at least 0 (the edges
+  # only).
+  boundary_distance: 3

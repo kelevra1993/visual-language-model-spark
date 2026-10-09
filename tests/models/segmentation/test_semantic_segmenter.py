@@ -2,7 +2,8 @@
 Tests of SemanticSegmenter of vision_training/models/segmentation/semantic_segmenter.py and of its decoder: the logits
 at the input resolution for every decoder option and backbone pooling, the losses only with masks and only for the
 weighted losses, the probabilities in evaluation mode, the ignored pixels without gradient, the weight names
-independent of the dropout rate, and the architecture summary.
+independent of the dropout rate, the deep supervision heads of the intermediate decoder levels with the Lovász and
+boundary losses, and the architecture summary.
 """
 
 import pytest
@@ -10,8 +11,10 @@ import torch
 
 from tests.fixtures.configuration_fixtures import get_segmentation_model_configuration
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
+from vision_training.losses.segmentation_losses import compute_boundary_loss, compute_lovasz_softmax_loss
 from vision_training.models.segmentation.segmentation_decoder import compute_skip_block_numbers
 from vision_training.models.segmentation.semantic_segmenter import SemanticSegmenter
+from vision_training.utilities.mask_morphology import compute_edge_distance_weights
 
 
 @pytest.mark.parametrize(argnames=("upsampling", "feature_map_normalization", "squeeze_and_excite", "residual_nets"),
@@ -107,7 +110,8 @@ def test_weight_names_do_not_depend_on_the_dropout_rate() -> None:
 def test_summary_and_size_components(capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that the architecture summary lists every decoder level with its skip connection and the logits at the
-    input resolution, and that the size summary covers the backbone, the decoder and the head.
+    input resolution, and that the size summary covers the backbone, the decoder and the head, then the deep
+    supervision heads with their level weights when there are some.
 
     Args:
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
@@ -119,5 +123,65 @@ def test_summary_and_size_components(capsys: pytest.CaptureFixture) -> None:
     console_output = capsys.readouterr().out
     for expected_fragment in ["Level Of Block 3", "Level Of Block 1", "64x64x8", "Class Logits      : 64x64x3"]:
         assert expected_fragment in console_output
+    assert "Deep Supervision" not in console_output
     assert list(model.get_size_components()) == ["Backbone", "Segmentation Decoder", "Segmentation Head",
                                                  "Total Model"]
+
+    # The deep supervision heads are listed with the weights of their levels
+    configuration["SegmentationDecoder"]["deep_supervision_weights"] = {"3": 0.5}
+    model = SemanticSegmenter(configuration=configuration, device=device, dtype=dtype)
+    model.print_summary()
+    assert "level of block 3 x 0.5" in capsys.readouterr().out
+    assert list(model.get_size_components()) == ["Backbone", "Segmentation Decoder", "Segmentation Head",
+                                                 "Deep Supervision Heads", "Total Model"]
+
+
+def test_deep_supervision_heads_add_the_losses_of_the_intermediate_levels() -> None:
+    """
+    Verifies that the deep supervision heads give the decoder levels of their keys the same losses as the final
+    logits, the Lovász and boundary losses included, upsampled to the input size and weighted by level, that the
+    gradient of that loss reaches the heads, and that the heads are left out without masks, with the decoder output
+    unchanged by the return of the level outputs.
+    """
+    configuration, device, dtype = get_segmentation_model_configuration(upsampling="bilinear")
+    configuration["SegmentationDecoder"]["deep_supervision_weights"] = {"3": 0.5, "2": 0.25}
+    configuration["SegmentationLoss"].update({"lovasz_weight": 2.0, "boundary_weight": 3.0, "boundary_distance": 2})
+    model = SemanticSegmenter(configuration=configuration, device=device, dtype=dtype).eval()
+    images = torch.rand(size=(2, 3, 64, 64)) * 255.0
+    masks = torch.randint(low=0, high=3, size=(2, 64, 64))
+
+    outputs = model(input_tensor=images, masks=masks)
+    assert sorted(outputs) == ["boundary_loss", "class_logits", "class_probabilities", "deep_supervision_loss",
+                               "dice_loss", "lovasz_loss", "segmentation_loss"]
+
+    # The Lovász and boundary losses of the final logits are multiplied by their weights
+    edge_weights = compute_edge_distance_weights(masks=masks, maximum_distance=2)
+    assert torch.allclose(input=outputs["lovasz_loss"], other=2.0 * compute_lovasz_softmax_loss(
+        class_logits=outputs["class_logits"], masks=masks))
+    assert torch.allclose(input=outputs["boundary_loss"], other=3.0 * compute_boundary_loss(
+        class_logits=outputs["class_logits"], masks=masks, edge_weights=edge_weights))
+
+    # The decoder levels of blocks 3 and 2 are at a quarter and half of the input size, their losses recomputed by hand
+    final_feature_map, skip_tensors = model.backbone(input_tensor=images, return_pre_pooling_outputs=True)
+    decoded_feature_map, level_outputs = model.segmentation_decoder(
+        bottleneck_tensor=final_feature_map, skip_tensors=skip_tensors, return_level_outputs=True)
+    assert torch.equal(input=decoded_feature_map, other=model.segmentation_decoder(
+        bottleneck_tensor=final_feature_map, skip_tensors=skip_tensors))
+    assert {level_key: tuple(level_output.shape[-2:]) for level_key, level_output in level_outputs.items()} == {
+        "3": (16, 16), "2": (32, 32), "1": (64, 64)}
+    expected_loss = 0.0
+    for level_key, level_weight in [("3", 0.5), ("2", 0.25)]:
+        level_logits = torch.nn.functional.interpolate(
+            input=model.deep_supervision_heads[level_key](level_outputs[level_key]), size=(64, 64), mode="bilinear",
+            align_corners=False)
+        level_losses = model.compute_mask_losses(class_logits=level_logits, masks=masks, edge_weights=edge_weights)
+        assert sorted(level_losses) == ["boundary_loss", "dice_loss", "lovasz_loss", "segmentation_loss"]
+        expected_loss = expected_loss + level_weight * sum(level_losses.values())
+    assert torch.allclose(input=outputs["deep_supervision_loss"], other=expected_loss)
+
+    # The deep supervision loss trains the heads, which take no part in the outputs without masks
+    head_gradient, = torch.autograd.grad(outputs=outputs["deep_supervision_loss"],
+                                         inputs=model.deep_supervision_heads["3"].weight)
+    assert bool(torch.any(head_gradient != 0))
+    with torch.no_grad():
+        assert sorted(model(input_tensor=images)) == ["class_logits", "class_probabilities"]

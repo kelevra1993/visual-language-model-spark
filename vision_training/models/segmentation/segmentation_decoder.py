@@ -8,7 +8,7 @@ configuration checks and the run name.
 import torch
 
 from torch import nn
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from vision_training.models.components.convolution_block import ConvolutionBlock
 
@@ -96,19 +96,25 @@ class SegmentationDecoder(nn.Module):
         # Channels of the decoded feature map, at the input resolution
         self.output_channels = current_channels
 
-    def forward(self, bottleneck_tensor: torch.Tensor, skip_tensors: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, bottleneck_tensor: torch.Tensor, skip_tensors: Dict[str, torch.Tensor],
+                return_level_outputs: bool = False) -> torch.Tensor | Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
         """
-        Decodes the final feature map of the backbone into a feature map at the input resolution.
+        Decodes the final feature map of the backbone into a feature map at the input resolution, with the output of
+        every level when asked, read by the deep supervision heads of the segmenter.
 
         Args:
             bottleneck_tensor (torch.Tensor): The [B, C, h, w] final feature map of the backbone.
             skip_tensors (Dict[str, torch.Tensor]): The [B, C_b, H_b, W_b] output before pooling of every backbone
                 block, keyed by block number (Backbone.forward with return_pre_pooling_outputs).
+            return_level_outputs (bool): Whether to also return the output of every level. Defaults to False.
 
         Returns:
-            torch.Tensor: The [B, output_channels, H, W] decoded feature map, at the resolution of the first block.
+            torch.Tensor | Tuple[torch.Tensor, Dict[str, torch.Tensor]]: The [B, output_channels, H, W] decoded feature
+                map, at the resolution of the first block, and with return_level_outputs the [B, C_l, H_l, W_l]
+                output of every level keyed by its backbone block.
         """
         current_tensor = bottleneck_tensor
+        level_outputs = {}
 
         # Upsample, merge the skip connection of the level, then refine, from the deepest level to the finest
         for level_key, upsampling_layer in self.upsampling_layers.items():
@@ -121,5 +127,8 @@ class SegmentationDecoder(nn.Module):
                                                                  mode="bilinear", align_corners=False)
             current_tensor = self.convolution_blocks[level_key](
                 input_tensor=torch.cat(tensors=[skip_tensor, current_tensor], dim=1))
+            level_outputs[level_key] = current_tensor
 
+        if return_level_outputs:
+            return current_tensor, level_outputs
         return current_tensor

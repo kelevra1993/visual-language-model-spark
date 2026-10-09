@@ -1,11 +1,39 @@
 """
 Image, mask and bounding box preprocessing shared by the data loaders and the inference clients: resizing to the
 square network input with optional centred padding (bilinear for the images, nearest for the segmentation masks), the
-matching box transformation, and its inverse restoring predicted boxes to the original image.
+matching box transformation, and their inverses restoring predicted boxes and segmentation predictions (class maps or
+probabilities) to the original image, the latter also used by the evaluation of the segmenter at the original
+resolution.
 """
 
 import cv2
 import numpy as np
+import torch
+
+from typing import Tuple
+
+
+def compute_letterbox_region(image_height: int, image_width: int, image_size: int) -> Tuple[int, int, int, int]:
+    """
+    Gives the part of the square network input holding an image resized with its aspect ratio kept, centred between
+    the padding, so that the preprocessing places the image and the restorations of the predictions cut it out at
+    exactly the same pixels.
+
+    Args:
+        image_height (int): The height of the original image in pixels.
+        image_width (int): The width of the original image in pixels.
+        image_size (int): The size of the square network input.
+
+    Returns:
+        Tuple[int, int, int, int]: The top row and left column of the resized image in the network input, and its
+            height and width.
+    """
+    # Single scaling factor of the longest side, rounded like DALI's not_larger resizing
+    scale = image_size / max(image_height, image_width)
+    resized_width, resized_height = int(round(image_width * scale)), int(round(image_height * scale))
+
+    # Symmetric padding around the resized image (DALI crop_pos=0.5)
+    return (image_size - resized_height) // 2, (image_size - resized_width) // 2, resized_height, resized_width
 
 
 def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True,
@@ -32,24 +60,18 @@ def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True
             (image_size, image_size) for a mask.
     """
     if keep_ratio:
-        image_height, image_width = image.shape[:2]
-        scale = image_size / max(image_height, image_width)
-        
-        # Calculate new dimensions after scaling, matching DALI's not_larger logic
-        new_width = int(round(image_width * scale))
-        new_height = int(round(image_height * scale))
-        
+        # Place of the resized image in the square input, matching DALI's not_larger resizing and centred padding
+        start_y, start_x, new_height, new_width = compute_letterbox_region(image_height=image.shape[0],
+                                                                           image_width=image.shape[1],
+                                                                           image_size=image_size)
+
         # Resize first to pure image pixels to avoid bilinear black padding bleed
         resized_image = cv2.resize(src=image, dsize=(new_width, new_height), interpolation=interpolation)
-        
+
         # Create the padded square canvas, with the channels of the image when it has some
         processed_image = np.full(shape=(image_size, image_size) + image.shape[2:], fill_value=padding_value,
                                   dtype=image.dtype)
-        
-        # Calculate centering offsets (matching DALI crop_pos=0.5 symmetric padding)
-        start_x = (image_size - new_width) // 2
-        start_y = (image_size - new_height) // 2
-        
+
         # Drop the resized image into the center
         processed_image[start_y: start_y + new_height, start_x: start_x + new_width] = resized_image
     else:
@@ -153,6 +175,50 @@ def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int
     restored_boxes[:, 0::2] = restored_boxes[:, 0::2].clip(min=0.0, max=image_width)
     restored_boxes[:, 1::2] = restored_boxes[:, 1::2].clip(min=0.0, max=image_height)
     return restored_boxes
+
+
+def restore_prediction_to_original_image(prediction: torch.Tensor, original_height: int, original_width: int,
+                                         keep_ratio: bool) -> torch.Tensor:
+    """
+    Brings a segmentation prediction made at the network resolution back to its original image, undoing the
+    preprocessing of the images (preprocess_image): the centred padding added to keep the aspect ratio is cut off,
+    then the prediction is resized to the size of the original image. A class map (integer tensor) is resized with
+    the nearest interpolation, so that every pixel keeps one of the predicted classes, and class probabilities (float
+    tensor) bilinearly, so that the class of every original pixel is the argmax of its interpolated probabilities.
+    Used by the inference clients and by the evaluation of the segmenter at the original resolution, on the device of
+    the prediction.
+
+    Args:
+        prediction (torch.Tensor): The [..., S, S] prediction of the network input, e.g. a [S, S] class map or [K, S, S]
+            class probabilities. Without keep_ratio, any [..., h, w] prediction of the whole image.
+        original_height (int): The height of the original image in pixels.
+        original_width (int): The width of the original image in pixels.
+        keep_ratio (bool): Whether the image was padded to keep its aspect ratio ('Data.image_settings.keep_ratio'),
+            or stretched to the square network input.
+
+    Returns:
+        torch.Tensor: The [..., original_height, original_width] prediction of the original image, of the type of the
+            input prediction.
+    """
+    # Part of the network input holding the image, centred between the padding exactly as preprocess_image places it
+    image_part = prediction
+    if keep_ratio:
+        start_y, start_x, resized_height, resized_width = compute_letterbox_region(
+            image_height=original_height, image_width=original_width, image_size=prediction.shape[-1])
+        image_part = prediction[..., start_y:start_y + resized_height, start_x:start_x + resized_width]
+
+    # Resize every leading channel at once, bilinearly for the probabilities and nearest for the class indices
+    leading_shape = image_part.shape[:-2]
+    stacked_channels = image_part.reshape(1, -1, image_part.shape[-2], image_part.shape[-1])
+    if prediction.is_floating_point():
+        restored_channels = torch.nn.functional.interpolate(input=stacked_channels,
+                                                            size=(original_height, original_width), mode="bilinear",
+                                                            align_corners=False)
+    else:
+        restored_channels = torch.nn.functional.interpolate(input=stacked_channels.float(),
+                                                            size=(original_height, original_width),
+                                                            mode="nearest").to(dtype=prediction.dtype)
+    return restored_channels.reshape(*leading_shape, original_height, original_width)
 
 
 def preprocess_image_and_boxes(image: np.ndarray, bounding_boxes: list[list[float]], image_size: int,

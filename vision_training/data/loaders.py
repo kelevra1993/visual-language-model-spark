@@ -180,7 +180,9 @@ def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model
     Initializes the training, validation and testing loaders of the semantic segmentation task, read from the
     'labels.json' manifest, the 'data' images and the 'masks' class masks of every split with the Native loader
     (OpenCV decoding and CPU resizing). Every image and mask is resized to the square network input, so the default
-    collate stacks them into [B, 3, H, W] images and [B, H, W] masks.
+    collate stacks them into [B, 3, H, W] images and [B, H, W] masks. With 'Data.tiling', the training and validation
+    samples are tiles of the network size cut from the scaled images (at a random place, or at a place fixed per
+    image), and the test images are kept whole at their scaled size, one per batch, to be segmented tile by tile.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
@@ -192,10 +194,13 @@ def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model
         Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
     """
     data_configuration = model_configuration["Data"]
+    tiling_configuration = data_configuration["tiling"]
     loaders = []
 
-    # Build the loader of every split with the same settings
-    for split_key in ["train_data_folder", "validation_data_folder", "test_data_folder"]:
+    # Build the loader of every split with the same settings, each split cutting its tiles its own way with tiling, the
+    # whole test images of different sizes coming one per batch
+    for split_key, tile_sampling in [("train_data_folder", "random"), ("validation_data_folder", "fixed"),
+                                     ("test_data_folder", "whole")]:
         split_data_folder = str(experiment_configuration[split_key])
         dataset = SegmentationDataset(data_directory=os.path.join(split_data_folder, "data"),
                                       masks_directory=os.path.join(split_data_folder, "masks"),
@@ -203,8 +208,10 @@ def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model
                                       image_size=data_configuration["image_settings"]["size"],
                                       keep_ratio=data_configuration["image_settings"]["keep_ratio"],
                                       label_mode=data_configuration["label_mode"],
-                                      label_dictionary=data_configuration["label_dictionary"])
-        loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
+                                      label_dictionary=data_configuration["label_dictionary"],
+                                      tiling_configuration=tiling_configuration, tile_sampling=tile_sampling)
+        split_batch_size = 1 if tiling_configuration["activated"] and tile_sampling == "whole" else batch_size
+        loaders.append(build_native_loader(dataset=dataset, batch_size=split_batch_size,
                                            loading_configuration=data_configuration["loading"]))
 
     return loaders[0], loaders[1], loaders[2]
@@ -225,14 +232,18 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
         model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label dictionary
             and the sequence settings.
         batch_size (int): The number of sequences (or pairs of sequences) of a batch.
-        label_type (str): "sequence" (one class per sequence), "frame" (one class per frame) or "pair" (one class per
-            pair of sequences, read from a 'pairs' manifest).
+        label_type (str): "sequence" (one class per sequence), "frame" (one class per frame), "selection" (one class
+            per frame of a whole sequence, checked for the frame selection with the 'Selection' section) or "pair"
+            (one class per pair of sequences, read from a 'pairs' manifest).
 
     Returns:
         Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
     """
     data_configuration = model_configuration["Data"]
     loaders = []
+
+    # Unselected category and frames per wanted class of the frame selection, read by its sequence check
+    selection_settings = model_configuration["Selection"] if label_type == "selection" else None
 
     # Batches padded to their longest window, a pair holding two member windows, or every window padded to the sequence
     # length by the default collate
@@ -260,7 +271,7 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
                                       keep_ratio=data_configuration["image_settings"]["keep_ratio"],
                                       label_dictionary=data_configuration["label_dictionary"],
                                       sequence_settings=data_configuration["sequence_settings"],
-                                      label_type=label_type)
+                                      label_type=label_type, selection_settings=selection_settings)
         loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
                                            loading_configuration=data_configuration["loading"],
                                            collate_function=collate_function))

@@ -130,9 +130,11 @@ def get_segmentation_model_configuration(upsampling: str) -> Tuple[Dict[str, Any
     configuration['SegmentationDecoder'] = {'upsampling': upsampling,
                                             'convolutions': {'3': [1, 16], '2': [1, 16], '1': [1, 8]},
                                             'modules': {'squeeze_and_excite': False, 'residual_nets': False},
-                                            'feature_map_normalization': 'batch', 'dropout_rate': 0.0}
+                                            'feature_map_normalization': 'batch', 'dropout_rate': 0.0,
+                                            'deep_supervision_weights': {}}
     configuration['SegmentationLoss'] = {'cross_entropy_weight': 1.0, 'focal_gamma': 0.0, 'label_smoothing': 0.0,
-                                         'class_weighting': 'none', 'dice_weight': 1.0}
+                                         'class_weighting': 'none', 'dice_weight': 1.0, 'lovasz_weight': 0.0,
+                                         'boundary_weight': 0.0, 'boundary_distance': 3}
 
     return configuration, device, dtype
 
@@ -152,7 +154,8 @@ def get_sequence_model_configuration(temporal_type: str) -> Tuple[Dict[str, Any]
     configuration['Data']['sequence_settings'] = {'sequence_length': 4, 'window_stride': 4, 'short_sequences': 'pad',
                                                   'batch_padding': 'sequence_length'}
     configuration['TemporalModel'] = {'type': temporal_type, 'hidden_size': 16, 'number_layers': 1, 'number_heads': 2,
-                                      'kernel_size': 3, 'dropout_rate': 0.0, 'bidirectional': False, 'causal': False}
+                                      'kernel_size': 3, 'dropout_rate': 0.0, 'bidirectional': False, 'causal': False,
+                                      'positional_embedding': True}
 
     return configuration, device, dtype
 

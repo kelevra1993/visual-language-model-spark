@@ -268,7 +268,7 @@ def set_invalid_tracking(configuration: Dict[str, Any]) -> None:
                                       "must be smaller than"]),
     (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'classification', "
                         "'semantic_segmentation', 'sequence_classification', 'sequence_labelling', "
-                        "'sequence_comparison'], got 'segmentation'."]),
+                        "'sequence_comparison', 'frame_selection'], got 'segmentation'."]),
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
@@ -544,7 +544,8 @@ def test_flattened_feature_map_is_accepted_for_classification(tmp_path: Path) ->
 @pytest.mark.parametrize(argnames=("task_folder", "configuration_name"),
                          argvalues=[("sequence_classification", "configuration_synthetic_sequences.yaml"),
                                     ("sequence_labelling", "configuration_synthetic_sequences.yaml"),
-                                    ("sequence_comparison", "configuration_synthetic_pairs.yaml")])
+                                    ("sequence_comparison", "configuration_synthetic_pairs.yaml"),
+                                    ("frame_selection", "configuration_synthetic_sequences.yaml")])
 def test_flattened_feature_map_is_rejected_for_the_sequence_tasks(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                   task_folder: str, configuration_name: str) -> None:
     """
@@ -714,6 +715,16 @@ def set_causal_bidirectional_recurrent_model(configuration: Dict[str, Any]) -> N
     configuration["TemporalModel"].update({"causal": True, "bidirectional": True})
 
 
+def set_textual_positional_embedding(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the positional embedding flag of the synthetic sequence labelling configuration as a text.
+
+    Args:
+        configuration (Dict[str, Any]): The raw sequence labelling configuration, modified in place.
+    """
+    configuration["TemporalModel"]["positional_embedding"] = "no"
+
+
 @pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
                                                                    "configuration_synthetic_sequences.yaml"])
 def test_sequence_labelling_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
@@ -735,13 +746,15 @@ def test_sequence_labelling_configurations_are_consistent(tmp_path: Path, config
     (use_pooling_for_labelling, ["'TemporalModel.type' must be one of ['gru', 'lstm', 'transformer', "
                                  "'temporal_convolution'] for this task, got 'mean_pooling'."]),
     (set_causal_bidirectional_recurrent_model, ["'TemporalModel.bidirectional' must be False when "
-                                                "'TemporalModel.causal' is True"])])
+                                                "'TemporalModel.causal' is True"]),
+    (set_textual_positional_embedding, ["'TemporalModel.positional_embedding' must be True or False, got 'no'."])])
 def test_inconsistent_sequence_labelling_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:
     """
-    Verifies that the temporal modules unable to keep one vector per frame, and causal modules reading the sequence
-    backwards, are rejected for the sequence labelling task, without rejecting the causal flag itself.
+    Verifies that the temporal modules unable to keep one vector per frame, causal modules reading the sequence
+    backwards and a positional embedding flag that is not a boolean are rejected for the sequence labelling task,
+    without rejecting the causal flag itself.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -760,6 +773,80 @@ def test_inconsistent_sequence_labelling_configuration_is_rejected(
     for expected_message in expected_messages:
         assert expected_message in printed_output
     assert "'TemporalModel.causal' must be False" not in printed_output
+
+
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
+                                                                   "configuration_synthetic_sequences.yaml"])
+def test_frame_selection_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
+    """
+    Verifies that the frame selection configurations shipped with the repository pass every consistency check,
+    without the window stride nor the short sequences that the frame selection does not read, every sequence being
+    one window.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_name (str): The file name of the frame selection configuration.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="frame_selection",
+                                                  configuration_name=configuration_name, modify_function=None)
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=configuration_path)
+    assert experiment_configuration["task"] == "frame_selection"
+    assert sorted(model_configuration["Data"]["sequence_settings"]) == ["batch_padding", "sequence_length"]
+
+
+def set_invalid_selection(configuration: Dict[str, Any]) -> None:
+    """
+    Gives every setting of the 'Selection' section an invalid value.
+
+    Args:
+        configuration (Dict[str, Any]): The raw frame selection configuration, modified in place.
+    """
+    configuration["Selection"] = {"unselected_category": " ", "decoding": "beam", "frames_per_class": 0,
+                                  "selection_loss_weight": -1.0}
+
+
+def use_pooling_for_selection(configuration: Dict[str, Any]) -> None:
+    """
+    Uses an order-blind pooling, which summarises a whole sequence into one vector, for the frame selection.
+
+    Args:
+        configuration (Dict[str, Any]): The raw frame selection configuration, modified in place.
+    """
+    configuration["TemporalModel"]["type"] = "max_pooling"
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (set_invalid_selection, ["'Selection.unselected_category' must be the non-empty name of a manifest category, "
+                             "got ' '.", "'Selection.decoding' must be one of ['hungarian', 'greedy'], got 'beam'.",
+                             "'Selection.frames_per_class' must be", "'Selection.selection_loss_weight' must be a "
+                             "number >= 0, got -1.0."]),
+    (use_pooling_for_selection, ["'TemporalModel.type' must be one of ['gru', 'lstm', 'transformer', "
+                                 "'temporal_convolution'] for this task, got 'max_pooling'."])])
+def test_inconsistent_frame_selection_configuration_is_rejected(
+        tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
+        expected_messages: List[str]) -> None:
+    """
+    Verifies that an invalid 'Selection' section, and a temporal module unable to keep one vector per frame, stop the
+    loading of a frame selection configuration with a short message naming the faulty key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="frame_selection",
+                                                  configuration_name="configuration_synthetic_sequences.yaml",
+                                                  modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
+    assert "Traceback" not in printed_output
 
 
 def set_unknown_fusion(configuration: Dict[str, Any]) -> None:
@@ -1233,25 +1320,50 @@ def freeze_random_decoder(configuration: Dict[str, Any]) -> None:
 
 def remove_both_losses(configuration: Dict[str, Any]) -> None:
     """
-    Gives both losses a weight of 0, and sets a negative focusing parameter, a label smoothing of 1 and an unknown
-    class weighting.
+    Gives every loss of the regions a weight of 0 with a boundary loss alone, and sets a negative focusing parameter,
+    a label smoothing of 1, an unknown class weighting, a boundary weight given as a boolean and a negative boundary
+    distance.
 
     Args:
         configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
     """
-    configuration["SegmentationLoss"].update({"cross_entropy_weight": 0, "dice_weight": 0.0, "focal_gamma": -1.0,
+    configuration["SegmentationLoss"].update({"cross_entropy_weight": 0, "dice_weight": 0.0, "lovasz_weight": 0.0,
+                                              "boundary_weight": True, "boundary_distance": -1, "focal_gamma": -1.0,
                                               "label_smoothing": 1.0, "class_weighting": "inverse"})
+
+
+def set_invalid_deep_supervision(configuration: Dict[str, Any]) -> None:
+    """
+    Puts a deep supervision head on the finest decoder level, whose output is the final segmentation, and gives an
+    intermediate level a weight of 0.
+
+    Args:
+        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
+    """
+    configuration["SegmentationDecoder"]["deep_supervision_weights"] = {"1": 0.5, "3": 0}
+
+
+def set_invalid_tiling(configuration: Dict[str, Any]) -> None:
+    """
+    Turns the training on tiles on with a scale of 0 and an overlap as large as a tile.
+
+    Args:
+        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
+    """
+    configuration["Data"]["tiling"] = {"activated": True, "scale": 0, "overlap": 512}
 
 
 def set_invalid_segmentation_evaluation(configuration: Dict[str, Any]) -> None:
     """
-    Sets a negative number of sample images and the predicted masks setting as a quoted string.
+    Sets a negative number of sample images, the predicted masks setting as a quoted string, the original resolution
+    setting as a number and a boundary tolerance of 0.
 
     Args:
         configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
     """
     configuration["ExperimentConfiguration"]["evaluation"].update({"number_sample_images": -1,
-                                                                   "save_predicted_masks": "yes"})
+                                                                   "save_predicted_masks": "yes",
+                                                                   "original_resolution": 1, "boundary_tolerance": 0})
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
@@ -1278,15 +1390,28 @@ def set_invalid_segmentation_evaluation(configuration: Dict[str, Any]) -> None:
                              "'SegmentationDecoder.pretrained.experiment_folder' is null: only a transferred "
                              "segmentation decoder can be frozen.",
                              "'SegmentationDecoder.pretrained.learning_rate_multiplier' must be > 0, got 0."]),
-    (remove_both_losses, ["'SegmentationLoss.cross_entropy_weight' and 'SegmentationLoss.dice_weight' cannot both be "
-                          "0, the model would have no loss.",
+    (remove_both_losses, ["'SegmentationLoss.cross_entropy_weight', 'SegmentationLoss.dice_weight' and "
+                          "'SegmentationLoss.lovasz_weight' cannot all be 0, the regions would have no loss.",
+                          "'SegmentationLoss.boundary_weight' must be a number >= 0, got True.",
+                          "'SegmentationLoss.boundary_distance' must be an integer >= 0, got -1.",
                           "'SegmentationLoss.focal_gamma' must be a number >= 0, got -1.0.",
                           "'SegmentationLoss.label_smoothing' must be a number within [0, 1), got 1.0.",
                           "'SegmentationLoss.class_weighting' must be one of ['none', 'balanced'], got 'inverse'."]),
     (set_invalid_segmentation_evaluation, ["'ExperimentConfiguration.evaluation.number_sample_images' must be an "
                                            "integer >= 0, got -1.",
                                            "'ExperimentConfiguration.evaluation.save_predicted_masks' must be True or "
-                                           "False, got 'yes'."]),
+                                           "False, got 'yes'.",
+                                           "'ExperimentConfiguration.evaluation.original_resolution' must be True or "
+                                           "False, got 1.",
+                                           "'ExperimentConfiguration.evaluation.boundary_tolerance' must be an integer "
+                                           ">= 1, got 0."]),
+    (set_invalid_deep_supervision, ["'SegmentationDecoder.deep_supervision_weights' keys must be intermediate decoder "
+                                    "levels ['5', '4', '3', '2'] (the finest level gives the final segmentation), got "
+                                    "['1'].",
+                                    "'SegmentationDecoder.deep_supervision_weights.3' must be a number > 0, got 0."]),
+    (set_invalid_tiling, ["'Data.tiling.scale' must be a number > 0, got 0.",
+                          "'Data.tiling.overlap' must be smaller than the tile size 'Data.image_settings.size' (512), "
+                          "got 512."]),
     (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
                                       "got 'yes'."])])
 def test_inconsistent_segmentation_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,

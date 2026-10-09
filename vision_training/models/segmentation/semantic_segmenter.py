@@ -1,8 +1,9 @@
 """
 Model of the semantic segmentation task: SemanticSegmenter is a U-Net whose downsampling path is the shared Backbone,
-followed by the SegmentationDecoder and the segmentation head giving the logits of every class at every pixel, and
-returns the class logits, probabilities and losses. Registered in model_registry.py for the "semantic_segmentation"
-task and wrapped by inference_segmenter.py for the exports.
+followed by the SegmentationDecoder and the segmentation head giving the logits of every class at every pixel, with
+optional deep supervision heads on the intermediate decoder levels during the training, and returns the class logits,
+probabilities and losses. Registered in model_registry.py for the "semantic_segmentation" task and wrapped by
+inference_segmenter.py for the exports, which leave the deep supervision heads out.
 """
 
 import torch
@@ -12,10 +13,13 @@ from rich.panel import Panel
 from torch import nn
 from typing import Any, Dict, Optional
 
-from vision_training.losses.segmentation_losses import compute_dice_loss, compute_segmentation_cross_entropy
+from vision_training.losses.segmentation_losses import (compute_boundary_loss, compute_dice_loss,
+                                                        compute_lovasz_softmax_loss,
+                                                        compute_segmentation_cross_entropy)
 from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.segmentation.segmentation_decoder import SegmentationDecoder
 from vision_training.models.task_model import TaskModel
+from vision_training.utilities.mask_morphology import compute_edge_distance_weights
 
 
 class SemanticSegmenter(TaskModel):
@@ -24,11 +28,15 @@ class SemanticSegmenter(TaskModel):
     output of every block before its pooling being kept as a skip connection, the SegmentationDecoder brings the final
     feature map back to the input resolution through these skip connections, and the segmentation head (dropout and a
     1x1 convolution) gives the logits of every class, the background being class 0. The head is kept apart from the
-    decoder, so that a decoder transferred from another run can serve other classes.
+    decoder, so that a decoder transferred from another run can serve other classes. With deep supervision, a 1x1
+    convolution head on every level of 'SegmentationDecoder.deep_supervision_weights' gives class logits upsampled to
+    the input size, trained with the same losses times the weight of its level, so that the gradient reaches the early
+    layers more directly; these heads only serve the training and are left out of the predictions and the exports.
 
     Outputs: 'class_logits' [B, K, H, W], 'class_probabilities' [B, K, H, W] in evaluation mode only (the training
-    does not need the softmax of every pixel), and with masks the 'segmentation_loss' (weighted cross entropy) and
-    'dice_loss' of the losses whose weight is not 0.
+    does not need the softmax of every pixel), and with masks the 'segmentation_loss' (weighted cross entropy),
+    'dice_loss', 'lovasz_loss' and 'boundary_loss' of the losses whose weight is not 0, and the
+    'deep_supervision_loss' of the deep supervision heads.
     """
 
     def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
@@ -47,6 +55,7 @@ class SemanticSegmenter(TaskModel):
         self.device = device
         self.dtype = dtype
         self.decoder_configuration = configuration["SegmentationDecoder"]
+        self.deep_supervision_weights = self.decoder_configuration["deep_supervision_weights"]
         self.loss_configuration = configuration["SegmentationLoss"]
         self.number_classes = len(set(configuration["Data"]["label_dictionary"].values()))
 
@@ -68,6 +77,13 @@ class SemanticSegmenter(TaskModel):
             nn.Conv2d(in_channels=self.segmentation_decoder.output_channels, out_channels=self.number_classes,
                       kernel_size=1, device=device, dtype=dtype))
 
+        # Class logits of the intermediate decoder levels given a loss of their own, keyed by backbone block like the
+        # decoder levels (none without deep supervision)
+        self.deep_supervision_heads = nn.ModuleDict({
+            level_key: nn.Conv2d(in_channels=self.segmentation_decoder.convolution_blocks[level_key].output_channels,
+                                 out_channels=self.number_classes, kernel_size=1, device=device, dtype=dtype)
+            for level_key in self.deep_supervision_weights})
+
         # Weight of every class in the cross entropy, uniform unless the trainer sets the balanced weights of its
         # training split
         self.register_buffer(name="class_weights",
@@ -84,28 +100,88 @@ class SemanticSegmenter(TaskModel):
 
         Returns:
             Dict[str, Any]: The 'class_logits' [B, K, H, W], the 'class_probabilities' in evaluation mode, and with
-                masks the 'segmentation_loss' and 'dice_loss' whose weight is not 0.
+                masks the 'segmentation_loss', 'dice_loss', 'lovasz_loss' and 'boundary_loss' whose weight is not 0
+                and the 'deep_supervision_loss' with deep supervision heads.
         """
+        # The outputs of the intermediate decoder levels are only kept for the losses of the deep supervision heads
         final_feature_map, skip_tensors = self.backbone(input_tensor=input_tensor, return_pre_pooling_outputs=True)
-        decoded_feature_map = self.segmentation_decoder(bottleneck_tensor=final_feature_map,
-                                                        skip_tensors=skip_tensors)
+        level_outputs = {}
+        if masks is not None and len(self.deep_supervision_heads) > 0:
+            decoded_feature_map, level_outputs = self.segmentation_decoder(
+                bottleneck_tensor=final_feature_map, skip_tensors=skip_tensors, return_level_outputs=True)
+        else:
+            decoded_feature_map = self.segmentation_decoder(bottleneck_tensor=final_feature_map,
+                                                            skip_tensors=skip_tensors)
         class_logits = self.segmentation_head(decoded_feature_map)
 
         outputs = {"class_logits": class_logits}
         if not self.training:
             outputs["class_probabilities"] = torch.softmax(input=class_logits, dim=1)
+        if masks is None:
+            return outputs
 
-        # Losses of the masks, each multiplied by its weight and left out when its weight is 0
-        if masks is not None:
-            cross_entropy_weight = self.loss_configuration["cross_entropy_weight"]
-            dice_weight = self.loss_configuration["dice_weight"]
-            if cross_entropy_weight > 0:
-                outputs["segmentation_loss"] = cross_entropy_weight * compute_segmentation_cross_entropy(
-                    class_logits=class_logits, masks=masks, label_smoothing=self.loss_configuration["label_smoothing"],
-                    class_weights=self.class_weights, focal_gamma=self.loss_configuration["focal_gamma"])
-            if dice_weight > 0:
-                outputs["dice_loss"] = dice_weight * compute_dice_loss(class_logits=class_logits, masks=masks)
+        # Losses of the final logits, the closeness of every pixel to the true edges being computed once for all heads
+        edge_weights = None
+        if self.loss_configuration["boundary_weight"] > 0:
+            edge_weights = compute_edge_distance_weights(masks=masks,
+                                                         maximum_distance=self.loss_configuration["boundary_distance"])
+        outputs.update(self.compute_mask_losses(class_logits=class_logits, masks=masks, edge_weights=edge_weights))
+
+        # Same losses for the logits of every deep supervision head, upsampled to the input size and weighted by level
+        if len(self.deep_supervision_heads) > 0:
+            deep_supervision_loss = class_logits.new_zeros(size=(), dtype=torch.float32)
+            for level_key, supervision_head in self.deep_supervision_heads.items():
+                level_logits = torch.nn.functional.interpolate(input=supervision_head(level_outputs[level_key]),
+                                                               size=masks.shape[-2:], mode="bilinear",
+                                                               align_corners=False)
+                level_losses = self.compute_mask_losses(class_logits=level_logits, masks=masks,
+                                                        edge_weights=edge_weights)
+                deep_supervision_loss = deep_supervision_loss + self.deep_supervision_weights[level_key] * sum(
+                    level_losses.values())
+            outputs["deep_supervision_loss"] = deep_supervision_loss
         return outputs
+
+    def compute_mask_losses(self, class_logits: torch.Tensor, masks: torch.Tensor,
+                            edge_weights: Optional[torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Computes the losses of one set of class logits against the masks, for the final logits of the segmenter and
+        for those of every deep supervision head: the weighted cross entropy, the Dice loss, the Lovász-Softmax loss
+        and the boundary loss, each multiplied by its weight of the 'SegmentationLoss' section and left out when its
+        weight is 0.
+
+        Args:
+            class_logits (torch.Tensor): The [B, K, H, W] class logits at the resolution of the masks.
+            masks (torch.Tensor): The [B, H, W] int64 class index of every pixel, IGNORED_LABEL_INDEX on the ignored
+                ones.
+            edge_weights (Optional[torch.Tensor]): The [B, H, W] closeness of every pixel to the true edges
+                (compute_edge_distance_weights), None when the boundary loss is off.
+
+        Returns:
+            Dict[str, torch.Tensor]: The 'segmentation_loss', 'dice_loss', 'lovasz_loss' and 'boundary_loss' whose
+                weight is not 0.
+        """
+        losses = {}
+        cross_entropy_weight = self.loss_configuration["cross_entropy_weight"]
+        dice_weight = self.loss_configuration["dice_weight"]
+        lovasz_weight = self.loss_configuration["lovasz_weight"]
+        boundary_weight = self.loss_configuration["boundary_weight"]
+
+        # Losses of the regions: the weighted cross entropy, then the Dice and Lovász losses of their overlap
+        if cross_entropy_weight > 0:
+            losses["segmentation_loss"] = cross_entropy_weight * compute_segmentation_cross_entropy(
+                class_logits=class_logits, masks=masks, label_smoothing=self.loss_configuration["label_smoothing"],
+                class_weights=self.class_weights, focal_gamma=self.loss_configuration["focal_gamma"])
+        if dice_weight > 0:
+            losses["dice_loss"] = dice_weight * compute_dice_loss(class_logits=class_logits, masks=masks)
+        if lovasz_weight > 0:
+            losses["lovasz_loss"] = lovasz_weight * compute_lovasz_softmax_loss(class_logits=class_logits,
+                                                                                masks=masks)
+
+        # Loss of the contours, the errors weighted by their closeness to the true edges
+        if boundary_weight > 0:
+            losses["boundary_loss"] = boundary_weight * compute_boundary_loss(class_logits=class_logits, masks=masks,
+                                                                              edge_weights=edge_weights)
+        return losses
 
     def print_summary(self) -> None:
         """
@@ -137,15 +213,26 @@ class SemanticSegmenter(TaskModel):
         summary_text += (f"[bold]Head Dropout Rate[/bold] : {self.decoder_configuration['dropout_rate']}\n"
                          f"[bold]Class Logits[/bold]      : {input_image_size}x{input_image_size}x"
                          f"{self.number_classes}")
+
+        # Training-only heads of the intermediate levels, with the weight of their losses
+        if len(self.deep_supervision_heads) > 0:
+            summary_text += "\n[bold]Deep Supervision[/bold]  : " + ", ".join(
+                f"level of block {level_key} x {level_weight:g}"
+                for level_key, level_weight in self.deep_supervision_weights.items())
         Console(width=80).print(Panel(summary_text, title="[bold]Segmentation Decoder And Head[/bold]",
                                       border_style="green"))
 
     def get_size_components(self) -> Dict[str, nn.Module]:
         """
-        Lists the backbone, the decoder, the segmentation head and the whole segmenter for the model size summary.
+        Lists the backbone, the decoder, the segmentation head, the deep supervision heads when there are some and
+        the whole segmenter for the model size summary.
 
         Returns:
             Dict[str, nn.Module]: The display name and module of every component.
         """
-        return {"Backbone": self.backbone, "Segmentation Decoder": self.segmentation_decoder,
-                "Segmentation Head": self.segmentation_head, "Total Model": self}
+        size_components = {"Backbone": self.backbone, "Segmentation Decoder": self.segmentation_decoder,
+                           "Segmentation Head": self.segmentation_head}
+        if len(self.deep_supervision_heads) > 0:
+            size_components["Deep Supervision Heads"] = self.deep_supervision_heads
+        size_components["Total Model"] = self
+        return size_components

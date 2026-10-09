@@ -16,8 +16,10 @@ class InferenceSegmenter(nn.Module):
     """
     Inference-only version of the trained semantic segmenter, used for deployment (TorchScript and ONNX exports served
     by Triton) and for local inference: it returns the class index of every pixel of a batch of preprocessed images,
-    with the probabilities of every class, without masks nor losses. Both are at the network input resolution,
-    restore_mask_to_original_image of deployment_utilities.py bringing a class map back to its original image.
+    with the probabilities of every class, without masks nor losses, the deep supervision heads of the training
+    being never run. Both are at the network input resolution, restore_prediction_to_original_image of
+    vision_training/data/preprocessing.py bringing them back to their original image; a run trained on tiles
+    ('Data.tiling') segments its scaled images tile by tile with segment_image_by_tiles of sliding_window.py.
     """
 
     def __init__(self, model: SemanticSegmenter) -> None:

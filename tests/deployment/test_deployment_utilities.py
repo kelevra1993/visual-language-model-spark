@@ -1,7 +1,7 @@
 """
 Tests of the Triton deployment client of vision_training/deployment/deployment_utilities.py, with a recording stand-in
-for the gRPC client: the requests built for every task, the frame windows cycling through the inference folder, the
-inputs written in shared memory at their offsets, and the segmentation class maps restored to their original images.
+for the gRPC client: the requests built for every task, the frame windows cycling through the inference folder, and the
+inputs written in shared memory at their offsets.
 """
 
 import json
@@ -16,9 +16,8 @@ import yaml
 from pathlib import Path
 from typing import Dict, List
 
-from vision_training.data.preprocessing import preprocess_image
 from vision_training.deployment.deployment_utilities import (build_frame_window, load_inference_inputs,
-                                                             restore_mask_to_original_image, run_triton_inference)
+                                                             run_triton_inference)
 
 CONFIGURATIONS_FOLDER = Path(__file__).parents[2] / "vision_training" / "configurations"
 
@@ -26,7 +25,8 @@ CONFIGURATIONS_FOLDER = Path(__file__).parents[2] / "vision_training" / "configu
 TASK_CONFIGURATION_FILES = {"classification": "classification/configuration_synthetic_shapes.yaml",
                             "semantic_segmentation": "semantic_segmentation/configuration_synthetic_shapes.yaml",
                             "sequence_classification": "sequence_classification/configuration_synthetic_sequences.yaml",
-                            "sequence_comparison": "sequence_comparison/configuration_synthetic_pairs.yaml"}
+                            "sequence_comparison": "sequence_comparison/configuration_synthetic_pairs.yaml",
+                            "frame_selection": "frame_selection/configuration_synthetic_sequences.yaml"}
 
 # Side of the network input of the test experiments, number of frames of their windows, and number of images of the
 # inference folder, the image of index i being filled with the value 10 * (i + 1)
@@ -107,7 +107,7 @@ def write_test_experiment(experiment_folder: Path, task: str) -> None:
 
 @pytest.mark.parametrize(argnames=("task", "expected_images"), argvalues=[
     ("classification", {"images": [2]}), ("semantic_segmentation", {"images": [2]}),
-    ("sequence_classification", {"images": [2, 3, 4, 0]}),
+    ("sequence_classification", {"images": [2, 3, 4, 0]}), ("frame_selection", {"images": [2, 3, 4, 0]}),
     ("sequence_comparison", {"before_images": [2, 3, 4, 0], "after_images": [1, 2, 3, 4]})])
 def test_requests_hold_the_inputs_of_the_task(tmp_path: Path, task: str,
                                               expected_images: Dict[str, List[int]]) -> None:
@@ -199,25 +199,3 @@ def test_triton_requests_write_every_input_at_its_offset() -> None:
                          output_names=["class_probabilities"], shared_memory_handle=None, region_name=None)
     assert [recorded_input.name() for recorded_input in client.recorded_inputs[1]] == ["before_images",
                                                                                       "after_images"]
-
-
-@pytest.mark.parametrize(argnames="keep_ratio", argvalues=[True, False])
-def test_class_map_is_restored_to_the_original_image(keep_ratio: bool) -> None:
-    """
-    Verifies that a class map at the network resolution is brought back exactly to its original image when the
-    resizing factors are whole numbers: the centred padding of the kept aspect ratio is cut off, and the nearest
-    resizing undoes the nearest resizing of the preprocessing.
-
-    Args:
-        keep_ratio (bool): Whether the image was padded to keep its aspect ratio, or stretched.
-    """
-    original_class_map = np.random.default_rng(seed=0).integers(low=0, high=5, size=(16, 8)).astype(np.int64)
-    network_class_map = preprocess_image(image=original_class_map.astype(np.uint8), image_size=32,
-                                         keep_ratio=keep_ratio, interpolation=cv2.INTER_NEAREST,
-                                         padding_value=255).astype(np.int64)
-
-    restored_class_map = restore_mask_to_original_image(class_map=network_class_map, original_height=16,
-                                                        original_width=8, keep_ratio=keep_ratio)
-    assert restored_class_map.dtype == np.int64
-    assert np.array_equal(restored_class_map, original_class_map)
-

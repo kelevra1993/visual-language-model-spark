@@ -66,22 +66,28 @@ def test_metrics_without_labelled_pixel_are_zero() -> None:
 def test_class_rows_table_and_scalars_leave_out_the_absent_classes() -> None:
     """
     Verifies the per-class report: the rows of class_metrics.csv in class index order, a class without true pixels
-    having no metric, the table sorted by IoU with its legend, and the per-class scalars of the present classes only.
+    having no metric and a class without true edge no boundary metric, the table sorted by IoU with its legend, and
+    the per-class scalars of the metrics the classes have.
     """
     metrics = compute_segmentation_metrics(confusion_matrix=torch.tensor(data=[[7, 0, 1], [1, 3, 0], [0, 0, 0]]))
+    metrics.update({"boundary_iou": [0.5, None, None], "boundary_f1": [0.6, None, None]})
     class_rows = build_segmentation_class_rows(class_names=["background", "circle", "square"], metrics=metrics)
 
     assert [list(class_row) for class_row in class_rows] == [["class_index", "class", "pixels", "iou", "dice",
-                                                              "precision", "recall"]] * 3
+                                                              "boundary_iou", "boundary_f1", "precision",
+                                                              "recall"]] * 3
     assert [class_row["pixels"] for class_row in class_rows] == [8, 4, 0]
-    assert class_rows[1]["iou"] == pytest.approx(expected=0.75)
-    assert [class_rows[2][metric_key] for metric_key in ["iou", "dice", "precision", "recall"]] == [None] * 4
+    assert class_rows[1]["iou"] == pytest.approx(expected=0.75) and class_rows[1]["boundary_iou"] is None
+    assert [class_rows[2][metric_key] for metric_key in ["iou", "dice", "boundary_iou", "boundary_f1", "precision",
+                                                         "recall"]] == [None] * 6
 
     table = build_segmentation_class_table(class_rows=class_rows)
-    assert table["columns"] == ["Class", "Pixels", "IoU", "Dice", "Precision", "Recall"]
+    assert table["columns"] == ["Class", "Pixels", "IoU", "Dice", "Boundary IoU", "Boundary F1", "Precision", "Recall"]
     assert table["sort_column"] == "IoU" and table["per_class"]
-    assert table["rows"][2] == ["square", 0, None, None, None, None]
+    assert table["rows"][2] == ["square", 0, None, None, None, None, None, None]
 
     class_scalars = build_segmentation_class_scalars(class_rows=class_rows)
-    assert sorted(class_scalars) == sorted(f"{metric_name}/{class_name}" for class_name in ["background", "circle"]
-                                           for metric_name in ["IoU", "Dice", "Precision", "Recall"])
+    assert sorted(class_scalars) == sorted(
+        [f"{metric_name}/{class_name}" for class_name in ["background", "circle"]
+         for metric_name in ["IoU", "Dice", "Precision", "Recall"]] + ["Boundary IoU/background",
+                                                                       "Boundary F1/background"])

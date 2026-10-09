@@ -12,7 +12,8 @@ NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN", "sequence": "
 
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
 TASK_CODES = {"object_detection": "DET", "classification": "CLS", "sequence_classification": "M2O",
-              "sequence_labelling": "M2M", "sequence_comparison": "CMP", "semantic_segmentation": "SEG"}
+              "sequence_labelling": "M2M", "sequence_comparison": "CMP", "semantic_segmentation": "SEG",
+              "frame_selection": "SEL"}
 
 # Run name code of every temporal module type of the sequence tasks
 TEMPORAL_TYPE_CODES = {"mean_pooling": "MEAN", "max_pooling": "MAX", "attention_pooling": "ATT", "gru": "GRU",
@@ -299,9 +300,10 @@ def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the tokens of the run name describing the temporal module of the sequence models: MEAN, MAX, ATT<hidden
     size>, GRU or LSTM<layers>x<hidden size> with BI when bidirectional, TRF<layers>x<hidden size>.<heads> or
-    TCN<layers>x<hidden size>.<kernel size> with CAU when causal, and TPT, TFRZ or TLR<multiplier> when the module is
-    initialised by the one of another run (see build_pretrained_tokens), e.g. 'GRU2x256-BI'. The dropout gives no
-    token, so that it can change between two resumptions of a run.
+    TCN<layers>x<hidden size>.<kernel size> with CAU when causal, NPE for a transformer without positional embedding,
+    and TPT, TFRZ or TLR<multiplier> when the module is initialised by the one of another run (see
+    build_pretrained_tokens), e.g. 'GRU2x256-BI'. The dropout gives no token, so that it can change between two
+    resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -327,6 +329,10 @@ def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
         temporal_tokens = [f"{temporal_code}{layers_and_size}.{type_parameter}"] + (
             ["CAU"] if temporal_configuration["causal"] else [])
 
+        # Transformer treating a window as a set of frames, whose weights hold no positional embedding
+        if temporal_type == "transformer" and not temporal_configuration["positional_embedding"]:
+            temporal_tokens.append("NPE")
+
     # Temporal module transferred from another run, frozen or learning at its own speed
     temporal_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="TemporalModel")
     return temporal_tokens
@@ -347,6 +353,26 @@ def build_sequence_sections(model_configuration: Dict[str, Any]) -> List[List[st
     return ([build_window_tokens(model_configuration=model_configuration),
              build_temporal_tokens(model_configuration=model_configuration)] +
             build_classification_sections(model_configuration=model_configuration))
+
+
+def build_frame_selection_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
+    """
+    Builds the sections of the run name specific to the frame selection task: the sections of the sequence tasks
+    (build_sequence_sections), then the selection section FPC<frames per class>, followed by SLW<weight> when the
+    selection loss is used, e.g. 'T40_GRU1x128_HAVG.64_MC4_FPC1-SLW1'. The decoding gives no token: both decodings
+    are scored at every evaluation, and it only chooses the one drawn in the images and deployed.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
+
+    Returns:
+        List[List[str]]: The tokens of every section.
+    """
+    selection_configuration = model_configuration["Selection"]
+    selection_tokens = [f"FPC{selection_configuration['frames_per_class']}"]
+    if selection_configuration["selection_loss_weight"] > 0:
+        selection_tokens.append(f"SLW{selection_configuration['selection_loss_weight']:g}")
+    return build_sequence_sections(model_configuration=model_configuration) + [selection_tokens]
 
 
 def build_fusion_tokens(model_configuration: Dict[str, Any]) -> List[str]:
@@ -398,12 +424,14 @@ def build_sequence_comparison_sections(model_configuration: Dict[str, Any]) -> L
 
 def build_segmentation_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
     """
-    Builds the sections of the run name specific to the semantic segmentation task: the decoder (UTC or UBL for the
-    transposed convolution or bilinear upsampling, the modules DSE and DRES, the normalization DBN, DLN or DNN, then
-    D<layers>x<channels> of every level from the deepest one to the input resolution, and DPT, DFRZ or DLR<multiplier>
-    when the decoder is initialised by the one of another run, see build_pretrained_tokens), then the classes (BIN or
-    MC<foreground classes>), e.g. 'UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC4'. The dropout of the segmentation head and
-    the 'SegmentationLoss' settings give no token, so that they can change between two resumptions of a run.
+    Builds the sections of the run name specific to the semantic segmentation task: TL<scale> when the run trains on
+    tiles of the images scaled by <scale>, the decoder (UTC or UBL for the transposed convolution or bilinear
+    upsampling, the modules DSE and DRES, the normalization DBN, DLN or DNN, then D<layers>x<channels> of every level
+    from the deepest one to the input resolution, AUX<levels> for the deep supervision heads of these levels, and DPT,
+    DFRZ or DLR<multiplier> when the decoder is initialised by the one of another run, see build_pretrained_tokens),
+    then the classes (BIN or MC<foreground classes>), e.g. 'UTC-DBN-D2x64.2x64.2x32.2x32.1x16-AUX5.4_MC4'. The dropout
+    of the segmentation head, the weights of the deep supervision losses, the overlap of the evaluation tiles and the
+    'SegmentationLoss' settings give no token, so that they can change between two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -426,6 +454,11 @@ def build_segmentation_sections(model_configuration: Dict[str, Any]) -> List[Lis
     convolutions = decoder_configuration["convolutions"]
     decoder_tokens.append("D" + ".".join(f"{convolutions[level][0]}x{convolutions[level][1]}"
                                          for level in sorted(convolutions, key=int, reverse=True)))
+
+    # Levels holding a deep supervision head, whose weights are part of the model, from the deepest one
+    deep_supervision_weights = decoder_configuration["deep_supervision_weights"]
+    if deep_supervision_weights:
+        decoder_tokens.append("AUX" + ".".join(sorted(deep_supervision_weights, key=int, reverse=True)))
     decoder_tokens += build_pretrained_tokens(model_configuration=model_configuration,
                                               section_name="SegmentationDecoder")
 
@@ -435,14 +468,18 @@ def build_segmentation_sections(model_configuration: Dict[str, Any]) -> List[Lis
     else:
         classes_token = f"MC{len(set(data_configuration['label_dictionary'].values())) - 1}"
 
-    return [decoder_tokens, [classes_token]]
+    # Training on tiles of the scaled images, which changes what the network learns from
+    tiling_configuration = data_configuration["tiling"]
+    tiling_sections = [[f"TL{tiling_configuration['scale']:g}"]] if tiling_configuration["activated"] else []
+    return tiling_sections + [decoder_tokens, [classes_token]]
 
 
 # Builder of the task-specific sections of the run name, placed between the backbone and training sections
 TASK_RUN_NAME_SECTIONS: Dict[str, Callable[[Dict[str, Any]], List[List[str]]]] = {
     "object_detection": build_detection_sections, "classification": build_classification_sections,
     "sequence_classification": build_sequence_sections, "sequence_labelling": build_sequence_sections,
-    "sequence_comparison": build_sequence_comparison_sections, "semantic_segmentation": build_segmentation_sections}
+    "sequence_comparison": build_sequence_comparison_sections, "semantic_segmentation": build_segmentation_sections,
+    "frame_selection": build_frame_selection_sections}
 
 
 def build_run_name(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> str:
@@ -456,7 +493,7 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
 
     The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
     is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
-    DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, CLS, M2O, M2M, CMP or SEG), the
+    DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, CLS, M2O, M2M, CMP, SEG or SEL), the
     input and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the sections of the
     task (e.g. build_detection_sections), then the optimizer section (build_optimizer_tokens), left out when empty.
 
