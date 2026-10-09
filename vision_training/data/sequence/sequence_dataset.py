@@ -287,7 +287,8 @@ class SequenceDataset(Dataset):
             for window_start in window_starts:
                 window_end = window_start + self.sequence_length
                 self.windows.append({"identifier": len(self.windows), "sequence_identifier": sequence["id"],
-                                     "sequence_name": sequence["name"], "frames": frames[window_start:window_end],
+                                     "sequence_name": sequence["name"], "window_start": window_start,
+                                     "frames": frames[window_start:window_end],
                                      "frame_labels": frame_labels[window_start:window_end]})
         # Every sequence of the frame selection must be valid, all the invalid ones being listed at once
         if invalid_sequences:
@@ -394,6 +395,20 @@ class SequenceDataset(Dataset):
             List[str]: The paths of the real frames of the window relative to the 'data' folder.
         """
         return self.window_records[sample_identifier]["frames"]
+
+    def get_window_start(self, sample_identifier: int) -> int:
+        """
+        Gives the index in its sequence of the first frame of an evaluated window, so that the sequence labelling
+        evaluation can merge the predictions of the windows of a sequence back into the whole sequence for its segment
+        metrics.
+
+        Args:
+            sample_identifier (int): The identifier of the window, as given in the 'sample_identifiers' of a batch.
+
+        Returns:
+            int: The index of the first frame of the window in its sequence.
+        """
+        return self.window_records[sample_identifier]["window_start"]
 
     def get_sample_class_indices(self) -> Dict[int, List[int]]:
         """

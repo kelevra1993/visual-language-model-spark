@@ -1,6 +1,7 @@
 """
 Smoke test of SequenceLabellingTrainer of vision_training/trainers/sequence_labelling_trainer.py on synthetic sequences:
-training saves, evaluates and resumes, with the predictions file, error images and sample images checked.
+training saves, evaluates and resumes, with the segment metrics of the whole sequences, predictions file, error images
+and sample images checked.
 """
 
 import pytest
@@ -90,9 +91,10 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     """
     Verifies the sequence labelling training pipeline on a generated synthetic changing shapes dataset: 5 iterations
     save the intermediate, evaluated and final checkpoints, the evaluation of the labelled frames of the test windows
-    is reported in Results.txt with the sequence exact match and the labelled frames of every class, its per-class
-    metrics, confusion matrix and class thresholds files, and a second run with the same settings resumes from the
-    last checkpoint with exactly its weights. No training step may fail silently.
+    is reported in Results.txt with the sequence exact match, the segment metrics of the 3 whole test sequences
+    rebuilt from their windows and the labelled frames of every class, its per-class metrics, confusion matrix and
+    class thresholds files, and a second run with the same settings resumes from the last checkpoint with exactly its
+    weights. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -121,6 +123,10 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
         (4, "6 Test Sequences, 24 Labelled Frames")]
     assert "Accuracy" in results["metrics"] and "Sequence Exact Match" in results["metrics"]
+    segment_metric_names = ["Edit Score", "Segment F1@10", "Segment F1@25", "Segment F1@50"]
+    assert list(results["metrics"])[-4:] == segment_metric_names
+    assert all(0.0 <= results["metrics"][metric_name] <= 1.0 for metric_name in segment_metric_names)
+    assert results["notes"][0].startswith("Segments : ") and " in 3 whole test sequences" in results["notes"][0]
     assert results["tables"][0]["columns"][1] == "Frames"
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [

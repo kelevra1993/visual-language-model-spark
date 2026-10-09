@@ -78,7 +78,7 @@ def test_sequence_windows_with_one_class_per_sequence(tmp_path: Path, capsys: py
     Verifies the many to one dataset: every sequence is cut into windows carrying its class, a short sequence gives
     one window padded with black frames marked by the sequence mask, the sequences of unmapped categories are left out
     with a warning, the class counts count windows, every window has the class of its sequence, and a window is named
-    by its sequence and its real frames from its identifier.
+    by its sequence, its real frames and its first frame in the sequence from its identifier.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -111,9 +111,11 @@ def test_sequence_windows_with_one_class_per_sequence(tmp_path: Path, capsys: py
     assert short_window["images"][:, 0, 8, 8].tolist() == [1, 2, 0, 0]
     assert int(short_window["labels"]) == 1
 
-    # Every window is named by its sequence and its first and last real frames
+    # Every window is named by its sequence and its first and last real frames, and placed in its sequence
     assert dataset.describe_sample(sample_identifier=second_window["sample_identifiers"]) == {
         "sequence": "long", "first_frame": "long/000004.png", "last_frame": "long/000007.png"}
+    assert [dataset.get_window_start(sample_identifier=window["sample_identifiers"])
+            for window in [first_window, second_window, short_window]] == [0, 4, 0]
     assert dataset.get_window_frame_names(sample_identifier=short_window["sample_identifiers"]) == [
         "short/000000.png", "short/000001.png"]
 

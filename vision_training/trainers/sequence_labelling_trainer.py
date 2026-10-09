@@ -1,8 +1,9 @@
 """
 Trainer of the sequence labelling task (M2M): one class per frame of the windows, the accuracy and the evaluation of
 the checkpoints counting only the labelled frames (frame metrics, error frames, predictions file and the share of fully
-correct windows) with the sample images captioned frame by frame, the loaders being those of the sequence
-classification trainer. Registered in the task registry.
+correct windows), plus the segment metrics of the whole test sequences rebuilt from their windows (edit score and
+segment F1), with the sample images captioned frame by frame, the loaders being those of the sequence classification
+trainer. Registered in the task registry.
 """
 
 import cv2
@@ -12,6 +13,7 @@ import torch
 from typing import Any, Dict, List, Optional
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX, SAMPLE_IDENTIFIERS_KEY
+from vision_training.evaluation.sequence.segment_metrics import compute_segment_metrics, merge_window_predictions
 from vision_training.evaluation.sequence.sequence_metrics import compute_frame_accuracy, compute_sequence_exact_matches
 from vision_training.trainers.sequence_classification_trainer import FRAME_GRID_COLUMNS, SequenceClassificationTrainer
 from vision_training.utilities.visualization import (CORRECT_PREDICTION_COLOUR, WRONG_PREDICTION_COLOUR,
@@ -25,7 +27,8 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
     labelled frames (not the padding frames nor the frames of unmapped categories), and every evaluated checkpoint is
     scored on the labelled frames of the test windows with the classification metrics (frame accuracy, per-class
     precision, recall and F1, confusion matrix, class thresholds), plus the share of windows whose every labelled
-    frame is right.
+    frame is right, and on the whole test sequences rebuilt from their windows with the segment metrics (edit score,
+    segment F1 at 10, 25 and 50 % overlap).
     """
 
     TASK_NAME = "sequence_labelling"
@@ -267,17 +270,81 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
 
     def compute_extra_headline_metrics(self, accumulator: Dict[str, Any]) -> Dict[str, float]:
         """
-        Computes the share of test windows whose every labelled frame is right, reported with the frame metrics.
+        Computes the share of test windows whose every labelled frame is right and the segment metrics of the whole
+        test sequences, reported with the frame metrics.
 
         Args:
             accumulator (Dict[str, Any]): The accumulated predictions and labels of the test split.
 
         Returns:
-            Dict[str, float]: The 'Sequence Exact Match' of the test windows.
+            Dict[str, float]: The 'Sequence Exact Match' of the test windows, and the 'Edit Score' and the
+                'Segment F1@<overlap>' of the test sequences.
         """
         exact_matches = torch.cat(tensors=accumulator["exact_matches"], dim=0)
-        return {"Sequence Exact Match": float(exact_matches.to(dtype=torch.float64).mean()) if len(exact_matches)
-                else 0.0}
+        extra_metrics = {"Sequence Exact Match": float(exact_matches.to(dtype=torch.float64).mean())
+                         if len(exact_matches) else 0.0}
+
+        # Segment metrics of the whole sequences, the F1 being named after the overlap in percent
+        segment_results = self.compute_segment_results(accumulator=accumulator)
+        extra_metrics["Edit Score"] = segment_results["edit_score"]
+        extra_metrics.update({f"Segment F1@{round(overlap_threshold * 100)}": segment_f1
+                              for overlap_threshold, segment_f1 in segment_results["segment_f1"].items()})
+        return extra_metrics
+
+    def describe_extra_notes(self, accumulator: Dict[str, Any]) -> List[str]:
+        """
+        Counts the whole test sequences and their true and predicted segments behind the segment metrics, the windows
+        being merged back into their sequences.
+
+        Args:
+            accumulator (Dict[str, Any]): The accumulated predictions and labels of the test split.
+
+        Returns:
+            List[str]: The note of the segments.
+        """
+        segment_results = self.compute_segment_results(accumulator=accumulator)
+        return [f"Segments : {segment_results['number_true_segments']} true and "
+                f"{segment_results['number_predicted_segments']} predicted in {segment_results['number_sequences']} "
+                f"whole test sequences, their windows being merged and an unlabelled frame ending a segment"]
+
+    def compute_segment_results(self, accumulator: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Computes once per evaluation the segment metrics of the test sequences, read by the headline metrics and the
+        notes of the report: every labelled frame is placed in its sequence from the start of its window, the windows
+        of a sequence are merged, then the segments of every sequence are scored.
+
+        Args:
+            accumulator (Dict[str, Any]): The accumulated predictions and labels of the test split, which keeps the
+                results under 'segment_results'.
+
+        Returns:
+            Dict[str, Any]: The segment metrics and counts of compute_segment_metrics.
+        """
+        if "segment_results" in accumulator:
+            return accumulator["segment_results"]
+        test_dataset = self.test_dataloader.dataset
+        window_identifiers = torch.cat(tensors=accumulator["frame_window_identifiers"], dim=0)
+
+        # Sequence index and first frame of every evaluated window, the sequences being numbered by name
+        sequence_numbers, window_sequence_indices, window_starts = {}, {}, {}
+        for window_identifier in torch.unique(input=window_identifiers).tolist():
+            sequence_name = test_dataset.describe_sample(sample_identifier=window_identifier)["sequence"]
+            window_sequence_indices[window_identifier] = sequence_numbers.setdefault(sequence_name,
+                                                                                     len(sequence_numbers))
+            window_starts[window_identifier] = test_dataset.get_window_start(sample_identifier=window_identifier)
+
+        # Sequence and position in it of every labelled frame, then the whole sequences scored
+        frame_window_identifiers = window_identifiers.tolist()
+        sequences = merge_window_predictions(
+            sequence_indices=torch.tensor(data=[window_sequence_indices[window_identifier]
+                                                for window_identifier in frame_window_identifiers]),
+            frame_indices=torch.tensor(data=[window_starts[window_identifier]
+                                             for window_identifier in frame_window_identifiers]) +
+            torch.cat(tensors=accumulator["frame_positions"], dim=0),
+            probabilities=torch.cat(tensors=accumulator["probabilities"], dim=0),
+            labels=torch.cat(tensors=accumulator["labels"], dim=0))
+        accumulator["segment_results"] = compute_segment_metrics(sequences=sequences)
+        return accumulator["segment_results"]
 
     def get_frame_captions(self, label: torch.Tensor, sequence_mask: torch.Tensor) -> Optional[List[str]]:
         """

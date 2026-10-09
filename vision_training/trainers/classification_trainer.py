@@ -401,6 +401,20 @@ class ClassificationTrainer(BaseTrainer):
         """
         return {}
 
+    def describe_extra_notes(self, accumulator: Dict[str, Any]) -> List[str]:
+        """
+        Gives the notes of the task printed in the report before the note of the error images, none for the
+        classification task. The sequence labelling trainer overrides it to count the sequences and segments of its
+        segment metrics.
+
+        Args:
+            accumulator (Dict[str, Any]): The accumulated predictions and labels of the test split.
+
+        Returns:
+            List[str]: The extra notes.
+        """
+        return []
+
     def describe_prediction(self, probabilities: torch.Tensor, label: torch.Tensor) -> Dict[str, Any]:
         """
         Describes the prediction of one evaluated sample (or frame) in the predictions file: its true and predicted
@@ -557,8 +571,8 @@ class ClassificationTrainer(BaseTrainer):
             files["Predictions"] = self.write_predictions_file(accumulator=accumulator,
                                                                evaluation_folder=evaluation_folder)
 
-        # Number of error images, and their folder when some were saved
-        notes = []
+        # Notes of the task, then the number of error images and their folder when some were saved
+        notes = self.describe_extra_notes(accumulator=accumulator)
         if self.error_dumps_configuration["activated"]:
             error_counts = accumulator["error_counts"]
             notes.append(f"Error Images : {sum(error_counts.values())} in {len(error_counts)} class pairs, at most "
