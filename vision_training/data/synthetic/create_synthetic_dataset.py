@@ -1,6 +1,6 @@
 """
-Creates the synthetic shapes datasets of every task (object detection, classification, semantic segmentation,
-sequence classification, sequence labelling, sequence comparison, frame selection) with their labels and
+Creates the synthetic shapes datasets of every task (object detection, instance segmentation, classification, semantic
+segmentation, sequence classification, sequence labelling, sequence comparison, frame selection) with their labels and
 'label_mapping.json': trivial datasets used by the synthetic configurations and the trainer tests to check that a model
 learns. Run as a script with the task set in its main block.
 """
@@ -13,6 +13,7 @@ import numpy as np
 from multiprocessing import Pool
 from typing import Any, Dict, List, Optional, Tuple
 
+from vision_training.data.detection.coco_masks import encode_run_length_encoding
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
 from vision_training.utilities.os_utilities import print_color
 
@@ -83,22 +84,28 @@ MINIMUM_SEQUENCE_FRAMES = 2
 MINIMUM_OBJECT_GAP = 2
 MAXIMUM_FRAME_ATTEMPTS = 20
 
+# Instance segmentation: an object with fewer visible pixels than this, mostly covered by later objects, is left out of
+# the labels
+MINIMUM_VISIBLE_OBJECT_PIXELS = 64
+
 # Categories of the synthetic dataset of every task, and the tasks whose samples are sequences of frames (one sequence,
 # or a pair of sequences)
-TASK_CATEGORIES = {"object_detection": SHAPE_CATEGORIES, "classification": SHAPE_CATEGORIES,
+TASK_CATEGORIES = {"object_detection": SHAPE_CATEGORIES, "instance_segmentation": SHAPE_CATEGORIES,
+                   "classification": SHAPE_CATEGORIES,
                    "semantic_segmentation": SHAPE_CATEGORIES, "sequence_classification": MOVEMENT_CATEGORIES,
                    "sequence_labelling": SHAPE_CATEGORIES, "sequence_comparison": PAIR_CATEGORIES,
                    "frame_selection": SELECTION_CATEGORIES}
 
 # Tasks whose model predicts a background class at index 0, so that the category identifiers numbered from 1 are their
 # class indices; the other tasks predict their categories from class index 0
-TASKS_WITH_BACKGROUND_CLASS = ["object_detection", "semantic_segmentation"]
+TASKS_WITH_BACKGROUND_CLASS = ["object_detection", "instance_segmentation", "semantic_segmentation"]
 SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison", "frame_selection"]
 
 # Key of the samples in the manifest of every sequence task, and name of the samples of every task in the console
 TASK_MANIFEST_KEYS = {"sequence_classification": "sequences", "sequence_labelling": "sequences",
                       "sequence_comparison": "pairs", "frame_selection": "sequences"}
-TASK_SAMPLE_NAMES = {"object_detection": "images", "classification": "images", "semantic_segmentation": "images",
+TASK_SAMPLE_NAMES = {"object_detection": "images", "instance_segmentation": "images", "classification": "images",
+                     "semantic_segmentation": "images",
                      "sequence_classification": "sequences", "sequence_labelling": "sequences",
                      "sequence_comparison": "pairs", "frame_selection": "sequences"}
 
@@ -417,14 +424,16 @@ def draw_shape_descriptor(minimum_size: int, maximum_size: int, background_colou
 
 def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxes: List[List[int]],
                 maximum_intersection_over_union: float, minimum_gap: int, random_generator: np.random.Generator,
-                class_map: Optional[np.ndarray]) -> Optional[List[int]]:
+                class_map: Optional[np.ndarray], instance_map: Optional[np.ndarray] = None) -> Optional[List[int]]:
     """
     Pastes a synthetic object at a random position of an image where it overlaps every object already placed by at
     most 'maximum_intersection_over_union', its box being grown by 'minimum_gap' pixels on every side for that test,
     trying up to 50 positions. Shared by the detection and segmentation images, which tolerate some overlap between
     objects, and the frames of the comparison pairs, whose objects must not touch so that every object stays
     countable. For the segmentation images, the category of the object is painted at the same pixels of the class map,
-    so that a later object covering an earlier one covers it in the class map too.
+    so that a later object covering an earlier one covers it in the class map too, and for the instance segmentation
+    images its index (one more than the number of placed boxes) at the same pixels of the instance map, which then
+    gives the visible part of every object.
 
     Args:
         image (np.ndarray): The [H, W, 3] uint8 BGR image drawn in place.
@@ -435,6 +444,8 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
         random_generator (np.random.Generator): The random generator of the positions.
         class_map (Optional[np.ndarray]): The [H, W] uint8 category identifier of every pixel, painted in place, or
             None for the tasks without masks.
+        instance_map (Optional[np.ndarray]): The [H, W] uint16 object index of every pixel (0 for the background),
+            painted in place, or None for the tasks without instance masks. Defaults to None.
 
     Returns:
         Optional[List[int]]: The tight [x1, y1, x2, y2] box of the pasted object, or None when no position fits.
@@ -456,17 +467,19 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
             if class_map is not None:
                 class_map[top:top + canvas_height, left:left + canvas_width][mask > 0] = SHAPE_CATEGORIES[
                     shape_descriptor["shape_name"]]
+            if instance_map is not None:
+                instance_map[top:top + canvas_height, left:left + canvas_width][mask > 0] = len(placed_boxes) + 1
             return box
     return None
 
 
 def generate_image(image_size: int, maximum_objects: int, random_generator: np.random.Generator) -> Tuple[
-        np.ndarray, List[Tuple[int, List[int]]], np.ndarray]:
+        np.ndarray, List[Tuple[int, List[int]]], np.ndarray, np.ndarray]:
     """
     Generates one synthetic detection or segmentation image: a random-colour or black background with 1 to
     'maximum_objects' shapes (squares, circles, triangles, rectangles, pentagons, hexagons, plus signs, stars,
     octagons) of random colours, sizes from 32 pixels to a third of the image side, overlapping each other by at most
-    an intersection over union of 0.3, with the class map of its pixels.
+    an intersection over union of 0.3, with the class map and the instance map of its pixels.
 
     Args:
         image_size (int): The height and width of the square image in pixels.
@@ -474,13 +487,15 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
         random_generator (np.random.Generator): The random generator of the image.
 
     Returns:
-        Tuple[np.ndarray, List[Tuple[int, List[int]]], np.ndarray]: The [H, W, 3] uint8 BGR image, for every object
-            its category identifier and tight [x1, y1, x2, y2] box, and the [H, W] uint8 category identifier of every
-            pixel (0 for the background).
+        Tuple[np.ndarray, List[Tuple[int, List[int]]], np.ndarray, np.ndarray]: The [H, W, 3] uint8 BGR image, for
+            every object its category identifier and tight [x1, y1, x2, y2] box, the [H, W] uint8 category identifier
+            of every pixel (0 for the background), and the [H, W] uint16 index of the object of every pixel (object i
+            of the list at i + 1, 0 for the background).
     """
     # Half of the images have a black background, the other half a random colour, every pixel being background
     image, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
     class_map = np.zeros(shape=(image_size, image_size), dtype=np.uint8)
+    instance_map = np.zeros(shape=(image_size, image_size), dtype=np.uint16)
     objects = []
 
     # Place every object at a random position, an object overlapping the placed ones too much at every attempt being
@@ -492,40 +507,57 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
         box = place_shape(image=image, shape_descriptor=shape_descriptor,
                           placed_boxes=[existing_box for _, existing_box in objects],
                           maximum_intersection_over_union=MAXIMUM_OBJECT_INTERSECTION_OVER_UNION, minimum_gap=0,
-                          random_generator=random_generator, class_map=class_map)
+                          random_generator=random_generator, class_map=class_map, instance_map=instance_map)
         if box is not None:
             objects.append((SHAPE_CATEGORIES[shape_descriptor["shape_name"]], box))
 
-    return image, objects, class_map
+    return image, objects, class_map, instance_map
 
 
 def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Generates and saves one chunk of images of a split, run by a worker process, with the class mask of every image
-    for the segmentation task. Each chunk draws its images with its own random generator, seeded from the operating
-    system, so every generation creates a different dataset.
+    for the semantic segmentation task, and the visible part of every object for the instance segmentation task. Each
+    chunk draws its images with its own random generator, seeded from the operating system, so every generation
+    creates a different dataset.
 
     Args:
         chunk (Dict[str, Any]): The chunk description: 'data_folder', 'masks_folder' (None without masks),
-            'split_name', 'first_index', 'number_images', 'image_size' and 'maximum_objects'.
+            'split_name', 'first_index', 'number_images', 'image_size', 'maximum_objects' and
+            'instance_segmentation' (whether the visible parts of the objects are kept).
 
     Returns:
-        List[Dict[str, Any]]: For every image, its 'index', 'file_name' and list of (category, box) 'objects'.
+        List[Dict[str, Any]]: For every image, its 'index', 'file_name' and list of (category, box) 'objects', and for
+            the instance segmentation its 'segmentations', the uncompressed run length encoding of the visible part of
+            every object, the box of every object being the box of that part and the objects with fewer than
+            MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels being left out.
     """
     random_generator = np.random.default_rng()
     image_records = []
 
     for image_index in range(chunk["first_index"], chunk["first_index"] + chunk["number_images"]):
-        image, objects, class_map = generate_image(image_size=chunk["image_size"],
-                                                   maximum_objects=chunk["maximum_objects"],
-                                                   random_generator=random_generator)
+        image, objects, class_map, instance_map = generate_image(image_size=chunk["image_size"],
+                                                                 maximum_objects=chunk["maximum_objects"],
+                                                                 random_generator=random_generator)
         file_name = f"{chunk['split_name']}_{image_index:06d}.png"
         cv2.imwrite(filename=os.path.join(chunk["data_folder"], file_name), img=image)
 
         # The mask of a segmentation image is saved under the same name in the masks folder
         if chunk["masks_folder"] is not None:
             cv2.imwrite(filename=os.path.join(chunk["masks_folder"], file_name), img=class_map)
-        image_records.append({"index": image_index, "file_name": file_name, "objects": objects})
+        image_record = {"index": image_index, "file_name": file_name, "objects": objects}
+
+        # Instance segmentation: the visible part of every object, once the later objects are drawn over it
+        if chunk["instance_segmentation"]:
+            visible_objects, segmentations = [], []
+            for object_index, (category_identifier, _) in enumerate(objects):
+                visible_mask = instance_map == object_index + 1
+                if int(visible_mask.sum()) < MINIMUM_VISIBLE_OBJECT_PIXELS:
+                    continue
+                visible_objects.append((category_identifier, get_mask_bounding_box(mask=visible_mask)))
+                segmentations.append(encode_run_length_encoding(mask=visible_mask))
+            image_record["objects"], image_record["segmentations"] = visible_objects, segmentations
+        image_records.append(image_record)
 
     return image_records
 
@@ -562,6 +594,34 @@ def build_detection_labels(image_records: List[Dict[str, Any]], image_size: int,
               "images": images, "annotations": annotations,
               "categories": [{"id": category_identifier, "name": name, "supercategory": "shape"}
                              for name, category_identifier in SHAPE_CATEGORIES.items()]}
+    return labels, class_counts
+
+
+def build_instance_segmentation_labels(image_records: List[Dict[str, Any]], image_size: int, split_name: str) -> Tuple[
+        Dict[str, Any], Dict[str, int]]:
+    """
+    Assembles the COCO annotation file of a synthetic instance segmentation split, read by the COCO dataset with its
+    instance masks: the detection labels with the 'segmentation' of every object, the uncompressed run length encoding
+    of its visible part (holes included), and its number of visible pixels as 'area'.
+
+    Args:
+        image_records (List[Dict[str, Any]]): The 'index', 'file_name', (category, box) 'objects' and 'segmentations'
+            of every image.
+        image_size (int): The height and width of the images in pixels.
+        split_name (str): The name of the split, written in the description.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, int]]: The COCO labels and the number of objects of every shape class.
+    """
+    labels, class_counts = build_detection_labels(image_records=image_records, image_size=image_size,
+                                                  split_name=split_name)
+    labels["info"]["description"] = f"Synthetic shapes instance segmentation dataset, {split_name} split"
+
+    # The annotations follow the objects of the records in order, each one getting the encoding of its object
+    segmentations = [segmentation for record in image_records for segmentation in record["segmentations"]]
+    for annotation, segmentation in zip(labels["annotations"], segmentations, strict=True):
+        annotation["segmentation"] = segmentation
+        annotation["area"] = int(sum(segmentation["counts"][1::2]))
     return labels, class_counts
 
 
@@ -1026,9 +1086,10 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
     """
     Generates one split of the synthetic dataset in the folder layout the loaders of the task read: the images (or
     the frame folders of the sequences) in '<split_folder>/data', the class masks of the segmentation images in
-    '<split_folder>/masks', and their labels in '<split_folder>/labels.json' (COCO annotations for object detection, a
-    samples manifest with one shape per image for classification, a samples manifest with the mask of every image for
-    semantic segmentation, a sequences manifest for the sequence tasks and the frame selection, a pairs manifest for the
+    '<split_folder>/masks', and their labels in '<split_folder>/labels.json' (COCO annotations for object detection,
+    COCO annotations with the run length encoding of every object for instance segmentation, a samples manifest with
+    one shape per image for classification, a samples manifest with the mask of every image for semantic
+    segmentation, a sequences manifest for the sequence tasks and the frame selection, a pairs manifest for the
     sequence comparison).
 
     Args:
@@ -1036,15 +1097,16 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         split_name (str): The name of the split, used in the file names ('train', 'validation' or 'test').
         number_samples (int): The number of images, of sequences or of pairs of the split.
         image_size (int): The height and width of the images in pixels.
-        maximum_objects (int): The maximum number of objects per image (object detection, semantic segmentation, the
-            classification images holding a single shape) or per before member of a pair (sequence comparison).
+        maximum_objects (int): The maximum number of objects per image (object detection, instance segmentation,
+            semantic segmentation, the classification images holding a single shape) or per before member of a pair
+            (sequence comparison).
         minimum_frames (int): The minimum number of frames of a sequence or of a member of a pair (sequence tasks
             only).
         maximum_frames (int): The maximum number of frames of a sequence or of a member of a pair (sequence tasks
             only).
         number_workers (int): The number of worker processes generating the images.
-        task (str): "object_detection", "classification", "semantic_segmentation", "sequence_classification",
-            "sequence_labelling", "sequence_comparison" or "frame_selection".
+        task (str): "object_detection", "instance_segmentation", "classification", "semantic_segmentation",
+            "sequence_classification", "sequence_labelling", "sequence_comparison" or "frame_selection".
 
     Returns:
         Dict[str, int]: The number of labels (objects, images, sequences, frames or pairs) of every class in the split.
@@ -1075,7 +1137,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         chunks = [{"data_folder": data_folder, "masks_folder": masks_folder, "split_name": split_name,
                    "first_index": first_index, "number_images": min(IMAGES_PER_TASK, number_samples - first_index),
                    "image_size": image_size,
-                   "maximum_objects": maximum_objects if task in TASKS_WITH_BACKGROUND_CLASS else 1}
+                   "maximum_objects": maximum_objects if task in TASKS_WITH_BACKGROUND_CLASS else 1,
+                   "instance_segmentation": task == "instance_segmentation"}
                   for first_index in range(0, number_samples, IMAGES_PER_TASK)]
         with Pool(processes=number_workers) as pool:
             image_records = [record for chunk_records in pool.map(generate_image_chunk, chunks)
@@ -1085,6 +1148,9 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         if task == "object_detection":
             labels, class_counts = build_detection_labels(image_records=image_records, image_size=image_size,
                                                           split_name=split_name)
+        elif task == "instance_segmentation":
+            labels, class_counts = build_instance_segmentation_labels(image_records=image_records,
+                                                                      image_size=image_size, split_name=split_name)
         elif task == "semantic_segmentation":
             labels, class_counts = build_segmentation_labels(image_records=image_records, split_name=split_name)
         else:
@@ -1101,27 +1167,26 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
     Creates the whole synthetic shapes dataset of a task: the train, validation and test splits, all labelled, and the
     'label_mapping.json' file used by the 'multi_class' label mapping mode of the configuration. The dataset is a
     trivial task used to check that a model learns (it should overfit it within minutes): several shapes per image
-    to detect or to segment, a single shape per image to classify, a shape crossing the frames of a sequence whose
-    movement
-    direction is classified, a shape changing class during a sequence whose every frame is classified, a pair of
-    sequences of the same objects whose after member may have lost one of them, or shapes of several sizes whose
-    largest circle, triangle and star are the frames to select. Every sequence, and every member of a pair, has its
-    own number of frames between minimum_frames and maximum_frames.
+    to detect, to segment object by object or to segment, a single shape per image to classify, a shape crossing the
+    frames of a sequence whose movement direction is classified, a shape changing class during a sequence whose every
+    frame is classified, a pair of sequences of the same objects whose after member may have lost one of them, or
+    shapes of several sizes whose largest circle, triangle and star are the frames to select. Every sequence, and
+    every member of a pair, has its own number of frames between minimum_frames and maximum_frames.
 
     Args:
         output_folder (str): The root folder of the dataset.
         image_size (int): The height and width of the images in pixels.
         split_sizes (Dict[str, int]): The number of images, of sequences or of pairs of every split, keyed by split
             name.
-        maximum_objects (int): The maximum number of objects per image (object detection, semantic segmentation) or
-            per before member of a pair (sequence comparison).
+        maximum_objects (int): The maximum number of objects per image (object detection, instance segmentation,
+            semantic segmentation) or per before member of a pair (sequence comparison).
         minimum_frames (int): The minimum number of frames of a sequence or of a member of a pair, at least 2, and at
             least the 3 wanted shapes for the frame selection (sequence tasks only).
         maximum_frames (int): The maximum number of frames of a sequence or of a member of a pair, at least
             minimum_frames (sequence tasks only).
         number_workers (int): The number of worker processes generating the images.
-        task (str): "object_detection", "classification", "semantic_segmentation", "sequence_classification",
-            "sequence_labelling", "sequence_comparison" or "frame_selection".
+        task (str): "object_detection", "instance_segmentation", "classification", "semantic_segmentation",
+            "sequence_classification", "sequence_labelling", "sequence_comparison" or "frame_selection".
 
     Raises:
         ValueError: If the frame range of a sequence task starts below 2 (below the number of wanted shapes for the
@@ -1146,7 +1211,7 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         print_color(color="green", output=f"{split_name} split : file://{split_folder}", indent=1)
         print_color(color="green", output=f"Labels per class : {class_counts}", indent=1)
 
-    # Map every raw category identifier to its class index: itself for the detector and the segmenter (index 0 being
+    # Map every raw category identifier to its class index: itself for the detector and the segmenters (index 0 being
     # their background), from 0 for the models of the other tasks
     class_index_offset = 0 if task in TASKS_WITH_BACKGROUND_CLASS else 1
     label_mapping_path = os.path.abspath(os.path.join(output_folder, "label_mapping.json"))
@@ -1157,7 +1222,8 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
 
 
 if __name__ == "__main__":
-    # Task of the dataset: "object_detection" (several shapes per image), "classification" (one shape per image),
+    # Task of the dataset: "object_detection" (several shapes per image), "instance_segmentation" (several shapes per
+    # image, with the visible part of every shape), "classification" (one shape per image),
     # "semantic_segmentation" (several shapes per image, with the class mask of every image),
     # "sequence_classification" (one shape crossing the frames, labelled with its movement direction),
     # "sequence_labelling" (one shape changing class during the sequence, labelled per frame), "sequence_comparison"
@@ -1167,6 +1233,7 @@ if __name__ == "__main__":
     # Root folder of the created dataset of every task, the ones expected by the synthetic configurations of
     # vision_training/configurations/. Existing images and labels of the same splits are overwritten
     output_folders = {"object_detection": "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes",
+                      "instance_segmentation": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes",
                       "classification": "/home/robert_kelevra/Data/classifier_data/synthetic_shapes",
                       "semantic_segmentation": "/home/robert_kelevra/Data/segmentation_data/synthetic_shapes",
                       "sequence_classification": "/home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes",
@@ -1174,32 +1241,34 @@ if __name__ == "__main__":
                       "sequence_comparison": "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs",
                       "frame_selection": "/home/robert_kelevra/Data/sequence_data/synthetic_selected_shapes"}
     # Height and width of the square images in pixels, for every task
-    image_sizes = {"object_detection": 1024, "classification": 512, "semantic_segmentation": 512,
+    image_sizes = {"object_detection": 1024, "instance_segmentation": 512, "classification": 512,
+                   "semantic_segmentation": 512,
                    "sequence_classification": 512, "sequence_labelling": 512, "sequence_comparison": 512,
                    "frame_selection": 256}
     # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task
     split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
+                   "instance_segmentation": {"train": 2000, "validation": 200, "test": 200},
                    "classification": {"train": 4000, "validation": 500, "test": 500},
                    "semantic_segmentation": {"train": 2000, "validation": 200, "test": 200},
                    "sequence_classification": {"train": 2000, "validation": 200, "test": 200},
                    "sequence_labelling": {"train": 2000, "validation": 200, "test": 200},
                    "sequence_comparison": {"train": 2000, "validation": 200, "test": 200},
                    "frame_selection": {"train": 2000, "validation": 200, "test": 200}}
-    # Maximum number of shapes drawn in one image (at least one is always drawn, object detection and semantic
-    # segmentation) or in the before member of a pair (at least two, sequence comparison), for every task (unused by
-    # the other tasks)
-    maximum_objects = {"object_detection": 6, "classification": 1, "semantic_segmentation": 6,
-                       "sequence_classification": 1, "sequence_labelling": 1, "sequence_comparison": 6,
-                       "frame_selection": 1}
+    # Maximum number of shapes drawn in one image (at least one is always drawn, object detection, instance
+    # segmentation and semantic segmentation) or in the before member of a pair (at least two, sequence comparison),
+    # for every task (unused by the other tasks)
+    maximum_objects = {"object_detection": 6, "instance_segmentation": 6, "classification": 1,
+                       "semantic_segmentation": 6, "sequence_classification": 1, "sequence_labelling": 1,
+                       "sequence_comparison": 6, "frame_selection": 1}
     # Minimum and maximum number of frames of a sequence or of a member of a pair, every sequence and every member
     # drawing its own number of frames in that range (at least two, at least three for the frame selection, unused by
     # the image tasks)
-    minimum_frames = {"object_detection": 1, "classification": 1, "semantic_segmentation": 1,
-                      "sequence_classification": 2, "sequence_labelling": 2, "sequence_comparison": 2,
-                      "frame_selection": 4}
-    maximum_frames = {"object_detection": 1, "classification": 1, "semantic_segmentation": 1,
-                      "sequence_classification": 12, "sequence_labelling": 12, "sequence_comparison": 12,
-                      "frame_selection": 12}
+    minimum_frames = {"object_detection": 1, "instance_segmentation": 1, "classification": 1,
+                      "semantic_segmentation": 1, "sequence_classification": 2, "sequence_labelling": 2,
+                      "sequence_comparison": 2, "frame_selection": 4}
+    maximum_frames = {"object_detection": 1, "instance_segmentation": 1, "classification": 1,
+                      "semantic_segmentation": 1, "sequence_classification": 12, "sequence_labelling": 12,
+                      "sequence_comparison": 12, "frame_selection": 12}
     # Number of worker processes generating the images
     number_workers = 8
 

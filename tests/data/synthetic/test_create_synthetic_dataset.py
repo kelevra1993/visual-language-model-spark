@@ -1,7 +1,7 @@
 """
-Tests of vision_training/data/synthetic/create_synthetic_dataset.py: the synthetic detection, classification, semantic
-segmentation, sequence classification, sequence labelling, sequence comparison and frame selection datasets are valid,
-load with the datasets of the framework and follow their labels.
+Tests of vision_training/data/synthetic/create_synthetic_dataset.py: the synthetic detection, instance segmentation,
+classification, semantic segmentation, sequence classification, sequence labelling, sequence comparison and frame
+selection datasets are valid, load with the datasets of the framework and follow their labels.
 """
 
 import json
@@ -13,13 +13,15 @@ from pathlib import Path
 
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset
+from vision_training.data.detection.coco_masks import decode_run_length_encoding
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset
-from vision_training.data.synthetic.create_synthetic_dataset import (MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS,
+from vision_training.data.synthetic.create_synthetic_dataset import (MINIMUM_VISIBLE_OBJECT_PIXELS,
+                                                                     MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS,
                                                                      PAIR_CATEGORIES, SELECTION_CATEGORIES,
                                                                      SHAPE_CATEGORIES, SHAPE_DRAWING_FUNCTIONS,
                                                                      create_synthetic_dataset, draw_shapes_frame,
-                                                                     get_mask_bounding_box)
+                                                                     generate_image, get_mask_bounding_box)
 
 IMAGE_SIZE = 256
 
@@ -167,6 +169,72 @@ def test_created_segmentation_dataset_masks_match_the_shapes(tmp_path: Path) -> 
     assert dataset.class_names == {0: "background", **{class_index: shape_name for shape_name, class_index
                                                        in SHAPE_CATEGORIES.items()}}
     assert set(dataset[0]["masks"].unique().tolist()) <= set(range(len(SHAPE_CATEGORIES) + 1))
+
+
+def test_instance_map_gives_the_visible_part_of_every_object() -> None:
+    """
+    Verifies that the instance map painted with the class map gives every pixel of a shape the index of the object
+    drawn last there, so that its category is the one of the class map at every pixel.
+    """
+    random_generator = np.random.default_rng(seed=0)
+
+    for _ in range(10):
+        _, objects, class_map, instance_map = generate_image(image_size=IMAGE_SIZE, maximum_objects=6,
+                                                             random_generator=random_generator)
+        assert np.array_equal(instance_map > 0, class_map > 0) and int(instance_map.max()) <= len(objects)
+        object_categories = np.array(object=[0] + [category_identifier for category_identifier, _ in objects])
+        assert np.array_equal(object_categories[instance_map], class_map)
+
+
+def test_created_instance_segmentation_dataset_encodes_the_visible_parts(tmp_path: Path) -> None:
+    """
+    Verifies the instance segmentation mode of the generator: every object of the COCO labels has the encoding of its
+    visible part, at least MINIMUM_VISIBLE_OBJECT_PIXELS pixels and disjoint from the other objects of its image, its
+    box being the tight box of that part and its area its number of pixels, the parts covering the shape pixels of the
+    image apart from the left out objects, a label mapping keeping the category identifiers after the background class
+    0, and the COCO dataset loads the same masks.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE,
+                             split_sizes={"train": 6, "validation": 2, "test": 2}, maximum_objects=6,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="instance_segmentation")
+
+    labels = json.loads((tmp_path / "train" / "labels.json").read_text())
+    assert len(labels["images"]) == 6 and len(labels["annotations"]) >= 6
+    image_masks = {image["id"]: [] for image in labels["images"]}
+    for annotation in labels["annotations"]:
+        mask = decode_run_length_encoding(segmentation=annotation["segmentation"])
+        x, y, width, height = annotation["bbox"]
+        assert int(mask.sum()) == annotation["area"] >= MINIMUM_VISIBLE_OBJECT_PIXELS
+        assert get_mask_bounding_box(mask=mask) == [x, y, x + width, y + height]
+        image_masks[annotation["image_id"]].append(mask)
+
+    # The visible parts of an image never overlap, and cover its shape pixels apart from the left out objects
+    for image in labels["images"]:
+        stacked_masks = np.stack(arrays=image_masks[image["id"]])
+        assert int(stacked_masks.sum(axis=0).max()) == 1
+        picture = cv2.imread(filename=str(tmp_path / "train" / "data" / image["file_name"]))
+        colours, counts = np.unique(picture.reshape(-1, 3), axis=0, return_counts=True)
+        shape_pixels = np.any(picture != colours[np.argmax(counts)], axis=-1)
+        covered_pixels = stacked_masks.any(axis=0)
+        assert not np.any(covered_pixels & ~shape_pixels)
+        assert int(np.sum(shape_pixels & ~covered_pixels)) < 6 * MINIMUM_VISIBLE_OBJECT_PIXELS
+
+    # The instance segmenter predicts the background as class 0
+    label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
+    assert label_mapping == {str(category_identifier): category_identifier
+                             for category_identifier in SHAPE_CATEGORIES.values()}
+
+    # The dataset loads the same masks at the image size, in the order of the annotations
+    dataset = CocoDetectionDataset(data_directory=str(tmp_path / "train" / "data"),
+                                   labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
+                                   keep_ratio=True, label_mode="multi_class",
+                                   label_dictionary={int(category): class_index for category, class_index in
+                                                     label_mapping.items()}, load_instance_masks=True, shuffle=False)
+    sample = dataset[0]
+    assert np.array_equal(sample["instance_masks"].numpy(), np.stack(arrays=image_masks[sample["sample_identifiers"]]))
 
 
 def get_shape_centroid(frame: np.ndarray) -> np.ndarray:

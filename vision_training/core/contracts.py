@@ -8,7 +8,10 @@ Batch dictionary, produced by the loaders and moved to the device by the 'prepar
 - "images": float BGR pixels in [0, 255], [B, C, H, W] for the image tasks, [B, T, C, H, W] for the sequence tasks,
   [B, 2T, C, H, W] for the sequence comparison task (the before window then the after window of every pair).
 - "labels": the targets of the task (one [N_i] tensor per image for detection, [B] for classification, ...).
-- "bounding_boxes": one [N_i, 4] tensor of [x1, y1, x2, y2] boxes per image, object detection only.
+- "bounding_boxes": one [N_i, 4] tensor of [x1, y1, x2, y2] boxes per image, object detection and instance
+  segmentation only.
+- "instance_masks": one [N_i, H, W] uint8 tensor of binary masks per image, in the order of its boxes, instance
+  segmentation only.
 - "masks": [B, H, W] int64 class index of every pixel, semantic segmentation only (padding and unlabelled pixels at
   IGNORED_LABEL_INDEX).
 - "sequence_mask": [B, T] booleans, True for the real frames of padded sequences, sequence tasks only ([B, 2T] for the
@@ -134,3 +137,11 @@ class DetectionBatch(TypedDict):
     bounding_boxes: List[torch.Tensor]
     labels: List[torch.Tensor]
     sample_identifiers: torch.Tensor
+
+
+class InstanceSegmentationBatch(DetectionBatch):
+    """
+    Batch of the instance segmentation task, on the device: the detection batch with the binary mask of every object,
+    one [N_i, H, W] uint8 tensor per image in the order of its boxes and labels.
+    """
+    instance_masks: List[torch.Tensor]

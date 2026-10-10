@@ -240,8 +240,8 @@ class SegmentationTrainer(BaseTrainer):
         Returns:
             Dict[str, Any]: The batch with its augmented images and masks.
         """
-        augmented_images, _, _, augmented_masks = self.data_augmenter.augment_batch(images=batch["images"],
-                                                                                    masks=batch["masks"])
+        augmented_images, _, _, augmented_masks, _ = self.data_augmenter.augment_batch(images=batch["images"],
+                                                                                       masks=batch["masks"])
         return {**batch, "images": augmented_images, "masks": augmented_masks}
 
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:

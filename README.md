@@ -922,7 +922,7 @@ The debugging scripts kept in the repository are in `scripts/`, also in folders 
 │   ├── core/                          # Task registry and contracts shared by the tasks
 │   ├── data/                          # Datasets, loaders, preprocessing, augmentation, label mapping
 │   │   ├── classification/            # Classification dataset, class folder converter, ImageNet download
-│   │   ├── detection/                 # COCO dataset
+│   │   ├── detection/                 # COCO dataset, decoding of the COCO segmentations into instance masks
 │   │   ├── segmentation/              # Segmentation dataset
 │   │   ├── sequence/                  # Sequence and pair datasets, pair list converter
 │   │   └── synthetic/                 # Synthetic shapes datasets of every task

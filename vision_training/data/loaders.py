@@ -50,16 +50,19 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
 
 
 def get_detection_dataloader(split_name: str, split_data_folder: str, model_configuration: Dict[str, Any],
-                             batch_size: int) -> DataLoader:
+                             batch_size: int, load_instance_masks: bool = False) -> DataLoader:
     """
-    Instantiates the DataLoader feeding one COCO split (Train, Validation or Test) to the object detection trainer:
-    the CocoDetectionDataset decodes the images with OpenCV and resizes them on the CPU workers.
+    Instantiates the DataLoader feeding one COCO split (Train, Validation or Test) to the object detection or instance
+    segmentation trainer: the CocoDetectionDataset decodes the images with OpenCV and resizes them on the CPU workers,
+    with the instance masks rasterised there too for the instance segmentation.
 
     Args:
         split_name (str): The name of the split (e.g., 'Train', 'Validation', 'Test').
         split_data_folder (str): The root folder for this split, containing a 'data/' subfolder and a 'labels.json'.
         model_configuration (Dict[str, Any]): The model-specific configuration detailing data loading preferences.
         batch_size (int): The number of samples to include in each batch.
+        load_instance_masks (bool): Whether the samples carry the mask of every object (instance segmentation).
+            Defaults to False.
 
     Returns:
         DataLoader: The configured loader for the requested split.
@@ -75,22 +78,26 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
     dataset = CocoDetectionDataset(data_directory=data_directory, labels_file=labels_file,
                                    image_size=image_settings["size"], keep_ratio=image_settings["keep_ratio"],
                                    label_mode=data_configuration["label_mode"],
-                                   label_dictionary=data_configuration["label_dictionary"])
+                                   label_dictionary=data_configuration["label_dictionary"],
+                                   load_instance_masks=load_instance_masks)
     return build_native_loader(dataset=dataset, batch_size=batch_size,
                                loading_configuration=data_configuration["loading"], collate_function=collate_function)
 
 
 def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                              batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
+                              batch_size: int, load_instance_masks: bool = False) -> Tuple[DataLoader, DataLoader,
+                                                                                           DataLoader]:
     """
-    Initializes the training, validation and testing loaders of the object detection task, consumed by the detection
-    trainer: it resolves each split folder from the experiment configuration and builds the matching COCO loader
-    for it.
+    Initializes the training, validation and testing loaders of the object detection and instance segmentation tasks,
+    consumed by the detection trainer and its subclass: it resolves each split folder from the experiment configuration
+    and builds the matching COCO loader for it.
 
     Args:
         experiment_configuration (Dict[str, Any]): The overall experiment configuration including data paths.
         model_configuration (Dict[str, Any]): The model-specific configuration detailing data loading preferences.
         batch_size (int): The number of samples to include in each batch.
+        load_instance_masks (bool): Whether the samples carry the mask of every object (instance segmentation).
+            Defaults to False.
 
     Returns:
         Tuple[DataLoader, DataLoader, DataLoader]: The loaders for the training, validation and testing splits
@@ -103,12 +110,15 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
 
     # Build the training, validation and test loaders with the same data loading settings
     train_loader = get_detection_dataloader(split_name="Train", split_data_folder=split_folder_mapping["Train"],
-                                            model_configuration=model_configuration, batch_size=batch_size)
+                                            model_configuration=model_configuration, batch_size=batch_size,
+                                            load_instance_masks=load_instance_masks)
     validation_loader = get_detection_dataloader(split_name="Validation",
                                                  split_data_folder=split_folder_mapping["Validation"],
-                                                 model_configuration=model_configuration, batch_size=batch_size)
+                                                 model_configuration=model_configuration, batch_size=batch_size,
+                                                 load_instance_masks=load_instance_masks)
     test_loader = get_detection_dataloader(split_name="Test", split_data_folder=split_folder_mapping["Test"],
-                                           model_configuration=model_configuration, batch_size=batch_size)
+                                           model_configuration=model_configuration, batch_size=batch_size,
+                                           load_instance_masks=load_instance_masks)
 
     return train_loader, validation_loader, test_loader
 

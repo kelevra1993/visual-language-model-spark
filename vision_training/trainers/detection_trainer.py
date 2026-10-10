@@ -139,9 +139,9 @@ class DetectionTrainer(BaseTrainer):
         Returns:
             Dict[str, Any]: The batch with its augmented images, boxes and labels.
         """
-        images, bounding_boxes, labels, _ = self.data_augmenter.augment_batch(images=batch["images"],
-                                                                              bounding_boxes=batch["bounding_boxes"],
-                                                                              labels=batch["labels"])
+        images, bounding_boxes, labels, _, _ = self.data_augmenter.augment_batch(images=batch["images"],
+                                                                                 bounding_boxes=batch["bounding_boxes"],
+                                                                                 labels=batch["labels"])
         return {**batch, "images": images, "bounding_boxes": bounding_boxes, "labels": labels}
 
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
