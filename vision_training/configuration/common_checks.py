@@ -110,7 +110,7 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any], val
 
 def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'Data' section: loader flags and loading settings, label mapping mode and the input image size. The
+    Verifies the 'Data' section: loading settings, label mapping mode and the input image size. The
     image size must be a power of two so that every max pooling layer of the Backbone halves the feature maps exactly,
     which keeps the anchor strides and the feature map sizes consistent across the detection levels.
 
@@ -122,24 +122,18 @@ def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     errors = []
 
-    # Loader flags and global augmentation settings
+    # Resizing flag and global augmentation settings
     errors += check_boolean_flags(configuration=model_configuration,
-                                  key_paths=["Data.DALI.activated", "Data.image_settings.keep_ratio",
-                                             "Data.data_augmentation.activated"])
+                                  key_paths=["Data.image_settings.keep_ratio", "Data.data_augmentation.activated"])
     errors += check_probability_value(
         value=get_configuration_value(configuration=model_configuration, key_path="Data.data_augmentation.probability"),
         key_path="Data.data_augmentation.probability")
 
-    # Worker processes of the loaders (0 loads in the main process) and batches prepared in advance by each of them,
-    # the DALI pipeline needing at least one CPU thread
+    # Worker processes of the loaders (0 loads in the main process) and batches prepared in advance by each of them
     errors += check_positive_integers(configuration=model_configuration, key_paths=["Data.loading.number_workers"],
                                       allow_zero=True)
     errors += check_positive_integers(configuration=model_configuration, key_paths=["Data.loading.prefetch_batches"],
                                       allow_zero=False)
-    if get_configuration_value(configuration=model_configuration, key_path="Data.DALI.activated") is True and \
-            get_configuration_value(configuration=model_configuration, key_path="Data.loading.number_workers") == 0:
-        errors.append("'Data.loading.number_workers' must be at least 1 with 'Data.DALI.activated', the DALI "
-                      "pipeline running its CPU work on that many threads.")
 
     # Sequence augmentations: the photometric types drawn frame by frame, and the shuffling of the frames of a window
     errors += check_boolean_flags(configuration=model_configuration,

@@ -59,7 +59,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
                         number_sample_images: int, configuration_text: str = "dummy: true\n") -> DummyTrainer:
     """
     Builds the trainer of the dummy task in a temporary directory. Its test split has 6 samples but only 4 distinct
-    ones, its last batch repeating the first two samples like the DALI loaders do.
+    ones, its last batch repeating the first two samples, which must be evaluated only once.
 
     Args:
         temporary_directory (Path): The pytest temporary directory, receiving the configuration and the run folder.

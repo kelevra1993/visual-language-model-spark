@@ -13,7 +13,6 @@ dependencies = [
     "fiftyone>=1.22.0",
     "tensorboard>=2.21.0",
     "opencv-python>=5.0.0.93",
-    "nvidia-dali-cuda120>=2.3.0",
     "kornia>=0.8.3",
     "onnx>=1.23.1",
     "onnxscript>=0.7.2",

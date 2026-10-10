@@ -1,5 +1,5 @@
 """
-Trainer of the object detection task: the COCO-format loaders (DALI or Native), the two-stage detector with its four
+Trainer of the object detection task: the COCO-format loaders, the two-stage detector with its four
 losses, the geometric augmentations moving the bounding boxes, and the evaluation of the checkpoints on the test split
 with the mean average precision and the average precision of every class, and the sample images of fixed test images
 with their true and detected boxes. Registered for the object detection task in the task registry.
@@ -29,9 +29,9 @@ from vision_training.utilities.visualization import build_class_colours, build_d
 
 class DetectionTrainer(BaseTrainer):
     """
-    Trainer of the object detection task: the two-stage detector trained on COCO-format datasets (DALI or Native
-    loaders), with its four losses tracked, bounding boxes moved by the geometric augmentations, and every evaluated
-    checkpoint scored with the mean average precision on the test split.
+    Trainer of the object detection task: the two-stage detector trained on COCO-format datasets, with its four
+    losses tracked, bounding boxes moved by the geometric augmentations, and every evaluated checkpoint scored with
+    the mean average precision on the test split.
     """
 
     TASK_NAME = "object_detection"
@@ -59,10 +59,9 @@ class DetectionTrainer(BaseTrainer):
 
     def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
         """
-        Builds the COCO detection loaders (DALI or Native, depending on the configuration) of the three splits, names
-        the classes after the categories of the test split for the per-class report, with a colour per class for the
-        sample images, and keeps the file name of every test image, which names the sample images whatever the loader
-        (the DALI loader has no dataset to ask).
+        Builds the COCO detection loaders of the three splits, names the classes after the categories of the test
+        split for the per-class report, with a colour per class for the sample images, and keeps the file name of
+        every test image, which names the sample images.
 
         Returns:
             Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
@@ -273,8 +272,8 @@ class DetectionTrainer(BaseTrainer):
 
     def get_test_sample_name(self, sample_identifier: int) -> str:
         """
-        Gives the short name of a test image from the test labels.json, the DALI loader having no dataset: its file
-        name without extension, its folders joined with underscores.
+        Gives the short name of a test image from the test labels.json: its file name without extension, its folders
+        joined with underscores.
 
         Args:
             sample_identifier (int): The COCO identifier of the image, as given in the 'sample_identifiers' of a batch.

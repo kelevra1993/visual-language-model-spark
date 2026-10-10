@@ -208,7 +208,7 @@ def augment_detection_frames(configuration: Dict[str, Any]) -> None:
 
 def set_invalid_loading(configuration: Dict[str, Any]) -> None:
     """
-    Sets the detection loaders without worker, which the DALI pipeline cannot run with, and without prefetched batch.
+    Sets the detection loaders without worker, which loads in the main process, and without prefetched batch.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
@@ -249,8 +249,7 @@ def set_invalid_tracking(configuration: Dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (set_invalid_loading, ["'Data.loading.prefetch_batches' must be an integer >= 1, got 0.",
-                           "'Data.loading.number_workers' must be at least 1 with 'Data.DALI.activated'"]),
+    (set_invalid_loading, ["'Data.loading.prefetch_batches' must be an integer >= 1, got 0."]),
     (use_sequence_normalization, ["'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for "
                                      "this task, whose samples have no frames."]),
     (augment_detection_frames, ["'Data.data_augmentation.shuffle_frames.activated' must be False for this task, "
@@ -374,16 +373,6 @@ def write_task_configuration(temporary_directory: Path, task_folder: str, config
     return configuration_path
 
 
-def activate_dali(configuration: Dict[str, Any]) -> None:
-    """
-    Activates the DALI loaders, which only read the object detection format.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["Data"]["DALI"]["activated"] = True
-
-
 def set_negative_number_workers(configuration: Dict[str, Any]) -> None:
     """
     Sets a negative number of loader workers.
@@ -468,7 +457,6 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (activate_dali, ["'Data.DALI.activated' must be False"]),
     (set_negative_number_workers, ["'Data.loading.number_workers' must be an integer >= 0, got -1."]),
     (use_binary_labels, ["'Data.label_mapping.mode' must be 'multi_class' for the classification tasks"]),
     (add_detection_block, ["'Backbone.detection_convolution_block_indices' must be [] for the classification tasks"]),
@@ -1367,8 +1355,6 @@ def set_invalid_segmentation_evaluation(configuration: Dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (activate_dali, ["'Data.DALI.activated' must be False: the DALI loaders are only available for the object "
-                     "detection task, the semantic segmentation uses the Native loader."]),
     (add_detection_block, ["'Backbone.detection_convolution_block_indices' must be [] for the semantic segmentation "
                            "task, its decoder reads every block, got [3]."]),
     (use_sequence_normalization, ["'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for "

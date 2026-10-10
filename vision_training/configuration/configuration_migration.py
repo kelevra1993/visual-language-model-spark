@@ -136,6 +136,11 @@ LOADING_SETTINGS_LINES = ("  # Worker processes of the loaders and batches prepa
                           "    number_workers: 4\n"
                           "    prefetch_batches: 2\n")
 
+# Header and last line of the block of the NVIDIA DALI loader in the data section, removed from the runs written
+# when it existed
+DALI_SECTION_LINE = "  DALI:\n"
+DALI_ACTIVATED_LINE_START = "    activated:"
+
 # Start of the line of the handling of the short sequences of the sequence settings, and the padding of the batches
 # inserted after it, every window padded to the sequence length as in every run written before it existed
 SHORT_SEQUENCES_LINE_START = "    short_sequences:"
@@ -683,6 +688,38 @@ def add_optimization_section_to_configuration(configuration_path: Path) -> bool:
     return True
 
 
+def remove_dali_settings_from_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades a configuration file written when the NVIDIA DALI loader existed by removing its 'Data.DALI' block (the
+    header, its comments and its 'activated' flag), every task now reading its data with its PyTorch loader. The block
+    is removed as text, so that every other comment of the file is kept, and a file without it is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the block was removed, False if the file had none.
+
+    Raises:
+        ValueError: If the block has no header line of its own or no 'activated' line.
+    """
+    text = configuration_path.read_text()
+    if "DALI" not in yaml.safe_load(stream=text)["Data"]:
+        return False
+    lines = text.splitlines(keepends=True)
+    if DALI_SECTION_LINE not in lines:
+        raise ValueError(f"No '  DALI:' line in file://{configuration_path.absolute()}")
+
+    # Remove the lines from the header to the activation flag, its last line
+    start_index = lines.index(DALI_SECTION_LINE)
+    end_index = next((index for index in range(start_index + 1, len(lines))
+                      if lines[index].startswith(DALI_ACTIVATED_LINE_START)), None)
+    if end_index is None:
+        raise ValueError(f"No 'activated' line in the DALI block of file://{configuration_path.absolute()}")
+    configuration_path.write_text(data="".join(lines[:start_index] + lines[end_index + 1:]))
+    return True
+
+
 def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path:
     """
     Upgrades a run trained with an older version of the code so that it can be resumed, evaluated and exported with
@@ -694,7 +731,8 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     augmentations (off), the scope of the sequence normalization of the comparison task (per member), its
     'Optimization' section (plain Adam at a constant learning rate), its loading settings (4 worker processes), the
     padding of the batches of the sequence tasks (every window padded to the sequence length), the positional
-    embedding of their transformer (on) and the settings of the segmentation added since its first runs (off), and its
+    embedding of their transformer (on) and the settings of the segmentation added since its first runs (off), it loses
+    the 'Data.DALI' block of the removed DALI loader, and its
     folder is renamed to the run name the current code builds from that configuration (the task code being now the
     first section of the run names, and the augmentation, batch size, learning rate, schedule, gradient clipping, mixed
     precision, dropout and learning rate multiplier (BLR, TLR, HLR, DLR) tokens being no longer written). The
@@ -753,6 +791,8 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     if add_segmentation_settings_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Segmentation Losses, Deep Supervision, Tiles And Evaluation Settings "
                                           f"Added To : file://{configuration_path.absolute()}")
+    if remove_dali_settings_from_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"DALI Loader Settings Removed From : file://{configuration_path.absolute()}")
 
     # The run name the current code gives to this configuration
     experiment_configuration, model_configuration = load_experiment_configuration(

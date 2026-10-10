@@ -18,7 +18,8 @@ from vision_training.configuration.configuration_migration import (
     add_positional_embedding_to_configuration, add_pretrained_settings_to_configuration,
     add_sample_images_to_configuration, add_segmentation_settings_to_configuration,
     add_sequence_augmentation_to_configuration, add_sequence_normalization_scope_to_configuration,
-    add_task_to_configuration, add_tracking_to_configuration, migrate_run_folder)
+    add_task_to_configuration, add_tracking_to_configuration, migrate_run_folder,
+    remove_dali_settings_from_configuration)
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -52,8 +53,8 @@ def write_old_run_folder(temporary_directory: Path) -> Path:
     Writes a run folder as trained before the task-aware configuration, the backbone transfer and the optimization
     settings: an old-style name (without task code, with the augmentation, batch size and learning rate tokens no
     longer written), and a saved configuration without task, pretrained backbone settings, per-class report switch,
-    number of sample images, tracking settings nor optimization section (a copy of the example configuration, with
-    binary labels so that no mapping file is needed).
+    number of sample images, tracking settings nor optimization section, and with the block of the removed DALI
+    loader (a copy of the example configuration, with binary labels so that no mapping file is needed).
 
     Args:
         temporary_directory (Path): The pytest temporary directory, used as the experiments root folder.
@@ -69,6 +70,7 @@ def write_old_run_folder(temporary_directory: Path) -> Path:
     del configuration["Backbone"]["pretrained"]
     del configuration["Optimization"]
     del configuration["Data"]["loading"]
+    configuration["Data"]["DALI"] = {"activated": True}
     configuration["Data"]["label_mapping"] = {"mode": "binary", "mapping_file_path": None}
 
     run_folder = temporary_directory / "IN-KAR-1024_old_run_name_AUG-BS40-LR2e-4"
@@ -95,10 +97,10 @@ def test_task_is_added_once(tmp_path: Path) -> None:
 
 def test_run_folder_is_renamed_after_its_settings(tmp_path: Path) -> None:
     """
-    Verifies that migrating an old run upgrades its configuration, leaves its folder in place unless renaming is
-    asked, renames it to the name the current code builds (starting with the task code, without the augmentation,
-    batch size and learning rate tokens), that migrating it again changes nothing, and that another old run differing
-    only by its learning rate is refused instead of being merged into the renamed folder.
+    Verifies that migrating an old run upgrades its configuration (its DALI block removed), leaves its folder in
+    place unless renaming is asked, renames it to the name the current code builds (starting with the task code,
+    without the augmentation, batch size and learning rate tokens), that migrating it again changes nothing, and that
+    another old run differing only by its learning rate is refused instead of being merged into the renamed folder.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -107,6 +109,7 @@ def test_run_folder_is_renamed_after_its_settings(tmp_path: Path) -> None:
 
     assert migrate_run_folder(run_folder=run_folder, task="object_detection", rename_folder=False) == run_folder
     assert run_folder.exists()
+    assert "DALI" not in yaml.safe_load(stream=(run_folder / "training_configuration.yaml").read_text())["Data"]
 
     renamed_folder = migrate_run_folder(run_folder=run_folder, task="object_detection", rename_folder=True)
     assert renamed_folder.name.startswith("DET_") and renamed_folder.name.endswith("_BIN")
@@ -502,6 +505,25 @@ def test_loading_settings_are_added_once(tmp_path: Path) -> None:
     assert yaml.safe_load(stream=configuration_path.read_text())["Data"]["loading"] == {"number_workers": 4,
                                                                                         "prefetch_batches": 2}
     assert add_loading_settings_to_configuration(configuration_path=configuration_path) is False
+
+
+def test_dali_settings_are_removed_once(tmp_path: Path) -> None:
+    """
+    Verifies that the block of the removed DALI loader is cut out of the data section with its comments, every other
+    line of the file being kept, and that a configuration without it is left untouched.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = tmp_path / "training_configuration.yaml"
+    other_lines = ("Data:\n  # Settings of the loaders.\n  loading:\n    number_workers: 4\n    prefetch_batches: 2\n"
+                   "  image_settings:\n    size: 512\n")
+    configuration_path.write_text(data=other_lines.replace("  image_settings:\n", "  DALI:\n    # GPU loader.\n"
+                                                           "    activated: False\n  image_settings:\n"))
+
+    assert remove_dali_settings_from_configuration(configuration_path=configuration_path) is True
+    assert configuration_path.read_text() == other_lines
+    assert remove_dali_settings_from_configuration(configuration_path=configuration_path) is False
 
 
 @pytest.mark.parametrize(argnames="configuration_path", argvalues=[SEQUENCE_CONFIGURATION_PATH,

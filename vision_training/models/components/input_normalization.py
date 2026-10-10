@@ -12,7 +12,7 @@ class InputNormalizer(nn.Module):
     """
     Normalizes the raw input images at the entrance of the Backbone.
 
-    The data loaders (DALI and Native) intentionally deliver images in the raw [0, 255] pixel range.
+    The data loaders intentionally deliver images in the raw [0, 255] pixel range.
     This parameter-free module optionally rescales them before feature extraction with two input
     normalization strategies:
         - input_normalization: maps pixels to [-0.5, 0.5] with x / 255 - 0.5.

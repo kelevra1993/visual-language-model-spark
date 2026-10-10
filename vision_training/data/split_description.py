@@ -17,8 +17,7 @@ from vision_training.utilities.os_utilities import read_json
 def count_split_images_and_annotations(split_data_folder: str | Path) -> Tuple[int, int]:
     """
     Counts the images and annotations of a dataset split from its COCO 'labels.json', printed by the Trainer at
-    startup. The file is read directly because the DALI loader rounds its length up to a whole number of batches,
-    so neither loader length gives the exact number of images.
+    startup. The file is read directly, the length of a loader being a number of batches, not of images.
 
     Args:
         split_data_folder (str | Path): The root folder of the split, containing a 'labels.json'.

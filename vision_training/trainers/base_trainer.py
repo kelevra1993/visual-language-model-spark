@@ -388,7 +388,7 @@ class BaseTrainer(ABC):
     def get_test_sample_name(self, sample_identifier: int) -> str:
         """
         Gives the short name of a test sample, naming its sample image file and its TensorBoard tag. Given by the test
-        dataset by default; the detection trainer overrides it, its DALI loader having no dataset.
+        dataset by default; the detection trainer overrides it with the file names of the test labels.json.
 
         Args:
             sample_identifier (int): The identifier of the sample, as given in the 'sample_identifiers' of a batch.
@@ -1309,8 +1309,8 @@ class BaseTrainer(ABC):
                 test_batch = self.prepare_batch(batch=test_batch)
                 predictions = self.predict_batch(batch=test_batch)
 
-                # The DALI loaders fill their last batch with samples already given, which must be evaluated only
-                # once (the Native loaders give a smaller last batch instead)
+                # A loader filling its last batch with samples already given must not have them evaluated twice (the
+                # loaders of the tasks give a smaller last batch instead)
                 sample_indices = []
                 for sample_index in range(test_batch["images"].shape[0]):
                     if SAMPLE_IDENTIFIERS_KEY in test_batch:

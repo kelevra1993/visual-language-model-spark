@@ -37,7 +37,7 @@ def is_number(value: Any) -> bool:
 
 def check_segmentation_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the data settings of the semantic segmentation task: the Native loader, a label mapping whose classes are
+    Verifies the data settings of the semantic segmentation task: a label mapping whose classes are
     indexed 0 to K-1 with the background at 0, whose categories are mask values (1 to 254, 0 being the background and
     255 the unlabelled pixels), no detection block, the decoder reading every block of the backbone, and the training
     on tiles (a positive scale of the images and an overlap of the evaluation tiles smaller than a tile).
@@ -49,11 +49,6 @@ def check_segmentation_data_configuration(model_configuration: Dict[str, Any]) -
         List[str]: The description of every inconsistency found.
     """
     errors = []
-
-    # The DALI pipelines only read the COCO detection format
-    if get_configuration_value(configuration=model_configuration, key_path="Data.DALI.activated") is True:
-        errors.append("'Data.DALI.activated' must be False: the DALI loaders are only available for the object "
-                      "detection task, the semantic segmentation uses the Native loader.")
 
     # Multi-class mapping: classes indexed from the background 0 without gaps, the categories being values of the
     # mask files, 0 being allowed for the background only (the binary mapping always gives the background 0 and the

@@ -28,11 +28,11 @@ def compute_letterbox_region(image_height: int, image_width: int, image_size: in
         Tuple[int, int, int, int]: The top row and left column of the resized image in the network input, and its
             height and width.
     """
-    # Single scaling factor of the longest side, rounded like DALI's not_larger resizing
+    # Single scaling factor of the longest side, the resized sides rounded to the nearest pixel
     scale = image_size / max(image_height, image_width)
     resized_width, resized_height = int(round(image_width * scale)), int(round(image_height * scale))
 
-    # Symmetric padding around the resized image (DALI crop_pos=0.5)
+    # Symmetric padding around the resized image
     return (image_size - resized_height) // 2, (image_size - resized_width) // 2, resized_height, resized_width
 
 
@@ -60,7 +60,7 @@ def preprocess_image(image: np.ndarray, image_size: int, keep_ratio: bool = True
             (image_size, image_size) for a mask.
     """
     if keep_ratio:
-        # Place of the resized image in the square input, matching DALI's not_larger resizing and centred padding
+        # Place of the resized image in the square input, centred between the padding
         start_y, start_x, new_height, new_width = compute_letterbox_region(image_height=image.shape[0],
                                                                            image_width=image.shape[1],
                                                                            image_size=image_size)

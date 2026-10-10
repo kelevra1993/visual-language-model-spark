@@ -26,7 +26,7 @@ class DummyDataset(Dataset):
     """
     Tiny in-memory dataset of the dummy task used to test the general trainer on its own: seeded random images and
     binary labels, each sample carrying the sample identifier given for it, so that a test split can repeat samples
-    like the DALI loaders do in their last batch.
+    in its last batch.
     """
 
     def __init__(self, sample_identifiers: List[int], seed: int) -> None:

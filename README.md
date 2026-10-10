@@ -70,7 +70,7 @@ This repository trains, evaluates and exports PyTorch models for seven vision ta
 - An NVIDIA GPU with CUDA. The trainings fall back on the CPU without one, much slower.
 - Docker with the NVIDIA container runtime, only to serve the exported models with Triton.
 
-The Python packages (PyTorch, torchvision, kornia, OpenCV, NVIDIA DALI, TensorBoard, FiftyOne, ONNX, ONNX Runtime, the Triton client, MLflow) are listed in `pyproject.toml`. To install them, run from the repository root:
+The Python packages (PyTorch, torchvision, kornia, OpenCV, TensorBoard, FiftyOne, ONNX, ONNX Runtime, the Triton client, MLflow) are listed in `pyproject.toml`. To install them, run from the repository root:
 
 ```bash
 uv sync
@@ -347,7 +347,7 @@ The two-stage detector predicts the box, class and score of every object of an i
 
 **Converting a dataset.** `vision_training/data/data_retriever.py` downloads COCO 2017 with FiftyOne, whose splits have this layout (about 25 GB in full). Set the dataset folder and `maximum_samples` in its main block, then run `uv run python -m vision_training.data.data_retriever`.
 
-**Configuration.** Copy `object_detection/configuration_example.yaml`. The task keys are `Backbone.detection_convolution_block_indices`, `Anchors` (scales and aspect ratios of every level), `RegionProposal`, `Detector` and `evaluation.score_threshold`. `Data.DALI.activated: True` decodes and resizes the images on the GPU with NVIDIA DALI instead of the CPU workers.
+**Configuration.** Copy `object_detection/configuration_example.yaml`. The task keys are `Backbone.detection_convolution_block_indices`, `Anchors` (scales and aspect ratios of every level), `RegionProposal`, `Detector` and `evaluation.score_threshold`.
 
 **Evaluation.** The mAP at IoU 0.5, 0.75 and 0.5:0.95 with the area, 11-point and 101-point methods, and the AP@0.5 of every class. The detections below `evaluation.score_threshold` are left out of the mAP.
 
@@ -735,7 +735,6 @@ Some keys are in several tasks but do not accept the same values in each. The ch
 
 | Key | DET | CLS | M2O | M2M | CMP | SEG | SEL |
 |---|---|---|---|---|---|---|---|
-| `Data.DALI.activated` | `True` or `False` | `False` | `False` | `False` | `False` | `False` | `False` |
 | `Data.label_mapping.mode` | `binary` or `multi_class` | `multi_class` | `multi_class` | `multi_class` | `multi_class` | `binary` or `multi_class` | `multi_class` |
 | `Data.data_augmentation.independent_frames` | `False` | `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` | `True` or `False` |
 | `Data.data_augmentation.shuffle_frames.activated` | `False` | `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` | `True` or `False` |
@@ -923,7 +922,7 @@ The debugging scripts kept in the repository are in `scripts/`, also in folders 
 │   ├── core/                          # Task registry and contracts shared by the tasks
 │   ├── data/                          # Datasets, loaders, preprocessing, augmentation, label mapping
 │   │   ├── classification/            # Classification dataset, class folder converter, ImageNet download
-│   │   ├── detection/                 # COCO dataset and DALI pipeline
+│   │   ├── detection/                 # COCO dataset
 │   │   ├── segmentation/              # Segmentation dataset
 │   │   ├── sequence/                  # Sequence and pair datasets, pair list converter
 │   │   └── synthetic/                 # Synthetic shapes datasets of every task

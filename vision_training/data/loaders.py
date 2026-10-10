@@ -1,18 +1,16 @@
 """
 Builds the training, validation and test data loaders of every task from the experiment and model configurations:
-COCO detection with the DALI or Native loader, classification, semantic segmentation, and the sequence and sequence
-comparison tasks with the Native loader. Called by the task trainers.
+COCO detection, classification, semantic segmentation, and the sequence and sequence comparison tasks, every one
+with a PyTorch DataLoader over its dataset. Called by the task trainers.
 """
 
 import os
 import cv2
 
 from functools import partial
-from nvidia.dali.plugin.pytorch import DALIGenericIterator
-from typing import Any, Callable, Dict, Optional, Tuple, Union
+from typing import Any, Callable, Dict, Optional, Tuple
 from torch.utils.data import DataLoader, Dataset
 
-from vision_training.data.detection.coco_dali_pipeline import DALIDataloaderWrapper, dali_pipeline
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
@@ -52,11 +50,10 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
 
 
 def get_detection_dataloader(split_name: str, split_data_folder: str, model_configuration: Dict[str, Any],
-                             batch_size: int) -> Union[DataLoader, DALIDataloaderWrapper]:
+                             batch_size: int) -> DataLoader:
     """
-    Instantiates the DataLoader feeding one COCO split (Train, Validation or Test) to the object detection trainer.
-    The GPU-accelerated DALI pipeline is used when activated, otherwise the Native PyTorch dataset decodes the
-    images with OpenCV and resizes them on the CPU. Both return the same batch dictionary format.
+    Instantiates the DataLoader feeding one COCO split (Train, Validation or Test) to the object detection trainer:
+    the CocoDetectionDataset decodes the images with OpenCV and resizes them on the CPU workers.
 
     Args:
         split_name (str): The name of the split (e.g., 'Train', 'Validation', 'Test').
@@ -65,55 +62,30 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
         batch_size (int): The number of samples to include in each batch.
 
     Returns:
-        Union[DataLoader, DALIDataloaderWrapper]: The configured loader for the requested split.
+        DataLoader: The configured loader for the requested split.
     """
     data_configuration = model_configuration["Data"]
-    use_dali = data_configuration["DALI"]["activated"]
-    loading_configuration = data_configuration["loading"]
-
     image_settings = data_configuration["image_settings"]
-    image_size = image_settings["size"]
-    keep_ratio = image_settings["keep_ratio"]
-
-    label_mode = data_configuration["label_mode"]
-    label_dictionary = data_configuration["label_dictionary"]
 
     # Derive the physical image directory and annotation file from the split folder convention
     data_directory = os.path.join(split_data_folder, "data")
     labels_file = os.path.join(split_data_folder, "labels.json")
 
-    # If DALI is activated, initialize the GPU-accelerated pipeline
-    if use_dali:
-        pipeline = dali_pipeline(data_directory=data_directory, annotations_file=labels_file, image_size=image_size,
-                                 keep_ratio=keep_ratio, batch_size=batch_size,
-                                 num_threads=loading_configuration["number_workers"],
-                                 prefetch_queue_depth=loading_configuration["prefetch_batches"], device_id=0)
-        pipeline.build()
-
-        dali_iterator = DALIGenericIterator(pipelines=[pipeline],
-                                            output_map=["images", "bounding_boxes", "labels", "shapes", "image_ids"],
-                                            reader_name="Reader", auto_reset=True)
-
-        # Wrap the DALI iterator so it behaves exactly like our standard PyTorch DataLoader outputs
-        return DALIDataloaderWrapper(dali_iterator=dali_iterator, image_size=image_size, keep_ratio=keep_ratio,
-                                     label_mode=label_mode, label_dictionary=label_dictionary)
-
-    # Otherwise fall back to the Native PyTorch dataset, decoding and resizing the images on the CPU
-    dataset = CocoDetectionDataset(data_directory=data_directory, labels_file=labels_file, image_size=image_size,
-                            keep_ratio=keep_ratio, label_mode=label_mode, label_dictionary=label_dictionary)
-
-    return build_native_loader(dataset=dataset, batch_size=batch_size, loading_configuration=loading_configuration,
-                               collate_function=collate_function)
+    # Decode and resize the images on the CPU workers, the boxes and labels kept as per-image lists by the collate
+    dataset = CocoDetectionDataset(data_directory=data_directory, labels_file=labels_file,
+                                   image_size=image_settings["size"], keep_ratio=image_settings["keep_ratio"],
+                                   label_mode=data_configuration["label_mode"],
+                                   label_dictionary=data_configuration["label_dictionary"])
+    return build_native_loader(dataset=dataset, batch_size=batch_size,
+                               loading_configuration=data_configuration["loading"], collate_function=collate_function)
 
 
 def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                              batch_size: int) -> Tuple[Union[DataLoader, DALIDataloaderWrapper],
-                                                        Union[DataLoader, DALIDataloaderWrapper],
-                                                        Union[DataLoader, DALIDataloaderWrapper]]:
+                              batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Initializes the training, validation and testing loaders of the object detection task, consumed by the detection
     trainer: it resolves each split folder from the experiment configuration and builds the matching COCO loader
-    (DALI or Native) for it.
+    for it.
 
     Args:
         experiment_configuration (Dict[str, Any]): The overall experiment configuration including data paths.
@@ -121,8 +93,8 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
         batch_size (int): The number of samples to include in each batch.
 
     Returns:
-        Tuple[Union[DataLoader, DALIDataloaderWrapper], ...]: The loaders for the training, validation and
-            testing splits respectively.
+        Tuple[DataLoader, DataLoader, DataLoader]: The loaders for the training, validation and testing splits
+            respectively.
     """
     # Map each split name to its corresponding root folder containing images and labels.json
     split_folder_mapping = {"Train": str(experiment_configuration["train_data_folder"]),

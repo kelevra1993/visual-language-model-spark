@@ -53,8 +53,7 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": False,
                                                         "compute_model_size": False, "view_input_images": False})
 
-    # Read the small images with the Native loader, and map the generated categories to the model classes
-    configuration["Data"]["DALI"]["activated"] = False
+    # Read the small images, and map the generated categories to the model classes
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
     # Two loader workers per split, enough for the small generated dataset
     configuration["Data"]["loading"]["number_workers"] = 2

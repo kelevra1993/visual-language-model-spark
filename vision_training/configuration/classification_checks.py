@@ -24,8 +24,8 @@ VALID_CLASS_WEIGHTINGS = ["none", "balanced"]
 
 def check_classification_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the data settings of the classification-like tasks (classification and both sequence tasks): the Native
-    loaders, a multi-class label mapping whose class indices are 0 to K-1 (the classifiers predict no background
+    Verifies the data settings of the classification-like tasks (classification and both sequence tasks): a
+    multi-class label mapping whose class indices are 0 to K-1 (the classifiers predict no background
     class), and no detection block, their heads using the final feature map of the backbone.
 
     Args:
@@ -35,11 +35,6 @@ def check_classification_data_configuration(model_configuration: Dict[str, Any])
         List[str]: The description of every inconsistency found.
     """
     errors = []
-
-    # The DALI pipelines only read the COCO detection format
-    if get_configuration_value(configuration=model_configuration, key_path="Data.DALI.activated") is True:
-        errors.append("'Data.DALI.activated' must be False: the DALI loaders are only available for the object "
-                      "detection task, the other tasks use the Native loaders.")
 
     # The classifiers predict the mapped classes only, indexed from 0 without gaps
     label_mode = get_configuration_value(configuration=model_configuration, key_path="Data.label_mapping.mode")

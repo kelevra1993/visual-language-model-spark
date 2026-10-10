@@ -129,11 +129,6 @@ Optimization:
   mixed_precision: False
 
 Data:
-  DALI:
-    # Flag to enable the NVIDIA DALI hardware-accelerated pipeline, only available for the object detection task.
-    # It must stay False here: the classification task reads its images with the Native PyTorch loader (OpenCV
-    # decoding and CPU resizing).
-    activated: False
   loading:
     # Number of worker processes reading and resizing the images. They stay alive between epochs and evaluations,
     # each decodes with a single OpenCV thread, and the training, validation and test loaders each have their own
