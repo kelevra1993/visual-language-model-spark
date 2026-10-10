@@ -307,17 +307,17 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
     return sampled_positive_mask, sampled_negative_mask
 
 
-def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor,
-                                proposals: torch.Tensor,
+def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor, proposals: torch.Tensor,
                                 ground_truth_labels: torch.Tensor,
-                                foreground_iou_threshold: float) -> Tuple[torch.Tensor, torch.Tensor]:
+                                foreground_iou_threshold: float) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Assigns ground truth bounding boxes and class labels to region proposals for Detection Head training.
     
     This function matches the predicted region proposals (from the Region Proposal Network) against 
     the actual ground truth boxes using Intersection over Union (IoU). Proposals with an IoU 
     greater than or equal to the foreground threshold are assigned the corresponding ground truth class.
-    Proposals falling below the threshold are assigned the background class (class index 0).
+    Proposals falling below the threshold are assigned the background class (class index 0). The index of the matched
+    ground truth is returned too, so that the instance segmenter picks the ground truth mask of every positive proposal.
 
     Args:
         ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes of shape [Num_GT, 4] in [x_min, y_min, x_max, y_max] format.
@@ -326,9 +326,11 @@ def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor,
         foreground_iou_threshold (float): The minimum IoU required for a proposal to be considered a positive match.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
             - target_ground_truth_boxes (torch.Tensor): The assigned ground truth coordinates for each proposal of shape [Num_Proposals, 4].
             - target_labels (torch.Tensor): The assigned class labels for each proposal (0 for background) of shape [Num_Proposals].
+            - matched_ground_truth_indices (torch.Tensor): The int64 index of the matched ground truth of each proposal
+              within the image, -1 for the background, of shape [Num_Proposals].
     """
     # Note to self to check afterwards : ground truth boxes and labels should have the same first dimension shape which are the number of ground truth boxes in the image
 
@@ -338,7 +340,9 @@ def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor,
     if ground_truth_boxes.size(0) == 0:
         target_ground_truth_boxes = torch.zeros_like(proposals)
         target_labels = torch.zeros(proposals.size(0), dtype=torch.int64, device=proposals.device)
-        return target_ground_truth_boxes, target_labels
+        matched_ground_truth_indices = torch.full(size=(proposals.size(0),), fill_value=-1, dtype=torch.int64,
+                                                  device=proposals.device)
+        return target_ground_truth_boxes, target_labels, matched_ground_truth_indices
 
     # Shape: [number_of_ground_truths, number_of_proposals]
     intersection_over_union_matrix = get_intersection_over_union(boxes_1=ground_truth_boxes, boxes_2=proposals)
@@ -370,13 +374,14 @@ def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor,
     target_labels[background_indices] = 0
     # For bounding box regression we only consider labels larger than 0 which are foreground
 
-    return target_ground_truth_boxes, target_labels
+    # The background proposals keep the index -1 of their match
+    return target_ground_truth_boxes, target_labels, best_match_ground_truth_index
 
 
 def batch_assign_targets_to_proposals(batched_ground_truth_boxes: List[torch.Tensor],
                                       batched_proposals: List[torch.Tensor],
-                                      batched_ground_truth_labels: List[torch.Tensor],
-                                      foreground_iou_threshold: float) -> Tuple[torch.Tensor, torch.Tensor]:
+                                      batched_ground_truth_labels: List[torch.Tensor], foreground_iou_threshold: float
+                                      ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Applies proposal target assignment logic across an entire batch of images.
     
@@ -394,19 +399,22 @@ def batch_assign_targets_to_proposals(batched_ground_truth_boxes: List[torch.Ten
         foreground_iou_threshold (float): The minimum IoU required for a proposal to be considered foreground.
         
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
             - batched_target_boxes (torch.Tensor): The assigned ground truth coordinates.
              Shape [batch_size, number_of_proposals, 4]
             - batched_labels (torch.Tensor): The assigned class labels.
              Shape [batch_size, number_of_proposals]
+            - batched_matched_ground_truth_indices (torch.Tensor): The index of the matched ground truth within its
+             image, -1 for the background. Shape [batch_size, number_of_proposals]
     """
     aggregated_target_boxes = []
     aggregated_labels = []
+    aggregated_matched_indices = []
 
     # Iterate over each image in the batch to independently process target assignments
     for batch_index in range(len(batched_ground_truth_boxes)):
         # Calculate assignments for the current image using explicit argument naming
-        target_boxes, target_labels = assign_targets_to_proposals(
+        target_boxes, target_labels, matched_ground_truth_indices = assign_targets_to_proposals(
             ground_truth_boxes=batched_ground_truth_boxes[batch_index],
             proposals=batched_proposals[batch_index],
             ground_truth_labels=batched_ground_truth_labels[batch_index],
@@ -415,9 +423,11 @@ def batch_assign_targets_to_proposals(batched_ground_truth_boxes: List[torch.Ten
         # Store the processed targets and labels
         aggregated_target_boxes.append(target_boxes)
         aggregated_labels.append(target_labels)
+        aggregated_matched_indices.append(matched_ground_truth_indices)
 
     # Stack the lists along a new batch dimension (dim=0)
     batched_target_boxes = torch.stack(tensors=aggregated_target_boxes, dim=0)
     batched_target_labels = torch.stack(tensors=aggregated_labels, dim=0)
+    batched_matched_ground_truth_indices = torch.stack(tensors=aggregated_matched_indices, dim=0)
 
-    return batched_target_boxes, batched_target_labels
+    return batched_target_boxes, batched_target_labels, batched_matched_ground_truth_indices

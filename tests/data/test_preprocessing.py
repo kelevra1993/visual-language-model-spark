@@ -1,7 +1,7 @@
 """
 Tests of vision_training/data/preprocessing.py: restore_boxes_to_original_image inverts preprocess_boxes, bringing the
-detected boxes back to the original image coordinates, and restore_prediction_to_original_image brings segmentation
-class maps and probabilities back to their original images.
+detected boxes back to the original image coordinates, preprocess_boxes moves polygons like boxes, and
+restore_prediction_to_original_image brings segmentation class maps and probabilities back to their original images.
 """
 
 import cv2
@@ -35,6 +35,27 @@ def test_restored_boxes_invert_the_preprocessing(image_width: int, image_height:
                                                      image_size=1024, keep_ratio=keep_ratio)
 
     assert np.allclose(restored_boxes, np.array(boxes))
+
+
+@pytest.mark.parametrize(argnames="keep_ratio", argvalues=[True, False])
+def test_polygons_are_transformed_like_the_boxes(keep_ratio: bool) -> None:
+    """
+    Verifies that a flat polygon [x, y, x, y, ...] goes through exactly the scaling and padding of the boxes, every
+    vertex landing where the corner of a box at the same place lands, so that the masks rasterised from polygons stay
+    aligned with the boxes.
+
+    Args:
+        keep_ratio (bool): Whether the preprocessing keeps the aspect ratio.
+    """
+    polygon = [10.0, 20.0, 300.0, 20.0, 300.0, 150.0]
+    transformed_polygon = preprocess_boxes(bounding_boxes=[polygon], image_width=640, image_height=480,
+                                           image_size=512, keep_ratio=keep_ratio)[0]
+    transformed_box = preprocess_boxes(bounding_boxes=[[10.0, 20.0, 300.0, 150.0]], image_width=640, image_height=480,
+                                       image_size=512, keep_ratio=keep_ratio)[0]
+
+    assert len(transformed_polygon) == 6
+    assert transformed_polygon[:2] == transformed_box[:2] and transformed_polygon[4:] == transformed_box[2:]
+    assert transformed_polygon[2:4] == [transformed_box[2], transformed_box[1]]
 
 
 @pytest.mark.parametrize(argnames="keep_ratio", argvalues=[True, False])

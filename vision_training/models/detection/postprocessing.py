@@ -41,6 +41,9 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
             - "final_detection_scores" (torch.Tensor): Shape [B, K], sorted in decreasing order.
             - "final_detection_labels" (torch.Tensor): Shape [B, K], int64 class indices (0 for padding).
             - "number_detections" (torch.Tensor): Shape [B], int64 number of valid detections per image.
+            - "final_detection_proposal_indices" (torch.Tensor): Shape [B, K], int64 index of the proposal of every
+              detection among the P proposals of its image (0 for padding), read by the instance segmenter to run
+              the mask head of the level of that proposal.
     """
     batch_size, number_proposals, number_classes = classification_scores.shape
 
@@ -73,8 +76,13 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
     final_boxes = torch.gather(input=boxes, dim=1, index=top_indices.unsqueeze(dim=-1).expand(-1, -1, 4))
 
     final_labels = torch.gather(input=labels, dim=1, index=top_indices)
+
+    # Proposal of every detection, the candidates being flattened proposal by proposal over the foreground classes
+    final_proposal_indices = torch.div(input=top_indices, other=number_classes - 1, rounding_mode="floor")
     return {"final_detection_boxes": torch.where(valid_mask.unsqueeze(dim=-1), final_boxes,
                                                  torch.zeros_like(input=final_boxes)),
             "final_detection_scores": torch.where(valid_mask, top_scores, torch.zeros_like(input=top_scores)),
             "final_detection_labels": torch.where(valid_mask, final_labels, torch.zeros_like(input=final_labels)),
-            "number_detections": valid_mask.sum(dim=1)}
+            "number_detections": valid_mask.sum(dim=1),
+            "final_detection_proposal_indices": torch.where(valid_mask, final_proposal_indices,
+                                                            torch.zeros_like(input=final_proposal_indices))}

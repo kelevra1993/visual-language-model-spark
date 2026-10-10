@@ -51,7 +51,8 @@ def debug_assign_proposal_targets() -> None:
     # Test the batched target assignment module by matching the mock ground truth boxes to the proposals
     foreground_iou_threshold = 0.5
 
-    batched_target_ground_truth_boxes, batched_target_labels = batch_assign_targets_to_proposals(
+    (batched_target_ground_truth_boxes, batched_target_labels,
+     batched_matched_ground_truth_indices) = batch_assign_targets_to_proposals(
         batched_ground_truth_boxes=batched_ground_truth_boxes,
         batched_proposals=batched_proposals,
         batched_ground_truth_labels=batched_ground_truth_labels,
@@ -60,6 +61,7 @@ def debug_assign_proposal_targets() -> None:
     print_color(color="blue", output="Batched Assignment Results (Image 0):", add_separators=True)
     print_tensor_shape(batched_target_ground_truth_boxes, "batched_target_ground_truth_boxes")
     print_tensor_shape(batched_target_labels, "batched_target_labels")
+    print_tensor_shape(batched_matched_ground_truth_indices, "batched_matched_ground_truth_indices")
 
     for idx, (box, label) in enumerate(zip(batched_target_ground_truth_boxes[0], batched_target_labels[0])):
         is_bg = " (Background)" if label.item() == 0 else " (Foreground)"

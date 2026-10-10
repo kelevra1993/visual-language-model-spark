@@ -86,10 +86,13 @@ def preprocess_boxes(bounding_boxes: list[list[float]], image_width: int, image_
     Adjusts bounding box coordinates to match the preprocessing transformations applied to the image.
 
     This function scales and optionally shifts bounding boxes in the [x_1, y_1, x_2, y_2] format
-    to ensure spatial alignment is preserved when the original image is resized and padded.
+    to ensure spatial alignment is preserved when the original image is resized and padded. Any flat list of
+    alternating x and y coordinates goes through the same transformation, so that the polygon vertices of the instance
+    masks [x_1, y_1, x_2, y_2, x_3, y_3, ...] are placed exactly like the boxes before their rasterisation.
 
     Args:
-        bounding_boxes (list[list[float]]): A list of bounding boxes in [x_1, y_1, x_2, y_2] format.
+        bounding_boxes (list[list[float]]): A list of bounding boxes in [x_1, y_1, x_2, y_2] format, or of flat
+            [x, y, x, y, ...] coordinate lists of even length.
         image_width (int): The original width of the image before preprocessing.
         image_height (int): The original height of the image before preprocessing.
         image_size (int): The target width and height for the output image.
@@ -97,47 +100,21 @@ def preprocess_boxes(bounding_boxes: list[list[float]], image_width: int, image_
         Defaults to True.
 
     Returns:
-        list[list[float]]: The scaled and shifted bounding boxes in [x_1, y_1, x_2, y_2] format.
+        list[list[float]]: The scaled and shifted coordinate lists, in the format of the input.
     """
-    processed_bounding_boxes = []
-
     if keep_ratio:
+        # A single scaling factor for both axes, then the offset of the centred padding
+        start_y, start_x, _, _ = compute_letterbox_region(image_height=image_height, image_width=image_width,
+                                                          image_size=image_size)
         scale = image_size / max(image_height, image_width)
-        new_width = int(round(image_width * scale))
-        new_height = int(round(image_height * scale))
-        
-        start_x = (image_size - new_width) // 2
-        start_y = (image_size - new_height) // 2
-
-        for bounding_box in bounding_boxes:
-            box_x_1, box_y_1, box_x_2, box_y_2 = bounding_box
-            
-            # Scale coordinates first
-            scaled_x_1 = box_x_1 * scale
-            scaled_y_1 = box_y_1 * scale
-            scaled_x_2 = box_x_2 * scale
-            scaled_y_2 = box_y_2 * scale
-            
-            # Then shift them by the padding offset
-            new_x_1 = scaled_x_1 + start_x
-            new_y_1 = scaled_y_1 + start_y
-            new_x_2 = scaled_x_2 + start_x
-            new_y_2 = scaled_y_2 + start_y
-            
-            processed_bounding_boxes.append([new_x_1, new_y_1, new_x_2, new_y_2])
+        scale_x, scale_y, offset_x, offset_y = scale, scale, start_x, start_y
     else:
-        scale_x = image_size / image_width
-        scale_y = image_size / image_height
+        # Independent horizontal and vertical scaling factors, without padding
+        scale_x, scale_y, offset_x, offset_y = image_size / image_width, image_size / image_height, 0, 0
 
-        for bounding_box in bounding_boxes:
-            box_x_1, box_y_1, box_x_2, box_y_2 = bounding_box
-            new_x_1 = box_x_1 * scale_x
-            new_y_1 = box_y_1 * scale_y
-            new_x_2 = box_x_2 * scale_x
-            new_y_2 = box_y_2 * scale_y
-            processed_bounding_boxes.append([new_x_1, new_y_1, new_x_2, new_y_2])
-
-    return processed_bounding_boxes
+    # The x coordinates sit at the even positions of every list, the y coordinates at the odd ones
+    return [[coordinate * scale_x + offset_x if coordinate_index % 2 == 0 else coordinate * scale_y + offset_y
+             for coordinate_index, coordinate in enumerate(coordinates)] for coordinates in bounding_boxes]
 
 
 def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int, image_height: int,

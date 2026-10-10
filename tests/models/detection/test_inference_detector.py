@@ -16,7 +16,8 @@ def test_postprocess_detections_threshold_nms_and_padding() -> None:
     """
     Verifies the final post-processing on hand-made predictions: the background class is ignored, low scores are
     removed, overlapping boxes of the same class are suppressed while other classes are kept, boxes are clipped to
-    the image, padding proposals never produce detections, and the output is padded to a fixed size.
+    the image, padding proposals never produce detections, the output is padded to a fixed size, and every detection
+    gives the index of its proposal.
     """
     # One image, four proposals, classes (background, A, B); the last proposal is padding
     probabilities = torch.tensor(data=[[[0.1, 0.8, 0.1], [0.2, 0.7, 0.1], [0.05, 0.1, 0.85], [0.0, 0.9, 0.1]]])
@@ -34,6 +35,7 @@ def test_postprocess_detections_threshold_nms_and_padding() -> None:
     assert torch.allclose(input=detections["final_detection_scores"], other=torch.tensor(data=[[0.85, 0.8, 0.0, 0.0]]))
     assert detections["final_detection_boxes"][0, :2].tolist() == [[100.0, 100.0, 128.0, 128.0], first_box]
     assert detections["final_detection_boxes"][0, 2:].abs().sum() == 0.0
+    assert detections["final_detection_proposal_indices"].tolist() == [[2, 0, 0, 0]]
 
 
 def test_inference_detector_matches_the_eager_model() -> None:
