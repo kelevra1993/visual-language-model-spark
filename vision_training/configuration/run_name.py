@@ -30,12 +30,12 @@ GLOBAL_POOLING_CODES = {"average": "AVG", "max": "MAX", "flatten": "FLAT"}
 # upsampling followed by a 1x1 convolution
 UPSAMPLING_CODES = {"transposed": "UTC", "bilinear": "UBL"}
 
-# Prefixes of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
-# followed by '<prefix>FRZ' when it is frozen or '<learning rate prefix>LR<multiplier>' when it learns at its own
-# speed, i.e. PT, FRZ and BLR for the backbone, TPT, TFRZ and TLR for the temporal module, HPT, HFRZ and HLR for the
-# classification head, DPT, DFRZ and DLR for the segmentation decoder
-PRETRAINED_TOKEN_PREFIXES = {"Backbone": ("", "B"), "TemporalModel": ("T", "T"), "ClassificationHead": ("H", "H"),
-                             "SegmentationDecoder": ("D", "D")}
+# Prefix of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
+# followed by '<prefix>FRZ' when it is frozen, i.e. PT and FRZ for the backbone, TPT and TFRZ for the temporal module,
+# HPT and HFRZ for the classification head, DPT and DFRZ for the segmentation decoder. The learning rate multiplier of
+# the component gives no token, so that it can change between two resumptions of a run
+PRETRAINED_TOKEN_PREFIXES = {"Backbone": "", "TemporalModel": "T", "ClassificationHead": "H",
+                             "SegmentationDecoder": "D"}
 
 
 def join_level_tokens(level_tokens: List[str]) -> str:
@@ -82,10 +82,11 @@ def build_input_tokens(model_configuration: Dict[str, Any]) -> List[str]:
 def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: str) -> List[str]:
     """
     Builds the tokens of a component initialised by the trained one of another run, placed at the end of the section
-    of the component in the run name (see PRETRAINED_TOKEN_PREFIXES): e.g. PT, then FRZ when it is frozen or
-    BLR<learning rate multiplier> when it learns at another speed than the new layers (a frozen component does not
-    learn at all), then FBN when the scale and shift of the normalization layers of the backbone are kept fixed. A
-    component trained from random weights gives no token.
+    of the component in the run name (see PRETRAINED_TOKEN_PREFIXES): e.g. PT, then FRZ when it is frozen, then FBN
+    when the scale and shift of the normalization layers of the backbone are kept fixed. A component trained from
+    random weights gives no token. The learning rate multiplier gives no token, the optimizer giving every transferred
+    component that learns its own parameter group whatever its multiplier, so that it can change between two
+    resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -98,13 +99,11 @@ def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: s
     if pretrained_configuration["experiment_folder"] is None:
         return []
 
-    # Transferred component, frozen or learning at its own speed
-    token_prefix, learning_rate_prefix = PRETRAINED_TOKEN_PREFIXES[section_name]
+    # Transferred component, frozen or not
+    token_prefix = PRETRAINED_TOKEN_PREFIXES[section_name]
     pretrained_tokens = [f"{token_prefix}PT"]
     if pretrained_configuration["freeze"]:
         pretrained_tokens.append(f"{token_prefix}FRZ")
-    elif pretrained_configuration["learning_rate_multiplier"] != 1.0:
-        pretrained_tokens.append(f"{learning_rate_prefix}LR{pretrained_configuration['learning_rate_multiplier']:g}")
 
     # Normalization parameters kept fixed in a backbone that still learns
     if section_name == "Backbone" and pretrained_configuration["freeze_normalization_parameters"]:
@@ -116,9 +115,8 @@ def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the backbone section of the run name, shared by every task: the modules (SE, RES, INC<starting block>),
     the feature map normalization (BN, LN or NN), B<layers>x<filters> of every block in order, then PT when the
-    backbone is initialised by the one of another run, followed by BLR<learning rate multiplier> when it learns at
-    another speed than the heads or FRZ when it is frozen, and FBN when its normalization parameters are kept fixed
-    (see build_pretrained_tokens).
+    backbone is initialised by the one of another run, followed by FRZ when it is frozen and FBN when its
+    normalization parameters are kept fixed (see build_pretrained_tokens).
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -145,7 +143,7 @@ def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     backbone_tokens.append("B" + ".".join(f"{convolutions[block][0]}x{convolutions[block][1]}"
                                           for block in sorted(convolutions, key=int)))
 
-    # Backbone transferred from another run, frozen or learning at its own speed
+    # Backbone transferred from another run, frozen or not
     backbone_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="Backbone")
     return backbone_tokens
 
@@ -167,8 +165,9 @@ def build_optimizer_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the optimizer section of the run name, shared by every task, left out with plain Adam without weight decay:
     ADAMW or SGD, whose state cannot be resumed by another optimizer, then WD<weight decay>. The other training settings
-    (augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision) give no token, so
-    that a run can be resumed in its folder with changed values.
+    (augmentation, batch size, learning rate and its schedule, learning rate multipliers of the transferred
+    components, gradient clipping, mixed precision) give no token, so that a run can be resumed in its folder with
+    changed values.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -253,8 +252,8 @@ def build_classification_sections(model_configuration: Dict[str, Any]) -> List[L
     """
     Builds the sections of the run name describing the classification head, shared by the classification-like tasks:
     the head H<global pooling AVG, MAX or FLAT>.<fully connected sizes>, LS<label smoothing> when smoothing, CWB when
-    the classes are balanced in the loss and HPT, HFRZ or HLR<multiplier> when the head is initialised by the one of
-    another run (see build_pretrained_tokens), then the classes MC<classes> (one class per sample) or ML<classes>
+    the classes are balanced in the loss and HPT, followed by HFRZ when frozen, when the head is initialised by the one
+    of another run (see build_pretrained_tokens), then the classes MC<classes> (one class per sample) or ML<classes>
     (several classes per sample), e.g. 'HAVG.256-LS0.1_MC4' or 'HFLAT.256_MC4'. The dropout gives no token, so that it
     can change between two resumptions of a run.
 
@@ -301,7 +300,7 @@ def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     Builds the tokens of the run name describing the temporal module of the sequence models: MEAN, MAX, ATT<hidden
     size>, GRU or LSTM<layers>x<hidden size> with BI when bidirectional, TRF<layers>x<hidden size>.<heads> or
     TCN<layers>x<hidden size>.<kernel size> with CAU when causal, NPE for a transformer without positional embedding,
-    and TPT, TFRZ or TLR<multiplier> when the module is initialised by the one of another run (see
+    and TPT, followed by TFRZ when frozen, when the module is initialised by the one of another run (see
     build_pretrained_tokens), e.g. 'GRU2x256-BI'. The dropout gives no token, so that it can change between two
     resumptions of a run.
 
@@ -333,7 +332,7 @@ def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
         if temporal_type == "transformer" and not temporal_configuration["positional_embedding"]:
             temporal_tokens.append("NPE")
 
-    # Temporal module transferred from another run, frozen or learning at its own speed
+    # Temporal module transferred from another run, frozen or not
     temporal_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="TemporalModel")
     return temporal_tokens
 
@@ -428,7 +427,8 @@ def build_segmentation_sections(model_configuration: Dict[str, Any]) -> List[Lis
     tiles of the images scaled by <scale>, the decoder (UTC or UBL for the transposed convolution or bilinear
     upsampling, the modules DSE and DRES, the normalization DBN, DLN or DNN, then D<layers>x<channels> of every level
     from the deepest one to the input resolution, AUX<levels> for the deep supervision heads of these levels, and DPT,
-    DFRZ or DLR<multiplier> when the decoder is initialised by the one of another run, see build_pretrained_tokens),
+    followed by DFRZ when frozen, when the decoder is initialised by the one of another run, see
+    build_pretrained_tokens),
     then the classes (BIN or MC<foreground classes>), e.g. 'UTC-DBN-D2x64.2x64.2x32.2x32.1x16-AUX5.4_MC4'. The dropout
     of the segmentation head, the weights of the deep supervision losses, the overlap of the evaluation tiles and the
     'SegmentationLoss' settings give no token, so that they can change between two resumptions of a run.
@@ -488,8 +488,8 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
     always trains in a folder matching its configuration: the same settings resume in the same folder, and changed
     settings, in particular every setting changing the model size, start a new one instead of mixing with a folder
     whose saved configuration no longer matches. The training settings that can change between two resumptions of a
-    run (augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision, dropout rates)
-    give no token.
+    run (augmentation, batch size, learning rate and its schedule, learning rate multipliers of the transferred
+    components, gradient clipping, mixed precision, dropout rates) give no token.
 
     The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
     is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_

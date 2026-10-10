@@ -647,14 +647,14 @@ def test_sequence_comparison_run_names(modify_function: Callable[[Dict[str, Any]
 
 @pytest.mark.parametrize(argnames=("freeze", "learning_rate_multiplier", "freeze_normalization", "expected_tokens"),
                          argvalues=[(False, 1.0, False, "-PT_"), (True, 1.0, False, "-PT-FRZ_"),
-                                    (False, 0.1, False, "-PT-BLR0.1_"), (True, 0.1, False, "-PT-FRZ_"),
-                                    (False, 1.0, True, "-PT-FBN_"), (False, 0.1, True, "-PT-BLR0.1-FBN_")])
+                                    (False, 0.1, False, "-PT_"), (True, 0.1, False, "-PT-FRZ_"),
+                                    (False, 1.0, True, "-PT-FBN_"), (False, 0.1, True, "-PT-FBN_")])
 def test_pretrained_backbone_run_names(freeze: bool, learning_rate_multiplier: float, freeze_normalization: bool,
                                        expected_tokens: str) -> None:
     """
-    Verifies the tokens of a transferred backbone at the end of the backbone section: PT, then FRZ when it is frozen
-    or BLR<multiplier> when it learns at another speed than the heads (a frozen backbone does not learn at all), then
-    FBN when the scale and shift of its normalization layers are kept fixed.
+    Verifies the tokens of a transferred backbone at the end of the backbone section: PT, then FRZ when it is frozen,
+    then FBN when the scale and shift of its normalization layers are kept fixed. The learning rate multiplier gives
+    no token, so that it can change between two resumptions of a run.
 
     Args:
         freeze (bool): Whether the transferred backbone is frozen.
@@ -675,16 +675,16 @@ def test_pretrained_backbone_run_names(freeze: bool, learning_rate_multiplier: f
 @pytest.mark.parametrize(argnames=("section_name", "freeze", "learning_rate_multiplier", "expected_section"),
                          argvalues=[("TemporalModel", False, 1.0, "_GRU1x128-BI-TPT_"),
                                     ("TemporalModel", True, 1.0, "_GRU1x128-BI-TPT-TFRZ_"),
-                                    ("TemporalModel", False, 0.5, "_GRU1x128-BI-TPT-TLR0.5_"),
+                                    ("TemporalModel", False, 0.5, "_GRU1x128-BI-TPT_"),
                                     ("ClassificationHead", False, 1.0, "_HAVG.64-HPT_"),
                                     ("ClassificationHead", True, 0.1, "_HAVG.64-HPT-HFRZ_"),
-                                    ("ClassificationHead", False, 0.1, "_HAVG.64-HPT-HLR0.1_")])
+                                    ("ClassificationHead", False, 0.1, "_HAVG.64-HPT_")])
 def test_pretrained_temporal_module_and_head_run_names(section_name: str, freeze: bool,
                                                        learning_rate_multiplier: float, expected_section: str) -> None:
     """
     Verifies the tokens of a transferred temporal module or classification head at the end of its section: TPT or
-    HPT, then TFRZ or HFRZ when it is frozen, or TLR<multiplier> or HLR<multiplier> when it learns at its own speed.
-    The rest of the name is unchanged.
+    HPT, then TFRZ or HFRZ when it is frozen, the learning rate multiplier giving no token. The rest of the name is
+    unchanged.
 
     Args:
         section_name (str): The section of the transferred component.
@@ -988,13 +988,13 @@ def test_segmentation_run_names(modify_function: Callable[[Dict[str, Any], Dict[
 
 
 @pytest.mark.parametrize(argnames=("freeze", "learning_rate_multiplier", "expected_tokens"),
-                         argvalues=[(False, 1.0, "-DPT_"), (True, 1.0, "-DPT-DFRZ_"), (False, 0.1, "-DPT-DLR0.1_")])
+                         argvalues=[(False, 1.0, "-DPT_"), (True, 1.0, "-DPT-DFRZ_"), (False, 0.1, "-DPT_")])
 def test_pretrained_segmentation_decoder_run_names(freeze: bool, learning_rate_multiplier: float,
                                                    expected_tokens: str) -> None:
     """
     Verifies the tokens of a transferred segmentation decoder at the end of the decoder section: DPT, then DFRZ when
-    it is frozen or DLR<multiplier> when it learns at its own speed, and that the dropout rate of the segmentation
-    head gives no token.
+    it is frozen, and that the learning rate multiplier of the decoder and the dropout rate of the segmentation head
+    give no token.
 
     Args:
         freeze (bool): Whether the transferred decoder is frozen.

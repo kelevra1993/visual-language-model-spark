@@ -397,26 +397,28 @@ class BaseTrainer(ABC):
         """
         Builds the optimizer of 'Optimization.optimizer' with its weight decay: Adam (weight decay added to the
         gradients), AdamW (weight decay decoupled from the gradients) or SGD with Nesterov momentum 0.9. Every
-        component loaded from another run (backbone, temporal module, classification head, segmentation decoder) whose
-        'pretrained.learning_rate_multiplier' is not 1 gets its own parameter group, so that it is fine-tuned at
-        another speed than the new layers. The first group holds every other parameter: without such a component,
-        every parameter shares this single group, the layout of the checkpoints of the runs without transfer, and a
-        transferred backbone comes second, the layout of the runs that only transferred their backbone.
+        component loaded from another run (backbone, temporal module, classification head, segmentation decoder) that
+        is not frozen gets its own parameter group at the learning rate times its 'pretrained.learning_rate_multiplier',
+        so that it can be fine-tuned at another speed than the new layers. The group is created even with a multiplier
+        of 1, so that the layout of the groups only depends on the transfers and freezes written in the run name, and
+        the multiplier can change between two resumptions of a run without changing the layout of its checkpoints. The
+        first group holds every other parameter: without such a component, every parameter shares this single group,
+        the layout of the checkpoints of the runs without transfer, and a transferred backbone comes second, the layout
+        of the runs that only transferred their backbone.
 
         Returns:
             torch.optim.Optimizer: The optimizer at the configured learning rate.
         """
-        # One group per transferred component learning at its own speed, in the order of TRANSFERABLE_COMPONENTS
+        # One group per transferred component that learns, in the order of TRANSFERABLE_COMPONENTS
         component_groups = []
         component_parameter_identifiers = set()
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
-            learning_rate_multiplier = pretrained_configuration["learning_rate_multiplier"]
-            if pretrained_configuration["experiment_folder"] is None or learning_rate_multiplier == 1.0:
+            if pretrained_configuration["experiment_folder"] is None or pretrained_configuration["freeze"]:
                 continue
             component_parameters = list(getattr(self.model, TRANSFERABLE_COMPONENTS[section_name]).parameters())
             component_parameter_identifiers.update(id(parameter) for parameter in component_parameters)
-            component_groups.append({"params": component_parameters,
-                                     "lr": self.learning_rate * learning_rate_multiplier})
+            component_groups.append({"params": component_parameters, "lr": self.learning_rate *
+                                     pretrained_configuration["learning_rate_multiplier"]})
 
         # Every other parameter learns at the learning rate of the run, in the first group
         other_parameters = [parameter for parameter in self.model.parameters()

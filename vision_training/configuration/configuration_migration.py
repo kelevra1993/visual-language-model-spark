@@ -3,8 +3,8 @@ Migration of configuration files and run folders written by older versions of th
 the comments, the keys and sections added since (task, pretrained settings, evaluation outputs, per-class report,
 sample images, MLflow tracking, sequence settings and batch padding, positional embedding of the transformer,
 segmentation losses, deep supervision, tiles and evaluation settings, Optimization), and renames the run folder to its
-current run name (without the training and dropout tokens no longer written in the run names). Called by
-scripts/configuration/migrate_configuration.py.
+current run name (without the training, learning rate multiplier and dropout tokens no longer written in the run
+names). Called by scripts/configuration/migrate_configuration.py.
 """
 
 import yaml
@@ -697,9 +697,9 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     embedding of their transformer (on) and the settings of the segmentation added since its first runs (off), and its
     folder is renamed to the run name the current code builds from that configuration (the task code being now the
     first section of the run names, and the augmentation, batch size, learning rate, schedule, gradient clipping, mixed
-    precision and dropout tokens being no longer written). The configuration is fully checked on the way, any other
-    missing key being reported by the configuration checker. Two old folders differing only by these settings get the same new
-    name, the second one being refused.
+    precision, dropout and learning rate multiplier (BLR, TLR, HLR, DLR) tokens being no longer written). The
+    configuration is fully checked on the way, any other missing key being reported by the configuration checker. Two
+    old folders differing only by these settings get the same new name, the second one being refused.
 
     Args:
         run_folder (Path): The run folder, holding 'training_configuration.yaml', 'Weights' and 'Tensorboard'.

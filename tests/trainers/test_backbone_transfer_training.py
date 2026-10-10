@@ -93,7 +93,8 @@ def test_trained_backbone_initialises_a_frozen_run(tmp_path: Path, capsys: pytes
     exactly its weights in its own folder (named with PT and FRZ), its frozen backbone keeps its weights and batch
     normalization statistics while its head learns, its checkpoints record the source run, and resuming it does not
     load the source backbone again but keeps it frozen. A run fine-tuning the transferred backbone ten times slower
-    gets a second optimizer parameter group.
+    gets a second optimizer parameter group, and resuming it with another learning rate multiplier keeps its folder
+    and its groups while the backbone learns at the new rate.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -146,18 +147,33 @@ def test_trained_backbone_initialises_a_frozen_run(tmp_path: Path, capsys: pytes
     assert "The Pretrained Backbone Is Not Loaded Again" in capsys.readouterr().out
     assert all(not parameter.requires_grad for parameter in resumed_trainer.model.backbone.parameters())
 
-    # Fine-tuning run: the transferred backbone learns ten times slower than the head
+    # Fine-tuning run: the transferred backbone learns ten times slower than the head, saved at iteration 2
     fine_tuning_settings = {**no_transfer, "experiment_folder": str(source_trainer.experiment_folder),
                             "learning_rate_multiplier": 0.1}
     fine_tuning_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
-                                                 number_iterations=1,
+                                                 number_iterations=2,
                                                  pretrained_settings={"Backbone": fine_tuning_settings},
                                                  configuration_name="fine_tuning.yaml", task="classification")
-    assert "-PT-BLR0.1_" in fine_tuning_trainer.run_name
+    assert "-PT_" in fine_tuning_trainer.run_name and "BLR" not in fine_tuning_trainer.run_name
     assert [parameter_group["lr"] for parameter_group in fine_tuning_trainer.optimizer.param_groups] == pytest.approx(
         expected=[1e-3, 1e-4])
     assert len(fine_tuning_trainer.optimizer.param_groups[1]["params"]) == len(
         list(fine_tuning_trainer.model.backbone.parameters()))
+    fine_tuning_trainer.run_training_loop()
+
+    # Resuming it with another multiplier keeps its folder and the layout of its optimizer groups, and the backbone
+    # learns at the new rate from the next step on
+    resumed_fine_tuning_trainer = build_transfer_trainer(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=3,
+        pretrained_settings={"Backbone": {**fine_tuning_settings, "learning_rate_multiplier": 1.0}},
+        configuration_name="fine_tuning.yaml", task="classification")
+    assert resumed_fine_tuning_trainer.run_name == fine_tuning_trainer.run_name
+    assert resumed_fine_tuning_trainer.start_iteration == 3
+    assert resumed_fine_tuning_trainer.base_learning_rates == pytest.approx(expected=[1e-3, 1e-3])
+    resumed_fine_tuning_trainer.run_training_loop()
+    resumed_parameter_groups = resumed_fine_tuning_trainer.optimizer.param_groups
+    assert len(resumed_parameter_groups) == 2
+    assert resumed_parameter_groups[1]["lr"] == pytest.approx(expected=resumed_parameter_groups[0]["lr"])
 
 
 def test_sequence_components_initialise_a_partly_frozen_run(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -197,7 +213,7 @@ def test_sequence_components_initialise_a_partly_frozen_run(tmp_path: Path, caps
                                               number_iterations=3, pretrained_settings=transfer_settings,
                                               configuration_name="transfer.yaml", task="sequence_classification")
     model = transfer_trainer.model
-    assert "-PT-BLR0.5_T4_GRU1x128-BI-TPT-TFRZ_HAVG.64-HPT-HLR0.1_" in transfer_trainer.run_name
+    assert "-PT_T4_GRU1x128-BI-TPT-TFRZ_HAVG.64-HPT_" in transfer_trainer.run_name
     assert transfer_trainer.pretrained_checkpoint_paths == {section_name: source_checkpoint_path
                                                             for section_name in SEQUENCE_COMPONENTS}
     for tensor_name, tensor_value in model.state_dict().items():
@@ -321,7 +337,7 @@ def test_classification_backbone_and_segmentation_decoder_initialise_segmentatio
         pretrained_settings={"SegmentationDecoder": {"experiment_folder": str(segmentation_trainer.experiment_folder),
                                                      "learning_rate_multiplier": 0.1}},
         configuration_name="decoder.yaml", task="semantic_segmentation")
-    assert "-D2x64.2x64.2x32.2x32.1x16-DPT-DLR0.1_" in decoder_trainer.run_name
+    assert "-D2x64.2x64.2x32.2x32.1x16-DPT_" in decoder_trainer.run_name
     for tensor_name, tensor_value in decoder_trainer.model.segmentation_decoder.state_dict().items():
         assert torch.equal(input=tensor_value.cpu(),
                            other=segmentation_checkpoint["model_state"][f"segmentation_decoder.{tensor_name}"])

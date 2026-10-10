@@ -575,7 +575,7 @@ Backbone:
     learning_rate_multiplier: 0.1
 ```
 
-The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`), which is checked before the training starts. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` or `BLR<multiplier>` ([Run Names](#run-names)).
+The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`), which is checked before the training starts. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen ([Run Names](#run-names)). The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
 
 ## Evaluating Checkpoints
 `scripts/evaluation/evaluate_checkpoint.py` evaluates the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, without modifying the run folder. Set in its main block:
@@ -753,7 +753,7 @@ A training run is saved in `<ExperimentConfiguration.experiment_folder>/<run nam
 
 The name is made of sections joined with `_`, the tokens of a section being joined with `-`. A flag token is left out when its setting is off, and the optimizer section is left out with plain Adam without weight decay. The sections always come in the order of the table below. Values in `<...>` are read from the configuration.
 
-The training settings that can change between two resumptions of a run give no token: augmentation (including `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up, cosine schedule, gradient clipping, mixed precision, the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`, `SegmentationDecoder.dropout_rate`) and the losses of SEG (`SegmentationLoss`, Lovász and boundary losses included, whose class weights are set again from the configuration when a run resumes) and the decoding of SEL (`Selection.decoding`, both decodings being scored at every evaluation). A run can be resumed in its folder with changed values, and two runs differing only by these settings share a folder. The optimizer keeps its token, because the state of one optimizer cannot be resumed by another.
+The training settings that can change between two resumptions of a run give no token: augmentation (including `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up, cosine schedule, the `pretrained.learning_rate_multiplier` of the transferred components, gradient clipping, mixed precision, the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`, `SegmentationDecoder.dropout_rate`) and the losses of SEG (`SegmentationLoss`, Lovász and boundary losses included, whose class weights are set again from the configuration when a run resumes) and the decoding of SEL (`Selection.decoding`, both decodings being scored at every evaluation). A run can be resumed in its folder with changed values, and two runs differing only by these settings share a folder. The optimizer keeps its token, because the state of one optimizer cannot be resumed by another.
 
 | Section | Token | Meaning (configuration key) | DET | CLS | M2O | M2M | CMP | SEG | SEL |
 |---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -768,7 +768,7 @@ The training settings that can change between two resumptions of a run give no t
 | Backbone | `SN` | `Backbone.normalization.feature_map_normalization`: sequence | | | ✓ | ✓ | ✓ | | ✓ |
 | Backbone | `B<layers>x<filters>.…` | `Backbone.convolutions`, one `<layers>x<filters>` per block | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Backbone | `PT` | `Backbone.pretrained.experiment_folder` is set | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Backbone | `FRZ` or `BLR<multiplier>` | `Backbone.pretrained.freeze` is True, or `learning_rate_multiplier` is not 1 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Backbone | `FRZ` | `Backbone.pretrained.freeze` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Backbone | `FBN` | `Backbone.pretrained.freeze_normalization_parameters` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Levels | `L<blocks>` | `Backbone.detection_convolution_block_indices` | ✓ | | | | | | |
 | Anchors | `A<anchors>.<smallest>-<largest>` | `Anchors.scales_and_ratios`: anchors per position, range of the scales | ✓ | | | | | | |
@@ -783,7 +783,7 @@ The training settings that can change between two resumptions of a run give no t
 | Decoder | `DBN`, `DLN`, `DNN` | `SegmentationDecoder.feature_map_normalization` | | | | | | ✓ | |
 | Decoder | `D<layers>x<channels>.…` | `SegmentationDecoder.convolutions`, one `<layers>x<channels>` per level from the deepest one | | | | | | ✓ | |
 | Decoder | `AUX<level>.…` | `SegmentationDecoder.deep_supervision_weights` is not empty, its levels from the deepest one | | | | | | ✓ | |
-| Decoder | `DPT`, then `DFRZ` or `DLR<multiplier>` | `SegmentationDecoder.pretrained` | | | | | | ✓ | |
+| Decoder | `DPT`, then `DFRZ` when frozen | `SegmentationDecoder.pretrained` | | | | | | ✓ | |
 | Classes | `BIN` or `MC<classes>` | `Data.label_mapping.mode`: binary or multi_class, foreground classes of the label dictionary | ✓ | | | | | ✓ | |
 | Window | `T<frames>` | `Data.sequence_settings.sequence_length` (frames per member for CMP) | | | ✓ | ✓ | ✓ | | ✓ |
 | Temporal module | `MEAN`, `MAX`, `ATT<hidden size>` | `TemporalModel.type`: mean_pooling, max_pooling, attention_pooling | | | ✓ | | ✓ | | |
@@ -793,14 +793,14 @@ The training settings that can change between two resumptions of a run give no t
 | Temporal module | `BI` | `TemporalModel.bidirectional` is True (gru, lstm) | | | ✓ | ✓ | ✓ | | ✓ |
 | Temporal module | `CAU` | `TemporalModel.causal` is True (transformer, temporal_convolution) | | | | ✓ | | | ✓ |
 | Temporal module | `NPE` | `TemporalModel.positional_embedding` is False (transformer) | | | ✓ | ✓ | ✓ | | ✓ |
-| Temporal module | `TPT`, then `TFRZ` or `TLR<multiplier>` | `TemporalModel.pretrained` (not for mean or max pooling) | | | ✓ | ✓ | ✓ | | ✓ |
+| Temporal module | `TPT`, then `TFRZ` when frozen | `TemporalModel.pretrained` (not for mean or max pooling) | | | ✓ | ✓ | ✓ | | ✓ |
 | Fusion | `FCAT`, `FDIF`, `FXA<heads>` | `Fusion.type`: concatenation, difference, cross_attention | | | | | ✓ | | |
 | Fusion | `SNP` | `Fusion.sequence_normalization_scope` is pair, with the `SN` backbone | | | | | ✓ | | |
 | Head | `HAVG.<fully connected>` or `HMAX.<fully connected>` | `ClassificationHead.global_pooling` average or max, `fully_connected` | | ✓ | ✓ | ✓ | ✓ | | ✓ |
 | Head | `HFLAT.<fully connected>` | `ClassificationHead.global_pooling` flatten, `fully_connected` | | ✓ | | | | | |
 | Head | `LS<rate>` | `ClassificationHead.label_smoothing` is above 0 | | ✓ | ✓ | ✓ | ✓ | | ✓ |
 | Head | `CWB` | `ClassificationHead.class_weighting` is balanced | | ✓ | ✓ | ✓ | ✓ | | ✓ |
-| Head | `HPT`, then `HFRZ` or `HLR<multiplier>` | `ClassificationHead.pretrained` | | ✓ | ✓ | ✓ | ✓ | | ✓ |
+| Head | `HPT`, then `HFRZ` when frozen | `ClassificationHead.pretrained` | | ✓ | ✓ | ✓ | ✓ | | ✓ |
 | Classes | `MC<classes>` | `ClassificationHead.output_mode` multi_class, classes of the label dictionary | | ✓ | ✓ | ✓ | ✓ | | ✓ |
 | Classes | `ML<classes>` | `ClassificationHead.output_mode` multi_label | | ✓ | | | | | |
 | Selection | `FPC<frames>` | `Selection.frames_per_class` | | | | | | | ✓ |
@@ -894,7 +894,7 @@ The debugging scripts kept in the repository are in `scripts/`, also in folders 
 ├── vision_training/                   # Training framework
 │   ├── main.py                        # Entry point of the trainings
 │   ├── configurations/                # Example and synthetic configuration of every task
-│   ├── configuration/                 # Loading, checks, run names and migration of the configurations
+│   ├── configuration/                 # Loading, checks, run names, migration and comparison of the configurations
 │   ├── core/                          # Task registry and contracts shared by the tasks
 │   ├── data/                          # Datasets, loaders, preprocessing, augmentation, label mapping
 │   │   ├── classification/            # Classification dataset, class folder converter, ImageNet download
