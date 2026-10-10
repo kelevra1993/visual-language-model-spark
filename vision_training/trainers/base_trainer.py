@@ -20,6 +20,9 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
+from vision_training.configuration.configuration_changes import (ConfigurationChanges, find_changed_settings,
+                                                              format_setting_value)
+from vision_training.configuration.configuration_loader import load_configuration
 from vision_training.configuration.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
@@ -133,8 +136,10 @@ class BaseTrainer(ABC):
         self.resume_training = self.experiment_configuration["resume_training"]
 
         # Paths of the run folder, created with the copy of the configuration only for a training: the input viewer
-        # exits without training, so it leaves no empty run folder and never overwrites the configuration of a run
-        self.tensorboard_directory, self.weights_directory, self.configuration_path = self.setup_training_paths(
+        # exits without training, so it leaves no empty run folder and never overwrites the configuration of a run. A
+        # resumed run also gets the settings changed since its last start, printed with the experiment information
+        (self.tensorboard_directory, self.weights_directory, self.configuration_path,
+         self.configuration_changes) = self.setup_training_paths(
             initial_configuration_path=Path(configuration_path),
             create_run_folder=not self.diagnosis_modes["view_input_images"])
 
@@ -558,15 +563,17 @@ class BaseTrainer(ABC):
                              "Would Change Nothing: Leave At Least One Component Trainable.")
         return pretrained_checkpoint_paths
 
-    def setup_training_paths(self, initial_configuration_path: Path,
-                             create_run_folder: bool) -> tuple[Path, Path, Path]:
+    def setup_training_paths(self, initial_configuration_path: Path, create_run_folder: bool
+                             ) -> Tuple[Path, Path, Path, Optional[ConfigurationChanges]]:
         """
         Sets up the directory structure and persistent files for training outputs.
 
         This method acts as the initialization step for experiment storage: it gives the paths of the `Tensorboard`
         and `Weights` directories and of the archived configuration within the run folder and, for a training, creates
-        the directories and archives the configuration file of the run there before the training loop commences. The
-        input viewer, which exits without training, only needs the paths.
+        the directories and archives the configuration file of the run there before the training loop commences. A
+        resumed run first compares the launched configuration with the saved one (see
+        compare_with_saved_configuration), which the copy replaces. The input viewer, which exits without training,
+        only needs the paths.
 
         Args:
             initial_configuration_path (Path): The original path of the experiment configuration file.
@@ -574,26 +581,74 @@ class BaseTrainer(ABC):
                 to only give their paths (the input viewer).
 
         Returns:
-            tuple[Path, Path, Path]: A tuple containing:
+            Tuple[Path, Path, Path, Optional[ConfigurationChanges]]: A tuple containing:
                 - tensorboard_directory (Path): Path to the TensorBoard logs folder.
                 - weights_directory (Path): Path to the saved model weights folder.
                 - configuration_path (Path): Path to the archived configuration file.
+                - configuration_changes (Optional[ConfigurationChanges]): The settings changed since the last start
+                  of a resumed run, None for a run that does not resume from a checkpoint and for the input viewer.
         """
         tensorboard_directory = self.experiment_folder / "Tensorboard"
         weights_directory = self.experiment_folder / "Weights"
         new_configuration_path = self.experiment_folder / "training_configuration.yaml"
         if not create_run_folder:
-            return tensorboard_directory, weights_directory, new_configuration_path
+            return tensorboard_directory, weights_directory, new_configuration_path, None
 
         # Create directories
         self.experiment_folder.mkdir(parents=True, exist_ok=True)
         tensorboard_directory.mkdir(exist_ok=True, parents=True)
         weights_directory.mkdir(exist_ok=True, parents=True)
 
+        # Settings changed since the last start of a resumed run, before the copy replaces the saved configuration
+        configuration_changes = None
+        if self.resume_training:
+            configuration_changes = self.compare_with_saved_configuration(
+                initial_configuration_path=initial_configuration_path, saved_configuration_path=new_configuration_path,
+                weights_directory=weights_directory)
+
         # Save a copy of the configuration file
         copyfile(src=str(initial_configuration_path), dst=str(new_configuration_path))
 
-        return tensorboard_directory, weights_directory, new_configuration_path
+        return tensorboard_directory, weights_directory, new_configuration_path, configuration_changes
+
+    def compare_with_saved_configuration(self, initial_configuration_path: Path, saved_configuration_path: Path,
+                                         weights_directory: Path) -> Optional[ConfigurationChanges]:
+        """
+        Compares the configuration a run is resumed with against the one saved in its folder by the previous start, so
+        that the settings changed between two resumptions (learning rate, learning rate multipliers, batch size,
+        dropout, augmentation...), which keep the run name, are printed at launch and stay traceable. When they differ,
+        the saved file is kept as 'training_configuration_until_iteration_<n>.yaml', the configuration that trained the
+        run up to the checkpoint of iteration n it resumes from. A file of that name is never replaced: a run resumed
+        twice from the same checkpoint keeps the configuration that really trained it.
+
+        Args:
+            initial_configuration_path (Path): The configuration file the run is launched with.
+            saved_configuration_path (Path): The configuration file saved in the run folder by the previous start.
+            weights_directory (Path): The 'Weights' folder of the run, giving the checkpoint it resumes from.
+
+        Returns:
+            Optional[ConfigurationChanges]: The changed settings with the resumed iteration and the archived file, None
+                when the run has no checkpoint or no saved configuration to resume from.
+        """
+        resumed_iteration = get_last_checkpoint_iteration(weights_directory=weights_directory)
+        if not resumed_iteration or not saved_configuration_path.is_file():
+            return None
+
+        # Every setting whose value changed, was added or was removed since the previous start
+        changed_settings = find_changed_settings(
+            previous_configuration=load_configuration(configuration_path=saved_configuration_path),
+            current_configuration=load_configuration(configuration_path=initial_configuration_path))
+        if not changed_settings:
+            return ConfigurationChanges(resumed_iteration=resumed_iteration, changed_settings=[],
+                                        archived_configuration_path=None)
+
+        # Keep the configuration that trained the run up to the resumed checkpoint, unless an earlier resume kept it
+        archived_configuration_path = (saved_configuration_path.parent /
+                                       f"training_configuration_until_iteration_{resumed_iteration}.yaml")
+        if not archived_configuration_path.exists():
+            copyfile(src=str(saved_configuration_path), dst=str(archived_configuration_path))
+        return ConfigurationChanges(resumed_iteration=resumed_iteration, changed_settings=changed_settings,
+                                    archived_configuration_path=archived_configuration_path)
 
     def print_experiment_information(self) -> None:
         """
@@ -610,15 +665,9 @@ class BaseTrainer(ABC):
         if self.diagnosis_modes["view_input_images"]:
             print_color(color="yellow", output="- Run Folder Not Created  : The Input Viewer Exits Without Training")
 
-        # Every component initialised by another run, with its source run and whether it is frozen
-        pretrained_labels = {"Backbone": "Pretrained Backbone", "TemporalModel": "Pretrained Temp. Module",
-                             "ClassificationHead": "Pretrained Class. Head",
-                             "SegmentationDecoder": "Pretrained Seg. Decoder"}
-        for section_name, pretrained_configuration in self.pretrained_configurations.items():
-            if pretrained_configuration["experiment_folder"] is not None:
-                print_color(color="blue", output=f"- {pretrained_labels[section_name]:<23} : "
-                                                 f"file://{Path(pretrained_configuration['experiment_folder'])} "
-                                                 f"(frozen: {pretrained_configuration['freeze']})")
+        # Settings changed since the last start of a resumed run, then every component initialised by another run
+        self.print_configuration_changes()
+        self.print_pretrained_components()
 
         # Print every split folder with its number of samples, described by the task, kept for the MLflow parameters
         self.number_samples_per_split = {}
@@ -658,6 +707,69 @@ class BaseTrainer(ABC):
                 tracking_configuration=self.tracking_configuration,
                 tracking_root=self.experiment_configuration["experiment_folder"])
         print_color(color="blue", output=f"- MLflow Tracking         : {tracking_description}")
+
+    def print_configuration_changes(self) -> None:
+        """
+        Prints, in the experiment information of a resumed run, the settings changed since its last start (see
+        compare_with_saved_configuration), so that a changed learning rate, learning rate multiplier or any other
+        setting keeping the run name is visible at launch, with the file keeping the previous configuration. Nothing is
+        printed for a run that does not resume from a checkpoint.
+        """
+        if self.configuration_changes is None:
+            return
+        resumed_iteration = self.configuration_changes["resumed_iteration"]
+        changed_settings = self.configuration_changes["changed_settings"]
+        if not changed_settings:
+            print_color(color="blue", output=f"- Changed Settings        : None Since Iteration {resumed_iteration}")
+            return
+
+        # File keeping the previous configuration, then every changed setting aligned on the longest key
+        archived_configuration_path = self.configuration_changes["archived_configuration_path"]
+        print_color(color="yellow", output=f"- Previous Configuration  : "
+                                           f"file://{archived_configuration_path.absolute()}")
+        print_color(color="yellow", output=f"- Changed Settings        : Since Iteration {resumed_iteration}")
+        key_width = max(len(setting_key) for setting_key, _, _ in changed_settings)
+        for setting_key, previous_value, current_value in changed_settings:
+            print_color(color="yellow", output=f"    - {setting_key:<{key_width}} : "
+                                               f"{format_setting_value(value=previous_value)} -> "
+                                               f"{format_setting_value(value=current_value)}")
+
+    def print_pretrained_components(self) -> None:
+        """
+        Prints, in the experiment information, one block per component initialised by the trained one of another run
+        (backbone, temporal module, classification head, segmentation decoder): its source run folder, then the
+        checkpoint iteration it comes from, whether it is frozen, whether the normalization layers of the backbone are
+        frozen, and the learning rate it learns at with its multiplier, which gives no token in the run name. A frozen
+        component does not learn, so it has no learning rate line. Components trained from random weights print
+        nothing.
+        """
+        pretrained_labels = {"Backbone": "Pretrained Backbone", "TemporalModel": "Pretrained Temp. Module",
+                             "ClassificationHead": "Pretrained Class. Head",
+                             "SegmentationDecoder": "Pretrained Seg. Decoder"}
+        for section_name, pretrained_configuration in self.pretrained_configurations.items():
+            if pretrained_configuration["experiment_folder"] is None:
+                continue
+
+            # Source run and checkpoint of the component, and whether it is frozen
+            source_iteration = pretrained_configuration["iteration"]
+            source_iteration_description = "last saved checkpoint" if source_iteration is None else source_iteration
+            print_color(color="blue", output=f"- {pretrained_labels[section_name]:<23} : "
+                                             f"file://{Path(pretrained_configuration['experiment_folder']).absolute()}")
+            print_color(color="blue", output=f"    - Source Iteration    : {source_iteration_description}")
+            print_color(color="blue", output=f"    - Frozen              : {pretrained_configuration['freeze']}")
+
+            # Scale and shift of the normalization layers kept fixed, a setting of the backbone only
+            if section_name == "Backbone":
+                print_color(color="blue", output=f"    - Norm. Layers Frozen : "
+                                                 f"{pretrained_configuration['freeze_normalization_parameters']}")
+
+            # Learning rate of the parameter group of a component that learns, the learning rate of the run times its
+            # multiplier
+            if not pretrained_configuration["freeze"]:
+                learning_rate_multiplier = pretrained_configuration["learning_rate_multiplier"]
+                print_color(color="blue", output=f"    - Learning Rate       : "
+                                                 f"{self.learning_rate * learning_rate_multiplier:g} (multiplier "
+                                                 f"{learning_rate_multiplier:g} x {self.learning_rate:g})")
 
     def setup_tensorboard_writers(self) -> Tuple[SummaryWriter, Optional[SummaryWriter]]:
         """

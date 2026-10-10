@@ -183,8 +183,10 @@ def test_sequence_components_initialise_a_partly_frozen_run(tmp_path: Path, caps
     with exactly their weights, in a folder named after the transfers, with one optimizer group per component
     learning at its own speed. Its training keeps the frozen GRU fixed while the backbone before it learns, which
     needs the recurrent layers in training mode on the GPU, its checkpoints record every source run, and resuming it
-    loads nothing again. A run keeping the normalization parameters of the backbone fixed trains every other
-    backbone parameter, and a run freezing every component is refused.
+    loads nothing again. The launch information prints the settings of every transferred component, without learning
+    rate for the frozen one, and the resume reports its changed number of iterations. A run keeping the
+    normalization parameters of the backbone fixed trains every other backbone parameter, and a run freezing every
+    component is refused.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -250,6 +252,23 @@ def test_sequence_components_initialise_a_partly_frozen_run(tmp_path: Path, caps
     assert all(not parameter.requires_grad for parameter in resumed_trainer.model.temporal_module.parameters())
     console_output = capsys.readouterr().out
     assert "The Pretrained Temporal Module Is Not Loaded Again" in console_output
+    assert "- Changed Settings        : Since Iteration 3" in console_output
+    assert "    - ExperimentConfiguration.number_iterations : 3 -> 1" in console_output
+
+    # Launch information of every transferred component: source run and iteration, freezes and learning rate
+    console_lines = console_output.splitlines()
+    for expected_line in [f"- Pretrained Backbone     : file://{source_folder}", "    - Norm. Layers Frozen : False",
+                          "    - Learning Rate       : 0.0005 (multiplier 0.5 x 0.001)",
+                          f"- Pretrained Class. Head  : file://{source_folder}",
+                          "    - Learning Rate       : 0.0001 (multiplier 0.1 x 0.001)"]:
+        assert any(expected_line in console_line for console_line in console_lines), expected_line
+
+    # The frozen temporal module does not learn, so its block has no learning rate line
+    temporal_block_index = next(index for index, console_line in enumerate(console_lines)
+                                if f"- Pretrained Temp. Module : file://{source_folder}" in console_line)
+    assert "    - Source Iteration    : last saved checkpoint" in console_lines[temporal_block_index + 1]
+    assert "    - Frozen              : True" in console_lines[temporal_block_index + 2]
+    assert "- Pretrained Class. Head" in console_lines[temporal_block_index + 3]
 
     # A new run without checkpoint says which components it took from other runs, the source run says it is new
     assert ("The New Model Starts From Pretrained Components Of Other Runs : Backbone, Temporal Module, "

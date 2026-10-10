@@ -140,7 +140,8 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 
 ```text
 <experiment_folder>/<run name>/
-├── training_configuration.yaml        # Copy of the configuration of the run
+├── training_configuration.yaml        # Copy of the configuration of the last start of the run
+├── training_configuration_until_iteration_<n>.yaml  # Configuration that trained the run up to iteration n, kept by a resume that changed it
 ├── Weights/
 │   ├── full-checkpoint                # Registry of the saved checkpoints, the last one first
 │   └── Iteration_<n>/model_<n>.pt     # Weights, optimizer state and metadata of iteration n
@@ -157,7 +158,20 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 A checkpoint is saved every `intermediate_weight_saving_iterations` iterations, and a checkpoint evaluated on the whole test split every `weight_saving_iterations` iterations. The files of an evaluation are listed in [Evaluation Outputs](#evaluation-outputs).
 
 ### Console Output
-At launch, the trainer prints the run name, its folders as clickable links, every split with its number of samples, the iterations per epoch, the main training settings and the summary of the model. With `diagnosis_modes.compute_receptive_field` and `compute_model_size`, it also prints the receptive field and the size of the model.
+At launch, the trainer prints the run name, its folders as clickable links, the settings changed since the last start of a resumed run ([Stopping And Resuming](#stopping-and-resuming)), every component initialised by another run, every split with its number of samples, the iterations per epoch, the main training settings and the summary of the model. A transferred component ([Transfer Between Runs](#transfer-between-runs)) is printed as a block with its source run folder, the source checkpoint iteration, whether it is frozen, whether the normalization layers of the backbone are frozen, and the learning rate it learns at with its `learning_rate_multiplier` (none for a frozen component, which does not learn):
+
+```text
+- Pretrained Backbone     : file:///…/experiments/CLS_IN-KAR-256_…_HAVG.512.256-CWB_MC1000
+    - Source Iteration    : last saved checkpoint
+    - Frozen              : False
+    - Norm. Layers Frozen : False
+    - Learning Rate       : 0.0005 (multiplier 0.5 x 0.001)
+- Pretrained Temp. Module : file:///…/experiments/M2O_IN-KAR-256_…_T8_GRU1x128-BI_HAVG.64_MC4
+    - Source Iteration    : 25000
+    - Frozen              : True
+```
+
+ With `diagnosis_modes.compute_receptive_field` and `compute_model_size`, it also prints the receptive field and the size of the model.
 
 <p align="center">
   <img src="README/experiment_launch_information.png" width="100%" />
@@ -184,7 +198,18 @@ Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the 
 ### Stopping And Resuming
 Ctrl+C stops the training and saves a checkpoint of the current iteration. With `resume_training: true`, launching the same configuration again resumes from the last checkpoint of its run folder, with its optimizer state.
 
-The settings that give no token in the run name (augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision, dropout rates) can be changed between two resumptions of a run. Changing any other setting gives another run name, so the training starts in a new run folder.
+The settings that give no token in the run name (augmentation, batch size, learning rate and its schedule, `pretrained.learning_rate_multiplier`, gradient clipping, mixed precision, dropout rates) can be changed between two resumptions of a run. Changing any other setting gives another run name, so the training starts in a new run folder.
+
+A resumed run compares the launched configuration with the `training_configuration.yaml` saved in its folder by the previous start, before the copy of the new one replaces it, and prints every setting changed, added or removed since:
+
+```text
+- Previous Configuration  : file:///…/training_configuration_until_iteration_72500.yaml
+- Changed Settings        : Since Iteration 72500
+    - ExperimentConfiguration.learning_rate        : 0.0002 -> 0.0001
+    - Backbone.pretrained.learning_rate_multiplier : 0.5 -> 1.0
+```
+
+When the configuration changed, the previous file is kept as `training_configuration_until_iteration_<n>.yaml`, the configuration that trained the run up to the checkpoint of iteration n it resumes from. A file of that name is never replaced, so a run resumed twice from the same checkpoint keeps the configuration that really trained it. An unchanged configuration prints `- Changed Settings        : None Since Iteration <n>` and keeps no file.
 
 ### Viewing The Input Images
 `ExperimentConfiguration.diagnosis_modes.view_input_images: True` opens a Training and a Validation window showing the samples exactly as the network receives them, the training ones augmented, each captioned with its targets. It checks the preprocessing, the label mapping and the augmentation before a training. SPACE shows the next samples, ENTER closes the windows and exits without training. It needs a display, and creates no run folder.
