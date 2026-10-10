@@ -1,7 +1,8 @@
 """
 Tests of vision_training/evaluation/detection/average_precision_report.py on the results of evaluate_detections: the
 table of the average precision methods, the per-class rows of class_metrics.csv (a class without ground truth having
-no average precision) and the per-class table sorted by AP@0.5.
+no average precision), the per-class table sorted by AP@0.5, and the title and column prefixes of the box and mask
+tables of the instance segmentation.
 """
 
 import pytest
@@ -61,3 +62,31 @@ def test_class_average_precision_rows_and_table() -> None:
     assert table["columns"] == ["Class", "Ground\nTruths", "AP@0.5", "AP@0.75", "AP@[0.5:0.95]"]
     assert table["sort_column"] == "AP@0.5" and table["per_class"] is True
     assert table["rows"][2] == ["star", 0, None, None, None]
+
+
+def test_box_and_mask_tables_are_told_apart_by_their_prefixes() -> None:
+    """
+    Verifies that the title prefixes name the box and mask tables, that the legend can name another mAP comparing the
+    checkpoints, and that the mask rows of the column prefix merge with the box rows of the same classes and feed the
+    mask per-class table, the object detection titles and columns staying unprefixed.
+    """
+    results = get_two_class_results()
+    class_names = {0: "background", 1: "square", 2: "circle", 3: "star"}
+
+    mask_table = build_mean_average_precision_table(results=results, title_prefix="Mask")
+    box_table = build_mean_average_precision_table(results=results, title_prefix="Box", legend="Mask mAP@0.5 instead.")
+    assert mask_table["title"] == "Mask Mean Average Precision" and box_table["title"] == "Box Mean Average Precision"
+    assert box_table["legend"] == "Mask mAP@0.5 instead." and mask_table["legend"].startswith("The mAP@0.5")
+
+    # Box and mask rows of the same classes merged into one row per class
+    box_rows = build_class_average_precision_rows(results=results, class_names=class_names)
+    mask_rows = build_class_average_precision_rows(results=results, class_names=class_names, column_prefix="mask_")
+    merged_rows = [{**box_row, **mask_row} for box_row, mask_row in zip(box_rows, mask_rows)]
+    assert list(merged_rows[0]) == ["class_index", "class", "ground_truths", "average_precision_50",
+                                    "average_precision_75", "average_precision_50_95", "mask_average_precision_50",
+                                    "mask_average_precision_75", "mask_average_precision_50_95"]
+
+    mask_class_table = build_class_average_precision_table(class_rows=merged_rows, title_prefix="Mask",
+                                                           column_prefix="mask_")
+    assert mask_class_table["title"] == "Mask Per Class Average Precision (Area)"
+    assert mask_class_table["rows"][0] == ["square", 1, 1.0, 1.0, 1.0]

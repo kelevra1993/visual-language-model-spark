@@ -1,7 +1,7 @@
 """
-Mean average precision of the object detection task: matching of the detections to the ground truth boxes,
-precision-recall curves and average precision (area, 11 or 101 points) over the IoU thresholds. Used by the
-detection trainer to evaluate a checkpoint on the test split.
+Mean average precision of the object detection and instance segmentation tasks: matching of the detections to the
+ground truths by their boxes or masks, precision-recall curves and average precision (area, 11 or 101 points) over the
+IoU thresholds. Used by the detection and instance segmentation trainers to evaluate a checkpoint on the test split.
 """
 
 import torch
@@ -16,38 +16,44 @@ AVERAGE_PRECISION_METHODS = ["area", "11_point", "101_point"]
 # Intersection over union thresholds of the COCO-style mAP@[0.5:0.95], from 0.50 to 0.95 in steps of 0.05
 INTERSECTION_OVER_UNION_THRESHOLDS = [round(0.5 + 0.05 * index, 2) for index in range(10)]
 
+# Overlaps comparing a detection with a ground truth: their boxes, or their masks (instance segmentation)
+OVERLAP_TYPES = ["boxes", "masks"]
 
-def find_best_ground_truth(detection_image_indices: torch.Tensor, detection_boxes: torch.Tensor,
-                           ground_truth_boxes_per_image: List[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+
+def find_best_ground_truth(overlap_matrices: List[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Finds, for every detection of a class, the ground truth box of the same class and the same image that overlaps
-    it the most. This best match does not depend on the intersection over union threshold nor on which ground truths
-    are already matched, so it is computed once per class and reused by the matching at every threshold.
+    Finds, for every detection of a class, the ground truth of the same class and the same image that overlaps it the
+    most, from the overlap matrix of every image (box or mask intersection over union). This best match does not
+    depend on the intersection over union threshold nor on which ground truths are already matched, so it is computed
+    once per class and reused by the matching at every threshold.
 
     Args:
-        detection_image_indices (torch.Tensor): The [D] index of the image of every detection.
-        detection_boxes (torch.Tensor): The [D, 4] [x1, y1, x2, y2] detection boxes.
-        ground_truth_boxes_per_image (List[torch.Tensor]): The [G_i, 4] ground truth boxes of the class in every image.
+        overlap_matrices (List[torch.Tensor]): The [D_i, G_i] intersection over union of the detections and ground
+            truths of the class in every image.
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: The [D] intersection over union with the best ground truth (0 when the image
-            has none) and the [D] index of that ground truth within its image (-1 when the image has none).
+        Tuple[torch.Tensor, torch.Tensor]: The intersection over union with the best ground truth (0 when the image
+            has none) and the index of that ground truth within the ground truths of the class in its image (-1 when
+            the image has none), for the detections of every image one after the other.
     """
-    best_intersection_over_union = torch.zeros(size=(len(detection_boxes),), dtype=torch.float64)
-    best_ground_truth_indices = torch.full(size=(len(detection_boxes),), fill_value=-1, dtype=torch.int64)
+    best_intersection_over_union, best_ground_truth_indices = [], []
 
-    # Compare the detections of every image with the ground truth boxes of that image only
-    for image_index in torch.unique(detection_image_indices).tolist():
-        ground_truth_boxes = ground_truth_boxes_per_image[image_index]
-        if len(ground_truth_boxes) == 0:
+    # Best ground truth of every detection within its own image
+    for overlap_matrix in overlap_matrices:
+        overlap_matrix = overlap_matrix.to(dtype=torch.float64)
+        if overlap_matrix.shape[1] == 0:
+            best_intersection_over_union.append(torch.zeros(size=(overlap_matrix.shape[0],), dtype=torch.float64))
+            best_ground_truth_indices.append(torch.full(size=(overlap_matrix.shape[0],), fill_value=-1,
+                                                        dtype=torch.int64))
             continue
-        image_mask = detection_image_indices == image_index
-        intersection_over_union = get_intersection_over_union(boxes_1=detection_boxes[image_mask],
-                                                              boxes_2=ground_truth_boxes)
-        best_intersection_over_union[image_mask], best_ground_truth_indices[image_mask] = intersection_over_union.max(
-            dim=1)
+        image_best_overlaps, image_best_indices = overlap_matrix.max(dim=1)
+        best_intersection_over_union.append(image_best_overlaps)
+        best_ground_truth_indices.append(image_best_indices)
 
-    return best_intersection_over_union, best_ground_truth_indices
+    # Keep the [0] layout without images
+    if len(overlap_matrices) == 0:
+        return torch.zeros(size=(0,), dtype=torch.float64), torch.zeros(size=(0,), dtype=torch.int64)
+    return torch.cat(tensors=best_intersection_over_union), torch.cat(tensors=best_ground_truth_indices)
 
 
 def match_detections_to_ground_truth(detection_image_indices: torch.Tensor,
@@ -155,45 +161,58 @@ def compute_average_precision(precisions: torch.Tensor, recalls: torch.Tensor, m
 
 
 def gather_class_detections(detections: List[Dict[str, torch.Tensor]], ground_truths: List[Dict[str, torch.Tensor]],
-                            class_label: int) -> Dict[str, Any]:
+                            class_label: int, overlap_type: str = "boxes") -> Dict[str, Any]:
     """
     Gathers the detections of one class over all images, sorted by decreasing score, with their best matching ground
-    truth, and counts the ground truth boxes of that class: everything the average precision of the class needs,
-    independently of the intersection over union threshold.
+    truth, and counts the ground truths of that class: everything the average precision of the class needs,
+    independently of the intersection over union threshold. The detections and ground truths are compared by their
+    boxes (object detection, and the box AP of the instance segmentation) or by their masks (mask AP of the instance
+    segmentation), whose overlaps are computed beforehand by the trainer.
 
     Args:
         detections (List[Dict[str, torch.Tensor]]): For every image, its detection 'boxes' [N, 4], 'scores' [N] and
-            'labels' [N].
+            'labels' [N], and for the masks the 'mask_overlaps' [N, M], the mask intersection over union of every
+            detection with every ground truth of the image.
         ground_truths (List[Dict[str, torch.Tensor]]): For every image, its ground truth 'boxes' [M, 4] and
             'labels' [M].
         class_label (int): The class index.
+        overlap_type (str): "boxes" or "masks". Defaults to "boxes".
 
     Returns:
         Dict[str, Any]: The sorted 'image_indices', 'best_intersection_over_union' and 'best_ground_truth_indices' of
             the detections, and the 'number_ground_truth' of the class.
-    """
-    ground_truth_boxes_per_image = [ground_truth["boxes"][ground_truth["labels"] == class_label].to(dtype=torch.float64)
-                                    for ground_truth in ground_truths]
 
-    # Concatenate the detections of the class of every image, remembering the image each one comes from
-    image_indices, boxes, scores = [], [], []
-    for image_index, detection in enumerate(detections):
+    Raises:
+        ValueError: If the overlap type is not one of OVERLAP_TYPES.
+    """
+    if overlap_type not in OVERLAP_TYPES:
+        raise ValueError(f"Unknown overlap type {overlap_type!r}, expected one of {OVERLAP_TYPES}.")
+
+    # Overlap matrix of the detections and ground truths of the class in every image, with their scores and images
+    image_indices, scores, overlap_matrices = [], [], []
+    number_ground_truth = 0
+    for image_index, (detection, ground_truth) in enumerate(zip(detections, ground_truths, strict=True)):
         class_mask = detection["labels"] == class_label
-        boxes.append(detection["boxes"][class_mask].to(dtype=torch.float64))
+        ground_truth_mask = ground_truth["labels"] == class_label
+        number_ground_truth += int(ground_truth_mask.sum())
+        if overlap_type == "boxes":
+            overlap_matrices.append(get_intersection_over_union(
+                boxes_1=detection["boxes"][class_mask].to(dtype=torch.float64),
+                boxes_2=ground_truth["boxes"][ground_truth_mask].to(dtype=torch.float64)))
+        else:
+            overlap_matrices.append(detection["mask_overlaps"][class_mask][:, ground_truth_mask])
         scores.append(detection["scores"][class_mask].to(dtype=torch.float64))
         image_indices.append(torch.full(size=(int(class_mask.sum()),), fill_value=image_index, dtype=torch.int64))
-    boxes, scores, image_indices = torch.cat(tensors=boxes), torch.cat(tensors=scores), torch.cat(tensors=image_indices)
 
-    # Sort the detections by decreasing score, the order in which they take their ground truth
+    # Best ground truth of every detection, then the detections sorted by decreasing score, the order in which they
+    # take their ground truth
+    best_intersection_over_union, best_ground_truth_indices = find_best_ground_truth(overlap_matrices=overlap_matrices)
+    scores, image_indices = torch.cat(tensors=scores), torch.cat(tensors=image_indices)
     sorted_indices = torch.argsort(input=scores, descending=True, stable=True)
-    image_indices, boxes = image_indices[sorted_indices], boxes[sorted_indices]
-
-    best_intersection_over_union, best_ground_truth_indices = find_best_ground_truth(
-        detection_image_indices=image_indices, detection_boxes=boxes,
-        ground_truth_boxes_per_image=ground_truth_boxes_per_image)
-    return {"image_indices": image_indices, "best_intersection_over_union": best_intersection_over_union,
-            "best_ground_truth_indices": best_ground_truth_indices,
-            "number_ground_truth": sum(len(boxes) for boxes in ground_truth_boxes_per_image)}
+    return {"image_indices": image_indices[sorted_indices],
+            "best_intersection_over_union": best_intersection_over_union[sorted_indices],
+            "best_ground_truth_indices": best_ground_truth_indices[sorted_indices],
+            "number_ground_truth": number_ground_truth}
 
 
 def compute_mean_average_precision(class_detections: Dict[int, Dict[str, Any]],
@@ -232,19 +251,21 @@ def compute_mean_average_precision(class_detections: Dict[int, Dict[str, Any]],
 
 
 def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths: List[Dict[str, torch.Tensor]],
-                        number_classes: int) -> Dict[str, Dict[str, Any]]:
+                        number_classes: int, overlap_type: str = "boxes") -> Dict[str, Dict[str, Any]]:
     """
     Evaluates the detections of a whole test split, as reported by the Trainer at every evaluated checkpoint: with
     every average precision method, the mAP at an intersection over union of 0.5 (PASCAL VOC), at 0.75, and averaged
     over the thresholds 0.5 to 0.95 (COCO), plus the average precision of every class at the same thresholds and the
-    number of ground truth boxes of every class, for the per-class report.
+    number of ground truth boxes of every class, for the per-class report. The detections are compared with the
+    ground truths by their boxes, or by their masks for the mask AP of the instance segmentation.
 
     Args:
         detections (List[Dict[str, torch.Tensor]]): For every image, its detection 'boxes' [N, 4], 'scores' [N] and
-            'labels' [N], without padding.
+            'labels' [N], without padding, and for the masks the 'mask_overlaps' [N, M] with the ground truths.
         ground_truths (List[Dict[str, torch.Tensor]]): For every image, its ground truth 'boxes' [M, 4] and
             'labels' [M], in the same coordinates as the detections.
         number_classes (int): The number of classes, background (index 0) included.
+        overlap_type (str): "boxes" or "masks". Defaults to "boxes".
 
     Returns:
         Dict[str, Dict[str, Any]]: For every method, its 'mAP@0.5', 'mAP@0.75' and 'mAP@[0.5:0.95]', the average
@@ -253,7 +274,7 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
     """
     # Gather the detections and best matches of every foreground class once, for all thresholds and methods
     class_detections = {class_label: gather_class_detections(detections=detections, ground_truths=ground_truths,
-                                                             class_label=class_label)
+                                                             class_label=class_label, overlap_type=overlap_type)
                         for class_label in range(1, number_classes)}
 
     results = {}

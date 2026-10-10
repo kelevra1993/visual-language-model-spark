@@ -1,7 +1,7 @@
 """
 Tests of vision_training/evaluation/detection/mean_average_precision.py on a worked example and edge cases: true
-positives, precision recall curve, average precision, duplicate, missing and wrong-class detections and the COCO-style
-mean over overlap thresholds.
+positives, precision recall curve, average precision, duplicate, missing and wrong-class detections, the COCO-style
+mean over overlap thresholds, and the mask average precision of the instance segmentation.
 """
 
 import pytest
@@ -12,6 +12,8 @@ from typing import Dict, List
 from vision_training.evaluation.detection.mean_average_precision import (compute_average_precision, compute_precision_recall,
                                                evaluate_detections, gather_class_detections,
                                                match_detections_to_ground_truth)
+from vision_training.models.detection.box_operations import get_intersection_over_union
+from vision_training.models.instance_segmentation.mask_operations import compute_mask_intersection_over_union
 
 
 def make_detections(boxes: List[List[float]], scores: List[float], labels: List[int]) -> Dict[str, torch.Tensor]:
@@ -238,3 +240,64 @@ def test_unknown_method_is_rejected() -> None:
     with pytest.raises(expected_exception=ValueError):
         compute_average_precision(precisions=torch.tensor(data=[1.0]), recalls=torch.tensor(data=[1.0]),
                                   method="trapezoid")
+
+
+def fill_box_masks(boxes: torch.Tensor, image_size: int) -> torch.Tensor:
+    """
+    Builds the binary masks filling integer boxes exactly, whose mask intersection over union equals the box one.
+
+    Args:
+        boxes (torch.Tensor): The [N, 4] integer [x1, y1, x2, y2] boxes.
+        image_size (int): The side of the square image.
+
+    Returns:
+        torch.Tensor: The [N, image_size, image_size] boolean masks.
+    """
+    masks = torch.zeros(size=(boxes.shape[0], image_size, image_size), dtype=torch.bool)
+    for object_index, (x_1, y_1, x_2, y_2) in enumerate(boxes.int().tolist()):
+        masks[object_index, y_1:y_2, x_1:x_2] = True
+    return masks
+
+
+def test_mask_average_precision_equals_box_average_precision_for_box_masks() -> None:
+    """
+    Verifies that when every detection and ground truth mask fills its box exactly, the mask overlaps equal the box
+    overlaps (within the epsilon of the box overlap, which puts an exact ratio such as 3 / 4 just below its
+    threshold), that the mask average precision read from overlaps equal to the box ones gives the box average
+    precision of every method, threshold and class (the rows and columns of every class being sliced from the
+    overlaps of the whole image), and that an unknown overlap type is refused.
+    """
+    generator = torch.Generator().manual_seed(0)
+    detections, ground_truths = [], []
+    for _ in range(4):
+        ground_truth_corners = torch.randint(low=0, high=40, size=(5, 2), generator=generator)
+        ground_truth_sizes = torch.randint(low=4, high=20, size=(5, 2), generator=generator)
+        ground_truth_boxes = torch.cat(tensors=[ground_truth_corners, ground_truth_corners + ground_truth_sizes], dim=1)
+        detection_boxes = (ground_truth_boxes.repeat(2, 1) + torch.randint(low=-1, high=2, size=(10, 4),
+                                                                           generator=generator)).clamp(min=0, max=64)
+        ground_truth = {"boxes": ground_truth_boxes.float(), "labels": torch.randint(low=1, high=3, size=(5,),
+                                                                                       generator=generator)}
+        detection = {"boxes": detection_boxes.float(), "scores": torch.rand(size=(10,), generator=generator),
+                     "labels": torch.randint(low=1, high=3, size=(10,), generator=generator)}
+        mask_overlaps = compute_mask_intersection_over_union(
+            predicted_masks=fill_box_masks(boxes=detection_boxes, image_size=64),
+            ground_truth_masks=fill_box_masks(boxes=ground_truth_boxes, image_size=64), chunk_size=3)
+        box_overlaps = get_intersection_over_union(boxes_1=detection_boxes.double(),
+                                                   boxes_2=ground_truth_boxes.double())
+        assert torch.allclose(input=mask_overlaps, other=box_overlaps, atol=1e-6)
+        detection["mask_overlaps"] = box_overlaps
+        detections.append(detection)
+        ground_truths.append(ground_truth)
+
+    box_results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=3)
+    mask_results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=3,
+                                       overlap_type="masks")
+    for method, method_results in box_results.items():
+        for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"]:
+            assert mask_results[method][metric_name] == pytest.approx(expected=method_results[metric_name])
+        assert mask_results[method]["class_AP@0.5"] == pytest.approx(expected=method_results["class_AP@0.5"])
+    assert 0.0 < box_results["area"]["mAP@0.5"] < 1.0
+
+    with pytest.raises(ValueError, match="Unknown overlap type"):
+        gather_class_detections(detections=detections, ground_truths=ground_truths, class_label=1,
+                                overlap_type="polygons")

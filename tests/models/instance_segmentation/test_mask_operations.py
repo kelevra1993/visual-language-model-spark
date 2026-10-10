@@ -87,6 +87,7 @@ def test_mask_intersection_over_union_of_known_masks() -> None:
     overlaps = compute_mask_intersection_over_union(predicted_masks=predicted_masks,
                                                     ground_truth_masks=ground_truth_masks, chunk_size=1)
 
-    assert torch.allclose(input=overlaps, other=torch.tensor(data=[[1.0, 0.0], [0.5, 0.0], [0.0, 0.0]]))
+    assert torch.equal(input=overlaps, other=torch.tensor(data=[[1.0, 0.0], [0.5, 0.0], [0.0, 0.0]],
+                                                          dtype=torch.float64))
     assert compute_mask_intersection_over_union(predicted_masks=predicted_masks[:0],
                                                 ground_truth_masks=ground_truth_masks, chunk_size=4).shape == (0, 2)

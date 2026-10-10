@@ -108,7 +108,9 @@ def compute_mask_intersection_over_union(predicted_masks: torch.Tensor, ground_t
     """
     Computes the intersection over union of every pair of predicted and ground truth binary masks, which replaces the
     box overlap in the mask average precision of the instance segmentation evaluation. The intersections are products
-    of the flattened masks on their device, a few predicted masks at a time to bound the memory.
+    of the flattened masks on their device, a few predicted masks at a time to bound the memory, exact pixel counts in
+    float32, and their ratio is taken in float64 so that an exact ratio is compared with the thresholds like the box
+    overlaps (13 / 20 in float32 falls below 0.65).
 
     Args:
         predicted_masks (torch.Tensor): The [D, H, W] binary predicted masks.
@@ -116,7 +118,7 @@ def compute_mask_intersection_over_union(predicted_masks: torch.Tensor, ground_t
         chunk_size (int): The number of predicted masks compared at once.
 
     Returns:
-        torch.Tensor: The [D, G] float32 intersection over union, 0 for two empty masks.
+        torch.Tensor: The [D, G] float64 intersection over union, 0 for two empty masks.
     """
     flattened_ground_truths = ground_truth_masks.flatten(start_dim=1).to(dtype=torch.float32)
     ground_truth_areas = flattened_ground_truths.sum(dim=1)
@@ -126,11 +128,12 @@ def compute_mask_intersection_over_union(predicted_masks: torch.Tensor, ground_t
     for chunk_start in range(0, predicted_masks.shape[0], chunk_size):
         flattened_predictions = predicted_masks[chunk_start:chunk_start + chunk_size].flatten(start_dim=1).to(
             dtype=torch.float32)
-        intersections = flattened_predictions @ flattened_ground_truths.T
-        unions = flattened_predictions.sum(dim=1)[:, None] + ground_truth_areas[None, :] - intersections
+        intersections = (flattened_predictions @ flattened_ground_truths.T).to(dtype=torch.float64)
+        unions = (flattened_predictions.sum(dim=1)[:, None] + ground_truth_areas[None, :]).to(
+            dtype=torch.float64) - intersections
         overlaps.append(torch.where(unions > 0, intersections / unions.clamp(min=1.0), torch.zeros_like(unions)))
 
     # Keep the [0, G] layout without predicted masks
     if len(overlaps) == 0:
-        return torch.zeros(size=(0, ground_truth_masks.shape[0]), dtype=torch.float32, device=ground_truth_masks.device)
+        return torch.zeros(size=(0, ground_truth_masks.shape[0]), dtype=torch.float64, device=ground_truth_masks.device)
     return torch.cat(tensors=overlaps, dim=0)
