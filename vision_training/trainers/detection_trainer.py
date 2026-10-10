@@ -11,7 +11,7 @@ import torch
 
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, Iterable, Iterator, List, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from vision_training.core.contracts import DetectionBatch, EvaluationResults
 from vision_training.data.label_mapping import get_class_names
@@ -35,6 +35,9 @@ class DetectionTrainer(BaseTrainer):
     """
 
     TASK_NAME = "object_detection"
+
+    # Whether the loaders give the binary mask of every object, for the instance segmentation subclass
+    LOAD_INSTANCE_MASKS = False
 
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
@@ -73,7 +76,8 @@ class DetectionTrainer(BaseTrainer):
         self.class_colours = build_class_colours(number_classes=len(self.class_names))
         self.test_image_file_names = {image["id"]: image["file_name"] for image in test_labels["images"]}
         return get_detection_dataloaders(experiment_configuration=self.experiment_configuration,
-                                         model_configuration=self.model_configuration, batch_size=self.batch_size)
+                                         model_configuration=self.model_configuration, batch_size=self.batch_size,
+                                         load_instance_masks=self.LOAD_INSTANCE_MASKS)
 
     def build_model(self) -> TwoStageDetector:
         """
@@ -237,28 +241,59 @@ class DetectionTrainer(BaseTrainer):
         Returns:
             EvaluationResults: The results of the evaluation.
         """
-        results = evaluate_detections(detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
-                                      number_classes=len(self.label_dictionary))
+        summary = self.summarise_average_precisions(accumulator=accumulator)
 
         # Average precisions of every class, saved whatever the per-class report
         evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
-        class_rows = build_class_average_precision_rows(results=results, class_names=self.class_names)
-        files = {"Class Metrics": write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)}
+        files = {"Class Metrics": write_class_metrics_file(class_rows=summary["class_rows"],
+                                                           evaluation_folder=evaluation_folder)}
 
-        # The mean average precisions of every method as TensorBoard scalars, to follow them over the training, and the
-        # AP@0.5 of every class for the per-class report
+        return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {}, "notes": [],
+                "tables": summary["tables"], "scalars": summary["scalars"], "class_scalars": summary["class_scalars"],
+                "images": {}, "files": files, "headline_metric": "mAP@0.5/area"}
+
+    def summarise_average_precisions(self, accumulator: Dict[str, Any], overlap_type: str = "boxes",
+                                     title_prefix: str = "", name_prefix: str = "", column_prefix: str = "",
+                                     legend: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Computes the average precisions of the test split with one overlap (the boxes, or the masks of the instance
+        segmentation) and organises them for the report: the table of the methods and the per-class table, the rows of
+        class_metrics.csv, the mean average precisions of every method as TensorBoard scalars, to follow them over the
+        training, and the AP@0.5 of every class for the per-class report. The object detection uses no prefix, the
+        instance segmentation prefixes the titles of both its box and mask tables, and the names of its mask scalars
+        and columns.
+
+        Args:
+            accumulator (Dict[str, Any]): The detections and ground truths of the test split.
+            overlap_type (str): "boxes" or "masks". Defaults to "boxes".
+            title_prefix (str): The prefix of the table titles ("Box", "Mask"). Defaults to "".
+            name_prefix (str): The prefix of the scalar names ("Mask "). Defaults to "".
+            column_prefix (str): The prefix of the average precision columns of the class rows ("mask_"). Defaults
+                to "".
+            legend (Optional[str]): The legend of the table of the methods, None for the one naming its mAP@0.5 as the
+                metric comparing the checkpoints. Defaults to None.
+
+        Returns:
+            Dict[str, Any]: The 'class_rows', the 'tables' (methods, then classes), the 'scalars' and the
+                'class_scalars'.
+        """
+        results = evaluate_detections(detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
+                                      number_classes=len(self.label_dictionary), overlap_type=overlap_type)
+        class_rows = build_class_average_precision_rows(results=results, class_names=self.class_names,
+                                                        column_prefix=column_prefix)
+
+        # The mean average precisions of every method, and the AP@0.5 of every class for the per-class report
         scalars = {}
         for method in AVERAGE_PRECISION_METHODS:
             for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"]:
-                scalars[f"{metric_name}/{method}"] = results[method][metric_name]
-        class_scalars = {f"AP@0.5/{self.class_names[class_index]}": average_precision
+                scalars[f"{name_prefix}{metric_name}/{method}"] = results[method][metric_name]
+        class_scalars = {f"{name_prefix}AP@0.5/{self.class_names[class_index]}": average_precision
                          for class_index, average_precision in results["area"]["class_AP@0.5"].items()}
 
-        return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {}, "notes": [],
-                "tables": [build_mean_average_precision_table(results=results),
-                           build_class_average_precision_table(class_rows=class_rows)],
-                "scalars": scalars, "class_scalars": class_scalars, "images": {}, "files": files,
-                "headline_metric": "mAP@0.5/area"}
+        tables = [build_mean_average_precision_table(results=results, title_prefix=title_prefix, legend=legend),
+                  build_class_average_precision_table(class_rows=class_rows, title_prefix=title_prefix,
+                                                      column_prefix=column_prefix)]
+        return {"class_rows": class_rows, "tables": tables, "scalars": scalars, "class_scalars": class_scalars}
 
     def get_test_sample_classes(self) -> Dict[int, List[int]]:
         """
@@ -307,6 +342,9 @@ class DetectionTrainer(BaseTrainer):
         predicted_boxes = predictions["final_detection_boxes"][sample_index, :number_detections].detach().float()
         predicted_labels = predictions["final_detection_labels"][sample_index, :number_detections].detach()
         ground_truth_boxes = batch["bounding_boxes"][sample_index].detach().float().cpu().numpy()
+        ground_truth_masks, predicted_masks = self.get_sample_masks(batch=batch, predictions=predictions,
+                                                                    sample_index=sample_index,
+                                                                    kept_detections=kept_detections)
 
         return build_detection_sample_grid(
             image=image, ground_truth_boxes=ground_truth_boxes,
@@ -315,7 +353,25 @@ class DetectionTrainer(BaseTrainer):
             predicted_labels=predicted_labels.cpu().numpy()[kept_detections], predicted_scores=scores[kept_detections],
             class_names=self.class_names, class_colours=self.class_colours,
             caption=f"{len(ground_truth_boxes)} ground truth boxes | {int(kept_detections.sum())} detections with "
-                    f"score >= {self.sample_score_threshold:.2f}")
+                    f"score >= {self.sample_score_threshold:.2f}", ground_truth_masks=ground_truth_masks,
+            predicted_masks=predicted_masks)
+
+    def get_sample_masks(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
+                         kept_detections: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Gives the masks painted on a sample image under its boxes: none for the object detection, the instance
+        segmentation trainer returning the masks of the true objects and of the kept detections.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The model outputs, with the final detections of every image.
+            sample_index (int): The index of the image in the batch.
+            kept_detections (np.ndarray): The [K] flags of the valid detections drawn on the image.
+
+        Returns:
+            Tuple[Optional[np.ndarray], Optional[np.ndarray]]: The ground truth and predicted masks, None and None.
+        """
+        return None, None
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
@@ -334,9 +390,24 @@ class DetectionTrainer(BaseTrainer):
         # Invert the label dictionary so that each box is captioned with its class name instead of its index
         label_names = {class_index: str(class_name) for class_name, class_index in self.label_dictionary.items()}
         return view_input_data(
-            images=[training_batch["images"][sample_index], validation_batch["images"][sample_index]],
+            images=[self.get_input_sample_image(batch=training_batch, sample_index=sample_index),
+                    self.get_input_sample_image(batch=validation_batch, sample_index=sample_index)],
             bounding_boxes=[training_batch["bounding_boxes"][sample_index],
                             validation_batch["bounding_boxes"][sample_index]],
             labels=[training_batch["labels"][sample_index], validation_batch["labels"][sample_index]],
             window_titles=["Training", "Validation"], display_input_size=self.input_image_size,
             label_names=label_names)
+
+    def get_input_sample_image(self, batch: Dict[str, Any], sample_index: int) -> torch.Tensor:
+        """
+        Gives the image of a batch shown by the input viewer, under its boxes: the image itself for the object
+        detection, the instance segmentation trainer painting the masks of its objects on it.
+
+        Args:
+            batch (Dict[str, Any]): The training or validation batch, on the CPU.
+            sample_index (int): The index of the image in the batch.
+
+        Returns:
+            torch.Tensor: The [3, H, W] image in [0, 255].
+        """
+        return batch["images"][sample_index]

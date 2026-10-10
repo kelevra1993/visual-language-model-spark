@@ -30,6 +30,9 @@ class InferenceInstanceSegmenter(InferenceDetector):
         super(InferenceInstanceSegmenter, self).__init__(model=model)
         self.mask_heads_dictionary = model.mask_heads_dictionary
 
+        # Side of the exported masks, stored as a plain number for the export specification
+        self.mask_size = model.mask_size
+
     def forward(self, images: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
                                                      torch.Tensor]:
         """

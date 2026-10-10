@@ -13,6 +13,7 @@ from vision_training.configuration.common_checks import (check_backbone_configur
                                                          check_optimization_configuration)
 from vision_training.configuration.configuration_values import ConfigurationError
 from vision_training.configuration.detection_checks import check_detection_configuration
+from vision_training.configuration.instance_segmentation_checks import check_instance_segmentation_configuration
 from vision_training.configuration.segmentation_checks import check_segmentation_configuration
 from vision_training.configuration.sequence_checks import (check_frame_selection_configuration,
                                                            check_sequence_classification_configuration,
@@ -22,7 +23,9 @@ from vision_training.configuration.sequence_checks import (check_frame_selection
 # Checks of the sections specific to every task, run after the checks of the sections common to every task. The keys
 # are the tasks that can be trained, i.e. the valid values of 'ExperimentConfiguration.task'
 TASK_CONFIGURATION_CHECKS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], List[str]]] = {
-    "object_detection": check_detection_configuration, "classification": check_classification_configuration,
+    "object_detection": check_detection_configuration,
+    "instance_segmentation": check_instance_segmentation_configuration,
+    "classification": check_classification_configuration,
     "semantic_segmentation": check_segmentation_configuration,
     "sequence_classification": check_sequence_classification_configuration,
     "sequence_labelling": check_sequence_labelling_configuration,

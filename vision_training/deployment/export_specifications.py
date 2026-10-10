@@ -12,13 +12,15 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from vision_training.models.classification.inference_classifier import InferenceClassifier
 from vision_training.models.detection.inference_detector import InferenceDetector
+from vision_training.models.instance_segmentation.inference_instance_segmenter import InferenceInstanceSegmenter
 from vision_training.models.segmentation.inference_segmenter import InferenceSegmenter
 from vision_training.models.sequence.inference_sequence_comparator import InferenceSequenceComparator
 from vision_training.models.sequence.inference_sequence_model import InferenceSequenceModel
 from vision_training.models.task_model import TaskModel
 
 # Inference model of every task, wrapping the trained model for deployment and local inference
-INFERENCE_MODEL_CLASSES = {"object_detection": InferenceDetector, "classification": InferenceClassifier,
+INFERENCE_MODEL_CLASSES = {"object_detection": InferenceDetector, "instance_segmentation": InferenceInstanceSegmenter,
+                           "classification": InferenceClassifier,
                            "semantic_segmentation": InferenceSegmenter,
                            "sequence_classification": InferenceSequenceModel,
                            "sequence_labelling": InferenceSequenceModel,
@@ -27,7 +29,8 @@ INFERENCE_MODEL_CLASSES = {"object_detection": InferenceDetector, "classificatio
 
 # Triton model name of every task, followed by '_<export format>' in the model repository (and by '_decoder' and
 # '_<export format>_ensemble' for the decoder and the ensembles of the frame selector)
-TASK_MODEL_NAMES = {"object_detection": "object_detector", "classification": "image_classifier",
+TASK_MODEL_NAMES = {"object_detection": "object_detector", "instance_segmentation": "instance_segmenter",
+                    "classification": "image_classifier",
                     "semantic_segmentation": "semantic_segmenter", "sequence_classification": "sequence_classifier",
                     "sequence_labelling": "sequence_labeller", "sequence_comparison": "sequence_comparator",
                     "frame_selection": "frame_selector"}
@@ -41,7 +44,7 @@ FRAME_OUTPUT_TASKS = ["sequence_labelling", "frame_selection"]
 # Names of the inputs of the inference model of every task, in the order of the arguments of its forward method:
 # they name the inputs of the ONNX exports, and match the argument names kept by the TorchScript exports, which the
 # Triton PyTorch backend uses to pass every input to its argument
-TASK_INPUT_NAMES = {"object_detection": ["images"], "classification": ["images"],
+TASK_INPUT_NAMES = {"object_detection": ["images"], "instance_segmentation": ["images"], "classification": ["images"],
                     "semantic_segmentation": ["images"], "sequence_classification": ["images"],
                     "sequence_labelling": ["images"],
                     "sequence_comparison": ["before_images", "after_images"], "frame_selection": ["images"]}
@@ -64,8 +67,8 @@ def build_inference_model(task: str, model: TaskModel) -> nn.Module:
 
 def convert_outputs_to_numpy(outputs: torch.Tensor | Sequence[torch.Tensor]) -> List[np.ndarray]:
     """
-    Turns the outputs of an inference model (a tuple of tensors for the detector and the segmenter, a single tensor for
-    the classifiers and sequence models) into a list of arrays, the format compared by the export specifications.
+    Turns the outputs of an inference model (a tuple of tensors for the detector and the segmenters, a single tensor
+    for the classifiers and sequence models) into a list of arrays, the format compared by the export specifications.
 
     Args:
         outputs (torch.Tensor | Sequence[torch.Tensor]): The model outputs.
@@ -77,29 +80,49 @@ def convert_outputs_to_numpy(outputs: torch.Tensor | Sequence[torch.Tensor]) -> 
     return [tensor.detach().cpu().numpy() for tensor in output_tensors]
 
 
-def sort_detections(boxes: np.ndarray, scores: np.ndarray, labels: np.ndarray) -> np.ndarray:
+def match_detections(reference_detections: Sequence[np.ndarray], candidate_detections: Sequence[np.ndarray],
+                     score_tolerance: float) -> np.ndarray:
     """
-    Orders the detections of one image canonically (by score, then label and box coordinates) so that two exports
-    can be compared even when detections with exactly the same score come out in a different order.
+    Pairs the detections of one image of two models (the eager inference model and an export), so that their outputs
+    are compared independently of the order of the detections whose scores are tied: two detections with the same
+    score in the eager model can differ by a rounding error in the export and come out in the other order. Every
+    reference detection, from the most confident one, takes the unpaired candidate of the same label whose score lies
+    within the tolerance and whose box is the closest.
 
     Args:
-        boxes (np.ndarray): The [K, 4] detection boxes.
-        scores (np.ndarray): The [K] detection scores.
-        labels (np.ndarray): The [K] detection labels.
+        reference_detections (Sequence[np.ndarray]): The [K, 4] boxes, [K] scores and [K] labels of the reference.
+        candidate_detections (Sequence[np.ndarray]): The [K, 4] boxes, [K] scores and [K] labels of the candidate.
+        score_tolerance (float): The largest score difference of two paired detections.
 
     Returns:
-        np.ndarray: The [K, 6] detections as (score, label, x1, y1, x2, y2) rows in canonical order.
+        np.ndarray: The [K] index of the candidate paired with every reference detection, -1 when none fits.
     """
-    detections = np.concatenate([scores[:, None], labels[:, None].astype(np.float64), boxes], axis=1)
-    order = np.lexsort(keys=tuple(detections[:, column] for column in reversed(range(detections.shape[1]))))
-    return detections[order]
+    reference_boxes, reference_scores, reference_labels = reference_detections
+    candidate_boxes, candidate_scores, candidate_labels = candidate_detections
+
+    # Cost of every pair: the largest box coordinate difference, infinite for another label or a distant score
+    score_differences = np.abs(reference_scores[:, None] - candidate_scores[None, :])
+    box_differences = np.abs(reference_boxes[:, None, :] - candidate_boxes[None, :, :]).max(axis=-1)
+    compatible_pairs = (reference_labels[:, None] == candidate_labels[None, :]) & (score_differences <= score_tolerance)
+    pair_costs = np.where(compatible_pairs, box_differences, np.inf)
+
+    # Greedy pairing from the most confident reference detection
+    paired_indices = np.full(shape=(reference_scores.shape[0],), fill_value=-1, dtype=np.int64)
+    paired_candidates = np.zeros(shape=(candidate_scores.shape[0],), dtype=bool)
+    for reference_index in np.argsort(-reference_scores, kind="stable"):
+        available_costs = np.where(paired_candidates, np.inf, pair_costs[reference_index])
+        best_candidate = int(np.argmin(available_costs))
+        if np.isfinite(available_costs[best_candidate]):
+            paired_indices[reference_index] = best_candidate
+            paired_candidates[best_candidate] = True
+    return paired_indices
 
 
 def compare_detections(reference: Sequence[np.ndarray], candidate: Sequence[np.ndarray], box_tolerance: float,
                        score_tolerance: float) -> List[str]:
     """
-    Compares the outputs of an exported detector with the eager inference detector, image by image, independently of
-    the order of detections with tied scores.
+    Compares the outputs of an exported detector with the eager inference detector, image by image, the detections
+    being paired by match_detections independently of the order of the detections with tied scores.
 
     Args:
         reference (Sequence[np.ndarray]): The eager boxes, scores, labels and numbers of detections.
@@ -111,24 +134,61 @@ def compare_detections(reference: Sequence[np.ndarray], candidate: Sequence[np.n
         List[str]: A description of every mismatch, empty when the outputs agree.
     """
     mismatches = []
-    reference_boxes, reference_scores, reference_labels, reference_numbers = reference
-    candidate_boxes, candidate_scores, candidate_labels, candidate_numbers = candidate
+    reference_boxes, reference_scores, reference_labels, reference_numbers = reference[:4]
+    candidate_boxes, candidate_scores, candidate_labels, candidate_numbers = candidate[:4]
 
     if not np.array_equal(reference_numbers.reshape(-1), candidate_numbers.reshape(-1)):
         mismatches.append(f"numbers of detections differ: {reference_numbers.tolist()} vs {candidate_numbers.tolist()}")
 
-    # Compare the canonically ordered detections of every image
+    # Compare the paired detections of every image
     for image_index in range(reference_boxes.shape[0]):
-        reference_detections = sort_detections(boxes=reference_boxes[image_index], scores=reference_scores[image_index],
-                                               labels=reference_labels[image_index])
-        candidate_detections = sort_detections(boxes=candidate_boxes[image_index], scores=candidate_scores[image_index],
-                                               labels=candidate_labels[image_index])
-        score_difference = np.abs(reference_detections[:, 0] - candidate_detections[:, 0]).max()
-        box_difference = np.abs(reference_detections[:, 2:] - candidate_detections[:, 2:]).max()
-        labels_equal = np.array_equal(reference_detections[:, 1], candidate_detections[:, 1])
-        if score_difference > score_tolerance or box_difference > box_tolerance or not labels_equal:
-            mismatches.append(f"image {image_index}: score difference {score_difference:.2e}, box difference "
-                              f"{box_difference:.2e} px, labels equal {labels_equal}")
+        paired_indices = match_detections(
+            reference_detections=[reference_boxes[image_index], reference_scores[image_index],
+                                  reference_labels[image_index]],
+            candidate_detections=[candidate_boxes[image_index], candidate_scores[image_index],
+                                  candidate_labels[image_index]], score_tolerance=score_tolerance)
+        if (paired_indices < 0).any():
+            mismatches.append(f"image {image_index}: {int((paired_indices < 0).sum())} detections without a "
+                              f"candidate of the same label and score")
+            continue
+        box_difference = np.abs(reference_boxes[image_index] - candidate_boxes[image_index][paired_indices]).max()
+        if box_difference > box_tolerance:
+            mismatches.append(f"image {image_index}: box difference {box_difference:.2e} px")
+    return mismatches
+
+
+def compare_instance_segmentations(reference: Sequence[np.ndarray], candidate: Sequence[np.ndarray],
+                                   box_tolerance: float, score_tolerance: float, mask_tolerance: float) -> List[str]:
+    """
+    Compares the outputs of an exported instance segmenter with the eager inference instance segmenter: the
+    detections as for the detector, then the mask of every detection with the mask of its paired detection, within
+    the mask tolerance.
+
+    Args:
+        reference (Sequence[np.ndarray]): The eager boxes, scores, labels, numbers of detections and masks.
+        candidate (Sequence[np.ndarray]): The exported model outputs, in the same order.
+        box_tolerance (float): The largest accepted box coordinate difference in pixels.
+        score_tolerance (float): The largest accepted score difference.
+        mask_tolerance (float): The largest accepted mask probability difference.
+
+    Returns:
+        List[str]: A description of every mismatch, empty when the outputs agree.
+    """
+    mismatches = compare_detections(reference=reference, candidate=candidate, box_tolerance=box_tolerance,
+                                    score_tolerance=score_tolerance)
+    if mismatches or reference[4].shape != candidate[4].shape:
+        return mismatches + ([] if reference[4].shape == candidate[4].shape else
+                             [f"mask shapes differ: {reference[4].shape} vs {candidate[4].shape}"])
+
+    # Mask of every detection against the mask of its paired detection
+    for image_index in range(reference[0].shape[0]):
+        paired_indices = match_detections(
+            reference_detections=[reference[0][image_index], reference[1][image_index], reference[2][image_index]],
+            candidate_detections=[candidate[0][image_index], candidate[1][image_index], candidate[2][image_index]],
+            score_tolerance=score_tolerance)
+        mask_difference = np.abs(reference[4][image_index] - candidate[4][image_index][paired_indices]).max()
+        if mask_difference > mask_tolerance:
+            mismatches.append(f"image {image_index}: mask difference {mask_difference:.2e}")
     return mismatches
 
 
@@ -270,19 +330,29 @@ def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str,
               for input_index, input_name in enumerate(TASK_INPUT_NAMES[task])]
 
     # Object detection: a fixed number of detections per image, compared independently of the order of tied scores
-    if task == "object_detection":
+    if task in ["object_detection", "instance_segmentation"]:
         maximum_detections = inference_model.maximum_detections
-        return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs,
-                "outputs": [{"name": "detection_boxes", "dimensions": [maximum_detections, 4], "data_type": "TYPE_FP32",
-                             "reshape_to_scalar": False},
-                            {"name": "detection_scores", "dimensions": [maximum_detections], "data_type": "TYPE_FP32",
-                             "reshape_to_scalar": False},
-                            {"name": "detection_labels", "dimensions": [maximum_detections],
-                             "data_type": "TYPE_INT64", "reshape_to_scalar": False},
-                            {"name": "number_detections", "dimensions": [1], "data_type": "TYPE_INT64",
-                             "reshape_to_scalar": True}],
-                "compare_outputs": compare_detections,
-                "comparison_tolerances": {"box_tolerance": 1e-2, "score_tolerance": 1e-4}}
+        detection_outputs = [{"name": "detection_boxes", "dimensions": [maximum_detections, 4],
+                              "data_type": "TYPE_FP32", "reshape_to_scalar": False},
+                             {"name": "detection_scores", "dimensions": [maximum_detections],
+                              "data_type": "TYPE_FP32", "reshape_to_scalar": False},
+                             {"name": "detection_labels", "dimensions": [maximum_detections],
+                              "data_type": "TYPE_INT64", "reshape_to_scalar": False},
+                             {"name": "number_detections", "dimensions": [1], "data_type": "TYPE_INT64",
+                              "reshape_to_scalar": True}]
+        if task == "object_detection":
+            return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs, "outputs": detection_outputs,
+                    "compare_outputs": compare_detections,
+                    "comparison_tolerances": {"box_tolerance": 1e-2, "score_tolerance": 1e-4}}
+
+        # Instance segmentation: the M x M mask probabilities of the detected class of every detection, pasted into
+        # the image inside its box by the client
+        mask_size = inference_model.mask_size
+        mask_output = {"name": "detection_masks", "dimensions": [maximum_detections, mask_size, mask_size],
+                       "data_type": "TYPE_FP32", "reshape_to_scalar": False}
+        return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs, "outputs": detection_outputs + [mask_output],
+                "compare_outputs": compare_instance_segmentations,
+                "comparison_tolerances": {"box_tolerance": 1e-2, "score_tolerance": 1e-4, "mask_tolerance": 1e-3}}
 
     # Number of classes of the segmenter, the classifiers and the sequence models
     number_classes = inference_model.number_classes

@@ -11,9 +11,9 @@ from typing import Any, Callable, Dict, List
 NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN", "sequence": "SN"}
 
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
-TASK_CODES = {"object_detection": "DET", "classification": "CLS", "sequence_classification": "M2O",
-              "sequence_labelling": "M2M", "sequence_comparison": "CMP", "semantic_segmentation": "SEG",
-              "frame_selection": "SEL"}
+TASK_CODES = {"object_detection": "DET", "instance_segmentation": "INS", "classification": "CLS",
+              "sequence_classification": "M2O", "sequence_labelling": "M2M", "sequence_comparison": "CMP",
+              "semantic_segmentation": "SEG", "frame_selection": "SEL"}
 
 # Run name code of every temporal module type of the sequence tasks
 TEMPORAL_TYPE_CODES = {"mean_pooling": "MEAN", "max_pooling": "MAX", "attention_pooling": "ATT", "gru": "GRU",
@@ -248,6 +248,45 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     return [[levels_token], [anchors_token], region_proposal_tokens, detector_tokens, [classes_token]]
 
 
+def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
+    """
+    Builds the sections of the run name specific to instance segmentation: the sections of object detection
+    (build_detection_sections), with the mask heads section before the classes: the modules MSE, MRES, MINC, the
+    normalization MBN, MLN or MNN, then M<RoIAlign pool size>.<layers>x<channels> of the mask heads, the layers and
+    channels being written once when identical on every level, otherwise joined with '+' in level order, e.g.
+    'MRES-MBN-M14.4x64'. The mask threshold gives no token, so that it can change between two resumptions of a run.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
+
+    Returns:
+        List[List[str]]: The tokens of every section.
+    """
+    mask_head_configuration = model_configuration["MaskHead"]
+    level_names = [str(index) for index in model_configuration["Backbone"]["detection_convolution_block_indices"]]
+
+    # Modules and normalization of the mask head convolution blocks
+    mask_modules = mask_head_configuration["modules"]
+    mask_tokens = []
+    if mask_modules["squeeze_and_excite"]:
+        mask_tokens.append("MSE")
+    if mask_modules["residual_nets"]:
+        mask_tokens.append("MRES")
+    if mask_modules["inception"]:
+        mask_tokens.append("MINC")
+    mask_tokens.append("M" + NORMALIZATION_CODES[
+        str(mask_head_configuration["normalization"]["feature_map_normalization"]).lower().strip()])
+
+    # RoIAlign pool size shared by every level, then the layers and channels of the head of every level
+    mask_heads = mask_head_configuration["head_configurations"]
+    mask_tokens.append(f"M{mask_head_configuration['roi_align_pool_size']}." + join_level_tokens(
+        level_tokens=[f"{mask_heads[level][0]}x{mask_heads[level][1]}" for level in level_names]))
+
+    # The mask heads section comes before the classes section of the detection sections
+    detection_sections = build_detection_sections(model_configuration=model_configuration)
+    return detection_sections[:-1] + [mask_tokens] + detection_sections[-1:]
+
+
 def build_classification_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
     """
     Builds the sections of the run name describing the classification head, shared by the classification-like tasks:
@@ -476,7 +515,8 @@ def build_segmentation_sections(model_configuration: Dict[str, Any]) -> List[Lis
 
 # Builder of the task-specific sections of the run name, placed between the backbone and training sections
 TASK_RUN_NAME_SECTIONS: Dict[str, Callable[[Dict[str, Any]], List[List[str]]]] = {
-    "object_detection": build_detection_sections, "classification": build_classification_sections,
+    "object_detection": build_detection_sections, "instance_segmentation": build_instance_segmentation_sections,
+    "classification": build_classification_sections,
     "sequence_classification": build_sequence_sections, "sequence_labelling": build_sequence_sections,
     "sequence_comparison": build_sequence_comparison_sections, "semantic_segmentation": build_segmentation_sections,
     "frame_selection": build_frame_selection_sections}
@@ -493,9 +533,10 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
 
     The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
     is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
-    DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, CLS, M2O, M2M, CMP, SEG or SEL), the
-    input and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the sections of the
-    task (e.g. build_detection_sections), then the optimizer section (build_optimizer_tokens), left out when empty.
+    DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, INS, CLS, M2O, M2M, CMP, SEG or
+    SEL), the input and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the
+    sections of the task (e.g. build_detection_sections), then the optimizer section (build_optimizer_tokens), left out
+    when empty.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration, with its task.

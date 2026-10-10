@@ -1,8 +1,8 @@
 """
 Label mapping of every task: builds the label dictionary injected into the configuration by the configuration loader
-(raw dataset categories to predicted class indices, with the background class of the object detector and of the
-semantic segmenter), names the predicted classes for the evaluation reports and viewers, and writes the
-'label_mapping.json' file of the dataset creation tools.
+(raw dataset categories to predicted class indices, with the background class of the object detector, the instance
+segmenter and the semantic segmenter), names the predicted classes for the evaluation reports and viewers, and writes
+the 'label_mapping.json' file of the dataset creation tools.
 """
 
 import json
@@ -13,23 +13,23 @@ from typing import Any, Dict, List, Optional
 
 from vision_training.utilities.os_utilities import print_color
 
-# Tasks whose model predicts a background class at index 0 (the object detector, the semantic segmenter); the models
-# of the other tasks only predict the dataset classes, indexed from 0
-TASKS_WITH_BACKGROUND_CLASS = ["object_detection", "semantic_segmentation"]
+# Tasks whose model predicts a background class at index 0 (the object detector, the instance segmenter, the semantic
+# segmenter); the models of the other tasks only predict the dataset classes, indexed from 0
+TASKS_WITH_BACKGROUND_CLASS = ["object_detection", "instance_segmentation", "semantic_segmentation"]
 
 
 def build_label_dictionary(label_mapping_configuration: Dict[str, Any], task: str) -> Optional[Dict[Any, int]]:
     """
     Builds the label dictionary injected into the configuration at loading time, mapping every raw dataset category to
     the class index the model predicts. The data loaders use it to convert the dataset annotations, and the model
-    takes its number of classes from it. The object detector and the semantic segmenter predict a background class at
-    index 0, added when the mapping file does not name it; the classification and sequence models only predict the
-    mapped classes, whose indices start at 0.
+    takes its number of classes from it. The object detector, the instance segmenter and the semantic segmenter
+    predict a background class at index 0, added when the mapping file does not name it; the classification and
+    sequence models only predict the mapped classes, whose indices start at 0.
 
     Args:
         label_mapping_configuration (Dict[str, Any]): The 'Data.label_mapping' section, with its 'mode' ("binary" maps
-            every object or labelled pixel to class 1, object detection and semantic segmentation only; "multi_class"
-            reads the JSON mapping file of 'mapping_file_path').
+            every object or labelled pixel to class 1, object detection, instance segmentation and semantic
+            segmentation only; "multi_class" reads the JSON mapping file of 'mapping_file_path').
         task (str): The task of the configuration ('ExperimentConfiguration.task').
 
     Returns:

@@ -265,8 +265,8 @@ def set_invalid_tracking(configuration: Dict[str, Any]) -> None:
     (set_inception_channels, ["'Backbone.convolutions.4' has 20 output channels"]),
     (set_intermediate_weight_saving, ["'ExperimentConfiguration.intermediate_weight_saving_iterations' (10000) "
                                       "must be smaller than"]),
-    (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'classification', "
-                        "'semantic_segmentation', 'sequence_classification', 'sequence_labelling', "
+    (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'instance_segmentation', "
+                        "'classification', 'semantic_segmentation', 'sequence_classification', 'sequence_labelling', "
                         "'sequence_comparison', 'frame_selection'], got 'segmentation'."]),
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
@@ -343,10 +343,10 @@ def test_missing_task_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture)
 def write_task_configuration(temporary_directory: Path, task_folder: str, configuration_name: str,
                              modify_function: Callable[[Dict[str, Any]], None] | None) -> Path:
     """
-    Writes a copy of a configuration of a classification, sequence or semantic segmentation task whose label mapping
-    file (giving the classes 0 to 3, or 1 to 4 next to the background of the segmentation) is written in the temporary
-    directory, the mapping files of the shipped configurations only existing once their datasets are created, then
-    altered by the given function.
+    Writes a copy of a configuration of a classification, sequence, semantic or instance segmentation task whose label
+    mapping file (giving the classes 0 to 3, or 1 to 4 next to the background of the segmentations) is written in the
+    temporary directory, the mapping files of the shipped configurations only existing once their datasets are
+    created, then altered by the given function.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the mapping file.
@@ -361,8 +361,8 @@ def write_task_configuration(temporary_directory: Path, task_folder: str, config
     """
     configuration = yaml.safe_load(stream=(CONFIGURATIONS_FOLDER / task_folder / configuration_name).read_text())
     mapping_path = temporary_directory / "label_mapping.json"
-    label_mapping = SEGMENTATION_LABEL_MAPPING if task_folder == "semantic_segmentation" else \
-        CLASSIFICATION_LABEL_MAPPING
+    label_mapping = SEGMENTATION_LABEL_MAPPING if task_folder in ["semantic_segmentation", "instance_segmentation"] \
+        else CLASSIFICATION_LABEL_MAPPING
     mapping_path.write_text(data=json.dumps(obj=label_mapping))
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(mapping_path)
     if modify_function is not None:
@@ -1459,4 +1459,88 @@ def test_segmentation_label_mapping_gives_mask_values(tmp_path: Path, capsys: py
         load_experiment_configuration(configuration_path=configuration_path)
     printed_output = capsys.readouterr().out
     assert expected_message in printed_output
+    assert "Traceback" not in printed_output
+
+
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
+                                                                   "configuration_synthetic_shapes.yaml"])
+def test_instance_segmentation_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
+    """
+    Verifies that the instance segmentation configurations shipped with the repository pass every consistency check,
+    those of the object detection sections and of the mask heads.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_name (str): The file name of the instance segmentation configuration.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="instance_segmentation",
+                                                  configuration_name=configuration_name, modify_function=None)
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=configuration_path)
+    assert experiment_configuration["task"] == "instance_segmentation"
+    assert model_configuration["Data"]["label_dictionary"]["background"] == 0
+    assert model_configuration["MaskHead"]["roi_align_pool_size"] == 14
+
+
+def set_mismatched_mask_head_levels(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the mask heads a level that the backbone does not feed to the detection heads.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"]["head_configurations"]["8"] = configuration["MaskHead"]["head_configurations"].pop("7")
+
+
+def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
+    """
+    Sets an invalid pool size, head definition, normalization, module flag and mask threshold, and inception modules
+    with a channel count that is not a multiple of 8.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    mask_head_configuration = configuration["MaskHead"]
+    mask_head_configuration["roi_align_pool_size"] = 0
+    mask_head_configuration["head_configurations"]["5"] = [4]
+    mask_head_configuration["head_configurations"]["6"] = [4, 60]
+    mask_head_configuration["normalization"]["feature_map_normalization"] = "group"
+    mask_head_configuration["modules"].update({"inception": True, "residual_nets": "yes"})
+    mask_head_configuration["inference"]["mask_threshold"] = 1.5
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (set_mismatched_mask_head_levels, ["'MaskHead.head_configurations' levels ['5', '6', '8'] do not match "
+                                       "'Backbone.detection_convolution_block_indices' ['5', '6', '7']."]),
+    (set_invalid_mask_head, ["'MaskHead.roi_align_pool_size' must be an integer >= 1, got 0.",
+                             "'MaskHead.head_configurations.5' must be [number_layers, output_channels] with positive "
+                             "integers, got [4].",
+                             "'MaskHead.head_configurations.6' has 60 output channels, inception modules require a "
+                             "multiple of 8.",
+                             "'MaskHead.normalization.feature_map_normalization' must be one of",
+                             "'MaskHead.modules.residual_nets' must be True or False, got 'yes'.",
+                             "'MaskHead.inference.mask_threshold' must be a probability within [0, 1], got 1.5."])])
+def test_inconsistent_instance_segmentation_configuration_is_rejected(
+        tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
+        expected_messages: List[str]) -> None:
+    """
+    Verifies that every inconsistency of the mask head section stops the loading with a short message naming the
+    faulty key, its levels being checked against the detection blocks like the detection heads.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="instance_segmentation",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
     assert "Traceback" not in printed_output

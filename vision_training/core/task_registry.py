@@ -9,6 +9,7 @@ from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.trainers.classification_trainer import ClassificationTrainer
 from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.trainers.frame_selection_trainer import FrameSelectionTrainer
+from vision_training.trainers.instance_segmentation_trainer import InstanceSegmentationTrainer
 from vision_training.trainers.segmentation_trainer import SegmentationTrainer
 from vision_training.trainers.sequence_classification_trainer import SequenceClassificationTrainer
 from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
@@ -16,6 +17,7 @@ from vision_training.trainers.sequence_labelling_trainer import SequenceLabellin
 
 # Trainer class of every task, keyed by the value of 'ExperimentConfiguration.task'
 TASK_TRAINER_CLASSES: Dict[str, Type[BaseTrainer]] = {"object_detection": DetectionTrainer,
+                                                      "instance_segmentation": InstanceSegmentationTrainer,
                                                       "classification": ClassificationTrainer,
                                                       "semantic_segmentation": SegmentationTrainer,
                                                       "sequence_classification": SequenceClassificationTrainer,

@@ -1010,3 +1010,78 @@ def test_pretrained_segmentation_decoder_run_names(freeze: bool, learning_rate_m
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == SEGMENTATION_REFERENCE_RUN_NAME.replace(
         "2x32.1x16_", f"2x32.1x16{expected_tokens}")
+
+
+def get_instance_segmentation_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Builds the reference settings of the instance segmentation: the object detection reference settings with the task
+    of the instance segmentation and its mask heads set explicitly.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: The experiment and model configurations of the reference settings.
+    """
+    experiment_configuration, model_configuration = get_reference_configurations()
+    experiment_configuration["task"] = "instance_segmentation"
+    model_configuration["MaskHead"] = {"roi_align_pool_size": 14,
+                                       "head_configurations": {level: [4, 64] for level in ["5", "6", "7"]},
+                                       "normalization": {"feature_map_normalization": "batch"},
+                                       "modules": {"squeeze_and_excite": False, "residual_nets": True,
+                                                   "inception": False},
+                                       "inference": {"mask_threshold": 0.5}}
+    return experiment_configuration, model_configuration
+
+
+def change_mask_heads(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Turns on every module of the mask heads, uses layer normalization, a larger pool and a different head on level 7.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    mask_head_configuration = model_configuration["MaskHead"]
+    mask_head_configuration["modules"].update({"squeeze_and_excite": True, "inception": True})
+    mask_head_configuration["normalization"]["feature_map_normalization"] = "layer"
+    mask_head_configuration["roi_align_pool_size"] = 28
+    mask_head_configuration["head_configurations"]["7"] = [2, 128]
+
+
+def change_mask_threshold(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Changes the mask threshold of the inference, which gives no token.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["MaskHead"]["inference"]["mask_threshold"] = 0.3
+
+
+# Run name of the instance segmentation reference settings: the detection sections with the mask heads before the
+# classes
+INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME = REFERENCE_RUN_NAME.replace("DET_", "INS_").replace(
+    "_BIN", "_MRES-MBN-M14.4x64_BIN")
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
+    (None, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME),
+    (change_mask_heads, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace("_MRES-MBN-M14.4x64_",
+                                                                         "_MSE-MRES-MINC-MLN-M28.4x64+4x64+2x128_")),
+    (change_mask_threshold, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME)])
+def test_instance_segmentation_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
+                                         expected_run_name: str) -> None:
+    """
+    Verifies the run names of the instance segmentation: the INS code, the detection sections, and the mask heads
+    section (modules, normalization, pool size and per-level heads) before the classes, the mask threshold giving no
+    token.
+
+    Args:
+        modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the reference
+            settings, None to keep them.
+        expected_run_name (str): The expected run name.
+    """
+    experiment_configuration, model_configuration = get_instance_segmentation_reference_configurations()
+    if modify_function is not None:
+        modify_function(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == expected_run_name

@@ -1,8 +1,9 @@
 """
 OpenCV drawing helpers: bounding boxes and anchors for the detection debugging scripts, the input viewer of the
 trainers, the frame grids of the sequence tasks, the caption bars of the evaluation error images, the class colours,
-mask overlays, error maps and sample grids of the semantic segmentation, and the selection grids with their
-probability heat map of the frame selection. Used by the trainers and the scripts.
+mask overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
+segmentation, and the selection grids with their probability heat map of the frame selection. Used by the trainers and
+the scripts.
 """
 
 import os
@@ -395,6 +396,39 @@ def overlay_segmentation_mask(image: np.ndarray, class_map: np.ndarray, class_co
                            beta=MASK_OVERLAY_OPACITY, gamma=0.0)
 
 
+def overlay_instance_masks(image: np.ndarray, instance_masks: np.ndarray, labels: np.ndarray,
+                           class_colours: np.ndarray) -> np.ndarray:
+    """
+    Paints the binary masks of the objects of an image in the colour of their class, for the input viewer and the
+    evaluation sample grids of the instance segmentation: the class map of the masks (a later object covering an
+    earlier one) is blended over the image like a segmentation, then the contour of every object is drawn, so that two
+    touching objects of the same class stay apart.
+
+    Args:
+        image (np.ndarray): The [H, W, 3] uint8 BGR image.
+        instance_masks (np.ndarray): The [N, H, W] binary masks of the objects.
+        labels (np.ndarray): The [N] class index of every object.
+        class_colours (np.ndarray): The [K, 3] uint8 BGR colour of every class (build_class_colours).
+
+    Returns:
+        np.ndarray: The [H, W, 3] uint8 BGR image with the masks painted over it.
+    """
+    # Class map of the masks, the objects painted one after the other
+    class_map = np.zeros(shape=image.shape[:2], dtype=np.int64)
+    for instance_mask, label in zip(instance_masks, labels):
+        class_map[instance_mask > 0] = int(label)
+    painted_image = np.ascontiguousarray(overlay_segmentation_mask(image=image, class_map=class_map,
+                                                                   class_colours=class_colours))
+
+    # Contour of every object in the colour of its class
+    for instance_mask, label in zip(instance_masks, labels):
+        contours, _ = cv2.findContours(image=(instance_mask > 0).astype(np.uint8), mode=cv2.RETR_EXTERNAL,
+                                       method=cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(image=painted_image, contours=contours, contourIdx=-1,
+                         color=tuple(int(component) for component in class_colours[int(label)]), thickness=1)
+    return painted_image
+
+
 def build_segmentation_error_map(image: np.ndarray, class_map: np.ndarray, mask: np.ndarray) -> np.ndarray:
     """
     Shows where a predicted class map is right or wrong, over the darkened grayscale image, for the evaluation sample
@@ -522,13 +556,14 @@ def build_segmentation_sample_grid(image: np.ndarray, mask: np.ndarray, class_ma
 def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarray, ground_truth_labels: np.ndarray,
                                 predicted_boxes: np.ndarray, predicted_labels: np.ndarray,
                                 predicted_scores: np.ndarray, class_names: Dict[int, str], class_colours: np.ndarray,
-                                caption: str) -> np.ndarray:
+                                caption: str, ground_truth_masks: Optional[np.ndarray] = None,
+                                predicted_masks: Optional[np.ndarray] = None) -> np.ndarray:
     """
     Lays out one evaluated test image of the object detection in two titled panels side by side, saved and sent to
     TensorBoard at every evaluation so that the detections of the same images can be followed over the training: the
     ground truth boxes captioned with their class, and the detections captioned with their class and score, every box
     in the colour of its class. A caption bar names the sample above the panels, and a legend bar below them names the
-    classes drawn.
+    classes drawn. For the instance segmentation, the masks of the objects are painted under their boxes.
 
     Args:
         image (np.ndarray): The [H, W, 3] uint8 BGR network input.
@@ -540,12 +575,24 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
         class_names (Dict[int, str]): The name of every class index.
         class_colours (np.ndarray): The [K, 3] uint8 BGR colour of every class (build_class_colours).
         caption (str): The text of the caption bar, e.g. the number of true boxes and of detections.
+        ground_truth_masks (Optional[np.ndarray]): The [N, H, W] binary masks of the true objects, None for the object
+            detection. Defaults to None.
+        predicted_masks (Optional[np.ndarray]): The [M, H, W] binary masks of the detections, None for the object
+            detection. Defaults to None.
 
     Returns:
         np.ndarray: The [24 + H + 24, 2 x W + 4, 3] uint8 BGR grid.
     """
     image_size = max(image.shape[:2])
     ground_truth_panel, prediction_panel = image.copy(), image.copy()
+
+    # Masks of the instance segmentation painted first, under the boxes
+    if ground_truth_masks is not None:
+        ground_truth_panel = overlay_instance_masks(image=ground_truth_panel, instance_masks=ground_truth_masks,
+                                                    labels=ground_truth_labels, class_colours=class_colours)
+    if predicted_masks is not None:
+        prediction_panel = overlay_instance_masks(image=prediction_panel, instance_masks=predicted_masks,
+                                                  labels=predicted_labels, class_colours=class_colours)
     drawn_class_indices = sorted(set(ground_truth_labels.tolist()) | set(predicted_labels.tolist()))
 
     # Boxes of every class drawn in the colour of the class, the true ones with their class, the detections with their

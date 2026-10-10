@@ -1,7 +1,8 @@
 """
 Checks of the configuration sections specific to the object detection task: the detection levels, the anchors, the
 region proposal network, the detector heads, the proposal and anchor sampling and the evaluation settings. Run by
-configuration_checker.py for the object_detection task.
+configuration_checker.py for the object_detection task, and by instance_segmentation_checks.py for the instance
+segmentation task, which adds its mask heads to the detector.
 """
 
 import math
@@ -21,7 +22,8 @@ def check_detection_levels(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies that the same detection levels are configured everywhere. The TwoStageDetector builds one set of
     anchors, one Region Proposal head and one Detection head per detection block, so the three per-level dictionaries
-    must use exactly the block numbers listed in 'Backbone.detection_convolution_block_indices'.
+    must use exactly the block numbers listed in 'Backbone.detection_convolution_block_indices', like the mask heads of
+    the instance segmentation when its 'MaskHead' section exists.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration.
@@ -40,8 +42,11 @@ def check_detection_levels(model_configuration: Dict[str, Any]) -> List[str]:
                       "detection task.")
 
     # Compare the levels of every per-level dictionary with the Backbone detection blocks
-    for key_path in ["Anchors.scales_and_ratios", "RegionProposal.head_configurations",
-                     "Detector.head_configurations"]:
+    per_level_key_paths = ["Anchors.scales_and_ratios", "RegionProposal.head_configurations",
+                           "Detector.head_configurations"]
+    if "MaskHead" in model_configuration:
+        per_level_key_paths.append("MaskHead.head_configurations")
+    for key_path in per_level_key_paths:
         levels = sorted(get_configuration_value(configuration=model_configuration, key_path=key_path).keys())
         if levels != expected_levels:
             errors.append(f"'{key_path}' levels {levels} do not match "
