@@ -1,8 +1,8 @@
 """
 Transfer of trained components between runs: the architecture checks of the backbone, temporal module,
-classification head and segmentation decoder, the loading of a pretrained component from the checkpoint of another
-run, and the freezing of components, normalization parameters and batch statistics. Used by the base trainer and by
-scripts/evaluation/evaluate_checkpoint.py.
+classification head, segmentation decoder, region proposal heads and detection heads, the loading of a pretrained
+component from the checkpoint of another run, and the freezing of components, normalization parameters and batch
+statistics. Used by the base trainer and by scripts/evaluation/evaluate_checkpoint.py.
 """
 
 import torch
@@ -18,9 +18,13 @@ from vision_training.utilities.os_utilities import print_color
 # Configuration sections whose component can be initialised by the trained component of another run, with the
 # attribute holding the component in every task model, which is also the prefix of its weights in the state
 # dictionaries. Their order is the order of the optimizer parameter groups of the components learning at their own
-# speed
+# speed, the heads of the detection tasks coming last so that the runs written before them keep their groups
 TRANSFERABLE_COMPONENTS = {"Backbone": "backbone", "TemporalModel": "temporal_module",
-                           "ClassificationHead": "classification_head", "SegmentationDecoder": "segmentation_decoder"}
+                           "ClassificationHead": "classification_head", "SegmentationDecoder": "segmentation_decoder",
+                           "RegionProposal": "region_proposer_dictionary", "Detector": "detector_heads_dictionary"}
+
+# Names of the components whose attribute does not read as a name in the messages of the transfer
+COMPONENT_NAMES = {"RegionProposal": "region proposal heads", "Detector": "detection heads"}
 
 # Backbone settings defining its layers and their parameters, which must be identical in the source run and in the
 # run receiving its backbone. The detection block indices only select outputs, and the convolutions do not depend
@@ -47,6 +51,13 @@ CAUSAL_TEMPORAL_TYPES = ["transformer", "temporal_convolution"]
 # part of the decoder, so that a decoder serves runs of other classes
 SEGMENTATION_DECODER_WEIGHT_KEYS = ["upsampling", "convolutions", "modules", "feature_map_normalization"]
 
+# Settings of the region proposal and detection heads defining their weights, compared level by level. The RoIAlign
+# pool size of the detection heads gives the size of their first fully connected layer. The number of anchors per
+# position of the region proposal heads, giving the size of their output layers, is compared apart, the anchor scales
+# and ratios themselves not being weights
+DETECTION_HEAD_WEIGHT_KEYS = {"RegionProposal": ["head_configurations", "normalization"],
+                              "Detector": ["head_configurations", "normalization", "modules"]}
+
 # Normalization layers whose scale and shift can be kept fixed, and batch normalization layers whose statistics a
 # frozen component keeps
 NORMALIZATION_LAYER_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.LayerNorm, nn.GroupNorm)
@@ -56,7 +67,7 @@ BATCH_NORMALIZATION_LAYER_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3
 def get_component_name(section_name: str) -> str:
     """
     Names the component of a transferable configuration section in the messages of the transfer, e.g. "temporal
-    module" for the 'TemporalModel' section.
+    module" for the 'TemporalModel' section and "detection heads" for the 'Detector' section.
 
     Args:
         section_name (str): A key of TRANSFERABLE_COMPONENTS.
@@ -64,6 +75,8 @@ def get_component_name(section_name: str) -> str:
     Returns:
         str: The name of the component, in lower case.
     """
+    if section_name in COMPONENT_NAMES:
+        return COMPONENT_NAMES[section_name]
     return TRANSFERABLE_COMPONENTS[section_name].replace("_", " ")
 
 
@@ -250,6 +263,52 @@ def compare_segmentation_decoders(source_configuration: Dict[str, Any],
     return differences
 
 
+def compare_detection_heads(section_name: str, source_configuration: Dict[str, Any],
+                            target_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Lists the differences between the settings defining the weights of the region proposal heads or of the detection
+    heads of two runs of the detection tasks (DET or INS): their detection levels, then the settings of
+    DETECTION_HEAD_WEIGHT_KEYS and, for the region proposal heads, the number of anchors per position of every level.
+    The channels of the backbone blocks they read and the number of classes of the detection heads (classifier and
+    per-class box regressor) are compared on the weights themselves.
+
+    Args:
+        section_name (str): "RegionProposal" or "Detector".
+        source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
+        target_configuration (Dict[str, Any]): The model configuration of the run receiving the heads.
+
+    Returns:
+        List[str]: The description of every difference, empty when the weights of the heads match.
+    """
+    # Heads of other levels have nothing in common, one head being built per level
+    source_levels = source_configuration["Backbone"]["detection_convolution_block_indices"]
+    target_levels = target_configuration["Backbone"]["detection_convolution_block_indices"]
+    if source_levels != target_levels:
+        return [f"'Backbone.detection_convolution_block_indices' is {source_levels!r} in the source run and "
+                f"{target_levels!r} in this run, the levels of the {get_component_name(section_name=section_name)}."]
+
+    # Settings of the layers of the heads
+    differences = []
+    source_section_configuration = source_configuration[section_name]
+    target_section_configuration = target_configuration[section_name]
+    for key_name in DETECTION_HEAD_WEIGHT_KEYS[section_name]:
+        if source_section_configuration[key_name] != target_section_configuration[key_name]:
+            differences.append(f"'{section_name}.{key_name}' is {source_section_configuration[key_name]!r} in the "
+                               f"source run and {target_section_configuration[key_name]!r} in this run.")
+
+    # Anchors per position of every level (scales x ratios), the number of outputs of the region proposal heads
+    if section_name == "RegionProposal":
+        anchor_counts = []
+        for configuration in [source_configuration, target_configuration]:
+            scales_and_ratios = configuration["Anchors"]["scales_and_ratios"]
+            anchor_counts.append({str(level): len(scales_and_ratios[str(level)]["scales"]) *
+                                  len(scales_and_ratios[str(level)]["aspect_ratios"]) for level in target_levels})
+        if anchor_counts[0] != anchor_counts[1]:
+            differences.append(f"The levels have {anchor_counts[0]} anchors per position in the source run and "
+                               f"{anchor_counts[1]} in this run, the outputs of the region proposal heads.")
+    return differences
+
+
 def compare_component_configurations(section_name: str, source_configuration: Dict[str, Any],
                                      target_configuration: Dict[str, Any]) -> List[str]:
     """
@@ -274,6 +333,9 @@ def compare_component_configurations(section_name: str, source_configuration: Di
     if section_name == "SegmentationDecoder":
         return compare_segmentation_decoders(source_configuration=source_configuration,
                                              target_configuration=target_configuration)
+    if section_name in DETECTION_HEAD_WEIGHT_KEYS:
+        return compare_detection_heads(section_name=section_name, source_configuration=source_configuration,
+                                       target_configuration=target_configuration)
     return compare_classification_heads(source_configuration=source_configuration,
                                         target_configuration=target_configuration)
 
@@ -312,14 +374,16 @@ def compare_state_dictionaries(source_state: Dict[str, torch.Tensor],
 def load_pretrained_component(component: nn.Module, section_name: str, model_configuration: Dict[str, Any],
                               device: torch.device) -> Path:
     """
-    Initialises a component of a new run (backbone, temporal module, classification head or segmentation decoder)
-    with the trained component of another run, as set by '<section>.pretrained': every task model stores the shared
-    components under the same attributes, so a backbone trained for classification can initialise a detector or a
-    segmenter, the temporal module of a sequence classifier a sequence labeller or comparator, and so on. The settings
+    Initialises a component of a new run (backbone, temporal module, classification head, segmentation decoder,
+    region proposal heads or detection heads) with the trained component of another run, as set by
+    '<section>.pretrained': every task model stores the shared components under the same attributes, so a backbone
+    trained for classification can initialise a detector or a segmenter, the temporal module of a sequence classifier
+    a sequence labeller or comparator, the heads of an object detector an instance segmenter, and so on. The settings
     defining the component must be identical in both runs (see compare_component_configurations), then its tensors
     must fit exactly (see compare_state_dictionaries). A backbone may come from a run of another input image size,
-    the convolutions not depending on it, which is reported since the features were learned at another scale, and a
-    temporal module from a causal or non-causal run alike, which is reported too.
+    the convolutions not depending on it, which is reported since the features were learned at another scale, a
+    temporal module from a causal or non-causal run alike, and region proposal heads from a run of other anchor scales
+    or ratios with the same number of anchors per position, which are reported too.
 
     Args:
         component (nn.Module): The component of the new run, loaded in place.
@@ -338,7 +402,6 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     component_name = get_component_name(section_name=section_name)
     pretrained_configuration = model_configuration[section_name]["pretrained"]
     source_folder = Path(pretrained_configuration["experiment_folder"])
-    print(source_folder)
 
     # Only the configuration of the source run is read, not checked, so that a run of any task and any age can serve
     source_configuration = load_configuration(configuration_path=source_folder / "training_configuration.yaml")
@@ -370,6 +433,12 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
         if source_causal != target_causal:
             print_color(color="yellow", output=f"The Pretrained Temporal Module Was Trained With 'causal' "
                                                f"{source_causal}, This Run Uses 'causal' {target_causal}.")
+    if section_name == "RegionProposal":
+        source_anchors = source_configuration["Anchors"]["scales_and_ratios"]
+        target_anchors = model_configuration["Anchors"]["scales_and_ratios"]
+        if source_anchors != target_anchors:
+            print_color(color="yellow", output=f"The Pretrained Region Proposal Heads Were Trained With The Anchors "
+                                               f"{source_anchors}, This Run Uses The Anchors {target_anchors}.")
 
     # Keep the tensors of the component in the source model, without their prefix, and require every one of them
     checkpoint_path = get_checkpoint_path(experiment_folder=source_folder,

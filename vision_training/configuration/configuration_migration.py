@@ -43,7 +43,21 @@ PRETRAINED_SETTINGS_BLOCKS = {
                            "    experiment_folder: null\n"
                            "    iteration: null\n"
                            "    freeze: False\n"
-                           "    learning_rate_multiplier: 1.0\n")}
+                           "    learning_rate_multiplier: 1.0\n"),
+    "RegionProposal": ("  # Region proposal heads of another training run initialising this run, null to start from "
+                       "random weights.\n"
+                       "  pretrained:\n"
+                       "    experiment_folder: null\n"
+                       "    iteration: null\n"
+                       "    freeze: False\n"
+                       "    learning_rate_multiplier: 1.0\n"),
+    "Detector": ("  # Detection heads of another training run initialising this run, null to start from random "
+                 "weights.\n"
+                 "  pretrained:\n"
+                 "    experiment_folder: null\n"
+                 "    iteration: null\n"
+                 "    freeze: False\n"
+                 "    learning_rate_multiplier: 1.0\n")}
 
 # Section header of the backbone, start of the line of the freeze flag of its pretrained settings, and the flag keeping
 # its normalization parameters fixed inserted after it, off in every run written before it existed
@@ -226,11 +240,11 @@ def add_task_to_configuration(configuration_path: Path, task: str) -> bool:
 
 def add_pretrained_settings_to_configuration(configuration_path: Path, section_name: str) -> bool:
     """
-    Upgrades a configuration file written before the transfer of a component by inserting the 'pretrained' settings
-    of its section (Backbone, TemporalModel or ClassificationHead), those of a run trained from random weights, right
-    below the section header. The settings are inserted as text, so that every comment of the file is kept, and a
-    file that already has them, or that has no such section (e.g. no temporal module in a detection configuration),
-    is left untouched.
+    Upgrades a configuration file written before the transfer of a component by inserting the 'pretrained' settings of
+    its section (Backbone, TemporalModel, ClassificationHead, RegionProposal or Detector), those of a run trained from
+    random weights, right below the section header. The settings are inserted as text, so that every comment of the file
+    is kept, and a file that already has them, or that has no such section (e.g. no temporal module in a detection
+    configuration), is left untouched.
 
     Args:
         configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.

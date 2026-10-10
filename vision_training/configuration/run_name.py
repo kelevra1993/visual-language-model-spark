@@ -32,10 +32,11 @@ UPSAMPLING_CODES = {"transposed": "UTC", "bilinear": "UBL"}
 
 # Prefix of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
 # followed by '<prefix>FRZ' when it is frozen, i.e. PT and FRZ for the backbone, TPT and TFRZ for the temporal module,
-# HPT and HFRZ for the classification head, DPT and DFRZ for the segmentation decoder. The learning rate multiplier of
-# the component gives no token, so that it can change between two resumptions of a run
+# HPT and HFRZ for the classification head, DPT and DFRZ for the segmentation decoder, RPT and RFRZ for the region
+# proposal heads, DPT and DFRZ for the detection heads. The learning rate multiplier of the component gives no token,
+# so that it can change between two resumptions of a run
 PRETRAINED_TOKEN_PREFIXES = {"Backbone": "", "TemporalModel": "T", "ClassificationHead": "H",
-                             "SegmentationDecoder": "D"}
+                             "SegmentationDecoder": "D", "RegionProposal": "R", "Detector": "D"}
 
 
 def join_level_tokens(level_tokens: List[str]) -> str:
@@ -190,9 +191,10 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     """
     Builds the sections of the run name specific to object detection: L<blocks feeding the detection heads>, the
     anchors A<anchors per position>.<smallest scale>-<largest scale>, the region proposal heads (R<normalization>,
-    R<layers>x<filters>), the detector heads (modules DSE, DRES, DINC, D<normalization>, D<RoIAlign pool size>
-    .<layers>x<filters>.<fully connected sizes>) and the classes (BIN or MC<foreground classes>). Per-level settings
-    are written once when identical on every level, otherwise joined with '+' in level order.
+    R<layers>x<filters>, then RPT and RFRZ when they are transferred and frozen), the detector heads (modules DSE,
+    DRES, DINC, D<normalization>, D<RoIAlign pool size>.<layers>x<filters>.<fully connected sizes>, then DPT and DFRZ
+    when they are transferred and frozen) and the classes (BIN or MC<foreground classes>). Per-level settings are
+    written once when identical on every level, otherwise joined with '+' in level order.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -220,6 +222,8 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
             str(region_proposal_configuration["normalization"]["feature_map_normalization"]).lower().strip()],
         "R" + join_level_tokens(level_tokens=[f"{region_proposal_heads[level][0]}x{region_proposal_heads[level][1]}"
                                               for level in level_names])]
+    region_proposal_tokens += build_pretrained_tokens(model_configuration=model_configuration,
+                                                      section_name="RegionProposal")
 
     # Detector heads: modules, normalization, then the RoIAlign pool size, convolutions and fully connected layers
     detector_modules = detector_configuration["modules"]
@@ -238,6 +242,7 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
         f"{detector_heads[level]['convolutions'][1]}." + ".".join(str(size) for size in
                                                                    detector_heads[level]["fully_connected"])
         for level in level_names]))
+    detector_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="Detector")
 
     # Classes, the label dictionary including the background class
     if data_configuration["label_mode"] == "binary":

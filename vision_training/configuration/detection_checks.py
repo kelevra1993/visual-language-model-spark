@@ -9,7 +9,8 @@ import math
 
 from typing import Any, Dict, List
 
-from vision_training.configuration.common_checks import check_image_task_sequence_settings
+from vision_training.configuration.common_checks import (check_image_task_sequence_settings,
+                                                         check_pretrained_configuration)
 from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
                                                                 check_boolean_flags,
                                                                 check_intersection_over_union_value,
@@ -96,7 +97,8 @@ def check_anchors_configuration(model_configuration: Dict[str, Any]) -> List[str
 def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'RegionProposal' section: head definitions, IoU thresholds used to label anchors, proposal counts
-    kept around non-maximum suppression, and the anchor sampling budget of the proposal losses.
+    kept around non-maximum suppression, the anchor sampling budget of the proposal losses, and the 'pretrained'
+    settings initialising the heads with those of another run.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'RegionProposal' section.
@@ -168,13 +170,17 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
     # Anchor sampling budget and regression loss of the proposal stage
     errors += check_sampling_configuration(model_configuration=model_configuration, section_key="RegionProposal")
 
+    # Region proposal heads possibly initialised by those of another run
+    errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="RegionProposal")
+
     return errors
 
 
 def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'Detector' section: head definitions, normalization, modules, IoU thresholds, and that the
-    proposal sampling budget fits within the proposals kept by the Region Proposal stage during training.
+    Verifies the 'Detector' section: head definitions, normalization, modules, IoU thresholds, that the proposal
+    sampling budget fits within the proposals kept by the Region Proposal stage during training, and the 'pretrained'
+    settings initialising the heads with those of another run.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Detector' section.
@@ -260,6 +266,9 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
         errors.append(f"'Detector.total_training_samples' ({total_training_samples}) must be <= "
                       f"'RegionProposal.training.post_nms_proposals' ({post_nms_proposals}), since the detector "
                       f"samples its targets among these proposals.")
+
+    # Detection heads possibly initialised by those of another run
+    errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="Detector")
 
     return errors
 

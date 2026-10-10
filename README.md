@@ -613,6 +613,8 @@ A component of a trained run can initialise the same component of a new run, of 
 | `TemporalModel` | temporal module | M2O, M2M, CMP, SEL |
 | `ClassificationHead` | classification head | CLS, M2O, M2M, CMP, SEL |
 | `SegmentationDecoder` | U-Net decoder, without its final class layer nor its deep supervision layers | SEG |
+| `RegionProposal` | region proposal heads of every detection level | DET, INS |
+| `Detector` | detection heads of every detection level, with their classification and box regression layers | DET, INS |
 
 For example, a backbone trained on ImageNet classification initialises a detector, a segmenter or a sequence model:
 
@@ -631,7 +633,7 @@ Backbone:
     learning_rate_multiplier: 0.1
 ```
 
-The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`), which is checked before the training starts. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen ([Run Names](#run-names)). The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
+The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`), which is checked before the training starts. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The region proposal heads need the same detection levels, `head_configurations`, normalization and number of anchors per position of every level, other anchor scales or ratios of the same counts being reported; the detection heads need the same detection levels, `head_configurations`, normalization and modules, and the same number of classes. An object detection run thus initialises an instance segmentation run, whose mask heads learn alone when the backbone, region proposal and detection heads are frozen. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen, prefixed by the letter of its section (e.g. `RPT` and `RFRZ` for the region proposal heads, [Run Names](#run-names)). The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
 
 ## Evaluating Checkpoints
 `scripts/evaluation/evaluate_checkpoint.py` evaluates the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, without modifying the run folder. Set in its main block:
@@ -837,9 +839,11 @@ The training settings that can change between two resumptions of a run give no t
 | Anchors | `A<anchors>.<smallest>-<largest>` | `Anchors.scales_and_ratios`: anchors per position, range of the scales | ✓ | ✓ | | | | | | |
 | Region proposal | `RBN`, `RLN`, `RNN` | `RegionProposal.normalization.feature_map_normalization` | ✓ | ✓ | | | | | | |
 | Region proposal | `R<layers>x<filters>` | `RegionProposal.head_configurations` | ✓ | ✓ | | | | | | |
+| Region proposal | `RPT`, then `RFRZ` when frozen | `RegionProposal.pretrained` | ✓ | ✓ | | | | | | |
 | Detector | `DSE`, `DRES`, `DINC` | `Detector.modules` | ✓ | ✓ | | | | | | |
 | Detector | `DBN`, `DLN`, `DNN` | `Detector.normalization.feature_map_normalization` | ✓ | ✓ | | | | | | |
 | Detector | `D<pool>.<layers>x<filters>.<fully connected>` | `Detector.head_configurations` | ✓ | ✓ | | | | | | |
+| Detector | `DPT`, then `DFRZ` when frozen | `Detector.pretrained` | ✓ | ✓ | | | | | | |
 | Mask heads | `MSE`, `MRES`, `MINC` | `MaskHead.modules` | | ✓ | | | | | | |
 | Mask heads | `MBN`, `MLN`, `MNN` | `MaskHead.normalization.feature_map_normalization` | | ✓ | | | | | | |
 | Mask heads | `M<pool>.<layers>x<channels>` | `MaskHead.roi_align_pool_size`, `MaskHead.head_configurations` | | ✓ | | | | | | |
@@ -934,7 +938,7 @@ What is logged:
 The `test_class/` metrics and `confusion_matrix.png` need `evaluation.per_class_report: True`, and the files need `tracking.log_artifacts: True`. MLflow writes `@` as `_at_` and `[0.5:0.95]` as `0.5-0.95` in the metric names. `scripts/evaluation/evaluate_checkpoint.py` logs its evaluations in a separate run, `<run name>-evaluation`.
 
 ## Migrating Old Runs
-`scripts/configuration/migrate_configuration.py` updates a run folder trained before the task-aware configuration and the backbone transfer, so that it can be resumed, evaluated or exported. It adds the missing keys to its `training_configuration.yaml`, keeping its comments, and prints the folder name given by the current run name. Set `run_folder`, `task` and `rename_folder` (`True` renames the folder, never while a training writes into it) in its main block, then run:
+`scripts/configuration/migrate_configuration.py` updates a run folder trained before the task-aware configuration and the component transfers (e.g. the `pretrained` blocks of the region proposal and detection heads of DET), so that it can be resumed, evaluated or exported. It adds the missing keys to its `training_configuration.yaml`, keeping its comments, and prints the folder name given by the current run name. Set `run_folder`, `task` and `rename_folder` (`True` renames the folder, never while a training writes into it) in its main block, then run:
 
 ```bash
 uv run python -m scripts.configuration.migrate_configuration

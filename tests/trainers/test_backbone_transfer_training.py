@@ -1,7 +1,8 @@
 """
 Tests of the model transfers through the trainers of vision_training/trainers on synthetic datasets: a frozen backbone,
-the backbone, temporal module and head of a sequence classifier, and the classification backbone and segmentation
-decoder of the semantic segmentation runs, initialise a new run that trains, saves and resumes correctly.
+the backbone, temporal module and head of a sequence classifier, the classification backbone and segmentation decoder
+of the semantic segmentation runs, and the backbone, region proposal and detection heads of an object detection run,
+initialise a new run that trains, saves and resumes correctly.
 """
 
 import copy
@@ -23,24 +24,38 @@ SYNTHETIC_CONFIGURATION_PATHS = {
     "classification": CONFIGURATIONS_FOLDER / "classification" / "configuration_synthetic_shapes.yaml",
     "sequence_classification": (CONFIGURATIONS_FOLDER / "sequence_classification" /
                                 "configuration_synthetic_sequences.yaml"),
-    "semantic_segmentation": CONFIGURATIONS_FOLDER / "semantic_segmentation" / "configuration_synthetic_shapes.yaml"}
+    "semantic_segmentation": CONFIGURATIONS_FOLDER / "semantic_segmentation" / "configuration_synthetic_shapes.yaml",
+    "object_detection": CONFIGURATIONS_FOLDER / "object_detection" / "configuration_synthetic_shapes.yaml",
+    "instance_segmentation": CONFIGURATIONS_FOLDER / "instance_segmentation" / "configuration_synthetic_shapes.yaml"}
 
 # Image size of the transfer tests and number of frames of their sequences, small enough for a few quick iterations
 TRANSFER_IMAGE_SIZE = 64
 TRANSFER_NUMBER_FRAMES = 4
 
+# Image size of the detection tasks, whose anchors must fit in the images, with anchor scales fitting it, and the small
+# mask heads of the instance segmentation runs
+DETECTION_TRANSFER_IMAGE_SIZE = 256
+DETECTION_TRANSFER_ANCHOR_SCALES = {"5": [16, 32, 64], "6": [32, 64, 128], "7": [64, 128, 256]}
+DETECTION_TRANSFER_MASK_HEAD = [1, 16]
+
 # Components of a sequence classifier initialised by the run they come from, by section
 SEQUENCE_COMPONENTS = {"Backbone": "backbone", "TemporalModel": "temporal_module",
                        "ClassificationHead": "classification_head"}
+
+# Components of an object detector initialising an instance segmenter, by section
+DETECTION_COMPONENTS = {"Backbone": "backbone", "RegionProposal": "region_proposer_dictionary",
+                        "Detector": "detector_heads_dictionary"}
 
 
 def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, number_iterations: int,
                            pretrained_settings: Dict[str, Dict[str, Any]], configuration_name: str,
                            task: str) -> BaseTrainer:
     """
-    Writes a copy of the synthetic configuration of a task (synthetic shapes classification or segmentation, or
-    synthetic sequences classification with windows of 4 frames) for a quick run on the generated dataset, with the
-    given pretrained settings, and builds its trainer exactly like main.py does.
+    Writes a copy of the synthetic configuration of a task (synthetic shapes classification, segmentation, object
+    detection or instance segmentation, or synthetic sequences classification with windows of 4 frames) for a quick
+    run on the generated dataset, with the given pretrained settings, and builds its trainer exactly like main.py
+    does. The detection tasks run on 256 pixel images with anchors fitting them, and the instance segmentation with
+    small mask heads.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
@@ -48,7 +63,8 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
         number_iterations (int): The number of training iterations of the run.
         pretrained_settings (Dict[str, Dict[str, Any]]): The 'pretrained' settings replaced for the run, by section.
         configuration_name (str): The file name of the written configuration.
-        task (str): "classification", "sequence_classification" or "semantic_segmentation".
+        task (str): "classification", "sequence_classification", "semantic_segmentation", "object_detection" or
+            "instance_segmentation".
 
     Returns:
         BaseTrainer: The trainer of the run.
@@ -69,6 +85,14 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
                                                                         "compute_model_size": False,
                                                                         "view_input_images": False})
     configuration["Data"]["image_settings"]["size"] = TRANSFER_IMAGE_SIZE
+    if "Anchors" in configuration:
+        configuration["Data"]["image_settings"]["size"] = DETECTION_TRANSFER_IMAGE_SIZE
+        for level, scales in DETECTION_TRANSFER_ANCHOR_SCALES.items():
+            configuration["Anchors"]["scales_and_ratios"][level]["scales"] = scales
+    if "MaskHead" in configuration:
+        configuration["MaskHead"]["roi_align_pool_size"] = 7
+        for level in DETECTION_TRANSFER_ANCHOR_SCALES:
+            configuration["MaskHead"]["head_configurations"][level] = DETECTION_TRANSFER_MASK_HEAD
     # Two loader workers per split, enough for the small generated dataset
     configuration["Data"]["loading"]["number_workers"] = 2
     if task == "sequence_classification":
@@ -367,4 +391,62 @@ def test_classification_backbone_and_segmentation_decoder_initialise_segmentatio
 
     console_output = capsys.readouterr().out
     assert "Segmentation Decoder Initialised From" in console_output
+    assert "Error encountered during iteration" not in console_output and "Critical Error" not in console_output
+
+
+def test_detection_run_initialises_a_frozen_instance_segmentation_run(tmp_path: Path,
+                                                                     capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the transfers of the detection tasks through the trainers: the backbone, region proposal heads and
+    detection heads of an object detection run initialise a frozen instance segmentation run (named with PT-FRZ,
+    RPT-RFRZ and DPT-DFRZ), which starts with exactly their weights, keeps them and their batch normalization
+    statistics while its mask heads learn, records its source run in its checkpoints, and holds every other parameter
+    in a single optimizer group.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainers.
+    """
+    dataset_folder = tmp_path / "synthetic_instance_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=DETECTION_TRANSFER_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=3,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="instance_segmentation")
+
+    # Object detection source run trained from random weights on the boxes of the dataset, saved at iterations 2 and 3
+    detection_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                               number_iterations=3, pretrained_settings={},
+                                               configuration_name="detection.yaml", task="object_detection")
+    detection_trainer.run_training_loop()
+    detection_folder = str(detection_trainer.experiment_folder)
+    detection_state = torch.load(f=detection_trainer.weights_directory / "Iteration_3" / "model_000003.pt",
+                                 map_location="cpu", weights_only=True)["model_state"]
+
+    # Instance segmentation run initialised by the frozen backbone and heads of the detection run
+    frozen_settings = {"experiment_folder": detection_folder, "freeze": True}
+    segmentation_trainer = build_transfer_trainer(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=3,
+        pretrained_settings={section_name: frozen_settings for section_name in DETECTION_COMPONENTS},
+        configuration_name="instance_segmentation.yaml", task="instance_segmentation")
+    assert "-PT-FRZ_L567_" in segmentation_trainer.run_name
+    assert "-R2x64-RPT-RFRZ_" in segmentation_trainer.run_name and "-DPT-DFRZ_M" in segmentation_trainer.run_name
+    assert len(segmentation_trainer.optimizer.param_groups) == 1
+    model = segmentation_trainer.model
+    mask_heads_before = copy.deepcopy(model.mask_heads_dictionary.state_dict())
+    segmentation_trainer.run_training_loop()
+
+    # Frozen components identical to those of the detection run, batch statistics included, the mask heads learning
+    for attribute_name in DETECTION_COMPONENTS.values():
+        for tensor_name, tensor_value in getattr(model, attribute_name).state_dict().items():
+            assert torch.equal(input=tensor_value.cpu(), other=detection_state[f"{attribute_name}.{tensor_name}"]), \
+                f"{attribute_name}.{tensor_name}"
+    assert any(not torch.equal(input=tensor_value, other=mask_heads_before[tensor_name])
+               for tensor_name, tensor_value in model.mask_heads_dictionary.state_dict().items())
+    segmentation_checkpoint = torch.load(f=segmentation_trainer.weights_directory / "Iteration_3" / "model_000003.pt",
+                                         map_location="cpu", weights_only=True)
+    assert [segmentation_checkpoint[f"pretrained_{attribute_name}"] for attribute_name in
+            DETECTION_COMPONENTS.values()] == [detection_folder] * 3
+
+    console_output = capsys.readouterr().out
+    assert "Pretrained RPN Heads" in console_output and "Pretrained Det. Heads" in console_output
+    assert "Detection Heads Initialised From" in console_output
     assert "Error encountered during iteration" not in console_output and "Critical Error" not in console_output

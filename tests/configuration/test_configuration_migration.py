@@ -50,11 +50,12 @@ RANDOM_PRETRAINED_BACKBONE_SETTINGS = {"experiment_folder": None, "iteration": N
 
 def write_old_run_folder(temporary_directory: Path) -> Path:
     """
-    Writes a run folder as trained before the task-aware configuration, the backbone transfer and the optimization
-    settings: an old-style name (without task code, with the augmentation, batch size and learning rate tokens no
-    longer written), and a saved configuration without task, pretrained backbone settings, per-class report switch,
-    number of sample images, tracking settings nor optimization section, and with the block of the removed DALI
-    loader (a copy of the example configuration, with binary labels so that no mapping file is needed).
+    Writes a run folder as trained before the task-aware configuration, the component transfers and the
+    optimization settings: an old-style name (without task code, with the augmentation, batch size and learning rate
+    tokens no longer written), and a saved configuration without task, pretrained backbone, region proposal and
+    detection head settings, per-class report switch, number of sample images, tracking settings nor optimization
+    section, and with the block of the removed DALI loader (a copy of the example configuration, with binary labels so
+    that no mapping file is needed).
 
     Args:
         temporary_directory (Path): The pytest temporary directory, used as the experiments root folder.
@@ -68,6 +69,8 @@ def write_old_run_folder(temporary_directory: Path) -> Path:
     del configuration["ExperimentConfiguration"]["evaluation"]["number_sample_images"]
     del configuration["ExperimentConfiguration"]["tracking"]
     del configuration["Backbone"]["pretrained"]
+    del configuration["RegionProposal"]["pretrained"]
+    del configuration["Detector"]["pretrained"]
     del configuration["Optimization"]
     del configuration["Data"]["loading"]
     configuration["Data"]["DALI"] = {"activated": True}
@@ -133,8 +136,10 @@ def test_pretrained_settings_are_added_once(tmp_path: Path) -> None:
     """
     Verifies that the pretrained backbone settings of a run trained from random weights, normalization flag included,
     are added to a configuration written before the backbone transfer, keeping its other backbone settings, that a
-    configuration which already has them is left untouched, and that a detection configuration, which has no
-    temporal module nor classification head, is not changed by their migrations.
+    configuration which already has them is left untouched, that the region proposal and detection heads of a
+    detection configuration get the pretrained settings of heads trained from random weights the same way, and that a
+    detection configuration, which has no temporal module nor classification head, is not changed by their
+    migrations.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -150,6 +155,17 @@ def test_pretrained_settings_are_added_once(tmp_path: Path) -> None:
     assert add_pretrained_settings_to_configuration(configuration_path=configuration_path,
                                                     section_name="Backbone") is False
     assert add_freeze_normalization_parameters_to_configuration(configuration_path=configuration_path) is False
+
+    # Region proposal and detection heads of a detection run written before their transfer
+    for section_name in ["RegionProposal", "Detector"]:
+        section_before = yaml.safe_load(stream=configuration_path.read_text())[section_name]
+        assert add_pretrained_settings_to_configuration(configuration_path=configuration_path,
+                                                        section_name=section_name) is True
+        section_after = yaml.safe_load(stream=configuration_path.read_text())[section_name]
+        assert section_after["pretrained"] == RANDOM_PRETRAINED_SETTINGS
+        assert {key: value for key, value in section_after.items() if key != "pretrained"} == section_before
+        assert add_pretrained_settings_to_configuration(configuration_path=configuration_path,
+                                                        section_name=section_name) is False
 
     # Sections the detection configuration does not have
     text_before = configuration_path.read_text()

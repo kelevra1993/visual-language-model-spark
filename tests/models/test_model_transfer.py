@@ -1,8 +1,9 @@
 """
-Tests of vision_training/models/model_transfer.py: backbones, temporal modules, heads and segmentation decoders of a
-saved run initialising other models and tasks, rejected architectures and components (flattened heads and decoders of
-other levels included), order-blind transformers moving between window lengths, source runs missing a setting, frozen
-and fixed normalization parameters and backbones moving between batch and sequence normalization.
+Tests of vision_training/models/model_transfer.py: backbones, temporal modules, heads, segmentation decoders and
+region proposal and detection heads of a saved run initialising other models and tasks, rejected architectures and
+components (flattened heads, decoders and detection heads of other levels included), order-blind transformers moving
+between window lengths, source runs missing a setting, frozen and fixed normalization parameters and backbones moving
+between batch and sequence normalization.
 """
 
 import copy
@@ -16,9 +17,10 @@ from typing import Any, Callable, Dict, Tuple
 from vision_training.models.classification.image_classifier import ImageClassifier
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
-from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, disable_pretrained_settings,
-                                                   freeze_batch_normalization_statistics, freeze_component,
-                                                   freeze_normalization_parameters, load_pretrained_component)
+from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, TRANSFERABLE_COMPONENTS,
+                                                   disable_pretrained_settings, freeze_batch_normalization_statistics,
+                                                   freeze_component, freeze_normalization_parameters,
+                                                   load_pretrained_component)
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import save_checkpoint
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
@@ -837,4 +839,150 @@ def test_decoders_of_other_architectures_are_rejected(tmp_path: Path,
                                                                           section_name="SegmentationDecoder",
                                                                           source_folder=tmp_path / "segmentation_run"))
     assert "The Segmentation Decoder Of The Source Run" in str(error_information.value)
+    assert expected_message in str(error_information.value)
+
+
+def write_detector_run(run_folder: Path) -> Tuple[Dict[str, Any], TaskModel]:
+    """
+    Writes a trained object detection run with the small detector configuration of the tests, whose region proposal
+    and detection heads initialise the heads of other detection runs.
+
+    Args:
+        run_folder (Path): The run folder.
+
+    Returns:
+        Tuple[Dict[str, Any], TaskModel]: The configuration and the model of the run.
+    """
+    configuration, _, _ = get_detection_model_configuration()
+    source_detector = build_task_model(task="object_detection", configuration=configuration, seed=0)
+    write_source_run(run_folder=run_folder, configuration=configuration, model=source_detector)
+    return configuration, source_detector
+
+
+def test_detection_heads_initialise_an_instance_segmenter(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the transfer of the region proposal and detection heads of an object detector to an instance segmenter
+    whose anchors have other scales of the same counts: both heads start from exactly the weights of the source run,
+    the other anchor scales being reported, while the mask heads keep their own weights.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+    """
+    _, source_detector = write_detector_run(run_folder=tmp_path / "detection_run")
+    target_configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    target_configuration["Anchors"]["scales_and_ratios"]["5"]["scales"] = [32, 64]
+    instance_segmenter = build_task_model(task="instance_segmentation", configuration=target_configuration, seed=1)
+    mask_heads_before = copy.deepcopy(instance_segmenter.mask_heads_dictionary.state_dict())
+
+    # Region proposal heads, then detection heads, each from the checkpoint of the detection run
+    for section_name in ["RegionProposal", "Detector"]:
+        load_pretrained_component(component=getattr(instance_segmenter, TRANSFERABLE_COMPONENTS[section_name]),
+                                  section_name=section_name, device=torch.device("cpu"),
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name=section_name,
+                                                                          source_folder=tmp_path / "detection_run"))
+        source_state = getattr(source_detector, TRANSFERABLE_COMPONENTS[section_name]).state_dict()
+        target_state = getattr(instance_segmenter, TRANSFERABLE_COMPONENTS[section_name]).state_dict()
+        for tensor_name, tensor_value in source_state.items():
+            assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
+    for tensor_name, tensor_value in instance_segmenter.mask_heads_dictionary.state_dict().items():
+        assert torch.equal(input=tensor_value, other=mask_heads_before[tensor_name]), tensor_name
+
+    console_output = capsys.readouterr().out
+    assert "The Pretrained Region Proposal Heads Were Trained With The Anchors" in console_output
+    assert "Region Proposal Heads Initialised From" in console_output
+    assert "Detection Heads Initialised From" in console_output
+
+
+def add_detection_level(configuration: Dict[str, Any]) -> None:
+    """
+    Adds the eighth backbone block to the detection levels, with the anchors and heads of the seventh one.
+
+    Args:
+        configuration (Dict[str, Any]): The detector configuration, modified in place.
+    """
+    configuration["Backbone"]["detection_convolution_block_indices"] = [5, 6, 7, 8]
+    for level_configurations in [configuration["Anchors"]["scales_and_ratios"],
+                                 configuration["RegionProposal"]["head_configurations"],
+                                 configuration["Detector"]["head_configurations"]]:
+        level_configurations["8"] = copy.deepcopy(level_configurations["7"])
+
+
+def deepen_region_proposal_head(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the region proposal head of the seventh level a third convolution layer.
+
+    Args:
+        configuration (Dict[str, Any]): The detector configuration, modified in place.
+    """
+    configuration["RegionProposal"]["head_configurations"]["7"] = [3, 128]
+
+
+def add_anchor_scale(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the anchors of the fifth level a third scale, 9 anchors per position instead of 6.
+
+    Args:
+        configuration (Dict[str, Any]): The detector configuration, modified in place.
+    """
+    configuration["Anchors"]["scales_and_ratios"]["5"]["scales"] = [32, 64, 128]
+
+
+def add_detection_head_residuals(configuration: Dict[str, Any]) -> None:
+    """
+    Adds residual connections to the convolutions of the detection heads.
+
+    Args:
+        configuration (Dict[str, Any]): The detector configuration, modified in place.
+    """
+    configuration["Detector"]["modules"]["residual_nets"] = True
+
+
+def remove_foreground_class(configuration: Dict[str, Any]) -> None:
+    """
+    Removes the fifth foreground class, so that the detection heads classify one class less.
+
+    Args:
+        configuration (Dict[str, Any]): The detector configuration, modified in place.
+    """
+    del configuration["Data"]["label_dictionary"]["foreground_5"]
+
+
+@pytest.mark.parametrize(argnames=("section_name", "modify_function", "expected_message"), argvalues=[
+    ("RegionProposal", add_detection_level, "'Backbone.detection_convolution_block_indices' is [5, 6, 7] in the "
+                                            "source run and [5, 6, 7, 8] in this run, the levels of the region "
+                                            "proposal heads."),
+    ("RegionProposal", deepen_region_proposal_head, "'RegionProposal.head_configurations' is"),
+    ("RegionProposal", add_anchor_scale, "The levels have {'5': 6, '6': 6, '7': 6} anchors per position in the source "
+                                         "run and {'5': 9, '6': 6, '7': 6} in this run"),
+    ("Detector", add_detection_level, "the levels of the detection heads."),
+    ("Detector", add_detection_head_residuals, "'Detector.modules' is"),
+    ("Detector", remove_foreground_class, "'5.classifier.weight' has the shape [6, 128] in the source run and "
+                                          "[5, 128] in this run.")])
+def test_detection_heads_of_other_architectures_are_rejected(tmp_path: Path, section_name: str,
+                                                             modify_function: Callable[[Dict[str, Any]], None],
+                                                             expected_message: str) -> None:
+    """
+    Verifies that region proposal or detection heads are not transferred to heads of other levels, layers, anchor
+    counts, modules or classes, the error naming the difference: the settings for the architectures, the tensors for
+    the number of classes.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        section_name (str): The section of the transferred heads.
+        modify_function (Callable[[Dict[str, Any]], None]): Function changing the configuration receiving the heads.
+        expected_message (str): The fragment of the error message naming the difference.
+    """
+    source_configuration, _ = write_detector_run(run_folder=tmp_path / "detection_run")
+    target_configuration = copy.deepcopy(source_configuration)
+    modify_function(configuration=target_configuration)
+    target_detector = build_task_model(task="object_detection", configuration=target_configuration, seed=1)
+
+    with pytest.raises(expected_exception=ValueError) as error_information:
+        load_pretrained_component(component=getattr(target_detector, TRANSFERABLE_COMPONENTS[section_name]),
+                                  section_name=section_name, device=torch.device("cpu"),
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name=section_name,
+                                                                          source_folder=tmp_path / "detection_run"))
     assert expected_message in str(error_information.value)

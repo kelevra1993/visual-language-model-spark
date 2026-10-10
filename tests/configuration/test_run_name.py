@@ -1085,3 +1085,31 @@ def test_instance_segmentation_run_names(modify_function: Callable[[Dict[str, An
         modify_function(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == expected_run_name
+
+
+@pytest.mark.parametrize(argnames=("region_proposal_freeze", "detector_freeze", "expected_sections"), argvalues=[
+    (None, False, "_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128-DPT_MRES"),
+    (False, None, "_RBN-R2x64-RPT_DSE-DRES-DBN-D7.2x64.256.128_MRES"),
+    (True, True, "_RBN-R2x64-RPT-RFRZ_DSE-DRES-DBN-D7.2x64.256.128-DPT-DFRZ_MRES")])
+def test_pretrained_detection_head_run_names(region_proposal_freeze: bool | None, detector_freeze: bool | None,
+                                             expected_sections: str) -> None:
+    """
+    Verifies the tokens of transferred region proposal and detection heads at the end of their sections, before the
+    mask heads of an instance segmentation run: RPT and DPT, then RFRZ and DFRZ when they are frozen, the learning
+    rate multiplier giving no token.
+
+    Args:
+        region_proposal_freeze (bool | None): Whether the transferred region proposal heads are frozen, None when they
+            are not transferred.
+        detector_freeze (bool | None): Whether the transferred detection heads are frozen, None when they are not
+            transferred.
+        expected_sections (str): The expected region proposal and detector sections of the run name.
+    """
+    experiment_configuration, model_configuration = get_instance_segmentation_reference_configurations()
+    for section_name, freeze in [("RegionProposal", region_proposal_freeze), ("Detector", detector_freeze)]:
+        if freeze is not None:
+            model_configuration[section_name]["pretrained"] = {"experiment_folder": "/runs/source", "iteration": None,
+                                                               "freeze": freeze, "learning_rate_multiplier": 0.1}
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
+        "_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MRES", expected_sections)

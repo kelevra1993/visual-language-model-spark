@@ -159,9 +159,9 @@ class BaseTrainer(ABC):
         self.sample_image_identifiers = choose_sample_identifiers(sample_classes=self.get_test_sample_classes(),
                                                                   number_samples=self.number_sample_images)
 
-        # Initialize Model and Optimizer, the backbone, the temporal module, the classification head and the
-        # segmentation decoder being possibly initialised by the ones of other runs, through the 'pretrained' settings
-        # of the sections the task has
+        # Initialize Model and Optimizer, the backbone, the temporal module, the classification head, the
+        # segmentation decoder and the region proposal and detection heads being possibly initialised by the ones of
+        # other runs, through the 'pretrained' settings of the sections the task has
         self.pretrained_configurations = {section_name: self.model_configuration[section_name]["pretrained"]
                                           for section_name in TRANSFERABLE_COMPONENTS
                                           if section_name in self.model_configuration}
@@ -401,15 +401,15 @@ class BaseTrainer(ABC):
     def build_optimizer(self) -> torch.optim.Optimizer:
         """
         Builds the optimizer of 'Optimization.optimizer' with its weight decay: Adam (weight decay added to the
-        gradients), AdamW (weight decay decoupled from the gradients) or SGD with Nesterov momentum 0.9. Every
-        component loaded from another run (backbone, temporal module, classification head, segmentation decoder) that
-        is not frozen gets its own parameter group at the learning rate times its 'pretrained.learning_rate_multiplier',
-        so that it can be fine-tuned at another speed than the new layers. The group is created even with a multiplier
-        of 1, so that the layout of the groups only depends on the transfers and freezes written in the run name, and
-        the multiplier can change between two resumptions of a run without changing the layout of its checkpoints. The
-        first group holds every other parameter: without such a component, every parameter shares this single group,
-        the layout of the checkpoints of the runs without transfer, and a transferred backbone comes second, the layout
-        of the runs that only transferred their backbone.
+        gradients), AdamW (weight decay decoupled from the gradients) or SGD with Nesterov momentum 0.9. Every component
+        loaded from another run (backbone, temporal module, classification head, segmentation decoder, region proposal
+        heads, detection heads) that is not frozen gets its own parameter group at the learning rate times its
+        'pretrained.learning_rate_multiplier', so that it can be fine-tuned at another speed than the new layers. The
+        group is created even with a multiplier of 1, so that the layout of the groups only depends on the transfers and
+        freezes written in the run name, and the multiplier can change between two resumptions of a run without changing
+        the layout of its checkpoints. The first group holds every other parameter: without such a component, every
+        parameter shares this single group, the layout of the checkpoints of the runs without transfer, and a
+        transferred backbone comes second, the layout of the runs that only transferred their backbone.
 
         Returns:
             torch.optim.Optimizer: The optimizer at the configured learning rate.
@@ -522,10 +522,10 @@ class BaseTrainer(ABC):
     def initialise_pretrained_components(self) -> Dict[str, Optional[Path]]:
         """
         Loads the trained components of other runs into the model, for every section whose
-        'pretrained.experiment_folder' is set (backbone, temporal module, classification head, segmentation decoder),
-        and freezes them when asked, or only the scale and shift of the normalization layers of the backbone. A run
-        resuming from its own checkpoints does not load them, its checkpoint holding the components it was training,
-        but keeps them frozen.
+        'pretrained.experiment_folder' is set (backbone, temporal module, classification head, segmentation decoder,
+        region proposal heads, detection heads), and freezes them when asked, or only the scale and shift of the
+        normalization layers of the backbone. A run resuming from its own checkpoints does not load them, its
+        checkpoint holding the components it was training, but keeps them frozen.
 
         Returns:
             Dict[str, Optional[Path]]: The checkpoint file every component was loaded from, keyed by the section names
@@ -737,7 +737,8 @@ class BaseTrainer(ABC):
     def print_pretrained_components(self) -> None:
         """
         Prints, in the experiment information, one block per component initialised by the trained one of another run
-        (backbone, temporal module, classification head, segmentation decoder): its source run folder, then the
+        (backbone, temporal module, classification head, segmentation decoder, region proposal heads, detection
+        heads): its source run folder, then the
         checkpoint iteration it comes from, whether it is frozen, whether the normalization layers of the backbone are
         frozen, and the learning rate it learns at with its multiplier, which gives no token in the run name. A frozen
         component does not learn, so it has no learning rate line. Components trained from random weights print
@@ -745,7 +746,8 @@ class BaseTrainer(ABC):
         """
         pretrained_labels = {"Backbone": "Pretrained Backbone", "TemporalModel": "Pretrained Temp. Module",
                              "ClassificationHead": "Pretrained Class. Head",
-                             "SegmentationDecoder": "Pretrained Seg. Decoder"}
+                             "SegmentationDecoder": "Pretrained Seg. Decoder", "RegionProposal": "Pretrained RPN Heads",
+                             "Detector": "Pretrained Det. Heads"}
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             if pretrained_configuration["experiment_folder"] is None:
                 continue
@@ -1386,7 +1388,8 @@ class BaseTrainer(ABC):
         Saves a checkpoint of the model and optimizer, with the task, the run name, the identifier of the MLflow run
         ('mlflow_run_id', None without tracking or while the run is being opened) and the source run of every
         transferable component of the task ('pretrained_backbone', 'pretrained_temporal_module',
-        'pretrained_classification_head', 'pretrained_segmentation_decoder', None without transfer), and records it in
+        'pretrained_classification_head', 'pretrained_segmentation_decoder', 'pretrained_region_proposer_dictionary',
+        'pretrained_detector_heads_dictionary', None without transfer), and records it in
         the checkpoint registry of the run used to resume the training.
 
         Args:

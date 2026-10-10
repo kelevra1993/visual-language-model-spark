@@ -288,6 +288,22 @@ RegionProposal:
   total_training_samples: 256
   # Beta scaling parameter for Smooth L1 Loss during bounding box regression.
   localisation_loss_beta: 1/9
+  # Region proposal heads of another DET or INS run initialising this run. Their levels, head_configurations,
+  # normalization and number of anchors per position (scales x aspect_ratios) of every level must be identical in
+  # both runs, as well as the channels of the backbone blocks feeding them. Other anchor scales or ratios of the same
+  # counts are reported, not refused.
+  pretrained:
+    # Run folder whose trained region proposal heads initialise this run, null to start from random weights. A run
+    # resuming from its own checkpoints does not load them again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded heads fixed (no gradient, batch normalization statistics frozen) so that only the other
+    # components learn. Requires an experiment_folder.
+    freeze: False
+    # Multiplies the learning rate of the loaded heads, e.g. 0.1 to fine-tune them ten times slower than the new
+    # layers.
+    learning_rate_multiplier: 1.0
 
 Anchors:
   # Dictionary mapping anchor scales and aspect ratios to specific feature map indices.
@@ -338,6 +354,21 @@ Detector:
   total_training_samples: 128
   # Beta scalar for the Smooth L1 Loss bounding box regression transition.
   localisation_loss_beta: 1/9
+  # Detection heads of another DET or INS run initialising this run. Their levels, head_configurations,
+  # normalization and modules must be identical in both runs, as well as the channels of the backbone blocks feeding
+  # them and the number of classes, the classification and per-class box regression layers being transferred too.
+  pretrained:
+    # Run folder whose trained detection heads initialise this run, null to start from random weights. A run resuming
+    # from its own checkpoints does not load them again.
+    experiment_folder: null
+    # Checkpoint iteration of that run, null for its last saved checkpoint.
+    iteration: null
+    # Keeps the loaded heads fixed (no gradient, batch normalization statistics frozen) so that only the other
+    # components learn, e.g. the mask heads of an instance segmentation run. Requires an experiment_folder.
+    freeze: False
+    # Multiplies the learning rate of the loaded heads, e.g. 0.1 to fine-tune them ten times slower than the new
+    # layers.
+    learning_rate_multiplier: 1.0
 
 MaskHead:
   # RoIAlign pool size of the mask heads, the same on every level since the masks of the levels are concatenated. The
