@@ -1,7 +1,7 @@
 """
 Shared helpers of the model tests: checking an nn.Module method against reference outputs, creating deterministic
-tensors and building the small seeded detector used by the detector baseline and inference tests and by the debug
-scripts under scripts/models.
+tensors and building the small seeded detector (or instance segmenter) used by the detector baseline, inference and
+instance segmentation tests and by the debug scripts under scripts/models.
 """
 
 import copy
@@ -12,6 +12,7 @@ from typing import Any, List, Dict, Union, Optional, Tuple
 from pathlib import Path
 
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from vision_training.models.instance_segmentation.instance_segmenter import InstanceSegmenter
 from tests.fixtures.configuration_fixtures import get_detection_model_configuration
 
 
@@ -133,27 +134,31 @@ def create_deterministic_tensor(shape: Tuple[int, ...], dtype: torch.dtype = tor
     return deterministic_tensor.reshape(shape=shape)
 
 
-def build_test_model(dtype: torch.dtype) -> TwoStageDetector:
+def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False) -> TwoStageDetector:
     """
     Builds a small untrained detector from the debug configuration, shared by the detector tests (export path and
     behaviour baseline), with 512 pixel inputs (the smallest size fitting its 9 pooling blocks) and a score threshold
     of zero so that the compared outputs always contain detections. The weights are drawn from a fixed seed, so every
-    call returns exactly the same detector.
+    call returns exactly the same detector. With instance_segmentation, the instance segmenter of the same detector
+    with mask heads is built instead, for the instance segmentation tests.
 
     Args:
         dtype (torch.dtype): The precision of the parameters: float32 like the exported models, or float64 for the
             behaviour baseline, whose recorded values must not depend on float32 rounding.
+        instance_segmentation (bool): Whether to build the InstanceSegmenter instead of the TwoStageDetector.
+            Defaults to False.
 
     Returns:
-        TwoStageDetector: The detector in evaluation mode, on the CPU.
+        TwoStageDetector: The detector (or instance segmenter) in evaluation mode, on the CPU.
     """
     torch.manual_seed(seed=0)
-    configuration, device, _ = get_detection_model_configuration()
+    configuration, device, _ = get_detection_model_configuration(mask_head=instance_segmentation)
     configuration: Dict[str, Any] = copy.deepcopy(x=configuration)
     configuration["Data"]["image_settings"]["size"] = 512
     configuration["Detector"]["inference"]["score_threshold"] = 0.0
 
     # Move the model to its device and precision after building it, as the Trainer does, since a few layers (the
     # region proposal output layers) are created in the default float32 precision
-    model = TwoStageDetector(configuration=configuration, device=device, dtype=dtype)
+    model_class = InstanceSegmenter if instance_segmentation else TwoStageDetector
+    model = model_class(configuration=configuration, device=device, dtype=dtype)
     return model.to(device=device, dtype=dtype).eval()

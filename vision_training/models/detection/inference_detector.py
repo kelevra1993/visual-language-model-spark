@@ -8,7 +8,7 @@ import torch
 
 from torch import nn
 from torchvision.ops import batched_nms
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.detection.box_operations import clamp_boxes_to_image_boundaries
@@ -66,6 +66,24 @@ class InferenceDetector(nn.Module):
                 input pixels, their scores [B, K], their int64 labels [B, K] (0 for padding) and the int64 number of
                 valid detections per image [B].
         """
+        detections = self.detect_objects(images=images)["detections"]
+        return (detections["final_detection_boxes"], detections["final_detection_scores"],
+                detections["final_detection_labels"], detections["number_detections"])
+
+    def detect_objects(self, images: torch.Tensor) -> Dict[str, Any]:
+        """
+        Runs every detection step on a batch of preprocessed images (backbone, region proposals, batched proposal
+        filter, detection heads and postprocessing), keeping the intermediate results that the inference instance
+        segmenter needs to predict the mask of every detection with the head of its level.
+
+        Args:
+            images (torch.Tensor): Float BGR images in [0, 255] of shape [B, 3, H, W], resized and padded to the network
+                input size.
+
+        Returns:
+            Dict[str, Any]: The backbone 'feature_maps' keyed by level name, the 'proposal_levels' [B, P] level index
+                of every filtered proposal, and the 'detections' of postprocess_detections.
+        """
         _, feature_maps = self.backbone(input_tensor=images)
 
         # Run every region proposal head and concatenate the proposals of all levels, remembering their level
@@ -91,9 +109,7 @@ class InferenceDetector(nn.Module):
                                             nms_iou_threshold=self.detection_nms_iou_threshold,
                                             maximum_detections=self.maximum_detections,
                                             input_image_size=self.input_image_size)
-
-        return (detections["final_detection_boxes"], detections["final_detection_scores"],
-                detections["final_detection_labels"], detections["number_detections"])
+        return {"feature_maps": feature_maps, "proposal_levels": filtered_levels, "detections": detections}
 
     def filter_proposals(self, proposal_scores: torch.Tensor, proposal_boxes: torch.Tensor,
                          proposal_levels: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

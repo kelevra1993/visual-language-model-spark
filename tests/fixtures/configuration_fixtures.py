@@ -1,7 +1,7 @@
 """
-Small model configuration dictionaries of the detection, classification, semantic segmentation, sequence and sequence
-comparison models, with their device and dtype, shared by the model, export and transfer tests and by the debug scripts
-under scripts/models.
+Small model configuration dictionaries of the detection (with or without mask heads), classification, semantic
+segmentation, sequence and sequence comparison models, with their device and dtype, shared by the model, export and
+transfer tests and by the debug scripts under scripts/models.
 """
 
 import torch
@@ -9,11 +9,16 @@ import torch
 from typing import Any, Dict, Tuple
 
 
-def get_detection_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
+def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
     """
     Supplies a small detector configuration dictionary, with its device and dtype, shared by the detector tests and
-    the detection debug scripts: 9 backbone blocks, levels 5 to 7 and 5 foreground classes.
-    
+    the detection debug scripts: 9 backbone blocks, levels 5 to 7 and 5 foreground classes. With mask_head, the
+    'MaskHead' section of the instance segmenter is added: 7 x 7 pooling (14 x 14 masks) and 2 layers of 32 channels
+    on every level.
+
+    Args:
+        mask_head (bool): Whether to add the 'MaskHead' section of the instance segmentation task. Defaults to False.
+
     Returns:
         Tuple[Dict[str, Any], torch.device, torch.dtype]: The FPN F-RCNN configuration mapping, compute device, and tensor dtype.
     """
@@ -76,6 +81,14 @@ def get_detection_model_configuration() -> Tuple[Dict[str, Any], torch.device, t
                          'nms_iou_threshold': 0.5,
                          'inference': {'score_threshold': 0.5, 'maximum_detections': 100},
                      }}
+    # Mask heads of the instance segmenter on the same levels as the detection heads
+    if mask_head:
+        configuration['MaskHead'] = {'roi_align_pool_size': 7,
+                                     'head_configurations': {'5': [2, 32], '6': [2, 32], '7': [2, 32]},
+                                     'normalization': {'feature_map_normalization': 'batch'},
+                                     'modules': {'squeeze_and_excite': False, 'residual_nets': True,
+                                                 'inception': False},
+                                     'inference': {'mask_threshold': 0.5}}
     device = torch.device(device="cpu")
     dtype = torch.float32
 
