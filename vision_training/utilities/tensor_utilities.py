@@ -1,6 +1,6 @@
 """
 Tensor helpers: selection of the training device, used by the base trainer, and printing of the shape, type,
-values and device of tensors, used by the debugging scripts.
+values and device of tensors, used by the verbose output of the two-stage detector and by its box shape check.
 """
 
 import torch

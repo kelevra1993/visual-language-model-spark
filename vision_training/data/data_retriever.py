@@ -1,7 +1,6 @@
 """
 Downloads raw detection datasets (Open Images V7, COCO 2017) from the FiftyOne Zoo with the requested splits and label
-types, the source of the COCO data used by the object detection configurations. Inspected afterwards by
-scripts/data/debug_data_retriever.py.
+types, the source of the COCO data used by the object detection configurations.
 """
 
 import multiprocessing

@@ -1,7 +1,7 @@
 """
 Shared helpers of the model tests: checking an nn.Module method against reference outputs, creating deterministic
 tensors and building the small seeded detector (or instance segmenter) used by the detector baseline, inference and
-instance segmentation tests and by the debug scripts under scripts/models.
+instance segmentation tests.
 """
 
 import copy

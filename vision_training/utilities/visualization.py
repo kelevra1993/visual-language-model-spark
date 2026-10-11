@@ -1,9 +1,8 @@
 """
-OpenCV drawing helpers: bounding boxes and anchors for the detection debugging scripts, the input viewer of the
-trainers, the frame grids of the sequence tasks, the caption bars of the evaluation error images, the class colours,
-mask overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
-segmentation, and the selection grids with their probability heat map of the frame selection. Used by the trainers and
-the scripts.
+OpenCV drawing helpers: bounding boxes of the detection sample images and anchors, the input viewer of the trainers,
+the frame grids of the sequence tasks, the caption bars of the evaluation error images, the class colours, mask
+overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
+segmentation, and the selection grids with their probability heat map of the frame selection. Used by the trainers.
 """
 
 import os

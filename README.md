@@ -951,7 +951,7 @@ The tests are in `tests/`, in folders mirroring `vision_training/`. They include
 uv run pytest tests
 ```
 
-The debugging scripts kept in the repository are in `scripts/`, also in folders mirroring `vision_training/`.
+The checkpoint evaluation and configuration migration scripts are in `scripts/`, also in folders mirroring `vision_training/`.
 
 ## Repository Structure
 
@@ -980,7 +980,7 @@ The debugging scripts kept in the repository are in `scripts/`, also in folders 
 │   ├── tracking/                      # MLflow tracking
 │   ├── deployment/                    # Export, Triton configuration and server, frame selection decoder, throughput measurement
 │   └── utilities/                     # File, tensor, mask morphology and visualization helpers
-├── scripts/                           # Debugging, evaluation and migration scripts
+├── scripts/                           # Checkpoint evaluation and configuration migration scripts
 └── tests/                             # Tests, mirroring vision_training/
 ```
 

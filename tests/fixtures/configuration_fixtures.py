@@ -1,7 +1,7 @@
 """
 Small model configuration dictionaries of the detection (with or without mask heads), classification, semantic
 segmentation, sequence and sequence comparison models, with their device and dtype, shared by the model, export and
-transfer tests and by the debug scripts under scripts/models.
+transfer tests.
 """
 
 import torch
@@ -11,10 +11,9 @@ from typing import Any, Dict, Tuple
 
 def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
     """
-    Supplies a small detector configuration dictionary, with its device and dtype, shared by the detector tests and
-    the detection debug scripts: 9 backbone blocks, levels 5 to 7 and 5 foreground classes. With mask_head, the
-    'MaskHead' section of the instance segmenter is added: 7 x 7 pooling (14 x 14 masks) and 2 layers of 32 channels
-    on every level.
+    Supplies a small detector configuration dictionary, with its device and dtype, shared by the detector tests:
+    9 backbone blocks, levels 5 to 7 and 5 foreground classes. With mask_head, the 'MaskHead' section of the
+    instance segmenter is added: 7 x 7 pooling (14 x 14 masks) and 2 layers of 32 channels on every level.
 
     Args:
         mask_head (bool): Whether to add the 'MaskHead' section of the instance segmentation task. Defaults to False.
