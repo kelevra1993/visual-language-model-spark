@@ -961,7 +961,7 @@ The debugging scripts kept in the repository are in `scripts/`, also in folders 
 ├── README/                            # Images used in the documentation
 ├── pyproject.toml                     # Project package and dependency configuration
 ├── uv.lock                            # Locked dependencies for reproducible environments
-├── markdown_files/                    # Proposed improvements
+├── markdown files/                    # Proposed improvements
 ├── vision_training/                   # Training framework
 │   ├── main.py                        # Entry point of the trainings
 │   ├── configurations/                # Example and synthetic configuration of every task
