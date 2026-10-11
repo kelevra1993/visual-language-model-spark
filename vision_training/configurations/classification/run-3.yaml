@@ -12,7 +12,7 @@ ExperimentConfiguration:
   # CLS_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.4x128_HAVG.256-CWB_MC12. The augmentation, batch size, learning
   # rate and its schedule, gradient clipping, mixed precision and dropout rates give no token, so that a run can be
   # resumed in its folder with changed values. The format is described in vision_training/configuration/run_name.py.
-  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/hyperparameter_experiment/run_3"
+  experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/hyperparameter_experiments/run_3"
   # Root directory containing the training dataset images and labels.json manifest (synthetic shapes: 500,000
   # images).
   train_data_folder: "/home/robert_kelevra/Data/classifier_data/synthetic_shapes/train"
@@ -26,10 +26,10 @@ ExperimentConfiguration:
   # Frequency (in iterations) to log performance metrics.
   information_dump: 100
   # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
-  weight_saving_iterations: 500
+  weight_saving_iterations: 250
   # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
   # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
-  intermediate_weight_saving_iterations: 250
+  intermediate_weight_saving_iterations: 125
   # Total number of training iterations before stopping.
   number_iterations: 2000
   # Ratio controlling how often validation is run during training.
@@ -272,7 +272,7 @@ ClassificationHead:
   # head is tied to Data.image_settings.size and Backbone.last_max_pooling, and its first layer is much larger.
   global_pooling: "flatten"
   # Units of the hidden fully connected layers between the pooled features and the class logits, [] for none.
-  fully_connected: [512,256]
+  fully_connected: [256,128]
   # Dropout applied before every fully connected layer, within [0, 1), 0 to disable.
   dropout_rate: 0.2
   # "multi_class" (softmax, one class per image) or "multi_label" (sigmoid, any number of classes per image, read
