@@ -73,15 +73,22 @@ def color_text(color: str, text: str) -> str:
 HYPERLINK_OPENER = "\033]8;;"
 HYPERLINK_TERMINATOR = "\033\\"
 
-# Pattern of the opening and closing sequences of the hyperlinks, which take no width in the console
-HYPERLINK_PATTERN = re.compile(pattern=r"\033\]8;;[^\033]*\033\\")
+# Select Graphic Rendition codes underlining the label of a hyperlink so that the clickable text stands out, the
+# closing code ending the underline only, so that the colour and bold of the surrounding message go on after the link
+UNDERLINE_OPENER = "\033[4m"
+UNDERLINE_TERMINATOR = "\033[24m"
+
+# Pattern of the escape sequences taking no width in the console: the opening and closing sequences of the hyperlinks
+# and the colour and style codes, such as the underline of their labels
+INVISIBLE_SEQUENCE_PATTERN = re.compile(pattern=r"\033\]8;;[^\033]*\033\\|\033\[[0-9;]*m")
 
 
 def format_path_link(path: Path | str, label: Optional[str] = None) -> str:
     """
-    Turns a file or folder path into an OSC 8 terminal hyperlink, so that the console output of the pipeline (the
-    experiment information printed at launch, the saved files, the errors) shows a short clickable label instead of
-    the whole file:// path. Terminals without hyperlink support show the label alone.
+    Turns a file or folder path into an OSC 8 terminal hyperlink with an underlined label, so that the console output
+    of the pipeline (the experiment information printed at launch, the saved files, the errors) shows a short text,
+    recognisable as clickable, instead of the whole file:// path. Terminals without hyperlink support, such as the
+    PyCharm Run window without "Emulate terminal in output console", show the underlined label alone.
 
     Args:
         path (Path | str): The file or folder opened by the link, made absolute since a file URI needs an absolute
@@ -89,14 +96,15 @@ def format_path_link(path: Path | str, label: Optional[str] = None) -> str:
         label (Optional[str]): The text shown in the console. Defaults to the name of the file or folder.
 
     Returns:
-        str: The label between the sequence opening the hyperlink to the file URI of the path and the one closing it.
+        str: The underlined label between the sequence opening the hyperlink to the file URI of the path and the one
+            closing it.
     """
     absolute_path = Path(path).absolute()
 
     # The name of the file or folder by default, the whole path for the root folder which has no name
     link_label = label if label is not None else (absolute_path.name or str(absolute_path))
-    return (f"{HYPERLINK_OPENER}{absolute_path.as_uri()}{HYPERLINK_TERMINATOR}{link_label}"
-            f"{HYPERLINK_OPENER}{HYPERLINK_TERMINATOR}")
+    return (f"{HYPERLINK_OPENER}{absolute_path.as_uri()}{HYPERLINK_TERMINATOR}"
+            f"{UNDERLINE_OPENER}{link_label}{UNDERLINE_TERMINATOR}{HYPERLINK_OPENER}{HYPERLINK_TERMINATOR}")
 
 
 def print_color(color: str, output: str, add_separators: bool = False, indent: int = 0) -> None:
@@ -112,7 +120,8 @@ def print_color(color: str, output: str, add_separators: bool = False, indent: i
         color (str): The colour of the message, one of "blue", "green", "yellow" or "red".
         output (str): The string to be printed.
         add_separators (bool): If True, wraps the output with horizontal separators for better visibility, as long
-            as its longest line shows in the console (the hyperlinks of format_path_link counting as their labels).
+            as its longest line shows in the console (the underlined hyperlinks of format_path_link counting as their
+            labels).
         indent (int, optional): The number of indentation levels (2 spaces each). Defaults to 0.
 
     Raises:
@@ -124,7 +133,7 @@ def print_color(color: str, output: str, add_separators: bool = False, indent: i
 
     # Print the message in bold colour, optionally framed by separators as long as its longest line
     if add_separators:
-        visible_width = max(len(HYPERLINK_PATTERN.sub(repl="", string=line)) for line in output.split("\n"))
+        visible_width = max(len(INVISIBLE_SEQUENCE_PATTERN.sub(repl="", string=line)) for line in output.split("\n"))
         separator = color_text(color=color, text=str((visible_width + 1) * "-"))
         print(indentation_string + separator)
         print(color_text(color=color, text=indented_output))
