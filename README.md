@@ -81,11 +81,11 @@ uv sync
 Every script is run as a module from the repository root, so that the `vision_training` and `scripts` packages are found:
 
 ```bash
-# Run a training
-uv run python -m vision_training.main
+# Run a training from the configuration file vision_training/configurations/<task folder>/<file name>
+uv run python -m vision_training.main --task="classification" --name="configuration_synthetic_shapes.yaml"
 ```
 
-The scripts have no command line arguments: their settings are the variables of their `if __name__ == "__main__":` block, to be edited before running them.
+The training takes its configuration file on the command line: `--task` is its folder in `vision_training/configurations/` and `--name` its file name. In a PyCharm run configuration, both go in the Script parameters. The other scripts have no command line arguments: their settings are the variables of their `if __name__ == "__main__":` block, to be edited before running them.
 
 ### Data Requirements
 Every task reads three split folders (train, validation and test), each holding its images in `data/` and their labels in a `labels.json` manifest, and a `label_mapping.json` file giving the class predicted for every category. The layout of every task is given in [Tasks](#tasks), with the scripts converting existing datasets to it. To try the repository without a dataset, generate a synthetic one ([Quick Start With Synthetic Data](#quick-start-with-synthetic-data)).
@@ -101,10 +101,10 @@ uv run python -m vision_training.data.synthetic.create_synthetic_dataset
 ```
 
 2. In the synthetic configuration of the task (table below, in `vision_training/configurations/`), set `experiment_folder`, the three data folders and `Data.label_mapping.mapping_file_path` to the generated dataset.
-3. In `vision_training/main.py`, point `experiment_configuration_path` to that configuration, then train:
+3. Train with that configuration, given by its task folder and its file name:
 
 ```bash
-uv run python -m vision_training.main
+uv run python -m vision_training.main --task="classification" --name="configuration_synthetic_shapes.yaml"
 ```
 
 | Task | Synthetic dataset | Classes | Configuration |
@@ -122,19 +122,13 @@ uv run python -m vision_training.main
 
 ### Launching A Run
 1. Copy the `configuration_example.yaml` of the task, in `vision_training/configurations/<task>/`, and fill it: `experiment_folder` (the root folder receiving the runs), the three data folders and the label mapping file. Every key is explained by its comment in the file, and [Configurations](#configurations) lists the keys of every task.
-2. Point `experiment_configuration_path` in `vision_training/main.py` to it:
-
-```python
-# Define configuration path
-experiment_configuration_path = (Path(__file__).parent / "configurations" / "classification" /
-                                 "my_configuration.yaml")
-```
-
-3. Run the training:
+2. Run the training, with the task folder of the configuration file (`--task`) and its file name (`--name`):
 
 ```bash
-uv run python -m vision_training.main
+uv run python -m vision_training.main --task="classification" --name="my_configuration.yaml"
 ```
+
+A file missing from the task folder stops the program with the list of the configuration files of that folder.
 
 The configuration is checked before anything starts: a missing key, a value the task cannot use or an inconsistent combination stops the program with the list of every problem found.
 
