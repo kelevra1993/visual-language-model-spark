@@ -36,5 +36,7 @@ mlruns/
 inspiration_projects/
 previous_classifiers/
 *experiments*/
+# Launch folders of the hyperparameter experiment
+hyperparameter_experiment/
 # Exported models served by Triton
 vision_training/deployment/triton/served_models/
