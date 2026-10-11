@@ -156,7 +156,7 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
         split_data_folder=dataset_folder / "train",
         sequence_settings={"sequence_length": SMOKE_NUMBER_FRAMES, "short_sequences": "pad"})
     assert number_pairs == number_kept_pairs == 8
-    assert "pairs/sec" in console_output and "frames/sec" in console_output
+    assert "Pairs Per Second" in console_output and "Frames Per Second" in console_output
     assert f"8 pairs, {number_frames} frames, 8 kept pairs of at most 2 x 4 frames" in console_output
     assert "while the 'gru' temporal module models their order" in console_output
     assert "Error encountered during iteration" not in console_output

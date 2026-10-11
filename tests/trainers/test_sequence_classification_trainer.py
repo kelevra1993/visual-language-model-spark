@@ -153,7 +153,7 @@ def test_sequence_classification_training_saves_evaluates_and_resumes(tmp_path: 
 
     # The sequence throughput comes with the frame throughput, and no iteration failed along the way
     console_output = capsys.readouterr().out
-    assert "seqs/sec" in console_output and "frames/sec" in console_output
+    assert "Sequences Per Second" in console_output and "Frames Per Second" in console_output
     assert "8 sequences, 32 frames, 8 windows of 4 frames" in console_output
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

@@ -10,13 +10,20 @@ import time
 import torch
 
 from torch.utils.tensorboard import SummaryWriter
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.utilities.os_utilities import color_text
 
-# Throughput unit printed for each kind of sample: single images for the image tasks, sequences for the sequence tasks,
-# pairs of sequences for the sequence comparison task
-THROUGHPUT_UNITS = {"Images": "imgs/sec", "Sequences": "seqs/sec", "Pairs": "pairs/sec"}
+# Smallest width of the console summary, whose header spans the separator lines from end to end
+SUMMARY_MINIMUM_WIDTH = 120
+
+# Largest values the header cells of the console summary are sized for, so that the bars between the cells keep their
+# place during the whole run: training iterations, total and interval samples, samples and real frames per second
+SUMMARY_MAXIMUM_ITERATIONS = 10_000_000
+SUMMARY_MAXIMUM_TOTAL_SAMPLES = 1_000_000_000
+SUMMARY_MAXIMUM_INTERVAL_SAMPLES = 10_000_000
+SUMMARY_MAXIMUM_SAMPLES_PER_SECOND = 9999.9
+SUMMARY_MAXIMUM_FRAMES_PER_SECOND = 999999.9
 
 # Colour of the metric lines of each split in the console summary
 SPLIT_COLORS = {"Train": "blue", "Valid": "yellow"}
@@ -280,13 +287,82 @@ class MetricTracker:
             return None
         return training_tracker_dictionary[INTERVAL_FRAMES_KEY] / max(duration, 0.001)
 
+    def build_header_cells(self, iterations: int, total_samples: int, interval_samples: int,
+                           samples_per_second: float, frames_per_second: Optional[float]) -> List[str]:
+        """
+        Writes the texts of the header cells of the console summary, for the values of an interval or for the largest
+        expected values that size the cells (see format_summary_header).
+
+        Args:
+            iterations (int): The current global training iteration.
+            total_samples (int): The number of samples trained on since the start of the run.
+            interval_samples (int): The number of samples trained on in the interval.
+            samples_per_second (float): The throughput of the interval in samples per second.
+            frames_per_second (Optional[float]): The real frames per second of the sequence tasks, None for the image
+                tasks, which get no frame cell.
+
+        Returns:
+            List[str]: The text of every header cell, without the bars between them.
+        """
+        header_cells = [f"Iteration: {iterations}", f"Total {self.sample_name}: {total_samples}",
+                        f"Interval {self.sample_name}: {interval_samples}",
+                        f"Throughput: {samples_per_second:.1f} {self.sample_name} Per Second"]
+        if frames_per_second is not None:
+            header_cells.append(f"{frames_per_second:.1f} Frames Per Second")
+        return header_cells
+
+    def format_summary_header(self, iterations: int, total_samples: int, interval_samples: int,
+                              samples_per_second: float, frames_per_second: Optional[float]) -> str:
+        """
+        Lays out the header of the console summary as cells between bars, the first and last bars at the ends of the
+        separator lines printed around it. Every cell is as wide as its text at the largest expected values (the
+        SUMMARY_MAXIMUM constants) plus a space on each side, so that the bars keep their place while the counts grow,
+        and the cells share the extra space up to SUMMARY_MINIMUM_WIDTH characters. The texts are centred in their
+        cells. A value larger than expected widens its cell instead of being cut.
+
+        Args:
+            iterations (int): The current global training iteration.
+            total_samples (int): The number of samples trained on since the start of the run.
+            interval_samples (int): The number of samples trained on in the interval.
+            samples_per_second (float): The throughput of the interval in samples per second.
+            frames_per_second (Optional[float]): The real frames per second of the sequence tasks, None for the image
+                tasks.
+
+        Returns:
+            str: The header line, as wide as the separator lines of the summary.
+        """
+        header_cells = self.build_header_cells(iterations=iterations, total_samples=total_samples,
+                                               interval_samples=interval_samples,
+                                               samples_per_second=samples_per_second,
+                                               frames_per_second=frames_per_second)
+        largest_header_cells = self.build_header_cells(
+            iterations=SUMMARY_MAXIMUM_ITERATIONS, total_samples=SUMMARY_MAXIMUM_TOTAL_SAMPLES,
+            interval_samples=SUMMARY_MAXIMUM_INTERVAL_SAMPLES, samples_per_second=SUMMARY_MAXIMUM_SAMPLES_PER_SECOND,
+            frames_per_second=None if frames_per_second is None else SUMMARY_MAXIMUM_FRAMES_PER_SECOND)
+
+        # Width of every cell: its text at the largest expected values, or its current text when longer, plus a space
+        # on each side
+        cell_widths = [max(len(largest_header_cell), len(header_cell)) + 2
+                       for header_cell, largest_header_cell in zip(header_cells, largest_header_cells)]
+
+        # Share the space left up to the minimum width between the cells, the first cells taking the remainder
+        number_cells = len(cell_widths)
+        extra_width = max(0, SUMMARY_MINIMUM_WIDTH - sum(cell_widths) - (number_cells + 1))
+        for cell_index in range(number_cells):
+            cell_widths[cell_index] += extra_width // number_cells + int(cell_index < extra_width % number_cells)
+
+        # Centre every text in its cell, between bars
+        centred_cells = [header_cell.center(cell_width) for header_cell, cell_width in zip(header_cells, cell_widths)]
+        return "|" + "|".join(centred_cells) + "|"
+
     def print_interval_summary(self, iterations: int, training_tracker_dictionary: Dict[str, Any],
                                validation_tracker_dictionary: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """
         Prints the average of the training and validation metrics at the end of a console log interval, over the
         batches the interval really ran. It is the primary training feedback of the pipeline, showing the throughput
-        and every tracked metric with its change since the previous summary, so that the user can monitor the
-        convergence at a glance.
+        in samples (and real frames for the sequence tasks) per second and every tracked metric with its change since
+        the previous summary, so that the user can monitor the convergence at a glance. The header spans the separator
+        lines from end to end (see format_summary_header).
 
         Args:
             iterations (int): Current global training iteration.
@@ -297,9 +373,6 @@ class MetricTracker:
         Returns:
             Dict[str, Any]: A fresh training tracker dictionary for the next interval.
         """
-        print_length = 100
-        print("=" * print_length)
-
         # Calculate sample scale and throughput metrics over the training iterations of the interval
         interval_iterations = training_tracker_dictionary[INTERVAL_BATCHES_KEY]
         validation_interval_count = (validation_tracker_dictionary[INTERVAL_BATCHES_KEY]
@@ -309,14 +382,16 @@ class MetricTracker:
         samples_per_second, duration = self.compute_interval_statistics(
             training_tracker_dictionary=training_tracker_dictionary)
 
-        # Display the formatted summary header, with the real frame throughput of the sequence tasks
-        header = (f"| Iteration: {iterations:<6} | Total {self.sample_name}: {total_samples:<8} "
-                  f"| Interval {self.sample_name}: {interval_samples:<6} "
-                  f"| Throughput: {samples_per_second:.1f} {THROUGHPUT_UNITS[self.sample_name]} |")
+        # Build the summary header, with the real frame throughput of the sequence tasks
         frames_per_second = self.compute_frame_throughput(training_tracker_dictionary=training_tracker_dictionary,
                                                           duration=duration)
-        if frames_per_second is not None:
-            header += f" {frames_per_second:.1f} frames/sec |"
+        header = self.format_summary_header(iterations=iterations, total_samples=total_samples,
+                                            interval_samples=interval_samples, samples_per_second=samples_per_second,
+                                            frames_per_second=frames_per_second)
+
+        # Display the header between separator lines of its width, its bars at their ends
+        print_length = len(header)
+        print("=" * print_length)
         print(header)
         print("-" * print_length)
 

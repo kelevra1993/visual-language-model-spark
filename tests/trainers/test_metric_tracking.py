@@ -1,14 +1,18 @@
 """
 Tests of MetricTracker of vision_training/trainers/metric_tracking.py: interval averages of the tracked metrics over
 the batches really accumulated, the real frames counted for the frame throughput, the time interval format, the
-interval summary header with the iterations of the interval, and the changes since the previous summary (metric
-changes and their colours, best marker).
+interval summary header with the iterations of the interval, spanning its separator lines with centred cells whose
+bars keep their place, and the changes since the previous summary (metric changes and their colours, best marker).
 """
 
 import pytest
 import torch
 
-from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY, MetricTracker
+from vision_training.trainers.metric_tracking import (INTERVAL_BATCHES_KEY, SUMMARY_MAXIMUM_FRAMES_PER_SECOND,
+                                                      SUMMARY_MAXIMUM_INTERVAL_SAMPLES, SUMMARY_MAXIMUM_ITERATIONS,
+                                                      SUMMARY_MAXIMUM_SAMPLES_PER_SECOND,
+                                                      SUMMARY_MAXIMUM_TOTAL_SAMPLES, SUMMARY_MINIMUM_WIDTH,
+                                                      MetricTracker)
 from vision_training.utilities.os_utilities import color_text
 
 
@@ -91,15 +95,16 @@ def test_time_interval_format() -> None:
 
 
 @pytest.mark.parametrize(argnames=("sample_name", "counts_frames", "expected_fragments"), argvalues=[
-    ("Images", False, ["Total Images", "imgs/sec"]),
-    ("Sequences", True, ["Total Sequences", "seqs/sec", "frames/sec"]),
-    ("Pairs", True, ["Total Pairs", "pairs/sec", "frames/sec"])])
+    ("Images", False, ["Total Images", "Images Per Second"]),
+    ("Sequences", True, ["Total Sequences", "Sequences Per Second", "Frames Per Second"]),
+    ("Pairs", True, ["Total Pairs", "Pairs Per Second", "Frames Per Second"])])
 def test_interval_summary_header(capsys: pytest.CaptureFixture, sample_name: str, counts_frames: bool,
                                  expected_fragments: list) -> None:
     """
     Verifies that the console summary counts images for the image tasks, sequences (or pairs of sequences) with their
-    frame throughput for the sequence tasks, that it counts the samples and iterations the interval really ran, and
-    that it returns fresh trackers for the next interval.
+    frame throughput for the sequence tasks, that it counts the samples and iterations the interval really ran, that
+    its header spans the separator lines from end to end, at least SUMMARY_MINIMUM_WIDTH characters, and that it
+    returns fresh trackers for the next interval.
 
     Args:
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
@@ -118,7 +123,52 @@ def test_interval_summary_header(capsys: pytest.CaptureFixture, sample_name: str
     console_output = capsys.readouterr().out
     for expected_fragment in expected_fragments + [f"Interval {sample_name}: 6 ", "Interval Of 3 Iterations Took"]:
         assert expected_fragment in console_output
+
+    # Header between an equal line and a dash line of its width, its first and last bars at their ends
+    console_lines = console_output.splitlines()
+    summary_width = len(console_lines[1])
+    assert summary_width >= SUMMARY_MINIMUM_WIDTH and console_lines[1][0] == console_lines[1][-1] == "|"
+    assert console_lines[0] == "=" * summary_width and console_lines[2] == "-" * summary_width
+    assert console_lines[-1] == "=" * summary_width
     assert fresh_trackers["total_loss"] == 0.0 and fresh_trackers[INTERVAL_BATCHES_KEY] == 0
+
+
+@pytest.mark.parametrize(argnames="counts_frames", argvalues=[False, True])
+def test_summary_header_bars_keep_their_place(counts_frames: bool) -> None:
+    """
+    Verifies that the header cells are sized for the largest expected values, so that the header of the first
+    interval and the one at those values have the same width and their bars at the same places, that the texts are
+    centred in their cells, and that a value larger than expected widens its cell instead of being cut.
+
+    Args:
+        counts_frames (bool): Whether the frame cell of the sequence tasks is shown.
+    """
+    tracker = build_metric_tracker(sample_name="Sequences" if counts_frames else "Images", counts_frames=counts_frames)
+    first_header = tracker.format_summary_header(iterations=45, total_samples=2880, interval_samples=320,
+                                                 samples_per_second=42.9,
+                                                 frames_per_second=1431.2 if counts_frames else None)
+    largest_header = tracker.format_summary_header(
+        iterations=SUMMARY_MAXIMUM_ITERATIONS, total_samples=SUMMARY_MAXIMUM_TOTAL_SAMPLES,
+        interval_samples=SUMMARY_MAXIMUM_INTERVAL_SAMPLES, samples_per_second=SUMMARY_MAXIMUM_SAMPLES_PER_SECOND,
+        frames_per_second=SUMMARY_MAXIMUM_FRAMES_PER_SECOND if counts_frames else None)
+
+    bar_positions = [character_index for character_index, character in enumerate(first_header) if character == "|"]
+    assert len(first_header) == len(largest_header) and len(bar_positions) == (6 if counts_frames else 5)
+    assert bar_positions == [character_index for character_index, character in enumerate(largest_header)
+                             if character == "|"]
+
+    # Every text in the middle of its cell, at most one space more on one side
+    for left_bar, right_bar in zip(bar_positions[:-1], bar_positions[1:]):
+        cell = first_header[left_bar + 1:right_bar]
+        assert abs((len(cell) - len(cell.lstrip())) - (len(cell) - len(cell.rstrip()))) <= 1
+
+    # An iteration count beyond the expected ones widens the first cell by its extra digit, taken from the spare space
+    # of the image header, while the wider sequence header has none and grows by one character
+    longer_header = tracker.format_summary_header(
+        iterations=SUMMARY_MAXIMUM_ITERATIONS * 10, total_samples=2880, interval_samples=320, samples_per_second=42.9,
+        frames_per_second=1431.2 if counts_frames else None)
+    assert f" Iteration: {SUMMARY_MAXIMUM_ITERATIONS * 10} " in longer_header
+    assert len(longer_header) == len(first_header) + int(counts_frames)
 
 
 def test_metric_changes_and_best_marker() -> None:

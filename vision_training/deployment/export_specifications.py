@@ -153,7 +153,7 @@ def compare_detections(reference: Sequence[np.ndarray], candidate: Sequence[np.n
             continue
         box_difference = np.abs(reference_boxes[image_index] - candidate_boxes[image_index][paired_indices]).max()
         if box_difference > box_tolerance:
-            mismatches.append(f"image {image_index}: box difference {box_difference:.2e} px")
+            mismatches.append(f"image {image_index}: box difference {box_difference:.2e} pixels")
     return mismatches
 
 
