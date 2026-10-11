@@ -1230,7 +1230,7 @@ if __name__ == "__main__":
     # "sequence_labelling" (one shape changing class during the sequence, labelled per frame), "sequence_comparison"
     # (a before and an after sequence of the same objects, labelled with whether the after member lost one of them) or
     # "frame_selection" (one shape per frame, the largest circle, triangle and star being the frames to select)
-    task = "object_detection"
+    task = "classification"
     # Root folder of the created dataset of every task, the ones expected by the synthetic configurations of
     # vision_training/configurations/. Existing images and labels of the same splits are overwritten
     output_folders = {"object_detection": "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes",
@@ -1249,7 +1249,7 @@ if __name__ == "__main__":
     # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task
     split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
                    "instance_segmentation": {"train": 2000, "validation": 200, "test": 200},
-                   "classification": {"train": 4000, "validation": 500, "test": 500},
+                   "classification": {"train": 500000, "validation": 50000, "test": 50000},
                    "semantic_segmentation": {"train": 2000, "validation": 200, "test": 200},
                    "sequence_classification": {"train": 2000, "validation": 200, "test": 200},
                    "sequence_labelling": {"train": 2000, "validation": 200, "test": 200},
