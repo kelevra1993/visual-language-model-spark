@@ -172,7 +172,7 @@ Data:
       # Grayscale conversion, kept on three channels
       gray_scale_augment: { activated: True, probability: 0.3 }
       # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
-      random_colour_augmentation: { activated: True, probability: 0.3 }
+      random_colour_augmentation: { activated: False, probability: 0.3 }
       # Random Image Blurring : 9x9 Gaussian kernel with sigma 2.5
       random_blur: { activated: True, probability: 0.3 }
 

@@ -168,11 +168,11 @@ Data:
       # Random Left to Right Flip (mirror)
       random_left_right_flip: { activated: True, probability: 0.5 }
       # Random Up to Down Flip
-      random_up_down_flip: { activated: True, probability: 0.5 }
+      random_up_down_flip: { activated: False, probability: 0.5 }
       # Random Rotation between -5° and 5°
       random_rotation: { activated: True, probability: 0.3 }
       # Random -90° or 90° rotation (square images only)
-      random_90_rotation: { activated: True, probability: 0.3 }
+      random_90_rotation: { activated: False, probability: 0.3 }
 
       # Photometric augmentations.
       # Brightness (+-40 intensity levels), contrast and saturation (both x0.7 to x1.0) adjustments
@@ -190,7 +190,7 @@ Data:
       # Grayscale conversion, kept on three channels
       gray_scale_augment: { activated: False, probability: 0.3 }
       # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
-      random_colour_augmentation: { activated: True, probability: 0.3 }
+      random_colour_augmentation: { activated: False, probability: 0.3 }
       # Random Image Blurring : 9x9 Gaussian kernel with sigma 2.5
       random_blur: { activated: False, probability: 0.3 }
 
