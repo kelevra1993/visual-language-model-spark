@@ -63,9 +63,11 @@ class ConvolutionBlock(nn.Module):
     It is shared by the Backbone, the Region Proposal heads and the Detection heads, and can optionally
     integrate the following optional architecture modules:
         - Squeeze-and-Excitation channel recalibration after every convolution layer.
-        - Residual shortcuts added every two convolution layers, after the recalibration of the layer closing the
-          pair, so that Squeeze-and-Excitation rescales the residual branch only and never the shortcut, which
-          would otherwise be halved at every pair by the gates of about 0.5 of an untrained network.
+        - Residual shortcuts added every two convolution layers, to the normalized and recalibrated output of the
+          layer closing the pair and before its activation, as in the original residual networks: the branch can
+          lower the values of the shortcut as well as raise them, and Squeeze-and-Excitation rescales the residual
+          branch only and never the shortcut, which would otherwise be halved at every pair by the gates of about
+          0.5 of an untrained network.
         - Inception modules replacing the plain convolution of every layer.
 
     The layers are stored in `self.block` in the exact order of the historical nn.Sequential implementation
@@ -89,7 +91,8 @@ class ConvolutionBlock(nn.Module):
         dtype (torch.dtype): The desired data type of returned parameters.
         squeeze_and_excite (bool): Whether to recalibrate channels with Squeeze-and-Excitation after every layer,
             before the residual shortcut is added.
-        residual (bool): Whether to add residual shortcuts every two convolution layers.
+        residual (bool): Whether to add residual shortcuts every two convolution layers, before the activation of the
+            layer closing each pair.
         inception (bool): Whether to replace every plain convolution with an Inception module.
     """
 
@@ -130,8 +133,10 @@ class ConvolutionBlock(nn.Module):
         # Initialize a list to hold the sequence of layers for the block
         layers = []
 
-        # Per layer, keep the indices of its convolution/normalization/activation modules and of its dropout module
+        # Per layer, keep the indices of its convolution/normalization/activation modules, of its activation module
+        # (applied after the shortcut addition by the layer closing a residual pair) and of its dropout module
         self.layer_module_indices = []
+        self.layer_activation_indices = []
         self.layer_dropout_indices = []
 
         # Squeeze-and-Excitation modules are kept outside self.block so the plain configuration keys are unchanged
@@ -163,6 +168,7 @@ class ConvolutionBlock(nn.Module):
                 layers.append(SequenceBatchNormalization(num_features=output_channels, device=device, dtype=dtype))
 
             # Conditionally apply the activation function to introduce non-linearity to the network
+            self.layer_activation_indices.append(len(layers) if activation else None)
             if activation:
                 layers.append(nn.ReLU(inplace=True))
 
@@ -215,8 +221,9 @@ class ConvolutionBlock(nn.Module):
         feature map at the input resolution, which the segmentation decoder reads as a skip connection.
 
         Each layer applies convolution, normalization and activation, then the optional Squeeze-and-Excitation
-        recalibration, residual addition and dropout, the recalibration coming before the addition so that the
-        shortcut is never rescaled.
+        recalibration and dropout. The layer closing a residual pair applies convolution, normalization, recalibration,
+        the shortcut addition and only then its activation, so that the shortcut is never rescaled and the branch can
+        lower its values as well as raise them.
 
         Args:
             input_tensor (torch.Tensor): The [Batch, Channels, Height, Width] input feature map.
@@ -234,10 +241,14 @@ class ConvolutionBlock(nn.Module):
             # Store the layer input as the shortcut that will be added two layers later
             if self.residual and layer_index % 2 == self.residual_parity:
                 shortcut_tensor = current_tensor
+            closes_pair = self.residual and layer_index % 2 == (1 - self.residual_parity) and layer_index != 0
 
             # Apply the convolution, normalization and activation modules of this layer, the sequence normalization
-            # receiving the sequence of every frame
+            # receiving the sequence of every frame, and the activation of a layer closing a pair being left for
+            # after the shortcut addition
             for module_index in module_indices:
+                if closes_pair and module_index == self.layer_activation_indices[layer_index]:
+                    continue
                 if isinstance(self.block[module_index], SequenceBatchNormalization):
                     current_tensor = self.block[module_index](input_tensor=current_tensor,
                                                               sequence_grouping=sequence_grouping)
@@ -245,13 +256,16 @@ class ConvolutionBlock(nn.Module):
                     current_tensor = self.block[module_index](current_tensor)
 
             # Recalibrate the channels of the layer output, before the shortcut is added so that only the residual
-            # branch is rescaled and the shortcut reaches the output of the pair unchanged
+            # branch is rescaled and the shortcut is never halved by the gates
             if self.squeeze_and_excite:
                 current_tensor = self.squeeze_and_excitation_layers[layer_index](input_tensor=current_tensor)
 
-            # Add the residual shortcut after the activation and the recalibration, closing a pair of layers
-            if self.residual and layer_index % 2 == (1 - self.residual_parity) and layer_index != 0:
+            # Close the pair of layers: add the shortcut to the branch before the activation, as in the original
+            # residual networks, then apply the activation of the layer to the sum
+            if closes_pair:
                 current_tensor = current_tensor + shortcut_tensor
+                if self.layer_activation_indices[layer_index] is not None:
+                    current_tensor = self.block[self.layer_activation_indices[layer_index]](current_tensor)
 
             # Apply the dropout of this layer, if any
             if self.layer_dropout_indices[layer_index] is not None:

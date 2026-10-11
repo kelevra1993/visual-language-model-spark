@@ -105,10 +105,11 @@ def test_plain_convolution_block_state_dictionary_keys() -> None:
 def test_residual_shortcut_placement(squeeze_and_excite: bool) -> None:
     """
     Verifies the residual shortcut pairing: with equal input and output channels the block
-    input is added to the output of the second layer. Zeroing every convolution makes both layers output zero,
-    so the block output must be exactly the block input. With Squeeze-and-Excitation, whose zeroed gates are 0.5,
-    the recalibration comes before the addition and rescales the zero branch only, so the shortcut must reach the
-    output unchanged instead of being halved.
+    input is added to the output of the second layer, before its activation. Zeroing every convolution makes both
+    branch layers output zero, so the block output must be the ReLU of the block input: the input itself where it is
+    positive, which an addition after the activation would leave negative. With Squeeze-and-Excitation, whose zeroed
+    gates are 0.5, the recalibration comes before the addition and rescales the zero branch only, so the shortcut
+    must not be halved.
 
     Args:
         squeeze_and_excite (bool): Whether the layers recalibrate their channels with Squeeze-and-Excitation.
@@ -119,13 +120,13 @@ def test_residual_shortcut_placement(squeeze_and_excite: bool) -> None:
                                          device=DEVICE, dtype=DTYPE, squeeze_and_excite=squeeze_and_excite,
                                          residual=True, inception=False)
 
-    # Zero every parameter so that each convolution layer outputs ReLU(0) = 0
+    # Zero every parameter so that each convolution outputs 0, the second layer then giving ReLU(0 + input)
     with torch.no_grad():
         for parameter in convolution_block.parameters():
             parameter.zero_()
 
     input_tensor = torch.randn(size=(2, 8, 6, 6))
-    assert torch.equal(input=convolution_block(input_tensor=input_tensor), other=input_tensor)
+    assert torch.equal(input=convolution_block(input_tensor=input_tensor), other=torch.relu(input=input_tensor))
 
     # Residual shortcuts require the spatial size to be preserved
     with pytest.raises(expected_exception=ValueError):
