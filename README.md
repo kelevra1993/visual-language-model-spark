@@ -32,6 +32,7 @@
   - [Frame Selection (SEL)](#frame-selection-sel)
 - [Transfer Between Runs](#transfer-between-runs)
 - [Evaluating Checkpoints](#evaluating-checkpoints)
+- [Comparing Launches](#comparing-launches)
 - [Deployment](#deployment)
   - [Export](#export)
   - [Triton Server](#triton-server)
@@ -643,6 +644,18 @@ uv run python -m scripts.evaluation.evaluate_checkpoint
 
 The evaluation writes `Results.txt`, `Tensorboard/Test` and the `Evaluation/` folder in `<output_folder>/<run name>/`, as during the training. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares the metrics of every checkpoint.
 
+## Comparing Launches
+`scripts/evaluation/collect_experiment_results.py` gathers the test evaluations of the launches of a hyperparameter experiment into one CSV file. Every launch trains in its own `run_<n>` folder (the `experiment_folder` of its configuration file), and the script reads the test curve of its run folder (`Tensorboard/Test`) and the swept settings of its `training_configuration.yaml`. Set in its main block:
+- `experiment_folder`: the folder holding the `run_<n>` folders, `<repository>/hyperparameter_experiments` by default.
+- `metric`: the compared test curve, `"Accuracy"`, `"Balanced Accuracy"`, `"Macro F1"` or `"Top-5 Accuracy"` for CLS.
+- `output_path`: the CSV file, `<experiment_folder>/results.csv` by default.
+
+```bash
+uv run python -m scripts.evaluation.collect_experiment_results
+```
+
+The file has one row per launch, in launch order: the launch, the swept settings (`SWEPT_SETTINGS`: learning rate, augmentation, global pooling, residual connections, squeeze and excitation, feature map normalization, data type, mixed precision, class weighting and dropout rate), the metric at every evaluated iteration, the mean of these values, `finished` (evaluated at its last iteration) and the run folder. The launches of the same settings are grouped and followed by a `mean` row averaging them. A launch still training has empty cells for the iterations not evaluated yet, so the file can be written again at any time.
+
 ## Deployment
 
 ### Export
@@ -945,7 +958,7 @@ The tests are in `tests/`, in folders mirroring `vision_training/`. They include
 uv run pytest tests
 ```
 
-The checkpoint evaluation and configuration migration scripts are in `scripts/`, also in folders mirroring `vision_training/`.
+The checkpoint evaluation, launch comparison and configuration migration scripts are in `scripts/`, also in folders mirroring `vision_training/`.
 
 ## Repository Structure
 
@@ -974,7 +987,7 @@ The checkpoint evaluation and configuration migration scripts are in `scripts/`,
 │   ├── tracking/                      # MLflow tracking
 │   ├── deployment/                    # Export, Triton configuration and server, frame selection decoder, throughput measurement
 │   └── utilities/                     # File, tensor, mask morphology and visualization helpers
-├── scripts/                           # Checkpoint evaluation and configuration migration scripts
+├── scripts/                           # Checkpoint evaluation, launch comparison and configuration migration scripts
 └── tests/                             # Tests, mirroring vision_training/
 ```
 
