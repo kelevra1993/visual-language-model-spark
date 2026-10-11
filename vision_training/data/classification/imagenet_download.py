@@ -23,7 +23,7 @@ from huggingface_hub.errors import GatedRepoError
 from tqdm import tqdm
 
 from vision_training.data.classification.class_folder_manifests import create_class_folder_manifests
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Gated Hugging Face dataset holding ImageNet-1k (ILSVRC 2012 classification) as parquet shards of JPEG images and
 # class indices. Its terms must be accepted on the dataset page, and this machine logged in with 'uv run hf auth login'
@@ -79,7 +79,7 @@ def download_imagenet_shards(download_folder: Path, number_workers: int) -> Tupl
                               f"then log in on this machine with 'uv run hf auth login'.") from error
 
     # Download the shards of the labelled splits and the classes file, the complete files being skipped
-    print_color(color="blue", output=f"Downloading {IMAGENET_REPOSITORY} : file://{download_folder.absolute()}")
+    print_color(color="blue", output=f"Downloading {IMAGENET_REPOSITORY} : {format_path_link(path=download_folder)}")
     snapshot_download(repo_id=IMAGENET_REPOSITORY, repo_type="dataset", local_dir=download_folder,
                       allow_patterns=[*IMAGENET_SHARD_PATTERNS.values(), IMAGENET_CLASSES_FILE],
                       max_workers=number_workers)
@@ -113,13 +113,14 @@ def read_imagenet_class_names(classes_file: Path) -> Dict[str, str]:
                         if isinstance(node, ast.Dict)]
     if len(dictionary_nodes) != 1:
         raise ValueError(f"Expected one dictionary of classes, found {len(dictionary_nodes)} in : "
-                         f"file://{classes_file.absolute()}")
+                         f"{format_path_link(path=classes_file)}")
     class_names = ast.literal_eval(node_or_string=dictionary_nodes[0])
 
     # The alphabetical numbering of the class folders by the manifests must keep the class indices of the labels
     class_identifiers = list(class_names)
     if class_identifiers != sorted(class_identifiers):
-        raise ValueError(f"The WordNet identifiers are not in alphabetical order in : file://{classes_file.absolute()}")
+        raise ValueError(f"The WordNet identifiers are not in alphabetical order in : "
+                         f"{format_path_link(path=classes_file)}")
     return class_names
 
 
@@ -151,7 +152,7 @@ def extract_shard(shard_path: Path, split_folder: Path, class_identifiers: List[
     for batch in parquet_file.iter_batches(batch_size=EXTRACTION_BATCH_SIZE, columns=["image", "label"]):
         for image, label in zip(batch.column("image").to_pylist(), batch.column("label").to_pylist()):
             if not 0 <= label < len(class_identifiers):
-                raise ValueError(f"Label {label} is not a class index in : file://{shard_path.absolute()}")
+                raise ValueError(f"Label {label} is not a class index in : {format_path_link(path=shard_path)}")
             class_identifier = class_identifiers[label]
 
             # Original file name of the image, or a name built from the shard and the row when the shard has none
@@ -160,7 +161,7 @@ def extract_shard(shard_path: Path, split_folder: Path, class_identifiers: List[
             # The training file names start with the WordNet identifier of their class, which checks the class order
             file_identifier = file_name.split("_")[0]
             if WORDNET_IDENTIFIER_PATTERN.fullmatch(file_identifier) and file_identifier != class_identifier:
-                raise ValueError(f"{file_name} is labelled {class_identifier} in : file://{shard_path.absolute()}")
+                raise ValueError(f"{file_name} is labelled {class_identifier} in : {format_path_link(path=shard_path)}")
 
             (split_folder / class_identifier / file_name).write_bytes(data=image["bytes"])
             number_images += 1
@@ -196,7 +197,8 @@ def extract_imagenet_shards(shard_paths: Dict[str, List[Path]], images_folder: P
             marker_path = markers_folder / f"{shard_path.stem}.extracted"
             if not marker_path.exists():
                 pending_shards.append((shard_path, images_folder / SPLIT_DESTINATIONS[split_name], marker_path))
-    print_color(color="blue", output=f"Extracting {len(pending_shards)} shards : file://{images_folder.absolute()}")
+    print_color(color="blue", output=f"Extracting {len(pending_shards)} shards : "
+                                     f"{format_path_link(path=images_folder)}")
 
     # One task per shard, the progress bar counting the extracted shards. The workers are started fresh (spawn)
     # instead of forked, since the download leaves threads running in this process and forking a multi-threaded
@@ -283,7 +285,7 @@ def check_split_sizes(images_folder: Path, expected_split_sizes: Dict[str, int])
         split_size = sum(len(os.listdir(path=class_folder)) for class_folder in class_folders)
         if split_size != expected_split_size:
             raise RuntimeError(f"The {split_name} split holds {split_size} images instead of {expected_split_size} : "
-                               f"file://{split_folder.absolute()}")
+                               f"{format_path_link(path=split_folder)}")
         print_color(color="green", output=f"{split_name} split : {split_size} images in {len(class_folders)} classes",
                     indent=1)
 
@@ -322,7 +324,8 @@ def download_imagenet(dataset_folder: str, validation_images_per_class: int, num
     # Names of every class in class index order, saved next to the manifests, which only give the WordNet identifiers
     class_names = read_imagenet_class_names(classes_file=classes_file)
     if len(class_names) != NUMBER_CLASSES:
-        raise ValueError(f"Expected {NUMBER_CLASSES} classes, found {len(class_names)} in : file://{classes_file}")
+        raise ValueError(f"Expected {NUMBER_CLASSES} classes, found {len(class_names)} in : "
+                         f"{format_path_link(path=classes_file)}")
     class_names_path = dataset_path / "class_names.json"
     class_names_path.write_text(data=json.dumps(obj=class_names, indent=4))
 
@@ -346,7 +349,7 @@ def download_imagenet(dataset_folder: str, validation_images_per_class: int, num
     create_class_folder_manifests(split_folders={split_name: str(images_folder / split_name)
                                                  for split_name in ["train", "validation", "test"]},
                                   output_folder=str(dataset_path / "manifests"))
-    print_color(color="green", output=f"Class Names : file://{class_names_path}")
+    print_color(color="green", output=f"Class Names : {format_path_link(path=class_names_path)}")
 
 
 if __name__ == "__main__":

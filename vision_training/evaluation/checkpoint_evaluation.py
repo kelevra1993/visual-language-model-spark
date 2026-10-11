@@ -16,7 +16,7 @@ from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED
                                                          create_experiment_tracker, read_run_record)
 from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.trainers.checkpointing import get_checkpoint_file
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 
 def start_evaluation_tracking(trainer: BaseTrainer, experiment_folder: Path,
@@ -109,13 +109,13 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
         checkpoint_path = get_checkpoint_file(weights_directory=experiment_folder / "Weights", iteration=iteration)
         if not checkpoint_path.exists():
             print_color(color="yellow", output=f"Checkpoint Of Iteration {iteration} Not Found, Skipped : "
-                                               f"file://{checkpoint_path.absolute()}")
+                                               f"{format_path_link(path=checkpoint_path)}")
             continue
 
         # Weights of the checkpoint in the model of the trainer, then the evaluation of the test split
         checkpoint = torch.load(f=checkpoint_path, map_location=trainer.device, weights_only=True)
         trainer.model.load_state_dict(state_dict=checkpoint["model_state"])
-        print_color(color="blue", output=f"Evaluating : file://{checkpoint_path.absolute()}", add_separators=True)
+        print_color(color="blue", output=f"Evaluating : {format_path_link(path=checkpoint_path)}", add_separators=True)
         results = trainer.run_test_evaluation(iteration=iteration)
         summary_rows.append({"iteration": iteration, **results["scalars"],
                              **(results["class_scalars"] if trainer.per_class_report else {})})
@@ -137,7 +137,7 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
         writer.writerows(summary_rows)
 
     print_color(color="green", output=f"Evaluation Summary Of {len(summary_rows)} Checkpoints : "
-                                      f"file://{summary_path.absolute()}", add_separators=True)
+                                      f"{format_path_link(path=summary_path)}", add_separators=True)
     if best_iteration is not None:
         print_color(color="green", output=f"Best Checkpoint : iteration {best_iteration} ({headline_metric} "
                                           f"{best_value:.4f})", indent=1)

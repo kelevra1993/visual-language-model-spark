@@ -22,6 +22,7 @@ from vision_training.configuration.configuration_changes import MISSING_SETTING
 from vision_training.core.contracts import EvaluationResults
 from vision_training.trainers.checkpointing import CHECKPOINT_FORMAT_VERSION
 from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY
+from vision_training.utilities.os_utilities import format_path_link
 
 
 class EvaluationRecorder:
@@ -245,7 +246,7 @@ def test_resumed_run_reports_and_keeps_its_changed_configuration(tmp_path: Path,
     assert archived_configuration_path.read_text() == first_configuration_text
     assert resumed_trainer.configuration_path.read_text() == second_configuration_text
     console_lines = capsys.readouterr().out.splitlines()
-    for expected_line in [f"- Previous Configuration  : file://{archived_configuration_path.absolute()}",
+    for expected_line in [f"- Previous Configuration  : {format_path_link(path=archived_configuration_path)}",
                           "- Changed Settings        : Since Iteration 2",
                           "    - learning_rate   : 0.001 -> 0.0005", "    - added_setting   : <absent> -> null",
                           "    - removed_setting : 1 -> <absent>"]:

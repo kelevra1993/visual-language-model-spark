@@ -17,7 +17,7 @@ from typing import Any, Dict, List
 
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.preprocessing import preprocess_image
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 
 class ClassificationDataset(Dataset):
@@ -63,7 +63,7 @@ class ClassificationDataset(Dataset):
                                      "class_indices": class_indices})
         if len(self.samples) < len(manifest["samples"]):
             print_color(color="yellow", output=f"{len(manifest['samples']) - len(self.samples)} samples of unmapped "
-                                               f"categories left out : file://{os.path.abspath(labels_file)}")
+                                               f"categories left out : {format_path_link(path=labels_file)}")
         if shuffle:
             random.shuffle(self.samples)
 

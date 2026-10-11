@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.data.detection.coco_masks import encode_run_length_encoding
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Shape classes of the synthetic dataset and their COCO category identifiers
 SHAPE_CATEGORIES = {"square": 1, "circle": 2, "triangle": 3, "rectangle": 4, "pentagon": 5, "hexagon": 6,
@@ -1208,7 +1208,7 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
                                       image_size=image_size, maximum_objects=maximum_objects,
                                       minimum_frames=minimum_frames, maximum_frames=maximum_frames,
                                       number_workers=number_workers, task=task)
-        print_color(color="green", output=f"{split_name} split : file://{split_folder}", indent=1)
+        print_color(color="green", output=f"{split_name} split : {format_path_link(path=split_folder)}", indent=1)
         print_color(color="green", output=f"Labels per class : {class_counts}", indent=1)
 
     # Map every raw category identifier to its class index: itself for the detector and the segmenters (index 0 being
@@ -1218,7 +1218,8 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
     with open(label_mapping_path, "w") as label_mapping_file:
         json.dump({str(category_identifier): category_identifier - class_index_offset
                    for category_identifier in TASK_CATEGORIES[task].values()}, label_mapping_file, indent=4)
-    print_color(color="green", output=f"Label Mapping File : file://{label_mapping_path}", add_separators=True)
+    print_color(color="green", output=f"Label Mapping File : {format_path_link(path=label_mapping_path)}",
+                add_separators=True)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 from vision_training.deployment.triton_configuration import format_dimensions, get_served_output_names
 from vision_training.models.sequence import frame_selection_decoding
 from vision_training.models.sequence.frame_selection_decoding import get_wanted_class_indices
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Suffixes of the Triton names of the decoder model, after the model name of the task, and of the ensembles, after the
 # name of the exported model of every format
@@ -74,10 +74,10 @@ def build_decoding_settings(experiment_configuration: Dict[str, Any], model_conf
         if thresholds["decoding"] != selection_configuration["decoding"]:
             print_color(color="yellow", output=f"The thresholds were found for the {thresholds['decoding']} decoding, "
                                                f"the run now uses the {selection_configuration['decoding']} decoding : "
-                                               f"file://{thresholds_path}")
+                                               f"{format_path_link(path=thresholds_path)}")
     else:
         print_color(color="yellow", output=f"The checkpoint was not evaluated, no chosen frame is flagged as low "
-                                           f"confidence : file://{thresholds_path}")
+                                           f"confidence : {format_path_link(path=thresholds_path)}")
         class_names = [str(class_index) for class_index in wanted_class_indices]
         class_thresholds = [0.0] * len(wanted_class_indices)
 
@@ -246,7 +246,7 @@ def export_frame_selection_decoding(repository: Path, model_version: int, format
                                                       number_classes=number_classes,
                                                       maximum_batch_size=maximum_batch_size)
     print_color(color="green", output=f"Frame Selection Decoder ({decoding_settings['decoding']}) : "
-                                      f"file://{decoder_directory.absolute()}", indent=1)
+                                      f"{format_path_link(path=decoder_directory)}", indent=1)
 
     # One ensemble per export format, chaining the exported frame selector of the format with the decoder
     for export_format in formats:
@@ -256,4 +256,4 @@ def export_frame_selection_decoding(repository: Path, model_version: int, format
             decoder_name=decoder_name, model_version=model_version, export_format=export_format,
             specification=specification, decoding_settings=decoding_settings, maximum_batch_size=maximum_batch_size)
         print_color(color="green", output=f"{export_format} Selection Ensemble : "
-                                          f"file://{ensemble_directory.absolute()}", indent=1)
+                                          f"{format_path_link(path=ensemble_directory)}", indent=1)

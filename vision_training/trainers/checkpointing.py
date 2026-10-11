@@ -13,6 +13,8 @@ from pathlib import Path
 from torch import nn
 from typing import Any, Dict, List, Optional
 
+from vision_training.utilities.os_utilities import format_path_link
+
 # Version of the checkpoint dictionaries: version 2 adds the task and the run name to the weights and optimizer state
 CHECKPOINT_FORMAT_VERSION = 2
 
@@ -187,10 +189,10 @@ def get_checkpoint_path(experiment_folder: Path, iteration: Optional[int]) -> Pa
     if iteration is None:
         registry_path = weights_directory / CHECKPOINT_REGISTRY_NAME
         if not registry_path.exists():
-            raise FileNotFoundError(f"No checkpoint registry found : file://{registry_path.absolute()}")
+            raise FileNotFoundError(f"No checkpoint registry found : {format_path_link(path=registry_path)}")
         iteration = get_last_checkpoint_iteration(weights_directory=weights_directory)
 
     checkpoint_path = get_checkpoint_file(weights_directory=weights_directory, iteration=iteration)
     if not checkpoint_path.exists():
-        raise FileNotFoundError(f"No checkpoint found : file://{checkpoint_path.absolute()}")
+        raise FileNotFoundError(f"No checkpoint found : {format_path_link(path=checkpoint_path)}")
     return checkpoint_path

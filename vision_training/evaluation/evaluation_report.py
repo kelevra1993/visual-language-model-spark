@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 from vision_training.core.contracts import EvaluationResults
 from vision_training.evaluation.report_formatting import (TIMESTAMP_FORMAT, build_report_renderables, format_file_value,
                                                           print_report, render_report_text)
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 
 def write_class_metrics_file(class_rows: List[Dict[str, Any]], evaluation_folder: Path) -> Path:
@@ -83,6 +83,6 @@ def report_evaluation_results(results: EvaluationResults, iteration: int, test_w
     print_report(renderables=renderables)
 
     # Links to the results file and to the files saved by the task
-    print_color(color="green", output=f"Results : file://{results_path.absolute()}", indent=1)
+    print_color(color="green", output=f"Results : {format_path_link(path=results_path)}", indent=1)
     for file_name, file_path in results["files"].items():
-        print_color(color="green", output=f"{file_name} : file://{file_path.absolute()}", indent=1)
+        print_color(color="green", output=f"{file_name} : {format_path_link(path=file_path)}", indent=1)

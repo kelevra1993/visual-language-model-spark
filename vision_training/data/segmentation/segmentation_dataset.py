@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Tuple
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.preprocessing import preprocess_image
+from vision_training.utilities.os_utilities import format_path_link
 
 # Value of the pixels without class in the mask files (unlabelled pixels), also given to the padding of the resized
 # masks; every other value of a mask is the category identifier of its pixel, 0 being the background
@@ -147,7 +148,7 @@ class SegmentationDataset(Dataset):
         mask_path = os.path.join(self.masks_directory, sample["mask_file_name"])
         mask = cv2.imread(filename=mask_path, flags=cv2.IMREAD_UNCHANGED)
         if mask is None or mask.ndim != 2 or mask.dtype != np.uint8:
-            raise ValueError(f"The mask must be a single-channel uint8 image : file://{os.path.abspath(mask_path)}")
+            raise ValueError(f"The mask must be a single-channel uint8 image : {format_path_link(path=mask_path)}")
         return mask
 
     def read_class_mask(self, sample_identifier: int) -> np.ndarray:

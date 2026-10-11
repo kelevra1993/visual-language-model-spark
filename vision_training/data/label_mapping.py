@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Tasks whose model predicts a background class at index 0 (the object detector, the instance segmenter, the semantic
 # segmenter); the models of the other tasks only predict the dataset classes, indexed from 0
@@ -111,5 +111,6 @@ def write_label_mapping(categories: List[Dict[str, Any]], output_folder: str | P
     label_mapping_path = Path(output_folder).absolute() / "label_mapping.json"
     label_mapping_path.write_text(data=json.dumps(obj={str(category["id"]): category["id"] - 1
                                                        for category in categories}, indent=4))
-    print_color(color="green", output=f"Label Mapping File : file://{label_mapping_path}", add_separators=True)
+    print_color(color="green", output=f"Label Mapping File : {format_path_link(path=label_mapping_path)}",
+                add_separators=True)
     return label_mapping_path

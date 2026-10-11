@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 
 from vision_training.configuration.configuration_loader import load_configuration
 from vision_training.trainers.checkpointing import get_checkpoint_path
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Configuration sections whose component can be initialised by the trained component of another run, with the
 # attribute holding the component in every task model, which is also the prefix of its weights in the state
@@ -406,14 +406,14 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     # Only the configuration of the source run is read, not checked, so that a run of any task and any age can serve
     source_configuration = load_configuration(configuration_path=source_folder / "training_configuration.yaml")
     if section_name not in source_configuration:
-        raise ValueError(f"The Source Run file://{source_folder.absolute()} Has No '{section_name}' Section: Its Task "
-                         f"Has No {component_name.title()} To Initialise This Run.")
+        raise ValueError(f"The Source Run {format_path_link(path=source_folder)} Has No '{section_name}' Section: "
+                         f"Its Task Has No {component_name.title()} To Initialise This Run.")
     differences = compare_component_configurations(section_name=section_name,
                                                    source_configuration=source_configuration,
                                                    target_configuration=model_configuration)
     if differences:
-        raise ValueError(f"The {component_name.title()} Of The Source Run file://{source_folder.absolute()} Cannot "
-                         f"Initialise This Run, Their Architectures Differ: " + " ".join(differences))
+        raise ValueError(f"The {component_name.title()} Of The Source Run {format_path_link(path=source_folder)} "
+                         f"Cannot Initialise This Run, Their Architectures Differ: " + " ".join(differences))
 
     # Settings that change what the component learned without changing its weights, reported only
     if section_name == "Backbone":
@@ -449,12 +449,13 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
                        for tensor_name, tensor_value in model_state.items() if tensor_name.startswith(state_prefix)}
     state_differences = compare_state_dictionaries(source_state=component_state, target_state=component.state_dict())
     if state_differences:
-        raise ValueError(f"The {component_name.title()} Tensors Of The Checkpoint file://{checkpoint_path.absolute()} "
-                         f"Do Not Fit This Run: " + " ".join(state_differences))
+        raise ValueError(f"The {component_name.title()} Tensors Of The Checkpoint "
+                         f"{format_path_link(path=checkpoint_path)} Do Not Fit This Run: " +
+                         " ".join(state_differences))
     component.load_state_dict(state_dict=component_state, strict=True)
 
     print_color(color="green", add_separators=True,
-                output=f"{component_name.title()} Initialised From : file://{checkpoint_path.absolute()}")
+                output=f"{component_name.title()} Initialised From : {format_path_link(path=checkpoint_path)}")
     return checkpoint_path
 
 

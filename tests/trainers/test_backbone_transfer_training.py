@@ -17,6 +17,7 @@ from vision_training.configuration.configuration_loader import load_experiment_c
 from vision_training.core.task_registry import get_trainer_class
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.base_trainer import BaseTrainer
+from vision_training.utilities.os_utilities import format_path_link
 
 # Synthetic configuration of every task of the transfer tests
 CONFIGURATIONS_FOLDER = Path(__file__).parents[2] / "vision_training" / "configurations"
@@ -281,15 +282,16 @@ def test_sequence_components_initialise_a_partly_frozen_run(tmp_path: Path, caps
 
     # Launch information of every transferred component: source run and iteration, freezes and learning rate
     console_lines = console_output.splitlines()
-    for expected_line in [f"- Pretrained Backbone     : file://{source_folder}", "    - Norm. Layers Frozen : False",
+    source_link = format_path_link(path=source_folder)
+    for expected_line in [f"- Pretrained Backbone     : {source_link}", "    - Norm. Layers Frozen : False",
                           "    - Learning Rate       : 0.0005 (multiplier 0.5 x 0.001)",
-                          f"- Pretrained Class. Head  : file://{source_folder}",
+                          f"- Pretrained Class. Head  : {source_link}",
                           "    - Learning Rate       : 0.0001 (multiplier 0.1 x 0.001)"]:
         assert any(expected_line in console_line for console_line in console_lines), expected_line
 
     # The frozen temporal module does not learn, so its block has no learning rate line
     temporal_block_index = next(index for index, console_line in enumerate(console_lines)
-                                if f"- Pretrained Temp. Module : file://{source_folder}" in console_line)
+                                if f"- Pretrained Temp. Module : {source_link}" in console_line)
     assert "    - Source Iteration    : last saved checkpoint" in console_lines[temporal_block_index + 1]
     assert "    - Frozen              : True" in console_lines[temporal_block_index + 2]
     assert "- Pretrained Class. Head" in console_lines[temporal_block_index + 3]

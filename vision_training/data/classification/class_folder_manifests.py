@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict
 
 from vision_training.data.label_mapping import write_label_mapping
-from vision_training.utilities.os_utilities import get_image_paths, link_folder, print_color
+from vision_training.utilities.os_utilities import format_path_link, get_image_paths, link_folder, print_color
 
 
 def create_class_folder_manifests(split_folders: Dict[str, str], output_folder: str) -> None:
@@ -55,7 +55,8 @@ def create_class_folder_manifests(split_folders: Dict[str, str], output_folder: 
 
         labels_path = output_split_folder / "labels.json"
         labels_path.write_text(data=json.dumps(obj={"categories": categories, "samples": samples}))
-        print_color(color="green", output=f"{split_name} split : {len(samples)} images : file://{labels_path}")
+        print_color(color="green", output=f"{split_name} split : {len(samples)} images : "
+                                          f"{format_path_link(path=labels_path)}")
 
     # Class index of every category, from 0 since the classifiers predict no background class
     write_label_mapping(categories=categories, output_folder=output_folder)

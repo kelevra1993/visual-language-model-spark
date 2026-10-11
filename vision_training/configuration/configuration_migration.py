@@ -13,7 +13,7 @@ from pathlib import Path
 
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.configuration.run_name import build_run_name
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Section header under which the task key is inserted, and the comment written above it
 EXPERIMENT_SECTION_HEADER = "ExperimentConfiguration:\n"
@@ -231,7 +231,7 @@ def add_task_to_configuration(configuration_path: Path, task: str) -> bool:
         return False
     if EXPERIMENT_SECTION_HEADER not in text:
         raise ValueError(f"No '{EXPERIMENT_SECTION_HEADER.strip()}' section header in "
-                         f"file://{configuration_path.absolute()}")
+                         f"{format_path_link(path=configuration_path)}")
 
     configuration_path.write_text(data=text.replace(
         EXPERIMENT_SECTION_HEADER, f'{EXPERIMENT_SECTION_HEADER}{TASK_KEY_COMMENT}  task: "{task}"\n', 1))
@@ -263,7 +263,7 @@ def add_pretrained_settings_to_configuration(configuration_path: Path, section_n
     section_header = f"{section_name}:\n"
     lines = text.splitlines(keepends=True)
     if section_header not in lines:
-        raise ValueError(f"No '{section_name}:' section header in file://{configuration_path.absolute()}")
+        raise ValueError(f"No '{section_name}:' section header in {format_path_link(path=configuration_path)}")
 
     # Insert the settings below the header line, the only line made of the header alone
     header_index = lines.index(section_header)
@@ -305,8 +305,8 @@ def add_freeze_normalization_parameters_to_configuration(configuration_path: Pat
             freeze_index = line_index
             break
     if "pretrained" not in backbone_configuration or freeze_index is None:
-        raise ValueError(f"No 'Backbone.pretrained.freeze' flag in file://{configuration_path.absolute()}, add the "
-                         f"pretrained settings first with add_pretrained_settings_to_configuration.")
+        raise ValueError(f"No 'Backbone.pretrained.freeze' flag in {format_path_link(path=configuration_path)}, "
+                         f"add the pretrained settings first with add_pretrained_settings_to_configuration.")
 
     configuration_path.write_text(data="".join(lines[:freeze_index + 1] + [FREEZE_NORMALIZATION_LINES] +
                                                lines[freeze_index + 1:]))
@@ -387,7 +387,8 @@ def add_per_class_report_to_configuration(configuration_path: Path) -> bool:
             evaluation_index = line_index
             break
     if evaluation_index is None:
-        raise ValueError(f"No '  evaluation:' line in the experiment section of file://{configuration_path.absolute()}")
+        raise ValueError(f"No '  evaluation:' line in the experiment section of "
+                         f"{format_path_link(path=configuration_path)}")
 
     configuration_path.write_text(data="".join(lines[:evaluation_index + 1] + [PER_CLASS_REPORT_LINES] +
                                                lines[evaluation_index + 1:]))
@@ -424,7 +425,7 @@ def add_sample_images_to_configuration(configuration_path: Path) -> bool:
                          if line.startswith(PER_CLASS_REPORT_LINE_START)), None)
     if report_index is None:
         raise ValueError(f"No 'per_class_report' line in the evaluation settings of "
-                         f"file://{configuration_path.absolute()}, add it first with "
+                         f"{format_path_link(path=configuration_path)}, add it first with "
                          f"add_per_class_report_to_configuration.")
 
     configuration_path.write_text(data="".join(lines[:report_index + 1] + [NUMBER_SAMPLE_IMAGES_LINES] +
@@ -464,7 +465,7 @@ def add_tracking_to_configuration(configuration_path: Path) -> bool:
             break
     if evaluation_index is None:
         raise ValueError(f"No '  evaluation:' line in the experiment section of "
-                         f"file://{configuration_path.absolute()}, add it first with "
+                         f"{format_path_link(path=configuration_path)}, add it first with "
                          f"add_per_class_report_to_configuration.")
 
     # Last line of the evaluation settings: the section ends at the first line indented as the experiment keys (a key or
@@ -509,7 +510,7 @@ def add_sequence_augmentation_to_configuration(configuration_path: Path) -> bool
     types_index = next((line_index for line_index in range(augmentation_index, len(lines))
                         if lines[line_index] == AUGMENTATION_TYPES_LINE), None)
     if types_index is None:
-        raise ValueError(f"No 'types:' line in the augmentation section of file://{configuration_path.absolute()}")
+        raise ValueError(f"No 'types:' line in the augmentation section of {format_path_link(path=configuration_path)}")
     configuration_path.write_text(data="".join(lines[:types_index] + [SEQUENCE_AUGMENTATION_LINES] +
                                                lines[types_index:]))
     return True
@@ -537,7 +538,7 @@ def add_sequence_normalization_scope_to_configuration(configuration_path: Path) 
         return False
     lines = text.splitlines(keepends=True)
     if FUSION_SECTION_HEADER not in lines:
-        raise ValueError(f"No 'Fusion:' section header in file://{configuration_path.absolute()}")
+        raise ValueError(f"No 'Fusion:' section header in {format_path_link(path=configuration_path)}")
 
     # Insert the setting below the header line
     header_index = lines.index(FUSION_SECTION_HEADER)
@@ -566,7 +567,7 @@ def add_loading_settings_to_configuration(configuration_path: Path) -> bool:
         return False
     lines = text.splitlines(keepends=True)
     if DATA_SECTION_HEADER not in lines:
-        raise ValueError(f"No 'Data:' section header in file://{configuration_path.absolute()}")
+        raise ValueError(f"No 'Data:' section header in {format_path_link(path=configuration_path)}")
 
     # Insert the settings below the header line
     header_index = lines.index(DATA_SECTION_HEADER)
@@ -603,7 +604,7 @@ def add_batch_padding_to_configuration(configuration_path: Path) -> bool:
                                   if line.startswith(SHORT_SEQUENCES_LINE_START)), None)
     if short_sequences_index is None:
         raise ValueError(f"No 'short_sequences:' line in the sequence settings of "
-                         f"file://{configuration_path.absolute()}")
+                         f"{format_path_link(path=configuration_path)}")
     configuration_path.write_text(data="".join(lines[:short_sequences_index + 1] + [BATCH_PADDING_LINES] +
                                                lines[short_sequences_index + 1:]))
     return True
@@ -631,7 +632,7 @@ def add_positional_embedding_to_configuration(configuration_path: Path) -> bool:
         return False
     lines = text.splitlines(keepends=True)
     if TEMPORAL_SECTION_HEADER not in lines:
-        raise ValueError(f"No 'TemporalModel:' section header in file://{configuration_path.absolute()}")
+        raise ValueError(f"No 'TemporalModel:' section header in {format_path_link(path=configuration_path)}")
 
     # Insert the setting below the header line
     header_index = lines.index(TEMPORAL_SECTION_HEADER)
@@ -673,7 +674,7 @@ def add_segmentation_settings_to_configuration(configuration_path: Path) -> bool
         lines = text.splitlines(keepends=True)
         if header_line not in lines:
             raise ValueError(f"No {header_line.strip()!r} header line for '{key_name}' in "
-                             f"file://{configuration_path.absolute()}")
+                             f"{format_path_link(path=configuration_path)}")
         header_index = lines.index(header_line)
         text = "".join(lines[:header_index + 1] + [inserted_lines] + lines[header_index + 1:])
         settings_added = True
@@ -722,14 +723,14 @@ def remove_dali_settings_from_configuration(configuration_path: Path) -> bool:
         return False
     lines = text.splitlines(keepends=True)
     if DALI_SECTION_LINE not in lines:
-        raise ValueError(f"No '  DALI:' line in file://{configuration_path.absolute()}")
+        raise ValueError(f"No '  DALI:' line in {format_path_link(path=configuration_path)}")
 
     # Remove the lines from the header to the activation flag, its last line
     start_index = lines.index(DALI_SECTION_LINE)
     end_index = next((index for index in range(start_index + 1, len(lines))
                       if lines[index].startswith(DALI_ACTIVATED_LINE_START)), None)
     if end_index is None:
-        raise ValueError(f"No 'activated' line in the DALI block of file://{configuration_path.absolute()}")
+        raise ValueError(f"No 'activated' line in the DALI block of {format_path_link(path=configuration_path)}")
     configuration_path.write_text(data="".join(lines[:start_index] + lines[end_index + 1:]))
     return True
 
@@ -767,46 +768,51 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     """
     configuration_path = run_folder / "training_configuration.yaml"
     if add_task_to_configuration(configuration_path=configuration_path, task=task):
-        print_color(color="green", output=f"Task {task!r} Added To : file://{configuration_path.absolute()}")
+        print_color(color="green", output=f"Task {task!r} Added To : {format_path_link(path=configuration_path)}")
     else:
-        print_color(color="blue", output=f"Task Already Set In : file://{configuration_path.absolute()}")
+        print_color(color="blue", output=f"Task Already Set In : {format_path_link(path=configuration_path)}")
     for section_name in PRETRAINED_SETTINGS_BLOCKS:
         if add_pretrained_settings_to_configuration(configuration_path=configuration_path, section_name=section_name):
             print_color(color="green", output=f"Pretrained {section_name} Settings Added To : "
-                                              f"file://{configuration_path.absolute()}")
+                                              f"{format_path_link(path=configuration_path)}")
     if add_freeze_normalization_parameters_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Backbone Normalization Freeze Flag Added To : "
-                                          f"file://{configuration_path.absolute()}")
+                                          f"{format_path_link(path=configuration_path)}")
     if add_evaluation_outputs_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Evaluation Outputs Settings Added To : "
-                                          f"file://{configuration_path.absolute()}")
+                                          f"{format_path_link(path=configuration_path)}")
     if add_per_class_report_to_configuration(configuration_path=configuration_path):
-        print_color(color="green", output=f"Per-Class Report Switch Added To : file://{configuration_path.absolute()}")
+        print_color(color="green", output=f"Per-Class Report Switch Added To : "
+                                          f"{format_path_link(path=configuration_path)}")
     if add_sample_images_to_configuration(configuration_path=configuration_path):
-        print_color(color="green", output=f"Number Of Sample Images Added To : file://{configuration_path.absolute()}")
+        print_color(color="green", output=f"Number Of Sample Images Added To : "
+                                          f"{format_path_link(path=configuration_path)}")
     if add_tracking_to_configuration(configuration_path=configuration_path):
-        print_color(color="green", output=f"MLflow Tracking Settings Added To : file://{configuration_path.absolute()}")
+        print_color(color="green", output=f"MLflow Tracking Settings Added To : "
+                                          f"{format_path_link(path=configuration_path)}")
     if add_sequence_augmentation_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Sequence Augmentation Settings Added To : "
-                                          f"file://{configuration_path.absolute()}")
+                                          f"{format_path_link(path=configuration_path)}")
     if add_sequence_normalization_scope_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Sequence Normalization Scope Added To : "
-                                          f"file://{configuration_path.absolute()}")
+                                          f"{format_path_link(path=configuration_path)}")
     if add_optimization_section_to_configuration(configuration_path=configuration_path):
-        print_color(color="green", output=f"Optimization Section Added To : file://{configuration_path.absolute()}")
+        print_color(color="green", output=f"Optimization Section Added To : "
+                                          f"{format_path_link(path=configuration_path)}")
     if add_loading_settings_to_configuration(configuration_path=configuration_path):
-        print_color(color="green", output=f"Loading Settings Added To : file://{configuration_path.absolute()}")
+        print_color(color="green", output=f"Loading Settings Added To : {format_path_link(path=configuration_path)}")
     if add_batch_padding_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Batch Padding Of The Sequence Windows Added To : "
-                                          f"file://{configuration_path.absolute()}")
+                                          f"{format_path_link(path=configuration_path)}")
     if add_positional_embedding_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Positional Embedding Flag Of The Transformer Added To : "
-                                          f"file://{configuration_path.absolute()}")
+                                          f"{format_path_link(path=configuration_path)}")
     if add_segmentation_settings_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Segmentation Losses, Deep Supervision, Tiles And Evaluation Settings "
-                                          f"Added To : file://{configuration_path.absolute()}")
+                                          f"Added To : {format_path_link(path=configuration_path)}")
     if remove_dali_settings_from_configuration(configuration_path=configuration_path):
-        print_color(color="green", output=f"DALI Loader Settings Removed From : file://{configuration_path.absolute()}")
+        print_color(color="green", output=f"DALI Loader Settings Removed From : "
+                                          f"{format_path_link(path=configuration_path)}")
 
     # The run name the current code gives to this configuration
     experiment_configuration, model_configuration = load_experiment_configuration(
@@ -815,16 +821,16 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
                                                         model_configuration=model_configuration)
     if new_run_folder == run_folder:
         print_color(color="blue",
-                    output=f"Run Folder Already Named After Its Settings : file://{run_folder.absolute()}")
+                    output=f"Run Folder Already Named After Its Settings : {format_path_link(path=run_folder)}")
         return run_folder
 
     if not rename_folder:
         print_color(color="yellow", output=f"Run Folder To Rename (rename_folder is False) : "
-                                           f"file://{run_folder.absolute()}\n  - New Name : {new_run_folder.name}")
+                                           f"{format_path_link(path=run_folder)}\n  - New Name : {new_run_folder.name}")
         return run_folder
     if new_run_folder.exists():
-        raise FileExistsError(f"A folder already has the new run name : file://{new_run_folder.absolute()}")
+        raise FileExistsError(f"A folder already has the new run name : {format_path_link(path=new_run_folder)}")
 
     run_folder.rename(new_run_folder)
-    print_color(color="green", output=f"Run Folder Renamed : file://{new_run_folder.absolute()}")
+    print_color(color="green", output=f"Run Folder Renamed : {format_path_link(path=new_run_folder)}")
     return new_run_folder

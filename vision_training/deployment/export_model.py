@@ -23,7 +23,7 @@ from vision_training.deployment.frame_selection_deployment import (build_decodin
 from vision_training.deployment.triton_configuration import write_triton_configuration
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.models.model_loading import load_trained_model
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Default Triton model repository, mounted by deployment/triton/docker-compose.yml
 DEFAULT_REPOSITORY = Path(__file__).absolute().parent / "triton" / "served_models"
@@ -169,7 +169,7 @@ def export_onnx(inference_model: nn.Module, example_inputs: Dict[str, torch.Tens
     fixed_dimensions = find_fixed_dynamic_dimensions(
         model_proto=onnx.load(f=str(output_path), load_external_data=False), specification=specification)
     if fixed_dimensions:
-        raise RuntimeError(f"The ONNX Export Wrote Fixed Dimensions : file://{output_path.absolute()}\n" +
+        raise RuntimeError(f"The ONNX Export Wrote Fixed Dimensions : {format_path_link(path=output_path)}\n" +
                            "\n".join(fixed_dimensions))
 
 
@@ -213,7 +213,7 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], formats
         inference_model = build_inference_model(task=experiment_configuration["task"], model=model)
         specification = get_export_specification(task=experiment_configuration["task"],
                                                  inference_model=inference_model)
-        print_color(color="blue", output=f"Exporting Checkpoint : file://{checkpoint_path.absolute()}",
+        print_color(color="blue", output=f"Exporting Checkpoint : {format_path_link(path=checkpoint_path)}",
                     add_separators=True)
 
         # Random example and check batches of different sizes, to confirm the batch dimension stays dynamic
@@ -255,7 +255,7 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], formats
                 raise RuntimeError(f"The {export_format} Export Does Not Match The Eager Model:\n" +
                                    "\n".join(mismatches))
             print_color(color="green", output=f"{export_format} Export Matches The Eager Model : ", indent=1)
-            print_color(color="green", output=f"file://{model_directory.absolute()}", indent=2)
+            print_color(color="green", output=f"{format_path_link(path=model_directory)}", indent=2)
 
         # Frame selector: the decoder of the selection and the ensembles the clients query
         if experiment_configuration["task"] == "frame_selection":

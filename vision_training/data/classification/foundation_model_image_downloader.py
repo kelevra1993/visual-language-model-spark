@@ -34,7 +34,7 @@ from tqdm import tqdm
 
 from vision_training.data.classification.imagenet_download import compute_file_name_hash
 from vision_training.data.label_mapping import write_label_mapping
-from vision_training.utilities.os_utilities import get_image_paths, link_folder, print_color
+from vision_training.utilities.os_utilities import format_path_link, get_image_paths, link_folder, print_color
 
 # Category dictionary of ML-Images: index, WordNet identifier, parent index and names of the 11,166 categories
 TENCENT_DICTIONARY_URL = ("https://raw.githubusercontent.com/Tencent/tencent-ml-images/master/data/"
@@ -117,7 +117,7 @@ def download_file(url: str, output_path: Path) -> None:
     """
     if output_path.exists():
         return
-    print_color(color="blue", output=f"Downloading {url} : file://{output_path}")
+    print_color(color="blue", output=f"Downloading {url} : {format_path_link(path=output_path)}")
     temporary_path = output_path.with_name(f"{output_path.name}.part")
     with urllib.request.urlopen(url=url) as response, open(file=temporary_path, mode="wb") as output_file:
         shutil.copyfileobj(fsrc=response, fdst=output_file)
@@ -151,7 +151,7 @@ def download_annotation_files(annotations_folder: Path) -> None:
         except Exception as error:
             raise RuntimeError(f"Google Drive refused {file_name} : download it from "
                                f"https://drive.google.com/file/d/{drive_identifier}/view in a browser, save it as "
-                               f"file://{output_path}, then run the script again.") from error
+                               f"{format_path_link(path=output_path)}, then run the script again.") from error
         temporary_path.rename(target=output_path)
 
     # Metadata of every Open Images subset, named after the subset
@@ -184,7 +184,8 @@ def read_category_dictionary(dictionary_path: Path) -> List[Dict[str, Any]]:
         category_index, wordnet_identifier, _, names = line.split(sep="\t", maxsplit=3)
         entries.append((int(category_index), wordnet_identifier, names.split(",")[0].strip()))
     if [entry[0] for entry in entries] != list(range(len(entries))):
-        raise ValueError(f"The category indices do not follow each other from 0 in : file://{dictionary_path}")
+        raise ValueError(f"The category indices do not follow each other from 0 in : "
+                         f"{format_path_link(path=dictionary_path)}")
 
     # Names shared by several categories, which get their WordNet identifier appended
     name_counts = {}
@@ -435,7 +436,7 @@ def run_tasks_with_free_space_check(task_function: Callable[..., int], task_argu
                 progress_bar.update(n=1)
 
     if low_free_space:
-        raise RuntimeError(f"Less than {minimum_free_gigabytes} GB free on file://{disk_folder} : "
+        raise RuntimeError(f"Less than {minimum_free_gigabytes} GB free on {format_path_link(path=disk_folder)} : "
                            f"{len(task_arguments) - next_task_index} tasks of '{description}' were not started. Free "
                            f"some space, then run the script again to resume.")
     return number_written_images
@@ -557,7 +558,8 @@ def download_imagenet_images(dataset_path: Path, shorter_side: int, jpeg_quality
                       for file_name in shard_file_names
                       if not (records_folder / f"{Path(file_name).stem}.json").exists()]
     print_color(color="blue", output=f"ImageNet : {number_wanted_keys} Tencent images, {len(task_arguments)} of "
-                                     f"{len(shard_file_names)} shards left : file://{dataset_path / 'images'}")
+                                     f"{len(shard_file_names)} shards left : "
+                                     f"{format_path_link(path=dataset_path / 'images')}")
 
     number_written_images = run_tasks_with_free_space_check(task_function=process_imagenet_shard,
                                                             task_arguments=task_arguments, disk_folder=dataset_path,
@@ -839,7 +841,8 @@ def process_open_images_archive(archive_key: str, wanted_rotations: Dict[str, in
             if number_stored_images % ARCHIVE_CHECK_INTERVAL == 0:
                 progress_file.flush()
                 if get_free_gigabytes(folder=disk_folder) < minimum_free_gigabytes:
-                    raise RuntimeError(f"Less than {minimum_free_gigabytes} GB free on file://{disk_folder} : "
+                    raise RuntimeError(f"Less than {minimum_free_gigabytes} GB free on "
+                                       f"{format_path_link(path=disk_folder)} : "
                                        f"{archive_key} stopped, its progress is kept. Free some space, then run the "
                                        f"script again to resume.")
 
@@ -924,7 +927,7 @@ def download_open_images(dataset_path: Path, local_open_images_folder: Optional[
                                       "disk_folder": dataset_path, "minimum_free_gigabytes": minimum_free_gigabytes})
     print_color(color="blue", output=f"Open Images : {len(image_entries)} matched images, {len(batch_arguments)} "
                                      f"batches and {len(archive_arguments)} archives left : "
-                                     f"file://{dataset_path / 'images'}")
+                                     f"{format_path_link(path=dataset_path / 'images')}")
 
     # Single files first (minutes), then the archives (hours)
     number_written_images = run_tasks_with_free_space_check(task_function=process_open_images_batch,
@@ -1116,7 +1119,7 @@ def collect_samples(dataset_path: Path) -> List[List[Any]]:
             report_path.write_text(data="\n".join(unavailable_images))
             if unavailable_images:
                 print_color(color="yellow", output=f"{len(unavailable_images)} images of {list_file_name} not stored : "
-                                                   f"file://{report_path}", indent=1)
+                                                   f"{format_path_link(path=report_path)}", indent=1)
     return samples
 
 
@@ -1241,7 +1244,7 @@ def build_manifests(dataset_path: Path, excluded_hashes: List[int], validation_s
                                    samples=split_samples)
         split_sizes[split_name] = len(split_samples)
         print_color(color="green", output=f"{split_name} split : {len(split_samples)} images : "
-                                          f"file://{split_folder / 'labels.json'}", indent=1)
+                                          f"{format_path_link(path=split_folder / 'labels.json')}", indent=1)
     write_label_mapping(categories=categories, output_folder=manifests_folder)
 
     # Counts of every step, for the record of the dataset
@@ -1251,7 +1254,7 @@ def build_manifests(dataset_path: Path, excluded_hashes: List[int], validation_s
                                                  "excluded_copies": number_excluded_copies,
                                                  "split_sizes": split_sizes, "categories": len(categories)}, indent=4))
     print_color(color="green", output=f"{number_duplicates} duplicates merged, {number_excluded_copies} copies of "
-                                      f"excluded images left out : file://{summary_path}")
+                                      f"excluded images left out : {format_path_link(path=summary_path)}")
 
 
 def download_foundation_model_images(dataset_folder: str, local_open_images_folder: Optional[str],
@@ -1299,7 +1302,8 @@ def download_foundation_model_images(dataset_folder: str, local_open_images_fold
                               f"https://huggingface.co/datasets/{IMAGENET_REPOSITORY} with your Hugging Face account, "
                               f"then log in on this machine with 'uv run hf auth login'.") from error
     if excluded_images_folder is not None and not Path(excluded_images_folder).is_dir():
-        raise FileNotFoundError(f"The folder of the excluded images does not exist : file://{excluded_images_folder}. "
+        raise FileNotFoundError(f"The folder of the excluded images does not exist : "
+                                f"{format_path_link(path=excluded_images_folder)}. "
                                 f"Download ImageNet-1k with vision_training/data/classification/imagenet_download.py, "
                                 f"or set it to None to leave no image out.")
 

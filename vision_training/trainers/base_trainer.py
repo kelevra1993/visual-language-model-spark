@@ -38,7 +38,7 @@ from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY, Metri
 from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED_STATUS, KILLED_STATUS,
                                                          RUN_RECORD_FILE_NAME, DisabledTracker,
                                                          create_experiment_tracker, resolve_tracking_uri)
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 from vision_training.utilities.tensor_utilities import get_device
 
 # Evaluation files of a checkpoint sent to the MLflow run, small whatever the size of the test split: the confusion
@@ -658,10 +658,12 @@ class BaseTrainer(ABC):
         """
         print_color(color="yellow", output="=== Experiment Launch Information ===", add_separators=True)
         print_color(color="blue", output=f"- Run Name                : {self.run_name}")
-        print_color(color="blue", output=f"- Experiment Folder       : file://{self.experiment_folder.absolute()}")
-        print_color(color="blue", output=f"- Tensorboard Directory   : file://{self.tensorboard_directory.absolute()}")
-        print_color(color="blue", output=f"- Weights Directory       : file://{self.weights_directory.absolute()}")
-        print_color(color="blue", output=f"- Configuration File      : file://{self.configuration_path.absolute()}")
+        print_color(color="blue", output=f"- Experiment Folder       : {format_path_link(path=self.experiment_folder)}")
+        print_color(color="blue", output=f"- Tensorboard Directory   : "
+                                         f"{format_path_link(path=self.tensorboard_directory)}")
+        print_color(color="blue", output=f"- Weights Directory       : {format_path_link(path=self.weights_directory)}")
+        print_color(color="blue", output=f"- Configuration File      : "
+                                         f"{format_path_link(path=self.configuration_path)}")
         if self.diagnosis_modes["view_input_images"]:
             print_color(color="yellow", output="- Run Folder Not Created  : The Input Viewer Exits Without Training")
 
@@ -677,7 +679,8 @@ class BaseTrainer(ABC):
             number_samples, description = self.describe_split(
                 split_data_folder=self.experiment_configuration[split_key])
             self.number_samples_per_split[split_key] = number_samples
-            print_color(color="blue", output=f"- {split_label:<23} : file://{self.experiment_configuration[split_key]} "
+            print_color(color="blue", output=f"- {split_label:<23} : "
+                                             f"{format_path_link(path=self.experiment_configuration[split_key])} "
                                              f"({description})")
 
         # One epoch is a full pass over the training samples
@@ -726,7 +729,7 @@ class BaseTrainer(ABC):
         # File keeping the previous configuration, then every changed setting aligned on the longest key
         archived_configuration_path = self.configuration_changes["archived_configuration_path"]
         print_color(color="yellow", output=f"- Previous Configuration  : "
-                                           f"file://{archived_configuration_path.absolute()}")
+                                           f"{format_path_link(path=archived_configuration_path)}")
         print_color(color="yellow", output=f"- Changed Settings        : Since Iteration {resumed_iteration}")
         key_width = max(len(setting_key) for setting_key, _, _ in changed_settings)
         for setting_key, previous_value, current_value in changed_settings:
@@ -756,7 +759,7 @@ class BaseTrainer(ABC):
             source_iteration = pretrained_configuration["iteration"]
             source_iteration_description = "last saved checkpoint" if source_iteration is None else source_iteration
             print_color(color="blue", output=f"- {pretrained_labels[section_name]:<23} : "
-                                             f"file://{Path(pretrained_configuration['experiment_folder']).absolute()}")
+                                             f"{format_path_link(path=pretrained_configuration['experiment_folder'])}")
             print_color(color="blue", output=f"    - Source Iteration    : {source_iteration_description}")
             print_color(color="blue", output=f"    - Frozen              : {pretrained_configuration['freeze']}")
 
@@ -1405,7 +1408,7 @@ class BaseTrainer(ABC):
                                           model=self.model, optimizer=self.optimizer, metadata=metadata)
 
         print("Checkpoint Folder :")
-        print(f" - file://{model_directory}")
+        print(f" - {format_path_link(path=model_directory)}")
         print(f" - Model Saved In : model_{iteration:06}.pt")
 
     def restore_last_model(self, index_iteration: Optional[int] = None) -> int:

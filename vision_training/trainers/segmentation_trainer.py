@@ -35,7 +35,7 @@ from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.segmentation.sliding_window import segment_image_by_tiles
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 from vision_training.utilities.visualization import (build_class_colours, build_segmentation_sample_grid,
                                                      overlay_segmentation_mask, view_input_data)
 
@@ -130,7 +130,7 @@ class SegmentationTrainer(BaseTrainer):
         if counts_path.is_file():
             saved_counts = json.loads(s=counts_path.read_text())
             if saved_counts["settings"] == count_settings:
-                print_color(color="blue", output=f"Class Pixel Counts Read From : file://{counts_path.absolute()}")
+                print_color(color="blue", output=f"Class Pixel Counts Read From : {format_path_link(path=counts_path)}")
                 return saved_counts["class_pixel_counts"]
 
         # Count every training mask, then keep the counts in the run folder when it exists (not in the input viewer)

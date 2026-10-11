@@ -14,7 +14,7 @@ from typing import Any, Dict, Tuple
 from vision_training.configuration.configuration_checker import check_configuration
 from vision_training.configuration.configuration_values import ConfigurationError
 from vision_training.data.label_mapping import build_label_dictionary
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 
 def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
@@ -134,7 +134,7 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
         check_configuration(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
     except ConfigurationError as configuration_error:
         print_color(color="red",
-                    output=f"Invalid Configuration File : file://{Path(configuration_path).absolute()}",
+                    output=f"Invalid Configuration File : {format_path_link(path=configuration_path)}",
                     add_separators=True)
         for error in configuration_error.errors:
             print_color(color="red", output=error, indent=1)

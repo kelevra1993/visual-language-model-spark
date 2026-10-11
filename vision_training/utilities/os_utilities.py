@@ -4,6 +4,7 @@ dictionary printing, random colours, image path listing and folder linking.
 """
 
 import json
+import re
 from json import JSONDecodeError
 
 import torch
@@ -67,6 +68,37 @@ def color_text(color: str, text: str) -> str:
     return COLOR_CODES[color] + "\033[1m" + text + "\033[0m"
 
 
+# OSC 8 escape sequences of a terminal hyperlink: the opener is followed by the link target, both ended by the string
+# terminator, and an opener with an empty target closes the link
+HYPERLINK_OPENER = "\033]8;;"
+HYPERLINK_TERMINATOR = "\033\\"
+
+# Pattern of the opening and closing sequences of the hyperlinks, which take no width in the console
+HYPERLINK_PATTERN = re.compile(pattern=r"\033\]8;;[^\033]*\033\\")
+
+
+def format_path_link(path: Path | str, label: Optional[str] = None) -> str:
+    """
+    Turns a file or folder path into an OSC 8 terminal hyperlink, so that the console output of the pipeline (the
+    experiment information printed at launch, the saved files, the errors) shows a short clickable label instead of
+    the whole file:// path. Terminals without hyperlink support show the label alone.
+
+    Args:
+        path (Path | str): The file or folder opened by the link, made absolute since a file URI needs an absolute
+            path.
+        label (Optional[str]): The text shown in the console. Defaults to the name of the file or folder.
+
+    Returns:
+        str: The label between the sequence opening the hyperlink to the file URI of the path and the one closing it.
+    """
+    absolute_path = Path(path).absolute()
+
+    # The name of the file or folder by default, the whole path for the root folder which has no name
+    link_label = label if label is not None else (absolute_path.name or str(absolute_path))
+    return (f"{HYPERLINK_OPENER}{absolute_path.as_uri()}{HYPERLINK_TERMINATOR}{link_label}"
+            f"{HYPERLINK_OPENER}{HYPERLINK_TERMINATOR}")
+
+
 def print_color(color: str, output: str, add_separators: bool = False, indent: int = 0) -> None:
     """
     Prints a string to the console in a bold colour, the single colour console output helper of the project (lines
@@ -79,7 +111,8 @@ def print_color(color: str, output: str, add_separators: bool = False, indent: i
     Args:
         color (str): The colour of the message, one of "blue", "green", "yellow" or "red".
         output (str): The string to be printed.
-        add_separators (bool): If True, wraps the output with horizontal separators for better visibility.
+        add_separators (bool): If True, wraps the output with horizontal separators for better visibility, as long
+            as its longest line shows in the console (the hyperlinks of format_path_link counting as their labels).
         indent (int, optional): The number of indentation levels (2 spaces each). Defaults to 0.
 
     Raises:
@@ -91,7 +124,8 @@ def print_color(color: str, output: str, add_separators: bool = False, indent: i
 
     # Print the message in bold colour, optionally framed by separators as long as its longest line
     if add_separators:
-        separator = color_text(color=color, text=str((max(len(line) for line in output.split("\n")) + 1) * "-"))
+        visible_width = max(len(HYPERLINK_PATTERN.sub(repl="", string=line)) for line in output.split("\n"))
+        separator = color_text(color=color, text=str((visible_width + 1) * "-"))
         print(indentation_string + separator)
         print(color_text(color=color, text=indented_output))
         print(indentation_string + separator)
@@ -183,7 +217,7 @@ def get_image_paths(folder: Path) -> List[Path]:
 
     # Fail loudly instead of running on nothing
     if len(image_paths) == 0:
-        raise FileNotFoundError(f"No image found in : file://{folder.absolute()}")
+        raise FileNotFoundError(f"No image found in : {format_path_link(path=folder)}")
     return image_paths
 
 
@@ -204,5 +238,5 @@ def link_folder(link_path: Path, target_folder: Path) -> None:
         link_path.unlink()
     elif link_path.exists():
         raise FileExistsError(f"The data folder of the split already exists and is not a link to the dataset "
-                              f"images : file://{link_path.absolute()}")
+                              f"images : {format_path_link(path=link_path)}")
     link_path.symlink_to(target=target_folder.absolute(), target_is_directory=True)

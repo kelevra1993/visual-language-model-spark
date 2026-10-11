@@ -16,7 +16,7 @@ from torch.utils.data import Dataset
 
 from vision_training.data.detection.coco_masks import build_instance_mask
 from vision_training.data.preprocessing import preprocess_image_and_boxes
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 
 def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
@@ -96,7 +96,7 @@ class CocoDetectionDataset(Dataset):
             self.annotations = self.data['annotations']
         else:
             print_color(color="yellow", output=f"No annotations found, every image is treated as unlabelled : "
-                                               f"file://{os.path.abspath(labels_file)}")
+                                               f"{format_path_link(path=labels_file)}")
             self.annotations = []
 
         # Map image identifiers to their respective bounding box and label collections for rapid retrieval

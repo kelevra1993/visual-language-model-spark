@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.preprocessing import preprocess_image
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Labels read from the manifest: one class per sequence (many to one), one class per frame (many to many), or one class
 # per frame of a whole sequence for the frame selection, the frames of unmapped categories being unselected
@@ -148,12 +148,12 @@ def find_unselected_class_index(categories: List[Dict[str, Any]], label_dictiona
     category_identifiers = [category["id"] for category in categories if category["name"] == unselected_category]
     if not category_identifiers:
         raise ValueError(f"No category is named {unselected_category!r} ('Selection.unselected_category') in : "
-                         f"file://{os.path.abspath(labels_file)}")
+                         f"{format_path_link(path=labels_file)}")
     mapped_identifiers = [identifier for identifier in category_identifiers if identifier in label_dictionary]
     if not mapped_identifiers:
         raise ValueError(f"The unselected category {unselected_category!r} (identifier {category_identifiers[0]}) is "
                          f"not mapped by the label mapping file, its frames would have no class : "
-                         f"file://{os.path.abspath(labels_file)}")
+                         f"{format_path_link(path=labels_file)}")
     return label_dictionary[mapped_identifiers[0]]
 
 
@@ -298,12 +298,12 @@ class SequenceDataset(Dataset):
             raise ValueError(f"{len(invalid_sequences)} sequences cannot be used for the frame selection, which needs "
                              f"every wanted class exactly {selection_settings['frames_per_class']} times "
                              f"('Selection.frames_per_class') and at most {self.sequence_length} frames per sequence "
-                             f"('Data.sequence_settings.sequence_length') : file://{os.path.abspath(labels_file)}\n" +
+                             f"('Data.sequence_settings.sequence_length') : {format_path_link(path=labels_file)}\n" +
                              "\n".join(f" - {listed_sequence}" for listed_sequence in listed_sequences))
         if number_left_out_sequences > 0:
             print_color(color="yellow", output=f"{number_left_out_sequences} sequences of unmapped categories or "
                                                f"shorter than {self.sequence_length} frames left out : "
-                                               f"file://{os.path.abspath(labels_file)}")
+                                               f"{format_path_link(path=labels_file)}")
         if shuffle:
             random.shuffle(self.windows)
 

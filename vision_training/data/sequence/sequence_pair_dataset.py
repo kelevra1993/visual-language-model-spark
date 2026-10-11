@@ -6,7 +6,6 @@ trainer.
 """
 
 import json
-import os
 import random
 import torch
 
@@ -15,7 +14,7 @@ from typing import Any, Dict, List, Tuple
 
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.sequence.sequence_dataset import read_window_frames
-from vision_training.utilities.os_utilities import print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Members of a pair in the manifests, in the order their windows are stacked along the frame axis of a sample
 PAIR_MEMBERS = ["before", "after"]
@@ -134,7 +133,7 @@ class SequencePairDataset(Dataset):
         if number_left_out_pairs > 0:
             print_color(color="yellow", output=f"{number_left_out_pairs} pairs of unmapped categories, with an empty "
                                                f"member or with a member shorter than {self.sequence_length} frames "
-                                               f"left out : file://{os.path.abspath(labels_file)}")
+                                               f"left out : {format_path_link(path=labels_file)}")
         if shuffle:
             random.shuffle(self.pairs)
 
