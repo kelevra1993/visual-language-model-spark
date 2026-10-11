@@ -101,17 +101,23 @@ def test_plain_convolution_block_state_dictionary_keys() -> None:
     assert list(convolution_block.state_dict().keys()) == expected_keys
 
 
-def test_residual_shortcut_placement() -> None:
+@pytest.mark.parametrize(argnames="squeeze_and_excite", argvalues=[False, True])
+def test_residual_shortcut_placement(squeeze_and_excite: bool) -> None:
     """
     Verifies the residual shortcut pairing: with equal input and output channels the block
     input is added to the output of the second layer. Zeroing every convolution makes both layers output zero,
-    so the block output must be exactly the block input.
+    so the block output must be exactly the block input. With Squeeze-and-Excitation, whose zeroed gates are 0.5,
+    the recalibration comes before the addition and rescales the zero branch only, so the shortcut must reach the
+    output unchanged instead of being halved.
+
+    Args:
+        squeeze_and_excite (bool): Whether the layers recalibrate their channels with Squeeze-and-Excitation.
     """
     convolution_block = ConvolutionBlock(input_channels=8, output_channels=8, bias=True, number_layers=2,
                                          kernel_size=3, stride=1, padding=1, feature_map_normalization="none",
                                          activation=True, dropout_rate=0.0, add_pooling=False,
-                                         device=DEVICE, dtype=DTYPE, squeeze_and_excite=False, residual=True,
-                                         inception=False)
+                                         device=DEVICE, dtype=DTYPE, squeeze_and_excite=squeeze_and_excite,
+                                         residual=True, inception=False)
 
     # Zero every parameter so that each convolution layer outputs ReLU(0) = 0
     with torch.no_grad():

@@ -63,7 +63,9 @@ class ConvolutionBlock(nn.Module):
     It is shared by the Backbone, the Region Proposal heads and the Detection heads, and can optionally
     integrate the following optional architecture modules:
         - Squeeze-and-Excitation channel recalibration after every convolution layer.
-        - Residual shortcuts added every two convolution layers.
+        - Residual shortcuts added every two convolution layers, after the recalibration of the layer closing the
+          pair, so that Squeeze-and-Excitation rescales the residual branch only and never the shortcut, which
+          would otherwise be halved at every pair by the gates of about 0.5 of an untrained network.
         - Inception modules replacing the plain convolution of every layer.
 
     The layers are stored in `self.block` in the exact order of the historical nn.Sequential implementation
@@ -85,7 +87,8 @@ class ConvolutionBlock(nn.Module):
         add_pooling (bool): Whether to apply a max pooling layer at the very end of the block.
         device (torch.device): The device on which to allocate the parameters.
         dtype (torch.dtype): The desired data type of returned parameters.
-        squeeze_and_excite (bool): Whether to recalibrate channels with Squeeze-and-Excitation after every layer.
+        squeeze_and_excite (bool): Whether to recalibrate channels with Squeeze-and-Excitation after every layer,
+            before the residual shortcut is added.
         residual (bool): Whether to add residual shortcuts every two convolution layers.
         inception (bool): Whether to replace every plain convolution with an Inception module.
     """
@@ -211,8 +214,9 @@ class ConvolutionBlock(nn.Module):
         Processes the input tensor through the convolutional layers of the block, without its final pooling: the
         feature map at the input resolution, which the segmentation decoder reads as a skip connection.
 
-        Each layer applies convolution, normalization and activation, then the optional residual addition,
-        Squeeze-and-Excitation recalibration and dropout.
+        Each layer applies convolution, normalization and activation, then the optional Squeeze-and-Excitation
+        recalibration, residual addition and dropout, the recalibration coming before the addition so that the
+        shortcut is never rescaled.
 
         Args:
             input_tensor (torch.Tensor): The [Batch, Channels, Height, Width] input feature map.
@@ -240,13 +244,14 @@ class ConvolutionBlock(nn.Module):
                 else:
                     current_tensor = self.block[module_index](current_tensor)
 
-            # Add the residual shortcut after the activation, closing a pair of layers
-            if self.residual and layer_index % 2 == (1 - self.residual_parity) and layer_index != 0:
-                current_tensor = current_tensor + shortcut_tensor
-
-            # Recalibrate the channels of the layer output
+            # Recalibrate the channels of the layer output, before the shortcut is added so that only the residual
+            # branch is rescaled and the shortcut reaches the output of the pair unchanged
             if self.squeeze_and_excite:
                 current_tensor = self.squeeze_and_excitation_layers[layer_index](input_tensor=current_tensor)
+
+            # Add the residual shortcut after the activation and the recalibration, closing a pair of layers
+            if self.residual and layer_index % 2 == (1 - self.residual_parity) and layer_index != 0:
+                current_tensor = current_tensor + shortcut_tensor
 
             # Apply the dropout of this layer, if any
             if self.layer_dropout_indices[layer_index] is not None:
