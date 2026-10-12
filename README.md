@@ -648,13 +648,14 @@ The evaluation writes `Results.txt`, `Tensorboard/Test` and the `Evaluation/` fo
 `scripts/evaluation/collect_experiment_results.py` gathers the test evaluations of the launches of a hyperparameter experiment into one CSV file. Every launch trains in its own `run_<n>` folder (the `experiment_folder` of its configuration file), and the script reads the test curve of its run folder (`Tensorboard/Test`) and the swept settings of its `training_configuration.yaml`. Set in its main block:
 - `experiment_folder`: the folder holding the `run_<n>` folders, `<repository>/hyperparameter_experiments` by default.
 - `metric`: the compared test curve, `"Accuracy"`, `"Balanced Accuracy"`, `"Macro F1"` or `"Top-5 Accuracy"` for CLS.
+- `number_last_evaluations`: the number of last evaluated iterations averaged in a second mean column, 4 by default (iterations 1250 to 2000 when the launches are evaluated every 250 iterations up to 2000).
 - `output_path`: the CSV file, `<experiment_folder>/results.csv` by default.
 
 ```bash
 uv run python -m scripts.evaluation.collect_experiment_results
 ```
 
-The file has one row per launch, in launch order: the launch, the metric at every evaluated iteration, the mean of these values, `finished` (evaluated at its last iteration), the swept settings (`SWEPT_SETTINGS`: learning rate, augmentation, global pooling, residual connections, squeeze and excitation, normalization of the fully connected head, batch normalization momentums of the backbone and of the head, feature map normalization, data type, mixed precision, class weighting and dropout rate) and the run folder. The launches of the same settings are grouped and followed by a `mean` row averaging them. A launch still training has empty cells for the iterations not evaluated yet, so the file can be written again at any time.
+The file has one row per launch, in launch order: the launch, the metric at every evaluated iteration, the mean of these values, the mean of the values at the last `number_last_evaluations` iterations evaluated in the experiment (`<metric>_last_<n>_mean`, which leaves out how fast a launch starts), `finished` (evaluated at its last iteration), the swept settings (`SWEPT_SETTINGS`: learning rate, augmentation, global pooling, residual connections, squeeze and excitation, normalization of the fully connected head, batch normalization momentums of the backbone and of the head, feature map normalization, data type, mixed precision, class weighting and dropout rate) and the run folder. The launches of the same settings are grouped and followed by a `mean` row averaging them. A launch still training has empty cells for the iterations not evaluated yet, so the file can be written again at any time.
 
 ## Deployment
 

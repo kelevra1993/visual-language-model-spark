@@ -3,7 +3,8 @@ When run, gathers the test evaluations of the launches of a hyperparameter exper
 the settings of every stage: each run_<n> launch folder of the experiment folder holds the run folder of one training
 (vision_training/main.py, one configuration file per launch), whose Tensorboard/Test curves give the test metric at
 every evaluated checkpoint and whose training_configuration.yaml gives the swept settings. The launches of the same
-settings are followed by their mean row, whose mean column decides the setting kept for the next stage.
+settings are followed by their mean row, whose mean column decides the setting kept for the next stage, next to the
+mean of the last evaluations, which compares where the settings end whatever their start.
 """
 
 import csv
@@ -158,27 +159,39 @@ def collect_launches(experiment_folder: Path, metric: str) -> List[Dict[str, Any
     return launches
 
 
-def build_result_rows(launches: List[Dict[str, Any]], metric_column: str) -> Tuple[List[str], List[Dict[str, Any]]]:
+def build_result_rows(launches: List[Dict[str, Any]], metric_column: str,
+                      number_last_evaluations: int) -> Tuple[List[str], List[Dict[str, Any]]]:
     """
     Lays out the launches as the rows of the results file, as in the tables of the experiment plan: the launches of
     the same settings together, in the order of their first launch, followed by their mean row, the mean column of the
     mean rows deciding the setting kept for the next stage. Every launch has a column per iteration evaluated in the
-    experiment and the mean of its own evaluations, placed with the finished column right after the launch column so
-    that the results are read before the settings.
+    experiment, the mean of its own evaluations and the mean of its values at the last iterations evaluated in the
+    experiment, which leaves out how fast the launch starts, placed with the finished column right after the launch
+    column so that the results are read before the settings.
 
     Args:
         launches (List[Dict[str, Any]]): The launches (collect_launches).
         metric_column (str): The prefix of the metric columns, e.g. "accuracy".
+        number_last_evaluations (int): The number of last iterations evaluated in the experiment averaged by the
+            <metric_column>_last_<number_last_evaluations>_mean column, e.g. 4 for iterations 1250 to 2000.
 
     Returns:
         Tuple[List[str], List[Dict[str, Any]]]: The columns of the file and its rows, None for the missing values.
+
+    Raises:
+        ValueError: If number_last_evaluations is below 1.
     """
+    if number_last_evaluations < 1:
+        raise ValueError(f"number_last_evaluations must be at least 1, got {number_last_evaluations}")
+
     # One column per iteration evaluated by any launch, the launches still training keeping empty cells. The results
     # come right after the launch, before the settings
     evaluated_iterations = sorted({iteration for launch in launches for iteration in launch["evaluations"]})
     iteration_columns = [f"{metric_column}_{iteration}" for iteration in evaluated_iterations]
     mean_column = f"{metric_column}_mean"
-    columns = ["launch", *iteration_columns, mean_column, "finished", *SWEPT_SETTINGS, "run_folder"]
+    last_iterations = evaluated_iterations[-number_last_evaluations:]
+    last_mean_column = f"{metric_column}_last_{number_last_evaluations}_mean"
+    columns = ["launch", *iteration_columns, mean_column, last_mean_column, "finished", *SWEPT_SETTINGS, "run_folder"]
 
     # Launches of the same settings, in the order of their first launch
     setting_groups: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {}
@@ -187,7 +200,8 @@ def build_result_rows(launches: List[Dict[str, Any]], metric_column: str) -> Tup
 
     rows = []
     for group_launches in setting_groups.values():
-        # One row per launch, with the mean of its own evaluations
+        # One row per launch, with the mean of its own evaluations and the mean of the ones it has at the last
+        # iterations, a launch still training having only some of them or none
         group_rows = []
         for launch in group_launches:
             row = {"launch": launch["launch"], **launch["settings"], "finished": launch["finished"],
@@ -195,12 +209,15 @@ def build_result_rows(launches: List[Dict[str, Any]], metric_column: str) -> Tup
             for iteration, column in zip(evaluated_iterations, iteration_columns):
                 row[column] = launch["evaluations"].get(iteration)
             row[mean_column] = statistics.fmean(data=launch["evaluations"].values()) if launch["evaluations"] else None
+            last_values = [launch["evaluations"][iteration] for iteration in last_iterations
+                           if iteration in launch["evaluations"]]
+            row[last_mean_column] = statistics.fmean(data=last_values) if last_values else None
             group_rows.append(row)
 
         # Mean row of the settings, averaging every metric column over the launches that have a value
         mean_row = {"launch": MEAN_ROW_NAME, **group_launches[0]["settings"],
                     "finished": all(launch["finished"] for launch in group_launches), "run_folder": ""}
-        for column in [*iteration_columns, mean_column]:
+        for column in [*iteration_columns, mean_column, last_mean_column]:
             values = [row[column] for row in group_rows if row[column] is not None]
             mean_row[column] = statistics.fmean(data=values) if values else None
         rows += group_rows + [mean_row]
@@ -233,12 +250,16 @@ if __name__ == "__main__":
     # Test curve compared between the launches, one of the scalars of Tensorboard/Test: "Accuracy", "Balanced
     # Accuracy", "Macro F1" or "Top-5 Accuracy" for the classification task
     metric = "Accuracy"
+    # Number of last iterations evaluated in the experiment averaged by the <metric>_last_<n>_mean column, 4 giving the
+    # mean of iterations 1250 to 2000 when the launches are evaluated every 250 iterations up to 2000
+    number_last_evaluations = 4
     # Results file, written again from all the launches at every run, so that it can be refreshed while launches train
     output_path = experiment_folder / "results.csv"
 
     # Read every launch, group the launches of the same settings and write the file
     launches = collect_launches(experiment_folder=experiment_folder, metric=metric)
-    columns, rows = build_result_rows(launches=launches, metric_column=metric.lower().replace(" ", "_"))
+    columns, rows = build_result_rows(launches=launches, metric_column=metric.lower().replace(" ", "_"),
+                                      number_last_evaluations=number_last_evaluations)
     write_results(columns=columns, rows=rows, output_path=output_path)
     number_finished = sum(launch["finished"] for launch in launches)
     print_color(color="green", output=f"Test {metric} of {len(launches)} launches ({number_finished} finished) written "
