@@ -9,7 +9,8 @@ from typing import Any, Dict, List
 
 from vision_training.configuration.common_checks import (check_image_task_sequence_settings,
                                                          check_pretrained_configuration)
-from vision_training.configuration.configuration_values import (check_batch_normalization_momentum,
+from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
+                                                                check_batch_normalization_momentum,
                                                                 check_boolean_flags, check_positive_integers,
                                                                 check_probability_value, get_configuration_value)
 
@@ -22,6 +23,12 @@ VALID_OUTPUT_MODES = ["multi_class", "multi_label"]
 
 # Weighting of the classes in the classification loss: uniform, or inversely proportional to the training class counts
 VALID_CLASS_WEIGHTINGS = ["none", "balanced"]
+
+# Normalization of the hidden layers of the classification head, the values of the feature map normalizations
+VALID_HEAD_NORMALIZATIONS = VALID_FEATURE_MAP_NORMALIZATIONS
+
+# Value replacing every True or False normalization of the hidden layers written before the layer normalization
+BOOLEAN_HEAD_NORMALIZATIONS = {True: "batch", False: "none"}
 
 
 def check_classification_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
@@ -63,7 +70,7 @@ def check_classification_data_configuration(model_configuration: Dict[str, Any])
 def check_classification_head_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'ClassificationHead' section shared by the classification-like tasks: the global pooling, the hidden
-    fully connected layers, their batch normalization and its momentum, the dropout, the output mode, the label
+    fully connected layers, their normalization and its batch momentum, the dropout, the output mode, the label
     smoothing, the class weighting of the loss, and the 'pretrained' settings initialising the head with the one of
     another run.
 
@@ -89,14 +96,19 @@ def check_classification_head_configuration(model_configuration: Dict[str, Any])
         errors.append(f"'ClassificationHead.fully_connected' must be a list of positive integers, "
                       f"got {fully_connected!r}.")
 
-    # Batch normalization of the hidden layers, which needs at least one of them, and the momentum of its statistics
-    normalization_errors = check_boolean_flags(configuration=model_configuration,
-                                               key_paths=["ClassificationHead.fully_connected_normalization"])
-    errors += normalization_errors
+    # Normalization of the hidden layers, which needs at least one of them, a True or False of the configurations
+    # written before the layer normalization being reported with its new value
     fully_connected_normalization = get_configuration_value(
         configuration=model_configuration, key_path="ClassificationHead.fully_connected_normalization")
-    if not normalization_errors and fully_connected_normalization and fully_connected == []:
-        errors.append("'ClassificationHead.fully_connected_normalization' must be False when "
+    if isinstance(fully_connected_normalization, bool):
+        errors.append(f"'ClassificationHead.fully_connected_normalization' must be one of {VALID_HEAD_NORMALIZATIONS}, "
+                      f"got {fully_connected_normalization!r}, written before the layer normalization: it is now "
+                      f"{BOOLEAN_HEAD_NORMALIZATIONS[fully_connected_normalization]!r}.")
+    elif fully_connected_normalization not in VALID_HEAD_NORMALIZATIONS:
+        errors.append(f"'ClassificationHead.fully_connected_normalization' must be one of "
+                      f"{VALID_HEAD_NORMALIZATIONS}, got {fully_connected_normalization!r}.")
+    elif fully_connected_normalization != "none" and fully_connected == []:
+        errors.append("'ClassificationHead.fully_connected_normalization' must be 'none' when "
                       "'ClassificationHead.fully_connected' is []: the head has no hidden layer to normalize.")
     errors += check_batch_normalization_momentum(configuration=model_configuration,
                                                  key_path="ClassificationHead.batch_normalization_momentum")

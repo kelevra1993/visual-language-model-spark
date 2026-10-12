@@ -3,15 +3,17 @@ Migration of configuration files and run folders written by older versions of th
 the comments, the keys and sections added since (task, pretrained settings, evaluation outputs, per-class report,
 sample images, MLflow tracking, sequence settings and batch padding, positional embedding of the transformer,
 segmentation losses, deep supervision, tiles and evaluation settings, Optimization, batch normalization momentums,
-batch normalization of the classification head), and renames the run folder to its current run name (without the
-training, learning rate multiplier and dropout tokens no longer written in the run names). Called by
-scripts/configuration/migrate_configuration.py.
+normalization of the classification head, its True or False values becoming "batch" or "none"), and renames the
+run folder to its current run name (without the training, learning rate multiplier and dropout tokens no longer
+written in the run names). Called by scripts/configuration/migrate_configuration.py.
 """
 
 import yaml
 
 from pathlib import Path
+from typing import List, Optional
 
+from vision_training.configuration.classification_checks import BOOLEAN_HEAD_NORMALIZATIONS
 from vision_training.configuration.configuration_loader import load_experiment_configuration
 from vision_training.configuration.run_name import build_run_name
 from vision_training.utilities.os_utilities import format_path_link, print_color
@@ -228,24 +230,33 @@ MOMENTUM_COMMENT_LINES = ["# Momentum of the running mean and variance of the ba
                           "when a run resumes.\n"]
 MOMENTUM_SETTING_LINE = "batch_normalization_momentum: 0.1\n"
 
-# Section header of the classification head, start of the line of its hidden layers, and the batch normalization of
-# these layers inserted after it, off with the PyTorch default momentum as in every run written before it existed
+# Section header of the classification head, start of the line of its hidden layers, and the normalization of these
+# layers inserted after it, "none" with the PyTorch default momentum as in every run written before it existed
 CLASSIFICATION_HEAD_SECTION_HEADER = "ClassificationHead:\n"
 FULLY_CONNECTED_LINE_START = "  fully_connected:"
 
 # Starts of the lines continuing a list of the classification head written one item per line: an item at the indent
 # of the key, or any line indented deeper than the keys of the section
 LIST_CONTINUATION_STARTS = ("  - ", "   ")
-HEAD_NORMALIZATION_LINES = ("  # Batch normalization of the outputs of every hidden layer before its ReLU, False to "
-                            "disable. Needs at least one\n"
-                            "  # hidden layer, and gives the HBN run name token.\n"
-                            "  fully_connected_normalization: False\n")
-HEAD_MOMENTUM_LINES = ("  # Momentum of the running mean and variance of these batch normalization layers (PyTorch "
-                       "convention): every\n"
+HEAD_NORMALIZATION_LINE_START = "  fully_connected_normalization:"
+HEAD_NORMALIZATION_COMMENT_LINES = ["  # Normalization of the outputs of every hidden layer before its ReLU: \"batch\" "
+                                    "(statistics of every feature over\n",
+                                    "  # the vectors of the batch), \"layer\" (statistics of every vector over its "
+                                    "features) or \"none\". Needs at least one\n",
+                                    "  # hidden layer unless \"none\", and gives the HBN or HLN run name token.\n"]
+HEAD_MOMENTUM_LINES = ["  # Momentum of the running mean and variance of the batch normalization layers (PyTorch "
+                       "convention): every\n",
                        "  # training batch moves them by this fraction, 0.1 following about the last 10 batches and "
-                       "0.01 about the last\n"
-                       "  # 100. It gives no run name token and can change when a run resumes.\n"
-                       "  batch_normalization_momentum: 0.1\n")
+                       "0.01 about the last\n",
+                       "  # 100. Unused unless \"batch\", it gives no run name token and can change when a run "
+                       "resumes.\n",
+                       "  batch_normalization_momentum: 0.1\n"]
+
+# Comment of the True or False normalization of the hidden layers of the classification head written before the
+# layer normalization, replaced by the current one when the setting is converted
+BOOLEAN_HEAD_NORMALIZATION_COMMENT_LINES = ["  # Batch normalization of the outputs of every hidden layer before its "
+                                            "ReLU, False to disable. Needs at least one\n",
+                                            "  # hidden layer, and gives the HBN run name token.\n"]
 
 
 def add_task_to_configuration(configuration_path: Path, task: str) -> bool:
@@ -834,58 +845,93 @@ def add_batch_normalization_momentums_to_configuration(configuration_path: Path)
     return settings_added
 
 
+def find_classification_head_line(lines: List[str], line_start: str) -> Optional[int]:
+    """
+    Finds a setting line of the classification head of a configuration file, from the head header to the next section
+    header, so that the head settings migrated as text are changed in their own section only.
+
+    Args:
+        lines (List[str]): The lines of the configuration file, with their line breaks.
+        line_start (str): The start of the setting line, with its indentation, e.g. '  fully_connected:'.
+
+    Returns:
+        Optional[int]: The index of the line, None if the head has no such line.
+    """
+    for line_index in range(lines.index(CLASSIFICATION_HEAD_SECTION_HEADER) + 1, len(lines)):
+        if lines[line_index][:1].isalpha():
+            return None
+        if lines[line_index].startswith(line_start):
+            return line_index
+    return None
+
+
 def add_head_normalization_to_configuration(configuration_path: Path) -> bool:
     """
-    Upgrades the configuration file of a classification-like run written before the batch normalization of the hidden
-    layers of the classification head by inserting 'ClassificationHead.fully_connected_normalization', off, and
-    'ClassificationHead.batch_normalization_momentum', at the PyTorch default of 0.1, as in the runs of that time, right
-    after the 'fully_connected' line of the head. The settings are inserted as text, so that every comment of the file
-    is kept, and a file that already has them, or that has no classification head (the detection and segmentation
-    tasks), is left untouched.
+    Upgrades the configuration file of a classification-like run written before the normalization of the hidden
+    layers of the classification head: a run written before the setting existed gets
+    'ClassificationHead.fully_connected_normalization', "none", and 'ClassificationHead.batch_normalization_momentum',
+    at the PyTorch default of 0.1, as in the runs of that time, right after the 'fully_connected' line of the head, and
+    a run written with True or False, before the layer normalization existed, gets "batch" or "none" instead, the
+    comment of the setting being replaced when it is the one of that time. The settings are changed as text, so that
+    every comment of the file is kept, and a file that already has them in their current form, or that has no
+    classification head (the detection and segmentation tasks), is left untouched.
 
     Args:
         configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
 
     Returns:
-        bool: True if at least one setting was added, False if the file already had both or has no classification
-            head.
+        bool: True if at least one setting was added or converted, False if the file already had both in their
+            current form or has no classification head.
 
     Raises:
-        ValueError: If the classification head has no 'fully_connected' line of its own.
+        ValueError: If the classification head has no 'fully_connected' line, or no 'fully_connected_normalization'
+            line for a True or False setting, of its own.
     """
     text = configuration_path.read_text()
     configuration = yaml.safe_load(stream=text)
     if "ClassificationHead" not in configuration:
         return False
     head_configuration = configuration["ClassificationHead"]
+    lines = text.splitlines(keepends=True)
+    settings_changed = False
+
+    # A True or False normalization becomes "batch" or "none", under the current comment when it had the old one
+    if "fully_connected_normalization" in head_configuration and \
+            isinstance(head_configuration["fully_connected_normalization"], bool):
+        normalization_index = find_classification_head_line(lines=lines, line_start=HEAD_NORMALIZATION_LINE_START)
+        if normalization_index is None:
+            raise ValueError(f"No 'fully_connected_normalization' line in the 'ClassificationHead' section of "
+                             f"{format_path_link(path=configuration_path)}")
+        normalization = BOOLEAN_HEAD_NORMALIZATIONS[head_configuration["fully_connected_normalization"]]
+        lines[normalization_index] = f"{HEAD_NORMALIZATION_LINE_START} \"{normalization}\"\n"
+        comment_start_index = normalization_index - len(BOOLEAN_HEAD_NORMALIZATION_COMMENT_LINES)
+        if lines[comment_start_index:normalization_index] == BOOLEAN_HEAD_NORMALIZATION_COMMENT_LINES:
+            lines[comment_start_index:normalization_index] = HEAD_NORMALIZATION_COMMENT_LINES
+        settings_changed = True
+
+    # Settings missing from a run written before them
     inserted_lines = []
     if "fully_connected_normalization" not in head_configuration:
-        inserted_lines.append(HEAD_NORMALIZATION_LINES)
+        inserted_lines += HEAD_NORMALIZATION_COMMENT_LINES + [f"{HEAD_NORMALIZATION_LINE_START} \"none\"\n"]
     if "batch_normalization_momentum" not in head_configuration:
-        inserted_lines.append(HEAD_MOMENTUM_LINES)
-    if not inserted_lines:
-        return False
+        inserted_lines += HEAD_MOMENTUM_LINES
+    if inserted_lines:
+        # Line of the hidden layers, the settings being inserted after it
+        fully_connected_index = find_classification_head_line(lines=lines, line_start=FULLY_CONNECTED_LINE_START)
+        if fully_connected_index is None:
+            raise ValueError(f"No 'fully_connected' line in the 'ClassificationHead' section of "
+                             f"{format_path_link(path=configuration_path)}")
 
-    # Line of the hidden layers, searched from the head header to the next section header
-    lines = text.splitlines(keepends=True)
-    fully_connected_index = None
-    for line_index in range(lines.index(CLASSIFICATION_HEAD_SECTION_HEADER) + 1, len(lines)):
-        if lines[line_index][:1].isalpha():
-            break
-        if lines[line_index].startswith(FULLY_CONNECTED_LINE_START):
-            fully_connected_index = line_index
-            break
-    if fully_connected_index is None:
-        raise ValueError(f"No 'fully_connected' line in the 'ClassificationHead' section of "
-                         f"{format_path_link(path=configuration_path)}")
+        # A list written one item per line (as yaml.safe_dump writes it) continues on the lines below the key
+        last_list_index = fully_connected_index
+        while last_list_index + 1 < len(lines) and lines[last_list_index + 1].startswith(LIST_CONTINUATION_STARTS):
+            last_list_index += 1
+        lines = lines[:last_list_index + 1] + inserted_lines + lines[last_list_index + 1:]
+        settings_changed = True
 
-    # A list written one item per line (as yaml.safe_dump writes it) continues on the lines below the key
-    last_list_index = fully_connected_index
-    while last_list_index + 1 < len(lines) and lines[last_list_index + 1].startswith(LIST_CONTINUATION_STARTS):
-        last_list_index += 1
-    configuration_path.write_text(data="".join(lines[:last_list_index + 1] + inserted_lines +
-                                               lines[last_list_index + 1:]))
-    return True
+    if settings_changed:
+        configuration_path.write_text(data="".join(lines))
+    return settings_changed
 
 
 def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path:
@@ -900,13 +946,14 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     'Optimization' section (plain Adam at a constant learning rate), its loading settings (4 worker processes), the
     padding of the batches of the sequence tasks (every window padded to the sequence length), the positional
     embedding of their transformer (on), the settings of the segmentation added since its first runs (off), the batch
-    normalization momentum of every normalized section (0.1, the PyTorch default) and the batch normalization of the
-    hidden layers of the classification head (off), it loses the 'Data.DALI' block of the removed DALI loader, and its
-    folder is renamed to the run name the current code builds from that configuration (the task code being now the
-    first section of the run names, and the augmentation, batch size, learning rate, schedule, gradient clipping, mixed
-    precision, dropout and learning rate multiplier (BLR, TLR, HLR, DLR) tokens being no longer written). The
-    configuration is fully checked on the way, any other missing key being reported by the configuration checker. Two
-    old folders differing only by these settings get the same new name, the second one being refused.
+    normalization momentum of every normalized section (0.1, the PyTorch default) and the normalization of the
+    hidden layers of the classification head ("none", True and False becoming "batch" and "none"), it loses the
+    'Data.DALI' block of the removed DALI loader, and its folder is renamed to the run name the current code builds
+    from that configuration (the task code being now the first section of the run names, and the augmentation, batch
+    size, learning rate, schedule, gradient clipping, mixed precision, dropout and learning rate multiplier (BLR,
+    TLR, HLR, DLR) tokens being no longer written). The configuration is fully checked on the way, any other missing
+    key being reported by the configuration checker. Two old folders differing only by these settings get the same new
+    name, the second one being refused.
 
     Args:
         run_folder (Path): The run folder, holding 'training_configuration.yaml', 'Weights' and 'Tensorboard'.
@@ -971,7 +1018,7 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
         print_color(color="green", output=f"Batch Normalization Momentums Added To : "
                                           f"{format_path_link(path=configuration_path)}")
     if add_head_normalization_to_configuration(configuration_path=configuration_path):
-        print_color(color="green", output=f"Classification Head Batch Normalization Added To : "
+        print_color(color="green", output=f"Classification Head Normalization Added Or Converted In : "
                                           f"{format_path_link(path=configuration_path)}")
 
     # The run name the current code gives to this configuration

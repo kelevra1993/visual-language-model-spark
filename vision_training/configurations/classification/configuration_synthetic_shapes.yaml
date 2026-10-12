@@ -275,12 +275,13 @@ ClassificationHead:
   global_pooling: "average"
   # Units of the hidden fully connected layers between the pooled features and the class logits, [] for none.
   fully_connected: [128]
-  # Batch normalization of the outputs of every hidden layer before its ReLU, False to disable. Needs at least one
-  # hidden layer, and gives the HBN run name token.
-  fully_connected_normalization: False
-  # Momentum of the running mean and variance of these batch normalization layers (PyTorch convention): every
+  # Normalization of the outputs of every hidden layer before its ReLU: "batch" (statistics of every feature over
+  # the vectors of the batch), "layer" (statistics of every vector over its features) or "none". Needs at least one
+  # hidden layer unless "none", and gives the HBN or HLN run name token.
+  fully_connected_normalization: "none"
+  # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
   # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
-  # 100. It gives no run name token and can change when a run resumes.
+  # 100. Unused unless "batch", it gives no run name token and can change when a run resumes.
   batch_normalization_momentum: 0.1
   # Dropout applied before every fully connected layer, within [0, 1), 0 to disable.
   dropout_rate: 0.2

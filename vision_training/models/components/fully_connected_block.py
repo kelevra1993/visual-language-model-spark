@@ -1,9 +1,9 @@
 """
-Builder of the hidden fully connected layers (linear, optional batch normalization, ReLU, optional dropout layers)
-shared by the detection heads after RoIAlign, built without dropout layers nor normalization to keep their checkpoint
-names, and by the classification heads after the global pooling, always built with dropout layers so that their
-checkpoint names do not depend on the dropout rate, and normalized when
-'ClassificationHead.fully_connected_normalization' is on. Also holds the batch normalization of feature vectors those
+Builder of the hidden fully connected layers (linear, optional batch or layer normalization, ReLU, optional dropout
+layers) shared by the detection heads after RoIAlign, built without dropout layers nor normalization to keep their
+checkpoint names, and by the classification heads after the global pooling, always built with dropout layers so that
+their checkpoint names do not depend on the dropout rate, and normalized as set by
+'ClassificationHead.fully_connected_normalization'. Also holds the batch normalization of feature vectors the batch
 normalized layers use.
 """
 
@@ -36,14 +36,15 @@ class FeatureBatchNormalization(nn.BatchNorm1d):
 
 
 def build_fully_connected_block(input_dimension: int, dimensions: List[int], dropout_rate: float,
-                                add_dropout_layers: bool, batch_normalization: bool,
-                                batch_normalization_momentum: float, device: torch.device,
-                                dtype: torch.dtype) -> nn.Sequential:
+                                add_dropout_layers: bool, normalization: str, batch_normalization_momentum: float,
+                                device: torch.device, dtype: torch.dtype) -> nn.Sequential:
     """
     Builds the hidden fully connected layers shared by the task heads: the detection heads (after RoIAlign) and the
     classification heads (after the global pooling). Every layer is a linear layer followed by a ReLU, preceded by a
-    dropout layer when they are added, and with a batch normalization of its outputs between the two when asked, so
-    that the activations of the head keep their scale whatever the initialization and the learning rate. The
+    dropout layer when they are added, and with a normalization of its outputs between the two when asked, so that
+    the activations of the head keep their scale whatever the initialization and the learning rate: a batch
+    normalization, with the statistics of every feature over the vectors of the batch, or a layer normalization, with
+    the statistics of every vector over its features, which does not depend on the other vectors of the batch. The
     classification heads always add the dropout layers, a rate of 0 giving an identity, so that the dropout rate can
     change between two resumptions of a run without renaming the weights. The detection heads do not, their block
     being exactly the sequence of linear and ReLU layers of their checkpoints.
@@ -53,9 +54,10 @@ def build_fully_connected_block(input_dimension: int, dimensions: List[int], dro
         dimensions (List[int]): The output dimension of every fully connected layer, in order (may be empty).
         dropout_rate (float): The probability of zeroing an input feature before every layer, 0 for no dropout.
         add_dropout_layers (bool): True to add a dropout layer before every linear layer, even at a rate of 0.
-        batch_normalization (bool): True to normalize the outputs of every linear layer before its ReLU.
-        batch_normalization_momentum (float): The momentum of the running statistics of these normalization layers
-            (PyTorch convention, 0.1 by default in PyTorch), unused without normalization.
+        normalization (str): The normalization of the outputs of every linear layer before its ReLU: "batch",
+            "layer" or "none".
+        batch_normalization_momentum (float): The momentum of the running statistics of the batch normalization
+            layers (PyTorch convention, 0.1 by default in PyTorch), unused by the other normalizations.
         device (torch.device): The device of the parameters.
         dtype (torch.dtype): The precision of the parameters.
 
@@ -73,10 +75,12 @@ def build_fully_connected_block(input_dimension: int, dimensions: List[int], dro
                                                 device=device, dtype=dtype))
 
         # Normalize the outputs of the linear layer before the activation, as in the convolution blocks
-        if batch_normalization:
+        if normalization == "batch":
             fully_connected_layers.append(FeatureBatchNormalization(num_features=next_dimension,
                                                                     momentum=batch_normalization_momentum,
                                                                     device=device, dtype=dtype))
+        elif normalization == "layer":
+            fully_connected_layers.append(nn.LayerNorm(normalized_shape=next_dimension, device=device, dtype=dtype))
         fully_connected_layers.append(nn.ReLU(inplace=True))
         current_dimension = next_dimension
 

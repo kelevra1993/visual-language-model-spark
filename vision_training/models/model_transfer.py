@@ -197,7 +197,7 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
                                  target_configuration: Dict[str, Any]) -> List[str]:
     """
     Lists the differences between the settings defining the layers of the classification heads of two runs: the
-    hidden fully connected layers, their batch normalization and, for a flattened feature map, the settings giving the
+    hidden fully connected layers, their normalization and, for a flattened feature map, the settings giving the
     size of its input (the flattening itself, and the image size). The dropout rate and the batch normalization
     momentum are not compared: the heads always hold their dropout layers, so the rate does not change the names of
     their weights, and the momentum changes no tensor.
@@ -218,12 +218,17 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
         differences.append(f"'ClassificationHead.fully_connected' is {source_head_configuration['fully_connected']!r} "
                            f"in the source run and {target_head_configuration['fully_connected']!r} in this run.")
 
-    # Batch normalization layers of the hidden layers, a source run written before the setting existed having to be
-    # migrated
+    # Normalization layers of the hidden layers, a source run written before the setting existed, or with True or
+    # False before the layer normalization existed, having to be migrated
     if "fully_connected_normalization" not in source_head_configuration:
         differences.append("'ClassificationHead.fully_connected_normalization' is missing from the source run, "
                            "written before the setting existed: migrate it with "
                            "scripts/configuration/migrate_configuration.py.")
+    elif isinstance(source_head_configuration["fully_connected_normalization"], bool):
+        differences.append(f"'ClassificationHead.fully_connected_normalization' is "
+                           f"{source_head_configuration['fully_connected_normalization']!r} in the source run, written "
+                           f"before the layer normalization existed: migrate it with "
+                           f"scripts/configuration/migrate_configuration.py.")
     elif source_head_configuration["fully_connected_normalization"] != \
             target_head_configuration["fully_connected_normalization"]:
         differences.append(f"'ClassificationHead.fully_connected_normalization' is "

@@ -51,7 +51,7 @@ def get_classifier_configuration(detection_configuration: Dict[str, Any]) -> Dic
     return {"Data": {"image_settings": {"size": 512}, "label_dictionary": {1: 0, 2: 1}},
             "Backbone": backbone_configuration,
             "ClassificationHead": {"global_pooling": "average", "fully_connected": [],
-                                   "fully_connected_normalization": False, "batch_normalization_momentum": 0.1,
+                                   "fully_connected_normalization": "none", "batch_normalization_momentum": 0.1,
                                    "dropout_rate": 0.0, "output_mode": "multi_class", "label_smoothing": 0.0,
                                    "class_weighting": "none"}}
 
@@ -368,7 +368,7 @@ def normalize_head_layers(configuration: Dict[str, Any]) -> None:
     Args:
         configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
     """
-    configuration["ClassificationHead"]["fully_connected_normalization"] = True
+    configuration["ClassificationHead"]["fully_connected_normalization"] = "batch"
 
 
 @pytest.mark.parametrize(argnames=("source_temporal_type", "modify_function", "section_name", "expected_message"),
@@ -390,7 +390,7 @@ def normalize_head_layers(configuration: Dict[str, Any]) -> None:
     ("gru", widen_last_backbone_block, "TemporalModel",
      "The last backbone block has 32 channels in the source run and 64 in this run"),
     ("gru", normalize_head_layers, "ClassificationHead",
-     "'ClassificationHead.fully_connected_normalization' is False in the source run and True in this run.")])
+     "'ClassificationHead.fully_connected_normalization' is 'none' in the source run and 'batch' in this run.")])
 def test_different_components_are_rejected(tmp_path: Path, source_temporal_type: str,
                                            modify_function: Callable[[Dict[str, Any]], None], section_name: str,
                                            expected_message: str) -> None:
@@ -472,22 +472,32 @@ def test_source_run_written_before_a_temporal_setting_is_rejected(tmp_path: Path
                                   device=torch.device("cpu"))
 
 
-def test_source_run_written_before_the_head_normalization_is_rejected(tmp_path: Path) -> None:
+@pytest.mark.parametrize(argnames=("old_normalization", "expected_message"), argvalues=[
+    (None, "fully_connected_normalization' is missing from the source run"),
+    (False, "fully_connected_normalization' is False in the source run, written before the layer normalization "
+            "existed")])
+def test_source_run_written_before_the_head_normalization_is_rejected(tmp_path: Path, old_normalization: bool | None,
+                                                                      expected_message: str) -> None:
     """
-    Verifies that a classification head of a run written before the batch normalization of the hidden layers existed
-    is not read with a guessed value: the transfer stops with the missing setting and the script migrating the run.
+    Verifies that a classification head of a run written before the normalization of the hidden layers existed, or
+    with True or False before the layer normalization existed, is not read with a guessed value: the transfer stops
+    with the setting and the script migrating the run.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
+        old_normalization (bool | None): The normalization of the source run, None when it is missing.
+        expected_message (str): The start of the expected error.
     """
     configuration, _ = write_sequence_classifier_run(run_folder=tmp_path / "source_run", temporal_type="gru")
     old_configuration = copy.deepcopy(configuration)
-    del old_configuration["ClassificationHead"]["fully_connected_normalization"]
+    if old_normalization is None:
+        del old_configuration["ClassificationHead"]["fully_connected_normalization"]
+    else:
+        old_configuration["ClassificationHead"]["fully_connected_normalization"] = old_normalization
     (tmp_path / "source_run" / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=old_configuration))
     target_model = build_task_model(task="sequence_classification", configuration=configuration, seed=1)
 
-    with pytest.raises(expected_exception=ValueError,
-                       match="fully_connected_normalization' is missing from the source run"):
+    with pytest.raises(expected_exception=ValueError, match=expected_message):
         load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
                                   model_configuration=point_to_source_run(configuration=configuration,
                                                                           section_name="ClassificationHead",
@@ -505,7 +515,7 @@ def test_components_of_another_batch_normalization_momentum_are_transferred(tmp_
         tmp_path (Path): The pytest temporary directory.
     """
     configuration, _, _ = get_sequence_model_configuration(temporal_type="gru")
-    configuration["ClassificationHead"]["fully_connected_normalization"] = True
+    configuration["ClassificationHead"]["fully_connected_normalization"] = "batch"
     source_model = build_task_model(task="sequence_classification", configuration=configuration, seed=0)
     old_configuration = copy.deepcopy(configuration)
     del old_configuration["Backbone"]["normalization"]["batch_normalization_momentum"]

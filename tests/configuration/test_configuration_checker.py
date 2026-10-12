@@ -441,18 +441,29 @@ def normalize_head_without_hidden_layers(configuration: Dict[str, Any]) -> None:
     Args:
         configuration (Dict[str, Any]): The raw classification configuration, modified in place.
     """
-    configuration["ClassificationHead"].update({"fully_connected": [], "fully_connected_normalization": True,
+    configuration["ClassificationHead"].update({"fully_connected": [], "fully_connected_normalization": "batch",
                                                 "batch_normalization_momentum": True})
 
 
-def write_head_normalization_as_text(configuration: Dict[str, Any]) -> None:
+def use_sequence_normalization_in_head(configuration: Dict[str, Any]) -> None:
     """
-    Writes the batch normalization switch of the hidden layers as quoted text.
+    Normalizes the hidden layers with the sequence normalization, a normalization of the backbone feature maps only.
 
     Args:
         configuration (Dict[str, Any]): The raw classification configuration, modified in place.
     """
-    configuration["ClassificationHead"]["fully_connected_normalization"] = "yes"
+    configuration["ClassificationHead"]["fully_connected_normalization"] = "sequence"
+
+
+def write_head_normalization_as_boolean(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the normalization of the hidden layers as True, as the configurations written before the layer
+    normalization.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["fully_connected_normalization"] = True
 
 
 def set_invalid_classification_evaluation(configuration: Dict[str, Any]) -> None:
@@ -507,13 +518,16 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
                         "'ClassificationHead.dropout_rate' must be a number within [0, 1), got 1.0.",
                         "'ClassificationHead.output_mode' must be one of ['multi_class', 'multi_label']",
                         "'ClassificationHead.class_weighting' must be one of ['none', 'balanced']"]),
-    (normalize_head_without_hidden_layers, ["'ClassificationHead.fully_connected_normalization' must be False when "
+    (normalize_head_without_hidden_layers, ["'ClassificationHead.fully_connected_normalization' must be 'none' when "
                                             "'ClassificationHead.fully_connected' is []: the head has no hidden layer "
                                             "to normalize.",
                                             "'ClassificationHead.batch_normalization_momentum' must be a number within "
                                             "(0, 1], got True."]),
-    (write_head_normalization_as_text, ["'ClassificationHead.fully_connected_normalization' must be True or False, "
-                                        "got 'yes'."]),
+    (use_sequence_normalization_in_head, ["'ClassificationHead.fully_connected_normalization' must be one of "
+                                          "['batch', 'layer', 'none'], got 'sequence'."]),
+    (write_head_normalization_as_boolean, ["'ClassificationHead.fully_connected_normalization' must be one of "
+                                           "['batch', 'layer', 'none'], got True, written before the layer "
+                                           "normalization: it is now 'batch'."]),
     (set_invalid_classification_evaluation, ["'ExperimentConfiguration.evaluation.top_k' must be an integer >= 1",
                                              "'ExperimentConfiguration.evaluation.target_precision' must be a "
                                              "probability within [0, 1], got 1.5.",

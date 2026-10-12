@@ -110,7 +110,7 @@ def test_global_pooling_and_head_shapes(global_pooling: str, expected_vector: Li
     assert torch.equal(input=pooled_features, other=torch.tensor(data=[expected_vector]))
 
     head = ClassificationHead(input_features=len(expected_vector), fully_connected=[],
-                              fully_connected_normalization=False, batch_normalization_momentum=0.1, dropout_rate=0.0,
+                              fully_connected_normalization="none", batch_normalization_momentum=0.1, dropout_rate=0.0,
                               number_classes=5, device=torch.device(device="cpu"), dtype=torch.float32)
     assert head(features=pooled_features).shape == (1, 5)
     assert head(features=torch.zeros(size=(2, 7, len(expected_vector)))).shape == (2, 7, 5)

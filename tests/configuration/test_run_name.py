@@ -271,7 +271,7 @@ def get_classification_reference_configurations() -> Tuple[Dict[str, Any], Dict[
 
     # Classification head and classes
     model_configuration["ClassificationHead"] = {"global_pooling": "average", "fully_connected": [128],
-                                                 "fully_connected_normalization": False,
+                                                 "fully_connected_normalization": "none",
                                                  "batch_normalization_momentum": 0.1,
                                                  "dropout_rate": 0.2, "output_mode": "multi_class",
                                                  "label_smoothing": 0.0, "class_weighting": "none",
@@ -342,8 +342,20 @@ def normalize_hidden_layers_and_balance_classes(experiment_configuration: Dict[s
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
         model_configuration (Dict[str, Any]): The model configuration, modified in place.
     """
-    model_configuration["ClassificationHead"].update({"fully_connected_normalization": True,
+    model_configuration["ClassificationHead"].update({"fully_connected_normalization": "batch",
                                                       "class_weighting": "balanced"})
+
+
+def layer_normalize_hidden_layers(experiment_configuration: Dict[str, Any],
+                                  model_configuration: Dict[str, Any]) -> None:
+    """
+    Normalizes the outputs of the hidden layer of the head with layer normalization.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["ClassificationHead"]["fully_connected_normalization"] = "layer"
 
 
 def change_batch_normalization_momentums(experiment_configuration: Dict[str, Any],
@@ -357,7 +369,7 @@ def change_batch_normalization_momentums(experiment_configuration: Dict[str, Any
         model_configuration (Dict[str, Any]): The model configuration, modified in place.
     """
     model_configuration["Backbone"]["normalization"]["batch_normalization_momentum"] = 0.01
-    model_configuration["ClassificationHead"].update({"fully_connected_normalization": True,
+    model_configuration["ClassificationHead"].update({"fully_connected_normalization": "batch",
                                                       "batch_normalization_momentum": 0.01})
 
 
@@ -382,6 +394,7 @@ def use_multi_label_outputs(experiment_configuration: Dict[str, Any], model_conf
                                                                                   "_HAVG.128-LS0.1-CWB_")),
     (normalize_hidden_layers_and_balance_classes, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_",
                                                                                             "_HAVG.128-HBN-CWB_")),
+    (layer_normalize_hidden_layers, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_", "_HAVG.128-HLN_")),
     (change_batch_normalization_momentums, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_",
                                                                                      "_HAVG.128-HBN_")),
     (use_multi_label_outputs, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_MC4", "_ML5"))])
@@ -442,7 +455,7 @@ def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, A
                                             "causal": False, "positional_embedding": True,
                                             "pretrained": dict(NO_TRANSFER_SETTINGS)}
     model_configuration["ClassificationHead"] = {"global_pooling": "average", "fully_connected": [64],
-                                                 "fully_connected_normalization": False,
+                                                 "fully_connected_normalization": "none",
                                                  "batch_normalization_momentum": 0.1,
                                                  "dropout_rate": 0.2, "output_mode": "multi_class",
                                                  "label_smoothing": 0.0, "class_weighting": "none",

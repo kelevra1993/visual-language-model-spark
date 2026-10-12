@@ -7,7 +7,8 @@ resume a run folder, and by configuration_migration.py to rename migrated run fo
 from typing import Any, Callable, Dict, List
 
 
-# Run name code of every feature map normalization strategy
+# Run name code of every feature map normalization strategy, also giving the HBN and HLN tokens of the normalized
+# hidden layers of the classification head
 NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN", "sequence": "SN"}
 
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
@@ -295,12 +296,12 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
 def build_classification_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
     """
     Builds the sections of the run name describing the classification head, shared by the classification-like tasks:
-    the head H<global pooling AVG, MAX or FLAT>.<fully connected sizes>, HBN when its hidden layers are batch
-    normalized, LS<label smoothing> when smoothing, CWB when the classes are balanced in the loss and HPT, followed by
-    HFRZ when frozen, when the head is initialised by the one of another run (see build_pretrained_tokens), then the
-    classes MC<classes> (one class per sample) or ML<classes> (several classes per sample), e.g. 'HAVG.256-LS0.1_MC4',
-    'HFLAT.256-HBN_MC4' or 'HFLAT.256_MC4'. The dropout and the batch normalization momentum give no token, so that
-    they can change between two resumptions of a run.
+    the head H<global pooling AVG, MAX or FLAT>.<fully connected sizes>, HBN or HLN when its hidden layers are batch
+    or layer normalized, LS<label smoothing> when smoothing, CWB when the classes are balanced in the loss and HPT,
+    followed by HFRZ when frozen, when the head is initialised by the one of another run (see build_pretrained_tokens),
+    then the classes MC<classes> (one class per sample) or ML<classes> (several classes per sample), e.g.
+    'HAVG.256-LS0.1_MC4', 'HFLAT.256-HBN_MC4', 'HFLAT.256-HLN_MC4' or 'HFLAT.256_MC4'. The dropout and the batch
+    normalization momentum give no token, so that they can change between two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -310,12 +311,12 @@ def build_classification_sections(model_configuration: Dict[str, Any]) -> List[L
     """
     head_configuration = model_configuration["ClassificationHead"]
 
-    # Pooling and hidden layers with their batch normalization, then the label smoothing and class weighting of the
-    # loss when used
+    # Pooling and hidden layers with their normalization, then the label smoothing and class weighting of the loss
+    # when used
     pooling_code = GLOBAL_POOLING_CODES[head_configuration["global_pooling"]]
     head_tokens = ["H" + ".".join([pooling_code] + [str(size) for size in head_configuration["fully_connected"]])]
-    if head_configuration["fully_connected_normalization"]:
-        head_tokens.append("HBN")
+    if head_configuration["fully_connected_normalization"] != "none":
+        head_tokens.append("H" + NORMALIZATION_CODES[head_configuration["fully_connected_normalization"]])
     if head_configuration["label_smoothing"] > 0:
         head_tokens.append(f"LS{head_configuration['label_smoothing']:g}")
     if head_configuration["class_weighting"] == "balanced":

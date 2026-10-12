@@ -75,7 +75,7 @@ class DetectionHead(nn.Module):
         self.fully_connected_block = build_fully_connected_block(input_dimension=flattened_dimension,
                                                                  dimensions=self.fully_connected_dimensions,
                                                                  dropout_rate=0.0, add_dropout_layers=False,
-                                                                 batch_normalization=False,
+                                                                 normalization="none",
                                                                  batch_normalization_momentum=0.1,
                                                                  device=self.device, dtype=self.dtype)
 

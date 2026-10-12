@@ -63,17 +63,18 @@ def print_classification_head_summary(head_configuration: Dict[str, Any], input_
     """
     Prints the classification head settings in the architecture summary of the classification and sequence models:
     pooling, size of the vectors the head classifies (the pooled or flattened feature map of the image classifier,
-    the output of the temporal module or of the fusion of the sequence models), hidden layers, their batch
-    normalization and its momentum, dropout, output mode and number of classes.
+    the output of the temporal module or of the fusion of the sequence models), hidden layers, their normalization
+    (with its momentum for the batch normalization), dropout, output mode and number of classes.
 
     Args:
         head_configuration (Dict[str, Any]): The 'ClassificationHead' section.
         input_features (int): The number of features of the vectors given to the head.
         number_classes (int): The number of predicted classes.
     """
-    # The momentum only applies to the normalized hidden layers
-    normalization_text = (f"batch (momentum {head_configuration['batch_normalization_momentum']})"
-                          if head_configuration["fully_connected_normalization"] else "none")
+    # The momentum only applies to the batch normalization of the hidden layers
+    normalization_text = head_configuration["fully_connected_normalization"]
+    if normalization_text == "batch":
+        normalization_text += f" (momentum {head_configuration['batch_normalization_momentum']})"
     summary_text = (f"[bold]Global Pooling[/bold]     : {head_configuration['global_pooling']}\n"
                     f"[bold]Input Features[/bold]     : {input_features}\n"
                     f"[bold]Hidden Layers[/bold]      : {head_configuration['fully_connected']}\n"
@@ -86,13 +87,13 @@ def print_classification_head_summary(head_configuration: Dict[str, Any], input_
 
 class ClassificationHead(nn.Module):
     """
-    Classification head shared by the classification-like tasks: hidden fully connected layers, optionally batch
-    normalized, followed by the linear layer giving one logit per class. It applies to the last dimension of its input,
-    so the same head classifies one vector per image ([B, F]), one vector per sequence, or one vector per frame of a
-    sequence ([B, T, F]).
+    Classification head shared by the classification-like tasks: hidden fully connected layers, optionally batch or
+    layer normalized, followed by the linear layer giving one logit per class. It applies to the last dimension of its
+    input, so the same head classifies one vector per image ([B, F]), one vector per sequence, or one vector per frame
+    of a sequence ([B, T, F]).
     """
 
-    def __init__(self, input_features: int, fully_connected: List[int], fully_connected_normalization: bool,
+    def __init__(self, input_features: int, fully_connected: List[int], fully_connected_normalization: str,
                  batch_normalization_momentum: float, dropout_rate: float, number_classes: int, device: torch.device,
                  dtype: torch.dtype) -> None:
         """
@@ -101,10 +102,10 @@ class ClassificationHead(nn.Module):
         Args:
             input_features (int): The dimension of the input feature vectors.
             fully_connected (List[int]): The units of every hidden layer, possibly none.
-            fully_connected_normalization (bool): Whether every hidden layer normalizes its outputs with batch
-                normalization before its ReLU.
-            batch_normalization_momentum (float): The momentum of the running statistics of these normalization layers
-                (PyTorch convention), unused without normalization.
+            fully_connected_normalization (str): The normalization of the outputs of every hidden layer before its
+                ReLU: "batch", "layer" or "none".
+            batch_normalization_momentum (float): The momentum of the running statistics of the batch normalization
+                layers (PyTorch convention), unused by the other normalizations.
             dropout_rate (float): The dropout applied before every fully connected layer, 0 for none.
             number_classes (int): The number of predicted classes.
             device (torch.device): The device of the parameters.
@@ -120,7 +121,7 @@ class ClassificationHead(nn.Module):
         # even at a rate of 0, so that the names of the weights do not depend on the dropout rate
         self.fully_connected_block = build_fully_connected_block(
             input_dimension=input_features, dimensions=fully_connected, dropout_rate=dropout_rate,
-            add_dropout_layers=True, batch_normalization=fully_connected_normalization,
+            add_dropout_layers=True, normalization=fully_connected_normalization,
             batch_normalization_momentum=batch_normalization_momentum, device=device, dtype=dtype)
         self.dropout = nn.Dropout(p=dropout_rate)
         self.classifier = nn.Linear(in_features=fully_connected[-1] if fully_connected else input_features,
@@ -141,10 +142,11 @@ class ClassificationHead(nn.Module):
 
     def forward(self, features: torch.Tensor, feature_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
-        Computes the class logits of feature vectors. With normalized hidden layers and a mask (the padding frames of
-        the windows of the sequence labeller), only the real vectors go through the head, so that the padding frames
-        take no part in the batch statistics, and the padding frames get zero logits, ignored by the loss and the
-        evaluation like their labels.
+        Computes the class logits of feature vectors. With batch normalized hidden layers and a mask (the padding
+        frames of the windows of the sequence labeller), only the real vectors go through the head, so that the
+        padding frames take no part in the batch statistics, and the padding frames get zero logits, ignored by the
+        loss and the evaluation like their labels. The layer normalization normalizes every vector alone, so the
+        padding frames change nothing in the logits of the real ones.
 
         Args:
             features (torch.Tensor): The [..., input_features] feature vectors.
@@ -155,7 +157,7 @@ class ClassificationHead(nn.Module):
             torch.Tensor: The [..., number_classes] class logits.
         """
         # Every vector goes through the head when no batch statistics are computed or when every vector is real
-        if not self.fully_connected_normalization or feature_mask is None:
+        if self.fully_connected_normalization != "batch" or feature_mask is None:
             return self.compute_logits(features=features)
 
         # Classify the real vectors only, then place their logits back among the zero logits of the padding vectors

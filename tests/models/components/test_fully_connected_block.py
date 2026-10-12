@@ -1,8 +1,9 @@
 """
 Tests of the hidden fully connected layers of vision_training/models/components/fully_connected_block.py and of their
-batch normalization in the classification head: the layers and weight names with and without normalization, the
-normalization of vectors of any leading shape, the padding vectors left out of the batch statistics, and the
-momentum of the batch normalization layers of the backbone and of the head built from the configuration.
+batch or layer normalization in the classification head: the layers and weight names with and without normalization,
+the batch normalization of vectors of any leading shape, the padding vectors left out of the batch statistics, the
+layer normalization of every vector on its own, and the momentum of the batch normalization layers of the backbone and
+of the head built from the configuration.
 """
 
 import pytest
@@ -21,31 +22,34 @@ DEVICE = torch.device(device="cpu")
 DTYPE = torch.float32
 
 
-@pytest.mark.parametrize(argnames=("batch_normalization", "expected_layer_types"), argvalues=[
-    (False, [nn.Dropout, nn.Linear, nn.ReLU, nn.Dropout, nn.Linear, nn.ReLU]),
-    (True, [nn.Dropout, nn.Linear, FeatureBatchNormalization, nn.ReLU, nn.Dropout, nn.Linear,
-            FeatureBatchNormalization, nn.ReLU])])
-def test_fully_connected_layers(batch_normalization: bool, expected_layer_types: list) -> None:
+@pytest.mark.parametrize(argnames=("normalization", "expected_layer_types"), argvalues=[
+    ("none", [nn.Dropout, nn.Linear, nn.ReLU, nn.Dropout, nn.Linear, nn.ReLU]),
+    ("batch", [nn.Dropout, nn.Linear, FeatureBatchNormalization, nn.ReLU, nn.Dropout, nn.Linear,
+               FeatureBatchNormalization, nn.ReLU]),
+    ("layer", [nn.Dropout, nn.Linear, nn.LayerNorm, nn.ReLU, nn.Dropout, nn.Linear, nn.LayerNorm, nn.ReLU])])
+def test_fully_connected_layers(normalization: str, expected_layer_types: list) -> None:
     """
     Verifies the layers of the hidden fully connected block: dropout, linear and ReLU per layer without normalization,
     so that the classification heads trained before the normalization keep the names of their weights, and a batch
-    normalization at the configured momentum between every linear layer and its ReLU with it.
+    normalization at the configured momentum, or a layer normalization over the units of the layer, between every
+    linear layer and its ReLU with it.
 
     Args:
-        batch_normalization (bool): Whether the hidden layers are normalized.
+        normalization (str): The normalization of the hidden layers, "none", "batch" or "layer".
         expected_layer_types (list): The expected type of every layer of the block, in order.
     """
     fully_connected_block = build_fully_connected_block(input_dimension=12, dimensions=[8, 4], dropout_rate=0.2,
-                                                        add_dropout_layers=True,
-                                                        batch_normalization=batch_normalization,
+                                                        add_dropout_layers=True, normalization=normalization,
                                                         batch_normalization_momentum=0.01, device=DEVICE, dtype=DTYPE)
 
     assert [type(layer) for layer in fully_connected_block] == expected_layer_types
     assert all(layer.momentum == 0.01 for layer in fully_connected_block
                if isinstance(layer, FeatureBatchNormalization))
+    assert [layer.normalized_shape for layer in fully_connected_block
+            if isinstance(layer, nn.LayerNorm)] == ([(8,), (4,)] if normalization == "layer" else [])
 
     # Without normalization, the weights keep the names of the block written before the normalization existed
-    if not batch_normalization:
+    if normalization == "none":
         assert list(fully_connected_block.state_dict().keys()) == ["1.weight", "1.bias", "4.weight", "4.bias"]
 
 
@@ -71,12 +75,13 @@ def test_feature_batch_normalization_of_frame_vectors() -> None:
 
 def test_padding_vectors_take_no_part_in_the_head_statistics() -> None:
     """
-    Verifies that a classification head with normalized hidden layers classifies the real vectors of the windows of
-    the sequence labeller with the statistics of the real vectors only, whatever the values of the padding vectors,
-    and gives the padding vectors zero logits; without normalization, the mask changes nothing.
+    Verifies that a classification head with batch normalized hidden layers classifies the real vectors of the windows
+    of the sequence labeller with the statistics of the real vectors only, whatever the values of the padding vectors,
+    and gives the padding vectors zero logits; without normalization or with the layer normalization, the mask changes
+    nothing.
     """
     torch.manual_seed(seed=0)
-    head = ClassificationHead(input_features=6, fully_connected=[8], fully_connected_normalization=True,
+    head = ClassificationHead(input_features=6, fully_connected=[8], fully_connected_normalization="batch",
                               batch_normalization_momentum=0.1, dropout_rate=0.0, number_classes=3, device=DEVICE,
                               dtype=DTYPE)
     frame_vectors = torch.randn(size=(2, 4, 6))
@@ -92,19 +97,47 @@ def test_padding_vectors_take_no_part_in_the_head_statistics() -> None:
     assert torch.allclose(input=class_logits[frame_mask], other=real_logits, atol=1e-6)
     assert torch.equal(input=class_logits[~frame_mask], other=torch.zeros(size=(3, 3)))
 
-    # Without normalization, every vector goes through the head, padding vectors included
-    plain_head = ClassificationHead(input_features=6, fully_connected=[8], fully_connected_normalization=False,
-                                    batch_normalization_momentum=0.1, dropout_rate=0.0, number_classes=3,
-                                    device=DEVICE, dtype=DTYPE)
-    assert torch.equal(input=plain_head(features=padded_vectors, feature_mask=frame_mask),
-                       other=plain_head(features=padded_vectors))
+    # Without batch statistics, every vector goes through the head, padding vectors included
+    for normalization in ["none", "layer"]:
+        unmasked_head = ClassificationHead(input_features=6, fully_connected=[8],
+                                           fully_connected_normalization=normalization,
+                                           batch_normalization_momentum=0.1, dropout_rate=0.0, number_classes=3,
+                                           device=DEVICE, dtype=DTYPE)
+        assert torch.equal(input=unmasked_head(features=padded_vectors, feature_mask=frame_mask),
+                           other=unmasked_head(features=padded_vectors))
+
+
+def test_layer_normalization_normalizes_every_vector_alone() -> None:
+    """
+    Verifies that a classification head with layer normalized hidden layers normalizes every vector over its own
+    units, to a mean of 0 and a variance of 1 before the learned scale and shift, so that the logits of a vector do not
+    depend on the other vectors of the batch and are the same in training and in evaluation.
+    """
+    torch.manual_seed(seed=0)
+    head = ClassificationHead(input_features=6, fully_connected=[8], fully_connected_normalization="layer",
+                              batch_normalization_momentum=0.1, dropout_rate=0.0, number_classes=3, device=DEVICE,
+                              dtype=DTYPE)
+    feature_vectors = torch.randn(size=(5, 6)) * 3.0 + 2.0
+
+    # Outputs of the layer normalization, read before the ReLU of the hidden layer
+    normalized_units = head.fully_connected_block[:3](input=feature_vectors)
+    assert torch.allclose(input=normalized_units.mean(dim=-1), other=torch.zeros(size=(5,)), atol=1e-5)
+    assert torch.allclose(input=normalized_units.var(dim=-1, unbiased=False), other=torch.ones(size=(5,)), atol=1e-3)
+
+    # The logits of the first vector alone, in a batch and in evaluation mode are the same
+    batch_logits = head(features=feature_vectors)
+    alone_logits = head(features=feature_vectors[:1])
+    head.eval()
+    evaluation_logits = head(features=feature_vectors)
+    assert torch.allclose(input=batch_logits[:1], other=alone_logits, atol=1e-6)
+    assert torch.allclose(input=batch_logits, other=evaluation_logits, atol=1e-6)
 
 
 @pytest.mark.parametrize(argnames="feature_map_normalization", argvalues=["batch", "sequence"])
 def test_batch_normalization_momentums_reach_every_layer(feature_map_normalization: str) -> None:
     """
     Verifies that the image classifier built from the configuration gives every batch (or sequence) normalization
-    layer of its backbone the momentum of 'Backbone.normalization' and every normalization layer of its head the
+    layer of its backbone the momentum of 'Backbone.normalization' and every batch normalization layer of its head the
     momentum of 'ClassificationHead', two different values.
 
     Args:
@@ -113,7 +146,7 @@ def test_batch_normalization_momentums_reach_every_layer(feature_map_normalizati
     configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
     configuration["Backbone"]["normalization"].update({"feature_map_normalization": feature_map_normalization,
                                                        "batch_normalization_momentum": 0.01})
-    configuration["ClassificationHead"].update({"fully_connected_normalization": True,
+    configuration["ClassificationHead"].update({"fully_connected_normalization": "batch",
                                                 "batch_normalization_momentum": 0.05})
     classifier = ImageClassifier(configuration=configuration, verbose=False, device=device, dtype=dtype)
 

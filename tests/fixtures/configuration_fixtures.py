@@ -117,7 +117,7 @@ def get_classification_model_configuration(output_mode: str) -> Tuple[Dict[str, 
                                                     'per_sample_normalization': False},
                                   'detection_convolution_block_indices': []},
                      'ClassificationHead': {'global_pooling': 'average', 'fully_connected': [16],
-                                            'fully_connected_normalization': False,
+                                            'fully_connected_normalization': 'none',
                                             'batch_normalization_momentum': 0.1, 'dropout_rate': 0.0,
                                             'output_mode': output_mode, 'label_smoothing': 0.0,
                                             'class_weighting': 'none'}}

@@ -13,6 +13,7 @@ import yaml
 from pathlib import Path
 
 from vision_training.configuration.configuration_migration import (
+    BOOLEAN_HEAD_NORMALIZATION_COMMENT_LINES, HEAD_NORMALIZATION_COMMENT_LINES, HEAD_NORMALIZATION_LINE_START,
     TRACKING_SECTION_LINES, add_batch_normalization_momentums_to_configuration, add_batch_padding_to_configuration,
     add_evaluation_outputs_to_configuration, add_head_normalization_to_configuration,
     add_freeze_normalization_parameters_to_configuration, add_loading_settings_to_configuration,
@@ -697,8 +698,8 @@ def test_batch_normalization_momentums_are_added_once(tmp_path: Path, configurat
 
 def test_head_normalization_is_added_once(tmp_path: Path) -> None:
     """
-    Verifies that the batch normalization of the hidden layers of the classification head of a run written before it
-    is added right after its hidden layers, off with the PyTorch default momentum as in the runs of that time, that a
+    Verifies that the normalization of the hidden layers of the classification head of a run written before it is
+    added right after its hidden layers, "none" with the PyTorch default momentum as in the runs of that time, that a
     configuration which already has it is left untouched, and that a configuration without classification head is not
     changed.
 
@@ -715,7 +716,7 @@ def test_head_normalization_is_added_once(tmp_path: Path) -> None:
     # Both settings follow the hidden layers, the second migration changing nothing
     assert add_head_normalization_to_configuration(configuration_path=old_configuration_path) is True
     head_configuration = yaml.safe_load(stream=old_configuration_path.read_text())["ClassificationHead"]
-    assert head_configuration == {**original_head_configuration, "fully_connected_normalization": False,
+    assert head_configuration == {**original_head_configuration, "fully_connected_normalization": "none",
                                   "batch_normalization_momentum": 0.1}
     setting_names = list(head_configuration)
     fully_connected_index = setting_names.index("fully_connected")
@@ -729,3 +730,45 @@ def test_head_normalization_is_added_once(tmp_path: Path) -> None:
     detection_path.write_text(data=detection_text)
     assert add_head_normalization_to_configuration(configuration_path=detection_path) is False
     assert detection_path.read_text() == detection_text
+
+
+@pytest.mark.parametrize(argnames=("boolean_normalization", "expected_normalization"),
+                         argvalues=[(True, "batch"), (False, "none")])
+def test_boolean_head_normalization_is_converted(tmp_path: Path, boolean_normalization: bool,
+                                                expected_normalization: str) -> None:
+    """
+    Verifies that the True or False normalization of the hidden layers of a run written before the layer
+    normalization becomes "batch" or "none": under the current comment in place of the comment of that time, every
+    other line of the file being kept, and in a configuration written by yaml.safe_dump, without comments; a second
+    migration changes nothing.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        boolean_normalization (bool): The normalization written before the layer normalization.
+        expected_normalization (str): The normalization it becomes.
+    """
+    # Current file with the setting and comment of a run written before the layer normalization
+    current_text = CLASSIFICATION_CONFIGURATION_PATH.read_text()
+    current_setting = "".join(HEAD_NORMALIZATION_COMMENT_LINES) + f"{HEAD_NORMALIZATION_LINE_START} \"none\"\n"
+    old_setting = "".join(BOOLEAN_HEAD_NORMALIZATION_COMMENT_LINES) + \
+        f"{HEAD_NORMALIZATION_LINE_START} {boolean_normalization}\n"
+    assert current_text.count(current_setting) == 1
+    old_configuration_path = tmp_path / "configuration.yaml"
+    old_configuration_path.write_text(data=current_text.replace(current_setting, old_setting))
+
+    # Only the setting and its comment change, the second migration changing nothing
+    assert add_head_normalization_to_configuration(configuration_path=old_configuration_path) is True
+    expected_setting = "".join(HEAD_NORMALIZATION_COMMENT_LINES) + \
+        f"{HEAD_NORMALIZATION_LINE_START} \"{expected_normalization}\"\n"
+    assert old_configuration_path.read_text() == current_text.replace(current_setting, expected_setting)
+    assert add_head_normalization_to_configuration(configuration_path=old_configuration_path) is False
+
+    # A configuration written by yaml.safe_dump, its keys in alphabetical order
+    configuration = yaml.safe_load(stream=current_text)
+    configuration["ClassificationHead"]["fully_connected_normalization"] = boolean_normalization
+    dumped_configuration_path = tmp_path / "dumped_configuration.yaml"
+    dumped_configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+    assert add_head_normalization_to_configuration(configuration_path=dumped_configuration_path) is True
+    migrated_configuration = yaml.safe_load(stream=dumped_configuration_path.read_text())
+    assert migrated_configuration == {**configuration, "ClassificationHead": {
+        **configuration["ClassificationHead"], "fully_connected_normalization": expected_normalization}}
