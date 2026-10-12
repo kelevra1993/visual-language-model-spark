@@ -87,7 +87,8 @@ def test_plain_convolution_block_state_dictionary_keys() -> None:
     """
     convolution_block = ConvolutionBlock(input_channels=3, output_channels=16, bias=True, number_layers=2,
                                          kernel_size=3, stride=1, padding=1, feature_map_normalization="batch",
-                                         activation=True, dropout_rate=0.0, add_pooling=True,
+                                         batch_normalization_momentum=0.1, activation=True, dropout_rate=0.0,
+                                         add_pooling=True,
                                          device=DEVICE, dtype=DTYPE, squeeze_and_excite=False, residual=False,
                                          inception=False)
 
@@ -116,7 +117,8 @@ def test_residual_shortcut_placement(squeeze_and_excite: bool) -> None:
     """
     convolution_block = ConvolutionBlock(input_channels=8, output_channels=8, bias=True, number_layers=2,
                                          kernel_size=3, stride=1, padding=1, feature_map_normalization="none",
-                                         activation=True, dropout_rate=0.0, add_pooling=False,
+                                         batch_normalization_momentum=0.1, activation=True, dropout_rate=0.0,
+                                         add_pooling=False,
                                          device=DEVICE, dtype=DTYPE, squeeze_and_excite=squeeze_and_excite,
                                          residual=True, inception=False)
 
@@ -131,7 +133,8 @@ def test_residual_shortcut_placement(squeeze_and_excite: bool) -> None:
     # Residual shortcuts require the spatial size to be preserved
     with pytest.raises(expected_exception=ValueError):
         ConvolutionBlock(input_channels=8, output_channels=8, bias=True, number_layers=2, kernel_size=3, stride=2,
-                         padding=1, feature_map_normalization="none", activation=True, dropout_rate=0.0,
+                         padding=1, feature_map_normalization="none", batch_normalization_momentum=0.1,
+                         activation=True, dropout_rate=0.0,
                          add_pooling=False, device=DEVICE, dtype=DTYPE, squeeze_and_excite=False, residual=True,
                          inception=False)
 
@@ -149,8 +152,8 @@ def test_backbone_modules_forward_shapes(modules: dict) -> None:
     """
     backbone_arguments = {"input_channels": 3, "convolutions": {"1": [1, 16], "2": [2, 32], "3": [3, 32], "4": [2, 64]},
                           "last_max_pooling": False,
-                          "normalization": {"feature_map_normalization": "batch", "input_normalization": True,
-                                            "per_sample_normalization": True},
+                          "normalization": {"feature_map_normalization": "batch", "batch_normalization_momentum": 0.1,
+                                            "input_normalization": True, "per_sample_normalization": True},
                           "detection_convolution_block_indices": [3, 4], "input_image_size": 64,
                           "device": DEVICE, "dtype": DTYPE}
 
@@ -174,8 +177,8 @@ def test_backbone_receptive_field() -> None:
     """
     convolutions = {"1": [1, 16], "2": [2, 32], "3": [2, 32], "4": [4, 32], "5": [4, 64], "6": [6, 64], "7": [6, 64]}
     backbone = Backbone(input_channels=3, convolutions=convolutions, modules=PLAIN_MODULES, last_max_pooling=False,
-                        normalization={"feature_map_normalization": "batch", "input_normalization": False,
-                                       "per_sample_normalization": False},
+                        normalization={"feature_map_normalization": "batch", "batch_normalization_momentum": 0.1,
+                                       "input_normalization": False, "per_sample_normalization": False},
                         detection_convolution_block_indices=[5, 6, 7], input_image_size=1024,
                         device=DEVICE, dtype=DTYPE)
 

@@ -248,8 +248,27 @@ def set_invalid_tracking(configuration: Dict[str, Any]) -> None:
                                                                  "tracking_uri": " ", "experiment_name": 12})
 
 
+def set_invalid_batch_normalization_momentums(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a batch normalization momentum of 0 in the backbone, above 1 in the region proposal heads and written as text
+    in the detection heads.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["Backbone"]["normalization"]["batch_normalization_momentum"] = 0
+    configuration["RegionProposal"]["normalization"]["batch_normalization_momentum"] = 1.5
+    configuration["Detector"]["normalization"]["batch_normalization_momentum"] = "fast"
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_invalid_loading, ["'Data.loading.prefetch_batches' must be an integer >= 1, got 0."]),
+    (set_invalid_batch_normalization_momentums, ["'Backbone.normalization.batch_normalization_momentum' must be a "
+                                                 "number within (0, 1], got 0.",
+                                                 "'RegionProposal.normalization.batch_normalization_momentum' must be "
+                                                 "a number within (0, 1], got 1.5.",
+                                                 "'Detector.normalization.batch_normalization_momentum' must be a "
+                                                 "number within (0, 1], got 'fast'."]),
     (use_sequence_normalization, ["'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for "
                                      "this task, whose samples have no frames."]),
     (augment_detection_frames, ["'Data.data_augmentation.shuffle_frames.activated' must be False for this task, "
@@ -414,6 +433,28 @@ def set_invalid_head(configuration: Dict[str, Any]) -> None:
                                                 "output_mode": "multi", "class_weighting": "inverse"})
 
 
+def normalize_head_without_hidden_layers(configuration: Dict[str, Any]) -> None:
+    """
+    Turns the batch normalization of the hidden layers on in a head without hidden layers, with a momentum written as
+    a boolean.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"].update({"fully_connected": [], "fully_connected_normalization": True,
+                                                "batch_normalization_momentum": True})
+
+
+def write_head_normalization_as_text(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the batch normalization switch of the hidden layers as quoted text.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["fully_connected_normalization"] = "yes"
+
+
 def set_invalid_classification_evaluation(configuration: Dict[str, Any]) -> None:
     """
     Sets a top-k accuracy of zero classes, a target precision above 1 and the predictions setting as a quoted string.
@@ -466,6 +507,13 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
                         "'ClassificationHead.dropout_rate' must be a number within [0, 1), got 1.0.",
                         "'ClassificationHead.output_mode' must be one of ['multi_class', 'multi_label']",
                         "'ClassificationHead.class_weighting' must be one of ['none', 'balanced']"]),
+    (normalize_head_without_hidden_layers, ["'ClassificationHead.fully_connected_normalization' must be False when "
+                                            "'ClassificationHead.fully_connected' is []: the head has no hidden layer "
+                                            "to normalize.",
+                                            "'ClassificationHead.batch_normalization_momentum' must be a number within "
+                                            "(0, 1], got True."]),
+    (write_head_normalization_as_text, ["'ClassificationHead.fully_connected_normalization' must be True or False, "
+                                        "got 'yes'."]),
     (set_invalid_classification_evaluation, ["'ExperimentConfiguration.evaluation.top_k' must be an integer >= 1",
                                              "'ExperimentConfiguration.evaluation.target_precision' must be a "
                                              "probability within [0, 1], got 1.5.",
@@ -1284,14 +1332,14 @@ def use_last_max_pooling_without_its_decoder_level(configuration: Dict[str, Any]
 
 def set_invalid_decoder(configuration: Dict[str, Any]) -> None:
     """
-    Sets an unknown upsampling and normalization, a decoder level without layer, a module flag written as a string
-    and a dropout of 1.
+    Sets an unknown upsampling and normalization, a batch normalization momentum of 2, a decoder level without layer,
+    a module flag written as a string and a dropout of 1.
 
     Args:
         configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
     """
     configuration["SegmentationDecoder"].update({"upsampling": "nearest", "feature_map_normalization": "group",
-                                                 "dropout_rate": 1.0})
+                                                 "batch_normalization_momentum": 2, "dropout_rate": 1.0})
     configuration["SegmentationDecoder"]["convolutions"]["3"] = [0, 32]
     configuration["SegmentationDecoder"]["modules"]["squeeze_and_excite"] = "yes"
 
@@ -1371,6 +1419,8 @@ def set_invalid_segmentation_evaluation(configuration: Dict[str, Any]) -> None:
                            "'SegmentationDecoder.modules.squeeze_and_excite' must be True or False, got 'yes'.",
                            "'SegmentationDecoder.feature_map_normalization' must be one of ['batch', 'layer', "
                            "'none'], got 'group'.",
+                           "'SegmentationDecoder.batch_normalization_momentum' must be a number within (0, 1], got "
+                           "2.",
                            "'SegmentationDecoder.dropout_rate' must be a number within [0, 1), got 1.0."]),
     (freeze_random_decoder, ["'SegmentationDecoder.pretrained.freeze' must be False when "
                              "'SegmentationDecoder.pretrained.experiment_folder' is null: only a transferred "
@@ -1494,8 +1544,8 @@ def set_mismatched_mask_head_levels(configuration: Dict[str, Any]) -> None:
 
 def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
     """
-    Sets an invalid pool size, head definition, normalization, module flag and mask threshold, and inception modules
-    with a channel count that is not a multiple of 8.
+    Sets an invalid pool size, head definition, normalization, batch normalization momentum, module flag and mask
+    threshold, and inception modules with a channel count that is not a multiple of 8.
 
     Args:
         configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
@@ -1505,6 +1555,7 @@ def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
     mask_head_configuration["head_configurations"]["5"] = [4]
     mask_head_configuration["head_configurations"]["6"] = [4, 60]
     mask_head_configuration["normalization"]["feature_map_normalization"] = "group"
+    mask_head_configuration["normalization"]["batch_normalization_momentum"] = -0.1
     mask_head_configuration["modules"].update({"inception": True, "residual_nets": "yes"})
     mask_head_configuration["inference"]["mask_threshold"] = 1.5
 
@@ -1518,6 +1569,8 @@ def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
                              "'MaskHead.head_configurations.6' has 60 output channels, inception modules require a "
                              "multiple of 8.",
                              "'MaskHead.normalization.feature_map_normalization' must be one of",
+                             "'MaskHead.normalization.batch_normalization_momentum' must be a number within (0, 1], "
+                             "got -0.1.",
                              "'MaskHead.modules.residual_nets' must be True or False, got 'yes'.",
                              "'MaskHead.inference.mask_threshold' must be a probability within [0, 1], got 1.5."])])
 def test_inconsistent_instance_segmentation_configuration_is_rejected(

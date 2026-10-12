@@ -18,7 +18,8 @@ from vision_training.models.classification.image_classifier import ImageClassifi
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, TRANSFERABLE_COMPONENTS,
-                                                   disable_pretrained_settings, freeze_batch_normalization_statistics,
+                                                   compare_detection_heads, disable_pretrained_settings,
+                                                   freeze_batch_normalization_statistics,
                                                    freeze_component, freeze_normalization_parameters,
                                                    load_pretrained_component)
 from vision_training.models.task_model import TaskModel
@@ -49,8 +50,10 @@ def get_classifier_configuration(detection_configuration: Dict[str, Any]) -> Dic
     backbone_configuration["detection_convolution_block_indices"] = []
     return {"Data": {"image_settings": {"size": 512}, "label_dictionary": {1: 0, 2: 1}},
             "Backbone": backbone_configuration,
-            "ClassificationHead": {"global_pooling": "average", "fully_connected": [], "dropout_rate": 0.0,
-                                   "output_mode": "multi_class", "label_smoothing": 0.0, "class_weighting": "none"}}
+            "ClassificationHead": {"global_pooling": "average", "fully_connected": [],
+                                   "fully_connected_normalization": False, "batch_normalization_momentum": 0.1,
+                                   "dropout_rate": 0.0, "output_mode": "multi_class", "label_smoothing": 0.0,
+                                   "class_weighting": "none"}}
 
 
 def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: torch.nn.Module) -> None:
@@ -358,6 +361,16 @@ def add_head_dropout(configuration: Dict[str, Any]) -> None:
     configuration["ClassificationHead"]["dropout_rate"] = 0.3
 
 
+def normalize_head_layers(configuration: Dict[str, Any]) -> None:
+    """
+    Normalizes the outputs of the hidden layers of the classification head, which adds batch normalization layers.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
+    """
+    configuration["ClassificationHead"]["fully_connected_normalization"] = True
+
+
 @pytest.mark.parametrize(argnames=("source_temporal_type", "modify_function", "section_name", "expected_message"),
                          argvalues=[
     ("gru", use_lstm, "TemporalModel", "'TemporalModel.type' is 'gru' in the source run and 'lstm' in this run."),
@@ -375,7 +388,9 @@ def add_head_dropout(configuration: Dict[str, Any]) -> None:
     ("transformer", remove_positional_embedding, "TemporalModel",
      "'TemporalModel.positional_embedding' is True in the source run and False in this run."),
     ("gru", widen_last_backbone_block, "TemporalModel",
-     "The last backbone block has 32 channels in the source run and 64 in this run")])
+     "The last backbone block has 32 channels in the source run and 64 in this run"),
+    ("gru", normalize_head_layers, "ClassificationHead",
+     "'ClassificationHead.fully_connected_normalization' is False in the source run and True in this run.")])
 def test_different_components_are_rejected(tmp_path: Path, source_temporal_type: str,
                                            modify_function: Callable[[Dict[str, Any]], None], section_name: str,
                                            expected_message: str) -> None:
@@ -455,6 +470,62 @@ def test_source_run_written_before_a_temporal_setting_is_rejected(tmp_path: Path
                                                                           section_name="TemporalModel",
                                                                           source_folder=tmp_path / "source_run"),
                                   device=torch.device("cpu"))
+
+
+def test_source_run_written_before_the_head_normalization_is_rejected(tmp_path: Path) -> None:
+    """
+    Verifies that a classification head of a run written before the batch normalization of the hidden layers existed
+    is not read with a guessed value: the transfer stops with the missing setting and the script migrating the run.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration, _ = write_sequence_classifier_run(run_folder=tmp_path / "source_run", temporal_type="gru")
+    old_configuration = copy.deepcopy(configuration)
+    del old_configuration["ClassificationHead"]["fully_connected_normalization"]
+    (tmp_path / "source_run" / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=old_configuration))
+    target_model = build_task_model(task="sequence_classification", configuration=configuration, seed=1)
+
+    with pytest.raises(expected_exception=ValueError,
+                       match="fully_connected_normalization' is missing from the source run"):
+        load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                                  model_configuration=point_to_source_run(configuration=configuration,
+                                                                          section_name="ClassificationHead",
+                                                                          source_folder=tmp_path / "source_run"),
+                                  device=torch.device("cpu"))
+
+
+def test_components_of_another_batch_normalization_momentum_are_transferred(tmp_path: Path) -> None:
+    """
+    Verifies that the batch normalization momentum, which changes no tensor, does not stop the transfer: the backbone
+    of a run written before the momentum existed and its normalized classification head initialise a run of other
+    momentums with exactly their weights and batch statistics.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration, _, _ = get_sequence_model_configuration(temporal_type="gru")
+    configuration["ClassificationHead"]["fully_connected_normalization"] = True
+    source_model = build_task_model(task="sequence_classification", configuration=configuration, seed=0)
+    old_configuration = copy.deepcopy(configuration)
+    del old_configuration["Backbone"]["normalization"]["batch_normalization_momentum"]
+    write_source_run(run_folder=tmp_path / "source_run", configuration=old_configuration, model=source_model)
+
+    # Run of other momentums receiving the backbone and the head of the source run
+    target_configuration = copy.deepcopy(configuration)
+    target_configuration["Backbone"]["normalization"]["batch_normalization_momentum"] = 0.01
+    target_configuration["ClassificationHead"]["batch_normalization_momentum"] = 0.01
+    target_model = build_task_model(task="sequence_classification", configuration=target_configuration, seed=1)
+    for section_name in ["Backbone", "ClassificationHead"]:
+        load_pretrained_component(component=getattr(target_model, TRANSFERABLE_COMPONENTS[section_name]),
+                                  section_name=section_name, device=torch.device("cpu"),
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name=section_name,
+                                                                          source_folder=tmp_path / "source_run"))
+        source_state = getattr(source_model, TRANSFERABLE_COMPONENTS[section_name]).state_dict()
+        target_state = getattr(target_model, TRANSFERABLE_COMPONENTS[section_name]).state_dict()
+        for tensor_name, tensor_value in source_state.items():
+            assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
 
 
 def test_head_with_another_dropout_rate_is_transferred(tmp_path: Path) -> None:
@@ -893,6 +964,29 @@ def test_detection_heads_initialise_an_instance_segmenter(tmp_path: Path, capsys
     assert "The Pretrained Region Proposal Heads Were Trained With The Anchors" in console_output
     assert "Region Proposal Heads Initialised From" in console_output
     assert "Detection Heads Initialised From" in console_output
+
+
+@pytest.mark.parametrize(argnames="section_name", argvalues=["RegionProposal", "Detector"])
+def test_detection_heads_of_another_batch_normalization_momentum_match(section_name: str) -> None:
+    """
+    Verifies that the region proposal and detection heads of runs differing only by the batch normalization momentum
+    of their convolution blocks, a source run written before the momentum existed included, have matching weights,
+    while another feature map normalization is still reported.
+
+    Args:
+        section_name (str): The section of the compared heads.
+    """
+    source_configuration, _, _ = get_detection_model_configuration()
+    del source_configuration[section_name]["normalization"]["batch_normalization_momentum"]
+    target_configuration = copy.deepcopy(source_configuration)
+    target_configuration[section_name]["normalization"]["batch_normalization_momentum"] = 0.01
+    assert compare_detection_heads(section_name=section_name, source_configuration=source_configuration,
+                                   target_configuration=target_configuration) == []
+
+    target_configuration[section_name]["normalization"]["feature_map_normalization"] = "layer"
+    differences = compare_detection_heads(section_name=section_name, source_configuration=source_configuration,
+                                          target_configuration=target_configuration)
+    assert len(differences) == 1 and differences[0].startswith(f"'{section_name}.normalization' is ")
 
 
 def add_detection_level(configuration: Dict[str, Any]) -> None:

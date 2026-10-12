@@ -1,7 +1,8 @@
 """
 Building blocks of the configuration checks: the ConfigurationError raised on an incomplete or inconsistent file,
 the lookup of a nested value from a dotted key path, and the value checks (booleans, positive integers,
-probabilities, IoU thresholds) used by every check module of vision_training/configuration.
+probabilities, IoU thresholds, batch normalization momentums) used by every check module of
+vision_training/configuration.
 """
 
 from typing import Any, Dict, List
@@ -120,6 +121,25 @@ def check_probability_value(value: Any, key_path: str) -> List[str]:
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
         return [f"'{key_path}' must be a probability within [0, 1], got {value!r}."]
+    return []
+
+
+def check_batch_normalization_momentum(configuration: Dict[str, Any], key_path: str) -> List[str]:
+    """
+    Verifies that the momentum of the batch normalization layers of a component (backbone, task heads, decoder) is a
+    number within (0, 1]: the fraction by which every training batch moves their running mean and variance (PyTorch
+    convention), 0 leaving the statistics of an untrained network forever and 1 keeping the last batch only.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration dictionary containing the momentum.
+        key_path (str): The dotted key path of the momentum.
+
+    Returns:
+        List[str]: A single error description if the momentum is invalid, otherwise an empty list.
+    """
+    value = get_configuration_value(configuration=configuration, key_path=key_path)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 < value <= 1.0:
+        return [f"'{key_path}' must be a number within (0, 1], got {value!r}."]
     return []
 
 

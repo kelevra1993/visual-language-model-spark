@@ -242,6 +242,10 @@ Backbone:
     # normalization) or "sequence" (Batch Normalization with the statistics of each window, at training
     # and at inference alike, a window being normalised by its own frames).
     feature_map_normalization: "batch"
+    # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
+    # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
+    # 100. Unused by the other normalizations, it gives no run name token and can change when a run resumes.
+    batch_normalization_momentum: 0.1
 
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
@@ -264,7 +268,7 @@ Backbone:
 
   # Backbone of another training run (of any task) initialising this run instead of random weights. Its settings
   # defining the layers (input_channels, convolutions, modules, normalization, last_max_pooling) must be identical to
-  # the ones above, the detection blocks and the image size may differ.
+  # the ones above, the detection blocks, the image size and the batch normalization momentum may differ.
   pretrained:
     # Run folder whose trained backbone initialises this run, null to start from random weights. A run resuming
     # from its own checkpoints does not load it again.
@@ -351,6 +355,13 @@ ClassificationHead:
   global_pooling: "average"
   # Units of the hidden fully connected layers between the fused vector of a pair and the class logits, [] for none.
   fully_connected: [256]
+  # Batch normalization of the outputs of every hidden layer before its ReLU, False to disable. Needs at least one
+  # hidden layer, and gives the HBN run name token.
+  fully_connected_normalization: False
+  # Momentum of the running mean and variance of these batch normalization layers (PyTorch convention): every
+  # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
+  # 100. It gives no run name token and can change when a run resumes.
+  batch_normalization_momentum: 0.1
   # Dropout applied before every fully connected layer, within [0, 1), 0 to disable.
   dropout_rate: 0.5
   # Must be "multi_class" for the sequence tasks: one class per pair (softmax).
@@ -361,9 +372,10 @@ ClassificationHead:
   # same, the weights being inversely proportional to the number of training pairs of each class).
   class_weighting: "none"
   # Classification head of another training run initialising this run instead of random weights. Its
-  # fully_connected layers must be identical in both runs (the dropout rate may differ), as well as the size of
-  # the vectors it reads and the classes it predicts, in the same order. The head of a comparison run, which reads
-  # the fused vectors of both members, only fits another comparison run.
+  # fully_connected layers and fully_connected_normalization must be identical in both runs (the dropout rate and
+  # the batch normalization momentum may differ), as well as the size of the vectors it reads and the classes it
+  # predicts, in the same order. The head of a comparison run, which reads the fused vectors of both members, only
+  # fits another comparison run.
   pretrained:
     # Run folder whose trained classification head initialises this run, null to start from random weights. A
     # run resuming from its own checkpoints does not load it again.

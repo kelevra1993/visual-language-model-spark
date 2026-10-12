@@ -2,7 +2,8 @@
 Tests of vision_training/configuration/configuration_migration.py: every migration step (task, pretrained settings,
 normalization flag, evaluation outputs, per-class report, sample images, MLflow tracking, sequence augmentation,
 normalization scope, optimization section, loading settings, batch padding, positional embedding, segmentation
-settings) is added once to an old configuration, and migrate_run_folder renames old run folders after their settings.
+settings, batch normalization momentums, classification head normalization) is added once to an old configuration,
+and migrate_run_folder renames old run folders after their settings.
 """
 
 import json
@@ -12,7 +13,8 @@ import yaml
 from pathlib import Path
 
 from vision_training.configuration.configuration_migration import (
-    TRACKING_SECTION_LINES, add_batch_padding_to_configuration, add_evaluation_outputs_to_configuration,
+    TRACKING_SECTION_LINES, add_batch_normalization_momentums_to_configuration, add_batch_padding_to_configuration,
+    add_evaluation_outputs_to_configuration, add_head_normalization_to_configuration,
     add_freeze_normalization_parameters_to_configuration, add_loading_settings_to_configuration,
     add_optimization_section_to_configuration, add_per_class_report_to_configuration,
     add_positional_embedding_to_configuration, add_pretrained_settings_to_configuration,
@@ -31,6 +33,8 @@ SEGMENTATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training"
                                    "semantic_segmentation" / "configuration_synthetic_shapes.yaml")
 CLASSIFICATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                      "classification" / "configuration_example.yaml")
+INSTANCE_SEGMENTATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
+                                            "instance_segmentation" / "configuration_example.yaml")
 
 # Pretrained backbone settings written by the migration of the backbone transfer, before the normalization flag existed
 OLD_PRETRAINED_BACKBONE_BLOCK = ("  # Backbone of another training run initialising this run, null to start from "
@@ -53,9 +57,9 @@ def write_old_run_folder(temporary_directory: Path) -> Path:
     Writes a run folder as trained before the task-aware configuration, the component transfers and the
     optimization settings: an old-style name (without task code, with the augmentation, batch size and learning rate
     tokens no longer written), and a saved configuration without task, pretrained backbone, region proposal and
-    detection head settings, per-class report switch, number of sample images, tracking settings nor optimization
-    section, and with the block of the removed DALI loader (a copy of the example configuration, with binary labels so
-    that no mapping file is needed).
+    detection head settings, per-class report switch, number of sample images, tracking settings, optimization
+    section nor batch normalization momentums, and with the block of the removed DALI loader (a copy of the example
+    configuration, with binary labels so that no mapping file is needed).
 
     Args:
         temporary_directory (Path): The pytest temporary directory, used as the experiments root folder.
@@ -73,6 +77,8 @@ def write_old_run_folder(temporary_directory: Path) -> Path:
     del configuration["Detector"]["pretrained"]
     del configuration["Optimization"]
     del configuration["Data"]["loading"]
+    for section_name in ["Backbone", "RegionProposal", "Detector"]:
+        del configuration[section_name]["normalization"]["batch_normalization_momentum"]
     configuration["Data"]["DALI"] = {"activated": True}
     configuration["Data"]["label_mapping"] = {"mode": "binary", "mapping_file_path": None}
 
@@ -640,3 +646,86 @@ def test_segmentation_settings_are_added_once(tmp_path: Path) -> None:
     classification_path.write_text(data=classification_text)
     assert add_segmentation_settings_to_configuration(configuration_path=classification_path) is False
     assert classification_path.read_text() == classification_text
+
+
+# Sections holding a feature map normalization, with the keys from the section down to its settings
+NORMALIZATION_SETTINGS_PATHS = {"Backbone": ["Backbone", "normalization"],
+                                "RegionProposal": ["RegionProposal", "normalization"],
+                                "Detector": ["Detector", "normalization"], "MaskHead": ["MaskHead", "normalization"],
+                                "SegmentationDecoder": ["SegmentationDecoder"]}
+
+
+@pytest.mark.parametrize(argnames="configuration_path", argvalues=[INSTANCE_SEGMENTATION_CONFIGURATION_PATH,
+                                                                    SEGMENTATION_CONFIGURATION_PATH])
+def test_batch_normalization_momentums_are_added_once(tmp_path: Path, configuration_path: Path) -> None:
+    """
+    Verifies that the batch normalization momentum of every normalized section of a run written before it (backbone,
+    region proposal, detection and mask heads of INS, decoder of SEG) is added right after its feature map
+    normalization, at the PyTorch default of 0.1 used by the runs of that time, and that a configuration which already
+    has them is left untouched.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_path (Path): The shipped configuration the old configuration is made from.
+    """
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    original_settings = {}
+    for section_name, settings_path in NORMALIZATION_SETTINGS_PATHS.items():
+        if section_name not in configuration:
+            continue
+        normalization_settings = configuration
+        for key_name in settings_path:
+            normalization_settings = normalization_settings[key_name]
+        original_settings[section_name] = dict(normalization_settings)
+        del normalization_settings["batch_normalization_momentum"]
+    old_configuration_path = tmp_path / "configuration.yaml"
+    old_configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+
+    # Every normalized section gets its momentum right after its feature map normalization
+    assert add_batch_normalization_momentums_to_configuration(configuration_path=old_configuration_path) is True
+    migrated_configuration = yaml.safe_load(stream=old_configuration_path.read_text())
+    for section_name, settings in original_settings.items():
+        migrated_settings = migrated_configuration
+        for key_name in NORMALIZATION_SETTINGS_PATHS[section_name]:
+            migrated_settings = migrated_settings[key_name]
+        assert migrated_settings == {**settings, "batch_normalization_momentum": 0.1}
+        setting_names = list(migrated_settings)
+        assert setting_names[setting_names.index("feature_map_normalization") + 1] == "batch_normalization_momentum"
+    assert len(original_settings) >= 2
+    assert add_batch_normalization_momentums_to_configuration(configuration_path=old_configuration_path) is False
+
+
+def test_head_normalization_is_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that the batch normalization of the hidden layers of the classification head of a run written before it
+    is added right after its hidden layers, off with the PyTorch default momentum as in the runs of that time, that a
+    configuration which already has it is left untouched, and that a configuration without classification head is not
+    changed.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration = yaml.safe_load(stream=CLASSIFICATION_CONFIGURATION_PATH.read_text())
+    original_head_configuration = dict(configuration["ClassificationHead"])
+    del configuration["ClassificationHead"]["fully_connected_normalization"]
+    del configuration["ClassificationHead"]["batch_normalization_momentum"]
+    old_configuration_path = tmp_path / "configuration.yaml"
+    old_configuration_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+
+    # Both settings follow the hidden layers, the second migration changing nothing
+    assert add_head_normalization_to_configuration(configuration_path=old_configuration_path) is True
+    head_configuration = yaml.safe_load(stream=old_configuration_path.read_text())["ClassificationHead"]
+    assert head_configuration == {**original_head_configuration, "fully_connected_normalization": False,
+                                  "batch_normalization_momentum": 0.1}
+    setting_names = list(head_configuration)
+    fully_connected_index = setting_names.index("fully_connected")
+    assert setting_names[fully_connected_index + 1:fully_connected_index + 3] == ["fully_connected_normalization",
+                                                                                  "batch_normalization_momentum"]
+    assert add_head_normalization_to_configuration(configuration_path=old_configuration_path) is False
+
+    # A configuration without classification head keeps its settings
+    detection_text = EXAMPLE_CONFIGURATION_PATH.read_text()
+    detection_path = tmp_path / "detection_configuration.yaml"
+    detection_path.write_text(data=detection_text)
+    assert add_head_normalization_to_configuration(configuration_path=detection_path) is False
+    assert detection_path.read_text() == detection_text

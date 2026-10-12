@@ -35,6 +35,10 @@ ARCHITECTURE_BACKBONE_KEYS = ["input_channels", "convolutions", "modules", "norm
 # between batch normalization and sequence normalization through the transfer
 BATCH_STATISTICS_NORMALIZATIONS = ["batch", "sequence"]
 
+# Normalization settings that change how the batch statistics follow the training batches but no tensor, so that a
+# component moves between runs of different momentums, a source run written before the setting existed included
+NON_WEIGHT_NORMALIZATION_KEYS = ["batch_normalization_momentum"]
+
 # Temporal module settings defining its weights, for every type that has weights. The dropout only acts in training
 # and the causal flag only changes which frames attend to each other, so neither changes the weights. The number of
 # heads of the transformer does not change the shape of its weights, but it splits them differently between the heads,
@@ -82,20 +86,24 @@ def get_component_name(section_name: str) -> str:
 
 def get_weight_normalization(normalization_configuration: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Gives the normalization settings of a backbone as far as its weights are concerned: batch and sequence
-    normalization holding the same tensors, both are named "batch", so that a backbone moves between them through the
-    transfer.
+    Gives the normalization settings of a backbone or of detection heads as far as their weights are concerned: batch
+    and sequence normalization holding the same tensors, both are named "batch", so that a backbone moves between them
+    through the transfer, and the batch normalization momentum, which changes no tensor, is left out.
 
     Args:
-        normalization_configuration (Dict[str, Any]): The 'Backbone.normalization' settings.
+        normalization_configuration (Dict[str, Any]): The 'Backbone.normalization' settings, or the 'normalization'
+            settings of the 'RegionProposal' or 'Detector' section.
 
     Returns:
-        Dict[str, Any]: A copy of the settings, sequence normalization written as batch normalization.
+        Dict[str, Any]: A copy of the settings without the momentum, sequence normalization written as batch
+            normalization.
     """
     feature_map_normalization = normalization_configuration["feature_map_normalization"]
     if feature_map_normalization in BATCH_STATISTICS_NORMALIZATIONS:
         feature_map_normalization = "batch"
-    return {**normalization_configuration, "feature_map_normalization": feature_map_normalization}
+    weight_settings = {key_name: value for key_name, value in normalization_configuration.items()
+                       if key_name not in NON_WEIGHT_NORMALIZATION_KEYS}
+    return {**weight_settings, "feature_map_normalization": feature_map_normalization}
 
 
 def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any],
@@ -103,7 +111,7 @@ def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any]
     """
     Lists the differences between the architecture-defining settings of two backbones, so that a backbone is only
     transferred between runs whose backbones have exactly the same layers. Batch and sequence normalization count as
-    the same layers, holding the same tensors.
+    the same layers, holding the same tensors, and the batch normalization momentum may differ.
 
     Args:
         source_backbone_configuration (Dict[str, Any]): The 'Backbone' section of the source run.
@@ -189,9 +197,10 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
                                  target_configuration: Dict[str, Any]) -> List[str]:
     """
     Lists the differences between the settings defining the layers of the classification heads of two runs: the
-    hidden fully connected layers and, for a flattened feature map, the settings giving the size of its input (the
-    flattening itself, and the image size). The dropout rate is not compared: the heads always hold their dropout
-    layers, so it does not change the names of their weights.
+    hidden fully connected layers, their batch normalization and, for a flattened feature map, the settings giving the
+    size of its input (the flattening itself, and the image size). The dropout rate and the batch normalization
+    momentum are not compared: the heads always hold their dropout layers, so the rate does not change the names of
+    their weights, and the momentum changes no tensor.
     The other sizes of the input vectors (e.g. the channels of the last backbone block) and the number of classes are
     compared on the weights themselves.
 
@@ -208,6 +217,18 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
     if source_head_configuration["fully_connected"] != target_head_configuration["fully_connected"]:
         differences.append(f"'ClassificationHead.fully_connected' is {source_head_configuration['fully_connected']!r} "
                            f"in the source run and {target_head_configuration['fully_connected']!r} in this run.")
+
+    # Batch normalization layers of the hidden layers, a source run written before the setting existed having to be
+    # migrated
+    if "fully_connected_normalization" not in source_head_configuration:
+        differences.append("'ClassificationHead.fully_connected_normalization' is missing from the source run, "
+                           "written before the setting existed: migrate it with "
+                           "scripts/configuration/migrate_configuration.py.")
+    elif source_head_configuration["fully_connected_normalization"] != \
+            target_head_configuration["fully_connected_normalization"]:
+        differences.append(f"'ClassificationHead.fully_connected_normalization' is "
+                           f"{source_head_configuration['fully_connected_normalization']!r} in the source run and "
+                           f"{target_head_configuration['fully_connected_normalization']!r} in this run.")
 
     # A flattened feature map gives one input per position and channel, a pooled one an input per channel only, and
     # the positions of a flattened map follow the image size
@@ -268,7 +289,8 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     """
     Lists the differences between the settings defining the weights of the region proposal heads or of the detection
     heads of two runs of the detection tasks (DET or INS): their detection levels, then the settings of
-    DETECTION_HEAD_WEIGHT_KEYS and, for the region proposal heads, the number of anchors per position of every level.
+    DETECTION_HEAD_WEIGHT_KEYS (the normalization without its batch normalization momentum, which changes no tensor)
+    and, for the region proposal heads, the number of anchors per position of every level.
     The channels of the backbone blocks they read and the number of classes of the detection heads (classifier and
     per-class box regressor) are compared on the weights themselves.
 
@@ -292,7 +314,12 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     source_section_configuration = source_configuration[section_name]
     target_section_configuration = target_configuration[section_name]
     for key_name in DETECTION_HEAD_WEIGHT_KEYS[section_name]:
-        if source_section_configuration[key_name] != target_section_configuration[key_name]:
+        compared_source_value = source_section_configuration[key_name]
+        compared_target_value = target_section_configuration[key_name]
+        if key_name == "normalization":
+            compared_source_value = get_weight_normalization(normalization_configuration=compared_source_value)
+            compared_target_value = get_weight_normalization(normalization_configuration=compared_target_value)
+        if compared_source_value != compared_target_value:
             differences.append(f"'{section_name}.{key_name}' is {source_section_configuration[key_name]!r} in the "
                                f"source run and {target_section_configuration[key_name]!r} in this run.")
 

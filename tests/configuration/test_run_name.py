@@ -271,6 +271,8 @@ def get_classification_reference_configurations() -> Tuple[Dict[str, Any], Dict[
 
     # Classification head and classes
     model_configuration["ClassificationHead"] = {"global_pooling": "average", "fully_connected": [128],
+                                                 "fully_connected_normalization": False,
+                                                 "batch_normalization_momentum": 0.1,
                                                  "dropout_rate": 0.2, "output_mode": "multi_class",
                                                  "label_smoothing": 0.0, "class_weighting": "none",
                                                  "pretrained": dict(NO_TRANSFER_SETTINGS)}
@@ -330,6 +332,35 @@ def smooth_labels_and_balance_classes(experiment_configuration: Dict[str, Any],
     model_configuration["ClassificationHead"].update({"label_smoothing": 0.1, "class_weighting": "balanced"})
 
 
+def normalize_hidden_layers_and_balance_classes(experiment_configuration: Dict[str, Any],
+                                                model_configuration: Dict[str, Any]) -> None:
+    """
+    Normalizes the outputs of the hidden layer of the head with batch normalization, and balances the classes of the
+    loss, whose token follows.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["ClassificationHead"].update({"fully_connected_normalization": True,
+                                                      "class_weighting": "balanced"})
+
+
+def change_batch_normalization_momentums(experiment_configuration: Dict[str, Any],
+                                         model_configuration: Dict[str, Any]) -> None:
+    """
+    Changes the batch normalization momentum of the backbone and of the normalized hidden layers of the head, which
+    changes no weight.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Backbone"]["normalization"]["batch_normalization_momentum"] = 0.01
+    model_configuration["ClassificationHead"].update({"fully_connected_normalization": True,
+                                                      "batch_normalization_momentum": 0.01})
+
+
 def use_multi_label_outputs(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
     Predicts any number of classes per image, among 5 classes.
@@ -349,12 +380,17 @@ def use_multi_label_outputs(experiment_configuration: Dict[str, Any], model_conf
     (remove_hidden_layers_and_dropout, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_", "_HAVG_")),
     (smooth_labels_and_balance_classes, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_",
                                                                                   "_HAVG.128-LS0.1-CWB_")),
+    (normalize_hidden_layers_and_balance_classes, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_",
+                                                                                            "_HAVG.128-HBN-CWB_")),
+    (change_batch_normalization_momentums, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_HAVG.128_",
+                                                                                     "_HAVG.128-HBN_")),
     (use_multi_label_outputs, CLASSIFICATION_REFERENCE_RUN_NAME.replace("_MC4", "_ML5"))])
 def test_classification_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                   expected_run_name: str) -> None:
     """
     Verifies the run names of the classification task: the CLS task code, the shared input and backbone sections, the
-    classification head and classes sections, and that changing a head setting changes its token.
+    classification head and classes sections, that changing a head setting changes its token, and that the batch
+    normalization momentums give none.
 
     Args:
         modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the settings, or
@@ -406,6 +442,8 @@ def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, A
                                             "causal": False, "positional_embedding": True,
                                             "pretrained": dict(NO_TRANSFER_SETTINGS)}
     model_configuration["ClassificationHead"] = {"global_pooling": "average", "fully_connected": [64],
+                                                 "fully_connected_normalization": False,
+                                                 "batch_normalization_momentum": 0.1,
                                                  "dropout_rate": 0.2, "output_mode": "multi_class",
                                                  "label_smoothing": 0.0, "class_weighting": "none",
                                                  "pretrained": dict(NO_TRANSFER_SETTINGS)}
@@ -829,7 +867,8 @@ def get_segmentation_reference_configurations() -> Tuple[Dict[str, Any], Dict[st
                                                   "convolutions": {"5": [2, 64], "4": [2, 64], "3": [2, 32],
                                                                    "2": [2, 32], "1": [1, 16]},
                                                   "modules": {"squeeze_and_excite": False, "residual_nets": False},
-                                                  "feature_map_normalization": "batch", "dropout_rate": 0.0,
+                                                  "feature_map_normalization": "batch",
+                                                  "batch_normalization_momentum": 0.1, "dropout_rate": 0.0,
                                                   "deep_supervision_weights": {},
                                                   "pretrained": dict(NO_TRANSFER_SETTINGS)}
     model_configuration["SegmentationLoss"] = {"cross_entropy_weight": 1.0, "focal_gamma": 0.0,
@@ -1024,7 +1063,8 @@ def get_instance_segmentation_reference_configurations() -> Tuple[Dict[str, Any]
     experiment_configuration["task"] = "instance_segmentation"
     model_configuration["MaskHead"] = {"roi_align_pool_size": 14,
                                        "head_configurations": {level: [4, 64] for level in ["5", "6", "7"]},
-                                       "normalization": {"feature_map_normalization": "batch"},
+                                       "normalization": {"feature_map_normalization": "batch",
+                                                         "batch_normalization_momentum": 0.1},
                                        "modules": {"squeeze_and_excite": False, "residual_nets": True,
                                                    "inception": False},
                                        "inference": {"mask_threshold": 0.5}}

@@ -19,7 +19,8 @@ from vision_training.models.detection.box_operations import (apply_regression_pr
 class RegionProposal(nn.Module):
     def __init__(self, head_configurations: List[int], input_channels: int, scales: List[float],
                  aspect_ratios: List[float], input_image_size: int, feature_map_size: int,
-                 feature_map_normalization: str, dtype: torch.dtype, device: torch.device) -> None:
+                 feature_map_normalization: str, batch_normalization_momentum: float, dtype: torch.dtype,
+                 device: torch.device) -> None:
         """
         Initializes the Region Proposal module for a specific feature map scale.
         
@@ -35,6 +36,7 @@ class RegionProposal(nn.Module):
             input_image_size (int): The absolute size (height and width) of the original input image.
             feature_map_size (int): The spatial resolution (height and width) of the input feature map.
             feature_map_normalization (str): The normalization strategy to use in the convolution block (e.g. 'batch', 'none').
+            batch_normalization_momentum (float): The momentum of the running statistics of its batch normalization.
             dtype (torch.dtype): The tensor data type.
             device (torch.device): The computational device.
         """
@@ -73,6 +75,7 @@ class RegionProposal(nn.Module):
             bias=True, number_layers=self.convolution_number_layers,
             kernel_size=3, stride=1, padding=1,
             feature_map_normalization=self.feature_map_normalization,
+            batch_normalization_momentum=batch_normalization_momentum,
             activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype,
             squeeze_and_excite=False, residual=False, inception=False)
 

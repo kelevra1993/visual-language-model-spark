@@ -41,8 +41,9 @@ class Backbone(nn.Module):
                 'residual_nets', 'inception') and the block from which inception starts ('inception_starting_block').
                 Missing keys default to disabled modules and an inception start at block 3.
             last_max_pooling (bool): Whether to apply max pooling at the very end of the last convolution block.
-            normalization (Dict[str, Any]): Dictionary containing the 'feature_map_normalization' strategy and the
-                'input_normalization' / 'per_sample_normalization' input image flags.
+            normalization (Dict[str, Any]): Dictionary containing the 'feature_map_normalization' strategy, the
+                'batch_normalization_momentum' of its batch statistics and the 'input_normalization' /
+                'per_sample_normalization' input image flags.
             detection_convolution_block_indices (List[int]): A list of block indices (1-indexed) whose intermediate feature maps 
                 are explicitly captured and returned for downstream multi-scale feature enhancement.
             input_image_size (int): The spatial dimension (height and width) of the square input image, used to dynamically compute downstream tensor sizes.
@@ -70,8 +71,9 @@ class Backbone(nn.Module):
         # Set the current input channels to the initial provided argument
         current_input_channels = input_channels
 
-        # Extract chosen feature map normalization strategy
+        # Extract chosen feature map normalization strategy and the momentum of its batch statistics
         self.feature_map_normalization = normalization["feature_map_normalization"]
+        self.batch_normalization_momentum = normalization["batch_normalization_momentum"]
 
         # Normalize the raw [0, 255] input images before feature extraction
         self.input_normalizer = InputNormalizer(input_normalization=normalization["input_normalization"],
@@ -106,6 +108,7 @@ class Backbone(nn.Module):
                                                  bias=True, number_layers=number_layers,
                                                  kernel_size=3, stride=1, padding=1,
                                                  feature_map_normalization=self.feature_map_normalization,
+                                                 batch_normalization_momentum=self.batch_normalization_momentum,
                                                  activation=True, dropout_rate=0.0,
                                                  add_pooling=add_pooling, device=device, dtype=dtype,
                                                  squeeze_and_excite=self.squeeze_and_excite, residual=use_residual,

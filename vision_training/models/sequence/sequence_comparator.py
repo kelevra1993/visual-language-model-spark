@@ -88,6 +88,10 @@ class SequenceComparator(TaskModel):
                                           dtype=dtype)
         self.classification_head = ClassificationHead(input_features=self.member_fusion.output_features,
                                                       fully_connected=self.head_configuration["fully_connected"],
+                                                      fully_connected_normalization=self.head_configuration[
+                                                          "fully_connected_normalization"],
+                                                      batch_normalization_momentum=self.head_configuration[
+                                                          "batch_normalization_momentum"],
                                                       dropout_rate=self.head_configuration["dropout_rate"],
                                                       number_classes=self.number_classes, device=device, dtype=dtype)
 

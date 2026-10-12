@@ -29,25 +29,25 @@ def test_convolution_block():
     convolution_configurations = {
         "basic_convolution": {
             "input_channels": 3, "output_channels": 16, "bias": True, "number_layers": 1,
-            "kernel_size": 3, "stride": 1, "padding": 1,
+            "kernel_size": 3, "stride": 1, "padding": 1, "batch_normalization_momentum": 0.1,
             "feature_map_normalization": "none", "activation": False, "dropout_rate": 0.0, "add_pooling": False,
             "device": device, "dtype": dtype, "squeeze_and_excite": False, "residual": False, "inception": False
         },
         "batch_norm_and_activation": {
             "input_channels": 3, "output_channels": 32, "bias": False, "number_layers": 2,
-            "kernel_size": 3, "stride": 1, "padding": 1,
+            "kernel_size": 3, "stride": 1, "padding": 1, "batch_normalization_momentum": 0.1,
             "feature_map_normalization": "batch", "activation": True, "dropout_rate": 0.0, "add_pooling": False,
             "device": device, "dtype": dtype, "squeeze_and_excite": False, "residual": False, "inception": False
         },
         "layer_norm_and_activation": {
             "input_channels": 3, "output_channels": 32, "bias": False, "number_layers": 2,
-            "kernel_size": 3, "stride": 1, "padding": 1,
+            "kernel_size": 3, "stride": 1, "padding": 1, "batch_normalization_momentum": 0.1,
             "feature_map_normalization": "layer", "activation": True, "dropout_rate": 0.0, "add_pooling": False,
             "device": device, "dtype": dtype, "squeeze_and_excite": False, "residual": False, "inception": False
         },
         "deep_with_pooling_and_dropout": {
             "input_channels": 3, "output_channels": 64, "bias": False, "number_layers": 3,
-            "kernel_size": 5, "stride": 2, "padding": 2,
+            "kernel_size": 5, "stride": 2, "padding": 2, "batch_normalization_momentum": 0.1,
             "feature_map_normalization": "batch", "activation": True, "dropout_rate": 0.5, "add_pooling": True,
             "device": device, "dtype": dtype, "squeeze_and_excite": False, "residual": False, "inception": False
         }
@@ -91,7 +91,8 @@ def test_convolution_block_modules() -> None:
 
     # Shared structural parameters of the tested blocks
     common_parameters = {"bias": True, "kernel_size": 3, "stride": 1, "padding": 1, "activation": True,
-                         "dropout_rate": 0.0, "add_pooling": True, "device": device, "dtype": dtype}
+                         "dropout_rate": 0.0, "add_pooling": True, "batch_normalization_momentum": 0.1,
+                         "device": device, "dtype": dtype}
 
     # Every module flag must be explicitly set, so all of them start disabled before each configuration activates one
     disabled_module_flags = {"squeeze_and_excite": False, "residual": False, "inception": False}

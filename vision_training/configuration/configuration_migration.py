@@ -2,9 +2,10 @@
 Migration of configuration files and run folders written by older versions of the code: inserts as text, keeping
 the comments, the keys and sections added since (task, pretrained settings, evaluation outputs, per-class report,
 sample images, MLflow tracking, sequence settings and batch padding, positional embedding of the transformer,
-segmentation losses, deep supervision, tiles and evaluation settings, Optimization), and renames the run folder to its
-current run name (without the training, learning rate multiplier and dropout tokens no longer written in the run
-names). Called by scripts/configuration/migrate_configuration.py.
+segmentation losses, deep supervision, tiles and evaluation settings, Optimization, batch normalization momentums,
+batch normalization of the classification head), and renames the run folder to its current run name (without the
+training, learning rate multiplier and dropout tokens no longer written in the run names). Called by
+scripts/configuration/migrate_configuration.py.
 """
 
 import yaml
@@ -208,6 +209,43 @@ OPTIMIZATION_SECTION = ("\n# Optimization of a run trained with Adam at a consta
                         "  minimum_learning_rate_ratio: 0.01\n"
                         "  gradient_clipping_norm: null\n"
                         "  mixed_precision: False\n")
+
+# Sections holding a feature map normalization, with the keys from the section down to the settings of that
+# normalization, the batch normalization momentum being inserted after the 'feature_map_normalization' line of each
+NORMALIZATION_SETTINGS_PATHS = {"Backbone": ["Backbone", "normalization"],
+                                "RegionProposal": ["RegionProposal", "normalization"],
+                                "Detector": ["Detector", "normalization"], "MaskHead": ["MaskHead", "normalization"],
+                                "SegmentationDecoder": ["SegmentationDecoder"]}
+FEATURE_MAP_NORMALIZATION_KEY = "feature_map_normalization:"
+
+# Comment and setting of the batch normalization momentum, indented like the 'feature_map_normalization' line they
+# follow, at the PyTorch default of every run written before the setting existed
+MOMENTUM_COMMENT_LINES = ["# Momentum of the running mean and variance of the batch normalization layers (PyTorch "
+                          "convention): every\n",
+                          "# training batch moves them by this fraction, 0.1 following about the last 10 batches and "
+                          "0.01 about the last\n",
+                          "# 100. Unused by the other normalizations, it gives no run name token and can change "
+                          "when a run resumes.\n"]
+MOMENTUM_SETTING_LINE = "batch_normalization_momentum: 0.1\n"
+
+# Section header of the classification head, start of the line of its hidden layers, and the batch normalization of
+# these layers inserted after it, off with the PyTorch default momentum as in every run written before it existed
+CLASSIFICATION_HEAD_SECTION_HEADER = "ClassificationHead:\n"
+FULLY_CONNECTED_LINE_START = "  fully_connected:"
+
+# Starts of the lines continuing a list of the classification head written one item per line: an item at the indent
+# of the key, or any line indented deeper than the keys of the section
+LIST_CONTINUATION_STARTS = ("  - ", "   ")
+HEAD_NORMALIZATION_LINES = ("  # Batch normalization of the outputs of every hidden layer before its ReLU, False to "
+                            "disable. Needs at least one\n"
+                            "  # hidden layer, and gives the HBN run name token.\n"
+                            "  fully_connected_normalization: False\n")
+HEAD_MOMENTUM_LINES = ("  # Momentum of the running mean and variance of these batch normalization layers (PyTorch "
+                       "convention): every\n"
+                       "  # training batch moves them by this fraction, 0.1 following about the last 10 batches and "
+                       "0.01 about the last\n"
+                       "  # 100. It gives no run name token and can change when a run resumes.\n"
+                       "  batch_normalization_momentum: 0.1\n")
 
 
 def add_task_to_configuration(configuration_path: Path, task: str) -> bool:
@@ -735,6 +773,121 @@ def remove_dali_settings_from_configuration(configuration_path: Path) -> bool:
     return True
 
 
+def add_batch_normalization_momentums_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades a configuration file written before the batch normalization momentum by inserting the
+    'batch_normalization_momentum' of every section holding a feature map normalization (NORMALIZATION_SETTINGS_PATHS:
+    Backbone, RegionProposal, Detector, MaskHead, SegmentationDecoder) at 0.1, the PyTorch default used by every run of
+    that time, right after the 'feature_map_normalization' line of the section and with its indentation. The settings
+    are inserted as text, so that every comment of the file is kept, and a section that already has the setting, or
+    that the task does not have, is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if at least one momentum was added, False if every section of the file already had it.
+
+    Raises:
+        ValueError: If a section lacking the momentum has no 'feature_map_normalization' line of its own.
+    """
+    text = configuration_path.read_text()
+    configuration = yaml.safe_load(stream=text)
+    lines = text.splitlines(keepends=True)
+    settings_added = False
+
+    # Insert the momentum of every section of the file lacking it, the line indices of the following sections being
+    # found again in the updated lines
+    for section_name, settings_path in NORMALIZATION_SETTINGS_PATHS.items():
+        if section_name not in configuration:
+            continue
+        normalization_settings = configuration
+        for key_name in settings_path:
+            normalization_settings = normalization_settings[key_name]
+        if "batch_normalization_momentum" in normalization_settings:
+            continue
+
+        # Feature map normalization line of the section, searched from its header to the next section header
+        section_header = f"{section_name}:\n"
+        if section_header not in lines:
+            raise ValueError(f"No '{section_name}:' section header in {format_path_link(path=configuration_path)}")
+        normalization_index = None
+        for line_index in range(lines.index(section_header) + 1, len(lines)):
+            if lines[line_index][:1].isalpha():
+                break
+            if lines[line_index].lstrip().startswith(FEATURE_MAP_NORMALIZATION_KEY):
+                normalization_index = line_index
+                break
+        if normalization_index is None:
+            raise ValueError(f"No 'feature_map_normalization' line in the '{section_name}' section of "
+                             f"{format_path_link(path=configuration_path)}")
+
+        # Comment and setting with the indentation of the normalization line
+        normalization_line = lines[normalization_index]
+        indentation = normalization_line[:len(normalization_line) - len(normalization_line.lstrip())]
+        momentum_lines = [indentation + line for line in MOMENTUM_COMMENT_LINES + [MOMENTUM_SETTING_LINE]]
+        lines = lines[:normalization_index + 1] + momentum_lines + lines[normalization_index + 1:]
+        settings_added = True
+
+    if settings_added:
+        configuration_path.write_text(data="".join(lines))
+    return settings_added
+
+
+def add_head_normalization_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades the configuration file of a classification-like run written before the batch normalization of the hidden
+    layers of the classification head by inserting 'ClassificationHead.fully_connected_normalization', off, and
+    'ClassificationHead.batch_normalization_momentum', at the PyTorch default of 0.1, as in the runs of that time, right
+    after the 'fully_connected' line of the head. The settings are inserted as text, so that every comment of the file
+    is kept, and a file that already has them, or that has no classification head (the detection and segmentation
+    tasks), is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if at least one setting was added, False if the file already had both or has no classification
+            head.
+
+    Raises:
+        ValueError: If the classification head has no 'fully_connected' line of its own.
+    """
+    text = configuration_path.read_text()
+    configuration = yaml.safe_load(stream=text)
+    if "ClassificationHead" not in configuration:
+        return False
+    head_configuration = configuration["ClassificationHead"]
+    inserted_lines = []
+    if "fully_connected_normalization" not in head_configuration:
+        inserted_lines.append(HEAD_NORMALIZATION_LINES)
+    if "batch_normalization_momentum" not in head_configuration:
+        inserted_lines.append(HEAD_MOMENTUM_LINES)
+    if not inserted_lines:
+        return False
+
+    # Line of the hidden layers, searched from the head header to the next section header
+    lines = text.splitlines(keepends=True)
+    fully_connected_index = None
+    for line_index in range(lines.index(CLASSIFICATION_HEAD_SECTION_HEADER) + 1, len(lines)):
+        if lines[line_index][:1].isalpha():
+            break
+        if lines[line_index].startswith(FULLY_CONNECTED_LINE_START):
+            fully_connected_index = line_index
+            break
+    if fully_connected_index is None:
+        raise ValueError(f"No 'fully_connected' line in the 'ClassificationHead' section of "
+                         f"{format_path_link(path=configuration_path)}")
+
+    # A list written one item per line (as yaml.safe_dump writes it) continues on the lines below the key
+    last_list_index = fully_connected_index
+    while last_list_index + 1 < len(lines) and lines[last_list_index + 1].startswith(LIST_CONTINUATION_STARTS):
+        last_list_index += 1
+    configuration_path.write_text(data="".join(lines[:last_list_index + 1] + inserted_lines +
+                                               lines[last_list_index + 1:]))
+    return True
+
+
 def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path:
     """
     Upgrades a run trained with an older version of the code so that it can be resumed, evaluated and exported with
@@ -746,8 +899,9 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     augmentations (off), the scope of the sequence normalization of the comparison task (per member), its
     'Optimization' section (plain Adam at a constant learning rate), its loading settings (4 worker processes), the
     padding of the batches of the sequence tasks (every window padded to the sequence length), the positional
-    embedding of their transformer (on) and the settings of the segmentation added since its first runs (off), it loses
-    the 'Data.DALI' block of the removed DALI loader, and its
+    embedding of their transformer (on), the settings of the segmentation added since its first runs (off), the batch
+    normalization momentum of every normalized section (0.1, the PyTorch default) and the batch normalization of the
+    hidden layers of the classification head (off), it loses the 'Data.DALI' block of the removed DALI loader, and its
     folder is renamed to the run name the current code builds from that configuration (the task code being now the
     first section of the run names, and the augmentation, batch size, learning rate, schedule, gradient clipping, mixed
     precision, dropout and learning rate multiplier (BLR, TLR, HLR, DLR) tokens being no longer written). The
@@ -812,6 +966,12 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
                                           f"Added To : {format_path_link(path=configuration_path)}")
     if remove_dali_settings_from_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"DALI Loader Settings Removed From : "
+                                          f"{format_path_link(path=configuration_path)}")
+    if add_batch_normalization_momentums_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Batch Normalization Momentums Added To : "
+                                          f"{format_path_link(path=configuration_path)}")
+    if add_head_normalization_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Classification Head Batch Normalization Added To : "
                                           f"{format_path_link(path=configuration_path)}")
 
     # The run name the current code gives to this configuration

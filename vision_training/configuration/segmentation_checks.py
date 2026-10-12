@@ -11,6 +11,7 @@ from vision_training.configuration.classification_checks import VALID_CLASS_WEIG
 from vision_training.configuration.common_checks import (check_image_task_sequence_settings,
                                                          check_pretrained_configuration)
 from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
+                                                                check_batch_normalization_momentum,
                                                                 check_boolean_flags, check_positive_integers,
                                                                 get_configuration_value)
 from vision_training.data.segmentation.segmentation_dataset import IGNORED_MASK_VALUE
@@ -134,7 +135,8 @@ def check_segmentation_decoder_configuration(model_configuration: Dict[str, Any]
             errors.append(f"'SegmentationDecoder.convolutions.{level_key}' must be [number_layers, output_channels] "
                           f"with positive integers, got {level_definition!r}.")
 
-    # Modules and normalization of the decoder blocks, dropout of the segmentation head
+    # Modules, normalization and momentum of its batch statistics of the decoder blocks, dropout of the segmentation
+    # head
     errors += check_boolean_flags(configuration=model_configuration,
                                   key_paths=["SegmentationDecoder.modules.squeeze_and_excite",
                                              "SegmentationDecoder.modules.residual_nets"])
@@ -143,6 +145,8 @@ def check_segmentation_decoder_configuration(model_configuration: Dict[str, Any]
     if feature_map_normalization not in VALID_FEATURE_MAP_NORMALIZATIONS:
         errors.append(f"'SegmentationDecoder.feature_map_normalization' must be one of "
                       f"{VALID_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
+    errors += check_batch_normalization_momentum(configuration=model_configuration,
+                                                 key_path="SegmentationDecoder.batch_normalization_momentum")
     dropout_rate = get_configuration_value(configuration=model_configuration,
                                            key_path="SegmentationDecoder.dropout_rate")
     if isinstance(dropout_rate, bool) or not isinstance(dropout_rate, (int, float)) or not 0.0 <= dropout_rate < 1.0:

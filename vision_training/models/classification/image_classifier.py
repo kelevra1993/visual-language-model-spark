@@ -59,6 +59,10 @@ class ImageClassifier(TaskModel):
         self.global_pooling = build_global_pooling(global_pooling=self.head_configuration["global_pooling"])
         self.classification_head = ClassificationHead(input_features=pooled_features,
                                                       fully_connected=self.head_configuration["fully_connected"],
+                                                      fully_connected_normalization=self.head_configuration[
+                                                          "fully_connected_normalization"],
+                                                      batch_normalization_momentum=self.head_configuration[
+                                                          "batch_normalization_momentum"],
                                                       dropout_rate=self.head_configuration["dropout_rate"],
                                                       number_classes=self.number_classes, device=device, dtype=dtype)
 

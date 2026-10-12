@@ -9,6 +9,7 @@ import torch
 from typing import Any, Dict, List
 
 from vision_training.configuration.configuration_values import (BACKBONE_FEATURE_MAP_NORMALIZATIONS,
+                                                                check_batch_normalization_momentum,
                                                                 check_boolean_flags,
                                                                 check_positive_integers,
                                                                 check_probability_value,
@@ -237,12 +238,14 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
                                              "Backbone.modules.squeeze_and_excite", "Backbone.modules.residual_nets",
                                              "Backbone.modules.inception"])
 
-    # Feature map normalization strategy of the convolution blocks
+    # Feature map normalization strategy of the convolution blocks, and the momentum of its batch statistics
     feature_map_normalization = get_configuration_value(configuration=model_configuration,
                                                         key_path="Backbone.normalization.feature_map_normalization")
     if feature_map_normalization not in BACKBONE_FEATURE_MAP_NORMALIZATIONS:
         errors.append(f"'Backbone.normalization.feature_map_normalization' must be one of "
                       f"{BACKBONE_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
+    errors += check_batch_normalization_momentum(configuration=model_configuration,
+                                                 key_path="Backbone.normalization.batch_normalization_momentum")
 
     # Blocks feeding task heads (detection levels) must exist in the Backbone and be listed from the finest to the
     # coarsest level; the tasks whose heads use the final feature map list none

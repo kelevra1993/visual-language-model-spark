@@ -28,6 +28,10 @@ SWEPT_SETTINGS = {"learning_rate": ("ExperimentConfiguration", "learning_rate"),
                   "global_pooling": ("ClassificationHead", "global_pooling"),
                   "residual_nets": ("Backbone", "modules", "residual_nets"),
                   "squeeze_and_excite": ("Backbone", "modules", "squeeze_and_excite"),
+                  "fully_connected_normalization": ("ClassificationHead", "fully_connected_normalization"),
+                  "backbone_batch_normalization_momentum": ("Backbone", "normalization",
+                                                            "batch_normalization_momentum"),
+                  "head_batch_normalization_momentum": ("ClassificationHead", "batch_normalization_momentum"),
                   "feature_map_normalization": ("Backbone", "normalization", "feature_map_normalization"),
                   "dtype": ("ExperimentConfiguration", "dtype"),
                   "mixed_precision": ("Optimization", "mixed_precision"),
@@ -52,7 +56,7 @@ def get_launch_number(launch_folder: Path) -> int:
     return int(LAUNCH_FOLDER_PATTERN.fullmatch(string=launch_folder.name).group(1))
 
 
-def read_setting(configuration: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
+def read_setting(configuration: Dict[str, Any], keys: Tuple[str, ...], configuration_path: Path) -> Any:
     """
     Reads a swept setting of a launch from its training configuration, walking down its nested keys, so that a key
     missing from the configuration stops the collection instead of writing an empty setting.
@@ -60,12 +64,21 @@ def read_setting(configuration: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
     Args:
         configuration (Dict[str, Any]): The training configuration of the launch (training_configuration.yaml).
         keys (Tuple[str, ...]): The keys of the setting, from its section down to its name.
+        configuration_path (Path): The training_configuration.yaml file of the launch, named in the error.
 
     Returns:
         Any: The value of the setting.
+
+    Raises:
+        KeyError: If the setting is missing, e.g. from a launch trained before the setting existed.
     """
     value = configuration
     for key in keys:
+        # A launch trained before the setting existed gets it from the migration of its run folder
+        if key not in value:
+            raise KeyError(f"No '{'.'.join(keys)}' setting in {format_path_link(path=configuration_path)}, written "
+                           f"before the setting existed: migrate its run folder with "
+                           f"scripts/configuration/migrate_configuration.py")
         value = value[key]
     return value
 
@@ -136,7 +149,8 @@ def collect_launches(experiment_folder: Path, metric: str) -> List[Dict[str, Any
 
             # Test metric of every evaluated checkpoint, the launch being finished once its last iteration is evaluated
             evaluations = read_test_metric(test_folder=run_folder / "Tensorboard" / "Test", metric=metric)
-            settings = {name: read_setting(configuration=configuration, keys=keys)
+            settings = {name: read_setting(configuration=configuration, keys=keys,
+                                           configuration_path=configuration_path)
                         for name, keys in SWEPT_SETTINGS.items()}
             launches.append({"launch": launch_folder.name, "settings": settings, "evaluations": evaluations,
                              "finished": configuration["ExperimentConfiguration"]["number_iterations"] in evaluations,

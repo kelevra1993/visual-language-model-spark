@@ -40,6 +40,7 @@ def test_region_proposer() -> None:
             "input_image_size": 1024,
             "feature_map_size": feature_map_size,
             "feature_map_normalization": "batch",
+            "batch_normalization_momentum": 0.1,
             "device": device,
             "dtype": dtype},
         "complex_region_proposal": {
@@ -50,6 +51,7 @@ def test_region_proposer() -> None:
             "input_image_size": 1024,
             "feature_map_size": feature_map_size,
             "feature_map_normalization": "layer",
+            "batch_normalization_momentum": 0.1,
             "device": device,
             "dtype": dtype}}
 

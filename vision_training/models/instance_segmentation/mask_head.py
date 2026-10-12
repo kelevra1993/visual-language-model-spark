@@ -22,8 +22,9 @@ class MaskHead(nn.Module):
     """
 
     def __init__(self, head_configuration: List[int], roi_align_pool_size: int, number_classes: int,
-                 input_channels: int, feature_map_normalization: str, input_image_size: int, feature_map_size: int,
-                 modules: Dict[str, Any], dtype: torch.dtype, device: torch.device) -> None:
+                 input_channels: int, feature_map_normalization: str, batch_normalization_momentum: float,
+                 input_image_size: int, feature_map_size: int, modules: Dict[str, Any], dtype: torch.dtype,
+                 device: torch.device) -> None:
         """
         Builds the mask head of one detection level from the 'MaskHead' section of the configuration.
 
@@ -33,6 +34,7 @@ class MaskHead(nn.Module):
             number_classes (int): The number of classes, background included, one mask channel per class.
             input_channels (int): The number of channels of the feature map of this level.
             feature_map_normalization (str): The normalization of the convolution block ("batch", "layer" or "none").
+            batch_normalization_momentum (float): The momentum of the running statistics of its batch normalization.
             input_image_size (int): The size of the square network input, giving the spatial scale of RoIAlign.
             feature_map_size (int): The size of the square feature map of this level.
             modules (Dict[str, Any]): The 'MaskHead.modules' flags ('squeeze_and_excite', 'residual_nets',
@@ -55,8 +57,9 @@ class MaskHead(nn.Module):
         self.convolutional_block = ConvolutionBlock(
             input_channels=input_channels, output_channels=convolution_output_channels, bias=True,
             number_layers=self.convolution_number_layers, kernel_size=3, stride=1, padding=1,
-            feature_map_normalization=feature_map_normalization, activation=True, dropout_rate=0.0, add_pooling=False,
-            device=device, dtype=dtype, squeeze_and_excite=bool(modules["squeeze_and_excite"]),
+            feature_map_normalization=feature_map_normalization,
+            batch_normalization_momentum=batch_normalization_momentum, activation=True, dropout_rate=0.0,
+            add_pooling=False, device=device, dtype=dtype, squeeze_and_excite=bool(modules["squeeze_and_excite"]),
             residual=bool(modules["residual_nets"]), inception=bool(modules["inception"]))
 
         # Transposed convolution doubling the resolution, then one mask logit map per class

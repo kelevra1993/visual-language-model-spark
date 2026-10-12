@@ -43,8 +43,8 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                          'modules': {'squeeze_and_excite': False, 'residual_nets': False, 'inception': False,
                                      'inception_starting_block': 3},
                          'last_max_pooling': True,
-                         'normalization': {'feature_map_normalization': 'none', 'input_normalization': False,
-                                           'per_sample_normalization': False},
+                         'normalization': {'feature_map_normalization': 'none', 'batch_normalization_momentum': 0.1,
+                                           'input_normalization': False, 'per_sample_normalization': False},
                          'detection_convolution_block_indices': [5, 6, 7]},
                      'Anchors': {
                          'scales_and_ratios': {
@@ -54,7 +54,7 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                          }},
                      'RegionProposal': {
                          'head_configurations': {'5': [2, 128], '6': [2, 128], '7': [2, 128]},
-                         'normalization': {'feature_map_normalization': 'batch'},
+                         'normalization': {'feature_map_normalization': 'batch', 'batch_normalization_momentum': 0.1},
                          'nms_iou_threshold': 0.7,
                          'training': {'pre_nms_proposals': 500, 'post_nms_proposals': 250},
                          'inference': {'pre_nms_proposals': 100, 'post_nms_proposals': 50},
@@ -71,7 +71,7 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                              '6': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]},
                              '7': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]}
                          },
-                         'normalization': {'feature_map_normalization': 'batch'},
+                         'normalization': {'feature_map_normalization': 'batch', 'batch_normalization_momentum': 0.1},
                          'foreground_iou_threshold': 0.3,
                          'number_training_positives': 128,
                          'total_training_samples': 256,
@@ -84,7 +84,8 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
     if mask_head:
         configuration['MaskHead'] = {'roi_align_pool_size': 7,
                                      'head_configurations': {'5': [2, 32], '6': [2, 32], '7': [2, 32]},
-                                     'normalization': {'feature_map_normalization': 'batch'},
+                                     'normalization': {'feature_map_normalization': 'batch',
+                                                       'batch_normalization_momentum': 0.1},
                                      'modules': {'squeeze_and_excite': False, 'residual_nets': True,
                                                  'inception': False},
                                      'inference': {'mask_threshold': 0.5}}
@@ -111,10 +112,13 @@ def get_classification_model_configuration(output_mode: str) -> Tuple[Dict[str, 
                                   'modules': {'squeeze_and_excite': True, 'residual_nets': True, 'inception': False,
                                               'inception_starting_block': 3},
                                   'last_max_pooling': False,
-                                  'normalization': {'feature_map_normalization': 'batch', 'input_normalization': True,
+                                  'normalization': {'feature_map_normalization': 'batch',
+                                                    'batch_normalization_momentum': 0.1, 'input_normalization': True,
                                                     'per_sample_normalization': False},
                                   'detection_convolution_block_indices': []},
-                     'ClassificationHead': {'global_pooling': 'average', 'fully_connected': [16], 'dropout_rate': 0.0,
+                     'ClassificationHead': {'global_pooling': 'average', 'fully_connected': [16],
+                                            'fully_connected_normalization': False,
+                                            'batch_normalization_momentum': 0.1, 'dropout_rate': 0.0,
                                             'output_mode': output_mode, 'label_smoothing': 0.0,
                                             'class_weighting': 'none'}}
     device = torch.device(device="cpu")
@@ -142,7 +146,8 @@ def get_segmentation_model_configuration(upsampling: str) -> Tuple[Dict[str, Any
     configuration['SegmentationDecoder'] = {'upsampling': upsampling,
                                             'convolutions': {'3': [1, 16], '2': [1, 16], '1': [1, 8]},
                                             'modules': {'squeeze_and_excite': False, 'residual_nets': False},
-                                            'feature_map_normalization': 'batch', 'dropout_rate': 0.0,
+                                            'feature_map_normalization': 'batch',
+                                            'batch_normalization_momentum': 0.1, 'dropout_rate': 0.0,
                                             'deep_supervision_weights': {}}
     configuration['SegmentationLoss'] = {'cross_entropy_weight': 1.0, 'focal_gamma': 0.0, 'label_smoothing': 0.0,
                                          'class_weighting': 'none', 'dice_weight': 1.0, 'lovasz_weight': 0.0,

@@ -7,6 +7,7 @@ configuration_checker.py for the instance_segmentation task.
 from typing import Any, Dict, List
 
 from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
+                                                                check_batch_normalization_momentum,
                                                                 check_boolean_flags, check_positive_integers,
                                                                 check_probability_value, get_configuration_value)
 from vision_training.configuration.detection_checks import check_detection_configuration
@@ -16,8 +17,8 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
     """
     Verifies the 'MaskHead' section built into one MaskHead per detection level: the RoIAlign pool size shared by
     every level, the [number_layers, output_channels] of every level (a multiple of 8 channels with inception
-    modules), the normalization, the module flags and the mask threshold of the inference. Its levels are compared
-    with the detection blocks by check_detection_levels.
+    modules), the normalization and the momentum of its batch statistics, the module flags and the mask threshold of
+    the inference. Its levels are compared with the detection blocks by check_detection_levels.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'MaskHead' section.
@@ -42,12 +43,15 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
             errors.append(f"'MaskHead.head_configurations.{level}' has {head_definition[1]} output channels, "
                           f"inception modules require a multiple of 8.")
 
-    # Feature map normalization strategy and module flags of the mask head convolution blocks
+    # Feature map normalization strategy, momentum of its batch statistics and module flags of the mask head
+    # convolution blocks
     feature_map_normalization = get_configuration_value(configuration=model_configuration,
                                                         key_path="MaskHead.normalization.feature_map_normalization")
     if feature_map_normalization not in VALID_FEATURE_MAP_NORMALIZATIONS:
         errors.append(f"'MaskHead.normalization.feature_map_normalization' must be one of "
                       f"{VALID_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
+    errors += check_batch_normalization_momentum(configuration=model_configuration,
+                                                 key_path="MaskHead.normalization.batch_normalization_momentum")
     errors += check_boolean_flags(configuration=model_configuration,
                                   key_paths=["MaskHead.modules.squeeze_and_excite", "MaskHead.modules.residual_nets",
                                              "MaskHead.modules.inception"])

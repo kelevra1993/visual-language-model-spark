@@ -17,8 +17,8 @@ from vision_training.models.detection.box_operations import apply_regression_pre
 
 class DetectionHead(nn.Module):
     def __init__(self, detector_configuration: Dict[str, Any], number_classes: int, input_channels: int,
-                 feature_map_normalization: str, input_image_size: int, feature_map_size: int, dtype: torch.dtype,
-                 device: torch.device, modules: Dict[str, Any]) -> None:
+                 feature_map_normalization: str, batch_normalization_momentum: float, input_image_size: int,
+                 feature_map_size: int, dtype: torch.dtype, device: torch.device, modules: Dict[str, Any]) -> None:
         """
         Initializes the Detection Head module for a specific feature map scale.
         
@@ -31,6 +31,8 @@ class DetectionHead(nn.Module):
             number_classes (int): The total number of classes to predict (including background).
             input_channels (int): The number of channels in the input feature maps.
             feature_map_normalization (str): The chosen normalization layer type (e.g., 'batch', 'layer', 'none').
+            batch_normalization_momentum (float): The momentum of the running statistics of the batch normalization of
+                the convolutional block.
             input_image_size (int): The spatial dimension (height and width) of the original input image.
             feature_map_size (int): The spatial dimension (height and width) of the feature map at this scale.
             dtype (torch.dtype): The tensor data type.
@@ -62,16 +64,19 @@ class DetectionHead(nn.Module):
             bias=True, number_layers=self.convolution_number_layers,
             kernel_size=3, stride=1, padding=1,
             feature_map_normalization=self.feature_map_normalization,
+            batch_normalization_momentum=batch_normalization_momentum,
             activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype,
             squeeze_and_excite=bool(modules["squeeze_and_excite"]),
             residual=bool(modules["residual_nets"]),
             inception=bool(modules["inception"]))
 
-        # Fully connected layers
+        # Fully connected layers, without normalization so that the checkpoints keep their layers
         flattened_dimension = self.roi_align_pool_size * self.roi_align_pool_size * convolution_output_channels
         self.fully_connected_block = build_fully_connected_block(input_dimension=flattened_dimension,
                                                                  dimensions=self.fully_connected_dimensions,
                                                                  dropout_rate=0.0, add_dropout_layers=False,
+                                                                 batch_normalization=False,
+                                                                 batch_normalization_momentum=0.1,
                                                                  device=self.device, dtype=self.dtype)
 
         # Final task-specific output layers

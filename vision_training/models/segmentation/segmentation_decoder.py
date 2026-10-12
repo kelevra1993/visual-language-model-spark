@@ -49,8 +49,8 @@ class SegmentationDecoder(nn.Module):
 
         Args:
             decoder_configuration (Dict[str, Any]): The 'SegmentationDecoder' section: 'upsampling', 'convolutions'
-                ([number of layers, output channels] of every level, keyed by backbone block), 'modules' and
-                'feature_map_normalization'.
+                ([number of layers, output channels] of every level, keyed by backbone block), 'modules',
+                'feature_map_normalization' and 'batch_normalization_momentum'.
             block_channels (List[int]): The output channels of every backbone block, in order.
             last_max_pooling (bool): Whether the last backbone block ends with a max pooling.
             device (torch.device): The device of the parameters.
@@ -59,6 +59,7 @@ class SegmentationDecoder(nn.Module):
         super(SegmentationDecoder, self).__init__()
         self.upsampling = decoder_configuration["upsampling"]
         self.feature_map_normalization = decoder_configuration["feature_map_normalization"]
+        self.batch_normalization_momentum = decoder_configuration["batch_normalization_momentum"]
         self.skip_block_numbers = compute_skip_block_numbers(number_blocks=len(block_channels),
                                                              last_max_pooling=last_max_pooling)
         self.skip_channels = {str(block_number): block_channels[block_number - 1]
@@ -87,7 +88,8 @@ class SegmentationDecoder(nn.Module):
             self.convolution_blocks[level_key] = ConvolutionBlock(
                 input_channels=self.skip_channels[level_key] + level_channels, output_channels=level_channels,
                 bias=True, number_layers=number_layers, kernel_size=3, stride=1, padding=1,
-                feature_map_normalization=self.feature_map_normalization, activation=True, dropout_rate=0.0,
+                feature_map_normalization=self.feature_map_normalization,
+                batch_normalization_momentum=self.batch_normalization_momentum, activation=True, dropout_rate=0.0,
                 add_pooling=False, device=device, dtype=dtype,
                 squeeze_and_excite=bool(decoder_configuration["modules"]["squeeze_and_excite"]),
                 residual=bool(decoder_configuration["modules"]["residual_nets"]), inception=False)

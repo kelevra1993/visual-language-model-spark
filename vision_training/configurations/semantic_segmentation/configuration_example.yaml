@@ -238,6 +238,10 @@ Backbone:
     # Strategy for normalizing the feature maps in the convolution blocks.
     # Options are: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
     feature_map_normalization: "batch"
+    # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
+    # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
+    # 100. Unused by the other normalizations, it gives no run name token and can change when a run resumes.
+    batch_normalization_momentum: 0.1
 
   modules:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
@@ -260,7 +264,7 @@ Backbone:
 
   # Backbone of another training run (of any task) initialising this run instead of random weights. Its settings
   # defining the layers (input_channels, convolutions, modules, normalization, last_max_pooling) must be identical to
-  # the ones above, the detection blocks and the image size may differ.
+  # the ones above, the detection blocks, the image size and the batch normalization momentum may differ.
   pretrained:
     # Run folder whose trained backbone initialises this run, null to start from random weights. A run resuming
     # from its own checkpoints does not load it again.
@@ -301,6 +305,10 @@ SegmentationDecoder:
     residual_nets: False
   # Normalization of the decoder feature maps: "batch", "layer" or "none".
   feature_map_normalization: "batch"
+  # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
+  # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
+  # 100. Unused by the other normalizations, it gives no run name token and can change when a run resumes.
+  batch_normalization_momentum: 0.1
   # Dropout of whole channels before the final 1x1 convolution giving the class logits, within [0, 1), 0 to disable.
   dropout_rate: 0.0
   # Deep supervision: a 1x1 head on every listed decoder level, keyed like convolutions, whose class logits are

@@ -68,6 +68,7 @@ class InstanceSegmenter(TwoStageDetector):
                 roi_align_pool_size=mask_head_configuration["roi_align_pool_size"],
                 number_classes=self.number_classes, input_channels=level_information["number_channels"],
                 feature_map_normalization=mask_head_configuration["normalization"]["feature_map_normalization"],
+                batch_normalization_momentum=mask_head_configuration["normalization"]["batch_normalization_momentum"],
                 input_image_size=self.input_image_size, feature_map_size=level_information["feature_map_size"],
                 modules=mask_head_configuration["modules"], dtype=self.dtype, device=self.device)
         return mask_heads_dictionary

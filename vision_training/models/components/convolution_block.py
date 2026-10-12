@@ -84,6 +84,9 @@ class ConvolutionBlock(nn.Module):
         padding (int): The padding added to both sides of the input.
         feature_map_normalization (str): Strategy for normalization ("batch", "layer", "sequence" (batch normalization
             with the statistics of each sequence, backbone of the sequence models only) or "none").
+        batch_normalization_momentum (float): The momentum of the running mean and variance of the batch and sequence
+            normalization layers (PyTorch convention: each training batch moves them by this fraction, 0.1 following
+            about the last 10 batches and 0.01 about the last 100), unused by the other normalizations.
         activation (bool): Whether to apply a ReLU activation function after each convolution.
         dropout_rate (float): The probability of an element to be zeroed in the dropout layer.
         add_pooling (bool): Whether to apply a max pooling layer at the very end of the block.
@@ -97,9 +100,10 @@ class ConvolutionBlock(nn.Module):
     """
 
     def __init__(self, input_channels: int, output_channels: int, bias: bool, number_layers: int,
-                 kernel_size: int, stride: int, padding: int, feature_map_normalization: str, activation: bool,
-                 dropout_rate: float, add_pooling: bool, device: torch.device, dtype: torch.dtype,
-                 squeeze_and_excite: bool, residual: bool, inception: bool) -> None:
+                 kernel_size: int, stride: int, padding: int, feature_map_normalization: str,
+                 batch_normalization_momentum: float, activation: bool, dropout_rate: float, add_pooling: bool,
+                 device: torch.device, dtype: torch.dtype, squeeze_and_excite: bool, residual: bool,
+                 inception: bool) -> None:
 
         super(ConvolutionBlock, self).__init__()
 
@@ -159,13 +163,17 @@ class ConvolutionBlock(nn.Module):
                                         kernel_size=kernel_size, stride=stride, padding=padding, bias=bias,
                                         device=device, dtype=dtype))
 
-            # Conditionally apply the selected normalization strategy
+            # Conditionally apply the selected normalization strategy, the batch statistics following the training
+            # batches at the configured momentum
             if normalization_strategy == "batch":
-                layers.append(nn.BatchNorm2d(num_features=output_channels, device=device, dtype=dtype))
+                layers.append(nn.BatchNorm2d(num_features=output_channels, momentum=batch_normalization_momentum,
+                                             device=device, dtype=dtype))
             elif normalization_strategy == "layer":
                 layers.append(ChannelLayerNormalizer(channels=output_channels, device=device, dtype=dtype))
             elif normalization_strategy == "sequence":
-                layers.append(SequenceBatchNormalization(num_features=output_channels, device=device, dtype=dtype))
+                layers.append(SequenceBatchNormalization(num_features=output_channels,
+                                                         momentum=batch_normalization_momentum, device=device,
+                                                         dtype=dtype))
 
             # Conditionally apply the activation function to introduce non-linearity to the network
             self.layer_activation_indices.append(len(layers) if activation else None)

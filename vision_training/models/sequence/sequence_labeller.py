@@ -67,6 +67,10 @@ class SequenceLabeller(TaskModel):
             device=device, dtype=dtype)
         self.classification_head = ClassificationHead(input_features=self.temporal_module.output_features,
                                                       fully_connected=self.head_configuration["fully_connected"],
+                                                      fully_connected_normalization=self.head_configuration[
+                                                          "fully_connected_normalization"],
+                                                      batch_normalization_momentum=self.head_configuration[
+                                                          "batch_normalization_momentum"],
                                                       dropout_rate=self.head_configuration["dropout_rate"],
                                                       number_classes=self.number_classes, device=device, dtype=dtype)
 
@@ -94,7 +98,7 @@ class SequenceLabeller(TaskModel):
         frame_features = encode_frames(backbone=self.backbone, global_pooling=self.global_pooling,
                                        input_tensor=input_tensor, sequence_mask=sequence_mask)
         contextual_features = self.temporal_module(frame_features=frame_features, sequence_mask=sequence_mask)
-        class_logits = self.classification_head(features=contextual_features)
+        class_logits = self.classification_head(features=contextual_features, feature_mask=sequence_mask)
 
         outputs = {"class_logits": class_logits,
                    "class_probabilities": convert_logits_to_probabilities(class_logits=class_logits,

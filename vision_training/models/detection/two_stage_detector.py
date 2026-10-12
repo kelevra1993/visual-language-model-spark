@@ -119,6 +119,8 @@ class TwoStageDetector(TaskModel):
             input_channels = self.detection_input_information[index_string]["number_channels"]
 
             feature_map_normalization = self.region_proposal_configuration["normalization"]["feature_map_normalization"]
+            batch_normalization_momentum = self.region_proposal_configuration["normalization"][
+                "batch_normalization_momentum"]
             # Initialize and store the RegionProposal module
             region_proposer_dictionary[index_string] = RegionProposal(
                 head_configurations=self.region_proposal_configuration["head_configurations"][index_string],
@@ -128,6 +130,7 @@ class TwoStageDetector(TaskModel):
                 input_image_size=self.input_image_size,
                 feature_map_size=feature_map_size,
                 feature_map_normalization=feature_map_normalization,
+                batch_normalization_momentum=batch_normalization_momentum,
                 dtype=self.dtype,
                 device=self.device)
 
@@ -153,6 +156,7 @@ class TwoStageDetector(TaskModel):
 
         detector_head_configurations = detector_configuration["head_configurations"]
         feature_map_normalization = detector_configuration["normalization"]["feature_map_normalization"]
+        batch_normalization_momentum = detector_configuration["normalization"]["batch_normalization_momentum"]
 
         # Iterate over the sequentially ordered detection blocks computed by the backbone
         for index_string in self.detection_input_information.keys():
@@ -164,15 +168,12 @@ class TwoStageDetector(TaskModel):
             input_channels = self.detection_input_information[index_string]["number_channels"]
 
             # Initialize and store the DetectionHead module
-            detector_heads_dictionary[index_string] = DetectionHead(detector_configuration=specific_configuration,
-                                                                    number_classes=self.number_classes,
-                                                                    input_channels=input_channels,
-                                                                    feature_map_normalization=feature_map_normalization,
-                                                                    input_image_size=self.input_image_size,
-                                                                    feature_map_size=feature_map_size,
-                                                                    dtype=self.dtype,
-                                                                    device=self.device,
-                                                                    modules=detector_configuration["modules"])
+            detector_heads_dictionary[index_string] = DetectionHead(
+                detector_configuration=specific_configuration, number_classes=self.number_classes,
+                input_channels=input_channels, feature_map_normalization=feature_map_normalization,
+                batch_normalization_momentum=batch_normalization_momentum, input_image_size=self.input_image_size,
+                feature_map_size=feature_map_size, dtype=self.dtype, device=self.device,
+                modules=detector_configuration["modules"])
 
         return detector_heads_dictionary
 

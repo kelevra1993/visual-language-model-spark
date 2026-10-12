@@ -20,7 +20,8 @@ def test_mask_head_predicts_one_doubled_mask_per_class() -> None:
     configuration, device, dtype = get_detection_model_configuration(mask_head=True)
     mask_head_configuration = configuration["MaskHead"]
     mask_head = MaskHead(head_configuration=[2, 16], roi_align_pool_size=7, number_classes=6, input_channels=8,
-                         feature_map_normalization="batch", input_image_size=128, feature_map_size=16,
+                         feature_map_normalization="batch", batch_normalization_momentum=0.1, input_image_size=128,
+                         feature_map_size=16,
                          modules=mask_head_configuration["modules"], dtype=dtype, device=device).eval()
     feature_map = torch.rand(size=(2, 8, 16, 16))
     boxes = torch.tensor(data=[[0.0, 10.0, 10.0, 60.0, 80.0], [1.0, 0.0, 0.0, 128.0, 128.0], [1.0, 5.0, 5.0, 9.0, 9.0]])

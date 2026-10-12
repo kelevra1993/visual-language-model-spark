@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 from vision_training.configuration.common_checks import (check_image_task_sequence_settings,
                                                          check_pretrained_configuration)
 from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
+                                                                check_batch_normalization_momentum,
                                                                 check_boolean_flags,
                                                                 check_intersection_over_union_value,
                                                                 check_positive_integers,
@@ -118,12 +119,15 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
             errors.append(f"'RegionProposal.head_configurations.{level}' must be [number_layers, output_channels] "
                           f"with positive integers, got {head_definition!r}.")
 
-    # Feature map normalization strategy of the region proposal convolution blocks
+    # Feature map normalization strategy of the region proposal convolution blocks, and the momentum of its batch
+    # statistics
     feature_map_normalization = get_configuration_value(
         configuration=model_configuration, key_path="RegionProposal.normalization.feature_map_normalization")
     if feature_map_normalization not in VALID_FEATURE_MAP_NORMALIZATIONS:
         errors.append(f"'RegionProposal.normalization.feature_map_normalization' must be one of "
                       f"{VALID_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
+    errors += check_batch_normalization_momentum(configuration=model_configuration,
+                                                 key_path="RegionProposal.normalization.batch_normalization_momentum")
 
     # Every IoU threshold must lie within [0, 1]
     threshold_key_paths = ["RegionProposal.foreground_iou_threshold.min", "RegionProposal.foreground_iou_threshold.max",
@@ -216,12 +220,15 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
             errors.append(f"'{key_prefix}.fully_connected' must be a non-empty list of positive integers, "
                           f"got {fully_connected!r}.")
 
-    # Feature map normalization strategy and module flags of the detection head convolution blocks
+    # Feature map normalization strategy, momentum of its batch statistics and module flags of the detection head
+    # convolution blocks
     feature_map_normalization = get_configuration_value(configuration=model_configuration,
                                                         key_path="Detector.normalization.feature_map_normalization")
     if feature_map_normalization not in VALID_FEATURE_MAP_NORMALIZATIONS:
         errors.append(f"'Detector.normalization.feature_map_normalization' must be one of "
                       f"{VALID_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
+    errors += check_batch_normalization_momentum(configuration=model_configuration,
+                                                 key_path="Detector.normalization.batch_normalization_momentum")
     errors += check_boolean_flags(configuration=model_configuration,
                                   key_paths=["Detector.modules.squeeze_and_excite", "Detector.modules.residual_nets",
                                              "Detector.modules.inception"])

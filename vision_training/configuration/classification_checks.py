@@ -1,14 +1,16 @@
 """
 Checks of the configuration sections specific to the image classification task: the data settings (label mode,
-class weighting), the classification head (global pooling, output mode, dropout, label smoothing) and the evaluation
-settings. Run by configuration_checker.py for the classification task and reused by the sequence task checks.
+class weighting), the classification head (global pooling, hidden layers and their normalization, output mode,
+dropout, label smoothing) and the evaluation settings. Run by configuration_checker.py for the classification task and
+reused by the sequence task checks.
 """
 
 from typing import Any, Dict, List
 
 from vision_training.configuration.common_checks import (check_image_task_sequence_settings,
                                                          check_pretrained_configuration)
-from vision_training.configuration.configuration_values import (check_boolean_flags, check_positive_integers,
+from vision_training.configuration.configuration_values import (check_batch_normalization_momentum,
+                                                                check_boolean_flags, check_positive_integers,
                                                                 check_probability_value, get_configuration_value)
 
 # Global pooling of the final feature map before the classification head, or its flattening (image classifier only,
@@ -61,8 +63,9 @@ def check_classification_data_configuration(model_configuration: Dict[str, Any])
 def check_classification_head_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'ClassificationHead' section shared by the classification-like tasks: the global pooling, the hidden
-    fully connected layers, the dropout, the output mode, the label smoothing, the class weighting of the loss, and
-    the 'pretrained' settings initialising the head with the one of another run.
+    fully connected layers, their batch normalization and its momentum, the dropout, the output mode, the label
+    smoothing, the class weighting of the loss, and the 'pretrained' settings initialising the head with the one of
+    another run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -85,6 +88,18 @@ def check_classification_head_configuration(model_configuration: Dict[str, Any])
                                                         units >= 1 for units in fully_connected):
         errors.append(f"'ClassificationHead.fully_connected' must be a list of positive integers, "
                       f"got {fully_connected!r}.")
+
+    # Batch normalization of the hidden layers, which needs at least one of them, and the momentum of its statistics
+    normalization_errors = check_boolean_flags(configuration=model_configuration,
+                                               key_paths=["ClassificationHead.fully_connected_normalization"])
+    errors += normalization_errors
+    fully_connected_normalization = get_configuration_value(
+        configuration=model_configuration, key_path="ClassificationHead.fully_connected_normalization")
+    if not normalization_errors and fully_connected_normalization and fully_connected == []:
+        errors.append("'ClassificationHead.fully_connected_normalization' must be False when "
+                      "'ClassificationHead.fully_connected' is []: the head has no hidden layer to normalize.")
+    errors += check_batch_normalization_momentum(configuration=model_configuration,
+                                                 key_path="ClassificationHead.batch_normalization_momentum")
 
     # Dropout and label smoothing rates, strictly below 1 so that some signal always remains
     for key_name in ["dropout_rate", "label_smoothing"]:
