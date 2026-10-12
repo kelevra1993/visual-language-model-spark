@@ -654,7 +654,7 @@ The evaluation writes `Results.txt`, `Tensorboard/Test` and the `Evaluation/` fo
 uv run python -m scripts.evaluation.collect_experiment_results
 ```
 
-The file has one row per launch, in launch order: the launch, the swept settings (`SWEPT_SETTINGS`: learning rate, augmentation, global pooling, residual connections, squeeze and excitation, batch normalization of the fully connected head, batch normalization momentums of the backbone and of the head, feature map normalization, data type, mixed precision, class weighting and dropout rate), the metric at every evaluated iteration, the mean of these values, `finished` (evaluated at its last iteration) and the run folder. The launches of the same settings are grouped and followed by a `mean` row averaging them. A launch still training has empty cells for the iterations not evaluated yet, so the file can be written again at any time.
+The file has one row per launch, in launch order: the launch, the metric at every evaluated iteration, the mean of these values, `finished` (evaluated at its last iteration), the swept settings (`SWEPT_SETTINGS`: learning rate, augmentation, global pooling, residual connections, squeeze and excitation, batch normalization of the fully connected head, batch normalization momentums of the backbone and of the head, feature map normalization, data type, mixed precision, class weighting and dropout rate) and the run folder. The launches of the same settings are grouped and followed by a `mean` row averaging them. A launch still training has empty cells for the iterations not evaluated yet, so the file can be written again at any time.
 
 ## Deployment
 

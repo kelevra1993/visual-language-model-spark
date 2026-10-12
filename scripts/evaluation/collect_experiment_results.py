@@ -163,7 +163,8 @@ def build_result_rows(launches: List[Dict[str, Any]], metric_column: str) -> Tup
     Lays out the launches as the rows of the results file, as in the tables of the experiment plan: the launches of
     the same settings together, in the order of their first launch, followed by their mean row, the mean column of the
     mean rows deciding the setting kept for the next stage. Every launch has a column per iteration evaluated in the
-    experiment and the mean of its own evaluations.
+    experiment and the mean of its own evaluations, placed with the finished column right after the launch column so
+    that the results are read before the settings.
 
     Args:
         launches (List[Dict[str, Any]]): The launches (collect_launches).
@@ -172,11 +173,12 @@ def build_result_rows(launches: List[Dict[str, Any]], metric_column: str) -> Tup
     Returns:
         Tuple[List[str], List[Dict[str, Any]]]: The columns of the file and its rows, None for the missing values.
     """
-    # One column per iteration evaluated by any launch, the launches still training keeping empty cells
+    # One column per iteration evaluated by any launch, the launches still training keeping empty cells. The results
+    # come right after the launch, before the settings
     evaluated_iterations = sorted({iteration for launch in launches for iteration in launch["evaluations"]})
     iteration_columns = [f"{metric_column}_{iteration}" for iteration in evaluated_iterations]
     mean_column = f"{metric_column}_mean"
-    columns = ["launch", *SWEPT_SETTINGS, *iteration_columns, mean_column, "finished", "run_folder"]
+    columns = ["launch", *iteration_columns, mean_column, "finished", *SWEPT_SETTINGS, "run_folder"]
 
     # Launches of the same settings, in the order of their first launch
     setting_groups: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {}
