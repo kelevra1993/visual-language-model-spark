@@ -94,33 +94,44 @@ Changed in `Backbone.normalization.batch_normalization_momentum` only: stage 2 k
 |---|---|---|---|---|---|---|---|---|---|---|
 | 0.1 | run_13 (stage 2) | 0.6055 | 0.8918 | 0.9343 | 0.9663 | 0.9352 | 0.9787 | 0.9915 | 0.9909 | 0.9118 |
 | 0.1 | run_14 (stage 2) | 0.4637 | 0.7247 | 0.9480 | 0.9823 | 0.9849 | 0.9879 | 0.9799 | 0.9856 | 0.8821 |
-| 0.1 | **Mean** | 0.5346 | 0.8083 | 0.9411 | 0.9743 | 0.9601 | 0.9833 | 0.9857 | 0.9882 | 0.8969 |
-| 0.01 | run_15 | | | | | | | | | |
-| 0.01 | run_16 | | | | | | | | | |
-| 0.01 | **Mean** | | | | | | | | | |
+| 0.1 | **Mean** | 0.5346 | 0.8083 | 0.9411 | 0.9743 | 0.9601 | 0.9833 | 0.9857 | 0.9882 | **0.8969** |
+| 0.01 | run_15 | 0.1109 | 0.7721 | 0.9426 | 0.8553 | 0.9480 | 0.7789 | 0.9841 | 0.9148 | 0.7883 |
+| 0.01 | run_16 | 0.1109 | 0.5686 | 0.7023 | 0.9675 | 0.9507 | 0.9697 | 0.9849 | 0.9511 | 0.7757 |
+| 0.01 | **Mean** | 0.1109 | 0.6703 | 0.8225 | 0.9114 | 0.9494 | 0.8743 | 0.9845 | 0.9329 | 0.7820 |
 
-Kept:
+Kept: **0.1** (run_13 and run_14), the highest mean (0.8969 against 0.7820) and the highest mean of the last four evaluations (0.9793 against 0.9353); the configuration files of the next stages stay copies of `run-13.yaml` and `run-14.yaml`.
+
+- The running statistics of 0.01 lag behind the weights: both launches are at 0.1109 (single class) at iteration 250, where their train accuracies match those of 0.1 (0.74 and 0.68 at iteration 400 against 0.74 and 0.70), the momentum changing only the statistics used in evaluation.
+- The lag lasts to the end with the constant learning rate, Adam moving the weights by about the learning rate at every step: run_15 drops to 0.7789 at iteration 1500 and 0.9148 at iteration 2000, run_16 to 0.9511 at iteration 2000, where 0.1 ends at 0.9909 and 0.9856. The final train accuracies are the same (0.9520 and 0.9489 against 0.9574 and 0.9556).
 
 ### Stage 4: Feature Map Normalization (2 launches)
 
+`Backbone.normalization.feature_map_normalization`: batch normalization of the feature maps (statistics of every channel over the images and positions of the batch, running statistics used in evaluation) or layer normalization over the channels (statistics of every position over its channels, the same in training and evaluation, without running statistics, so that the backbone momentum no longer acts). `run-17.yaml` and `run-18.yaml` are copies of `run-13.yaml` and `run-14.yaml` (kept by stage 3) with `"layer"`.
+
 | `feature_map_normalization` | Launch | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| batch | best so far, A | | | | | | | | | |
-| batch | best so far, B | | | | | | | | | |
-| batch | **Mean** | 0.1584 | 0.4774 | 0.6044 | 0.9349 | 0.9667 | 0.9782 | 0.9850 | 0.9864 | 0.7614 |
-| layer | run_17 | | | | | | | | | |
-| layer | run_18 | | | | | | | | | |
-| layer | **Mean** | | | | | | | | | |
+| batch | run_13 (stage 2) | 0.6055 | 0.8918 | 0.9343 | 0.9663 | 0.9352 | 0.9787 | 0.9915 | 0.9909 | 0.9118 |
+| batch | run_14 (stage 2) | 0.4637 | 0.7247 | 0.9480 | 0.9823 | 0.9849 | 0.9879 | 0.9799 | 0.9856 | 0.8821 |
+| batch | **Mean** | 0.5346 | 0.8083 | 0.9411 | 0.9743 | 0.9601 | 0.9833 | 0.9857 | 0.9882 | **0.8969** |
+| layer | run_17 (stopped) | 0.1107 | 0.1115 | | | | | | | 0.1111 |
+| layer | run_18 (stopped) | 0.1105 | 0.1086 | | | | | | | 0.1096 |
+| layer | **Mean** | 0.1106 | 0.1101 | | | | | | | 0.1103 |
 
-Kept:
+Kept: **batch** (run_13 and run_14), layer being stopped at iteration 500; the configuration files of the next stages stay copies of `run-13.yaml` and `run-14.yaml`.
+
+- layer does not learn: both launches stay at the accuracy of a single class up to iteration 500 (train loss 2.20, the log of 9 classes, test accuracy 0.11 at iterations 250 and 500), where batch is at a train accuracy of 0.80 and a train loss of 0.52 at iteration 500.
+- layer trains about three times slower (100 iterations in 13 minutes 52 seconds to 16 minutes 15 seconds against 4 minutes 34 seconds to 5 minutes 14 seconds, 28 to 31 Images Per Second against 93) and takes 44.8 gigabytes per launch against 33.4: `ChannelLayerNormalizer` permutes every feature map to channels last, `nn.LayerNorm` makes it contiguous and runs in float32 under autocast, and the next convolution casts it back.
+- Both launches were stopped by hand at iteration 500, reached in 72 minutes (about 3 hours 20 minutes more for the pair), their run folders keeping the evaluations of iterations 250 and 500.
 
 ### Stage 5: Global Pooling (2 launches)
 
+`ClassificationHead.global_pooling`: "flatten" gives the head every position of the last feature map, "average" the mean of every channel over the positions (128 features). `run-19.yaml` and `run-20.yaml` are copies of `run-13.yaml` and `run-14.yaml` (kept by stage 4) with `"average"`.
+
 | `global_pooling` | Launch | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| flatten | best so far, A | | | | | | | | | |
-| flatten | best so far, B | | | | | | | | | |
-| flatten | **Mean** | | | | | | | | | |
+| flatten | run_13 (stage 2) | 0.6055 | 0.8918 | 0.9343 | 0.9663 | 0.9352 | 0.9787 | 0.9915 | 0.9909 | 0.9118 |
+| flatten | run_14 (stage 2) | 0.4637 | 0.7247 | 0.9480 | 0.9823 | 0.9849 | 0.9879 | 0.9799 | 0.9856 | 0.8821 |
+| flatten | **Mean** | 0.5346 | 0.8083 | 0.9411 | 0.9743 | 0.9601 | 0.9833 | 0.9857 | 0.9882 | 0.8969 |
 | average | run_19 | | | | | | | | | |
 | average | run_20 | | | | | | | | | |
 | average | **Mean** | | | | | | | | | |
