@@ -1,10 +1,11 @@
 """
 When run, gathers the test evaluations of the launches of a hyperparameter experiment into one CSV file, to compare
-the settings of every stage: each run_<n> launch folder of the experiment folder holds the run folder of one training
-(vision_training/main.py, one configuration file per launch), whose Tensorboard/Test curves give the test metric at
-every evaluated checkpoint and whose training_configuration.yaml gives the swept settings. The launches of the same
-settings are followed by their mean row, whose mean column decides the setting kept for the next stage, next to the
-mean of the last evaluations, which compares where the settings end whatever their start.
+the settings of every stage: each run_<n> launch folder of the experiment folder (run_<n><letters> for a repeat launch
+of the same settings, such as run_23b) holds the run folder of one training (vision_training/main.py, one
+configuration file per launch), whose Tensorboard/Test curves give the test metric at every evaluated checkpoint and
+whose training_configuration.yaml gives the swept settings. The launches of the same settings are followed by their
+mean row, whose mean column decides the setting kept for the next stage, next to the mean of the last evaluations,
+which compares where the settings end whatever their start.
 """
 
 import csv
@@ -19,8 +20,9 @@ from typing import Any, Dict, List, Tuple
 from vision_training.evaluation.report_formatting import format_file_value
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
-# Name of the launch folders of an experiment, run_<n>, sorted by their number
-LAUNCH_FOLDER_PATTERN = re.compile(pattern=r"run_(\d+)")
+# Name of the launch folders of an experiment, run_<n> or run_<n><letters> for a repeat launch (run_23b), sorted by
+# their number then their letters
+LAUNCH_FOLDER_PATTERN = re.compile(pattern=r"run_(\d+)([a-z]*)")
 
 # Settings changed by the stages of the classification experiment, written as columns: their column name and their
 # keys in training_configuration.yaml, from the section down to the setting
@@ -43,18 +45,20 @@ SWEPT_SETTINGS = {"learning_rate": ("ExperimentConfiguration", "learning_rate"),
 MEAN_ROW_NAME = "mean"
 
 
-def get_launch_number(launch_folder: Path) -> int:
+def get_launch_order(launch_folder: Path) -> Tuple[int, str]:
     """
-    Gives the number of a run_<n> launch folder, so that the launches are listed in launch order (run_2 before
-    run_10) in the results file.
+    Gives the sorting key of a run_<n> or run_<n><letters> launch folder, so that the launches are listed in launch
+    order in the results file (run_2 before run_10), every repeat launch right after its original one (run_23,
+    run_23b, run_23c, then run_24).
 
     Args:
-        launch_folder (Path): The launch folder, named run_<n>.
+        launch_folder (Path): The launch folder, named run_<n> or run_<n><letters>.
 
     Returns:
-        int: The launch number n.
+        Tuple[int, str]: The launch number n and the letters of a repeat launch, empty for the original launch.
     """
-    return int(LAUNCH_FOLDER_PATTERN.fullmatch(string=launch_folder.name).group(1))
+    launch_match = LAUNCH_FOLDER_PATTERN.fullmatch(string=launch_folder.name)
+    return int(launch_match.group(1)), launch_match.group(2)
 
 
 def read_setting(configuration: Dict[str, Any], keys: Tuple[str, ...], configuration_path: Path) -> Any:
@@ -123,12 +127,14 @@ def collect_launches(experiment_folder: Path, metric: str) -> List[Dict[str, Any
     so that the launches still training are written with the evaluations they already have.
 
     Args:
-        experiment_folder (Path): The folder of the experiment, holding a run_<n> folder per launch.
+        experiment_folder (Path): The folder of the experiment, holding a run_<n> or run_<n><letters> folder per
+            launch.
         metric (str): The name of the test curve, e.g. "Accuracy".
 
     Returns:
-        List[Dict[str, Any]]: For every run folder, its 'launch' (run_<n>), 'settings', 'evaluations' (the metric at
-            every evaluated iteration), 'finished' and 'run_folder' (the name of the folder named after the settings).
+        List[Dict[str, Any]]: For every run folder, its 'launch' (run_<n> or run_<n><letters>), 'settings',
+            'evaluations' (the metric at every evaluated iteration), 'finished' and 'run_folder' (the name of the
+            folder named after the settings).
 
     Raises:
         FileNotFoundError: If the experiment folder does not exist, e.g. before the first launch.
@@ -139,7 +145,7 @@ def collect_launches(experiment_folder: Path, metric: str) -> List[Dict[str, Any
                                 f"first launch whose experiment_folder points inside it")
     launch_folders = sorted([folder for folder in experiment_folder.iterdir()
                              if folder.is_dir() and LAUNCH_FOLDER_PATTERN.fullmatch(string=folder.name) is not None],
-                            key=get_launch_number)
+                            key=get_launch_order)
 
     launches = []
     for launch_folder in launch_folders:
@@ -244,8 +250,8 @@ def write_results(columns: List[str], rows: List[Dict[str, Any]], output_path: P
 
 
 if __name__ == "__main__":
-    # Folder of the hyperparameter experiment, holding a run_<n> folder per launch (the experiment_folder of every
-    # launch configuration file)
+    # Folder of the hyperparameter experiment, holding a run_<n> or run_<n><letters> folder per launch (the
+    # experiment_folder of every launch configuration file)
     experiment_folder = Path(__file__).absolute().parents[2] / "hyperparameter_experiments"
     # Test curve compared between the launches, one of the scalars of Tensorboard/Test: "Accuracy", "Balanced
     # Accuracy", "Macro F1" or "Top-5 Accuracy" for the classification task
