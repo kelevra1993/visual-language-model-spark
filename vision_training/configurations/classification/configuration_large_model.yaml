@@ -25,7 +25,7 @@ ExperimentConfiguration:
   # Frequency (in iterations) to log performance metrics.
   information_dump: 1000
   # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
-  weight_saving_iterations: 10000
+  weight_saving_iterations: 5000
   # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
   # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
   intermediate_weight_saving_iterations: 2500
@@ -33,7 +33,7 @@ ExperimentConfiguration:
   number_iterations: 1e10
   # Ratio controlling how often validation is run during training.
   # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
-  validation_iteration_ratio: 25
+  validation_iteration_ratio: 50
   # Test evaluation run at every weight_saving_iterations checkpoint on the whole test split: accuracy, balanced
   # accuracy, macro F1, top-k accuracy, precision / recall / F1 of every class, and the confusion matrix and class
   # thresholds saved in <run folder>/Evaluation/Iteration_<iteration>/.
@@ -49,7 +49,7 @@ ExperimentConfiguration:
     # with their probabilities), in green when the prediction is right and in red when it is wrong, saved in
     # Evaluation/Iteration_<n>/Samples/ and sent to TensorBoard. The images are spread over the classes (one per class
     # when the number reaches the number of classes), then evenly over the images of each class. 0 to disable.
-    number_sample_images: 16
+    number_sample_images: 20
     # Number of most probable classes among which the true class must be for the top-k accuracy. Must be a positive
     # integer, values above the number of classes counting every sample as right.
     top_k: 5
