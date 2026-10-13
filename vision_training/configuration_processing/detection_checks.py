@@ -9,15 +9,15 @@ import math
 
 from typing import Any, Dict, List
 
-from vision_training.configuration.common_checks import (check_image_task_sequence_settings,
-                                                         check_pretrained_configuration)
-from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
-                                                                check_batch_normalization_momentum,
-                                                                check_boolean_flags,
-                                                                check_intersection_over_union_value,
-                                                                check_positive_integers,
-                                                                check_probability_value,
-                                                                get_configuration_value)
+from vision_training.configuration_processing.common_checks import (check_image_task_sequence_settings,
+                                                                    check_pretrained_configuration)
+from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
+                                                                           check_batch_normalization_momentum,
+                                                                           check_boolean_flags,
+                                                                           check_intersection_over_union_value,
+                                                                           check_positive_integers,
+                                                                           check_probability_value,
+                                                                           get_configuration_value)
 
 
 def check_detection_levels(model_configuration: Dict[str, Any]) -> List[str]:

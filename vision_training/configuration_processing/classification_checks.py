@@ -7,12 +7,13 @@ reused by the sequence task checks.
 
 from typing import Any, Dict, List
 
-from vision_training.configuration.common_checks import (check_image_task_sequence_settings,
-                                                         check_pretrained_configuration)
-from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
-                                                                check_batch_normalization_momentum,
-                                                                check_boolean_flags, check_positive_integers,
-                                                                check_probability_value, get_configuration_value)
+from vision_training.configuration_processing.common_checks import (check_image_task_sequence_settings,
+                                                                    check_pretrained_configuration)
+from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
+                                                                           check_batch_normalization_momentum,
+                                                                           check_boolean_flags, check_positive_integers,
+                                                                           check_probability_value,
+                                                                           get_configuration_value)
 
 # Global pooling of the final feature map before the classification head, or its flattening (image classifier only,
 # refused by the sequence checks)

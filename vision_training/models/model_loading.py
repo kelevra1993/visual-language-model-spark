@@ -8,7 +8,7 @@ import torch
 
 from pathlib import Path
 
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 

@@ -10,8 +10,8 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-from vision_training.configuration.configuration_checker import check_configuration
-from vision_training.configuration.configuration_values import ConfigurationError
+from vision_training.configuration_processing.configuration_checker import check_configuration
+from vision_training.configuration_processing.configuration_values import ConfigurationError
 from vision_training.data.label_mapping import build_label_dictionary
 from vision_training.utilities.os_utilities import format_path_link, print_color
 

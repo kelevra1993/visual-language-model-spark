@@ -15,7 +15,7 @@ from pathlib import Path
 from torch import nn
 from typing import Any, Dict, List, Optional
 
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.deployment.export_specifications import (build_inference_model, convert_outputs_to_numpy,
                                                               create_random_inputs, get_export_specification)
 from vision_training.deployment.frame_selection_deployment import (build_decoding_settings,

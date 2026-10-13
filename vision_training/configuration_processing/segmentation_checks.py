@@ -7,13 +7,13 @@ semantic_segmentation task.
 
 from typing import Any, Dict, List
 
-from vision_training.configuration.classification_checks import VALID_CLASS_WEIGHTINGS
-from vision_training.configuration.common_checks import (check_image_task_sequence_settings,
-                                                         check_pretrained_configuration)
-from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
-                                                                check_batch_normalization_momentum,
-                                                                check_boolean_flags, check_positive_integers,
-                                                                get_configuration_value)
+from vision_training.configuration_processing.classification_checks import VALID_CLASS_WEIGHTINGS
+from vision_training.configuration_processing.common_checks import (check_image_task_sequence_settings,
+                                                                    check_pretrained_configuration)
+from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
+                                                                           check_batch_normalization_momentum,
+                                                                           check_boolean_flags, check_positive_integers,
+                                                                           get_configuration_value)
 from vision_training.data.segmentation.segmentation_dataset import IGNORED_MASK_VALUE
 from vision_training.models.segmentation.segmentation_decoder import compute_skip_block_numbers
 

@@ -13,7 +13,7 @@ ExperimentConfiguration:
   # new one, e.g. M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128_HAVG.64_MC4. The augmentation, batch
   # size, learning rate and its schedule, gradient clipping, mixed precision and dropout rates give no token, so that a
   # run can be resumed in its folder with changed values. The format is described in
-  # vision_training/configuration/run_name.py.
+  # vision_training/configuration_processing/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Root directory containing the training sequences (frames in data/<sequence name>/) and labels.json manifest.
   train_data_folder: "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes/train"

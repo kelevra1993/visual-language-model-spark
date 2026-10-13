@@ -1,6 +1,6 @@
 """
-Tests of build_run_name of vision_training/configuration/run_name.py on the reference configurations of every task: the
-reference run names are fixed, every changed setting (architecture, inputs, heads, temporal modules, fusions,
+Tests of build_run_name of vision_training/configuration_processing/run_name.py on the reference configurations of every
+task: the reference run names are fixed, every changed setting (architecture, inputs, heads, temporal modules, fusions,
 segmentation decoders and losses, transfers, normalization, optimizer, weight decay) changes the run name with its
 token, and the training settings that can change between two resumptions (augmentation, batch size, learning rate,
 schedule, clipping, mixed precision, dropout rates, segmentation losses) keep it.
@@ -13,8 +13,8 @@ import yaml
 from pathlib import Path
 from typing import Any, Callable, Dict, Tuple
 
-from vision_training.configuration.run_name import build_run_name
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.run_name import build_run_name
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")

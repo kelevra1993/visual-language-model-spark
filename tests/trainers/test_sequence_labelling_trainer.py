@@ -11,7 +11,7 @@ import yaml
 from pathlib import Path
 from unittest.mock import patch
 
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.sequence_labelling_trainer import SequenceLabellingTrainer
 from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,

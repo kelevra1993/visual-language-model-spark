@@ -6,12 +6,11 @@ of the task sections, and reused by the task checks (e.g. refusing the sequence 
 
 from typing import Any, Dict, List
 
-from vision_training.configuration.configuration_values import (BACKBONE_FEATURE_MAP_NORMALIZATIONS,
-                                                                check_batch_normalization_momentum,
-                                                                check_boolean_flags,
-                                                                check_positive_integers,
-                                                                check_probability_value,
-                                                                get_configuration_value)
+from vision_training.configuration_processing.configuration_values import (BACKBONE_FEATURE_MAP_NORMALIZATIONS,
+                                                                           check_batch_normalization_momentum,
+                                                                           check_boolean_flags, check_positive_integers,
+                                                                           check_probability_value,
+                                                                           get_configuration_value)
 from vision_training.data.augmentations import AUGMENTATION_TYPES
 
 

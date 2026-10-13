@@ -10,7 +10,7 @@ uv run python -m vision_training.main \
 import argparse
 
 from pathlib import Path
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.core.task_registry import get_trainer_class
 from vision_training.utilities.os_utilities import format_path_link
 

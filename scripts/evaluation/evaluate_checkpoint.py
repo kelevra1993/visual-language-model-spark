@@ -8,7 +8,7 @@ is on, tracked in an MLflow run of their own.
 from pathlib import Path
 
 from vision_training.core.task_registry import get_trainer_class
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.evaluation.checkpoint_evaluation import evaluate_checkpoints
 from vision_training.models.model_transfer import disable_pretrained_settings
 from vision_training.trainers.checkpointing import get_checkpoint_iterations, get_last_checkpoint_iteration

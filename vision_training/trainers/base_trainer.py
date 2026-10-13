@@ -20,10 +20,10 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
-from vision_training.configuration.configuration_changes import (ConfigurationChanges, find_changed_settings,
-                                                              format_setting_value)
-from vision_training.configuration.configuration_loader import load_configuration
-from vision_training.configuration.run_name import build_run_name
+from vision_training.configuration_processing.configuration_changes import (ConfigurationChanges, find_changed_settings,
+                                                                            format_setting_value)
+from vision_training.configuration_processing.configuration_loader import load_configuration
+from vision_training.configuration_processing.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
 from vision_training.evaluation.evaluation_report import report_evaluation_results

@@ -9,7 +9,7 @@ ExperimentConfiguration:
   # DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
   # DSE-DRES-DBN-D7.2x64.256.128_BIN (without the line break). The augmentation, batch size, learning rate and its
   # schedule, gradient clipping and mixed precision give no token, so that a run can be resumed in its folder with
-  # changed values. The format is described in vision_training/configuration/run_name.py.
+  # changed values. The format is described in vision_training/configuration_processing/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Root directory containing the training dataset images and labels.json annotation file.
   train_data_folder: "/home/robert_kelevra/Data/object_detection_data/coco-2017/train"

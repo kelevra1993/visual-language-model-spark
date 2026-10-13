@@ -16,7 +16,7 @@ ExperimentConfiguration:
   # DSE-DRES-DBN-D7.2x64.256.128_MRES-MBN-M14.4x64_BIN (without the line break). The augmentation, batch size,
   # learning rate and its schedule, gradient clipping, mixed precision and mask threshold give no token, so that a run
   # can be resumed in its folder with changed values. The format is described in
-  # vision_training/configuration/run_name.py.
+  # vision_training/configuration_processing/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Root directory containing the training dataset images and labels.json annotation file.
   train_data_folder: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/train"

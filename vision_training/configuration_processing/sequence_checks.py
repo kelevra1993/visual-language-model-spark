@@ -7,12 +7,12 @@ classification head and data checks.
 
 from typing import Any, Dict, List
 
-from vision_training.configuration.classification_checks import (check_classification_data_configuration,
-                                                                 check_classification_evaluation_configuration,
-                                                                 check_classification_head_configuration)
-from vision_training.configuration.common_checks import check_pretrained_configuration
-from vision_training.configuration.configuration_values import (check_boolean_flags, check_positive_integers,
-                                                                get_configuration_value)
+from vision_training.configuration_processing.classification_checks import (
+    check_classification_data_configuration, check_classification_evaluation_configuration,
+    check_classification_head_configuration)
+from vision_training.configuration_processing.common_checks import check_pretrained_configuration
+from vision_training.configuration_processing.configuration_values import (check_boolean_flags, check_positive_integers,
+                                                                           get_configuration_value)
 from vision_training.models.sequence.frame_selection_decoding import VALID_DECODINGS
 from vision_training.models.sequence.member_fusion import FUSION_TYPES, SEQUENCE_NORMALIZATION_SCOPES
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES

@@ -5,8 +5,8 @@ Tests of vision_training/core/task_registry.py: every trainable task is register
 
 import pytest
 
-from vision_training.configuration.configuration_checker import TASK_CONFIGURATION_CHECKS
-from vision_training.configuration.run_name import TASK_CODES, TASK_RUN_NAME_SECTIONS
+from vision_training.configuration_processing.configuration_checker import TASK_CONFIGURATION_CHECKS
+from vision_training.configuration_processing.run_name import TASK_CODES, TASK_RUN_NAME_SECTIONS
 from vision_training.core.task_registry import TASK_TRAINER_CLASSES, get_trainer_class
 from vision_training.deployment.export_specifications import (INFERENCE_MODEL_CLASSES, SEQUENCE_TASKS,
                                                               TASK_INPUT_NAMES, TASK_MODEL_NAMES)

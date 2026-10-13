@@ -19,7 +19,7 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 from typing import Any, Dict
 from unittest.mock import patch
 
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.losses.classification_losses import compute_balanced_class_weights
 from vision_training.trainers.segmentation_trainer import CLASS_PIXEL_COUNTS_FILE_NAME, SegmentationTrainer

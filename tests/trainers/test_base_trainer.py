@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_configurations
 from tests.fixtures.evaluation_checks import read_results_blocks
-from vision_training.configuration.configuration_changes import MISSING_SETTING
+from vision_training.configuration_processing.configuration_changes import MISSING_SETTING
 from vision_training.core.contracts import EvaluationResults
 from vision_training.trainers.checkpointing import CHECKPOINT_FORMAT_VERSION
 from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY

@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 from tests.trainers.test_base_trainer import build_dummy_trainer
 from tests.trainers.test_classification_trainer import SMOKE_IMAGE_SIZE, build_trainer, write_smoke_configuration
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.evaluation.checkpoint_evaluation import evaluate_checkpoints
 from vision_training.models.model_transfer import disable_pretrained_settings

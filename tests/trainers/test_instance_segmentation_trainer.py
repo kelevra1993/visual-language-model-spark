@@ -11,7 +11,7 @@ import yaml
 
 from pathlib import Path
 
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.instance_segmentation_trainer import InstanceSegmentationTrainer
 from tests.fixtures.evaluation_checks import check_sample_images, read_results_blocks

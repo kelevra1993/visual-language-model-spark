@@ -6,19 +6,20 @@ configuration_loader.py when a configuration file is loaded, before any model or
 
 from typing import Any, Callable, Dict, List
 
-from vision_training.configuration.classification_checks import check_classification_configuration
-from vision_training.configuration.common_checks import (check_backbone_configuration,
-                                                         check_data_configuration,
-                                                         check_experiment_configuration,
-                                                         check_optimization_configuration)
-from vision_training.configuration.configuration_values import ConfigurationError
-from vision_training.configuration.detection_checks import check_detection_configuration
-from vision_training.configuration.instance_segmentation_checks import check_instance_segmentation_configuration
-from vision_training.configuration.segmentation_checks import check_segmentation_configuration
-from vision_training.configuration.sequence_checks import (check_frame_selection_configuration,
-                                                           check_sequence_classification_configuration,
-                                                           check_sequence_comparison_configuration,
-                                                           check_sequence_labelling_configuration)
+from vision_training.configuration_processing.classification_checks import check_classification_configuration
+from vision_training.configuration_processing.common_checks import (check_backbone_configuration,
+                                                                    check_data_configuration,
+                                                                    check_experiment_configuration,
+                                                                    check_optimization_configuration)
+from vision_training.configuration_processing.configuration_values import ConfigurationError
+from vision_training.configuration_processing.detection_checks import check_detection_configuration
+from vision_training.configuration_processing.instance_segmentation_checks import (
+    check_instance_segmentation_configuration)
+from vision_training.configuration_processing.segmentation_checks import check_segmentation_configuration
+from vision_training.configuration_processing.sequence_checks import (check_frame_selection_configuration,
+                                                                      check_sequence_classification_configuration,
+                                                                      check_sequence_comparison_configuration,
+                                                                      check_sequence_labelling_configuration)
 
 # Checks of the sections specific to every task, run after the checks of the sections common to every task. The keys
 # are the tasks that can be trained, i.e. the valid values of 'ExperimentConfiguration.task'

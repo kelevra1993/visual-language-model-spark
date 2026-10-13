@@ -1,9 +1,9 @@
 """
-Tests of vision_training/configuration/configuration_migration.py: every migration step (task, pretrained settings,
-normalization flag, evaluation outputs, per-class report, sample images, MLflow tracking, sequence augmentation,
-normalization scope, optimization section, loading settings, batch padding, positional embedding, segmentation
-settings, batch normalization momentums, classification head normalization) is added once to an old configuration,
-and migrate_run_folder renames old run folders after their settings.
+Tests of vision_training/configuration_processing/configuration_migration.py: every migration step (task, pretrained
+settings, normalization flag, evaluation outputs, per-class report, sample images, MLflow tracking, sequence
+augmentation, normalization scope, optimization section, loading settings, batch padding, positional embedding,
+segmentation settings, batch normalization momentums, classification head normalization) is added once to an old
+configuration, and migrate_run_folder renames old run folders after their settings.
 """
 
 import json
@@ -12,7 +12,7 @@ import yaml
 
 from pathlib import Path
 
-from vision_training.configuration.configuration_migration import (
+from vision_training.configuration_processing.configuration_migration import (
     BOOLEAN_HEAD_NORMALIZATION_COMMENT_LINES, HEAD_NORMALIZATION_COMMENT_LINES, HEAD_NORMALIZATION_LINE_START,
     TRACKING_SECTION_LINES, add_batch_normalization_momentums_to_configuration, add_batch_padding_to_configuration,
     add_evaluation_outputs_to_configuration, add_head_normalization_to_configuration,

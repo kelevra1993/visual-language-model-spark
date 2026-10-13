@@ -6,11 +6,12 @@ configuration_checker.py for the instance_segmentation task.
 
 from typing import Any, Dict, List
 
-from vision_training.configuration.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
-                                                                check_batch_normalization_momentum,
-                                                                check_boolean_flags, check_positive_integers,
-                                                                check_probability_value, get_configuration_value)
-from vision_training.configuration.detection_checks import check_detection_configuration
+from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
+                                                                           check_batch_normalization_momentum,
+                                                                           check_boolean_flags, check_positive_integers,
+                                                                           check_probability_value,
+                                                                           get_configuration_value)
+from vision_training.configuration_processing.detection_checks import check_detection_configuration
 
 
 def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[str]:

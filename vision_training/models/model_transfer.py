@@ -11,7 +11,7 @@ from pathlib import Path
 from torch import nn
 from typing import Any, Dict, List
 
-from vision_training.configuration.configuration_loader import load_configuration
+from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
@@ -167,7 +167,8 @@ def compare_temporal_modules(source_configuration: Dict[str, Any], target_config
         if key_name not in source_temporal_configuration:
             differing_keys.append(key_name)
             differences.append(f"'TemporalModel.{key_name}' is missing from the source run, written before the "
-                               f"setting existed: migrate it with scripts/configuration/migrate_configuration.py.")
+                               f"setting existed: migrate it with "
+                               f"scripts/configuration_processing/migrate_configuration.py.")
         elif source_temporal_configuration[key_name] != target_temporal_configuration[key_name]:
             differing_keys.append(key_name)
             differences.append(f"'TemporalModel.{key_name}' is {source_temporal_configuration[key_name]!r} in the "
@@ -223,12 +224,12 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
     if "fully_connected_normalization" not in source_head_configuration:
         differences.append("'ClassificationHead.fully_connected_normalization' is missing from the source run, "
                            "written before the setting existed: migrate it with "
-                           "scripts/configuration/migrate_configuration.py.")
+                           "scripts/configuration_processing/migrate_configuration.py.")
     elif isinstance(source_head_configuration["fully_connected_normalization"], bool):
         differences.append(f"'ClassificationHead.fully_connected_normalization' is "
                            f"{source_head_configuration['fully_connected_normalization']!r} in the source run, written "
                            f"before the layer normalization existed: migrate it with "
-                           f"scripts/configuration/migrate_configuration.py.")
+                           f"scripts/configuration_processing/migrate_configuration.py.")
     elif source_head_configuration["fully_connected_normalization"] != \
             target_head_configuration["fully_connected_normalization"]:
         differences.append(f"'ClassificationHead.fully_connected_normalization' is "

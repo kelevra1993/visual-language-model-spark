@@ -1,11 +1,11 @@
 """
-Tests of vision_training/configuration/configuration_changes.py: the YAML configurations are flattened into dotted
-keys with their exact values, and the settings changed, added and removed between the configuration saved in a run
-folder and the one a run is resumed with are listed and formatted for the launch information of the base trainer.
+Tests of vision_training/configuration_processing/configuration_changes.py: the YAML configurations are flattened into
+dotted keys with their exact values, and the settings changed, added and removed between the configuration saved in a
+run folder and the one a run is resumed with are listed and formatted for the launch information of the base trainer.
 """
 
-from vision_training.configuration.configuration_changes import (MISSING_SETTING, find_changed_settings,
-                                                                  flatten_settings, format_setting_value)
+from vision_training.configuration_processing.configuration_changes import (MISSING_SETTING, find_changed_settings,
+                                                                            flatten_settings, format_setting_value)
 
 # Configuration saved in a run folder by its previous start, as read from its YAML file
 PREVIOUS_CONFIGURATION = {"ExperimentConfiguration": {"learning_rate": 2.0e-4, "batch_size": 32,

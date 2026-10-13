@@ -82,7 +82,7 @@ def read_setting(configuration: Dict[str, Any], keys: Tuple[str, ...], configura
         if key not in value:
             raise KeyError(f"No '{'.'.join(keys)}' setting in {format_path_link(path=configuration_path)}, written "
                            f"before the setting existed: migrate its run folder with "
-                           f"scripts/configuration/migrate_configuration.py")
+                           f"scripts/configuration_processing/migrate_configuration.py")
         value = value[key]
     return value
 

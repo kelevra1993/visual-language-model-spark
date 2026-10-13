@@ -29,7 +29,7 @@ from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.models.model_loading import load_trained_model
 from vision_training.data.preprocessing import preprocess_image
 from vision_training.utilities.os_utilities import get_image_paths
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 
 
 def build_frame_window(images: List[np.ndarray], window_start: int, sequence_length: int) -> np.ndarray:

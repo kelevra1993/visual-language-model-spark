@@ -13,7 +13,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Dict
 
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.core.task_registry import get_trainer_class
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.trainers.base_trainer import BaseTrainer

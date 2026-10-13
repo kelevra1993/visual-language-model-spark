@@ -5,7 +5,7 @@ sample images, MLflow tracking, sequence settings and batch padding, positional 
 segmentation losses, deep supervision, tiles and evaluation settings, Optimization, batch normalization momentums,
 normalization of the classification head, its True or False values becoming "batch" or "none"), and renames the
 run folder to its current run name (without the training, learning rate multiplier and dropout tokens no longer
-written in the run names). Called by scripts/configuration/migrate_configuration.py.
+written in the run names). Called by scripts/configuration_processing/migrate_configuration.py.
 """
 
 import yaml
@@ -13,9 +13,9 @@ import yaml
 from pathlib import Path
 from typing import List, Optional
 
-from vision_training.configuration.classification_checks import BOOLEAN_HEAD_NORMALIZATIONS
-from vision_training.configuration.configuration_loader import load_experiment_configuration
-from vision_training.configuration.run_name import build_run_name
+from vision_training.configuration_processing.classification_checks import BOOLEAN_HEAD_NORMALIZATIONS
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.run_name import build_run_name
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Section header under which the task key is inserted, and the comment written above it

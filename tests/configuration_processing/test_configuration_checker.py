@@ -1,5 +1,5 @@
 """
-Tests of the configuration checks of vision_training/configuration/configuration_checker.py, run through
+Tests of the configuration checks of vision_training/configuration_processing/configuration_checker.py, run through
 load_experiment_configuration: the configurations shipped for every task are accepted, while inconsistent settings
 (detection, classification, sequence, comparison, segmentation, normalization, pretrained transfers, optimization) and
 missing keys are rejected with errors naming their path.
@@ -13,7 +13,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
-from vision_training.configuration.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -345,7 +345,8 @@ def test_missing_configuration_key_is_reported_with_its_path(tmp_path: Path, cap
 def test_missing_task_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that a configuration without task, written before the task-aware configuration, is rejected with the
-    path of the missing key (scripts/configuration/migrate_configuration.py adds it to the runs of that time).
+    path of the missing key (scripts/configuration_processing/migrate_configuration.py adds it to the runs of that
+    time).
 
     Args:
         tmp_path (Path): The pytest temporary directory.
