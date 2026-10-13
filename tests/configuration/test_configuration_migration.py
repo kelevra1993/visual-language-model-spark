@@ -747,9 +747,12 @@ def test_boolean_head_normalization_is_converted(tmp_path: Path, boolean_normali
         boolean_normalization (bool): The normalization written before the layer normalization.
         expected_normalization (str): The normalization it becomes.
     """
-    # Current file with the setting and comment of a run written before the layer normalization
+    # Current file with the setting and comment of a run written before the layer normalization, whatever the
+    # normalization the current file sets
     current_text = CLASSIFICATION_CONFIGURATION_PATH.read_text()
-    current_setting = "".join(HEAD_NORMALIZATION_COMMENT_LINES) + f"{HEAD_NORMALIZATION_LINE_START} \"none\"\n"
+    current_normalization = yaml.safe_load(stream=current_text)["ClassificationHead"]["fully_connected_normalization"]
+    current_setting = "".join(HEAD_NORMALIZATION_COMMENT_LINES) + \
+        f"{HEAD_NORMALIZATION_LINE_START} \"{current_normalization}\"\n"
     old_setting = "".join(BOOLEAN_HEAD_NORMALIZATION_COMMENT_LINES) + \
         f"{HEAD_NORMALIZATION_LINE_START} {boolean_normalization}\n"
     assert current_text.count(current_setting) == 1

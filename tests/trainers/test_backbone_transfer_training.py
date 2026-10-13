@@ -33,6 +33,10 @@ SYNTHETIC_CONFIGURATION_PATHS = {
 TRANSFER_IMAGE_SIZE = 64
 TRANSFER_NUMBER_FRAMES = 4
 
+# Learning rate of every transfer run, set here so that the expected learning rates of the parameter groups do not
+# depend on the learning rate of the synthetic configuration files
+TRANSFER_LEARNING_RATE = 1.0e-3
+
 # Image size of the detection tasks, whose anchors must fit in the images, with anchor scales fitting it, and the small
 # mask heads of the instance segmentation runs
 DETECTION_TRANSFER_IMAGE_SIZE = 256
@@ -81,7 +85,8 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
                                                      "weight_saving_iterations": 4,
                                                      "intermediate_weight_saving_iterations": 2,
                                                      "number_iterations": number_iterations,
-                                                     "validation_iteration_ratio": 2, "resume_training": True})
+                                                     "validation_iteration_ratio": 2, "resume_training": True,
+                                                     "learning_rate": TRANSFER_LEARNING_RATE})
     configuration["ExperimentConfiguration"]["diagnosis_modes"].update({"compute_receptive_field": False,
                                                                         "compute_model_size": False,
                                                                         "view_input_images": False})
