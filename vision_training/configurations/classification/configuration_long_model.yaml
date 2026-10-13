@@ -90,7 +90,7 @@ ExperimentConfiguration:
     # Sends the configuration, the confusion matrices, the class metrics and thresholds and Results.txt as artifacts.
     log_artifacts: True
   # Base learning rate used by the optimizer.
-  learning_rate: 5.0e-4
+  learning_rate: 2.0e-4
   # Global tensor data type, either "float32" or "float64".
   dtype: "float32"
   # Flag to attempt loading the most recent checkpoint to resume training.
@@ -279,7 +279,7 @@ ClassificationHead:
   # Normalization of the outputs of every hidden layer before its ReLU: "batch" (statistics of every feature over
   # the vectors of the batch), "layer" (statistics of every vector over its features) or "none". Needs at least one
   # hidden layer unless "none", and gives the HBN or HLN run name token.
-  fully_connected_normalization: "none"
+  fully_connected_normalization: "layer"
   # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
   # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
   # 100. Unused unless "batch", it gives no run name token and can change when a run resumes.

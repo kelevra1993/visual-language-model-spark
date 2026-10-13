@@ -89,7 +89,7 @@ ExperimentConfiguration:
     # Sends the configuration, the confusion matrices, the class metrics and thresholds and Results.txt as artifacts.
     log_artifacts: True
   # Base learning rate used by the optimizer.
-  learning_rate: 1.0e-3
+  learning_rate: 2.0e-4
   # Global tensor data type, either "float32" or "float64".
   dtype: "float32"
   # Flag to attempt loading the most recent checkpoint to resume training.
@@ -126,7 +126,7 @@ Optimization:
   gradient_clipping_norm: null
   # Runs the training and validation forward passes in bfloat16 (faster and lighter on recent GPUs), the weights and
   # the test evaluation staying in float32. Requires ExperimentConfiguration.dtype "float32".
-  mixed_precision: False
+  mixed_precision: True
 
 Data:
   loading:
@@ -272,13 +272,13 @@ ClassificationHead:
   # "average" or "max" (global pooling, C values whatever the image size), or "flatten" (its C x H x W values, which
   # keep where the features are in the image, e.g. 64 x 8 x 8 = 4096 for 256 pixel images and 6 blocks). A flattened
   # head is tied to Data.image_settings.size and Backbone.last_max_pooling, and its first layer is much larger.
-  global_pooling: "average"
+  global_pooling: "flatten"
   # Units of the hidden fully connected layers between the pooled features and the class logits, [] for none.
   fully_connected: [128]
   # Normalization of the outputs of every hidden layer before its ReLU: "batch" (statistics of every feature over
   # the vectors of the batch), "layer" (statistics of every vector over its features) or "none". Needs at least one
   # hidden layer unless "none", and gives the HBN or HLN run name token.
-  fully_connected_normalization: "none"
+  fully_connected_normalization: "layer"
   # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
   # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
   # 100. Unused unless "batch", it gives no run name token and can change when a run resumes.
@@ -292,7 +292,7 @@ ClassificationHead:
   label_smoothing: 0.0
   # Weighting of the classes in the loss: "none" (every sample weighs the same) or "balanced" (every class weighs the
   # same, the weights being inversely proportional to the number of training samples of each class).
-  class_weighting: "none"
+  class_weighting: "balanced"
   # Classification head of another training run initialising this run instead of random weights. Its
   # fully_connected layers and fully_connected_normalization must be identical in both runs (the dropout rate and
   # the batch normalization momentum may differ), as well as the size of the vectors it reads and the classes it
