@@ -1,8 +1,10 @@
 """
-Entry point of the training pipeline: reads the path of an experiment configuration file from the command line (e.g.
---configuration_path="vision_training/configurations/classification/configuration_large_model.yaml"), loads that
-file and runs the training loop of the trainer of its task ('ExperimentConfiguration.task'), found in the task
-registry.
+Entry point of the training pipeline: reads the path of an experiment configuration file from the command line (the
+command above trains the large classification model), loads that file and runs the training loop of the trainer of
+its task ('ExperimentConfiguration.task'), found in the task registry.
+example :
+uv run python -m vision_training.main \
+    --configuration_path="vision_training/configurations/classification/configuration_large_model.yaml"
 """
 
 import argparse
