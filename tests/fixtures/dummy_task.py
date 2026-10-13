@@ -376,7 +376,7 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
                                 "validation_data_folder": Path("validation"), "test_data_folder": Path("test"),
                                 "batch_size": 2, "information_dump": 2, "weight_saving_iterations": 4,
                                 "intermediate_weight_saving_iterations": 2, "number_iterations": number_iterations,
-                                "validation_iteration_ratio": 2, "learning_rate": 0.01, "dtype": torch.float32,
+                                "validation_iteration_ratio": 2, "learning_rate": 0.01,
                                 "resume_training": True,
                                 "evaluation": {"per_class_report": True, "number_sample_images": 0},
                                 "tracking": {"activated": False, "tracking_uri": None, "experiment_name": None,

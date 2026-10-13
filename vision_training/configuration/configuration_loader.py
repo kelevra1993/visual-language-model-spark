@@ -5,7 +5,6 @@ tests to obtain the configurations given to the trainers.
 """
 
 import sys
-import torch
 import yaml
 
 from pathlib import Path
@@ -88,11 +87,6 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
 
     if "learning_rate" in experiment_configuration:
         experiment_configuration["learning_rate"] = float(experiment_configuration["learning_rate"])
-
-    # Convert dtype
-    if "dtype" in experiment_configuration:
-        dtype_map = {"float32": torch.float32, "float64": torch.float64}
-        experiment_configuration["dtype"] = dtype_map[experiment_configuration["dtype"]]
 
     # Convert beta values from fractions to floats
     for section_key in ["RegionProposal", "Detector"]:

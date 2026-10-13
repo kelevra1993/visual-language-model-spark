@@ -28,6 +28,7 @@ from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_K
 from vision_training.data.augmentations import DataAugmenter
 from vision_training.evaluation.evaluation_report import report_evaluation_results
 from vision_training.evaluation.sample_selection import choose_sample_identifiers
+from vision_training.models.model_registry import MODEL_DTYPE
 from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, freeze_batch_normalization_statistics,
                                                    freeze_component, freeze_normalization_parameters,
                                                    get_component_name, load_pretrained_component)
@@ -94,9 +95,9 @@ class BaseTrainer(ABC):
         # Get specific configurations
         self.data_configuration = model_configuration["Data"]
 
-        # Get device and dtype
+        # Get the device, the models always being built in float32
         self.device = get_device()
-        self.dtype = self.experiment_configuration["dtype"]
+        self.dtype = MODEL_DTYPE
 
         print(f"For Training We Will Be Using device: {self.device}")
 

@@ -9,7 +9,7 @@ import torch
 from pathlib import Path
 
 from vision_training.configuration.configuration_loader import load_experiment_configuration
-from vision_training.models.model_registry import TASK_MODEL_CLASSES
+from vision_training.models.model_registry import MODEL_DTYPE, TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 
 
@@ -32,7 +32,7 @@ def load_trained_model(configuration_path: Path, checkpoint_path: Path, device: 
 
     # Build the model of the task of the run, then load its trained weights
     model_class = TASK_MODEL_CLASSES[experiment_configuration["task"]]
-    model = model_class(configuration=model_configuration, device=device, dtype=experiment_configuration["dtype"])
+    model = model_class(configuration=model_configuration, device=device, dtype=MODEL_DTYPE)
     checkpoint = torch.load(f=checkpoint_path, map_location=device, weights_only=True)
     model.load_state_dict(state_dict=checkpoint["model_state"])
 

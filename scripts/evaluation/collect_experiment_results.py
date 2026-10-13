@@ -36,7 +36,6 @@ SWEPT_SETTINGS = {"learning_rate": ("ExperimentConfiguration", "learning_rate"),
                                                             "batch_normalization_momentum"),
                   "head_batch_normalization_momentum": ("ClassificationHead", "batch_normalization_momentum"),
                   "feature_map_normalization": ("Backbone", "normalization", "feature_map_normalization"),
-                  "dtype": ("ExperimentConfiguration", "dtype"),
                   "mixed_precision": ("Optimization", "mixed_precision"),
                   "class_weighting": ("ClassificationHead", "class_weighting"),
                   "dropout_rate": ("ClassificationHead", "dropout_rate")}

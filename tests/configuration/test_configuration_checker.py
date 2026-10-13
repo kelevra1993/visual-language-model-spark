@@ -1238,7 +1238,7 @@ def test_inconsistent_temporal_and_head_transfers_are_rejected(tmp_path: Path, c
 def set_invalid_optimization(configuration: Dict[str, Any]) -> None:
     """
     Sets an unknown optimizer and schedule, a negative weight decay, an empty decay, a minimum learning rate above
-    the learning rate, a zero clipping norm, and mixed precision with float64 weights.
+    the learning rate, a zero clipping norm, and a mixed precision flag that is not a boolean.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
@@ -1246,8 +1246,7 @@ def set_invalid_optimization(configuration: Dict[str, Any]) -> None:
     configuration["Optimization"].update({"optimizer": "rmsprop", "learning_rate_schedule": "step",
                                           "weight_decay": -0.1, "decay_iterations": 0,
                                           "minimum_learning_rate_ratio": 1.5, "gradient_clipping_norm": 0,
-                                          "mixed_precision": True})
-    configuration["ExperimentConfiguration"]["dtype"] = "float64"
+                                          "mixed_precision": "yes"})
 
 
 def test_inconsistent_optimization_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -1272,8 +1271,7 @@ def test_inconsistent_optimization_is_rejected(tmp_path: Path, capsys: pytest.Ca
                              "'Optimization.decay_iterations' must be an integer >= 1, got 0.",
                              "'Optimization.minimum_learning_rate_ratio' must be a probability within [0, 1], got 1.5.",
                              "'Optimization.gradient_clipping_norm' must be null or > 0, got 0.",
-                             "'Optimization.mixed_precision' requires 'ExperimentConfiguration.dtype' to be "
-                             "\"float32\"."]:
+                             "'Optimization.mixed_precision' must be True or False, got 'yes'."]:
         assert expected_message in printed_output
 
 

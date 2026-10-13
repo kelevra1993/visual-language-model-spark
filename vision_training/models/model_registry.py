@@ -4,6 +4,8 @@ segmentation, classification, semantic segmentation, sequence classification, la
 selection). Read by the trainers and by model_loading.py to rebuild a run from its saved configuration.
 """
 
+import torch
+
 from typing import Dict, Type
 
 from vision_training.models.classification.image_classifier import ImageClassifier
@@ -26,3 +28,7 @@ TASK_MODEL_CLASSES: Dict[str, Type[TaskModel]] = {"object_detection": TwoStageDe
                                                   "sequence_labelling": SequenceLabeller,
                                                   "sequence_comparison": SequenceComparator,
                                                   "frame_selection": FrameSelector}
+
+# Data type of the weights and inputs of every model, set here only: the trainings run in float32, mixed precision
+# computing their forward passes in bfloat16 on top of it (Optimization.mixed_precision)
+MODEL_DTYPE = torch.float32

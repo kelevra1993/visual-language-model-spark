@@ -95,8 +95,6 @@ ExperimentConfiguration:
     log_artifacts: True
   # Base learning rate used by the optimizer.
   learning_rate: 1.0e-3
-  # Global tensor data type, either "float32" or "float64".
-  dtype: "float32"
   # Flag to attempt loading the most recent checkpoint to resume training.
   resume_training: true
   diagnosis_modes:
@@ -130,7 +128,7 @@ Optimization:
   # Maximum norm of all the gradients together, clipped before every step, null to disable.
   gradient_clipping_norm: null
   # Runs the training and validation forward passes in bfloat16 (faster and lighter on recent GPUs), the weights and
-  # the test evaluation staying in float32. Requires ExperimentConfiguration.dtype "float32".
+  # the test evaluation staying in float32 (the data type of every model).
   mixed_precision: False
 
 Data:

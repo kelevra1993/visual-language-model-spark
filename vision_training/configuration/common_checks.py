@@ -4,8 +4,6 @@ settings of the transferable components and Optimization. Run first by configura
 of the task sections, and reused by the task checks (e.g. refusing the sequence settings for the image tasks).
 """
 
-import torch
-
 from typing import Any, Dict, List
 
 from vision_training.configuration.configuration_values import (BACKBONE_FEATURE_MAP_NORMALIZATIONS,
@@ -357,15 +355,13 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
     return errors
 
 
-def check_optimization_configuration(experiment_configuration: Dict[str, Any],
-                                     model_configuration: Dict[str, Any]) -> List[str]:
+def check_optimization_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Optimization' section shared by every task: the optimizer, its weight decay, the learning rate
-    schedule (warm-up, cosine decay and its minimum), the gradient clipping and the mixed precision, which runs the
-    forward passes in bfloat16 and therefore requires float32 weights.
+    schedule (warm-up, cosine decay and its minimum), the gradient clipping and the mixed precision flag, which runs
+    the forward passes in bfloat16 on top of the float32 weights of every model.
 
     Args:
-        experiment_configuration (Dict[str, Any]): The processed experiment configuration, giving the dtype.
         model_configuration (Dict[str, Any]): The model configuration containing the 'Optimization' section.
 
     Returns:
@@ -402,14 +398,6 @@ def check_optimization_configuration(experiment_configuration: Dict[str, Any],
                                                gradient_clipping_norm <= 0):
         errors.append(f"'Optimization.gradient_clipping_norm' must be null or > 0, got {gradient_clipping_norm!r}.")
 
-    # Mixed precision computes in bfloat16 from float32 weights
-    mixed_precision_errors = check_boolean_flags(configuration=model_configuration,
-                                                 key_paths=["Optimization.mixed_precision"])
-    errors += mixed_precision_errors
-    mixed_precision = get_configuration_value(configuration=model_configuration,
-                                              key_path="Optimization.mixed_precision")
-    dtype = get_configuration_value(configuration={"ExperimentConfiguration": experiment_configuration},
-                                    key_path="ExperimentConfiguration.dtype")
-    if not mixed_precision_errors and mixed_precision and dtype != torch.float32:
-        errors.append("'Optimization.mixed_precision' requires 'ExperimentConfiguration.dtype' to be \"float32\".")
+    # Mixed precision computes in bfloat16 from the float32 weights of every model
+    errors += check_boolean_flags(configuration=model_configuration, key_paths=["Optimization.mixed_precision"])
     return errors

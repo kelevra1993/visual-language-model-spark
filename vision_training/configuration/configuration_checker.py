@@ -56,8 +56,7 @@ def check_configuration(experiment_configuration: Dict[str, Any], model_configur
                                              valid_tasks=list(TASK_CONFIGURATION_CHECKS))
     errors += check_data_configuration(model_configuration=model_configuration)
     errors += check_backbone_configuration(model_configuration=model_configuration)
-    errors += check_optimization_configuration(experiment_configuration=experiment_configuration,
-                                               model_configuration=model_configuration)
+    errors += check_optimization_configuration(model_configuration=model_configuration)
 
     # Then the checks of the sections of the task, when the task itself is valid
     task = experiment_configuration["task"]
