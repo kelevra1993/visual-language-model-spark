@@ -131,84 +131,140 @@ Kept: **batch** (run_13 and run_14), layer being stopped at iteration 500; the c
 |---|---|---|---|---|---|---|---|---|---|---|
 | flatten | run_13 (stage 2) | 0.6055 | 0.8918 | 0.9343 | 0.9663 | 0.9352 | 0.9787 | 0.9915 | 0.9909 | 0.9118 |
 | flatten | run_14 (stage 2) | 0.4637 | 0.7247 | 0.9480 | 0.9823 | 0.9849 | 0.9879 | 0.9799 | 0.9856 | 0.8821 |
-| flatten | **Mean** | 0.5346 | 0.8083 | 0.9411 | 0.9743 | 0.9601 | 0.9833 | 0.9857 | 0.9882 | 0.8969 |
-| average | run_19 | | | | | | | | | |
-| average | run_20 | | | | | | | | | |
-| average | **Mean** | | | | | | | | | |
+| flatten | **Mean** | 0.5346 | 0.8083 | 0.9411 | 0.9743 | 0.9601 | 0.9833 | 0.9857 | 0.9882 | **0.8969** |
+| average | run_19 | 0.4872 | 0.5882 | 0.8437 | 0.9266 | 0.9883 | 0.9300 | 0.9908 | 0.9848 | 0.8425 |
+| average | run_20 | 0.6939 | 0.8891 | 0.9646 | 0.9807 | 0.9832 | 0.9812 | 0.9794 | 0.9626 | 0.9293 |
+| average | **Mean** | 0.5905 | 0.7387 | 0.9042 | 0.9536 | 0.9857 | 0.9556 | 0.9851 | 0.9737 | 0.8859 |
 
-Kept:
+Kept: **flatten** (run_13 and run_14); the configuration files of the next stages stay copies of `run-13.yaml` and `run-14.yaml`.
+
+- average reaches a mean of 0.8859 against 0.8969 for flatten, and a mean of the last 4 evaluations (iterations 1250 to 2000) of 0.9750 against 0.9793.
+- The two average launches are far apart: run_20 is ahead of both flatten launches at iterations 250 to 750 (0.6939, 0.8891 and 0.9646), while run_19 starts slowly (0.5882 at iteration 500) and drops to 0.9300 at iteration 1500; run_20 drops to 0.9626 at iteration 2000. The gap between the two launches of a setting is larger than the gap between the two settings.
+- The training time does not change: the pair took 2 hours 19 minutes (100 iterations in 4 minutes 33 seconds to 10 minutes 15 seconds), against 2 hours 19 to 2 hours 25 minutes for run_13 and run_14.
 
 ### Stage 6: Residual Connections (2 launches)
 
+`Backbone.modules.residual_nets`: True adds the input of every pair of convolution layers to its output (a shortcut every two layers, from the second convolution block on), False keeps the convolution layers stacked without shortcuts. `run-21.yaml` and `run-22.yaml` are copies of `run-13.yaml` and `run-14.yaml` (kept by stage 5) with `False`.
+
 | `residual_nets` | Launch | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| True | best so far, A | | | | | | | | | |
-| True | best so far, B | | | | | | | | | |
-| True | **Mean** | | | | | | | | | |
-| False | run_21 | | | | | | | | | |
-| False | run_22 | | | | | | | | | |
-| False | **Mean** | | | | | | | | | |
+| True | run_13 (stage 2) | 0.6055 | 0.8918 | 0.9343 | 0.9663 | 0.9352 | 0.9787 | 0.9915 | 0.9909 | 0.9118 |
+| True | run_14 (stage 2) | 0.4637 | 0.7247 | 0.9480 | 0.9823 | 0.9849 | 0.9879 | 0.9799 | 0.9856 | 0.8821 |
+| True | **Mean** | 0.5346 | 0.8083 | 0.9411 | 0.9743 | 0.9601 | 0.9833 | 0.9857 | 0.9882 | **0.8969** |
+| False | run_21 | 0.1098 | 0.1123 | 0.1108 | 0.1122 | 0.1103 | 0.1299 | 0.1087 | 0.1122 | 0.1133 |
+| False | run_22 | 0.1123 | 0.1107 | 0.1109 | 0.1109 | 0.1109 | 0.1114 | 0.1115 | 0.1107 | 0.1111 |
+| False | **Mean** | 0.1111 | 0.1115 | 0.1109 | 0.1115 | 0.1106 | 0.1207 | 0.1101 | 0.1114 | 0.1122 |
 
-Kept:
+Kept: **True** (run_13 and run_14); the configuration files of the next stages stay copies of `run-13.yaml` and `run-14.yaml`.
+
+- False does not learn: both launches stay at the accuracy of a single class up to iteration 2000 (test accuracy 0.11 at every evaluation, train loss 2.20, the log of 9 classes, train accuracy 0.11), the 61 convolution layers of the backbone being stacked without shortcuts.
+- The training time does not change: the pair took 2 hours 14 minutes (100 iterations in about 4 minutes 50 seconds), against 2 hours 19 to 2 hours 25 minutes for run_13 and run_14.
 
 ### Stage 7: Squeeze And Excitation (2 launches)
 
+`Backbone.modules.squeeze_and_excite`: True recalibrates the channels after every convolution layer (each channel scaled by a weight computed from the mean of every channel over the positions, before the residual shortcut is added), False keeps the convolution outputs as they are. `run-23.yaml` and `run-24.yaml` are copies of `run-13.yaml` and `run-14.yaml` (kept by stage 6) with `False`.
+
 | `squeeze_and_excite` | Launch | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| True | best so far, A | | | | | | | | | |
-| True | best so far, B | | | | | | | | | |
-| True | **Mean** | | | | | | | | | |
-| False | run_23 | | | | | | | | | |
-| False | run_24 | | | | | | | | | |
-| False | **Mean** | | | | | | | | | |
+| True | run_13 (stage 2) | 0.6055 | 0.8918 | 0.9343 | 0.9663 | 0.9352 | 0.9787 | 0.9915 | 0.9909 | 0.9118 |
+| True | run_14 (stage 2) | 0.4637 | 0.7247 | 0.9480 | 0.9823 | 0.9849 | 0.9879 | 0.9799 | 0.9856 | 0.8821 |
+| True | **Mean** | 0.5346 | 0.8083 | 0.9411 | 0.9743 | 0.9601 | 0.9833 | 0.9857 | 0.9882 | 0.8969 |
+| False | run_23 | 0.4871 | 0.8713 | 0.9362 | 0.9721 | 0.9807 | 0.9744 | 0.9826 | 0.9916 | 0.8995 |
+| False | run_24 | 0.5368 | 0.7841 | 0.9642 | 0.9788 | 0.9808 | 0.9879 | 0.9900 | 0.9892 | 0.9015 |
+| False | **Mean** | 0.5119 | 0.8277 | 0.9502 | 0.9755 | 0.9807 | 0.9811 | 0.9863 | 0.9904 | **0.9005** |
 
-Kept:
+Kept: **False** (run_23 and run_24); the configuration files of the next stages are copies of `run-23.yaml` and `run-24.yaml`.
 
-### Stage 8: Data Type (4 launches)
+- False reaches a mean of 0.9005 against 0.8969 for True, and a mean of the last 4 evaluations (iterations 1250 to 2000) of 0.9847 against 0.9793, both launches being at 0.97 or more from iteration 1000 on.
+- False trains faster and lighter: the pair took 1 hour 49 minutes (100 iterations in 3 minutes 20 seconds to 8 minutes 17 seconds) against 2 hours 19 to 2 hours 25 minutes for run_13 and run_14, with 20.4 gigabytes per launch against 33.4.
+
+### Stage 8: Data Type (2 launches)
+
+`ExperimentConfiguration.dtype` and `TrainingConfiguration.mixed_precision`: float32 with mixed precision runs the training and validation forward passes in bfloat16, the weights and the test evaluation staying in float32; float32 without mixed precision runs everything in float32. `run-25.yaml` and `run-26.yaml` are copies of `run-23.yaml` and `run-24.yaml` (kept by stage 7) with `mixed_precision: False`. float64 was removed: a float64 launch trains at 9.4 Images Per Second and takes 64 gigabytes (measured over the first 10 iterations of run_27), that is about 15 hours of training per launch, two float64 launches not fitting in memory together.
 
 | `dtype` | Launch | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| float32 (`mixed_precision: True`) | best so far, A | | | | | | | | | |
-| float32 (`mixed_precision: True`) | best so far, B | | | | | | | | | |
-| float32 (`mixed_precision: True`) | **Mean** | | | | | | | | | |
-| float32 (`mixed_precision: False`) | run_25 | | | | | | | | | |
-| float32 (`mixed_precision: False`) | run_26 | | | | | | | | | |
-| float32 (`mixed_precision: False`) | **Mean** | | | | | | | | | |
-| float64 (`mixed_precision: False`) | run_27 | | | | | | | | | |
-| float64 (`mixed_precision: False`) | run_28 | | | | | | | | | |
-| float64 (`mixed_precision: False`) | **Mean** | | | | | | | | | |
+| float32 (`mixed_precision: True`) | run_23 (stage 7) | 0.4871 | 0.8713 | 0.9362 | 0.9721 | 0.9807 | 0.9744 | 0.9826 | 0.9916 | 0.8995 |
+| float32 (`mixed_precision: True`) | run_24 (stage 7) | 0.5368 | 0.7841 | 0.9642 | 0.9788 | 0.9808 | 0.9879 | 0.9900 | 0.9892 | 0.9015 |
+| float32 (`mixed_precision: True`) | **Mean** | 0.5119 | 0.8277 | 0.9502 | 0.9755 | 0.9807 | 0.9811 | 0.9863 | 0.9904 | **0.9005** |
+| float32 (`mixed_precision: False`) | run_25 | 0.3961 | 0.6566 | 0.9656 | 0.9765 | 0.9840 | 0.9761 | 0.9757 | 0.9838 | 0.8643 |
+| float32 (`mixed_precision: False`) | run_26 | 0.4550 | 0.8413 | 0.9358 | 0.9672 | 0.9783 | 0.9901 | 0.9909 | 0.9857 | 0.8930 |
+| float32 (`mixed_precision: False`) | **Mean** | 0.4255 | 0.7490 | 0.9507 | 0.9718 | 0.9812 | 0.9831 | 0.9833 | 0.9848 | 0.8787 |
 
-Kept:
+Kept: **float32 (`mixed_precision: True`)** (run_23 and run_24), chosen by the user whatever the results of run_25 and run_26: mixed precision trains about 1.8 times faster with comparable accuracy; the configuration files of the next stages stay copies of `run-23.yaml` and `run-24.yaml`.
+
+- Without mixed precision the mean is 0.8787 against 0.9005 and the mean of the last 4 evaluations (iterations 1250 to 2000) 0.9831 against 0.9847: float32 starts slower (0.4255 against 0.5119 at iteration 250, 0.7490 against 0.8277 at iteration 500), then both data types are level from iteration 750 on.
+- Without mixed precision the pair took 2 hours 48 minutes against 1 hour 49 minutes (100 iterations in 6 minutes 16 seconds to 7 minutes 1 second at iteration 100, 68.0 and 60.8 Images Per Second, against 3 minutes 20 seconds to 3 minutes 57 seconds), with 38.7 gigabytes per launch against 20.4.
 
 ### Stage 9: Class Weighting (2 launches)
 
+`ClassificationHead.class_weighting`: "balanced" makes every class weigh the same in the loss (the weight of a class being inversely proportional to its number of training samples), "none" makes every sample weigh the same. `run-29.yaml` and `run-30.yaml` are copies of `run-23.yaml` and `run-24.yaml` (kept by stage 8) with `"none"`. The training classes are almost balanced (55,010 to 56,166 of the 500,000 images), so the balanced weights only range from 0.989 to 1.010 and the two settings should differ by the gap between launches only.
+
 | `class_weighting` | Launch | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| balanced | best so far, A | | | | | | | | | |
-| balanced | best so far, B | | | | | | | | | |
-| balanced | **Mean** | | | | | | | | | |
-| none | run_29 | | | | | | | | | |
-| none | run_30 | | | | | | | | | |
-| none | **Mean** | | | | | | | | | |
+| balanced | run_23 (stage 7) | 0.4871 | 0.8713 | 0.9362 | 0.9721 | 0.9807 | 0.9744 | 0.9826 | 0.9916 | 0.8995 |
+| balanced | run_24 (stage 7) | 0.5368 | 0.7841 | 0.9642 | 0.9788 | 0.9808 | 0.9879 | 0.9900 | 0.9892 | 0.9015 |
+| balanced | **Mean** | 0.5119 | 0.8277 | 0.9502 | 0.9755 | 0.9807 | 0.9811 | 0.9863 | 0.9904 | **0.9005** |
+| none | run_29 | 0.5482 | 0.9276 | 0.9726 | 0.9341 | 0.9887 | 0.9841 | 0.9905 | 0.9922 | 0.9173 |
+| none | run_30 | 0.4099 | 0.5849 | 0.9438 | 0.9807 | 0.8896 | 0.9864 | 0.9901 | 0.9792 | 0.8456 |
+| none | **Mean** | 0.4790 | 0.7562 | 0.9582 | 0.9574 | 0.9392 | 0.9853 | 0.9903 | 0.9857 | 0.8814 |
 
-Kept:
+Kept: **balanced** (run_23 and run_24); the configuration files of the next stage stay copies of `run-23.yaml` and `run-24.yaml`.
+
+- none reaches a mean of 0.8815 against 0.9005 for balanced, and a mean of the last 4 evaluations (iterations 1250 to 2000) of 0.9751 against 0.9847.
+- The two none launches are far apart: run_29 has the second highest mean of all launches (0.9173 after 0.9293 for run_20, 0.9276 at iteration 500), run_30 a mean of 0.8456 (0.5849 at iteration 500 and 0.8896 at iteration 1250). With almost balanced classes, the gap between the two settings is the gap between launches.
+- The training time does not change: the pair took 1 hour 49 minutes (100 iterations in 3 minutes 20 seconds to 3 minutes 59 seconds at iteration 100), with 20.4 gigabytes per launch.
 
 ### Stage 10: Dropout (2 launches)
 
+`ClassificationHead.dropout_rate`: probability of zeroing every input of the fully connected layers of the head during training, 0.0 disabling the dropout. `run-31.yaml` and `run-32.yaml` are copies of `run-23.yaml` and `run-24.yaml` (kept by stage 9) with `0.0`.
+
 | `dropout_rate` | Launch | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 0.2 | best so far, A | | | | | | | | | |
-| 0.2 | best so far, B | | | | | | | | | |
-| 0.2 | **Mean** | | | | | | | | | |
-| 0.0 | run_31 | | | | | | | | | |
-| 0.0 | run_32 | | | | | | | | | |
-| 0.0 | **Mean** | | | | | | | | | |
+| 0.2 | run_23 (stage 7) | 0.4871 | 0.8713 | 0.9362 | 0.9721 | 0.9807 | 0.9744 | 0.9826 | 0.9916 | 0.8995 |
+| 0.2 | run_24 (stage 7) | 0.5368 | 0.7841 | 0.9642 | 0.9788 | 0.9808 | 0.9879 | 0.9900 | 0.9892 | 0.9015 |
+| 0.2 | **Mean** | 0.5119 | 0.8277 | 0.9502 | 0.9755 | 0.9807 | 0.9811 | 0.9863 | 0.9904 | **0.9005** |
+| 0.0 | run_31 | 0.4204 | 0.8280 | 0.9477 | 0.9666 | 0.9728 | 0.9678 | 0.9749 | 0.9906 | 0.8836 |
+| 0.0 | run_32 | 0.5555 | 0.8835 | 0.9639 | 0.9856 | 0.9739 | 0.9862 | 0.9928 | 0.9908 | 0.9165 |
+| 0.0 | **Mean** | 0.4880 | 0.8558 | 0.9558 | 0.9761 | 0.9734 | 0.9770 | 0.9839 | 0.9907 | 0.9001 |
 
-Kept:
+Kept: **0.2** (run_23 and run_24).
+
+- 0.0 reaches a mean of 0.9001 against 0.9005 for 0.2 (0.900061 against 0.900480), and a mean of the last 4 evaluations (iterations 1250 to 2000) of 0.9812 against 0.9847: the gap between the two settings is far smaller than the gap between the two launches of 0.0 (0.8836 and 0.9165).
+- 0.0 is behind at iteration 250 (0.4880 against 0.5119), ahead at iteration 500 (0.8558 against 0.8277) and level at iteration 2000 (0.9907 against 0.9904).
+- The training time does not change: the pair took 1 hour 49 minutes (100 iterations in 3 minutes 20 seconds to 3 minutes 59 seconds at iteration 100), with 20.4 gigabytes per launch.
+
+The settings kept by the ten stages are those of `run-23.yaml` and `run-24.yaml`: learning rate 2e-4, fully connected normalization "layer", backbone batch normalization momentum 0.1, feature map batch normalization, flatten pooling, residual connections, no squeeze and excitation, float32 with mixed precision, balanced class weighting and dropout 0.2 (mean 0.9005, mean of the last 4 evaluations 0.9847).
+
+### Repeat Launches: Squeeze And Excitation (8 launches)
+
+Four more launches of each squeeze and excitation setting of stage 7, the other settings being those kept by the ten stages, to measure the gap between launches of the same settings: `run-23b.yaml`, `run-23c.yaml`, `run-24b.yaml` and `run-24c.yaml` are copies of `run-23.yaml` and `run-24.yaml` (squeeze and excitation off), `run-13b.yaml`, `run-13c.yaml`, `run-14b.yaml` and `run-14c.yaml` copies of `run-13.yaml` and `run-14.yaml` (squeeze and excitation on), only their experiment folder changing. They run two at a time, the off repeats first.
+
+| `squeeze_and_excite` | Launch | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
+|---|---|---|---|---|---|---|---|---|---|---|
+| False | run_23 | 0.4871 | 0.8713 | 0.9362 | 0.9721 | 0.9807 | 0.9744 | 0.9826 | 0.9916 | 0.8995 |
+| False | run_24 | 0.5368 | 0.7841 | 0.9642 | 0.9788 | 0.9808 | 0.9879 | 0.9900 | 0.9892 | 0.9015 |
+| False | run_23b | 0.6023 | 0.9428 | 0.9659 | 0.9157 | 0.9812 | 0.9908 | 0.9906 | 0.9848 | 0.9218 |
+| False | run_23c | 0.4003 | 0.7537 | 0.9323 | 0.9642 | 0.9834 | 0.9843 | 0.9894 | 0.9927 | 0.8750 |
+| False | run_24b | 0.3542 | 0.9186 | 0.9544 | 0.8746 | 0.9849 | 0.9750 | 0.9859 | 0.9816 | 0.8787 |
+| False | run_24c | 0.5093 | 0.7220 | 0.9228 | 0.9705 | 0.9576 | 0.9893 | 0.9908 | 0.9856 | 0.8810 |
+| False | **Mean** | 0.4816 | 0.8321 | 0.9460 | 0.9460 | 0.9781 | 0.9836 | 0.9882 | 0.9876 | 0.8929 |
+| True | run_13 | 0.6055 | 0.8918 | 0.9343 | 0.9663 | 0.9352 | 0.9787 | 0.9915 | 0.9909 | 0.9118 |
+| True | run_14 | 0.4637 | 0.7247 | 0.9480 | 0.9823 | 0.9849 | 0.9879 | 0.9799 | 0.9856 | 0.8821 |
+| True | run_13b | 0.5505 | 0.8785 | 0.8610 | 0.9793 | 0.9686 | 0.9910 | 0.9893 | 0.9759 | 0.8993 |
+| True | run_13c | 0.3752 | 0.7032 | 0.9187 | 0.9271 | 0.9515 | 0.9858 | 0.9821 | 0.9929 | 0.8546 |
+| True | run_14b | 0.5184 | 0.9182 | 0.8943 | 0.9322 | 0.9852 | 0.9908 | 0.9921 | 0.9889 | 0.9025 |
+| True | run_14c | 0.5222 | 0.8817 | 0.9511 | 0.9678 | 0.9038 | 0.9813 | 0.9648 | 0.9845 | 0.8946 |
+| True | **Mean** | 0.5059 | 0.8330 | 0.9179 | 0.9592 | 0.9549 | 0.9859 | 0.9833 | 0.9864 | 0.8908 |
+
+- Over six launches each, squeeze and excitation off and on are level: mean 0.8929 against 0.8908 (standard deviation between launches 0.0180 and 0.0203, a difference of 0.0021 for a standard error of 0.0111), accuracy at iteration 2000 0.9876 against 0.9864.
+- The mean of the last 4 evaluations (iterations 1250 to 2000) leans towards off, 0.9844 against 0.9776 (a difference of 0.0068 for a standard error of 0.0045, not significant): the six off launches all end between 0.9808 and 0.9874, the on launches between 0.9586 and 0.9892, run_14c dropping to 0.9038 at iteration 1250 and 0.9648 at iteration 1750.
+- The mean of a single launch varies by about 0.02 between launches of the same settings (0.8750 to 0.9218 off, 0.8546 to 0.9118 on), mostly through iterations 250 to 1000; with two launches per setting, the gap between two settings is noise below about 0.036, which covers stages 5, 7, 9 and 10. The mean of the last 4 evaluations varies about six times less for off (0.0030).
+- Off stays the faster and lighter setting: the off pairs took 1 hour 51 to 1 hour 55 minutes and the on pairs 2 hours 28 to 2 hours 33 minutes (with another process of the machine on the GPU), with 20.4 gigabytes per launch against 25.2, both read at iteration 100.
 
 ## Total
 
-16 settings, 32 launches, against 5760 combinations (11520 launches) for every combination.
+15 settings, 30 launches, against 3840 combinations (7680 launches) for every combination.
 
 ## Notes
 
