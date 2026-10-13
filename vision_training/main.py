@@ -1,7 +1,7 @@
 """
-Entry point of the training pipeline: reads the task folder and the name of an experiment configuration file from the
-command line (e.g. --task="classification" --name="run-1.yaml"), loads that file from
-vision_training/configurations/<task>/ and runs the training loop of the trainer of its task, found in the task
+Entry point of the training pipeline: reads the path of an experiment configuration file from the command line (e.g.
+--configuration_path="vision_training/configurations/classification/configuration_large_model.yaml"), loads that
+file and runs the training loop of the trainer of its task ('ExperimentConfiguration.task'), found in the task
 registry.
 """
 
@@ -12,40 +12,30 @@ from vision_training.configuration.configuration_loader import load_experiment_c
 from vision_training.core.task_registry import get_trainer_class
 from vision_training.utilities.os_utilities import format_path_link
 
-# Folder holding one folder of configuration files per task
-CONFIGURATIONS_FOLDER = Path(__file__).parent / "configurations"
-
 
 def parse_configuration_path() -> Path:
     """
-    Reads the configuration file of a training launch from the command line, its task folder in
-    vision_training/configurations/ given by --task and its file name by --name, so that a series of runs (e.g. the
-    launches of a hyperparameter sweep, one configuration file each) is started without editing this file.
+    Reads the configuration file of a training launch from the command line, given by its path (--configuration_path,
+    absolute or relative to the current folder), so that a series of runs (e.g. the launches of a hyperparameter
+    sweep, one configuration file each) is started without editing this file, whatever folder holds the files. The
+    task trained is the one of the configuration file itself.
 
     Returns:
-        Path: The path of the configuration file.
+        Path: The absolute path of the configuration file.
 
     Raises:
-        SystemExit: If an argument is missing, the task folder does not exist or the task folder holds no file of that
-            name, after printing the usage, or the configuration files of the task folder.
+        SystemExit: If the argument is missing or the path is not a file, after printing the usage.
     """
-    # Task folders of the configurations, the only values accepted by --task
-    task_folders = sorted(folder.name for folder in CONFIGURATIONS_FOLDER.iterdir() if folder.is_dir())
-    parser = argparse.ArgumentParser(description="Trains a model from a configuration file of "
-                                                 "vision_training/configurations/.")
-    parser.add_argument("--task", type=str, required=True, choices=task_folders,
-                        help="Folder of the configuration file in vision_training/configurations/, e.g. "
-                             "classification.")
-    parser.add_argument("--name", type=str, required=True,
-                        help="Name of the configuration file in the task folder, e.g. run-1.yaml.")
+    parser = argparse.ArgumentParser(description="Trains a model from an experiment configuration file.")
+    parser.add_argument("--configuration_path", type=Path, required=True,
+                        help="Path of the configuration file, absolute or relative to the current folder, e.g. "
+                             "vision_training/configurations/classification/configuration_large_model.yaml.")
     arguments = parser.parse_args()
 
-    # Stop with the configuration files of the task folder when the requested one does not exist
-    configuration_path = CONFIGURATIONS_FOLDER / arguments.task / arguments.name
+    # Stop before anything starts when the path does not lead to a file
+    configuration_path = arguments.configuration_path.expanduser().absolute()
     if not configuration_path.is_file():
-        available_files = ", ".join(sorted(path.name for path in configuration_path.parent.glob(pattern="*.yaml")))
-        parser.error(message=f"No configuration file {arguments.name} in "
-                             f"{format_path_link(path=configuration_path.parent)}, available files : {available_files}")
+        parser.error(message=f"No configuration file at {format_path_link(path=configuration_path)}")
     return configuration_path
 
 
