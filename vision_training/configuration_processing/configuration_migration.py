@@ -4,7 +4,7 @@ the comments, the keys and sections added since (task, pretrained settings, eval
 sample images, MLflow tracking, sequence settings and batch padding, positional embedding of the transformer,
 segmentation losses, deep supervision, tiles and evaluation settings, Optimization, batch normalization momentums,
 normalization of the classification head, its True or False values becoming "batch" or "none", pre-activation
-placement of the backbone shortcuts, starting weights and moving average of the weights), and renames the
+placement of the backbone shortcuts and moving average of the weights), and renames the
 run folder to its current run name (without the training, learning rate multiplier and dropout tokens no longer
 written in the run names). Called by scripts/configuration_processing/migrate_configuration.py.
 """
@@ -260,14 +260,10 @@ RESIDUAL_NETS_V2_LINES = ("    # Pre-activation placement of the residual shortc
                           "every convolution.\n"
                           "    residual_nets_v2: False\n")
 
-# Header of the optimization section and start of its mixed precision line, and the starting weights and the moving
-# average of the weights inserted after it, the PyTorch initialisation without average of every run written before
-# they existed
+# Header of the optimization section and start of its mixed precision line, and the moving average of the weights
+# inserted after it, off as in every run written before it existed
 OPTIMIZATION_SECTION_HEADER = "Optimization:\n"
 MIXED_PRECISION_LINE_START = "  mixed_precision:"
-WEIGHT_INITIALIZATION_LINES = ("  # Starting weights of the model: \"default\" (PyTorch initialisation) or \"he\" (He "
-                               "normal).\n"
-                               "  weight_initialization: \"default\"\n")
 EXPONENTIAL_MOVING_AVERAGE_LINES = ("  # Moving average of the weights, evaluated next to the trained weights:\n"
                                     "  #   ema_weights = decay × ema_weights + (1 − decay) × current_weights\n"
                                     "  exponential_moving_average:\n"
@@ -1007,19 +1003,19 @@ def add_residual_nets_v2_to_configuration(configuration_path: Path) -> bool:
     return True
 
 
-def add_weight_settings_to_configuration(configuration_path: Path) -> bool:
+def add_moving_average_to_configuration(configuration_path: Path) -> bool:
     """
-    Upgrades a configuration file written before the starting weights and the moving average of the weights by
-    inserting 'Optimization.weight_initialization', "default", and 'Optimization.exponential_moving_average', off, as
-    in every run of that time, right after the 'mixed_precision' line of the optimization section. The settings are
-    inserted as text, so that every comment of the file is kept, and a file that already has them is left untouched.
+    Upgrades a configuration file written before the moving average of the weights by inserting
+    'Optimization.exponential_moving_average', off as in every run of that time, right after the 'mixed_precision'
+    line of the optimization section. The setting is inserted as text, so that every comment of the file is kept, and
+    a file that already has it is left untouched. A 'weight_initialization' setting left by an older run is ignored.
 
     Args:
         configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run, with
             its 'Optimization' section (see add_optimization_section_to_configuration).
 
     Returns:
-        bool: True if at least one setting was added, False if the file already had both.
+        bool: True if the setting was added, False if the file already had it.
 
     Raises:
         ValueError: If the optimization section has no 'mixed_precision' line of its own.
@@ -1027,13 +1023,8 @@ def add_weight_settings_to_configuration(configuration_path: Path) -> bool:
     text = configuration_path.read_text()
     optimization_configuration = yaml.safe_load(stream=text)["Optimization"]
 
-    # Settings missing from a run written before them
-    inserted_lines = []
-    if "weight_initialization" not in optimization_configuration:
-        inserted_lines.append(WEIGHT_INITIALIZATION_LINES)
-    if "exponential_moving_average" not in optimization_configuration:
-        inserted_lines.append(EXPONENTIAL_MOVING_AVERAGE_LINES)
-    if not inserted_lines:
+    # Setting missing from a run written before it
+    if "exponential_moving_average" in optimization_configuration:
         return False
 
     # Inserted after the mixed precision line, the last setting of the section before them
@@ -1043,7 +1034,7 @@ def add_weight_settings_to_configuration(configuration_path: Path) -> bool:
     if mixed_precision_index is None:
         raise ValueError(f"No 'mixed_precision' line in the 'Optimization' section of "
                          f"{format_path_link(path=configuration_path)}")
-    configuration_path.write_text(data="".join(lines[:mixed_precision_index + 1] + inserted_lines +
+    configuration_path.write_text(data="".join(lines[:mixed_precision_index + 1] + [EXPONENTIAL_MOVING_AVERAGE_LINES] +
                                                lines[mixed_precision_index + 1:]))
     return True
 
@@ -1062,13 +1053,13 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     embedding of their transformer (on), the settings of the segmentation added since its first runs (off), the batch
     normalization momentum of every normalized section (0.1, the PyTorch default), the normalization of the hidden
     layers of the classification head ("none", True and False becoming "batch" and "none"), the pre-activation
-    placement of the backbone shortcuts (off), the starting weights ("default") and the moving average of the weights
-    (off), it loses the 'Data.DALI' block of the removed DALI loader, and its folder is renamed to the run name the
-    current code builds from that configuration (the task code being now the first section of the run names, and the
-    augmentation, batch size, learning rate, schedule, gradient clipping, mixed precision, dropout and learning rate
-    multiplier (BLR, TLR, HLR, DLR) tokens being no longer written). The configuration is fully checked on the way,
-    any other missing key being reported by the configuration checker. Two old folders differing only by these
-    settings get the same new name, the second one being refused.
+    placement of the backbone shortcuts (off) and the moving average of the weights (off), it loses the 'Data.DALI'
+    block of the removed DALI loader, and its folder is renamed to the run name the current code builds from that
+    configuration (the task code being now the first section of the run names, and the augmentation, batch size,
+    learning rate, schedule, gradient clipping, mixed precision, dropout and learning rate multiplier (BLR, TLR, HLR,
+    DLR) tokens being no longer written). The configuration is fully checked on the way, any other missing key being
+    reported by the configuration checker. Two old folders differing only by these settings get the same new name, the
+    second one being refused.
 
     Args:
         run_folder (Path): The run folder, holding 'training_configuration.yaml', 'Weights' and 'Tensorboard'.
@@ -1138,8 +1129,8 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     if add_residual_nets_v2_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Pre-Activation Residual Shortcuts Flag Added To : "
                                           f"{format_path_link(path=configuration_path)}")
-    if add_weight_settings_to_configuration(configuration_path=configuration_path):
-        print_color(color="green", output=f"Weight Initialisation And Moving Average Settings Added To : "
+    if add_moving_average_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Moving Average Of The Weights Added To : "
                                           f"{format_path_link(path=configuration_path)}")
 
     # The run name the current code gives to this configuration

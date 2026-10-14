@@ -12,7 +12,6 @@ from vision_training.configuration_processing.configuration_values import (BACKB
                                                                            check_probability_value,
                                                                            get_configuration_value)
 from vision_training.data.augmentations import AUGMENTATION_TYPES
-from vision_training.models.weight_initialization import WEIGHT_INITIALIZATIONS
 
 
 # Label mapping modes handled by the configuration loader
@@ -410,13 +409,6 @@ def check_optimization_configuration(model_configuration: Dict[str, Any]) -> Lis
 
     # Mixed precision computes in bfloat16 from the float32 weights of every model
     errors += check_boolean_flags(configuration=model_configuration, key_paths=["Optimization.mixed_precision"])
-
-    # Starting weights of the model, PyTorch default or He normal
-    weight_initialization = get_configuration_value(configuration=model_configuration,
-                                                    key_path="Optimization.weight_initialization")
-    if weight_initialization not in WEIGHT_INITIALIZATIONS:
-        errors.append(f"'Optimization.weight_initialization' must be one of {WEIGHT_INITIALIZATIONS}, "
-                      f"got {weight_initialization!r}.")
 
     # Moving average of the weights, its decay giving the fraction of the average kept at every step
     errors += check_boolean_flags(configuration=model_configuration,

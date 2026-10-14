@@ -138,9 +138,7 @@ main()
 │       ├── build_model()
 │       │   │   Hook implemented by ClassificationTrainer. Creates the ImageClassifier from the model registry
 │       │   │   (TASK_MODEL_CLASSES["classification"]) and, with class_weighting "balanced", sets its class weights from
-│       │   │   the training sample counts. BaseTrainer then moves the model to the device and the dtype, and
-│       │   │   initialise_weights() gives it the starting weights of Optimization.weight_initialization: the PyTorch
-│       │   │   ones with "default", He normal for every layer followed by a ReLU with "he".
+│       │   │   the training sample counts. BaseTrainer then moves the model to the device and the dtype.
 │       │   │
 │       │   ├── ImageClassifier.__init__()
 │       │   │   │   Counts the classes (distinct values of the label dictionary), then builds in order: the backbone,
@@ -557,7 +555,6 @@ self.per_class_report       = False                 <- evaluation.per_class_repo
 self.number_sample_images   = 16                    <- evaluation.number_sample_images
 self.experiment_tracker     = <DisabledTracker>     <- replaced at the start of the training loop
 self.mixed_precision        = True                  <- Optimization.mixed_precision
-self.weight_initialization  = "default"             <- Optimization.weight_initialization
 self.exponential_moving_average = None              <- Optimization.exponential_moving_average.activated is False
 self.start_iteration        = 1
 ```
@@ -667,7 +664,7 @@ sample_image_identifiers  -> [1, 51, 101, 151, 201, 251, 301, 351, 401, 451, 501
 The test manifest lists its images class by class, 50 per class, so the first image of each of the first 16 classes is chosen.
 
 ### Step 2.12 — `build_model()`
-This hook creates the network through the registry `TASK_MODEL_CLASSES["classification"]`, which gives an `ImageClassifier` (Step 2.13). With `class_weighting: "balanced"` it counts the training samples of every class and stores the balanced weights in the model (Step 2.18). Back in `BaseTrainer.__init__()`, the model is then moved to the device and cast to the `dtype`, and `initialise_weights()` draws its starting weights according to `Optimization.weight_initialization`: `"default"` keeps the PyTorch initialisation of every layer, `"he"` draws every layer followed by a ReLU (the convolutions of the convolution blocks, the hidden fully connected layers of the head and the reduce layers of squeeze-and-excitation) from the He normal distribution, `std = sqrt(2 / fan_in)`, with zero biases, the class layer keeping the PyTorch initialisation. Its weights are random at this point: the transferred components (Step 2.19) and a resumed checkpoint (Step 2.28) replace them.
+This hook creates the network through the registry `TASK_MODEL_CLASSES["classification"]`, which gives an `ImageClassifier` (Step 2.13). With `class_weighting: "balanced"` it counts the training samples of every class and stores the balanced weights in the model (Step 2.18). Back in `BaseTrainer.__init__()`, the model is then moved to the device and cast to the `dtype`, every layer keeping the PyTorch initialisation. Its weights are random at this point: the transferred components (Step 2.19) and a resumed checkpoint (Step 2.28) replace them.
 
 **Example: size of the model of `configuration_example.yaml`**
 ```text
@@ -830,7 +827,6 @@ This prints the launch panel, so the settings of the run can be checked before a
 - Optimizer               : adam (weight decay 0.0)
 - Learning Rate Schedule  : constant (warm-up 0 iterations)
 - Gradient Clipping Norm  : None
-- Weight Initialization   : default
 - Weight Moving Average   : Off
 - Mixed Precision         : True
 - Resume Training         : True

@@ -35,7 +35,6 @@ from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, free
                                                    freeze_component, freeze_normalization_parameters,
                                                    get_component_name, load_pretrained_component)
 from vision_training.models.task_model import TaskModel
-from vision_training.models.weight_initialization import initialise_weights
 from vision_training.trainers.checkpointing import (EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, get_last_checkpoint_iteration,
                                                     load_checkpoint, save_checkpoint)
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
@@ -186,10 +185,7 @@ class BaseTrainer(ABC):
         self.model = self.build_model()
         self.model.to(device=self.device, dtype=self.dtype)
 
-        # Starting weights of the model ("default" or "he"), replaced by the transferred components and by a resumed
-        # checkpoint
-        self.weight_initialization = self.optimization_configuration["weight_initialization"]
-        initialise_weights(model=self.model, weight_initialization=self.weight_initialization)
+        # Components transferred from other runs, replacing the PyTorch initialisation of their layers
         self.pretrained_checkpoint_paths = self.initialise_pretrained_components()
         self.optimizer = self.build_optimizer()
 
@@ -736,7 +732,6 @@ class BaseTrainer(ABC):
                                          f"{self.optimization_configuration['warmup_iterations']} iterations)")
         print_color(color="blue", output=f"- Gradient Clipping Norm  : "
                                          f"{self.optimization_configuration['gradient_clipping_norm']}")
-        print_color(color="blue", output=f"- Weight Initialization   : {self.weight_initialization}")
         moving_average_description = "Off"
         if self.exponential_moving_average is not None:
             moving_average_description = (f"decay {self.exponential_moving_average.decay}, evaluated next to the "

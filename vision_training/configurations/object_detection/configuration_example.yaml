@@ -101,12 +101,6 @@ Optimization:
   # Runs the training and validation forward passes in bfloat16 (faster and lighter on recent GPUs), the weights and
   # the test evaluation staying in float32 (the data type of every model).
   mixed_precision: False
-  # Starting weights of the model: "default" (PyTorch initialisation of every layer) or "he" (He normal initialisation,
-  # paper "Delving Deep into Rectifiers" https://arxiv.org/abs/1502.01852, of every layer followed by a ReLU: the
-  # convolutions of the convolution blocks, the hidden fully connected layers and the reduce layer of
-  # Squeeze-and-Excitation, the output layers keeping the PyTorch initialisation). The components loaded from other
-  # runs and a resumed checkpoint replace these weights. Gives no run name token.
-  weight_initialization: "default"
   # Exponential moving average (EMA) of the weights: a second copy of the model, never trained itself, moved towards
   # the trained weights after every optimizer step:
   #   ema_weights = decay × ema_weights + (1 − decay) × current_weights

@@ -1251,8 +1251,8 @@ def test_inconsistent_temporal_and_head_transfers_are_rejected(tmp_path: Path, c
 def set_invalid_optimization(configuration: Dict[str, Any]) -> None:
     """
     Sets an unknown optimizer and schedule, a negative weight decay, an empty decay, a minimum learning rate above
-    the learning rate, a zero clipping norm, a mixed precision flag that is not a boolean, an unknown weight
-    initialisation, and a moving average switch that is not a boolean with a decay of 1, which would never move.
+    the learning rate, a zero clipping norm, a mixed precision flag that is not a boolean, and a moving average
+    switch that is not a boolean with a decay of 1, which would never move.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
@@ -1260,7 +1260,7 @@ def set_invalid_optimization(configuration: Dict[str, Any]) -> None:
     configuration["Optimization"].update({"optimizer": "rmsprop", "learning_rate_schedule": "step",
                                           "weight_decay": -0.1, "decay_iterations": 0,
                                           "minimum_learning_rate_ratio": 1.5, "gradient_clipping_norm": 0,
-                                          "mixed_precision": "yes", "weight_initialization": "xavier",
+                                          "mixed_precision": "yes",
                                           "exponential_moving_average": {"activated": "yes", "decay": 1.0}})
 
 
@@ -1287,7 +1287,6 @@ def test_inconsistent_optimization_is_rejected(tmp_path: Path, capsys: pytest.Ca
                              "'Optimization.minimum_learning_rate_ratio' must be a probability within [0, 1], got 1.5.",
                              "'Optimization.gradient_clipping_norm' must be null or > 0, got 0.",
                              "'Optimization.mixed_precision' must be True or False, got 'yes'.",
-                             "'Optimization.weight_initialization' must be one of ['default', 'he'], got 'xavier'.",
                              "'Optimization.exponential_moving_average.activated' must be True or False, got 'yes'.",
                              "'Optimization.exponential_moving_average.decay' must be strictly between 0 and 1, "
                              "got 1.0."]:

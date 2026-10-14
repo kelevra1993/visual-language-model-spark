@@ -3,7 +3,7 @@ Tests of build_run_name of vision_training/configuration_processing/run_name.py 
 task: the reference run names are fixed, every changed setting (architecture, inputs, heads, temporal modules, fusions,
 segmentation decoders and losses, transfers, normalization, optimizer, weight decay) changes the run name with its
 token, and the training settings that can change between two resumptions (augmentation, batch size, learning rate,
-schedule, clipping, mixed precision, weight initialisation, moving average of the weights, dropout rates, segmentation
+schedule, clipping, mixed precision, moving average of the weights, dropout rates, segmentation
 losses) keep it.
 """
 
@@ -197,8 +197,8 @@ def use_multi_class_labels(experiment_configuration: Dict[str, Any], model_confi
 def change_training_settings(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
     Changes every training setting that can change between two resumptions of a run: turns off data augmentation,
-    and trains with another batch size, learning rate and schedule, gradient clipping, mixed precision, weight
-    initialisation and a moving average of the weights.
+    and trains with another batch size, learning rate and schedule, gradient clipping, mixed precision and a moving
+    average of the weights.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
@@ -209,7 +209,7 @@ def change_training_settings(experiment_configuration: Dict[str, Any], model_con
     experiment_configuration["learning_rate"] = 1.5e-3
     model_configuration["Optimization"].update({"learning_rate_schedule": "cosine", "warmup_iterations": 500,
                                                 "decay_iterations": 20000, "gradient_clipping_norm": 1.0,
-                                                "mixed_precision": True, "weight_initialization": "he",
+                                                "mixed_precision": True,
                                                 "exponential_moving_average": {"activated": True, "decay": 0.999}})
 
 
@@ -217,8 +217,8 @@ def test_reference_run_name() -> None:
     """
     Verifies the run name of the reference settings, that the same settings always give the same name, which lets a
     run resume in its own folder, and that the training settings that can change between two resumptions (augmentation,
-    batch size, learning rate and schedule, gradient clipping, mixed precision, weight initialisation, moving average
-    of the weights) keep that name.
+    batch size, learning rate and schedule, gradient clipping, mixed precision, moving average of the weights) keep
+    that name.
     """
     experiment_configuration, model_configuration = get_reference_configurations()
     run_name = build_run_name(experiment_configuration=experiment_configuration,

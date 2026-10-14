@@ -4,8 +4,9 @@
 > come back to them and decide what to implement. Every item was checked against the code on 2026-10-09; the items
 > implemented since the first version of this list (mAP evaluation, checkpoint evaluation script, run names, dataset
 > sizes at startup, README, split of the detector and loader code, AdamW / warm-up / cosine / clipping, mixed precision,
-> He initialisation, pre-activation residual pairs, moving average of the weights, its export, best value and summary
-> columns) were removed, and `torch.compile` was dropped after a measurement on the GB10 showed no speed-up.
+> He initialisation (removed after stage 12 of the experiment), pre-activation residual pairs, moving average of the
+> weights, its export, best value and summary columns) were removed, and `torch.compile` was dropped after a
+> measurement on the GB10 showed no speed-up.
 
 ## A. Evaluation and analysis
 The detector is scored with the mAP of every class at every evaluated checkpoint, with its sample images. The outputs

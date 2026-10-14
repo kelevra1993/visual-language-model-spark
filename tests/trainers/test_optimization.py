@@ -32,7 +32,7 @@ def get_optimization_configuration(learning_rate_schedule: str) -> Dict[str, Any
     """
     return {"optimizer": "adam", "weight_decay": 0.0, "learning_rate_schedule": learning_rate_schedule,
             "warmup_iterations": 4, "decay_iterations": 10, "minimum_learning_rate_ratio": 0.1,
-            "gradient_clipping_norm": None, "mixed_precision": False, "weight_initialization": "default",
+            "gradient_clipping_norm": None, "mixed_precision": False,
             "exponential_moving_average": {"activated": False, "decay": 0.9998}}
 
 

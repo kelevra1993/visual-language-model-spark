@@ -397,6 +397,5 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
                                             "learning_rate_schedule": "constant", "warmup_iterations": 0,
                                             "decay_iterations": 100000, "minimum_learning_rate_ratio": 0.01,
                                             "gradient_clipping_norm": None, "mixed_precision": False,
-                                            "weight_initialization": "default",
                                             "exponential_moving_average": {"activated": False, "decay": 0.9998}}}
     return experiment_configuration, model_configuration

@@ -4,8 +4,7 @@ layers) shared by the detection heads after RoIAlign, built without dropout laye
 checkpoint names, and by the classification heads after the global pooling, always built with dropout layers so that
 their checkpoint names do not depend on the dropout rate, and normalized as set by
 'ClassificationHead.fully_connected_normalization'. Also holds the batch normalization of feature vectors the batch
-normalized layers use, and the FullyConnectedBlock container whose linear layers the He initialisation of
-vision_training/models/weight_initialization.py recognises.
+normalized layers use, and the FullyConnectedBlock container of the hidden layers.
 """
 
 import torch
@@ -39,8 +38,7 @@ class FeatureBatchNormalization(nn.BatchNorm1d):
 class FullyConnectedBlock(nn.Sequential):
     """
     Hidden fully connected layers of a task head, built by build_fully_connected_block: an nn.Sequential holding the
-    same layers under the same checkpoint names, whose type tells the weight initialisation of the training
-    (vision_training/models/weight_initialization.py) that every one of its linear layers is followed by a ReLU.
+    same layers under the same checkpoint names, every one of its linear layers being followed by a ReLU.
     """
 
 
