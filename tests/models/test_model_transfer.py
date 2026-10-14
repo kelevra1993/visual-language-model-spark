@@ -2,8 +2,8 @@
 Tests of vision_training/models/model_transfer.py: backbones, temporal modules, heads, segmentation decoders and
 region proposal and detection heads of a saved run initialising other models and tasks, rejected architectures and
 components (flattened heads, decoders and detection heads of other levels included), order-blind transformers moving
-between window lengths, source runs missing a setting, frozen and fixed normalization parameters and backbones moving
-between batch and sequence normalization.
+between window lengths, source runs missing a setting (the pre-activation flag of the backbone counting as off),
+frozen and fixed normalization parameters and backbones moving between batch and sequence normalization.
 """
 
 import copy
@@ -68,7 +68,8 @@ def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: tor
     run_folder.mkdir(parents=True)
     (run_folder / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=configuration))
     save_checkpoint(weights_directory=run_folder / "Weights", iteration=3, model=model,
-                    optimizer=torch.optim.Adam(params=model.parameters()), metadata={"task": "classification"})
+                    optimizer=torch.optim.Adam(params=model.parameters()), metadata={"task": "classification"},
+                    exponential_moving_average_state=None)
 
 
 def point_to_source_run(configuration: Dict[str, Any], section_name: str, source_folder: Path) -> Dict[str, Any]:
@@ -183,6 +184,49 @@ def test_different_architectures_are_rejected(tmp_path: Path) -> None:
     assert "The Backbone Of The Source Run" in str(error_information.value)
     assert "'Backbone.convolutions' is" in str(error_information.value)
     assert "'Backbone.modules' is" in str(error_information.value)
+
+
+def test_source_run_written_before_the_pre_activation_flag(tmp_path: Path) -> None:
+    """
+    Verifies that the backbone of a run written before the pre-activation placement of the residual shortcuts, whose
+    configuration has no 'residual_nets_v2', counts as using the original placement: it initialises a backbone with
+    the original residual shortcuts exactly, and is refused by a backbone with pre-activation shortcuts, whose layers
+    differ.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    torch.manual_seed(seed=0)
+    detection_configuration, device, dtype = get_detection_model_configuration()
+    detection_configuration = copy.deepcopy(detection_configuration)
+    detection_configuration["Backbone"]["modules"]["residual_nets"] = True
+    classifier_configuration = get_classifier_configuration(detection_configuration=detection_configuration)
+    classifier = ImageClassifier(configuration=classifier_configuration, device=device, dtype=dtype)
+
+    # Source run saved without the pre-activation flag
+    old_configuration = copy.deepcopy(classifier_configuration)
+    del old_configuration["Backbone"]["modules"]["residual_nets_v2"]
+    write_source_run(run_folder=tmp_path / "classification_run", configuration=old_configuration, model=classifier)
+
+    # Original residual shortcuts in the run receiving the backbone
+    detector = TwoStageDetector(configuration=detection_configuration, device=device, dtype=dtype)
+    load_pretrained_component(component=detector.backbone, section_name="Backbone", device=device,
+                              model_configuration=point_to_source_run(configuration=detection_configuration,
+                                                                      section_name="Backbone",
+                                                                      source_folder=tmp_path / "classification_run"))
+    for parameter_name, parameter_value in classifier.backbone.state_dict().items():
+        assert torch.equal(input=detector.backbone.state_dict()[parameter_name], other=parameter_value)
+
+    # Pre-activation shortcuts in the run receiving the backbone
+    pre_activation_configuration = copy.deepcopy(detection_configuration)
+    pre_activation_configuration["Backbone"]["modules"]["residual_nets_v2"] = True
+    pre_activation_detector = TwoStageDetector(configuration=pre_activation_configuration, device=device, dtype=dtype)
+    with pytest.raises(expected_exception=ValueError, match="'Backbone.modules' is"):
+        load_pretrained_component(component=pre_activation_detector.backbone, section_name="Backbone", device=device,
+                                  model_configuration=point_to_source_run(configuration=pre_activation_configuration,
+                                                                          section_name="Backbone",
+                                                                          source_folder=tmp_path /
+                                                                          "classification_run"))
 
 
 def test_frozen_backbone_keeps_its_weights_and_statistics() -> None:

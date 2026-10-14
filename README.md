@@ -19,6 +19,7 @@
   - [Stopping And Resuming](#stopping-and-resuming)
   - [Viewing The Input Images](#viewing-the-input-images)
   - [TensorBoard Monitoring](#tensorboard-monitoring)
+  - [Moving Average Of The Weights](#moving-average-of-the-weights)
 - [Tasks](#tasks)
   - [Common Dataset Layout](#common-dataset-layout)
   - [Classification (CLS)](#classification-cls)
@@ -142,14 +143,16 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 ├── training_configuration_until_iteration_<n>.yaml  # Configuration that trained the run up to iteration n, kept by a resume that changed it
 ├── Weights/
 │   ├── full-checkpoint                # Registry of the saved checkpoints, the last one first
-│   └── Iteration_<n>/model_<n>.pt     # Weights, optimizer state and metadata of iteration n
+│   └── Iteration_<n>/model_<n>.pt     # Weights, optimizer state, moving average of the weights and metadata of iteration n
 ├── Tensorboard/
 │   ├── Train/                         # Training curves, every iteration
 │   ├── Validation/                    # Validation curves
-│   └── Test/                          # Test metrics and sample images of every evaluation
+│   ├── Test/                          # Test metrics and sample images of every evaluation
+│   └── Test_EMA/                      # Same for the moving average of the weights, when it is on
 ├── Results.txt                        # Report of every evaluated checkpoint
 ├── Evaluation/
 │   └── Iteration_<n>/                 # Files of the evaluation of iteration n
+│       └── EMA/                       # Files of the evaluation of the moving average of the weights, when it is on
 └── mlflow_run.json                    # MLflow run of the training, with the tracking on
 ```
 
@@ -185,7 +188,7 @@ Every `information_dump` iterations, it prints the averages of the interval: the
 
 > **Screenshot placeholder** (`README/interval_summary.png`): two or three consecutive interval summaries of a training, with the iteration header, the throughput and the training and validation metrics.
 
-Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the test split, and its report is printed and appended to `Results.txt` with the same layout: the global metrics, the notes and, with `evaluation.per_class_report`, the table of the classes sorted worst first.
+Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the test split, and its report is printed and appended to `Results.txt` with the same layout: the global metrics, the notes and, with `evaluation.per_class_report`, the table of the classes sorted worst first. With the moving average of the weights on, a second report of the same checkpoint follows, headed `Iteration <n> · <evaluated samples> · EMA Weights · <date and time>` ([Moving Average Of The Weights](#moving-average-of-the-weights)).
 
 <p align="center">
   <img src="README/evaluation_report.png" width="100%" />
@@ -196,7 +199,7 @@ Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the 
 ### Stopping And Resuming
 Ctrl+C stops the training and saves a checkpoint of the current iteration. With `resume_training: true`, launching the same configuration again resumes from the last checkpoint of its run folder, with its optimizer state.
 
-The settings that give no token in the run name (augmentation, batch size, learning rate and its schedule, `pretrained.learning_rate_multiplier`, gradient clipping, mixed precision, dropout rates) can be changed between two resumptions of a run. Changing any other setting gives another run name, so the training starts in a new run folder.
+The settings that give no token in the run name (augmentation, batch size, learning rate and its schedule, `pretrained.learning_rate_multiplier`, gradient clipping, mixed precision, weight initialisation, moving average of the weights, dropout rates) can be changed between two resumptions of a run. `Optimization.weight_initialization` only sets the starting weights of a new run: the checkpoint replaces them when the run resumes. Changing any other setting gives another run name, so the training starts in a new run folder.
 
 A resumed run compares the launched configuration with the `training_configuration.yaml` saved in its folder by the previous start, before the copy of the new one replaces it, and prints every setting changed, added or removed since:
 
@@ -225,13 +228,33 @@ To follow the training and validation curves and the test evaluations of a run, 
 uv run tensorboard --logdir <experiment_folder>/<run name>/Tensorboard
 ```
 
-The `Train` and `Validation` curves are written every iteration. The `Test` scalars and the sample images (`Samples/<sample>`, with a slider over the evaluations) are written at every evaluation.
+The `Train` and `Validation` curves are written every iteration. The `Test` scalars and the sample images (`Samples/<sample>`, with a slider over the evaluations) are written at every evaluation. With the moving average of the weights on, `Test_EMA` holds the same tags for the averaged weights, so that TensorBoard draws both curves of every metric on the same chart.
 
 <p align="center">
   <img src="README/tensorboard.png" width="100%" />
 </p>
 
 > **Screenshot placeholder** (`README/tensorboard.png`): the TensorBoard scalars of a run, with the training and validation loss curves and a Test metric (e.g. `Accuracy` or `Mean IoU`) over the evaluations.
+
+### Moving Average Of The Weights
+`Optimization.exponential_moving_average` keeps a second copy of the model, never trained itself, moved towards the trained weights after every optimizer step:
+
+```text
+ema_weights = decay × ema_weights + (1 − decay) × current_weights
+```
+
+A weight of k steps ago counts with a factor decay^k, so the average follows roughly the last 1 / (1 − decay) iterations: about 1,000 at 0.999, 5,000 at 0.9998 and 10,000 at 0.9999. Its n-th update uses min(decay, (1 + n) / (10 + n)), so that the random starting weights fade quickly. The running statistics of the batch normalization layers are averaged the same way. The averaged copy costs the memory of one more model, and its update a small fraction of a training step.
+
+Every test evaluation scores the trained weights, then the averaged weights of the same checkpoint:
+
+| Output | Trained weights | Averaged weights |
+|---|---|---|
+| Console and `Results.txt` header | `Iteration <n> · <evaluated samples> · <date and time>` | `Iteration <n> · <evaluated samples> · EMA Weights · <date and time>` |
+| Evaluation files | `Evaluation/Iteration_<n>/` | `Evaluation/Iteration_<n>/EMA/` |
+| TensorBoard | `Test` | `Test_EMA` |
+| MLflow | `test/`, `test_class/`, `test/best_<headline metric>` | `test_ema/`, `test_ema_class/` |
+
+The average is saved in every checkpoint and restored when the run resumes. It gives no run name token, so that it can be turned on or off when a run resumes: turned on from a checkpoint saved without it, it restarts from the weights of that checkpoint, and is evaluated from the next evaluation on. The validation curves, `test/best_<headline metric>` and the export use the trained weights.
 
 ## Tasks
 
@@ -628,7 +651,7 @@ Backbone:
     learning_rate_multiplier: 0.1
 ```
 
-The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`; for the classification head: `fully_connected` and `fully_connected_normalization`), which is checked before the training starts. The `batch_normalization_momentum` of every section changes no weight and may differ. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The region proposal heads need the same detection levels, `head_configurations`, normalization and number of anchors per position of every level, other anchor scales or ratios of the same counts being reported; the detection heads need the same detection levels, `head_configurations`, normalization and modules, and the same number of classes. An object detection run thus initialises an instance segmentation run, whose mask heads learn alone when the backbone, region proposal and detection heads are frozen. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen, prefixed by the letter of its section (e.g. `RPT` and `RFRZ` for the region proposal heads, [Run Names](#run-names)). The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
+The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`, a source run written before `modules.residual_nets_v2` counting as False; for the classification head: `fully_connected` and `fully_connected_normalization`), which is checked before the training starts. The `batch_normalization_momentum` of every section changes no weight and may differ. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The region proposal heads need the same detection levels, `head_configurations`, normalization and number of anchors per position of every level, other anchor scales or ratios of the same counts being reported; the detection heads need the same detection levels, `head_configurations`, normalization and modules, and the same number of classes. An object detection run thus initialises an instance segmentation run, whose mask heads learn alone when the backbone, region proposal and detection heads are frozen. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen, prefixed by the letter of its section (e.g. `RPT` and `RFRZ` for the region proposal heads, [Run Names](#run-names)). The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
 
 ## Evaluating Checkpoints
 `scripts/evaluation/evaluate_checkpoint.py` evaluates the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, without modifying the run folder. Set in its main block:
@@ -642,7 +665,7 @@ The settings defining the layers of the component must be identical in both runs
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
-The evaluation writes `Results.txt`, `Tensorboard/Test` and the `Evaluation/` folder in `<output_folder>/<run name>/`, as during the training. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares the metrics of every checkpoint.
+The evaluation writes `Results.txt`, `Tensorboard/Test` and the `Evaluation/` folder in `<output_folder>/<run name>/`, as during the training. A run with the moving average of the weights on in its configuration is also evaluated on the averaged weights of its checkpoints, in `Tensorboard/Test_EMA` and `Evaluation/Iteration_<n>/EMA/`. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares the metrics of the trained weights of every checkpoint.
 
 ## Comparing Launches
 `scripts/evaluation/collect_experiment_results.py` gathers the test evaluations of the launches of a hyperparameter experiment into one CSV file. Every launch trains in its own `run_<n>` folder (the `experiment_folder` of its configuration file), a repeat launch of the same settings in a `run_<n><letters>` folder (`run_23b`, `run_23c`), and the script reads the test curve of its run folder (`Tensorboard/Test`) and the swept settings of its `training_configuration.yaml`. Set in its main block:
@@ -655,7 +678,7 @@ The evaluation writes `Results.txt`, `Tensorboard/Test` and the `Evaluation/` fo
 uv run python -m scripts.evaluation.collect_experiment_results
 ```
 
-The file has one row per launch, in launch order (every repeat launch right after its original one: `run_23`, `run_23b`, `run_23c`, `run_24`): the launch, the metric at every evaluated iteration, the mean of these values, the mean of the values at the last `number_last_evaluations` iterations evaluated in the experiment (`<metric>_last_<n>_mean`, which leaves out how fast a launch starts), `finished` (evaluated at its last iteration), the swept settings (`SWEPT_SETTINGS`: learning rate, augmentation, global pooling, residual connections, squeeze and excitation, normalization of the fully connected head, batch normalization momentums of the backbone and of the head, feature map normalization, mixed precision, class weighting and dropout rate) and the run folder. The launches of the same settings, repeat launches included, are grouped and followed by a `mean` row averaging them. A launch still training has empty cells for the iterations not evaluated yet, so the file can be written again at any time.
+The file has one row per launch, in launch order (every repeat launch right after its original one: `run_23`, `run_23b`, `run_23c`, `run_24`): the launch, the metric at every evaluated iteration, the mean of these values, the mean of the values at the last `number_last_evaluations` iterations evaluated in the experiment (`<metric>_last_<n>_mean`, which leaves out how fast a launch starts), `finished` (evaluated at its last iteration), the swept settings (`SWEPT_SETTINGS`: learning rate, augmentation, global pooling, residual connections and their pre-activation placement, squeeze and excitation, normalization of the fully connected head, batch normalization momentums of the backbone and of the head, feature map normalization, mixed precision, weight initialisation, moving average of the weights, class weighting and dropout rate) and the run folder. The launches of the same settings, repeat launches included, are grouped and followed by a `mean` row averaging them. A launch still training has empty cells for the iterations not evaluated yet, so the file can be written again at any time.
 
 ## Deployment
 
@@ -801,7 +824,7 @@ For INS, the keys of `MaskHead.head_configurations` must be the detection levels
 INS has the keys of DET and `MaskHead`. M2O and M2M have exactly the same keys. SEL has the keys of M2M without `window_stride` and `short_sequences`, and `Selection`. The number of blocks in `Backbone.convolutions` changes from one example to another, but this is a value, not a different key.
 
 ### Evaluation Outputs
-Every evaluated checkpoint is reported in the console and in a block of `<run>/Results.txt` with the same layout: a header `Iteration <n> · <evaluated samples> · <date and time>`, the global metrics, the notes (e.g. the error images) and the tables of the task, the per-class table being sorted worst first. Its files are written in `<run>/Evaluation/Iteration_<n>/`. `ExperimentConfiguration.evaluation.per_class_report` set to `False` keeps the global metrics only, for runs with many classes: the files written in every case keep the details.
+Every evaluated checkpoint is reported in the console and in a block of `<run>/Results.txt` with the same layout: a header `Iteration <n> · <evaluated samples> · <date and time>`, the global metrics, the notes (e.g. the error images) and the tables of the task, the per-class table being sorted worst first. Its files are written in `<run>/Evaluation/Iteration_<n>/`, those of the moving average of the weights in `<run>/Evaluation/Iteration_<n>/EMA/`. `ExperimentConfiguration.evaluation.per_class_report` set to `False` keeps the global metrics only, for runs with many classes: the files written in every case keep the details.
 
 | Output | Tasks | Written |
 |---|---|---|
@@ -826,7 +849,7 @@ A training run is saved in `<ExperimentConfiguration.experiment_folder>/<run nam
 
 The name is made of sections joined with `_`, the tokens of a section being joined with `-`. A flag token is left out when its setting is off, and the optimizer section is left out with plain Adam without weight decay. The sections always come in the order of the table below. Values in `<...>` are read from the configuration.
 
-The training settings that can change between two resumptions of a run give no token: augmentation (including `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up, cosine schedule, the `pretrained.learning_rate_multiplier` of the transferred components, gradient clipping, mixed precision, the `batch_normalization_momentum` of every section, the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`, `SegmentationDecoder.dropout_rate`) and the losses of SEG (`SegmentationLoss`, Lovász and boundary losses included, whose class weights are set again from the configuration when a run resumes) and the decoding of SEL (`Selection.decoding`, both decodings being scored at every evaluation). A run can be resumed in its folder with changed values, and two runs differing only by these settings share a folder. The optimizer keeps its token, because the state of one optimizer cannot be resumed by another.
+The training settings that can change between two resumptions of a run give no token: augmentation (including `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up, cosine schedule, the `pretrained.learning_rate_multiplier` of the transferred components, gradient clipping, mixed precision, the weight initialisation (`Optimization.weight_initialization`), the moving average of the weights (`Optimization.exponential_moving_average`), the `batch_normalization_momentum` of every section, the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`, `SegmentationDecoder.dropout_rate`) and the losses of SEG (`SegmentationLoss`, Lovász and boundary losses included, whose class weights are set again from the configuration when a run resumes) and the decoding of SEL (`Selection.decoding`, both decodings being scored at every evaluation). A run can be resumed in its folder with changed values, and two runs differing only by these settings share a folder. The optimizer keeps its token, because the state of one optimizer cannot be resumed by another.
 
 | Section | Token | Meaning (configuration key) | DET | INS | CLS | M2O | M2M | CMP | SEG | SEL |
 |---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -836,6 +859,7 @@ The training settings that can change between two resumptions of a run give no t
 | Input | `KAR` | `Data.image_settings.keep_ratio` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Input | `<size>` | `Data.image_settings.size` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Backbone | `SE`, `RES` | `Backbone.modules.squeeze_and_excite`, `residual_nets` are True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Backbone | `RES2` instead of `RES` | `Backbone.modules.residual_nets_v2` is True (pre-activation shortcuts) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Backbone | `INC<block>` | `Backbone.modules.inception` is True, from `inception_starting_block` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Backbone | `BN`, `LN`, `NN` | `Backbone.normalization.feature_map_normalization`: batch, layer, none | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Backbone | `SN` | `Backbone.normalization.feature_map_normalization`: sequence | | | | ✓ | ✓ | ✓ | | ✓ |
@@ -938,6 +962,7 @@ What is logged:
 | `train/<metric>`, `validation/<metric>`, `learning_rate`, `train/throughput` | all |
 | `train/frame_throughput` (real frames per second, padding frames excluded) | M2O, M2M, CMP, SEL |
 | `test/best_<headline metric>`, `Results.txt` and the configuration file | all |
+| `test_ema/<metric>`, `test_ema_class/<metric>` and the files under `evaluation/iteration_<n>/ema/`: the metrics and files below for the moving average of the weights | all, with `Optimization.exponential_moving_average.activated` |
 | `test/mAP@0.5`, `mAP@0.75`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test_class/AP@0.5/<class>`; `class_metrics.csv` | DET |
 | `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-<k> Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`); `test_class/Precision`, `Recall`, `F1` per class; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | CLS, M2O, M2M, CMP |
 | `test/Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `Segment F1@25`, `Segment F1@50` | M2M |
@@ -947,7 +972,7 @@ What is logged:
 The `test_class/` metrics and `confusion_matrix.png` need `evaluation.per_class_report: True`, and the files need `tracking.log_artifacts: True`. MLflow writes `@` as `_at_` and `[0.5:0.95]` as `0.5-0.95` in the metric names. `scripts/evaluation/evaluate_checkpoint.py` logs its evaluations in a separate run, `<run name>-evaluation`.
 
 ## Migrating Old Runs
-`scripts/configuration_processing/migrate_configuration.py` updates a run folder trained before the task-aware configuration and the component transfers (e.g. the `pretrained` blocks of the region proposal and detection heads of DET) or before a newer setting (e.g. the `batch_normalization_momentum` of every section, 0.1 as in PyTorch, and the `ClassificationHead.fully_connected_normalization` setting, `"none"`, its True or False values of the runs written before the layer normalization becoming `"batch"` or `"none"`), so that it can be resumed, evaluated or exported. It adds the missing keys to its `training_configuration.yaml`, keeping its comments, and prints the folder name given by the current run name. Set `run_folder`, `task` and `rename_folder` (`True` renames the folder, never while a training writes into it) in its main block, then run:
+`scripts/configuration_processing/migrate_configuration.py` updates a run folder trained before the task-aware configuration and the component transfers (e.g. the `pretrained` blocks of the region proposal and detection heads of DET) or before a newer setting (e.g. the `batch_normalization_momentum` of every section, 0.1 as in PyTorch, the `ClassificationHead.fully_connected_normalization` setting, `"none"`, its True or False values of the runs written before the layer normalization becoming `"batch"` or `"none"`, `Backbone.modules.residual_nets_v2`, False, `Optimization.weight_initialization`, `"default"`, and `Optimization.exponential_moving_average`, off), so that it can be resumed, evaluated or exported. It adds the missing keys to its `training_configuration.yaml`, keeping its comments, and prints the folder name given by the current run name. Set `run_folder`, `task` and `rename_folder` (`True` renames the folder, never while a training writes into it) in its main block, then run:
 
 ```bash
 uv run python -m scripts.configuration_processing.migrate_configuration
@@ -982,9 +1007,9 @@ The checkpoint evaluation, launch comparison and configuration migration scripts
 │   │   ├── segmentation/              # Segmentation dataset
 │   │   ├── sequence/                  # Sequence and pair datasets, pair list converter
 │   │   └── synthetic/                 # Synthetic shapes datasets of every task
-│   ├── models/                        # Backbone, task models, components and transfer between runs
+│   ├── models/                        # Backbone, task models, components, weight initialisation and transfer between runs
 │   ├── losses/                        # Losses of every task
-│   ├── trainers/                      # Base trainer, trainer of every task, checkpoints, metric tracking
+│   ├── trainers/                      # Base trainer, trainer of every task, checkpoints, metric tracking, moving average of the weights
 │   ├── evaluation/                    # Metrics, reports and checkpoint evaluation
 │   ├── tracking/                      # MLflow tracking
 │   ├── deployment/                    # Export, Triton configuration and server, frame selection decoder, throughput measurement

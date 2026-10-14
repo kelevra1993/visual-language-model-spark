@@ -31,6 +31,10 @@ COMPONENT_NAMES = {"RegionProposal": "region proposal heads", "Detector": "detec
 # on the image size, so both may differ
 ARCHITECTURE_BACKBONE_KEYS = ["input_channels", "convolutions", "modules", "normalization", "last_max_pooling"]
 
+# Backbone module settings added after the first runs, with the value of the runs written before them: a source run
+# without the pre-activation placement of the shortcuts used the original one
+BACKBONE_MODULE_DEFAULTS = {"residual_nets_v2": False}
+
 # Feature map normalizations holding the same tensors (scale, shift and running statistics), so that a backbone moves
 # between batch normalization and sequence normalization through the transfer
 BATCH_STATISTICS_NORMALIZATIONS = ["batch", "sequence"]
@@ -111,7 +115,8 @@ def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any]
     """
     Lists the differences between the architecture-defining settings of two backbones, so that a backbone is only
     transferred between runs whose backbones have exactly the same layers. Batch and sequence normalization count as
-    the same layers, holding the same tensors, and the batch normalization momentum may differ.
+    the same layers, holding the same tensors, and the batch normalization momentum may differ. A source run written
+    before a module setting of BACKBONE_MODULE_DEFAULTS counts as having its default value.
 
     Args:
         source_backbone_configuration (Dict[str, Any]): The 'Backbone' section of the source run.
@@ -125,8 +130,11 @@ def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any]
         source_value = source_backbone_configuration[key_name] if key_name in source_backbone_configuration else None
         target_value = target_backbone_configuration[key_name]
 
-        # Normalization layers compared by their tensors, batch and sequence normalization being the same
+        # Normalization layers compared by their tensors, batch and sequence normalization being the same, and the
+        # modules of a source run written before a module setting completed with its default value
         compared_source_value, compared_target_value = source_value, target_value
+        if key_name == "modules" and source_value is not None:
+            compared_source_value = {**BACKBONE_MODULE_DEFAULTS, **source_value}
         if key_name == "normalization" and source_value is not None:
             compared_source_value = get_weight_normalization(normalization_configuration=source_value)
             compared_target_value = get_weight_normalization(normalization_configuration=target_value)

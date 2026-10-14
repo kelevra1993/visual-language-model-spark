@@ -138,7 +138,9 @@ main()
 │       ├── build_model()
 │       │   │   Hook implemented by ClassificationTrainer. Creates the ImageClassifier from the model registry
 │       │   │   (TASK_MODEL_CLASSES["classification"]) and, with class_weighting "balanced", sets its class weights from
-│       │   │   the training sample counts. BaseTrainer then moves the model to the device and the dtype.
+│       │   │   the training sample counts. BaseTrainer then moves the model to the device and the dtype, and
+│       │   │   initialise_weights() gives it the starting weights of Optimization.weight_initialization: the PyTorch
+│       │   │   ones with "default", He normal for every layer followed by a ReLU with "he".
 │       │   │
 │       │   ├── ImageClassifier.__init__()
 │       │   │   │   Counts the classes (distinct values of the label dictionary), then builds in order: the backbone,
@@ -158,7 +160,9 @@ main()
 │       │   │   │           N convolution layers (3x3, stride 1, padding 1), each followed by batch normalization and
 │       │   │   │           ReLU, with the optional residual shortcuts, squeeze-and-excitation or inception modules,
 │       │   │   │           then a 2x2 max pooling that halves the height and width (the pooling of the last block
-│       │   │   │           depends on Backbone.last_max_pooling).
+│       │   │   │           depends on Backbone.last_max_pooling). With residual_nets_v2, the blocks with shortcuts
+│       │   │   │           place them before the activations: normalization and ReLU before every convolution,
+│       │   │   │           nothing after the addition, and one normalization and ReLU at the end of the block.
 │       │   │   ├── compute_pooled_features()
 │       │   │   │       Applies the convolution and pooling size formula to every layer (no image is run through the
 │       │   │   │       network) to get the channels C and the size HxW of the last feature map. Returns C for the
@@ -186,7 +190,8 @@ main()
 │       │       Creates Adam, AdamW or SGD (Nesterov, momentum 0.9) over the model parameters, with the learning rate
 │       │       and the weight decay of the configuration. Every transferred component that is not frozen gets its own
 │       │       parameter group at learning rate x learning_rate_multiplier. base_learning_rates keeps the starting rate
-│       │       of every group for the schedule.
+│       │       of every group for the schedule. With Optimization.exponential_moving_average.activated, the
+│       │       ExponentialMovingAverage is then created: a copy of the model, never trained, averaging its weights.
 │       ├── get_tracked_metrics() + MetricTracker.__init__()
 │       │       get_tracked_metrics returns {total_loss, classification_loss, accuracy} with their display names.
 │       │       MetricTracker stores them with batch_size, validation_iteration_ratio and the kind of sample ("Images"):
@@ -195,8 +200,9 @@ main()
 │       ├── print_experiment_information()
 │       │   │   Prints the launch panel: run name, clickable folders, the settings changed since the last start of a
 │       │   │   resumed run, one block per transferred component, one line per split, iterations per epoch, batch
-│       │   │   size, checkpoint frequencies, learning rate, optimizer, schedule, gradient clipping, precision, resume
-│       │   │   flag, validation ratio and MLflow backend. Display only, except the split sizes, kept for MLflow.
+│       │   │   size, checkpoint frequencies, learning rate, optimizer, schedule, gradient clipping, weight
+│       │   │   initialisation, moving average of the weights, precision, resume flag, validation ratio and MLflow
+│       │   │   backend. Display only, except the split sizes, kept for MLflow.
 │       │   │
 │       │   └── describe_split() -> count_split_samples()
 │       │           Reads the labels.json of a split and returns its number of samples and categories, e.g. '50000
@@ -217,7 +223,8 @@ main()
 │           │       returns 12, or 0 when the file does not exist.
 │           └── load_model() -> load_checkpoint()
 │                   load_checkpoint reads Weights/Iteration_N/model_00000N.pt with torch.load, mapped to the current
-│                   device. load_model puts its model_state in the model and its optimizer_state in the optimizer.
+│                   device. load_model puts its model_state in the model and its optimizer_state in the optimizer,
+│                   and restores the moving average of the weights from its exponential_moving_average_state.
 │
 └── trainer.run_training_loop()  [STAGE 3]
     │   Runs the iterations (run_training_iterations) and closes the MLflow run whatever ends them: FINISHED, KILLED
@@ -251,10 +258,11 @@ main()
         │   │       Called when the iteration is a multiple of weight_saving_iterations (checkpoint + evaluation) or of
         │   │       intermediate_weight_saving_iterations (checkpoint only), except the last iteration. Writes
         │   │       Weights/Iteration_N/model_00000N.pt (model, optimizer, task, run name, MLflow run, transfer
-        │   │       sources) through a temporary file, then adds the iteration to Weights/full-checkpoint.
+        │   │       sources, moving average of the weights when on) through a temporary file, then adds the
+        │   │       iteration to Weights/full-checkpoint.
         │   ├── run_test_evaluation()   (every weight_saving_iterations)  -> [STAGE 4]
-        │   │       Evaluates the checkpoint that was just saved on the whole test split. Not run for the first
-        │   │       iteration of the run. See Stage 4.
+        │   │       Evaluates the checkpoint that was just saved on the whole test split, then its moving average
+        │   │       of the weights when on. Not run for the first iteration of the run. See Stage 4.
         │   ├── get_next_batch()
         │   │   │   Takes the next batch from the loader iterator. At the end of an epoch the iterator is restarted,
         │   │   │   which reshuffles the samples; a loading error is retried up to 10 times in a row. Returns images
@@ -310,7 +318,8 @@ main()
         │   ├── step_optimizer() -> compute_learning_rate_factor()
         │   │       Clips the gradient norm when Optimization.gradient_clipping_norm is set, sets the learning rate of
         │   │       every parameter group to base rate x factor(iteration) (warm-up, then constant or cosine), calls
-        │   │       optimizer.step() and writes the learning rate to TensorBoard.
+        │   │       optimizer.step(), updates the moving average of the weights when on, and writes the learning
+        │   │       rate to TensorBoard.
         │   ├── validation pass: run_model_iteration() without augmentation
         │   │       Every validation_iteration_ratio iterations: model.eval(), no gradients, next validation batch,
         │   │       same run_model_iteration with apply_augmentation=False. Its metrics go to the validation trackers
@@ -332,7 +341,9 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   Scores the current weights on the whole test split, exactly once per image, then reports. It is called by the
 │   training loop at every weight_saving_iterations checkpoint, and by Stage 5 for each evaluated checkpoint. It puts
 │   the model in eval mode, runs the test loader without gradients, accumulates the predictions, draws the sample
-│   images, computes the metrics, then prints, writes and logs them.
+│   images, computes the metrics, then prints, writes and logs them. With the moving average of the weights on, the
+│   same evaluation runs again on the averaged weights, reported as "EMA Weights" in Evaluation/Iteration_N/EMA/ and
+│   Tensorboard/Test_EMA.
 │
 ├── create_evaluation_accumulator()
 │       Returns the empty collection filled during the loop: lists for probabilities, labels and sample identifiers, the
@@ -546,6 +557,8 @@ self.per_class_report       = False                 <- evaluation.per_class_repo
 self.number_sample_images   = 16                    <- evaluation.number_sample_images
 self.experiment_tracker     = <DisabledTracker>     <- replaced at the start of the training loop
 self.mixed_precision        = True                  <- Optimization.mixed_precision
+self.weight_initialization  = "default"             <- Optimization.weight_initialization
+self.exponential_moving_average = None              <- Optimization.exponential_moving_average.activated is False
 self.start_iteration        = 1
 ```
 
@@ -654,7 +667,7 @@ sample_image_identifiers  -> [1, 51, 101, 151, 201, 251, 301, 351, 401, 451, 501
 The test manifest lists its images class by class, 50 per class, so the first image of each of the first 16 classes is chosen.
 
 ### Step 2.12 — `build_model()`
-This hook creates the network through the registry `TASK_MODEL_CLASSES["classification"]`, which gives an `ImageClassifier` (Step 2.13). With `class_weighting: "balanced"` it counts the training samples of every class and stores the balanced weights in the model (Step 2.18). Back in `BaseTrainer.__init__()`, the model is then moved to the device and cast to the `dtype`. Its weights are random at this point.
+This hook creates the network through the registry `TASK_MODEL_CLASSES["classification"]`, which gives an `ImageClassifier` (Step 2.13). With `class_weighting: "balanced"` it counts the training samples of every class and stores the balanced weights in the model (Step 2.18). Back in `BaseTrainer.__init__()`, the model is then moved to the device and cast to the `dtype`, and `initialise_weights()` draws its starting weights according to `Optimization.weight_initialization`: `"default"` keeps the PyTorch initialisation of every layer, `"he"` draws every layer followed by a ReLU (the convolutions of the convolution blocks, the hidden fully connected layers of the head and the reduce layers of squeeze-and-excitation) from the He normal distribution, `std = sqrt(2 / fan_in)`, with zero biases, the class layer keeping the PyTorch initialisation. Its weights are random at this point: the transferred components (Step 2.19) and a resumed checkpoint (Step 2.28) replace them.
 
 **Example: size of the model of `configuration_example.yaml`**
 ```text
@@ -677,6 +690,8 @@ model.number_classes         1000
 
 ### Step 2.14 — `build_backbone()` (→ `InputNormalizer`, `ConvolutionBlock`)
 This builds the feature extractor, shared by all the tasks, from the `Backbone` section. It starts with an `InputNormalizer` (parameter-free: pixels `x / 255 - 0.5`), then creates one `ConvolutionBlock` per entry of `Backbone.convolutions`. A block is `N` convolutions (3×3, stride 1, padding 1), each followed by batch normalization and ReLU, then a 2×2 max pooling that halves the height and width. The residual shortcuts start at block 2, and squeeze-and-excitation recalibrates the channels after every convolution. `last_max_pooling: False` removes the pooling of the last block.
+
+With `Backbone.modules.residual_nets_v2: True` (run name token `RES2` instead of `RES`), the blocks with residual shortcuts use the pre-activation order of the paper "Identity Mappings in Deep Residual Networks": every layer is normalization, ReLU, then convolution, nothing follows the addition of the shortcut, so that the shortcuts form an identity path through the block, and the block ends with one normalization and ReLU, so that its output stays normalized and activated like a plain block. Block 1, without shortcut, keeps the original order. The summary names these blocks `Pre-Activation Residual Shortcuts`.
 
 **Example: the backbone panel of `print_summary()` for a 256×256 image** (Step 2.24, shortened)
 ```text
@@ -764,6 +779,8 @@ pretrained_checkpoint_paths                     = {'Backbone': None, 'Classifica
 ### Step 2.20 — `build_optimizer()`
 This creates the optimizer chosen by `Optimization.optimizer` (`adam`, `adamw` or `sgd` with Nesterov momentum 0.9) over the parameters of the model, with the learning rate of the experiment and `Optimization.weight_decay`. Every transferred component that is not frozen gets its own parameter group at the learning rate times its `learning_rate_multiplier`, so it can learn at another speed. The group exists even with a multiplier of 1, so that the multiplier, which gives no token in the run name, can change when the run is resumed without changing the groups saved in its checkpoints. The trainer then keeps `base_learning_rates`, the rate of every group, which the schedule multiplies at every step (Step 3.22).
 
+With `Optimization.exponential_moving_average.activated`, the trainer then creates an `ExponentialMovingAverage`: a copy of the model, kept in `eval()` mode without gradients, updated after every optimizer step (Step 3.22) with `ema_weights = decay × ema_weights + (1 − decay) × current_weights` and evaluated next to the trained weights (Step 4.1). It is created after the transferred components are loaded, so that it starts from their weights.
+
 **Example output** (`optimizer: "adam"`, `learning_rate: 1.0e-4`, `weight_decay: 0.0`)
 ```text
 Adam (
@@ -813,6 +830,8 @@ This prints the launch panel, so the settings of the run can be checked before a
 - Optimizer               : adam (weight decay 0.0)
 - Learning Rate Schedule  : constant (warm-up 0 iterations)
 - Gradient Clipping Norm  : None
+- Weight Initialization   : default
+- Weight Moving Average   : Off
 - Mixed Precision         : True
 - Resume Training         : True
 - Validation Iter. Ratio  : 25
@@ -904,7 +923,7 @@ get_last_checkpoint_iteration(weights_directory=...) -> 12
 ```
 
 ### Step 2.28 — `load_model()` → `load_checkpoint()`
-`load_checkpoint()` reads `Weights/Iteration_N/model_00000N.pt` with `torch.load`, mapping every tensor to the current device. `load_model()` then puts `model_state` into the model and `optimizer_state` into the optimizer, which restores the weights and the moving averages of Adam. The checkpoint also stores the task, the run name, the MLflow run and the source runs of the transferred components, which tools such as the model transfer check.
+`load_checkpoint()` reads `Weights/Iteration_N/model_00000N.pt` with `torch.load`, mapping every tensor to the current device. `load_model()` then puts `model_state` into the model and `optimizer_state` into the optimizer, which restores the weights and the moving averages of Adam. With the moving average of the weights on, `load_exponential_moving_average()` restores it from `exponential_moving_average_state`; a checkpoint saved without it (the average was just turned on) restarts the average from the loaded weights, with a yellow message. The checkpoint also stores the task, the run name, the MLflow run and the source runs of the transferred components, which tools such as the model transfer check.
 
 **Example: the keys of a checkpoint of the run of Stage 3**
 ```text
@@ -941,6 +960,7 @@ This creates the TensorBoard writers right before the loop, not in the construct
 Tensorboard/Train/        Total Loss, Classification Loss, Accuracy, Learning Rate      (iterations 1 to 12)
 Tensorboard/Validation/   Total Loss, Classification Loss, Accuracy                     (iteration 10)
 Tensorboard/Test/         created by the first evaluation (Stage 4)
+Tensorboard/Test_EMA/     created by the first evaluation of the moving average of the weights, when it is on
 ```
 
 ### Step 3.3 — `initialize_training_loop_state()`
@@ -985,7 +1005,7 @@ artifacts:  Results.txt, configuration/training_configuration.yaml, metric_names
 ```
 
 ### Step 3.6 — `save_model()` → `save_checkpoint()`
-This runs at the start of an iteration that is a multiple of `weight_saving_iterations` (a checkpoint that will be evaluated, Step 3.7) or of `intermediate_weight_saving_iterations` (a checkpoint only), except the last iteration of the run. `save_checkpoint()` writes `Weights/Iteration_N/model_00000N.pt` with the model, the optimizer, the task, the run name, the MLflow run (`None` without tracking, or while the background thread is still opening the run) and the source run of the transferred components. It writes to a temporary file and renames it, so a checkpoint on disk is complete or absent, and it ignores Ctrl+C meanwhile. Then it records the iteration in `Weights/full-checkpoint`, the registry of Step 2.27.
+This runs at the start of an iteration that is a multiple of `weight_saving_iterations` (a checkpoint that will be evaluated, Step 3.7) or of `intermediate_weight_saving_iterations` (a checkpoint only), except the last iteration of the run. `save_checkpoint()` writes `Weights/Iteration_N/model_00000N.pt` with the model, the optimizer, the task, the run name, the MLflow run (`None` without tracking, or while the background thread is still opening the run) the source run of the transferred components and, when it is on, the moving average of the weights (`exponential_moving_average_state`: the averaged weights and the number of updates). It writes to a temporary file and renames it, so a checkpoint on disk is complete or absent, and it ignores Ctrl+C meanwhile. Then it records the iteration in `Weights/full-checkpoint`, the registry of Step 2.27.
 
 **Good to know:** the checkpoint of iteration N is saved before the training step N, so it holds the weights after N−1 steps. The only exception is the last one, saved after the loop (Step 3.25).
 
@@ -1126,7 +1146,7 @@ iteration 1: gradient norm = 3.09      iteration 2: 2.36      iteration 3: 2.09
 ```
 
 ### Step 3.22 — `step_optimizer()` → `compute_learning_rate_factor()`
-This applies the gradients. If `Optimization.gradient_clipping_norm` is set, the gradients are first scaled down so that their total norm does not exceed it. Then the learning rate of every parameter group is set to `base_learning_rate × factor(iteration)` and `optimizer.step()` updates the weights. The factor only depends on the iteration, so a resumed run continues the schedule without saving any scheduler state: a linear warm-up over `warmup_iterations`, then a constant rate or a cosine decay down to `minimum_learning_rate_ratio` over `decay_iterations`. The rate of the first group is written to TensorBoard.
+This applies the gradients. If `Optimization.gradient_clipping_norm` is set, the gradients are first scaled down so that their total norm does not exceed it. Then the learning rate of every parameter group is set to `base_learning_rate × factor(iteration)` and `optimizer.step()` updates the weights, after which the moving average of the weights, when on, moves towards them: the parameters and the batch normalization running statistics with `min(decay, (1 + n) / (10 + n))` at its n-th update, the other buffers copied. The factor only depends on the iteration, so a resumed run continues the schedule without saving any scheduler state: a linear warm-up over `warmup_iterations`, then a constant rate or a cosine decay down to `minimum_learning_rate_ratio` over `decay_iterations`. The rate of the first group is written to TensorBoard.
 
 **Example: this run** (`constant`, `learning_rate: 1.0e-3`): the first Adam step moves each weight by about the learning rate
 ```text
@@ -1226,6 +1246,8 @@ Error encountered during iteration 7. Continuing... (Consecutive Errors: 1/5)   
 
 ### Step 4.1 — `run_test_evaluation()`
 This function scores the current weights on the whole test split, which no training step ever sees, and reports the result. The training loop calls it at every `weight_saving_iterations` checkpoint (Steps 3.7 and 3.25), and Stage 5 calls it for every checkpoint it evaluates. It puts the model in `eval()` mode, creates the accumulator (4.2), runs the test loader without gradients within the `evaluation_context()` of the task (nothing for classification), then computes the results (4.8) and reports them (4.18). It also makes sure that every test image is counted exactly once: loaders that fill their last batch with images already given (the DALI loaders of the detector) would otherwise count them twice, so it keeps only the sample identifiers it has not seen yet. It adds the sample images (4.7) to the results, with a note and their folder, and returns the results, which Stage 5 uses to compare the checkpoints.
+
+With the moving average of the weights on, `run_test_evaluation()` evaluates the trained weights first (`evaluate_test_split()`, everything above), then the averaged weights of the same checkpoint: `use_averaged_weights()` puts the averaged model in place of `self.model` and gives it back afterwards, even on an error. That second evaluation writes its files in `Evaluation/Iteration_N/EMA/`, its scalars and sample images in `Tensorboard/Test_EMA` with the same tags, so that both curves share the same charts, its report under the header `Iteration N · <evaluated samples> · EMA Weights · <date and time>`, and its MLflow metrics as `test_ema/` and `test_ema_class/`. The returned results, `test/best_<headline metric>` and the comparison of Stage 5 stay those of the trained weights.
 
 **Example output: the progress bar of the evaluation** (5,000 images, batch size 8, CPU)
 ```text

@@ -115,10 +115,10 @@ def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: s
 
 def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Builds the backbone section of the run name, shared by every task: the modules (SE, RES, INC<starting block>),
-    the feature map normalization (BN, LN or NN), B<layers>x<filters> of every block in order, then PT when the
-    backbone is initialised by the one of another run, followed by FRZ when it is frozen and FBN when its
-    normalization parameters are kept fixed (see build_pretrained_tokens).
+    Builds the backbone section of the run name, shared by every task: the modules (SE, RES or RES2 for the
+    pre-activation shortcuts, INC<starting block>), the feature map normalization (BN, LN or NN), B<layers>x<filters>
+    of every block in order, then PT when the backbone is initialised by the one of another run, followed by FRZ when
+    it is frozen and FBN when its normalization parameters are kept fixed (see build_pretrained_tokens).
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -134,7 +134,7 @@ def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     if backbone_modules["squeeze_and_excite"]:
         backbone_tokens.append("SE")
     if backbone_modules["residual_nets"]:
-        backbone_tokens.append("RES")
+        backbone_tokens.append("RES2" if backbone_modules["residual_nets_v2"] else "RES")
     if backbone_modules["inception"]:
         backbone_tokens.append(f"INC{backbone_modules['inception_starting_block']}")
     backbone_tokens.append(NORMALIZATION_CODES[

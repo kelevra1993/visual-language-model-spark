@@ -3,7 +3,8 @@ Tests of BaseTrainer of vision_training/trainers/base_trainer.py on the dummy ta
 and tracks the metrics, training saves, evaluates and resumes from its checkpoints, the interval averages of a run
 resumed between two summaries cover the iterations it really ran, a resumed run reports and keeps the configuration
 it changed, the final checkpoint is evaluated on the weights it holds, the evaluation draws the fixed sample images,
-and the input viewer creates no run folder.
+the moving average of the weights is saved, evaluated next to the trained weights and resumed, and the input viewer
+creates no run folder.
 """
 
 import copy
@@ -20,7 +21,7 @@ from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_co
 from tests.fixtures.evaluation_checks import read_results_blocks
 from vision_training.configuration_processing.configuration_changes import MISSING_SETTING
 from vision_training.core.contracts import EvaluationResults
-from vision_training.trainers.checkpointing import CHECKPOINT_FORMAT_VERSION
+from vision_training.trainers.checkpointing import CHECKPOINT_FORMAT_VERSION, EXPONENTIAL_MOVING_AVERAGE_STATE_KEY
 from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY
 from vision_training.utilities.os_utilities import format_path_link
 
@@ -57,7 +58,8 @@ class EvaluationRecorder:
 
 
 def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_input_images: bool,
-                        number_sample_images: int, configuration_text: str = "dummy: true\n") -> DummyTrainer:
+                        number_sample_images: int, configuration_text: str = "dummy: true\n",
+                        moving_average_activated: bool = False) -> DummyTrainer:
     """
     Builds the trainer of the dummy task in a temporary directory. Its test split has 6 samples but only 4 distinct
     ones, its last batch repeating the first two samples, which must be evaluated only once.
@@ -69,6 +71,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
         number_sample_images (int): The number of fixed test samples drawn at every evaluation, 0 for none.
         configuration_text (str): The YAML text of the launched configuration file, copied into the run folder and
             compared with the saved one when the run resumes.
+        moving_average_activated (bool): Whether the run keeps a moving average of its weights, at a decay of 0.5.
 
     Returns:
         DummyTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
@@ -79,6 +82,8 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
         experiment_folder=temporary_directory / "experiments", number_iterations=number_iterations)
     experiment_configuration["diagnosis_modes"]["view_input_images"] = view_input_images
     experiment_configuration["evaluation"]["number_sample_images"] = number_sample_images
+    model_configuration["Optimization"]["exponential_moving_average"] = {"activated": moving_average_activated,
+                                                                         "decay": 0.5}
     datasets = {"train": DummyDataset(sample_identifiers=list(range(8)), seed=0),
                 "validation": DummyDataset(sample_identifiers=list(range(4)), seed=1),
                 "test": DummyDataset(sample_identifiers=[0, 1, 2, 3, 0, 1], seed=2)}
@@ -358,3 +363,87 @@ def test_evaluation_draws_the_fixed_sample_images(tmp_path: Path) -> None:
     test_events.Reload()
     assert sorted(test_events.Tags()["images"]) == sorted(results["sample_images"])
     assert [event.step for event in test_events.Images(tag=sorted(results["sample_images"])[0])] == [1, 2]
+
+
+def test_moving_average_is_saved_evaluated_and_resumed(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the moving average of the weights on the dummy task: 5 iterations update it at every step and store it in
+    the checkpoints, the checkpoint of iteration 4 is evaluated on the trained weights, then on the averaged weights
+    with their own Results.txt block, sample images folder and Test_EMA TensorBoard folder, the trained model is given
+    back to the training, and a resumed run restores the average of its checkpoint.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
+                                  number_sample_images=2, moving_average_activated=True)
+    trainer.run_training_loop()
+    assert trainer.model is not trainer.exponential_moving_average.averaged_model
+    assert not trainer.evaluating_averaged_weights
+
+    # Two blocks for the checkpoint of iteration 4: the trained weights, then the averaged weights
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
+        (4, "4 Test Samples"), (4, "4 Test Samples · EMA Weights")]
+    evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
+    assert len(list((evaluation_folder / "Samples").iterdir())) == 2
+    assert len(list((evaluation_folder / "EMA" / "Samples").iterdir())) == 2
+    assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Test_EMA", "Train",
+                                                                                   "Validation"]
+    averaged_events = EventAccumulator(path=str(trainer.tensorboard_directory / "Test_EMA"))
+    averaged_events.Reload()
+    assert [event.step for event in averaged_events.Scalars(tag="Accuracy")] == [4]
+
+    # The final checkpoint holds the average of the 5 updates, different from the trained weights
+    checkpoint = torch.load(f=trainer.weights_directory / "Iteration_5" / "model_000005.pt", map_location="cpu",
+                            weights_only=True)
+    average_state = checkpoint[EXPONENTIAL_MOVING_AVERAGE_STATE_KEY]
+    assert average_state["number_updates"] == 5
+    assert any(not torch.equal(input=average_state["model_state"][parameter_name], other=parameter_value)
+               for parameter_name, parameter_value in checkpoint["model_state"].items())
+
+    # A resumed run restores the average of its checkpoint
+    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+                                          number_sample_images=0, moving_average_activated=True)
+    assert resumed_trainer.exponential_moving_average.number_updates == 5
+    for parameter_name, parameter_value in resumed_trainer.exponential_moving_average.averaged_model.state_dict(
+            ).items():
+        assert torch.equal(input=parameter_value.cpu(), other=average_state["model_state"][parameter_name])
+
+    # No training step may fail silently
+    console_output = capsys.readouterr().out
+    assert "Error encountered during iteration" not in console_output
+    assert "Critical Error" not in console_output
+
+
+def test_moving_average_turned_on_when_a_run_resumes(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a run turning the moving average of its weights on when it resumes from a checkpoint saved without
+    one restarts the average from the loaded weights, with a message, and evaluates it at its next evaluation.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.run_training_loop()
+    checkpoint = torch.load(f=trainer.weights_directory / "Iteration_2" / "model_000002.pt", map_location="cpu",
+                            weights_only=True)
+    assert EXPONENTIAL_MOVING_AVERAGE_STATE_KEY not in checkpoint
+
+    # The resumed run starts its average from the weights of iteration 2
+    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+                                          number_sample_images=0, moving_average_activated=True)
+    assert "Holds No Moving Average Of The Weights" in capsys.readouterr().out
+    assert resumed_trainer.exponential_moving_average.number_updates == 0
+    for parameter_name, parameter_value in resumed_trainer.exponential_moving_average.averaged_model.state_dict(
+            ).items():
+        assert torch.equal(input=parameter_value.cpu(), other=checkpoint["model_state"][parameter_name])
+
+    # Iterations 3 and 4 update it, and the final checkpoint of iteration 4 is evaluated on both weights
+    resumed_trainer.run_training_loop()
+    results_blocks = read_results_blocks(results_path=resumed_trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
+        (4, "4 Test Samples"), (4, "4 Test Samples · EMA Weights")]

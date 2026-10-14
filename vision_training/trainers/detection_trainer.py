@@ -244,7 +244,7 @@ class DetectionTrainer(BaseTrainer):
         summary = self.summarise_average_precisions(accumulator=accumulator)
 
         # Average precisions of every class, saved whatever the per-class report
-        evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
+        evaluation_folder = self.get_evaluation_folder(iteration=iteration)
         files = {"Class Metrics": write_class_metrics_file(class_rows=summary["class_rows"],
                                                            evaluation_folder=evaluation_folder)}
 

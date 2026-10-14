@@ -4,7 +4,8 @@ layers) shared by the detection heads after RoIAlign, built without dropout laye
 checkpoint names, and by the classification heads after the global pooling, always built with dropout layers so that
 their checkpoint names do not depend on the dropout rate, and normalized as set by
 'ClassificationHead.fully_connected_normalization'. Also holds the batch normalization of feature vectors the batch
-normalized layers use.
+normalized layers use, and the FullyConnectedBlock container whose linear layers the He initialisation of
+vision_training/models/weight_initialization.py recognises.
 """
 
 import torch
@@ -35,9 +36,17 @@ class FeatureBatchNormalization(nn.BatchNorm1d):
         return super().forward(input=input_tensor.reshape(-1, input_tensor.shape[-1])).reshape(input_tensor.shape)
 
 
+class FullyConnectedBlock(nn.Sequential):
+    """
+    Hidden fully connected layers of a task head, built by build_fully_connected_block: an nn.Sequential holding the
+    same layers under the same checkpoint names, whose type tells the weight initialisation of the training
+    (vision_training/models/weight_initialization.py) that every one of its linear layers is followed by a ReLU.
+    """
+
+
 def build_fully_connected_block(input_dimension: int, dimensions: List[int], dropout_rate: float,
                                 add_dropout_layers: bool, normalization: str, batch_normalization_momentum: float,
-                                device: torch.device, dtype: torch.dtype) -> nn.Sequential:
+                                device: torch.device, dtype: torch.dtype) -> FullyConnectedBlock:
     """
     Builds the hidden fully connected layers shared by the task heads: the detection heads (after RoIAlign) and the
     classification heads (after the global pooling). Every layer is a linear layer followed by a ReLU, preceded by a
@@ -62,7 +71,7 @@ def build_fully_connected_block(input_dimension: int, dimensions: List[int], dro
         dtype (torch.dtype): The precision of the parameters.
 
     Returns:
-        nn.Sequential: The fully connected layers.
+        FullyConnectedBlock: The fully connected layers.
     """
     fully_connected_layers = []
     current_dimension = input_dimension
@@ -84,4 +93,4 @@ def build_fully_connected_block(input_dimension: int, dimensions: List[int], dro
         fully_connected_layers.append(nn.ReLU(inplace=True))
         current_dimension = next_dimension
 
-    return nn.Sequential(*fully_connected_layers)
+    return FullyConnectedBlock(*fully_connected_layers)

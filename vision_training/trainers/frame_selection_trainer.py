@@ -210,7 +210,7 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
                 'errors_folder' of the error images and their empty 'error_counts' per class.
         """
         return {"probabilities": [], "frame_labels": [], "sequence_identifiers": [],
-                "errors_folder": self.experiment_folder / "Evaluation" / f"Iteration_{iteration}" / "Errors",
+                "errors_folder": self.get_evaluation_folder(iteration=iteration) / "Errors",
                 "error_counts": {}}
 
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
@@ -429,7 +429,7 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
             EvaluationResults: The results of the evaluation.
         """
         probabilities, frame_labels = accumulator["probabilities"], accumulator["frame_labels"]
-        evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
+        evaluation_folder = self.get_evaluation_folder(iteration=iteration)
         evaluation_folder.mkdir(parents=True, exist_ok=True)
         number_classes = len(self.class_names)
         files, images, headline_metrics = {}, {}, {}

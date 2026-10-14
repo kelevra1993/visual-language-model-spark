@@ -321,7 +321,7 @@ class SegmentationTrainer(BaseTrainer):
             Dict[str, Any]: The empty [K, K] 'confusion_matrix' and [K, 6] 'boundary_counts', the 'number_images'
                 evaluated and the 'predicted_masks_folder'.
         """
-        evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
+        evaluation_folder = self.get_evaluation_folder(iteration=iteration)
         number_classes = len(self.class_names)
         return {"confusion_matrix": torch.zeros(size=(number_classes, number_classes), dtype=torch.int64,
                                                 device=self.device),
@@ -441,7 +441,7 @@ class SegmentationTrainer(BaseTrainer):
         confusion_matrix = accumulator["confusion_matrix"].cpu()
         metrics = compute_segmentation_metrics(confusion_matrix=confusion_matrix)
         metrics.update(compute_boundary_metrics(boundary_counts=accumulator["boundary_counts"].cpu()))
-        evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
+        evaluation_folder = self.get_evaluation_folder(iteration=iteration)
         evaluation_folder.mkdir(parents=True, exist_ok=True)
         headline_metrics = {"Mean IoU": metrics["mean_iou"], "Mean Dice": metrics["mean_dice"],
                             "Mean Boundary IoU": metrics["mean_boundary_iou"],

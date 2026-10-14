@@ -55,8 +55,9 @@ def start_evaluation_tracking(trainer: BaseTrainer, experiment_folder: Path,
 def evaluate_checkpoints(trainer: BaseTrainer, experiment_folder: Path, iterations: List[int]) -> Path:
     """
     Evaluates checkpoints of a trained run one after the other on the test split of the trainer, to choose the
-    checkpoint to deploy: every checkpoint is loaded into the model of the trainer and evaluated like during the
-    training (Results.txt, TensorBoard, the evaluation files of the task in the run folder of the trainer), then
+    checkpoint to deploy: every checkpoint is loaded into the model of the trainer, with its moving average of the
+    weights when the configuration keeps one, and evaluated like during the training (Results.txt, TensorBoard, the
+    evaluation files of the task in the run folder of the trainer, the averaged weights next to the trained ones), then
     'Evaluation/evaluation_summary.csv' gathers one row per evaluated iteration with every evaluation scalar (those of
     every class only with the per-class report), and the best iteration according to the headline metric of the task
     is printed. A checkpoint listed in the registry but deleted from the disk is skipped. When the tracking is on, the
@@ -112,9 +113,11 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
                                                f"{format_path_link(path=checkpoint_path)}")
             continue
 
-        # Weights of the checkpoint in the model of the trainer, then the evaluation of the test split
+        # Weights of the checkpoint in the model of the trainer, with their moving average, then the evaluation of the
+        # test split
         checkpoint = torch.load(f=checkpoint_path, map_location=trainer.device, weights_only=True)
         trainer.model.load_state_dict(state_dict=checkpoint["model_state"])
+        trainer.load_exponential_moving_average(checkpoint=checkpoint, iteration=iteration)
         print_color(color="blue", output=f"Evaluating : {format_path_link(path=checkpoint_path)}", add_separators=True)
         results = trainer.run_test_evaluation(iteration=iteration)
         summary_rows.append({"iteration": iteration, **results["scalars"],

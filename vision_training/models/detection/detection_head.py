@@ -67,7 +67,7 @@ class DetectionHead(nn.Module):
             batch_normalization_momentum=batch_normalization_momentum,
             activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype,
             squeeze_and_excite=bool(modules["squeeze_and_excite"]),
-            residual=bool(modules["residual_nets"]),
+            residual=bool(modules["residual_nets"]), pre_activation=False,
             inception=bool(modules["inception"]))
 
         # Fully connected layers, without normalization so that the checkpoints keep their layers

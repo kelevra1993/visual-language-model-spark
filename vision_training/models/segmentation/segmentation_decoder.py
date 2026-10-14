@@ -92,7 +92,8 @@ class SegmentationDecoder(nn.Module):
                 batch_normalization_momentum=self.batch_normalization_momentum, activation=True, dropout_rate=0.0,
                 add_pooling=False, device=device, dtype=dtype,
                 squeeze_and_excite=bool(decoder_configuration["modules"]["squeeze_and_excite"]),
-                residual=bool(decoder_configuration["modules"]["residual_nets"]), inception=False)
+                residual=bool(decoder_configuration["modules"]["residual_nets"]), pre_activation=False,
+                inception=False)
             current_channels = level_channels
 
         # Channels of the decoded feature map, at the input resolution

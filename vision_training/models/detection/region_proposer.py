@@ -77,7 +77,7 @@ class RegionProposal(nn.Module):
             feature_map_normalization=self.feature_map_normalization,
             batch_normalization_momentum=batch_normalization_momentum,
             activation=True, dropout_rate=0.0, add_pooling=False, device=self.device, dtype=self.dtype,
-            squeeze_and_excite=False, residual=False, inception=False)
+            squeeze_and_excite=False, residual=False, pre_activation=False, inception=False)
 
         self.region_proposal_last_convolution = nn.Conv2d(in_channels=convolution_output_channels,
                                                           out_channels=input_channels,

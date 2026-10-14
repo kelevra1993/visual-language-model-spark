@@ -71,7 +71,7 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
         """
         return {"probabilities": [], "labels": [], "frame_window_identifiers": [], "frame_positions": [],
                 "exact_matches": [],
-                "errors_folder": self.experiment_folder / "Evaluation" / f"Iteration_{iteration}" / "Errors",
+                "errors_folder": self.get_evaluation_folder(iteration=iteration) / "Errors",
                 "error_counts": {}}
 
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],

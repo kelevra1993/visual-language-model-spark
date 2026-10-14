@@ -38,8 +38,8 @@ class Backbone(nn.Module):
             input_channels (int): The number of initial input channels for the images.
             convolutions (Dict[str, List[int]]): Dictionary mapping block indices to [number_layers, output_channels].
             modules (Dict[str, Any]): Dictionary specifying which advanced modules to use ('squeeze_and_excite',
-                'residual_nets', 'inception') and the block from which inception starts ('inception_starting_block').
-                Missing keys default to disabled modules and an inception start at block 3.
+                'residual_nets', 'residual_nets_v2' for the pre-activation placement of the shortcuts, 'inception')
+                and the block from which inception starts ('inception_starting_block').
             last_max_pooling (bool): Whether to apply max pooling at the very end of the last convolution block.
             normalization (Dict[str, Any]): Dictionary containing the 'feature_map_normalization' strategy, the
                 'batch_normalization_momentum' of its batch statistics and the 'input_normalization' /
@@ -82,6 +82,7 @@ class Backbone(nn.Module):
         # Extract the advanced architecture modules, every flag must be explicitly set in the configuration
         self.squeeze_and_excite = bool(modules["squeeze_and_excite"])
         self.residual_nets = bool(modules["residual_nets"])
+        self.residual_nets_v2 = bool(modules["residual_nets_v2"])
         self.inception = bool(modules["inception"])
         self.inception_starting_block = int(modules["inception_starting_block"])
 
@@ -97,10 +98,12 @@ class Backbone(nn.Module):
             is_last_block = (index == number_of_blocks - 1)
             add_pooling = last_max_pooling if is_last_block else True
 
-            # Residual shortcuts start at the second block and inception at the configured starting block,
-            # so the first block always extracts plain low-level features from the raw image
+            # Residual shortcuts, in their original or pre-activation placement, start at the second block and
+            # inception at the configured starting block, so the first block always extracts plain low-level features
+            # from the raw image with a convolution, a normalization and an activation
             block_number = index + 1
             use_residual = self.residual_nets and block_number > 1
+            use_pre_activation = use_residual and self.residual_nets_v2
             use_inception = self.inception and block_number >= self.inception_starting_block
 
             # Instantiate the convolution block with the explicitly provided parameters
@@ -112,7 +115,7 @@ class Backbone(nn.Module):
                                                  activation=True, dropout_rate=0.0,
                                                  add_pooling=add_pooling, device=device, dtype=dtype,
                                                  squeeze_and_excite=self.squeeze_and_excite, residual=use_residual,
-                                                 inception=use_inception)
+                                                 pre_activation=use_pre_activation, inception=use_inception)
 
             # Append the constructed convolution block to the sequential module list
             self.convolution_blocks.append(convolution_block)

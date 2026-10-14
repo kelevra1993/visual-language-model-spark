@@ -1,7 +1,8 @@
 """
 Convolution block shared by the Backbone, the region proposal heads and the detection heads: convolutions with batch,
 layer or sequence normalization, activation, dropout and pooling, optionally with Squeeze-and-Excitation, residual
-shortcuts and Inception modules, plus the channel layer normalization it uses and the receptive field layers it lists.
+shortcuts (original or pre-activation placement) and Inception modules, plus the channel layer normalization it uses
+and the receptive field layers it lists.
 """
 
 # Definition of the convolution block
@@ -68,11 +69,19 @@ class ConvolutionBlock(nn.Module):
           lower the values of the shortcut as well as raise them, and Squeeze-and-Excitation rescales the residual
           branch only and never the shortcut, which would otherwise be halved at every pair by the gates of about
           0.5 of an untrained network.
+        - Pre-activation residual shortcuts ("Identity Mappings in Deep Residual Networks", He et al., 2016), with
+          the residual shortcuts: every layer normalizes and activates its input before its convolution, the layer
+          closing a pair adds the shortcut to its recalibrated convolution output with nothing after the addition, so
+          that the shortcuts form an identity path through the block, and the block ends with a normalization and an
+          activation of its output, so that the heads and the next block receive a normalized and activated feature
+          map as with the original placement.
         - Inception modules replacing the plain convolution of every layer.
 
     The layers are stored in `self.block` in the exact order of the historical nn.Sequential implementation
     (convolution, normalization, activation, dropout per layer, then pooling), so checkpoints trained with the
-    plain configuration keep identical state_dict keys.
+    plain configuration keep identical state_dict keys. The pre-activation layers are stored as normalization,
+    activation, convolution and dropout, the normalization covering the input channels of the layer, so that their
+    checkpoints cannot be loaded by the original placement.
 
     Args:
         input_channels (int): The number of channels in the input feature map.
@@ -96,6 +105,9 @@ class ConvolutionBlock(nn.Module):
             before the residual shortcut is added.
         residual (bool): Whether to add residual shortcuts every two convolution layers, before the activation of the
             layer closing each pair.
+        pre_activation (bool): Whether the residual shortcuts use the pre-activation placement (normalization and
+            activation before every convolution, nothing after the addition, the block output normalized and
+            activated). Requires the residual shortcuts and the activation.
         inception (bool): Whether to replace every plain convolution with an Inception module.
     """
 
@@ -103,7 +115,7 @@ class ConvolutionBlock(nn.Module):
                  kernel_size: int, stride: int, padding: int, feature_map_normalization: str,
                  batch_normalization_momentum: float, activation: bool, dropout_rate: float, add_pooling: bool,
                  device: torch.device, dtype: torch.dtype, squeeze_and_excite: bool, residual: bool,
-                 inception: bool) -> None:
+                 pre_activation: bool, inception: bool) -> None:
 
         super(ConvolutionBlock, self).__init__()
 
@@ -117,18 +129,25 @@ class ConvolutionBlock(nn.Module):
         self.add_pooling = add_pooling
         self.squeeze_and_excite = squeeze_and_excite
         self.residual = residual
+        self.pre_activation = pre_activation
         self.inception = inception
 
-        # Validate the requested normalization strategy
+        # Validate the requested normalization strategy, kept with its momentum for every normalization layer built
         normalization_strategy = str(feature_map_normalization).lower().strip()
         valid_strategies = ["batch", "layer", "sequence", "none", "null"]
         if normalization_strategy not in valid_strategies:
             raise ValueError(f"Invalid feature_map_normalization: {feature_map_normalization}."
                              f" Must be one of {valid_strategies}.")
+        self.normalization_strategy = normalization_strategy
+        self.batch_normalization_momentum = batch_normalization_momentum
 
         # Residual additions and inception concatenations require the spatial size to be preserved by every layer
         if (residual or inception) and stride != 1:
             raise ValueError(f"Residual shortcuts and inception modules require a stride of 1, but got {stride}.")
+
+        # The pre-activation placement only reorders the layers of residual pairs that have an activation
+        if pre_activation and not (residual and activation):
+            raise ValueError("Pre-activation shortcuts require the residual shortcuts and the activation.")
 
         # When the first layer changes the channel count, the block input cannot be added to a layer output,
         # so the shortcut pairs are shifted by one layer (parity 1) and start from the first layer's output
@@ -153,6 +172,16 @@ class ConvolutionBlock(nn.Module):
         for layer_index in range(number_layers):
             layer_start_index = len(layers)
 
+            # Pre-activation placement: normalize and activate the input of the layer before its convolution, without
+            # an in-place activation since the input is also the shortcut, or a block output kept by the heads
+            if pre_activation:
+                normalization_layer = self.build_normalization_layer(channels=current_input_channels, device=device,
+                                                                     dtype=dtype)
+                if normalization_layer is not None:
+                    layers.append(normalization_layer)
+                self.layer_activation_indices.append(len(layers))
+                layers.append(nn.ReLU(inplace=False))
+
             # Append the feature extraction layer: an Inception module or a plain convolution
             if inception:
                 layers.append(InceptionConvolution(input_channels=current_input_channels,
@@ -163,22 +192,17 @@ class ConvolutionBlock(nn.Module):
                                         kernel_size=kernel_size, stride=stride, padding=padding, bias=bias,
                                         device=device, dtype=dtype))
 
-            # Conditionally apply the selected normalization strategy, the batch statistics following the training
-            # batches at the configured momentum
-            if normalization_strategy == "batch":
-                layers.append(nn.BatchNorm2d(num_features=output_channels, momentum=batch_normalization_momentum,
-                                             device=device, dtype=dtype))
-            elif normalization_strategy == "layer":
-                layers.append(ChannelLayerNormalizer(channels=output_channels, device=device, dtype=dtype))
-            elif normalization_strategy == "sequence":
-                layers.append(SequenceBatchNormalization(num_features=output_channels,
-                                                         momentum=batch_normalization_momentum, device=device,
-                                                         dtype=dtype))
+            # Original placement: normalize the output of the convolution with the selected strategy, then activate it
+            if not pre_activation:
+                normalization_layer = self.build_normalization_layer(channels=output_channels, device=device,
+                                                                     dtype=dtype)
+                if normalization_layer is not None:
+                    layers.append(normalization_layer)
 
-            # Conditionally apply the activation function to introduce non-linearity to the network
-            self.layer_activation_indices.append(len(layers) if activation else None)
-            if activation:
-                layers.append(nn.ReLU(inplace=True))
+                # Conditionally apply the activation function to introduce non-linearity to the network
+                self.layer_activation_indices.append(len(layers) if activation else None)
+                if activation:
+                    layers.append(nn.ReLU(inplace=True))
 
             self.layer_module_indices.append(list(range(layer_start_index, len(layers))))
 
@@ -197,6 +221,15 @@ class ConvolutionBlock(nn.Module):
             # Update the input channels for any subsequent convolutional layers within this block
             current_input_channels = output_channels
 
+        # Pre-activation placement: the output of the last layer is neither normalized nor activated, so the block
+        # ends with both, kept outside self.block like the Squeeze-and-Excitation modules
+        self.output_normalization = None
+        self.output_activation = None
+        if pre_activation:
+            self.output_normalization = self.build_normalization_layer(channels=output_channels, device=device,
+                                                                       dtype=dtype)
+            self.output_activation = nn.ReLU(inplace=False)
+
         # Conditionally apply max pooling at the end of the block to reduce the spatial dimensions of the feature map
         self.pooling_index = None
         if add_pooling:
@@ -205,6 +238,50 @@ class ConvolutionBlock(nn.Module):
 
         # Group all constructed layers into a module list, iterated layer by layer in the forward pass
         self.block = nn.ModuleList(modules=layers)
+
+    def build_normalization_layer(self, channels: int, device: torch.device,
+                                  dtype: torch.dtype) -> Optional[nn.Module]:
+        """
+        Builds one normalization layer of the block with its normalization strategy: after every convolution with the
+        original placement, and before every convolution and at the end of the block with the pre-activation one.
+
+        Args:
+            channels (int): The number of channels of the normalized feature map.
+            device (torch.device): The device on which to allocate the parameters.
+            dtype (torch.dtype): The desired data type of the parameters.
+
+        Returns:
+            Optional[nn.Module]: The batch, layer or sequence normalization layer, the batch statistics following the
+                training batches at the configured momentum, or None without normalization.
+        """
+        if self.normalization_strategy == "batch":
+            return nn.BatchNorm2d(num_features=channels, momentum=self.batch_normalization_momentum, device=device,
+                                  dtype=dtype)
+        if self.normalization_strategy == "layer":
+            return ChannelLayerNormalizer(channels=channels, device=device, dtype=dtype)
+        if self.normalization_strategy == "sequence":
+            return SequenceBatchNormalization(num_features=channels, momentum=self.batch_normalization_momentum,
+                                              device=device, dtype=dtype)
+        return None
+
+    @staticmethod
+    def apply_layer_module(module: nn.Module, input_tensor: torch.Tensor,
+                           sequence_grouping: Optional[SequenceGrouping]) -> torch.Tensor:
+        """
+        Applies one module of the layers of the block, the sequence normalization layers receiving the sequence of
+        every frame of the batch.
+
+        Args:
+            module (nn.Module): The convolution, normalization or activation module.
+            input_tensor (torch.Tensor): The [Batch, Channels, Height, Width] feature map.
+            sequence_grouping (Optional[SequenceGrouping]): The sequence of every frame of the batch, or None.
+
+        Returns:
+            torch.Tensor: The output of the module.
+        """
+        if isinstance(module, SequenceBatchNormalization):
+            return module(input_tensor=input_tensor, sequence_grouping=sequence_grouping)
+        return module(input_tensor)
 
     def forward(self, input_tensor: torch.Tensor, sequence_grouping: Optional[SequenceGrouping] = None) -> torch.Tensor:
         """
@@ -231,7 +308,9 @@ class ConvolutionBlock(nn.Module):
         Each layer applies convolution, normalization and activation, then the optional Squeeze-and-Excitation
         recalibration and dropout. The layer closing a residual pair applies convolution, normalization, recalibration,
         the shortcut addition and only then its activation, so that the shortcut is never rescaled and the branch can
-        lower its values as well as raise them.
+        lower its values as well as raise them. With the pre-activation placement, each layer applies normalization,
+        activation and convolution, then the recalibration, the shortcut addition for the layer closing a pair and the
+        dropout, and the output of the block is normalized and activated.
 
         Args:
             input_tensor (torch.Tensor): The [Batch, Channels, Height, Width] input feature map.
@@ -251,17 +330,15 @@ class ConvolutionBlock(nn.Module):
                 shortcut_tensor = current_tensor
             closes_pair = self.residual and layer_index % 2 == (1 - self.residual_parity) and layer_index != 0
 
-            # Apply the convolution, normalization and activation modules of this layer, the sequence normalization
-            # receiving the sequence of every frame, and the activation of a layer closing a pair being left for
-            # after the shortcut addition
+            # Apply the convolution, normalization and activation modules of this layer, in their order, the
+            # activation of a layer closing a pair being left for after the shortcut addition with the original
+            # placement (the pre-activation layers activate their input before their convolution)
             for module_index in module_indices:
-                if closes_pair and module_index == self.layer_activation_indices[layer_index]:
+                if closes_pair and not self.pre_activation and \
+                        module_index == self.layer_activation_indices[layer_index]:
                     continue
-                if isinstance(self.block[module_index], SequenceBatchNormalization):
-                    current_tensor = self.block[module_index](input_tensor=current_tensor,
-                                                              sequence_grouping=sequence_grouping)
-                else:
-                    current_tensor = self.block[module_index](current_tensor)
+                current_tensor = self.apply_layer_module(module=self.block[module_index], input_tensor=current_tensor,
+                                                         sequence_grouping=sequence_grouping)
 
             # Recalibrate the channels of the layer output, before the shortcut is added so that only the residual
             # branch is rescaled and the shortcut is never halved by the gates
@@ -269,15 +346,24 @@ class ConvolutionBlock(nn.Module):
                 current_tensor = self.squeeze_and_excitation_layers[layer_index](input_tensor=current_tensor)
 
             # Close the pair of layers: add the shortcut to the branch before the activation, as in the original
-            # residual networks, then apply the activation of the layer to the sum
+            # residual networks, then apply the activation of the layer to the sum, or leave the sum untouched with
+            # the pre-activation placement so that the shortcuts form an identity path
             if closes_pair:
                 current_tensor = current_tensor + shortcut_tensor
-                if self.layer_activation_indices[layer_index] is not None:
+                if not self.pre_activation and self.layer_activation_indices[layer_index] is not None:
                     current_tensor = self.block[self.layer_activation_indices[layer_index]](current_tensor)
 
             # Apply the dropout of this layer, if any
             if self.layer_dropout_indices[layer_index] is not None:
                 current_tensor = self.block[self.layer_dropout_indices[layer_index]](current_tensor)
+
+        # Normalize and activate the output of the pre-activation layers, which ends with a convolution or a sum
+        if self.pre_activation:
+            if self.output_normalization is not None:
+                current_tensor = self.apply_layer_module(module=self.output_normalization,
+                                                         input_tensor=current_tensor,
+                                                         sequence_grouping=sequence_grouping)
+            current_tensor = self.output_activation(current_tensor)
 
         return current_tensor
 
@@ -305,7 +391,8 @@ class ConvolutionBlock(nn.Module):
             List[str]: The names of the enabled modules, empty for a plain convolution block.
         """
         # Map every module flag of the block to its displayed name, keeping only the enabled ones
-        module_flags = {"Inception": self.inception, "Residual Shortcuts": self.residual,
+        residual_name = "Pre-Activation Residual Shortcuts" if self.pre_activation else "Residual Shortcuts"
+        module_flags = {"Inception": self.inception, residual_name: self.residual,
                         "Squeeze-and-Excitation": self.squeeze_and_excite}
         return [module_name for module_name, is_enabled in module_flags.items() if is_enabled]
 

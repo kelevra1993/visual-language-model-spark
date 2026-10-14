@@ -1,8 +1,9 @@
 """
-General trainer shared by every task: the run folder, the training loop with its validation passes, the optimizer
-and learning rate schedule, the checkpoints and the resume, the evaluation of the saved checkpoints on the test split,
-the MLflow tracking of the run (vision_training/tracking) and the input batch viewer. The task trainers subclass it
-and implement its abstract hooks, and vision_training/main.py builds them through the task registry.
+General trainer shared by every task: the run folder, the training loop with its validation passes, the starting
+weights, the optimizer and learning rate schedule, the moving average of the weights, the checkpoints and the resume,
+the evaluation of the saved checkpoints on the test split (trained and averaged weights), the MLflow tracking of the run
+(vision_training/tracking) and the input batch viewer. The task trainers subclass it and implement its abstract hooks,
+and vision_training/main.py builds them through the task registry.
 """
 
 import math
@@ -27,15 +28,19 @@ from vision_training.configuration_processing.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
 from vision_training.evaluation.evaluation_report import report_evaluation_results
+from vision_training.evaluation.report_formatting import HEADER_SEPARATOR
 from vision_training.evaluation.sample_selection import choose_sample_identifiers
 from vision_training.models.model_registry import MODEL_DTYPE
 from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, freeze_batch_normalization_statistics,
                                                    freeze_component, freeze_normalization_parameters,
                                                    get_component_name, load_pretrained_component)
 from vision_training.models.task_model import TaskModel
-from vision_training.trainers.checkpointing import get_last_checkpoint_iteration, load_checkpoint, save_checkpoint
+from vision_training.models.weight_initialization import initialise_weights
+from vision_training.trainers.checkpointing import (EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, get_last_checkpoint_iteration,
+                                                    load_checkpoint, save_checkpoint)
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
 from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY, MetricTracker
+from vision_training.trainers.weight_averaging import ExponentialMovingAverage
 from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED_STATUS, KILLED_STATUS,
                                                          RUN_RECORD_FILE_NAME, DisabledTracker,
                                                          create_experiment_tracker, resolve_tracking_uri)
@@ -46,6 +51,14 @@ from vision_training.utilities.tensor_utilities import get_device
 # matrix image (per-class report only), the metrics of every class and the class thresholds of the classification-like
 # tasks. The predictions, the error images and the sample images grow with the test split and stay in the run folder.
 TRACKED_EVALUATION_FILES = ["Confusion Matrix Image", "Class Metrics", "Class Thresholds"]
+
+# Outputs of the evaluation of the moving average of the weights, next to those of the trained weights: its folder in
+# the evaluation folder of a checkpoint, its TensorBoard writer folder (its curves overlaid on the Test ones), the
+# label of its Results.txt blocks and the prefix of its MLflow metrics
+AVERAGED_WEIGHTS_FOLDER_NAME = "EMA"
+AVERAGED_WEIGHTS_TENSORBOARD_FOLDER = "Test_EMA"
+AVERAGED_WEIGHTS_LABEL = "EMA Weights"
+AVERAGED_WEIGHTS_METRIC_PREFIX = "test_ema"
 
 
 class BaseTrainer(ABC):
@@ -149,6 +162,7 @@ class BaseTrainer(ABC):
         self.training_writer = None
         self.validation_writer = None
         self.test_writer = None
+        self.averaged_test_writer = None
 
         # Setting up dataloaders
         print_color(color="blue",
@@ -170,8 +184,24 @@ class BaseTrainer(ABC):
         self.mixed_precision = self.optimization_configuration["mixed_precision"]
         self.model = self.build_model()
         self.model.to(device=self.device, dtype=self.dtype)
+
+        # Starting weights of the model ("default" or "he"), replaced by the transferred components and by a resumed
+        # checkpoint
+        self.weight_initialization = self.optimization_configuration["weight_initialization"]
+        initialise_weights(model=self.model, weight_initialization=self.weight_initialization)
         self.pretrained_checkpoint_paths = self.initialise_pretrained_components()
         self.optimizer = self.build_optimizer()
+
+        # Moving average of the weights, started from the weights of the model once the transferred components are
+        # loaded (a resume replaces it by the one of its checkpoint), and evaluated next to the trained weights
+        self.exponential_moving_average_configuration = self.optimization_configuration["exponential_moving_average"]
+        self.exponential_moving_average = None
+        if self.exponential_moving_average_configuration["activated"]:
+            self.exponential_moving_average = ExponentialMovingAverage(
+                model=self.model, decay=self.exponential_moving_average_configuration["decay"])
+
+        # Whether the test evaluation runs on the averaged weights (see use_averaged_weights) or the trained ones
+        self.evaluating_averaged_weights = False
 
         # Learning rate of every parameter group before the schedule, which multiplies it at every step
         self.base_learning_rates = [parameter_group["lr"] for parameter_group in self.optimizer.param_groups]
@@ -499,8 +529,9 @@ class BaseTrainer(ABC):
         """
         Updates the model parameters after the backward pass of a training step: the gradients are clipped to
         'Optimization.gradient_clipping_norm' when it is set, the learning rate of every parameter group is set to
-        its value of the schedule at this iteration, then the optimizer steps. The learning rate of the first group
-        is written to TensorBoard.
+        its value of the schedule at this iteration, then the optimizer steps and the moving average of the weights,
+        when the run keeps one, moves towards the updated weights. The learning rate of the first group is written to
+        TensorBoard.
 
         Args:
             iteration (int): The training iteration, giving the learning rate of the schedule.
@@ -516,6 +547,10 @@ class BaseTrainer(ABC):
         for parameter_group, base_learning_rate in zip(self.optimizer.param_groups, self.base_learning_rates):
             parameter_group["lr"] = base_learning_rate * learning_rate_factor
         self.optimizer.step()
+
+        # Move the moving average of the weights towards the updated weights
+        if self.exponential_moving_average is not None:
+            self.exponential_moving_average.update(model=self.model)
 
         if self.training_writer is not None:
             self.training_writer.add_scalar("Learning Rate", self.optimizer.param_groups[0]["lr"], iteration)
@@ -700,6 +735,12 @@ class BaseTrainer(ABC):
                                          f"{self.optimization_configuration['warmup_iterations']} iterations)")
         print_color(color="blue", output=f"- Gradient Clipping Norm  : "
                                          f"{self.optimization_configuration['gradient_clipping_norm']}")
+        print_color(color="blue", output=f"- Weight Initialization   : {self.weight_initialization}")
+        moving_average_description = "Off"
+        if self.exponential_moving_average is not None:
+            moving_average_description = (f"decay {self.exponential_moving_average.decay}, evaluated next to the "
+                                          f"trained weights")
+        print_color(color="blue", output=f"- Weight Moving Average   : {moving_average_description}")
         print_color(color="blue", output=f"- Mixed Precision         : {self.mixed_precision}")
         print_color(color="blue", output=f"- Resume Training         : {self.resume_training}")
         print_color(color="blue", output=f"- Validation Iter. Ratio  : {self.validation_iteration_ratio}")
@@ -1208,26 +1249,35 @@ class BaseTrainer(ABC):
         Sends the evaluation of a checkpoint to the MLflow run: the global scalars ('test/<scalar>'), the scalars of
         every class with the per-class report only ('test_class/<scalar>'), the best value so far of the headline
         metric with its iteration, and the small evaluation files of TRACKED_EVALUATION_FILES under
-        'evaluation/iteration_<n>/'.
+        'evaluation/iteration_<n>/'. The averaged weights send theirs as 'test_ema/<scalar>' and
+        'test_ema_class/<scalar>', with their files under 'evaluation/iteration_<n>/ema/', the best value following the
+        trained weights only.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint.
             results (EvaluationResults): The results of the evaluation.
         """
+        # Metric prefix and artifact folder of the evaluated weights
+        metric_prefix = AVERAGED_WEIGHTS_METRIC_PREFIX if self.evaluating_averaged_weights else "test"
+        artifact_folder = f"evaluation/iteration_{iteration}"
+        if self.evaluating_averaged_weights:
+            artifact_folder = f"{artifact_folder}/{AVERAGED_WEIGHTS_FOLDER_NAME.lower()}"
+
         # Global scalars, and the scalars of every class only with the per-class report (thousands for many classes)
-        metrics = {f"test/{scalar_name}": value for scalar_name, value in results["scalars"].items()}
+        metrics = {f"{metric_prefix}/{scalar_name}": value for scalar_name, value in results["scalars"].items()}
         if self.per_class_report:
-            metrics.update({f"test_class/{scalar_name}": value
+            metrics.update({f"{metric_prefix}_class/{scalar_name}": value
                             for scalar_name, value in results["class_scalars"].items()})
         self.experiment_tracker.log_metrics(metrics=metrics, step=iteration)
-        self.experiment_tracker.update_best_metric(metric_name=results["headline_metric"],
-                                                   value=results["scalars"][results["headline_metric"]],
-                                                   step=iteration)
+        if not self.evaluating_averaged_weights:
+            self.experiment_tracker.update_best_metric(metric_name=results["headline_metric"],
+                                                       value=results["scalars"][results["headline_metric"]],
+                                                       step=iteration)
         # Small evaluation files written by the task for this checkpoint
         for file_key in TRACKED_EVALUATION_FILES:
             if file_key in results["files"]:
                 self.experiment_tracker.log_artifact(file_path=results["files"][file_key],
-                                                     artifact_folder=f"evaluation/iteration_{iteration}")
+                                                     artifact_folder=artifact_folder)
 
     def finish_experiment_tracking(self, run_status: str) -> None:
         """
@@ -1290,28 +1340,87 @@ class BaseTrainer(ABC):
 
     def run_test_evaluation(self, iteration: int) -> EvaluationResults:
         """
-        Evaluates a saved checkpoint on the whole test split, at every weight_saving_iterations checkpoint, and
-        reports it to the console, TensorBoard and the Results.txt file of the run. The model runs as in deployment,
-        through the predict_batch hook and within the evaluation context of the task, and every test sample is
-        evaluated exactly once. The images of the fixed test samples are drawn on the way and added to the results
-        of the task, with a note and their folder.
+        Evaluates a saved checkpoint on the whole test split, at every weight_saving_iterations checkpoint: its trained
+        weights, then, for a run keeping a moving average of its weights updated at least once, its averaged weights,
+        each reported on its own (see evaluate_test_split).
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
-            EvaluationResults: The results of the evaluation, for the tools comparing the checkpoints of a run.
+            EvaluationResults: The results of the trained weights, for the tools comparing the checkpoints of a run.
+        """
+        results = self.evaluate_test_split(iteration=iteration)
+
+        # Averaged weights of the same checkpoint, reported next to the trained ones (an average restarted from the
+        # loaded weights of a checkpoint saved without one would only repeat them)
+        if self.exponential_moving_average is not None and self.exponential_moving_average.number_updates > 0:
+            with self.use_averaged_weights():
+                self.evaluate_test_split(iteration=iteration)
+        return results
+
+    @contextmanager
+    def use_averaged_weights(self) -> Iterator[None]:
+        """
+        Puts the averaged model in place of the trained model for the evaluation of the moving average of the weights,
+        so that the hooks of the task (predict_batch, evaluation_context) run it unchanged, and routes the outputs of
+        the evaluation to their own folder, TensorBoard writer, Results.txt label and MLflow metrics. The trained model
+        is always restored, even when the evaluation fails.
+
+        Yields:
+            None: Control to the evaluation of the averaged weights.
+        """
+        trained_model = self.model
+        self.model = self.exponential_moving_average.averaged_model
+        self.evaluating_averaged_weights = True
+        try:
+            yield
+        finally:
+            self.model = trained_model
+            self.evaluating_averaged_weights = False
+
+    def get_evaluation_folder(self, iteration: int) -> Path:
+        """
+        Gives the folder of the files of the evaluation of a checkpoint, written by the base trainer (sample images)
+        and the task trainers (class metrics, thresholds, confusion matrix, predictions, error images...):
+        '<run>/Evaluation/Iteration_<n>/', and its 'EMA' subfolder for the averaged weights.
+
+        Args:
+            iteration (int): The training iteration of the evaluated checkpoint.
+
+        Returns:
+            Path: The evaluation folder of the weights being evaluated.
+        """
+        evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
+        if self.evaluating_averaged_weights:
+            return evaluation_folder / AVERAGED_WEIGHTS_FOLDER_NAME
+        return evaluation_folder
+
+    def evaluate_test_split(self, iteration: int) -> EvaluationResults:
+        """
+        Evaluates the weights in the model (the trained ones, or the averaged ones within use_averaged_weights) on the
+        whole test split and reports them to the console, TensorBoard and the Results.txt file of the run. The model
+        runs as in deployment, through the predict_batch hook and within the evaluation context of the task, and every
+        test sample is evaluated exactly once. The images of the fixed test samples are drawn on the way and added to
+        the results of the task, with a note and their folder.
+
+        Args:
+            iteration (int): The training iteration of the evaluated checkpoint.
+
+        Returns:
+            EvaluationResults: The results of the evaluation.
         """
         self.model.eval()
         accumulator = self.create_evaluation_accumulator(iteration=iteration)
         evaluated_sample_identifiers = set()
-        samples_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}" / "Samples"
+        samples_folder = self.get_evaluation_folder(iteration=iteration) / "Samples"
         sample_images = {}
+        weights_description = f" ({AVERAGED_WEIGHTS_LABEL})" if self.evaluating_averaged_weights else ""
 
         # The evaluation settings of the task are always restored, even when the evaluation fails
         with self.evaluation_context(), torch.no_grad():
             for test_batch in tqdm(self.test_dataloader, total=len(self.test_dataloader),
-                                   desc=f"Test Evaluation Iteration {iteration}"):
+                                   desc=f"Test Evaluation Iteration {iteration}{weights_description}"):
                 test_batch = self.prepare_batch(batch=test_batch)
                 predictions = self.predict_batch(batch=test_batch)
 
@@ -1334,9 +1443,12 @@ class BaseTrainer(ABC):
                     self.save_sample_images(batch=test_batch, predictions=predictions, sample_indices=sample_indices,
                                             samples_folder=samples_folder, sample_images=sample_images)
 
-        # Results of the task, with the images of the fixed test samples reported at every evaluation
+        # Results of the task, with the images of the fixed test samples reported at every evaluation, the header of
+        # the block of the averaged weights naming them
         results = self.compute_evaluation_results(accumulator=accumulator, iteration=iteration)
         results["sample_images"] = sample_images
+        if self.evaluating_averaged_weights:
+            results["evaluated_samples"] = f"{results['evaluated_samples']}{HEADER_SEPARATOR}{AVERAGED_WEIGHTS_LABEL}"
         if sample_images:
             results["notes"].append(f"Sample Images : {len(sample_images)} fixed test {self.SAMPLE_NAME.lower()}")
             results["files"]["Sample Images"] = samples_folder
@@ -1373,16 +1485,24 @@ class BaseTrainer(ABC):
     def report_evaluation(self, iteration: int, results: EvaluationResults) -> None:
         """
         Reports the evaluation of a checkpoint to the console, the Test TensorBoard writer (created at the first
-        evaluation) and the Results.txt file of the run, with its per-class outputs when the per-class report is on,
-        then sends it to the MLflow run.
+        evaluation, Test_EMA for the averaged weights, with the same tags so that TensorBoard overlays both curves) and
+        the Results.txt file of the run, with its per-class outputs when the per-class report is on, then sends it to
+        the MLflow run.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint.
             results (EvaluationResults): The results of the evaluation.
         """
-        if self.test_writer is None:
-            self.test_writer = SummaryWriter(log_dir=str(self.tensorboard_directory / "Test"))
-        report_evaluation_results(results=results, iteration=iteration, test_writer=self.test_writer,
+        if self.evaluating_averaged_weights:
+            if self.averaged_test_writer is None:
+                self.averaged_test_writer = SummaryWriter(
+                    log_dir=str(self.tensorboard_directory / AVERAGED_WEIGHTS_TENSORBOARD_FOLDER))
+            test_writer = self.averaged_test_writer
+        else:
+            if self.test_writer is None:
+                self.test_writer = SummaryWriter(log_dir=str(self.tensorboard_directory / "Test"))
+            test_writer = self.test_writer
+        report_evaluation_results(results=results, iteration=iteration, test_writer=test_writer,
                                   results_path=Path(self.experiment_folder) / "Results.txt",
                                   per_class_report=self.per_class_report)
         self.track_evaluation(iteration=iteration, results=results)
@@ -1390,11 +1510,11 @@ class BaseTrainer(ABC):
     def save_model(self, iteration: int) -> None:
         """
         Saves a checkpoint of the model and optimizer, with the task, the run name, the identifier of the MLflow run
-        ('mlflow_run_id', None without tracking or while the run is being opened) and the source run of every
+        ('mlflow_run_id', None without tracking or while the run is being opened), the source run of every
         transferable component of the task ('pretrained_backbone', 'pretrained_temporal_module',
         'pretrained_classification_head', 'pretrained_segmentation_decoder', 'pretrained_region_proposer_dictionary',
-        'pretrained_detector_heads_dictionary', None without transfer), and records it in
-        the checkpoint registry of the run used to resume the training.
+        'pretrained_detector_heads_dictionary', None without transfer) and the moving average of the weights of a run
+        keeping one, and records it in the checkpoint registry of the run used to resume the training.
 
         Args:
             iteration (int): The current training iteration, used for naming the weight file.
@@ -1405,8 +1525,12 @@ class BaseTrainer(ABC):
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             metadata[f"pretrained_{TRANSFERABLE_COMPONENTS[section_name]}"] = pretrained_configuration[
                 "experiment_folder"]
+        exponential_moving_average_state = None
+        if self.exponential_moving_average is not None:
+            exponential_moving_average_state = self.exponential_moving_average.state_dict()
         model_directory = save_checkpoint(weights_directory=self.weights_directory, iteration=iteration,
-                                          model=self.model, optimizer=self.optimizer, metadata=metadata)
+                                          model=self.model, optimizer=self.optimizer, metadata=metadata,
+                                          exponential_moving_average_state=exponential_moving_average_state)
 
         print("Checkpoint Folder :")
         print(f" - {format_path_link(path=model_directory)}")
@@ -1457,7 +1581,8 @@ class BaseTrainer(ABC):
     def load_model(self, iteration: int) -> None:
         """
         Loads the model weights and optimizer state from a specified iteration checkpoint of the run, with the tensors
-        mapped to the currently active device (CPU, CUDA, or MPS).
+        mapped to the currently active device (CPU, CUDA, or MPS), and the moving average of the weights of a run
+        keeping one.
 
         Args:
             iteration (int): The exact iteration number identifying the checkpoint to load.
@@ -1466,3 +1591,25 @@ class BaseTrainer(ABC):
 
         self.model.load_state_dict(checkpoint["model_state"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state"])
+        self.load_exponential_moving_average(checkpoint=checkpoint, iteration=iteration)
+
+    def load_exponential_moving_average(self, checkpoint: Dict[str, Any], iteration: int) -> None:
+        """
+        Restores the moving average of the weights saved with a checkpoint, once its trained weights are in the model,
+        for a resumed run and for the evaluation of the saved checkpoints (vision_training/evaluation/
+        checkpoint_evaluation.py). A checkpoint saved without average (a run that turns it on when it resumes) restarts
+        the average from its trained weights. Nothing is done for a run without average.
+
+        Args:
+            checkpoint (Dict[str, Any]): The loaded checkpoint.
+            iteration (int): The iteration of the checkpoint, for the message.
+        """
+        if self.exponential_moving_average is None:
+            return
+        if EXPONENTIAL_MOVING_AVERAGE_STATE_KEY in checkpoint:
+            self.exponential_moving_average.load_state_dict(
+                state_dictionary=checkpoint[EXPONENTIAL_MOVING_AVERAGE_STATE_KEY])
+            return
+        self.exponential_moving_average.reset(model=self.model)
+        print_color(color="yellow", output=f"The Checkpoint Of Iteration {iteration} Holds No Moving Average Of The "
+                                           f"Weights, The Average Restarts From Its Trained Weights.")

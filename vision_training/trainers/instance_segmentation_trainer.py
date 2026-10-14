@@ -199,7 +199,7 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         # Box and mask average precisions of every class in one row per class, saved whatever the per-class report
         class_rows = [{**box_row, **mask_row} for box_row, mask_row in zip(box_summary["class_rows"],
                                                                            mask_summary["class_rows"], strict=True)]
-        evaluation_folder = self.experiment_folder / "Evaluation" / f"Iteration_{iteration}"
+        evaluation_folder = self.get_evaluation_folder(iteration=iteration)
         files = {"Class Metrics": write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)}
 
         # Tables of the methods first, then the per-class tables, the masks before the boxes

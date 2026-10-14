@@ -261,8 +261,20 @@ def set_invalid_batch_normalization_momentums(configuration: Dict[str, Any]) -> 
     configuration["Detector"]["normalization"]["batch_normalization_momentum"] = "fast"
 
 
+def set_pre_activation_without_residual_shortcuts(configuration: Dict[str, Any]) -> None:
+    """
+    Turns the pre-activation placement of the residual shortcuts on with the residual shortcuts off.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["Backbone"]["modules"].update({"residual_nets": False, "residual_nets_v2": True})
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_invalid_loading, ["'Data.loading.prefetch_batches' must be an integer >= 1, got 0."]),
+    (set_pre_activation_without_residual_shortcuts, ["'Backbone.modules.residual_nets_v2' must be False when "
+                                                     "'Backbone.modules.residual_nets' is False"]),
     (set_invalid_batch_normalization_momentums, ["'Backbone.normalization.batch_normalization_momentum' must be a "
                                                  "number within (0, 1], got 0.",
                                                  "'RegionProposal.normalization.batch_normalization_momentum' must be "
@@ -1239,7 +1251,8 @@ def test_inconsistent_temporal_and_head_transfers_are_rejected(tmp_path: Path, c
 def set_invalid_optimization(configuration: Dict[str, Any]) -> None:
     """
     Sets an unknown optimizer and schedule, a negative weight decay, an empty decay, a minimum learning rate above
-    the learning rate, a zero clipping norm, and a mixed precision flag that is not a boolean.
+    the learning rate, a zero clipping norm, a mixed precision flag that is not a boolean, an unknown weight
+    initialisation, and a moving average switch that is not a boolean with a decay of 1, which would never move.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
@@ -1247,7 +1260,8 @@ def set_invalid_optimization(configuration: Dict[str, Any]) -> None:
     configuration["Optimization"].update({"optimizer": "rmsprop", "learning_rate_schedule": "step",
                                           "weight_decay": -0.1, "decay_iterations": 0,
                                           "minimum_learning_rate_ratio": 1.5, "gradient_clipping_norm": 0,
-                                          "mixed_precision": "yes"})
+                                          "mixed_precision": "yes", "weight_initialization": "xavier",
+                                          "exponential_moving_average": {"activated": "yes", "decay": 1.0}})
 
 
 def test_inconsistent_optimization_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -1272,7 +1286,11 @@ def test_inconsistent_optimization_is_rejected(tmp_path: Path, capsys: pytest.Ca
                              "'Optimization.decay_iterations' must be an integer >= 1, got 0.",
                              "'Optimization.minimum_learning_rate_ratio' must be a probability within [0, 1], got 1.5.",
                              "'Optimization.gradient_clipping_norm' must be null or > 0, got 0.",
-                             "'Optimization.mixed_precision' must be True or False, got 'yes'."]:
+                             "'Optimization.mixed_precision' must be True or False, got 'yes'.",
+                             "'Optimization.weight_initialization' must be one of ['default', 'he'], got 'xavier'.",
+                             "'Optimization.exponential_moving_average.activated' must be True or False, got 'yes'.",
+                             "'Optimization.exponential_moving_average.decay' must be strictly between 0 and 1, "
+                             "got 1.0."]:
         assert expected_message in printed_output
 
 

@@ -21,6 +21,9 @@ CHECKPOINT_FORMAT_VERSION = 2
 # Registry file of the 'Weights' folder of a run: its first line names the last checkpoint, the next lines list them all
 CHECKPOINT_REGISTRY_NAME = "full-checkpoint"
 
+# Key of the exponential moving average of the weights in the checkpoints of the runs that keep one
+EXPONENTIAL_MOVING_AVERAGE_STATE_KEY = "exponential_moving_average_state"
+
 
 def get_checkpoint_file(weights_directory: Path, iteration: int) -> Path:
     """
@@ -110,10 +113,10 @@ def update_checkpoint_registry(weights_directory: Path, iteration: int) -> None:
 
 
 def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, optimizer: torch.optim.Optimizer,
-                    metadata: Dict[str, Any]) -> Path:
+                    metadata: Dict[str, Any], exponential_moving_average_state: Optional[Dict[str, Any]]) -> Path:
     """
-    Persists the model weights and optimizer state of a training run, then records them in the checkpoint registry
-    used to resume the training.
+    Persists the model weights and optimizer state of a training run, with the exponential moving average of its
+    weights when it keeps one, then records them in the checkpoint registry used to resume the training.
 
     The save cannot be interrupted: Ctrl+C is ignored until both the weight file and the registry are written, since
     copying every GPU tensor to the CPU can take a few seconds and a second Ctrl+C during that time would otherwise
@@ -126,6 +129,9 @@ def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, o
         model (nn.Module): The trained model.
         optimizer (torch.optim.Optimizer): The optimizer, whose state is needed to resume the training.
         metadata (Dict[str, Any]): Extra information stored with the weights, e.g. the task and the run name.
+        exponential_moving_average_state (Optional[Dict[str, Any]]): The state of the moving average of the weights
+            (vision_training/trainers/weight_averaging.py), stored under EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, or None
+            for a run without average.
 
     Returns:
         Path: The folder of the saved checkpoint.
@@ -137,10 +143,15 @@ def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, o
     # Ignore keyboard interrupts while saving, and restore the previous handler once the save is complete
     previous_interrupt_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
+        # Checkpoint content, with the moving average of the weights of the runs that keep one
+        checkpoint = {"iteration": iteration, "model_state": model.state_dict(),
+                      "optimizer_state": optimizer.state_dict(), "format_version": CHECKPOINT_FORMAT_VERSION,
+                      **metadata}
+        if exponential_moving_average_state is not None:
+            checkpoint[EXPONENTIAL_MOVING_AVERAGE_STATE_KEY] = exponential_moving_average_state
+
         # Write to a temporary file, then atomically move it to its final name
-        torch.save(obj={"iteration": iteration, "model_state": model.state_dict(),
-                        "optimizer_state": optimizer.state_dict(), "format_version": CHECKPOINT_FORMAT_VERSION,
-                        **metadata}, f=temporary_checkpoint_path)
+        torch.save(obj=checkpoint, f=temporary_checkpoint_path)
         os.replace(src=temporary_checkpoint_path, dst=checkpoint_path)
 
         # Update the registry only once the weight file is complete
@@ -162,7 +173,7 @@ def load_checkpoint(weights_directory: Path, iteration: int, device: torch.devic
 
     Returns:
         Dict[str, Any]: The checkpoint, with its 'model_state' and 'optimizer_state' (and, from format version 2, its
-            'task' and 'run_name').
+            'task' and 'run_name', and the moving average of the weights of the runs that keep one).
     """
     return torch.load(f=get_checkpoint_file(weights_directory=weights_directory, iteration=iteration),
                       map_location=device, weights_only=True)

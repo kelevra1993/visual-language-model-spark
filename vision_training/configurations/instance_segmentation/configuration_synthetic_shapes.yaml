@@ -111,6 +111,25 @@ Optimization:
   # Runs the training and validation forward passes in bfloat16 (faster and lighter on recent GPUs), the weights and
   # the test evaluation staying in float32 (the data type of every model).
   mixed_precision: False
+  # Starting weights of the model: "default" (PyTorch initialisation of every layer) or "he" (He normal initialisation,
+  # paper "Delving Deep into Rectifiers" https://arxiv.org/abs/1502.01852, of every layer followed by a ReLU: the
+  # convolutions of the convolution blocks, the hidden fully connected layers and the reduce layer of
+  # Squeeze-and-Excitation, the output layers keeping the PyTorch initialisation). The components loaded from other
+  # runs and a resumed checkpoint replace these weights. Gives no run name token.
+  weight_initialization: "default"
+  # Exponential moving average (EMA) of the weights: a second copy of the model, never trained itself, moved towards
+  # the trained weights after every optimizer step:
+  #   ema_weights = decay × ema_weights + (1 − decay) × current_weights
+  # It averages roughly the last 1 / (1 − decay) iterations (0.999: 1,000, 0.9998: 5,000, 0.9999: 10,000), its n-th
+  # update using min(decay, (1 + n) / (10 + n)) so that the random starting weights fade quickly. Every test
+  # evaluation scores the trained weights, then the EMA weights, in Evaluation/Iteration_<n>/EMA/, the Test_EMA
+  # TensorBoard curves and the "EMA Weights" blocks of Results.txt. Saved in the checkpoints, it gives no run name
+  # token and can be turned on or off when a run resumes.
+  exponential_moving_average:
+    # Turns the moving average of the weights on.
+    activated: False
+    # Fraction of the average kept at every update, strictly between 0 and 1.
+    decay: 0.9998
 
 Data:
   loading:
@@ -218,6 +237,13 @@ Backbone:
     # Residual Nets : Paper "Deep Residual Learning for Image Recognition" https://arxiv.org/abs/1512.03385
     # Shortcuts are added every two convolution layers, starting from the second convolution block
     residual_nets: True
+
+    # Residual Nets v2 : Paper "Identity Mappings in Deep Residual Networks" https://arxiv.org/abs/1603.05027
+    # Pre-activation shortcuts: every layer applies its normalization and ReLU before its convolution and nothing
+    # follows the addition, so that the shortcuts form an identity path through the block, whose output is normalized
+    # and activated at its end. Requires residual_nets, starts from the second block like it, and gives the RES2 run
+    # name token instead of RES.
+    residual_nets_v2: False
 
     # Inception Modules : Paper "Going Deeper with Convolutions" https://arxiv.org/abs/1409.4842
     # Output channels of every block using inception must be multiples of 8

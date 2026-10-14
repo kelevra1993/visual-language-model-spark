@@ -61,7 +61,8 @@ def test_saved_checkpoint_is_found_and_loaded(tmp_path: Path) -> None:
     weights_directory = tmp_path / "Weights"
 
     checkpoint_folder = save_checkpoint(weights_directory=weights_directory, iteration=3, model=model,
-                                        optimizer=optimizer, metadata={"task": "dummy_task"})
+                                        optimizer=optimizer, metadata={"task": "dummy_task"},
+                                        exponential_moving_average_state=None)
 
     assert checkpoint_folder == weights_directory / "Iteration_3"
     assert not list(checkpoint_folder.glob("*.tmp"))

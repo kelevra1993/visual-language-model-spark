@@ -1,7 +1,7 @@
 """
 Tests of the building blocks of vision_training/models/components and of the backbone: squeeze and excitation, inception
-convolution, input normalization strategies, convolution block keys, residual shortcuts, backbone shapes and receptive
-field.
+convolution, input normalization strategies, convolution block keys, residual shortcuts in their original and
+pre-activation placements, backbone shapes and receptive field.
 """
 
 import pytest
@@ -17,7 +17,8 @@ DEVICE = torch.device(device="cpu")
 DTYPE = torch.float32
 
 # Complete Backbone modules configuration with every module disabled, as every key must be explicitly set
-PLAIN_MODULES = {"squeeze_and_excite": False, "residual_nets": False, "inception": False, "inception_starting_block": 3}
+PLAIN_MODULES = {"squeeze_and_excite": False, "residual_nets": False, "residual_nets_v2": False, "inception": False,
+                 "inception_starting_block": 3}
 
 
 def test_squeeze_and_excitation_rescales_channels() -> None:
@@ -90,7 +91,7 @@ def test_plain_convolution_block_state_dictionary_keys() -> None:
                                          batch_normalization_momentum=0.1, activation=True, dropout_rate=0.0,
                                          add_pooling=True,
                                          device=DEVICE, dtype=DTYPE, squeeze_and_excite=False, residual=False,
-                                         inception=False)
+                                         pre_activation=False, inception=False)
 
     # Layout per layer: convolution (0 / 3), batch normalization (1 / 4), activation (2 / 5), then pooling (6)
     expected_keys = ["block.0.weight", "block.0.bias",
@@ -120,7 +121,7 @@ def test_residual_shortcut_placement(squeeze_and_excite: bool) -> None:
                                          batch_normalization_momentum=0.1, activation=True, dropout_rate=0.0,
                                          add_pooling=False,
                                          device=DEVICE, dtype=DTYPE, squeeze_and_excite=squeeze_and_excite,
-                                         residual=True, inception=False)
+                                         residual=True, pre_activation=False, inception=False)
 
     # Zero every parameter so that each convolution outputs 0, the second layer then giving ReLU(0 + input)
     with torch.no_grad():
@@ -136,11 +137,99 @@ def test_residual_shortcut_placement(squeeze_and_excite: bool) -> None:
                          padding=1, feature_map_normalization="none", batch_normalization_momentum=0.1,
                          activation=True, dropout_rate=0.0,
                          add_pooling=False, device=DEVICE, dtype=DTYPE, squeeze_and_excite=False, residual=True,
-                         inception=False)
+                         pre_activation=False, inception=False)
+
+
+@pytest.mark.parametrize(argnames=("input_channels", "number_layers"), argvalues=[(8, 2), (3, 3)])
+def test_pre_activation_shortcut_placement(input_channels: int, number_layers: int) -> None:
+    """
+    Verifies the pre-activation placement of the residual shortcuts against the formula of "Identity Mappings in Deep
+    Residual Networks", computed by hand with the convolutions of the block: without normalization every layer is a
+    ReLU then a convolution, the pair adds its shortcut to its branch with nothing after the sum, and the block output
+    is activated. With equal channels the shortcut is the block input; with changing channels the first layer has no
+    shortcut and the pair starts from its output. The input of the block, read by the shortcut, is left unchanged.
+
+    Args:
+        input_channels (int): The channels of the block input, 8 (equal to the output) or 3 (changing).
+        number_layers (int): The convolution layers of the block.
+    """
+    torch.manual_seed(seed=0)
+    convolution_block = ConvolutionBlock(input_channels=input_channels, output_channels=8, bias=True,
+                                         number_layers=number_layers, kernel_size=3, stride=1, padding=1,
+                                         feature_map_normalization="none", batch_normalization_momentum=0.1,
+                                         activation=True, dropout_rate=0.0, add_pooling=False, device=DEVICE,
+                                         dtype=DTYPE, squeeze_and_excite=False, residual=True, pre_activation=True,
+                                         inception=False)
+    convolutions = [module for module in convolution_block.block if isinstance(module, torch.nn.Conv2d)]
+    input_tensor = torch.randn(size=(2, input_channels, 6, 6))
+    original_input_tensor = input_tensor.clone()
+
+    with torch.no_grad():
+        # Equal channels: one pair from the block input, changing channels: a first layer alone, then one pair
+        if input_channels == 8:
+            shortcut_tensor = input_tensor
+            branch_tensor = convolutions[1](torch.relu(input=convolutions[0](torch.relu(input=input_tensor))))
+        else:
+            shortcut_tensor = convolutions[0](torch.relu(input=input_tensor))
+            branch_tensor = convolutions[2](torch.relu(input=convolutions[1](torch.relu(input=shortcut_tensor))))
+        expected_tensor = torch.relu(input=shortcut_tensor + branch_tensor)
+        output_tensor = convolution_block(input_tensor=input_tensor)
+
+    assert torch.allclose(input=output_tensor, other=expected_tensor, atol=1e-6)
+    assert torch.equal(input=input_tensor, other=original_input_tensor)
+
+
+def test_pre_activation_convolution_block_layers() -> None:
+    """
+    Verifies the layers of a pre-activation block with batch normalization: every layer normalizes its input channels
+    before its activation and convolution, the block ends with the normalization of its output channels, the summary
+    names the pre-activation shortcuts, and the placement is refused without the residual shortcuts.
+    """
+    convolution_block = ConvolutionBlock(input_channels=3, output_channels=16, bias=True, number_layers=2,
+                                         kernel_size=3, stride=1, padding=1, feature_map_normalization="batch",
+                                         batch_normalization_momentum=0.1, activation=True, dropout_rate=0.0,
+                                         add_pooling=True, device=DEVICE, dtype=DTYPE, squeeze_and_excite=False,
+                                         residual=True, pre_activation=True, inception=False)
+
+    # Layout per layer: normalization of its input, activation, convolution, then the pooling of the block
+    assert [type(module).__name__ for module in convolution_block.block] == ["BatchNorm2d", "ReLU", "Conv2d",
+                                                                              "BatchNorm2d", "ReLU", "Conv2d",
+                                                                              "MaxPool2d"]
+    assert (convolution_block.block[0].num_features, convolution_block.block[3].num_features) == (3, 16)
+    assert convolution_block.output_normalization.num_features == 16
+    assert convolution_block.get_active_module_names() == ["Pre-Activation Residual Shortcuts"]
+    output_tensor = convolution_block(input_tensor=torch.randn(size=(2, 3, 8, 8)))
+    assert output_tensor.shape == (2, 16, 4, 4)
+
+    # The pre-activation placement is a placement of the residual shortcuts
+    with pytest.raises(expected_exception=ValueError):
+        ConvolutionBlock(input_channels=8, output_channels=8, bias=True, number_layers=2, kernel_size=3, stride=1,
+                         padding=1, feature_map_normalization="batch", batch_normalization_momentum=0.1,
+                         activation=True, dropout_rate=0.0, add_pooling=False, device=DEVICE, dtype=DTYPE,
+                         squeeze_and_excite=False, residual=False, pre_activation=True, inception=False)
+
+
+def test_backbone_pre_activation_starts_at_the_second_block() -> None:
+    """
+    Verifies that the pre-activation shortcuts of 'residual_nets_v2' are used from the second block of the backbone,
+    like the residual shortcuts, the first block keeping its plain convolution, normalization and activation on the
+    image.
+    """
+    backbone = Backbone(input_channels=3, convolutions={"1": [1, 16], "2": [2, 32], "3": [3, 32]},
+                        modules={**PLAIN_MODULES, "residual_nets": True, "residual_nets_v2": True},
+                        last_max_pooling=False,
+                        normalization={"feature_map_normalization": "batch", "batch_normalization_momentum": 0.1,
+                                       "input_normalization": True, "per_sample_normalization": False},
+                        detection_convolution_block_indices=[], input_image_size=32, device=DEVICE, dtype=DTYPE)
+
+    assert [block.residual for block in backbone.convolution_blocks] == [False, True, True]
+    assert [block.pre_activation for block in backbone.convolution_blocks] == [False, True, True]
 
 
 @pytest.mark.parametrize(argnames="modules", argvalues=[{**PLAIN_MODULES, "squeeze_and_excite": True},
                                                         {**PLAIN_MODULES, "residual_nets": True},
+                                                        {**PLAIN_MODULES, "residual_nets": True,
+                                                         "residual_nets_v2": True, "squeeze_and_excite": True},
                                                         {**PLAIN_MODULES, "inception": True}])
 def test_backbone_modules_forward_shapes(modules: dict) -> None:
     """

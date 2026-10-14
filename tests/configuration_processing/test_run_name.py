@@ -3,7 +3,8 @@ Tests of build_run_name of vision_training/configuration_processing/run_name.py 
 task: the reference run names are fixed, every changed setting (architecture, inputs, heads, temporal modules, fusions,
 segmentation decoders and losses, transfers, normalization, optimizer, weight decay) changes the run name with its
 token, and the training settings that can change between two resumptions (augmentation, batch size, learning rate,
-schedule, clipping, mixed precision, dropout rates, segmentation losses) keep it.
+schedule, clipping, mixed precision, weight initialisation, moving average of the weights, dropout rates, segmentation
+losses) keep it.
 """
 
 import copy
@@ -91,6 +92,18 @@ def disable_squeeze_and_excite(experiment_configuration: Dict[str, Any], model_c
         model_configuration (Dict[str, Any]): The model configuration, modified in place.
     """
     model_configuration["Backbone"]["modules"]["squeeze_and_excite"] = False
+
+
+def use_pre_activation_shortcuts(experiment_configuration: Dict[str, Any],
+                                 model_configuration: Dict[str, Any]) -> None:
+    """
+    Places the residual shortcuts of the backbone before the activations (residual_nets_v2).
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Backbone"]["modules"]["residual_nets_v2"] = True
 
 
 def enable_inception(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
@@ -184,7 +197,8 @@ def use_multi_class_labels(experiment_configuration: Dict[str, Any], model_confi
 def change_training_settings(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
     Changes every training setting that can change between two resumptions of a run: turns off data augmentation,
-    and trains with another batch size, learning rate and schedule, gradient clipping and mixed precision.
+    and trains with another batch size, learning rate and schedule, gradient clipping, mixed precision, weight
+    initialisation and a moving average of the weights.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
@@ -195,14 +209,16 @@ def change_training_settings(experiment_configuration: Dict[str, Any], model_con
     experiment_configuration["learning_rate"] = 1.5e-3
     model_configuration["Optimization"].update({"learning_rate_schedule": "cosine", "warmup_iterations": 500,
                                                 "decay_iterations": 20000, "gradient_clipping_norm": 1.0,
-                                                "mixed_precision": True})
+                                                "mixed_precision": True, "weight_initialization": "he",
+                                                "exponential_moving_average": {"activated": True, "decay": 0.999}})
 
 
 def test_reference_run_name() -> None:
     """
     Verifies the run name of the reference settings, that the same settings always give the same name, which lets a
     run resume in its own folder, and that the training settings that can change between two resumptions (augmentation,
-    batch size, learning rate and schedule, gradient clipping, mixed precision) keep that name.
+    batch size, learning rate and schedule, gradient clipping, mixed precision, weight initialisation, moving average
+    of the weights) keep that name.
     """
     experiment_configuration, model_configuration = get_reference_configurations()
     run_name = build_run_name(experiment_configuration=experiment_configuration,
@@ -219,6 +235,7 @@ def test_reference_run_name() -> None:
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
     (disable_squeeze_and_excite, REFERENCE_RUN_NAME.replace("_SE-RES-BN-", "_RES-BN-")),
+    (use_pre_activation_shortcuts, REFERENCE_RUN_NAME.replace("_SE-RES-BN-", "_SE-RES2-BN-")),
     (enable_inception, REFERENCE_RUN_NAME.replace("_SE-RES-BN-", "_SE-RES-INC3-BN-").replace(
         "DSE-DRES-DBN", "DSE-DRES-DINC-DBN")),
     (change_input_settings, REFERENCE_RUN_NAME.replace("_IN-KAR-1024_", "_PSN-1024_")),

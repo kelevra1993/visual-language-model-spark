@@ -1,7 +1,7 @@
 """
 Tests of the model exports of vision_training/deployment/export_model.py and export_specifications.py: the TorchScript
-and ONNX exports of every task (the image classifier with a pooled or flattened feature map, the semantic segmenter,
-the frame selector) match the eager model, keep their dynamic frames, the comparison of the segmenter outputs reports
+and ONNX exports of every task (the image classifier with a pooled or flattened feature map or pre-activation residual
+shortcuts, the semantic segmenter, the frame selector) match the eager model, keep their dynamic frames, the comparison of the segmenter outputs reports
 their differences, and the inference models match the training path on full windows.
 """
 
@@ -31,8 +31,8 @@ from tests.fixtures.configuration_fixtures import (get_classification_model_conf
 TEST_MAXIMUM_BATCH_SIZE = 4
 
 
-def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optional[str],
-                     global_pooling: str) -> TaskModel:
+def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optional[str], global_pooling: str,
+                     pre_activation: bool = False) -> TaskModel:
     """
     Builds a small untrained model of a task on the CPU, in evaluation mode, with seeded weights: bidirectional
     recurrent modules, a causal transformer for the sequence labeller, and the selection settings of the frame
@@ -46,6 +46,8 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
         fusion_type (Optional[str]): The fusion of the members of the comparison model, None for the other tasks.
         global_pooling (str): The reduction of the final feature map, "average" or "max", or "flatten" for the
             classifier only.
+        pre_activation (bool): Whether the residual shortcuts of the backbone of the classifier use the pre-activation
+            placement (residual_nets_v2).
 
     Returns:
         TaskModel: The model of the task.
@@ -56,6 +58,7 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
     elif temporal_type is None:
         configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
         configuration["ClassificationHead"]["global_pooling"] = global_pooling
+        configuration["Backbone"]["modules"]["residual_nets_v2"] = pre_activation
     else:
         if task == "sequence_comparison":
             configuration, device, dtype = get_sequence_comparison_model_configuration(temporal_type=temporal_type,
@@ -69,15 +72,21 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
     return TASK_MODEL_CLASSES[task](configuration=configuration, device=device, dtype=dtype).eval()
 
 
-@pytest.mark.parametrize(argnames=("task", "temporal_type", "fusion_type", "global_pooling"), argvalues=[
-    ("classification", None, None, "average"), ("classification", None, None, "flatten"),
-    ("semantic_segmentation", None, None, "average"), ("sequence_classification", "gru", None, "average"), ("sequence_classification", "transformer", None, "average"),
-    ("sequence_labelling", "lstm", None, "average"), ("sequence_labelling", "transformer", None, "average"),
-    ("sequence_labelling", "temporal_convolution", None, "average"),
-    ("sequence_comparison", "gru", "cross_attention", "average"),
-    ("sequence_comparison", "transformer", "difference", "average"), ("frame_selection", "gru", None, "average")])
+@pytest.mark.parametrize(argnames=("task", "temporal_type", "fusion_type", "global_pooling", "pre_activation"),
+                         argvalues=[("classification", None, None, "average", False),
+                                    ("classification", None, None, "flatten", False),
+                                    ("classification", None, None, "average", True),
+                                    ("semantic_segmentation", None, None, "average", False),
+                                    ("sequence_classification", "gru", None, "average", False),
+                                    ("sequence_classification", "transformer", None, "average", False),
+                                    ("sequence_labelling", "lstm", None, "average", False),
+                                    ("sequence_labelling", "transformer", None, "average", False),
+                                    ("sequence_labelling", "temporal_convolution", None, "average", False),
+                                    ("sequence_comparison", "gru", "cross_attention", "average", False),
+                                    ("sequence_comparison", "transformer", "difference", "average", False),
+                                    ("frame_selection", "gru", None, "average", False)])
 def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type: Optional[str],
-                                       fusion_type: Optional[str], global_pooling: str) -> None:
+                                       fusion_type: Optional[str], global_pooling: str, pre_activation: bool) -> None:
     """
     Verifies the TorchScript and ONNX exports of the inference models of the classification, segmentation and
     sequence tasks: both keep the input names of the specification and reproduce the eager class probabilities (and
@@ -94,11 +103,13 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
             segmenter.
         fusion_type (Optional[str]): The fusion of the members of the comparison model, None for the other tasks.
         global_pooling (str): The reduction of the final feature map of the model.
+        pre_activation (bool): Whether the classifier uses pre-activation residual shortcuts.
     """
     hide_known_export_warnings()
     inference_model = build_inference_model(task=task, model=build_test_model(task=task, temporal_type=temporal_type,
                                                                               fusion_type=fusion_type,
-                                                                              global_pooling=global_pooling))
+                                                                              global_pooling=global_pooling,
+                                                                              pre_activation=pre_activation))
     specification = get_export_specification(task=task, inference_model=inference_model)
     example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
                                           maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),

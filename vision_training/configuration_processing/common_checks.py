@@ -12,6 +12,7 @@ from vision_training.configuration_processing.configuration_values import (BACKB
                                                                            check_probability_value,
                                                                            get_configuration_value)
 from vision_training.data.augmentations import AUGMENTATION_TYPES
+from vision_training.models.weight_initialization import WEIGHT_INITIALIZATIONS
 
 
 # Label mapping modes handled by the configuration loader
@@ -233,7 +234,16 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
                                   key_paths=["Backbone.last_max_pooling", "Backbone.normalization.input_normalization",
                                              "Backbone.normalization.per_sample_normalization",
                                              "Backbone.modules.squeeze_and_excite", "Backbone.modules.residual_nets",
-                                             "Backbone.modules.inception"])
+                                             "Backbone.modules.residual_nets_v2", "Backbone.modules.inception"])
+
+    # The pre-activation placement is a placement of the residual shortcuts
+    residual_nets = get_configuration_value(configuration=model_configuration,
+                                            key_path="Backbone.modules.residual_nets")
+    residual_nets_v2 = get_configuration_value(configuration=model_configuration,
+                                               key_path="Backbone.modules.residual_nets_v2")
+    if residual_nets_v2 is True and residual_nets is False:
+        errors.append("'Backbone.modules.residual_nets_v2' must be False when 'Backbone.modules.residual_nets' is "
+                      "False: it places the residual shortcuts before the activations.")
 
     # Feature map normalization strategy of the convolution blocks, and the momentum of its batch statistics
     feature_map_normalization = get_configuration_value(configuration=model_configuration,
@@ -357,8 +367,9 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
 def check_optimization_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'Optimization' section shared by every task: the optimizer, its weight decay, the learning rate
-    schedule (warm-up, cosine decay and its minimum), the gradient clipping and the mixed precision flag, which runs
-    the forward passes in bfloat16 on top of the float32 weights of every model.
+    schedule (warm-up, cosine decay and its minimum), the gradient clipping, the mixed precision flag, which runs
+    the forward passes in bfloat16 on top of the float32 weights of every model, the starting weights of the model and
+    the moving average of its weights, whose decay must be strictly between 0 and 1.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Optimization' section.
@@ -399,4 +410,20 @@ def check_optimization_configuration(model_configuration: Dict[str, Any]) -> Lis
 
     # Mixed precision computes in bfloat16 from the float32 weights of every model
     errors += check_boolean_flags(configuration=model_configuration, key_paths=["Optimization.mixed_precision"])
+
+    # Starting weights of the model, PyTorch default or He normal
+    weight_initialization = get_configuration_value(configuration=model_configuration,
+                                                    key_path="Optimization.weight_initialization")
+    if weight_initialization not in WEIGHT_INITIALIZATIONS:
+        errors.append(f"'Optimization.weight_initialization' must be one of {WEIGHT_INITIALIZATIONS}, "
+                      f"got {weight_initialization!r}.")
+
+    # Moving average of the weights, its decay giving the fraction of the average kept at every step
+    errors += check_boolean_flags(configuration=model_configuration,
+                                  key_paths=["Optimization.exponential_moving_average.activated"])
+    decay = get_configuration_value(configuration=model_configuration,
+                                    key_path="Optimization.exponential_moving_average.decay")
+    if isinstance(decay, bool) or not isinstance(decay, (int, float)) or not 0 < decay < 1:
+        errors.append(f"'Optimization.exponential_moving_average.decay' must be strictly between 0 and 1, "
+                      f"got {decay!r}.")
     return errors

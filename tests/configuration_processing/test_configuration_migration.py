@@ -2,27 +2,31 @@
 Tests of vision_training/configuration_processing/configuration_migration.py: every migration step (task, pretrained
 settings, normalization flag, evaluation outputs, per-class report, sample images, MLflow tracking, sequence
 augmentation, normalization scope, optimization section, loading settings, batch padding, positional embedding,
-segmentation settings, batch normalization momentums, classification head normalization) is added once to an old
-configuration, and migrate_run_folder renames old run folders after their settings.
+segmentation settings, batch normalization momentums, classification head normalization, pre-activation flag of the
+residual shortcuts, weight initialisation and moving average of the weights) is added once to an old configuration,
+and migrate_run_folder renames old run folders after their settings.
 """
 
 import json
 import pytest
+import re
 import yaml
 
 from pathlib import Path
 
 from vision_training.configuration_processing.configuration_migration import (
-    BOOLEAN_HEAD_NORMALIZATION_COMMENT_LINES, HEAD_NORMALIZATION_COMMENT_LINES, HEAD_NORMALIZATION_LINE_START,
-    TRACKING_SECTION_LINES, add_batch_normalization_momentums_to_configuration, add_batch_padding_to_configuration,
-    add_evaluation_outputs_to_configuration, add_head_normalization_to_configuration,
+    BOOLEAN_HEAD_NORMALIZATION_COMMENT_LINES, EXPONENTIAL_MOVING_AVERAGE_LINES, HEAD_NORMALIZATION_COMMENT_LINES,
+    HEAD_NORMALIZATION_LINE_START, MIXED_PRECISION_LINE_START, RESIDUAL_NETS_V2_LINES, TRACKING_SECTION_LINES,
+    WEIGHT_INITIALIZATION_LINES, add_batch_normalization_momentums_to_configuration,
+    add_batch_padding_to_configuration, add_evaluation_outputs_to_configuration,
+    add_head_normalization_to_configuration,
     add_freeze_normalization_parameters_to_configuration, add_loading_settings_to_configuration,
     add_optimization_section_to_configuration, add_per_class_report_to_configuration,
     add_positional_embedding_to_configuration, add_pretrained_settings_to_configuration,
     add_sample_images_to_configuration, add_segmentation_settings_to_configuration,
     add_sequence_augmentation_to_configuration, add_sequence_normalization_scope_to_configuration,
-    add_task_to_configuration, add_tracking_to_configuration, migrate_run_folder,
-    remove_dali_settings_from_configuration)
+    add_residual_nets_v2_to_configuration, add_task_to_configuration, add_tracking_to_configuration,
+    add_weight_settings_to_configuration, migrate_run_folder, remove_dali_settings_from_configuration)
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -261,6 +265,7 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     del configuration["Data"]["loading"]
     del configuration["Data"]["sequence_settings"]["batch_padding"]
     del configuration["TemporalModel"]["positional_embedding"]
+    del configuration["Backbone"]["modules"]["residual_nets_v2"]
     mapping_path = tmp_path / "label_mapping.json"
     mapping_path.write_text(data=json.dumps(obj={"1": 0, "2": 1, "3": 2, "4": 3}))
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(mapping_path)
@@ -283,6 +288,10 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     assert migrated_configuration["Data"]["loading"] == {"number_workers": 4, "prefetch_batches": 2}
     assert migrated_configuration["Data"]["sequence_settings"]["batch_padding"] == "sequence_length"
     assert migrated_configuration["TemporalModel"]["positional_embedding"] is True
+    assert migrated_configuration["Backbone"]["modules"]["residual_nets_v2"] is False
+    assert migrated_configuration["Optimization"]["weight_initialization"] == "default"
+    assert migrated_configuration["Optimization"]["exponential_moving_average"] == {"activated": False,
+                                                                                    "decay": 0.9998}
     assert migrate_run_folder(run_folder=renamed_folder, task="sequence_classification",
                               rename_folder=True) == renamed_folder
 
@@ -775,3 +784,71 @@ def test_boolean_head_normalization_is_converted(tmp_path: Path, boolean_normali
     migrated_configuration = yaml.safe_load(stream=dumped_configuration_path.read_text())
     assert migrated_configuration == {**configuration, "ClassificationHead": {
         **configuration["ClassificationHead"], "fully_connected_normalization": expected_normalization}}
+
+
+def test_residual_nets_v2_is_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that the pre-activation flag of the residual shortcuts is inserted, off as in every run written before
+    it, right after the residual shortcuts flag of the backbone modules, every other line of the file being kept, and
+    that a configuration which already has it is left untouched.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Current file without the flag and its comment
+    current_text = CLASSIFICATION_CONFIGURATION_PATH.read_text()
+    old_text = re.sub(pattern=r"\n    # Residual Nets v2 .*?    residual_nets_v2: \w+\n", repl="", string=current_text,
+                      count=1, flags=re.DOTALL)
+    assert "residual_nets_v2" not in old_text
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(data=old_text)
+
+    # Only the flag is inserted, the second migration changing nothing
+    assert add_residual_nets_v2_to_configuration(configuration_path=configuration_path) is True
+    migrated_text = configuration_path.read_text()
+    assert migrated_text.replace(RESIDUAL_NETS_V2_LINES, "", 1) == old_text
+    module_names = list(yaml.safe_load(stream=migrated_text)["Backbone"]["modules"])
+    assert module_names[module_names.index("residual_nets") + 1] == "residual_nets_v2"
+    assert yaml.safe_load(stream=migrated_text)["Backbone"]["modules"]["residual_nets_v2"] is False
+    assert add_residual_nets_v2_to_configuration(configuration_path=configuration_path) is False
+
+
+def test_weight_settings_are_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that the weight initialisation and the moving average of the weights are inserted, "default" and off as
+    in every run written before them, right after the mixed precision flag of the optimization section, every other
+    line of the file being kept, that a configuration missing only one of them gets that one, and that a
+    configuration which has both is left untouched.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Current file without both settings and their comments
+    current_text = CLASSIFICATION_CONFIGURATION_PATH.read_text()
+    old_text = re.sub(pattern=r"  # Starting weights of the model.*?    decay: [^\n]*\n", repl="", string=current_text,
+                      count=1, flags=re.DOTALL)
+    assert "weight_initialization" not in old_text and "exponential_moving_average" not in old_text
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(data=old_text)
+
+    # Both settings are inserted after the mixed precision flag, the second migration changing nothing
+    assert add_weight_settings_to_configuration(configuration_path=configuration_path) is True
+    migrated_text = configuration_path.read_text()
+    assert migrated_text.replace(WEIGHT_INITIALIZATION_LINES + EXPONENTIAL_MOVING_AVERAGE_LINES, "", 1) == old_text
+    optimization_configuration = yaml.safe_load(stream=migrated_text)["Optimization"]
+    setting_names = list(optimization_configuration)
+    mixed_precision_index = setting_names.index("mixed_precision")
+    assert setting_names[mixed_precision_index + 1:mixed_precision_index + 3] == ["weight_initialization",
+                                                                                  "exponential_moving_average"]
+    assert optimization_configuration["weight_initialization"] == "default"
+    assert optimization_configuration["exponential_moving_average"] == {"activated": False, "decay": 0.9998}
+    assert add_weight_settings_to_configuration(configuration_path=configuration_path) is False
+
+    # A configuration with the weight initialisation but without the moving average only gets the moving average
+    assert old_text.count(MIXED_PRECISION_LINE_START) == 1
+    configuration_path.write_text(data=old_text.replace(MIXED_PRECISION_LINE_START,
+                                                        WEIGHT_INITIALIZATION_LINES + MIXED_PRECISION_LINE_START))
+    assert add_weight_settings_to_configuration(configuration_path=configuration_path) is True
+    assert configuration_path.read_text().count("weight_initialization:") == 1
+    assert yaml.safe_load(stream=configuration_path.read_text())["Optimization"]["exponential_moving_average"] == {
+        "activated": False, "decay": 0.9998}
