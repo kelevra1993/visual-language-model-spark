@@ -44,7 +44,7 @@ class RecordingTracker(ExperimentTracker):
         """
         self.started_with = None
         self.logged_metrics: List[Tuple[int, Dict[str, float]]] = []
-        self.best_metrics: List[Tuple[str, float, int]] = []
+        self.best_metrics: List[Tuple[str, float, int, str]] = []
         self.artifacts: List[Tuple[Path, Optional[str], Optional[str]]] = []
         self.tags: Dict[str, str] = {}
         self.close_statuses: List[str] = []
@@ -70,7 +70,7 @@ class RecordingTracker(ExperimentTracker):
         """
         self.logged_metrics.append((step, dict(metrics)))
 
-    def update_best_metric(self, metric_name: str, value: float, step: int) -> None:
+    def update_best_metric(self, metric_name: str, value: float, step: int, metric_prefix: str) -> None:
         """
         Records a value of the headline metric.
 
@@ -78,8 +78,9 @@ class RecordingTracker(ExperimentTracker):
             metric_name (str): The name of the headline metric.
             value (float): The value of the evaluated checkpoint.
             step (int): The training iteration of the evaluated checkpoint.
+            metric_prefix (str): The prefix of the evaluated weights, 'test' or 'test_ema'.
         """
-        self.best_metrics.append((metric_name, value, step))
+        self.best_metrics.append((metric_name, value, step, metric_prefix))
 
     def log_artifact(self, file_path: Path, artifact_folder: Optional[str],
                      artifact_name: Optional[str] = None) -> None:
@@ -199,7 +200,7 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
                     if "test/Accuracy" in metrics]
     assert [step for step, _ in test_metrics] == [4]
     assert any(metric_name.startswith("test_class/Recall/") for metric_name in test_metrics[0][1])
-    assert recording_tracker.best_metrics == [("Accuracy", test_metrics[0][1]["test/Accuracy"], 4)]
+    assert recording_tracker.best_metrics == [("Accuracy", test_metrics[0][1]["test/Accuracy"], 4, "test")]
 
     # Configuration at the start, Results.txt at the end, then the run closed as finished
     assert recording_tracker.artifacts == [(trainer.configuration_path, "configuration", None),

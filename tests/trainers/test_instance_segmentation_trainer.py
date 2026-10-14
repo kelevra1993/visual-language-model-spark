@@ -123,7 +123,8 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     weights_directory = trainer.weights_directory
     assert sorted(path.name for path in weights_directory.glob("Iteration_*")) == ["Iteration_2", "Iteration_4",
                                                                                  "Iteration_5"]
-    results = trainer.run_test_evaluation(iteration=5)
+    results, averaged_weights_results = trainer.run_test_evaluation(iteration=5)
+    assert averaged_weights_results is None
     assert results["headline_metric"] == "Mask mAP@0.5/area" and results["headline_metric"] in results["scalars"]
     assert {"mAP@0.5/area", "Mask mAP@[0.5:0.95]/101_point"} <= set(results["scalars"])
 

@@ -31,8 +31,8 @@ from mlflow.tracking import MlflowClient
 from mlflow.utils.validation import (MAX_ENTITY_KEY_LENGTH, MAX_METRICS_PER_BATCH, MAX_PARAM_VAL_LENGTH,
                                      MAX_PARAMS_TAGS_PER_BATCH, MAX_TAG_VAL_LENGTH)
 
-from vision_training.tracking.experiment_tracker import (FINISHED_STATUS, ExperimentTracker, read_run_record,
-                                                         write_run_record)
+from vision_training.tracking.experiment_tracker import (FINISHED_STATUS, TRAINED_WEIGHTS_METRIC_PREFIX,
+                                                         ExperimentTracker, read_run_record, write_run_record)
 from vision_training.utilities.os_utilities import print_color
 
 # Bound of the events waiting for the worker (a few MB), the newer events being dropped and counted beyond it
@@ -329,19 +329,21 @@ class MlflowTracker(ExperimentTracker):
         except Exception as error:
             self.report_queue_error(error=error)
 
-    def update_best_metric(self, metric_name: str, value: float, step: int) -> None:
+    def update_best_metric(self, metric_name: str, value: float, step: int, metric_prefix: str) -> None:
         """
-        Queues the value of the headline metric of an evaluated checkpoint, compared with the best value of the run by
-        the worker.
+        Queues the value of the headline metric of an evaluated checkpoint, compared by the worker with the best value
+        of the run for the same weights (trained or averaged).
 
         Args:
             metric_name (str): The name of the headline metric.
             value (float): The value of the evaluated checkpoint.
             step (int): The training iteration of the evaluated checkpoint.
+            metric_prefix (str): The prefix of the evaluated weights, 'test' or 'test_ema'.
         """
         try:
             self.put_event(event={"type": "best_metric", "metric_name": metric_name, "value": float(value),
-                                  "step": int(step), "timestamp": int(time.time() * 1000)})
+                                  "step": int(step), "timestamp": int(time.time() * 1000),
+                                  "metric_prefix": metric_prefix})
         except Exception as error:
             self.report_queue_error(error=error)
 
@@ -772,16 +774,20 @@ class MlflowTracker(ExperimentTracker):
 
     def add_best_metric(self, metrics: List[Metric], tags: Dict[str, str], event: Dict[str, Any]) -> None:
         """
-        Compares the headline metric of an evaluated checkpoint with the best value of the run (the higher the
-        better, a reopened run starting from its logged best value), adds the best value so far as
-        'test/best_<metric name>' and tags 'best_iteration' when the checkpoint is the new best.
+        Compares the headline metric of an evaluated checkpoint with the best value of the run for the same weights
+        (the higher the better, a reopened run starting from its logged best value), adds the best value so far as
+        '<metric prefix>/best_<metric name>' and tags 'best_iteration' ('best_iteration_<metric prefix>' for the
+        averaged weights) when the checkpoint is the new best.
 
         Args:
             metrics (List[Metric]): The metric values of the batch, extended in place.
             tags (Dict[str, str]): The tags of the batch, extended in place.
             event (Dict[str, Any]): The 'best_metric' event.
         """
-        best_metric_name = f"test/best_{event['metric_name']}"
+        # Best value and iteration tag of the evaluated weights
+        best_metric_name = f"{event['metric_prefix']}/best_{event['metric_name']}"
+        best_iteration_tag = ("best_iteration" if event["metric_prefix"] == TRAINED_WEIGHTS_METRIC_PREFIX
+                              else f"best_iteration_{event['metric_prefix']}")
         best_metric_key = self.get_sanitised_name(metric_name=best_metric_name)
         step, value = event["step"], event["value"]
 
@@ -798,7 +804,7 @@ class MlflowTracker(ExperimentTracker):
                                       math.isnan(self.best_values[best_metric_key]) or
                                       value > self.best_values[best_metric_key]):
             self.best_values[best_metric_key] = value
-            tags["best_iteration"] = str(step)
+            tags[best_iteration_tag] = str(step)
         if best_metric_key in self.best_values:
             self.add_metric(metrics=metrics, metric_name=best_metric_name, value=self.best_values[best_metric_key],
                             step=step, timestamp=event["timestamp"])

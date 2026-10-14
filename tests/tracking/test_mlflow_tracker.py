@@ -274,8 +274,10 @@ def test_run_is_written_to_the_local_database(tracking_root: Path, capsys: pytes
     tracker.log_metrics(metrics={"train/Total Loss": 1.0, "learning_rate": 0.01}, step=2)
     tracker.log_metrics(metrics={"train/Total Loss": 0.5, "learning_rate": 0.01}, step=4)
     tracker.log_metrics(metrics={"test/Accuracy": 0.5, "test_class/AP@0.5/[unk]": 0.25}, step=4)
-    tracker.update_best_metric(metric_name="Accuracy", value=0.5, step=4)
-    tracker.update_best_metric(metric_name="Accuracy", value=0.4, step=8)
+    tracker.update_best_metric(metric_name="Accuracy", value=0.5, step=4, metric_prefix="test")
+    tracker.update_best_metric(metric_name="Accuracy", value=0.4, step=8, metric_prefix="test")
+    tracker.update_best_metric(metric_name="Accuracy", value=0.3, step=4, metric_prefix="test_ema")
+    tracker.update_best_metric(metric_name="Accuracy", value=0.6, step=8, metric_prefix="test_ema")
     tracker.set_tags(tags={"note": "smoke"})
     tracker.log_artifact(file_path=configuration_path, artifact_folder="configuration")
     tracker.log_artifact(file_path=configuration_path, artifact_folder="configuration",
@@ -295,12 +297,16 @@ def test_run_is_written_to_the_local_database(tracking_root: Path, capsys: pytes
     assert run.data.params == {"ExperimentConfiguration.batch_size": "4", "Backbone.convolutions.1": "[1, 16]"}
     assert {"task", "run_name", "host", "note", "best_iteration", "git_commit", "git_dirty"} <= set(run.data.tags)
     assert run.data.tags["best_iteration"] == "4" and run.data.tags["note"] == "smoke"
+    assert run.data.tags["best_iteration_test_ema"] == "8"
 
-    # Metrics under their sanitised names, the best value staying the one of iteration 4
+    # Metrics under their sanitised names, the best value of the trained weights staying the one of iteration 4, the
+    # averaged weights following their own best value
     run_id = run.info.run_id
     assert read_metric_history(client=client, run_id=run_id, metric_key="train/Total Loss") == [(2, 1.0), (4, 0.5)]
     assert read_metric_history(client=client, run_id=run_id, metric_key="test_class/AP_at_0.5/unk") == [(4, 0.25)]
     assert read_metric_history(client=client, run_id=run_id, metric_key="test/best_Accuracy") == [(4, 0.5), (8, 0.5)]
+    assert read_metric_history(client=client, run_id=run_id, metric_key="test_ema/best_Accuracy") == [(4, 0.3),
+                                                                                                    (8, 0.6)]
 
     # Artifacts in the artifacts folder of the experiments root, with the original metric names
     assert run.info.artifact_uri.startswith((tracking_root / ARTIFACTS_FOLDER_NAME / "dummy_task").as_uri())
@@ -335,7 +341,7 @@ def test_resumed_training_continues_its_run(tracking_root: Path, capsys: pytest.
                         tags={"task": "dummy_task"}, resumed_iteration=None)
     for step, loss in [(2, 1.0), (4, 0.8), (6, 0.6)]:
         first_tracker.log_metrics(metrics={"train/Total Loss": loss}, step=step)
-    first_tracker.update_best_metric(metric_name="Accuracy", value=0.5, step=4)
+    first_tracker.update_best_metric(metric_name="Accuracy", value=0.5, step=4, metric_prefix="test")
     first_tracker.close(status=KILLED_STATUS)
 
     # Second session: resumed from the checkpoint of iteration 4 with a larger batch and a new setting
@@ -345,7 +351,7 @@ def test_resumed_training_continues_its_run(tracking_root: Path, capsys: pytest.
                          tags={"task": "dummy_task"}, resumed_iteration=4)
     for step, loss in [(6, 0.7), (8, 0.5)]:
         second_tracker.log_metrics(metrics={"train/Total Loss": loss}, step=step)
-    second_tracker.update_best_metric(metric_name="Accuracy", value=0.4, step=8)
+    second_tracker.update_best_metric(metric_name="Accuracy", value=0.4, step=8, metric_prefix="test")
     second_tracker.close(status=FINISHED_STATUS)
 
     run_id = first_tracker.get_run_id()

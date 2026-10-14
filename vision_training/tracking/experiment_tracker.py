@@ -36,6 +36,9 @@ FINISHED_STATUS = "FINISHED"
 KILLED_STATUS = "KILLED"
 FAILED_STATUS = "FAILED"
 
+# Prefix of the MLflow test metrics of the trained weights, whose best value is tagged as 'best_iteration'
+TRAINED_WEIGHTS_METRIC_PREFIX = "test"
+
 
 class ExperimentTracker(ABC):
     """
@@ -69,15 +72,18 @@ class ExperimentTracker(ABC):
         """
 
     @abstractmethod
-    def update_best_metric(self, metric_name: str, value: float, step: int) -> None:
+    def update_best_metric(self, metric_name: str, value: float, step: int, metric_prefix: str) -> None:
         """
-        Follows the best value of the headline metric of the evaluated checkpoints (the higher the better): logs the
-        best value so far as 'test/best_<metric name>' and tags its iteration as 'best_iteration'.
+        Follows the best value of the headline metric of the evaluated checkpoints (the higher the better), separately
+        for the trained weights ('test') and the averaged weights ('test_ema'): logs the best value so far as
+        '<metric prefix>/best_<metric name>' and tags its iteration as 'best_iteration' for 'test' and
+        'best_iteration_<metric prefix>' otherwise.
 
         Args:
             metric_name (str): The name of the headline metric.
             value (float): The value of the evaluated checkpoint.
             step (int): The training iteration of the evaluated checkpoint.
+            metric_prefix (str): The prefix of the evaluated weights, 'test' or 'test_ema'.
         """
 
     @abstractmethod
@@ -146,7 +152,7 @@ class DisabledTracker(ExperimentTracker):
             step (int): Ignored.
         """
 
-    def update_best_metric(self, metric_name: str, value: float, step: int) -> None:
+    def update_best_metric(self, metric_name: str, value: float, step: int, metric_prefix: str) -> None:
         """
         Does nothing.
 
@@ -154,6 +160,7 @@ class DisabledTracker(ExperimentTracker):
             metric_name (str): Ignored.
             value (float): Ignored.
             step (int): Ignored.
+            metric_prefix (str): Ignored.
         """
 
     def log_artifact(self, file_path: Path, artifact_folder: Optional[str],

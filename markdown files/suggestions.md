@@ -4,8 +4,8 @@
 > come back to them and decide what to implement. Every item was checked against the code on 2026-10-09; the items
 > implemented since the first version of this list (mAP evaluation, checkpoint evaluation script, run names, dataset
 > sizes at startup, README, split of the detector and loader code, AdamW / warm-up / cosine / clipping, mixed precision,
-> He initialisation, pre-activation residual pairs, moving average of the weights) were removed, and `torch.compile`
-> was dropped after a measurement on the GB10 showed no speed-up.
+> He initialisation, pre-activation residual pairs, moving average of the weights, its export, best value and summary
+> columns) were removed, and `torch.compile` was dropped after a measurement on the GB10 showed no speed-up.
 
 ## A. Evaluation and analysis
 The detector is scored with the mAP of every class at every evaluated checkpoint, with its sample images. The outputs
@@ -36,67 +36,51 @@ that the classification tasks have and the detector lacks:
     remove duplicated code, speed up the training and make training and deployment filter identically.
 9. **Vectorise the per-image loops of the training**: the target assignment and sampling
     (`target_assignment.py`) and the proposal filter (`region_proposer.py`) loop over the images of the batch.
-10. **Batch the augmentations**: `DataAugmenter.augment_batch` still loops over the images of the batch.
-11. **Group the per-level settings in one place** (anchors, region proposal and detector of every level): the
+10. **Group the per-level settings in one place** (anchors, region proposal and detector of every level): the
     `RegionProposal`, `Anchors` and `Detector` sections each list the levels, and the checker has to verify that they
     match.
-12. **Watch for the CUDA crash seen with DALI** (`cudaErrorIllegalAddress`, with `Xid 13` / `Xid 31` GPU faults in
+11. **Watch for the CUDA crash seen with DALI** (`cudaErrorIllegalAddress`, with `Xid 13` / `Xid 31` GPU faults in
     the kernel log): DALI has been removed, so a long training tells whether it was involved; if the crash comes back,
     run `compute-sanitizer` on a short run.
 
-## D. Training loop (all tasks)
-13. **Stop at the total number of iterations**: a resumed run trains `number_iterations` more from the resume point,
-    instead of stopping at `number_iterations` in total.
-14. **Unbuffered console output**: the prints are buffered when the output goes to a file. The trainer could flush its
-    prints, or use Python's `logging` module.
-15. **Handle SIGTERM like Ctrl+C**: a background run ignores SIGINT, so it cannot be stopped with a final save. A
-    SIGTERM handler would do the same final save.
-16. **The moving average of the weights beyond the test evaluation**: the export (`export_model.py`),
-    `test/best_<headline metric>` of MLflow and `Evaluation/evaluation_summary.csv` of
-    `evaluate_checkpoint.py` use the trained weights only. An option exporting the EMA weights of a
-    checkpoint, a best value of the EMA metric and EMA columns in the summary would let the averaged weights be
-    compared and deployed like the trained ones.
-
-## E. New ideas for the object detector
-17. **A top-down feature pyramid (FPN)**: lateral 1×1 convolutions and upsampling would give the finest detection
+## D. New ideas for the object detector
+12. **A top-down feature pyramid (FPN)**: lateral 1×1 convolutions and upsampling would give the finest detection
     level the context of the deeper ones. All levels would then share the same channel count, and could share one
     detection head.
-18. **Choosing the detection level by box size** (the FPN rule `k = k₀ + log₂(√(wh)/224)`), instead of the level the
+13. **Choosing the detection level by box size** (the FPN rule `k = k₀ + log₂(√(wh)/224)`), instead of the level the
     proposal came from.
-19. **NMS per level in the proposal filter**: `batched_nms` with the level as the group, so that one strong level does
+14. **NMS per level in the proposal filter**: `batched_nms` with the level as the group, so that one strong level does
     not suppress the proposals of the others.
-20. **Box-aware mosaic / copy-paste augmentation**: combine 4 images into one, or paste objects from one image into
+15. **Box-aware mosaic / copy-paste augmentation**: combine 4 images into one, or paste objects from one image into
     another.
-21. **Harder synthetic data**: textured or noisy backgrounds (the backgrounds are plain black or one random colour
-    today) and shapes cut by the image borders, so that the synthetic task tells models apart again.
 
-## F. Instance segmentation (Mask R-CNN)
-22. **Sharper masks for small objects**: the mask heads pool every box from the backbone feature map of its level
+## E. Instance segmentation (Mask R-CNN)
+16. **Sharper masks for small objects**: the mask heads pool every box from the backbone feature map of its level
     (RoIAlign 14 × 14, upsampled to 28 × 28), never from the image, so a small object on a coarse level (blocks 5–7
     of the examples) is interpolated from a handful of feature cells and gets blurry borders. In order of cost:
     - an earlier, finer block in `Backbone.detection_convolution_block_indices` (more anchors and heads to train);
-    - the FPN of E17, whose finest level gets the context of the deeper ones (the stride 4 level of Mask R-CNN);
+    - the FPN of D12, whose finest level gets the context of the deeper ones (the stride 4 level of Mask R-CNN);
     - a mask head reading a finer block than its detection level, e.g. the box pooled from block 4 for the masks
       while the detection head reads block 5;
     - larger masks (`MaskHead.roi_align_pool_size` 28, masks of 56 × 56) or a second transposed convolution,
       useful only once the pooled features themselves are fine enough;
     - a boundary refinement in the style of PointRend, predicting the uncertain border points again from finer
       features.
-23. **More configurable mask heads**: the first version has one `MaskHead.roi_align_pool_size` for every level and
+17. **More configurable mask heads**: the first version has one `MaskHead.roi_align_pool_size` for every level and
     a single transposed convolution doubling it. The mask geometry could be opened up with a `mask_resolution`
     separate from the pool size (the number of upsamplings derived from both), a pool size per level (the masks of
     every level resized to the common resolution before the loss and the export), and a choice of upsampling
     (transposed convolution or bilinear plus convolution, like `SegmentationDecoder.upsampling`).
-24. **Crowd annotations in DET**: DET trains and is evaluated on the crowd boxes (`"iscrowd": 1`), which INS leaves
+18. **Crowd annotations in DET**: DET trains and is evaluated on the crowd boxes (`"iscrowd": 1`), which INS leaves
     out. Leaving them out of DET too, or treating them as ignored regions in the target assignment and the evaluation
     as the COCO protocol does, would make the box results of DET and INS comparable on COCO.
-25. **Epsilon of the box overlap**: `get_intersection_over_union` adds a small epsilon to the union, so an exact box
+19. **Epsilon of the box overlap**: `get_intersection_over_union` adds a small epsilon to the union, so an exact box
     overlap such as 3 / 4 falls just below its threshold, while the mask overlap of INS (exact pixel counts, ratio in
     float64) reaches it: on box-shaped objects the box and mask AP of INS can differ at the exact thresholds. Clamping
     the union instead of adding the epsilon removes the difference, the DET baseline numbers having to be updated.
-26. **Covered objects in the synthetic DET images**: `place_shape` only limits the box IoU of the shapes to 0.3, so
+20. **Covered objects in the synthetic DET images**: `place_shape` only limits the box IoU of the shapes to 0.3, so
     a shape can be fully covered by a later one while its box stays in the labels. The INS generator removes the
     objects whose visible part is under 64 pixels; the DET generator could remove them the same way.
 
 **Suggested order:** the confusion matrix, thresholds and error images (A1–A3) first, since they show where the
-detector fails; then C8–C10 for the training speed; then the FPN (E17).
+detector fails; then C8–C9 for the training speed; then the FPN (D12).

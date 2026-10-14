@@ -32,7 +32,7 @@ def test_disabled_tracker_does_nothing(tmp_path: Path) -> None:
     tracker.log_metrics(metrics={"train/Total Loss": 1.0}, step=1)
     tracker.start(parameters={"ExperimentConfiguration": {"batch_size": 4}}, tags={"task": "dummy_task"},
                   resumed_iteration=None)
-    tracker.update_best_metric(metric_name="Accuracy", value=0.5, step=2)
+    tracker.update_best_metric(metric_name="Accuracy", value=0.5, step=2, metric_prefix="test")
     tracker.log_artifact(file_path=tmp_path / "missing.txt", artifact_folder=None)
     tracker.set_tags(tags={"best_iteration": "2"})
     tracker.close(status=FINISHED_STATUS)

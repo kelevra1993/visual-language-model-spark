@@ -14,7 +14,7 @@ import torch
 
 from pathlib import Path
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-from typing import Callable, Dict
+from typing import Callable, Dict, Optional, Tuple
 from unittest.mock import patch
 
 from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_configurations
@@ -40,10 +40,11 @@ class EvaluationRecorder:
             trainer (DummyTrainer): The trainer whose evaluations are recorded.
         """
         self.trainer = trainer
-        self.original_evaluation: Callable[[int], EvaluationResults] = trainer.run_test_evaluation
+        self.original_evaluation: Callable[[int], Tuple[EvaluationResults, Optional[EvaluationResults]]] = (
+            trainer.run_test_evaluation)
         self.evaluated_weights: Dict[int, Dict[str, torch.Tensor]] = {}
 
-    def __call__(self, iteration: int) -> EvaluationResults:
+    def __call__(self, iteration: int) -> Tuple[EvaluationResults, Optional[EvaluationResults]]:
         """
         Records the weights of the evaluated model, then evaluates it.
 
@@ -51,7 +52,8 @@ class EvaluationRecorder:
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
-            EvaluationResults: The results of the original evaluation.
+            Tuple[EvaluationResults, Optional[EvaluationResults]]: The results of the original evaluation, for the
+                trained and the averaged weights.
         """
         self.evaluated_weights[iteration] = copy.deepcopy(self.trainer.model.state_dict())
         return self.original_evaluation(iteration=iteration)
@@ -345,7 +347,7 @@ def test_evaluation_draws_the_fixed_sample_images(tmp_path: Path) -> None:
 
     # Two evaluations draw the same samples, each saved once per evaluated checkpoint
     for iteration in [1, 2]:
-        results = trainer.run_test_evaluation(iteration=iteration)
+        results, _ = trainer.run_test_evaluation(iteration=iteration)
         expected_names = sorted(f"sample_{sample_identifier}" for sample_identifier in trainer.sample_image_identifiers)
         assert sorted(results["sample_images"]) == [f"Samples/{sample_name}" for sample_name in expected_names]
         samples_folder = trainer.experiment_folder / "Evaluation" / f"Iteration_{iteration}" / "Samples"

@@ -1496,7 +1496,7 @@ Tensorboard/Test: 31 scalars (4 global + 27 per class), 9 images
 ```
 
 ### Step 4.19 — `track_evaluation()`
-With the MLflow tracking on, this sends the evaluation to the MLflow run at the iteration of the checkpoint: the global scalars as `test/<name>`, the per-class scalars as `test_class/<name>` only with `per_class_report` (they would be thousands for 1000 classes), the best value so far of the headline metric as `test/best_<metric>` with the tag `best_iteration`, and the small evaluation files (`confusion_matrix.png`, `class_metrics.csv`, `class_thresholds.json`) under `evaluation/iteration_<n>/`. The predictions, the error images and the sample images grow with the test split, so they stay in the run folder only. Without tracking it does nothing.
+With the MLflow tracking on, this sends the evaluation to the MLflow run at the iteration of the checkpoint: the global scalars as `test/<name>`, the per-class scalars as `test_class/<name>` only with `per_class_report` (they would be thousands for 1000 classes), the best value so far of the headline metric as `test/best_<metric>` with the tag `best_iteration` (for the averaged weights `test_ema/best_<metric>` with the tag `best_iteration_test_ema`), and the small evaluation files (`confusion_matrix.png`, `class_metrics.csv`, `class_thresholds.json`) under `evaluation/iteration_<n>/`. The predictions, the error images and the sample images grow with the test split, so they stay in the run folder only. Without tracking it does nothing.
 
 **Example: what MLflow received at iteration 6**
 ```text
@@ -1577,7 +1577,7 @@ artifacts: evaluation/iteration_12/, iteration_9/, iteration_6/, iteration_3/ (3
 `test/best_Accuracy` is the best value of the checkpoints evaluated so far, in the order of the evaluation: 0.1000 at step 12, then 0.1133 at steps 9, 6 and 3.
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_00000N.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the scalars of the results. After the last checkpoint, it writes `Evaluation/evaluation_summary.csv`, one row per iteration with one column per scalar, and prints the iteration with the best headline metric (the accuracy for the classification, the higher the better). The per-class columns are only in the summary when `per_class_report` is on.
+For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_00000N.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the scalars of the results. After the last checkpoint, it writes `Evaluation/evaluation_summary.csv`, one row per iteration with one column per scalar, and prints the iteration with the best headline metric (the accuracy for the classification, the higher the better). The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
 
 **Example output** (after the four evaluations)
 ```text

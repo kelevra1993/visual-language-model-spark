@@ -1,7 +1,8 @@
 """
 Evaluation of several checkpoints of a trained run on the test split, one after the other, writing
-'Evaluation/evaluation_summary.csv' with one row per iteration and printing the best iteration according to the
-headline metric of the task, tracked in its own MLflow run when the tracking is on. Called by
+'Evaluation/evaluation_summary.csv' with one row per iteration (the averaged weights of the runs keeping a moving
+average in 'ema_' columns) and printing the best iteration according to the headline metric of the task, for the
+trained and the averaged weights, tracked in its own MLflow run when the tracking is on. Called by
 scripts/evaluation/evaluate_checkpoint.py with iteration "all".
 """
 
@@ -9,14 +10,18 @@ import csv
 import torch
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
+from vision_training.core.contracts import EvaluationResults
 from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED_STATUS, KILLED_STATUS,
                                                          RUN_RECORD_FILE_NAME, DisabledTracker, ExperimentTracker,
                                                          create_experiment_tracker, read_run_record)
-from vision_training.trainers.base_trainer import BaseTrainer
+from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_LABEL, BaseTrainer
 from vision_training.trainers.checkpointing import get_checkpoint_file
 from vision_training.utilities.os_utilities import format_path_link, print_color
+
+# Prefix of the columns of the averaged weights in the evaluation summary, next to those of the trained weights
+AVERAGED_WEIGHTS_COLUMN_PREFIX = "ema_"
 
 
 def start_evaluation_tracking(trainer: BaseTrainer, experiment_folder: Path,
@@ -59,9 +64,9 @@ def evaluate_checkpoints(trainer: BaseTrainer, experiment_folder: Path, iteratio
     weights when the configuration keeps one, and evaluated like during the training (Results.txt, TensorBoard, the
     evaluation files of the task in the run folder of the trainer, the averaged weights next to the trained ones), then
     'Evaluation/evaluation_summary.csv' gathers one row per evaluated iteration with every evaluation scalar (those of
-    every class only with the per-class report), and the best iteration according to the headline metric of the task
-    is printed. A checkpoint listed in the registry but deleted from the disk is skipped. When the tracking is on, the
-    evaluations, the best headline metric and the summary go to an MLflow run of their own (start_evaluation_tracking),
+    every class only with the per-class report, the averaged weights in 'ema_' columns), and the best iteration
+    according to the headline metric of the task is printed, for the trained and the averaged weights. A checkpoint
+    listed in the registry but deleted from the disk is skipped. When the tracking is on, the evaluations, the best headline metric and the summary go to an MLflow run of their own (start_evaluation_tracking),
     closed whatever ends the evaluation.
 
     Args:
@@ -105,7 +110,8 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
         Path: The written evaluation summary.
     """
     summary_rows: List[Dict[str, Any]] = []
-    headline_metric, best_iteration, best_value = None, None, None
+    headline_metric = None
+    best_checkpoints: Dict[str, Tuple[int, float]] = {}
     for iteration in iterations:
         checkpoint_path = get_checkpoint_file(weights_directory=experiment_folder / "Weights", iteration=iteration)
         if not checkpoint_path.exists():
@@ -119,14 +125,23 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
         trainer.model.load_state_dict(state_dict=checkpoint["model_state"])
         trainer.load_exponential_moving_average(checkpoint=checkpoint, iteration=iteration)
         print_color(color="blue", output=f"Evaluating : {format_path_link(path=checkpoint_path)}", add_separators=True)
-        results = trainer.run_test_evaluation(iteration=iteration)
-        summary_rows.append({"iteration": iteration, **results["scalars"],
-                             **(results["class_scalars"] if trainer.per_class_report else {})})
+        results, averaged_weights_results = trainer.run_test_evaluation(iteration=iteration)
+        summary_row = {"iteration": iteration, **build_summary_columns(trainer=trainer, results=results, prefix="")}
 
-        # Best iteration of the headline metric, the higher the better
+        # Scalars of the averaged weights in their own 'ema_' columns, for the runs keeping a moving average
+        evaluated_weights = {"": results}
+        if averaged_weights_results is not None:
+            summary_row.update(build_summary_columns(trainer=trainer, results=averaged_weights_results,
+                                                     prefix=AVERAGED_WEIGHTS_COLUMN_PREFIX))
+            evaluated_weights[AVERAGED_WEIGHTS_LABEL] = averaged_weights_results
+        summary_rows.append(summary_row)
+
+        # Best iteration of the headline metric for every kind of weights, the higher the better
         headline_metric = results["headline_metric"]
-        if best_value is None or results["scalars"][headline_metric] > best_value:
-            best_iteration, best_value = iteration, results["scalars"][headline_metric]
+        for weights_label, weights_results in evaluated_weights.items():
+            value = weights_results["scalars"][headline_metric]
+            if weights_label not in best_checkpoints or value > best_checkpoints[weights_label][1]:
+                best_checkpoints[weights_label] = (iteration, value)
 
     # One row per evaluated iteration, one column per scalar in the order they first appear
     column_names = ["iteration"]
@@ -141,7 +156,26 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
 
     print_color(color="green", output=f"Evaluation Summary Of {len(summary_rows)} Checkpoints : "
                                       f"{format_path_link(path=summary_path)}", add_separators=True)
-    if best_iteration is not None:
-        print_color(color="green", output=f"Best Checkpoint : iteration {best_iteration} ({headline_metric} "
-                                          f"{best_value:.4f})", indent=1)
+    for weights_label, (best_iteration, best_value) in best_checkpoints.items():
+        weights_description = f" ({weights_label})" if weights_label else ""
+        print_color(color="green", output=f"Best Checkpoint{weights_description} : iteration {best_iteration} "
+                                          f"({headline_metric} {best_value:.4f})", indent=1)
     return summary_path
+
+
+def build_summary_columns(trainer: BaseTrainer, results: EvaluationResults, prefix: str) -> Dict[str, float]:
+    """
+    Gives the columns of one kind of weights in a row of the evaluation summary: the global scalars of the evaluation
+    and, with the per-class report, those of every class, each name preceded by the prefix of the weights ('' for the
+    trained weights, 'ema_' for the averaged weights).
+
+    Args:
+        trainer (BaseTrainer): The trainer of the run, giving the per-class report setting.
+        results (EvaluationResults): The results of the evaluation of the weights.
+        prefix (str): The prefix of the column names.
+
+    Returns:
+        Dict[str, float]: The value of every column.
+    """
+    scalars = {**results["scalars"], **(results["class_scalars"] if trainer.per_class_report else {})}
+    return {f"{prefix}{scalar_name}": value for scalar_name, value in scalars.items()}

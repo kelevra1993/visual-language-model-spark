@@ -252,9 +252,10 @@ Every test evaluation scores the trained weights, then the averaged weights of t
 | Console and `Results.txt` header | `Iteration <n> · <evaluated samples> · <date and time>` | `Iteration <n> · <evaluated samples> · EMA Weights · <date and time>` |
 | Evaluation files | `Evaluation/Iteration_<n>/` | `Evaluation/Iteration_<n>/EMA/` |
 | TensorBoard | `Test` | `Test_EMA` |
-| MLflow | `test/`, `test_class/`, `test/best_<headline metric>` | `test_ema/`, `test_ema_class/` |
+| MLflow | `test/`, `test_class/`, `test/best_<headline metric>` (tag `best_iteration`) | `test_ema/`, `test_ema_class/`, `test_ema/best_<headline metric>` (tag `best_iteration_test_ema`) |
+| `evaluation_summary.csv` of `evaluate_checkpoint.py` | one column per scalar | the same columns preceded by `ema_` |
 
-The average is saved in every checkpoint and restored when the run resumes. It gives no run name token, so that it can be turned on or off when a run resumes: turned on from a checkpoint saved without it, it restarts from the weights of that checkpoint, and is evaluated from the next evaluation on. The validation curves, `test/best_<headline metric>` and the export use the trained weights.
+The average is saved in every checkpoint and restored when the run resumes. It gives no run name token, so that it can be turned on or off when a run resumes: turned on from a checkpoint saved without it, it restarts from the weights of that checkpoint, and is evaluated from the next evaluation on. The validation curves use the trained weights; the export uses them unless `use_averaged_weights` is True in its main block (see Exporting Models).
 
 ## Tasks
 
@@ -665,7 +666,7 @@ The settings defining the layers of the component must be identical in both runs
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
-The evaluation writes `Results.txt`, `Tensorboard/Test` and the `Evaluation/` folder in `<output_folder>/<run name>/`, as during the training. A run with the moving average of the weights on in its configuration is also evaluated on the averaged weights of its checkpoints, in `Tensorboard/Test_EMA` and `Evaluation/Iteration_<n>/EMA/`. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares the metrics of the trained weights of every checkpoint.
+The evaluation writes `Results.txt`, `Tensorboard/Test` and the `Evaluation/` folder in `<output_folder>/<run name>/`, as during the training. A run with the moving average of the weights on in its configuration is also evaluated on the averaged weights of its checkpoints, in `Tensorboard/Test_EMA` and `Evaluation/Iteration_<n>/EMA/`. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares the metrics of every checkpoint, those of the averaged weights in `ema_<scalar>` columns, and the best checkpoint is printed for the trained and the averaged weights.
 
 ## Comparing Launches
 `scripts/evaluation/collect_experiment_results.py` gathers the test evaluations of the launches of a hyperparameter experiment into one CSV file. Every launch trains in its own `run_<n>` folder (the `experiment_folder` of its configuration file), a repeat launch of the same settings in a `run_<n><letters>` folder (`run_23b`, `run_23c`), and the script reads the test curve of its run folder (`Tensorboard/Test`) and the swept settings of its `training_configuration.yaml`. Set in its main block:
@@ -683,7 +684,7 @@ The file has one row per launch, in launch order (every repeat launch right afte
 ## Deployment
 
 ### Export
-`vision_training/deployment/export_model.py` exports a trained run to the Triton model repository as TorchScript and ONNX, writes the Triton configuration of every model and checks every export against the PyTorch model. Set in its main block the run folder (`experiment_folder`), the `iteration`, the `formats`, the largest batch size and the TensorRT precision of the ONNX model (`"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only), then run:
+`vision_training/deployment/export_model.py` exports a trained run to the Triton model repository as TorchScript and ONNX, writes the Triton configuration of every model and checks every export against the PyTorch model. Set in its main block the run folder (`experiment_folder`), the `iteration`, `use_averaged_weights` (True exports the moving average of the weights stored in the checkpoint, for a run trained with `Optimization.exponential_moving_average` on, an error being raised for a checkpoint without it), the `formats`, the largest batch size and the TensorRT precision of the ONNX model (`"FP16"`, `"FP32"`, or `None` for ONNX Runtime CUDA only), then run:
 
 ```bash
 uv run python -m vision_training.deployment.export_model

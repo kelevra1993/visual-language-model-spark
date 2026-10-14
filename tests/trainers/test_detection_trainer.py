@@ -111,7 +111,8 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
                                                                                  "Iteration_5"]
     assert (weights_directory / "full-checkpoint").read_text().splitlines()[0] == 'model_checkpoint_path: "Iteration_5"'
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]
-    results = trainer.run_test_evaluation(iteration=5)
+    results, averaged_weights_results = trainer.run_test_evaluation(iteration=5)
+    assert averaged_weights_results is None
     assert results["headline_metric"] == "mAP@0.5/area" and results["headline_metric"] in results["scalars"]
 
     # Report of the two evaluations, with the table of the methods and the per-class table

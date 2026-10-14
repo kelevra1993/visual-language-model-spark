@@ -173,8 +173,9 @@ def export_onnx(inference_model: nn.Module, example_inputs: Dict[str, torch.Tens
                            "\n".join(fixed_dimensions))
 
 
-def export_experiment(experiment_folder: Path, iteration: Optional[int], formats: List[str], repository: Path,
-                      model_version: int, maximum_batch_size: int, tensorrt_precision: Optional[str]) -> None:
+def export_experiment(experiment_folder: Path, iteration: Optional[int], use_averaged_weights: bool,
+                      formats: List[str], repository: Path, model_version: int, maximum_batch_size: int,
+                      tensorrt_precision: Optional[str]) -> None:
     """
     Exports a trained experiment of any task to the Triton model repository in every requested format, writes the
     Triton configurations, and checks each export against the eager inference model on a random batch of another
@@ -186,6 +187,8 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], formats
     Args:
         experiment_folder (Path): The experiment folder holding 'Weights' and 'training_configuration.yaml'.
         iteration (Optional[int]): The iteration to export, or None for the last saved one.
+        use_averaged_weights (bool): True to export the moving average of the weights stored in the checkpoint
+            instead of the trained weights.
         formats (List[str]): The export formats, among 'torchscript' and 'onnx'.
         repository (Path): The Triton model repository.
         model_version (int): The Triton version of the exported models, i.e. the name of their version folder.
@@ -209,12 +212,13 @@ def export_experiment(experiment_folder: Path, iteration: Optional[int], formats
             configuration_path=configuration_path)
         checkpoint_path = get_checkpoint_path(experiment_folder=experiment_folder, iteration=iteration)
         model = load_trained_model(configuration_path=configuration_path, checkpoint_path=checkpoint_path,
-                                   device=device)
+                                   device=device, use_averaged_weights=use_averaged_weights)
         inference_model = build_inference_model(task=experiment_configuration["task"], model=model)
         specification = get_export_specification(task=experiment_configuration["task"],
                                                  inference_model=inference_model)
-        print_color(color="blue", output=f"Exporting Checkpoint : {format_path_link(path=checkpoint_path)}",
-                    add_separators=True)
+        weights_description = " (EMA Weights)" if use_averaged_weights else ""
+        print_color(color="blue", output=f"Exporting Checkpoint{weights_description} : "
+                                         f"{format_path_link(path=checkpoint_path)}", add_separators=True)
 
         # Random example and check batches of different sizes, to confirm the batch dimension stays dynamic
         example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
@@ -278,6 +282,9 @@ if __name__ == "__main__":
     experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / "poseidon_experiment_4"
     # Iteration to export, None for the last one recorded in the 'full-checkpoint' registry
     iteration = 6000
+    # True exports the moving average of the weights stored in the checkpoint (runs with
+    # Optimization.exponential_moving_average activated), False the trained weights
+    use_averaged_weights = False
     # Export formats, among 'torchscript' and 'onnx'
     formats = ["torchscript", "onnx"]
     # Triton model repository, mounted by deployment/triton/docker-compose.yml
@@ -294,6 +301,7 @@ if __name__ == "__main__":
     if not show_warnings:
         hide_known_export_warnings()
 
-    export_experiment(experiment_folder=experiment_folder, iteration=iteration, formats=formats, repository=repository,
+    export_experiment(experiment_folder=experiment_folder, iteration=iteration,
+                      use_averaged_weights=use_averaged_weights, formats=formats, repository=repository,
                       model_version=model_version, maximum_batch_size=maximum_batch_size,
                       tensorrt_precision=tensorrt_precision)

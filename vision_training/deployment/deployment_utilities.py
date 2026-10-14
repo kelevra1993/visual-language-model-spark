@@ -110,7 +110,7 @@ def load_local_inference_model(experiment_folder: Path, iteration: Optional[int]
     experiment_configuration, _ = load_experiment_configuration(configuration_path=configuration_path)
     checkpoint_path = get_checkpoint_path(experiment_folder=experiment_folder, iteration=iteration)
     model = load_trained_model(configuration_path=configuration_path, checkpoint_path=checkpoint_path,
-                               device=torch.device("cuda"))
+                               device=torch.device("cuda"), use_averaged_weights=False)
     inference_model = build_inference_model(task=experiment_configuration["task"], model=model)
     return inference_model, get_export_specification(task=experiment_configuration["task"],
                                                      inference_model=inference_model)

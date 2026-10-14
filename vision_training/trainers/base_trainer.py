@@ -42,8 +42,9 @@ from vision_training.trainers.learning_rate_schedule import compute_learning_rat
 from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY, MetricTracker
 from vision_training.trainers.weight_averaging import ExponentialMovingAverage
 from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED_STATUS, KILLED_STATUS,
-                                                         RUN_RECORD_FILE_NAME, DisabledTracker,
-                                                         create_experiment_tracker, resolve_tracking_uri)
+                                                         RUN_RECORD_FILE_NAME, TRAINED_WEIGHTS_METRIC_PREFIX,
+                                                         DisabledTracker, create_experiment_tracker,
+                                                         resolve_tracking_uri)
 from vision_training.utilities.os_utilities import format_path_link, print_color
 from vision_training.utilities.tensor_utilities import get_device
 
@@ -1250,15 +1251,16 @@ class BaseTrainer(ABC):
         every class with the per-class report only ('test_class/<scalar>'), the best value so far of the headline
         metric with its iteration, and the small evaluation files of TRACKED_EVALUATION_FILES under
         'evaluation/iteration_<n>/'. The averaged weights send theirs as 'test_ema/<scalar>' and
-        'test_ema_class/<scalar>', with their files under 'evaluation/iteration_<n>/ema/', the best value following the
-        trained weights only.
+        'test_ema_class/<scalar>', with their files under 'evaluation/iteration_<n>/ema/' and their own best value
+        ('test_ema/best_<metric>', tagged 'best_iteration_test_ema').
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint.
             results (EvaluationResults): The results of the evaluation.
         """
         # Metric prefix and artifact folder of the evaluated weights
-        metric_prefix = AVERAGED_WEIGHTS_METRIC_PREFIX if self.evaluating_averaged_weights else "test"
+        metric_prefix = (AVERAGED_WEIGHTS_METRIC_PREFIX if self.evaluating_averaged_weights
+                         else TRAINED_WEIGHTS_METRIC_PREFIX)
         artifact_folder = f"evaluation/iteration_{iteration}"
         if self.evaluating_averaged_weights:
             artifact_folder = f"{artifact_folder}/{AVERAGED_WEIGHTS_FOLDER_NAME.lower()}"
@@ -1269,10 +1271,11 @@ class BaseTrainer(ABC):
             metrics.update({f"{metric_prefix}_class/{scalar_name}": value
                             for scalar_name, value in results["class_scalars"].items()})
         self.experiment_tracker.log_metrics(metrics=metrics, step=iteration)
-        if not self.evaluating_averaged_weights:
-            self.experiment_tracker.update_best_metric(metric_name=results["headline_metric"],
-                                                       value=results["scalars"][results["headline_metric"]],
-                                                       step=iteration)
+
+        # Best value of the headline metric, followed separately for the trained and the averaged weights
+        self.experiment_tracker.update_best_metric(metric_name=results["headline_metric"],
+                                                   value=results["scalars"][results["headline_metric"]],
+                                                   step=iteration, metric_prefix=metric_prefix)
         # Small evaluation files written by the task for this checkpoint
         for file_key in TRACKED_EVALUATION_FILES:
             if file_key in results["files"]:
@@ -1338,7 +1341,7 @@ class BaseTrainer(ABC):
 
         return total_loss, model_outputs
 
-    def run_test_evaluation(self, iteration: int) -> EvaluationResults:
+    def run_test_evaluation(self, iteration: int) -> Tuple[EvaluationResults, Optional[EvaluationResults]]:
         """
         Evaluates a saved checkpoint on the whole test split, at every weight_saving_iterations checkpoint: its trained
         weights, then, for a run keeping a moving average of its weights updated at least once, its averaged weights,
@@ -1348,16 +1351,18 @@ class BaseTrainer(ABC):
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
-            EvaluationResults: The results of the trained weights, for the tools comparing the checkpoints of a run.
+            Tuple[EvaluationResults, Optional[EvaluationResults]]: The results of the trained weights and those of the
+                averaged weights (None without them), for the tools comparing the checkpoints of a run.
         """
         results = self.evaluate_test_split(iteration=iteration)
 
         # Averaged weights of the same checkpoint, reported next to the trained ones (an average restarted from the
         # loaded weights of a checkpoint saved without one would only repeat them)
+        averaged_weights_results = None
         if self.exponential_moving_average is not None and self.exponential_moving_average.number_updates > 0:
             with self.use_averaged_weights():
-                self.evaluate_test_split(iteration=iteration)
-        return results
+                averaged_weights_results = self.evaluate_test_split(iteration=iteration)
+        return results, averaged_weights_results
 
     @contextmanager
     def use_averaged_weights(self) -> Iterator[None]:
