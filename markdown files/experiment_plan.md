@@ -276,9 +276,11 @@ Stages 11 to 13 test the settings added after the ten stages, one at a time on t
 | False | run_24 (stage 7) | 0.5368 | 0.7841 | 0.9642 | 0.9788 | 0.9808 | 0.9879 | 0.9900 | 0.9892 | 0.9015 |
 | False | **Mean** | 0.5119 | 0.8277 | 0.9502 | 0.9755 | 0.9807 | 0.9811 | 0.9863 | 0.9904 | 0.9005 |
 | False | **Mean of the 6 launches** (repeat stage) | 0.4816 | 0.8321 | 0.9460 | 0.9460 | 0.9781 | 0.9836 | 0.9882 | 0.9876 | 0.8929 |
-| True | run_33 | | | | | | | | | |
-| True | run_34 | | | | | | | | | |
-| True | **Mean** | | | | | | | | | |
+| True | run_33 | 0.5694 | 0.8862 | 0.9477 | 0.9676 | 0.9430 | 0.9450 | 0.9908 | 0.9876 | 0.9047 |
+| True | run_34 | 0.5536 | 0.8735 | 0.7272 | 0.9786 | 0.9756 | 0.9882 | 0.9567 | 0.9890 | 0.8803 |
+| True | **Mean** | 0.5615 | 0.8798 | 0.8375 | 0.9731 | 0.9593 | 0.9666 | 0.9738 | 0.9883 | 0.8925 |
+
+**Kept: False.** The pre-activation mean (0.8925) is 0.008 under the reference pair and level with the mean of the 6 repeat launches (0.8929), a gap well inside the noise between two-launch means (about 0.036). Its curves drop more often between evaluations (run_34 at 750 and 1750, run_33 at 1250 and 1500), and a launch takes 28.1 GB of GPU memory instead of 20.4 GB, so the original placement stays.
 
 ### Stage 12: Weight Initialisation (2 launches)
 
