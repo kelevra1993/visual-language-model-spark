@@ -3,9 +3,10 @@ When run, gathers the test evaluations of the launches of a hyperparameter exper
 the settings of every stage: each run_<n> launch folder of the experiment folder (run_<n><letters> for a repeat launch
 of the same settings, such as run_23b) holds the run folder of one training (vision_training/main.py, one
 configuration file per launch), whose Tensorboard/Test curves give the test metric at every evaluated checkpoint and
-whose training_configuration.yaml gives the swept settings. The launches of the same settings are followed by their
-mean row, whose mean column decides the setting kept for the next stage, next to the mean of the last evaluations,
-which compares where the settings end whatever their start.
+whose training_configuration.yaml gives the swept settings; a launch keeping a moving average of its weights also
+gets the rows of its averaged weights from its Tensorboard/Test_EMA curves. The launches of the same settings are
+followed by their mean row, whose mean column decides the setting kept for the next stage, next to the mean of the last
+evaluations, which compares where the settings end whatever their start.
 """
 
 import csv
@@ -18,6 +19,7 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 from typing import Any, Dict, List, Tuple
 
 from vision_training.evaluation.report_formatting import format_file_value
+from vision_training.trainers.base_trainer import AVERAGED_WEIGHTS_TENSORBOARD_FOLDER
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Name of the launch folders of an experiment, run_<n> or run_<n><letters> for a repeat launch (run_23b), sorted by
@@ -38,13 +40,17 @@ SWEPT_SETTINGS = {"learning_rate": ("ExperimentConfiguration", "learning_rate"),
                   "head_batch_normalization_momentum": ("ClassificationHead", "batch_normalization_momentum"),
                   "feature_map_normalization": ("Backbone", "normalization", "feature_map_normalization"),
                   "mixed_precision": ("Optimization", "mixed_precision"),
-                  "weight_initialization": ("Optimization", "weight_initialization"),
                   "exponential_moving_average": ("Optimization", "exponential_moving_average", "activated"),
                   "class_weighting": ("ClassificationHead", "class_weighting"),
                   "dropout_rate": ("ClassificationHead", "dropout_rate")}
 
 # Launch name of the row averaging the launches of the same settings
 MEAN_ROW_NAME = "mean"
+
+# Column telling which weights a row evaluates, and the test curve folder of each kind of weights: the trained weights
+# of every launch, the averaged weights of the launches keeping a moving average
+EVALUATED_WEIGHTS_COLUMN = "evaluated_weights"
+TEST_FOLDERS = {"trained": "Test", "ema": AVERAGED_WEIGHTS_TENSORBOARD_FOLDER}
 
 
 def get_launch_order(launch_folder: Path) -> Tuple[int, str]:
@@ -134,9 +140,9 @@ def collect_launches(experiment_folder: Path, metric: str) -> List[Dict[str, Any
         metric (str): The name of the test curve, e.g. "Accuracy".
 
     Returns:
-        List[Dict[str, Any]]: For every run folder, its 'launch' (run_<n> or run_<n><letters>), 'settings',
-            'evaluations' (the metric at every evaluated iteration), 'finished' and 'run_folder' (the name of the
-            folder named after the settings).
+        List[Dict[str, Any]]: For every run folder and evaluated weights, its 'launch' (run_<n> or run_<n><letters>),
+            'settings' (with the evaluated weights, "trained" or "ema"), 'evaluations' (the metric at every evaluated
+            iteration), 'finished' and 'run_folder' (the name of the folder named after the settings).
 
     Raises:
         FileNotFoundError: If the experiment folder does not exist, e.g. before the first launch.
@@ -156,14 +162,20 @@ def collect_launches(experiment_folder: Path, metric: str) -> List[Dict[str, Any
             configuration = yaml.safe_load(stream=configuration_path.read_text(encoding="utf-8"))
             run_folder = configuration_path.parent
 
-            # Test metric of every evaluated checkpoint, the launch being finished once its last iteration is evaluated
-            evaluations = read_test_metric(test_folder=run_folder / "Tensorboard" / "Test", metric=metric)
             settings = {name: read_setting(configuration=configuration, keys=keys,
                                            configuration_path=configuration_path)
                         for name, keys in SWEPT_SETTINGS.items()}
-            launches.append({"launch": launch_folder.name, "settings": settings, "evaluations": evaluations,
-                             "finished": configuration["ExperimentConfiguration"]["number_iterations"] in evaluations,
-                             "run_folder": run_folder.name})
+
+            # Test metric of every evaluated checkpoint for every kind of weights, the averaged weights only for a
+            # launch keeping a moving average, the launch being finished once its last iteration is evaluated
+            for evaluated_weights, test_folder_name in TEST_FOLDERS.items():
+                if evaluated_weights == "ema" and not settings["exponential_moving_average"]:
+                    continue
+                evaluations = read_test_metric(test_folder=run_folder / "Tensorboard" / test_folder_name, metric=metric)
+                finished = configuration["ExperimentConfiguration"]["number_iterations"] in evaluations
+                launches.append({"launch": launch_folder.name, "evaluations": evaluations, "finished": finished,
+                                 "settings": {**settings, EVALUATED_WEIGHTS_COLUMN: evaluated_weights},
+                                 "run_folder": run_folder.name})
     return launches
 
 
@@ -199,7 +211,8 @@ def build_result_rows(launches: List[Dict[str, Any]], metric_column: str,
     mean_column = f"{metric_column}_mean"
     last_iterations = evaluated_iterations[-number_last_evaluations:]
     last_mean_column = f"{metric_column}_last_{number_last_evaluations}_mean"
-    columns = ["launch", *iteration_columns, mean_column, last_mean_column, "finished", *SWEPT_SETTINGS, "run_folder"]
+    columns = ["launch", EVALUATED_WEIGHTS_COLUMN, *iteration_columns, mean_column, last_mean_column, "finished",
+               *SWEPT_SETTINGS, "run_folder"]
 
     # Launches of the same settings, in the order of their first launch
     setting_groups: Dict[Tuple[Any, ...], List[Dict[str, Any]]] = {}
@@ -247,7 +260,8 @@ def write_results(columns: List[str], rows: List[Dict[str, Any]], output_path: P
         writer = csv.DictWriter(f=results_file, fieldnames=columns)
         writer.writeheader()
         for row in rows:
-            writer.writerow({column: row[column] if column in SWEPT_SETTINGS else format_file_value(value=row[column])
+            setting_columns = [*SWEPT_SETTINGS, EVALUATED_WEIGHTS_COLUMN]
+            writer.writerow({column: row[column] if column in setting_columns else format_file_value(value=row[column])
                              for column in columns})
 
 
@@ -269,6 +283,8 @@ if __name__ == "__main__":
     columns, rows = build_result_rows(launches=launches, metric_column=metric.lower().replace(" ", "_"),
                                       number_last_evaluations=number_last_evaluations)
     write_results(columns=columns, rows=rows, output_path=output_path)
-    number_finished = sum(launch["finished"] for launch in launches)
-    print_color(color="green", output=f"Test {metric} of {len(launches)} launches ({number_finished} finished) written "
-                                      f"to {format_path_link(path=output_path)}")
+    # Launches counted once, whatever the number of weights they evaluate
+    trained_launches = [launch for launch in launches if launch["settings"][EVALUATED_WEIGHTS_COLUMN] == "trained"]
+    number_finished = sum(launch["finished"] for launch in trained_launches)
+    print_color(color="green", output=f"Test {metric} of {len(trained_launches)} launches ({number_finished} finished) "
+                                      f"written to {format_path_link(path=output_path)}")

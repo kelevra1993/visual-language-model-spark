@@ -288,24 +288,26 @@ Stages 11 to 13 test the settings added after the ten stages, one at a time on t
 
 | `weight_initialization` | Launch | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| default | kept by stage 11 | | | | | | | | | |
-| default | kept by stage 11 | | | | | | | | | |
-| default | **Mean** | | | | | | | | | |
-| he | run_35 | | | | | | | | | |
-| he | run_36 | | | | | | | | | |
-| he | **Mean** | | | | | | | | | |
+| default | run_23 (stage 7) | 0.4871 | 0.8713 | 0.9362 | 0.9721 | 0.9807 | 0.9744 | 0.9826 | 0.9916 | 0.8995 |
+| default | run_24 (stage 7) | 0.5368 | 0.7841 | 0.9642 | 0.9788 | 0.9808 | 0.9879 | 0.9900 | 0.9892 | 0.9015 |
+| default | **Mean** | 0.5119 | 0.8277 | 0.9502 | 0.9755 | 0.9807 | 0.9811 | 0.9863 | 0.9904 | 0.9005 |
+| he | run_35 | 0.3929 | 0.7284 | 0.8430 | 0.6248 | 0.9223 | 0.9834 | 0.9401 | 0.9732 | 0.8010 |
+| he | run_36 | 0.3097 | 0.7188 | 0.8806 | 0.9063 | 0.9716 | 0.9744 | 0.9767 | 0.9859 | 0.8405 |
+| he | **Mean** | 0.3513 | 0.7236 | 0.8618 | 0.7656 | 0.9470 | 0.9789 | 0.9584 | 0.9796 | 0.8208 |
+
+**Kept: default.** The He mean (0.8208) is 0.080 under the reference pair and 0.072 under the mean of the 6 repeat launches, twice the noise between two-launch means (about 0.036). Both launches start slower (0.35 against 0.51 at iteration 250), run_35 drops to 0.6248 at iteration 1000, and the final accuracy (0.9796) stays under the reference (0.9904), so the default initialisation stays. The `weight_initialization` setting and the He initialisation were then removed from the code; `run-35.yaml` and `run-36.yaml` were deleted with them, the results above staying as the record of the stage.
 
 ### Stage 13: Moving Average Of The Weights (2 launches)
 
-`Optimization.exponential_moving_average.activated`: True keeps a moving average of the weights, `ema_weights = decay × ema_weights + (1 − decay) × current_weights` after every optimizer step, the configured decay being 0.9998. `run-37.yaml` and `run-38.yaml` are copies of the files kept by stage 12 with `True`. Every launch evaluates its trained weights, then its averaged weights, at every checkpoint (`Tensorboard/Test` and `Tensorboard/Test_EMA`), so that it gives both a repeat launch of the kept settings and the curve of the averaged weights; `collect_experiment_results.py` has to read `Test_EMA` as well before this stage.
+`Optimization.exponential_moving_average.activated`: True keeps a moving average of the weights, `ema_weights = decay × ema_weights + (1 − decay) × current_weights` after every optimizer step, the configured decay being 0.9998. `run-37.yaml` and `run-38.yaml` are copies of the files kept by stage 12 with `True`. Every launch evaluates its trained weights, then its averaged weights, at every checkpoint (`Tensorboard/Test` and `Tensorboard/Test_EMA`), so that it gives both a repeat launch of the kept settings and the curve of the averaged weights; `collect_experiment_results.py` writes both, its `evaluated_weights` column telling them apart.
 
 In 2,000 iterations, the decay of the n-th update, min(decay, (1 + n) / (10 + n)), never exceeds 0.9955 (iteration 2000): every decay above 0.9955 gives the same average, which follows about the last (10 + n) / 9 iterations (about 220 at iteration 2000). This stage tests the average with its warm-up; the decay itself needs longer trainings, tested later.
 
 | Evaluated weights | Launch | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
 |---|---|---|---|---|---|---|---|---|---|---|
-| trained (EMA off) | kept by stage 12 | | | | | | | | | |
-| trained (EMA off) | kept by stage 12 | | | | | | | | | |
-| trained (EMA off) | **Mean** | | | | | | | | | |
+| trained (EMA off) | run_23 (stage 7) | 0.4871 | 0.8713 | 0.9362 | 0.9721 | 0.9807 | 0.9744 | 0.9826 | 0.9916 | 0.8995 |
+| trained (EMA off) | run_24 (stage 7) | 0.5368 | 0.7841 | 0.9642 | 0.9788 | 0.9808 | 0.9879 | 0.9900 | 0.9892 | 0.9015 |
+| trained (EMA off) | **Mean** | 0.5119 | 0.8277 | 0.9502 | 0.9755 | 0.9807 | 0.9811 | 0.9863 | 0.9904 | 0.9005 |
 | trained (EMA on) | run_37 | | | | | | | | | |
 | trained (EMA on) | run_38 | | | | | | | | | |
 | trained (EMA on) | **Mean** | | | | | | | | | |
