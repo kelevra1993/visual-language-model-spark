@@ -27,8 +27,8 @@ FUSION_TYPE_CODES = {"concatenation": "FCAT", "difference": "FDIF", "cross_atten
 # or all its values flattened (image classifier only)
 GLOBAL_POOLING_CODES = {"average": "AVG", "max": "MAX", "flatten": "FLAT"}
 
-# Run name code of every upsampling of the segmentation decoder levels: a transposed convolution, or a bilinear
-# upsampling followed by a 1x1 convolution
+# Run name code of every upsampling of the segmentation decoder levels and of the mask heads (prefixed with M): a
+# transposed convolution, or a bilinear upsampling followed by a convolution
 UPSAMPLING_CODES = {"transposed": "UTC", "bilinear": "UBL"}
 
 # Prefix of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
@@ -258,9 +258,10 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
     """
     Builds the sections of the run name specific to instance segmentation: the sections of object detection
     (build_detection_sections), with the mask heads section before the classes: the modules MSE, MRES, MINC, the
-    normalization MBN, MLN or MNN, then M<RoIAlign pool size>.<layers>x<channels> of the mask heads, the layers and
-    channels being written once when identical on every level, otherwise joined with '+' in level order, e.g.
-    'MRES-MBN-M14.4x64'. The mask threshold gives no token, so that it can change between two resumptions of a run.
+    normalization MBN, MLN or MNN, the upsampling MUTC or MUBL, then M<RoIAlign pool size>.<layers>x<channels> of the
+    mask head of every level, written once when identical on every level, otherwise joined with '+' in level order,
+    and MR<mask resolution>, e.g. 'MRES-MBN-MUTC-M14.4x64-MR28'. The mask threshold gives no token, so that it can
+    change between two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -283,10 +284,13 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
     mask_tokens.append("M" + NORMALIZATION_CODES[
         str(mask_head_configuration["normalization"]["feature_map_normalization"]).lower().strip()])
 
-    # RoIAlign pool size shared by every level, then the layers and channels of the head of every level
+    # Upsampling, then the RoIAlign pool size, layers and channels of the head of every level, then the mask resolution
+    mask_tokens.append("M" + UPSAMPLING_CODES[mask_head_configuration["upsampling"]])
     mask_heads = mask_head_configuration["head_configurations"]
-    mask_tokens.append(f"M{mask_head_configuration['roi_align_pool_size']}." + join_level_tokens(
-        level_tokens=[f"{mask_heads[level][0]}x{mask_heads[level][1]}" for level in level_names]))
+    mask_tokens.append("M" + join_level_tokens(level_tokens=[
+        f"{mask_heads[level]['roi_align_pool_size']}.{mask_heads[level]['convolutions'][0]}x"
+        f"{mask_heads[level]['convolutions'][1]}" for level in level_names]))
+    mask_tokens.append(f"MR{mask_head_configuration['mask_resolution']}")
 
     # The mask heads section comes before the classes section of the detection sections
     detection_sections = build_detection_sections(model_configuration=model_configuration)

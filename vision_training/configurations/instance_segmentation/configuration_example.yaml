@@ -423,18 +423,24 @@ Detector:
     learning_rate_multiplier: 1.0
 
 MaskHead:
-  # RoIAlign pool size of the mask heads, the same on every level since the masks of the levels are concatenated. The
-  # masks are twice this size (14 gives the 28 x 28 masks of Mask R-CNN, a transposed convolution doubling the pooled
-  # features), with one mask per class, the channel of the detected class being kept.
-  roi_align_pool_size: 14
-  # Convolution layers and output channels [number_layers, output_channels] of the mask head of every detection level,
-  # the same levels as Backbone.detection_convolution_block_indices. Every box uses the mask head and the feature map
-  # of the level its proposal came from, like the detection heads.
+  # Side M of the square masks predicted for every box, the same on every level since the masks of the levels are
+  # concatenated for the loss and the export (28 gives the 28 x 28 masks of Mask R-CNN), with one mask per class, the
+  # channel of the detected class being kept. Every level doubles its pooled features as many times as fits in M, its
+  # masks being resized bilinearly to M when one more doubling would exceed it: a pool size of 14 is doubled once, a
+  # pool size of 7 twice, and a pool size of 10 doubled once to 20 then resized to 28.
+  mask_resolution: 28
+  # Doubling of the pooled features: "transposed" (2x2 transposed convolution, learned) or "bilinear" (bilinear
+  # upsampling followed by a 3x3 convolution), each followed by a ReLU.
+  upsampling: "transposed"
+  # RoIAlign pool size (at most mask_resolution) and convolution layers and output channels
+  # [number_layers, output_channels] of the mask head of every detection level, the same levels as
+  # Backbone.detection_convolution_block_indices. Every box uses the mask head and the feature map of the level its
+  # proposal came from, like the detection heads.
   head_configurations:
     {
-      "5": [ 4, 64 ],
-      "6": [ 4, 64 ],
-      "7": [ 4, 64 ],
+      "5": { "roi_align_pool_size": 14, "convolutions": [ 4, 64 ] },
+      "6": { "roi_align_pool_size": 14, "convolutions": [ 4, 64 ] },
+      "7": { "roi_align_pool_size": 14, "convolutions": [ 4, 64 ] },
     }
   normalization:
     # Options: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)

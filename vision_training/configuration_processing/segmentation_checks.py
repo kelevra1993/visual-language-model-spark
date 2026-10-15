@@ -11,15 +11,12 @@ from vision_training.configuration_processing.classification_checks import VALID
 from vision_training.configuration_processing.common_checks import (check_image_task_sequence_settings,
                                                                     check_pretrained_configuration)
 from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
+                                                                           VALID_UPSAMPLINGS,
                                                                            check_batch_normalization_momentum,
                                                                            check_boolean_flags, check_positive_integers,
                                                                            get_configuration_value)
 from vision_training.data.segmentation.segmentation_dataset import IGNORED_MASK_VALUE
 from vision_training.models.segmentation.segmentation_decoder import compute_skip_block_numbers
-
-# Upsampling of the decoder levels: a learned 2x2 transposed convolution, or a bilinear upsampling followed by a 1x1
-# convolution
-VALID_UPSAMPLINGS = ["transposed", "bilinear"]
 
 
 def is_number(value: Any) -> bool:

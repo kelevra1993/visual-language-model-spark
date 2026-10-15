@@ -2,7 +2,8 @@
 Tests of the InstanceSegmenter (vision_training/models/instance_segmentation/instance_segmenter.py) and its inference
 version: the mask loss with ground truth, the masks of the final detections in evaluation mode, the refused ground
 truth without masks, the summaries, the inference instance segmenter reproducing the eager model, its TorchScript and
-ONNX exports, and the comparison of the exported outputs.
+ONNX exports, and the comparison of the exported outputs, with the default mask geometry and with a pool size per
+level and bilinear upsamplings.
 """
 
 import numpy as np
@@ -11,7 +12,7 @@ import pytest
 import torch
 
 from pathlib import Path
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from tests.models.detection.test_detector_baseline import get_fixed_batch
 from tests.testing_utilities import build_test_model
@@ -23,6 +24,13 @@ from vision_training.models.instance_segmentation.inference_instance_segmenter i
 
 # Largest batch size of the test exports, above the batch sizes of the traced and checked batches
 EXPORT_MAXIMUM_BATCH_SIZE = 4
+
+# Mask heads with a pool size per level and bilinear upsamplings: 7 doubled once to the 14 x 14 masks, 14 never
+# doubled, and 5 doubled once then resized from 10 x 10, on level 7 which detects objects in the test model
+MIXED_MASK_HEAD_SETTINGS = {"mask_resolution": 14, "upsampling": "bilinear", "head_configurations": {
+    "5": {"roi_align_pool_size": 7, "convolutions": [2, 32]}, "6": {"roi_align_pool_size": 14, "convolutions": [2, 32]},
+    "7": {"roi_align_pool_size": 5, "convolutions": [2, 32]}}}
+MASK_HEAD_GEOMETRIES = [None, MIXED_MASK_HEAD_SETTINGS]
 
 
 def build_box_masks(boxes: List[torch.Tensor], image_size: int) -> List[torch.Tensor]:
@@ -46,13 +54,18 @@ def build_box_masks(boxes: List[torch.Tensor], image_size: int) -> List[torch.Te
     return masks
 
 
-def test_instance_segmenter_trains_and_predicts_masks() -> None:
+@pytest.mark.parametrize(argnames="mask_head_settings", argvalues=MASK_HEAD_GEOMETRIES)
+def test_instance_segmenter_trains_and_predicts_masks(mask_head_settings: Optional[Dict[str, Any]]) -> None:
     """
     Verifies that with ground truth the instance segmenter adds a finite mask loss that reaches the mask heads, and
     that in evaluation mode it gives the [B, K, M, M] mask probabilities of the final detections, within [0, 1] and
     zero for the padding detections.
+
+    Args:
+        mask_head_settings (Optional[Dict[str, Any]]): The mask geometry replacing the one of the fixture, None to
+            keep it.
     """
-    model = build_test_model(dtype=torch.float32, instance_segmentation=True)
+    model = build_test_model(dtype=torch.float32, instance_segmentation=True, mask_head_settings=mask_head_settings)
     images, boxes, labels = get_fixed_batch()
     images, boxes = images.float(), [image_boxes.float() for image_boxes in boxes]
     masks = build_box_masks(boxes=boxes, image_size=model.input_image_size)
@@ -99,12 +112,17 @@ def test_instance_segmenter_summaries_list_the_mask_heads() -> None:
                                                  "Total Model"]
 
 
-def test_inference_instance_segmenter_matches_the_eager_model() -> None:
+@pytest.mark.parametrize(argnames="mask_head_settings", argvalues=MASK_HEAD_GEOMETRIES)
+def test_inference_instance_segmenter_matches_the_eager_model(mask_head_settings: Optional[Dict[str, Any]]) -> None:
     """
     Verifies that the export-friendly inference instance segmenter reproduces the detections and masks of the eager
     model in evaluation mode, every detection using the mask head of its own level.
+
+    Args:
+        mask_head_settings (Optional[Dict[str, Any]]): The mask geometry replacing the one of the fixture, None to
+            keep it.
     """
-    model = build_test_model(dtype=torch.float32, instance_segmentation=True)
+    model = build_test_model(dtype=torch.float32, instance_segmentation=True, mask_head_settings=mask_head_settings)
     segmenter = InferenceInstanceSegmenter(model=model).eval()
     images = torch.rand(size=(2, 3, 512, 512)) * 255.0
 
@@ -119,7 +137,9 @@ def test_inference_instance_segmenter_matches_the_eager_model() -> None:
     assert torch.allclose(input=masks, other=eager_outputs["final_detection_masks"], atol=1e-5)
 
 
-def test_exports_match_the_eager_inference_instance_segmenter(tmp_path: Path) -> None:
+@pytest.mark.parametrize(argnames="mask_head_settings", argvalues=MASK_HEAD_GEOMETRIES)
+def test_exports_match_the_eager_inference_instance_segmenter(tmp_path: Path,
+                                                              mask_head_settings: Optional[Dict[str, Any]]) -> None:
     """
     Verifies the TorchScript and ONNX exports of the inference instance segmenter, through the export specification
     of the task: five outputs, the masks [K, M, M] last, reproduced by both exports on a batch of another size than
@@ -127,10 +147,12 @@ def test_exports_match_the_eager_inference_instance_segmenter(tmp_path: Path) ->
 
     Args:
         tmp_path (Path): The pytest temporary directory.
+        mask_head_settings (Optional[Dict[str, Any]]): The mask geometry replacing the one of the fixture, None to
+            keep it.
     """
     hide_known_export_warnings()
-    inference_model = build_inference_model(task="instance_segmentation",
-                                            model=build_test_model(dtype=torch.float32, instance_segmentation=True))
+    inference_model = build_inference_model(task="instance_segmentation", model=build_test_model(
+        dtype=torch.float32, instance_segmentation=True, mask_head_settings=mask_head_settings))
     specification = get_export_specification(task="instance_segmentation", inference_model=inference_model)
     assert [output["name"] for output in specification["outputs"]] == ["detection_boxes", "detection_scores",
                                                                        "detection_labels", "number_detections",

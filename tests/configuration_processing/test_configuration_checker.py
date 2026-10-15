@@ -1577,7 +1577,8 @@ def test_instance_segmentation_configurations_are_consistent(tmp_path: Path, con
         configuration_path=configuration_path)
     assert experiment_configuration["task"] == "instance_segmentation"
     assert model_configuration["Data"]["label_dictionary"]["background"] == 0
-    assert model_configuration["MaskHead"]["roi_align_pool_size"] == 14
+    assert model_configuration["MaskHead"]["mask_resolution"] == 28
+    assert model_configuration["MaskHead"]["head_configurations"]["5"]["roi_align_pool_size"] == 14
 
 
 def set_mismatched_mask_head_levels(configuration: Dict[str, Any]) -> None:
@@ -1592,30 +1593,46 @@ def set_mismatched_mask_head_levels(configuration: Dict[str, Any]) -> None:
 
 def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
     """
-    Sets an invalid pool size, head definition, normalization, batch normalization momentum, module flag and mask
-    threshold, and inception modules with a channel count that is not a multiple of 8.
+    Sets an invalid mask resolution, upsampling, pool size, convolutions, normalization, batch normalization momentum,
+    module flag and mask threshold, and inception modules with a channel count that is not a multiple of 8.
 
     Args:
         configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
     """
     mask_head_configuration = configuration["MaskHead"]
-    mask_head_configuration["roi_align_pool_size"] = 0
-    mask_head_configuration["head_configurations"]["5"] = [4]
-    mask_head_configuration["head_configurations"]["6"] = [4, 60]
+    mask_head_configuration["mask_resolution"] = 0
+    mask_head_configuration["upsampling"] = "nearest"
+    mask_head_configuration["head_configurations"]["5"] = {"roi_align_pool_size": 0, "convolutions": [4]}
+    mask_head_configuration["head_configurations"]["6"]["convolutions"] = [4, 60]
     mask_head_configuration["normalization"]["feature_map_normalization"] = "group"
     mask_head_configuration["normalization"]["batch_normalization_momentum"] = -0.1
     mask_head_configuration["modules"].update({"inception": True, "residual_nets": "yes"})
     mask_head_configuration["inference"]["mask_threshold"] = 1.5
 
 
+def set_pool_size_above_the_mask_resolution(configuration: Dict[str, Any]) -> None:
+    """
+    Gives level 7 a pool size larger than the masks, which the mask head could only shrink.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"]["head_configurations"]["7"]["roi_align_pool_size"] = 32
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (set_pool_size_above_the_mask_resolution, ["'MaskHead.head_configurations.7.roi_align_pool_size' (32) must not "
+                                               "exceed 'MaskHead.mask_resolution' (28), the pooled features being "
+                                               "only enlarged to the masks."]),
     (set_mismatched_mask_head_levels, ["'MaskHead.head_configurations' levels ['5', '6', '8'] do not match "
                                        "'Backbone.detection_convolution_block_indices' ['5', '6', '7']."]),
-    (set_invalid_mask_head, ["'MaskHead.roi_align_pool_size' must be an integer >= 1, got 0.",
-                             "'MaskHead.head_configurations.5' must be [number_layers, output_channels] with positive "
-                             "integers, got [4].",
-                             "'MaskHead.head_configurations.6' has 60 output channels, inception modules require a "
-                             "multiple of 8.",
+    (set_invalid_mask_head, ["'MaskHead.mask_resolution' must be an integer >= 1, got 0.",
+                             "'MaskHead.upsampling' must be one of ['transposed', 'bilinear'], got 'nearest'.",
+                             "'MaskHead.head_configurations.5.roi_align_pool_size' must be an integer >= 1, got 0.",
+                             "'MaskHead.head_configurations.5.convolutions' must be [number_layers, output_channels] "
+                             "with positive integers, got [4].",
+                             "'MaskHead.head_configurations.6.convolutions' has 60 output channels, inception modules "
+                             "require a multiple of 8.",
                              "'MaskHead.normalization.feature_map_normalization' must be one of",
                              "'MaskHead.normalization.batch_normalization_momentum' must be a number within (0, 1], "
                              "got -0.1.",

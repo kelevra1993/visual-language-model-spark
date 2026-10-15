@@ -1,8 +1,8 @@
 """
 Building blocks of the configuration checks: the ConfigurationError raised on an incomplete or inconsistent file,
-the lookup of a nested value from a dotted key path, and the value checks (booleans, positive integers,
-probabilities, IoU thresholds, batch normalization momentums) used by every check module of
-vision_training/configuration.
+the lookup of a nested value from a dotted key path, the choices shared by several sections (normalizations,
+upsamplings), and the value checks (booleans, positive integers, probabilities, IoU thresholds, batch normalization
+momentums) used by every check module of vision_training/configuration.
 """
 
 from typing import Any, Dict, List
@@ -12,6 +12,10 @@ from typing import Any, Dict, List
 # the sequence normalization (batch normalization with the statistics of each sequence, sequence tasks only)
 VALID_FEATURE_MAP_NORMALIZATIONS = ["batch", "layer", "none"]
 BACKBONE_FEATURE_MAP_NORMALIZATIONS = VALID_FEATURE_MAP_NORMALIZATIONS + ["sequence"]
+
+# Doubling of the resolution in the segmentation decoder levels and the mask heads of the instance segmentation: a
+# learned 2x2 transposed convolution, or a bilinear upsampling followed by a convolution
+VALID_UPSAMPLINGS = ["transposed", "bilinear"]
 
 
 class ConfigurationError(Exception):

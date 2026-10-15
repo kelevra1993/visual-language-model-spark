@@ -4,15 +4,16 @@ the comments, the keys and sections added since (task, pretrained settings, eval
 sample images, MLflow tracking, sequence settings and batch padding, positional embedding of the transformer,
 segmentation losses, deep supervision, tiles and evaluation settings, Optimization, batch normalization momentums,
 normalization of the classification head, its True or False values becoming "batch" or "none", pre-activation
-placement of the backbone shortcuts and moving average of the weights), and renames the
-run folder to its current run name (without the training, learning rate multiplier and dropout tokens no longer
-written in the run names). Called by scripts/configuration_processing/migrate_configuration.py.
+placement of the backbone shortcuts, moving average of the weights and mask geometry of the instance segmentation, its
+shared RoIAlign pool size becoming the pool size of every level), and renames the run folder to its current run name
+(without the training, learning rate multiplier and dropout tokens no longer written in the run names). Called by
+scripts/configuration_processing/migrate_configuration.py.
 """
 
 import yaml
 
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from vision_training.configuration_processing.classification_checks import BOOLEAN_HEAD_NORMALIZATIONS
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
@@ -283,6 +284,36 @@ EXPONENTIAL_MOVING_AVERAGE_LINES = ("  # Moving average of the weights, evaluate
 BOOLEAN_HEAD_NORMALIZATION_COMMENT_LINES = ["  # Batch normalization of the outputs of every hidden layer before its "
                                             "ReLU, False to disable. Needs at least one\n",
                                             "  # hidden layer, and gives the HBN run name token.\n"]
+
+# Header of the mask head section of the instance segmentation, and starts of the lines of the RoIAlign pool size
+# shared by every level and of the head of every level written before the mask geometry could be configured
+MASK_HEAD_SECTION_HEADER = "MaskHead:\n"
+MASK_POOL_SIZE_LINE_START = "  roi_align_pool_size:"
+MASK_HEAD_CONFIGURATIONS_LINE = "  head_configurations:\n"
+
+# Comments of the mask resolution, of the upsampling and of the heads of every level replacing those of the shared pool
+# size and of the heads, the masks keeping twice the pool size with a transposed convolution as in every run written
+# before them
+MASK_GEOMETRY_COMMENT_LINES = (
+    "  # Side M of the square masks predicted for every box, the same on every level since the masks of the levels "
+    "are\n"
+    "  # concatenated for the loss and the export (28 gives the 28 x 28 masks of Mask R-CNN), with one mask per class, "
+    "the\n"
+    "  # channel of the detected class being kept. Every level doubles its pooled features as many times as fits in M, "
+    "its\n"
+    "  # masks being resized bilinearly to M when one more doubling would exceed it: a pool size of 14 is doubled "
+    "once, a\n"
+    "  # pool size of 7 twice, and a pool size of 10 doubled once to 20 then resized to 28.\n")
+MASK_UPSAMPLING_LINES = ("  # Doubling of the pooled features: \"transposed\" (2x2 transposed convolution, learned) or "
+                         "\"bilinear\" (bilinear\n"
+                         "  # upsampling followed by a 3x3 convolution), each followed by a ReLU.\n"
+                         "  upsampling: \"transposed\"\n")
+MASK_HEAD_CONFIGURATIONS_COMMENT_LINES = (
+    "  # RoIAlign pool size (at most mask_resolution) and convolution layers and output channels\n"
+    "  # [number_layers, output_channels] of the mask head of every detection level, the same levels as\n"
+    "  # Backbone.detection_convolution_block_indices. Every box uses the mask head and the feature map of the level "
+    "its\n"
+    "  # proposal came from, like the detection heads.\n")
 
 
 def add_task_to_configuration(configuration_path: Path, task: str) -> bool:
@@ -1069,6 +1100,89 @@ def add_moving_average_to_configuration(configuration_path: Path) -> bool:
     return True
 
 
+def find_setting_block(lines: List[str], setting_index: int) -> Tuple[int, int]:
+    """
+    Finds the lines of a setting of a section of a configuration file with the comment right above it, so that a
+    setting whose format changed is replaced as text: from its first comment line to the last line of its value
+    (a value written over several lines, such as a flow mapping, being indented deeper than the setting), the blank
+    lines after it being kept.
+
+    Args:
+        lines (List[str]): The lines of the configuration file, with their line breaks.
+        setting_index (int): The index of the line of the setting, indented by two spaces.
+
+    Returns:
+        Tuple[int, int]: The index of the first line of the block and the index following its last line.
+    """
+    # Comment lines right above the setting
+    block_start = setting_index
+    while block_start > 0 and lines[block_start - 1].startswith("  #"):
+        block_start -= 1
+
+    # Lines of the value, up to the next line indented by at most two spaces, without the blank lines before it
+    block_end = setting_index + 1
+    while block_end < len(lines) and (not lines[block_end].strip() or lines[block_end].startswith("   ")):
+        block_end += 1
+    while block_end > setting_index + 1 and not lines[block_end - 1].strip():
+        block_end -= 1
+    return block_start, block_end
+
+
+def add_mask_head_geometry_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades an instance segmentation configuration file written before the mask geometry could be configured: the
+    RoIAlign pool size P shared by every level is replaced by 'MaskHead.mask_resolution' (2P) and
+    'MaskHead.upsampling' ("transposed"), the single transposed convolution of every run of that time, and the
+    [number_layers, output_channels] of every level becomes its 'roi_align_pool_size' (P) and 'convolutions'. Both
+    settings are replaced as text with their comments, every other line of the file being kept, and a file that has
+    no mask heads or already has the mask resolution is left untouched. The checkpoints of these runs load into the
+    new layer names (MaskHead._load_from_state_dict).
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the mask geometry was added, False if the file has no mask heads or already had it.
+
+    Raises:
+        ValueError: If the mask head section has no 'roi_align_pool_size' or 'head_configurations' line of its own.
+    """
+    text = configuration_path.read_text()
+    configuration = yaml.safe_load(stream=text)
+
+    # Only the instance segmentation configurations written before the setting existed
+    if "MaskHead" not in configuration or "mask_resolution" in configuration["MaskHead"]:
+        return False
+    mask_head_configuration = configuration["MaskHead"]
+    pool_size = mask_head_configuration["roi_align_pool_size"]
+
+    # Lines of the shared pool size and of the heads of the levels, with their comments
+    lines = text.splitlines(keepends=True)
+    pool_size_index = find_section_line(lines=lines, section_header=MASK_HEAD_SECTION_HEADER,
+                                        line_start=MASK_POOL_SIZE_LINE_START)
+    head_configurations_index = find_section_line(lines=lines, section_header=MASK_HEAD_SECTION_HEADER,
+                                                  line_start=MASK_HEAD_CONFIGURATIONS_LINE)
+    if pool_size_index is None or head_configurations_index is None:
+        raise ValueError(f"No 'roi_align_pool_size' or 'head_configurations' line in the 'MaskHead' section of "
+                         f"{format_path_link(path=configuration_path)}")
+
+    # The pool size of the level and the convolutions of its head, the masks keeping twice the pool size
+    level_lines = "".join(f"      \"{level}\": {{ \"roi_align_pool_size\": {pool_size}, \"convolutions\": "
+                          f"[ {convolutions[0]}, {convolutions[1]} ] }},\n"
+                          for level, convolutions in mask_head_configuration["head_configurations"].items())
+    replacements = {pool_size_index: (MASK_GEOMETRY_COMMENT_LINES + f"  mask_resolution: {2 * pool_size}\n" +
+                                      MASK_UPSAMPLING_LINES),
+                    head_configurations_index: (MASK_HEAD_CONFIGURATIONS_COMMENT_LINES + MASK_HEAD_CONFIGURATIONS_LINE +
+                                                "    {\n" + level_lines + "    }\n")}
+
+    # Replace the lower block first, so that the line indices of the upper one stay valid
+    for setting_index in sorted(replacements, reverse=True):
+        block_start, block_end = find_setting_block(lines=lines, setting_index=setting_index)
+        lines[block_start:block_end] = [replacements[setting_index]]
+    configuration_path.write_text(data="".join(lines))
+    return True
+
+
 def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path:
     """
     Upgrades a run trained with an older version of the code so that it can be resumed, evaluated and exported with the
@@ -1083,8 +1197,9 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     window padded to the sequence length), the positional embedding of their transformer (on), the settings of the
     segmentation added since its first runs (off), the batch normalization momentum of every normalized section (0.1,
     the PyTorch default), the normalization of the hidden layers of the classification head ("none", True and False
-    becoming "batch" and "none"), the pre-activation placement of the backbone shortcuts (off) and the moving average of
-    the weights (off), it loses the 'Data.DALI' block of the removed DALI loader, and its folder is renamed to the run
+    becoming "batch" and "none"), the pre-activation placement of the backbone shortcuts (off), the moving average of
+    the weights (off) and the mask geometry of the instance segmentation (masks twice the shared pool size, transposed
+    convolution), it loses the 'Data.DALI' block of the removed DALI loader, and its folder is renamed to the run
     name the current code builds from that configuration (the task code being now the first section of the run names,
     and the augmentation, batch size, learning rate, schedule, gradient clipping, mixed precision, dropout and learning
     rate multiplier (BLR, TLR, HLR, DLR) tokens being no longer written). The configuration is fully checked on the way,
@@ -1161,6 +1276,9 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
                                           f"{format_path_link(path=configuration_path)}")
     if add_moving_average_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Moving Average Of The Weights Added To : "
+                                          f"{format_path_link(path=configuration_path)}")
+    if add_mask_head_geometry_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Mask Resolution, Upsampling And Pool Size Per Level Added To : "
                                           f"{format_path_link(path=configuration_path)}")
 
     # The run name the current code gives to this configuration

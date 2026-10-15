@@ -134,7 +134,8 @@ def create_deterministic_tensor(shape: Tuple[int, ...], dtype: torch.dtype = tor
     return deterministic_tensor.reshape(shape=shape)
 
 
-def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False) -> TwoStageDetector:
+def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False,
+                     mask_head_settings: Optional[Dict[str, Any]] = None) -> TwoStageDetector:
     """
     Builds a small untrained detector from the debug configuration, shared by the detector tests (export path and
     behaviour baseline), with 512 pixel inputs (the smallest size fitting its 9 pooling blocks) and a score threshold
@@ -147,6 +148,8 @@ def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False) ->
             behaviour baseline, whose recorded values must not depend on float32 rounding.
         instance_segmentation (bool): Whether to build the InstanceSegmenter instead of the TwoStageDetector.
             Defaults to False.
+        mask_head_settings (Optional[Dict[str, Any]]): Settings of the 'MaskHead' section replacing those of the
+            fixture (e.g. 'mask_resolution', 'upsampling', 'head_configurations'), None to keep them. Defaults to None.
 
     Returns:
         TwoStageDetector: The detector (or instance segmenter) in evaluation mode, on the CPU.
@@ -156,6 +159,8 @@ def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False) ->
     configuration: Dict[str, Any] = copy.deepcopy(x=configuration)
     configuration["Data"]["image_settings"]["size"] = 512
     configuration["Detector"]["inference"]["score_threshold"] = 0.0
+    if mask_head_settings is not None:
+        configuration["MaskHead"].update(mask_head_settings)
 
     # Move the model to its device and precision after building it, as the Trainer does, since a few layers (the
     # region proposal output layers) are created in the default float32 precision

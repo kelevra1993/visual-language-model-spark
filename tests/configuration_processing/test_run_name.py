@@ -1091,8 +1091,10 @@ def get_instance_segmentation_reference_configurations() -> Tuple[Dict[str, Any]
     """
     experiment_configuration, model_configuration = get_reference_configurations()
     experiment_configuration["task"] = "instance_segmentation"
-    model_configuration["MaskHead"] = {"roi_align_pool_size": 14,
-                                       "head_configurations": {level: [4, 64] for level in ["5", "6", "7"]},
+    model_configuration["MaskHead"] = {"mask_resolution": 28, "upsampling": "transposed",
+                                       "head_configurations": {
+                                           level: {"roi_align_pool_size": 14, "convolutions": [4, 64]}
+                                           for level in ["5", "6", "7"]},
                                        "normalization": {"feature_map_normalization": "batch",
                                                          "batch_normalization_momentum": 0.1},
                                        "modules": {"squeeze_and_excite": False, "residual_nets": True,
@@ -1103,7 +1105,8 @@ def get_instance_segmentation_reference_configurations() -> Tuple[Dict[str, Any]
 
 def change_mask_heads(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
-    Turns on every module of the mask heads, uses layer normalization, a larger pool and a different head on level 7.
+    Turns on every module of the mask heads, uses layer normalization, bilinear upsamplings, larger masks and a
+    different pool size and head on level 7.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
@@ -1112,8 +1115,9 @@ def change_mask_heads(experiment_configuration: Dict[str, Any], model_configurat
     mask_head_configuration = model_configuration["MaskHead"]
     mask_head_configuration["modules"].update({"squeeze_and_excite": True, "inception": True})
     mask_head_configuration["normalization"]["feature_map_normalization"] = "layer"
-    mask_head_configuration["roi_align_pool_size"] = 28
-    mask_head_configuration["head_configurations"]["7"] = [2, 128]
+    mask_head_configuration["upsampling"] = "bilinear"
+    mask_head_configuration["mask_resolution"] = 56
+    mask_head_configuration["head_configurations"]["7"] = {"roi_align_pool_size": 7, "convolutions": [2, 128]}
 
 
 def change_mask_threshold(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
@@ -1130,20 +1134,20 @@ def change_mask_threshold(experiment_configuration: Dict[str, Any], model_config
 # Run name of the instance segmentation reference settings: the detection sections with the mask heads before the
 # classes
 INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME = REFERENCE_RUN_NAME.replace("DET_", "INS_").replace(
-    "_BIN", "_MRES-MBN-M14.4x64_BIN")
+    "_BIN", "_MRES-MBN-MUTC-M14.4x64-MR28_BIN")
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
     (None, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME),
-    (change_mask_heads, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace("_MRES-MBN-M14.4x64_",
-                                                                         "_MSE-MRES-MINC-MLN-M28.4x64+4x64+2x128_")),
+    (change_mask_heads, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
+        "_MRES-MBN-MUTC-M14.4x64-MR28_", "_MSE-MRES-MINC-MLN-MUBL-M14.4x64+14.4x64+7.2x128-MR56_")),
     (change_mask_threshold, INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME)])
 def test_instance_segmentation_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                          expected_run_name: str) -> None:
     """
     Verifies the run names of the instance segmentation: the INS code, the detection sections, and the mask heads
-    section (modules, normalization, pool size and per-level heads) before the classes, the mask threshold giving no
-    token.
+    section (modules, normalization, upsampling, pool size and convolutions of every level, mask resolution) before
+    the classes, the mask threshold giving no token.
 
     Args:
         modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the reference

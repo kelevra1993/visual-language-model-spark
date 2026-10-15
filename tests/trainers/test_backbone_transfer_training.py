@@ -41,7 +41,7 @@ TRANSFER_LEARNING_RATE = 1.0e-3
 # mask heads of the instance segmentation runs
 DETECTION_TRANSFER_IMAGE_SIZE = 256
 DETECTION_TRANSFER_ANCHOR_SCALES = {"5": [16, 32, 64], "6": [32, 64, 128], "7": [64, 128, 256]}
-DETECTION_TRANSFER_MASK_HEAD = [1, 16]
+DETECTION_TRANSFER_MASK_HEAD = {"roi_align_pool_size": 7, "convolutions": [1, 16]}
 
 # Components of a sequence classifier initialised by the run they come from, by section
 SEQUENCE_COMPONENTS = {"Backbone": "backbone", "TemporalModel": "temporal_module",
@@ -96,7 +96,7 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
         for level, scales in DETECTION_TRANSFER_ANCHOR_SCALES.items():
             configuration["Anchors"]["scales_and_ratios"][level]["scales"] = scales
     if "MaskHead" in configuration:
-        configuration["MaskHead"]["roi_align_pool_size"] = 7
+        configuration["MaskHead"]["mask_resolution"] = 14
         for level in DETECTION_TRANSFER_ANCHOR_SCALES:
             configuration["MaskHead"]["head_configurations"][level] = DETECTION_TRANSFER_MASK_HEAD
     # Two loader workers per split, enough for the small generated dataset

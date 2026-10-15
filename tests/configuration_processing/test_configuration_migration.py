@@ -3,8 +3,8 @@ Tests of vision_training/configuration_processing/configuration_migration.py: ev
 settings, normalization flag, evaluation outputs, per-class report, sample images, MLflow tracking, sequence
 augmentation, normalization scope, optimization section, loading settings, batch padding, positional embedding,
 segmentation settings, batch normalization momentums, classification head normalization, pre-activation flag of the
-residual shortcuts and moving average of the weights) is added once to an old configuration,
-and migrate_run_folder renames old run folders after their settings.
+residual shortcuts, moving average of the weights and mask geometry of the instance segmentation) is added once to an
+old configuration, and migrate_run_folder renames old run folders after their settings.
 """
 
 import json
@@ -26,7 +26,8 @@ from vision_training.configuration_processing.configuration_migration import (
     add_sample_images_to_configuration, add_segmentation_settings_to_configuration,
     add_sequence_augmentation_to_configuration, add_sequence_normalization_scope_to_configuration,
     add_residual_nets_v2_to_configuration, add_task_to_configuration, add_tracking_to_configuration,
-    add_moving_average_to_configuration, migrate_run_folder, remove_dali_settings_from_configuration)
+    add_mask_head_geometry_to_configuration, add_moving_average_to_configuration, migrate_run_folder,
+    remove_dali_settings_from_configuration)
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -49,6 +50,26 @@ OLD_PRETRAINED_BACKBONE_BLOCK = ("  # Backbone of another training run initialis
                                  "    iteration: null\n"
                                  "    freeze: False\n"
                                  "    learning_rate_multiplier: 1.0\n")
+
+# Shared RoIAlign pool size and heads of every level of the mask heads written before the mask geometry could be
+# configured, the masks being twice the pool size
+OLD_MASK_POOL_SIZE_LINES = ("  # RoIAlign pool size of the mask heads, the same on every level since the masks of the "
+                            "levels are concatenated. The\n"
+                            "  # masks are twice this size (14 gives the 28 x 28 masks of Mask R-CNN, a transposed "
+                            "convolution doubling the pooled\n"
+                            "  # features), with one mask per class, the channel of the detected class being kept.\n"
+                            "  roi_align_pool_size: 14\n")
+OLD_MASK_HEAD_CONFIGURATIONS_LINES = ("  # Convolution layers and output channels [number_layers, output_channels] of "
+                                      "the mask head of every detection level,\n"
+                                      "  # the same levels as Backbone.detection_convolution_block_indices. Every box "
+                                      "uses the mask head and the feature map\n"
+                                      "  # of the level its proposal came from, like the detection heads.\n"
+                                      "  head_configurations:\n"
+                                      "    {\n"
+                                      "      \"5\": [ 4, 64 ],\n"
+                                      "      \"6\": [ 4, 64 ],\n"
+                                      "      \"7\": [ 4, 64 ],\n"
+                                      "    }\n")
 
 # Pretrained settings of a run trained from random weights
 RANDOM_PRETRAINED_SETTINGS = {"experiment_folder": None, "iteration": None, "freeze": False,
@@ -883,3 +904,45 @@ def test_moving_average_is_added_once(tmp_path: Path) -> None:
     assert add_moving_average_to_configuration(configuration_path=configuration_path) is True
     assert yaml.safe_load(stream=configuration_path.read_text())["Optimization"]["exponential_moving_average"] == {
         "activated": False, "decay": 0.9998}
+
+
+def test_mask_head_geometry_is_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that an instance segmentation configuration written before the mask geometry could be configured gets
+    the masks twice its shared pool size with a transposed convolution and that pool size on every level, the migrated
+    file being exactly the current example configuration, that a second migration changes nothing, that the settings
+    are found in any order, and that a configuration without mask heads is left untouched.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Current file with the mask head settings of the older runs
+    current_text = INSTANCE_SEGMENTATION_CONFIGURATION_PATH.read_text()
+    current_mask_settings = re.search(pattern=r"MaskHead:\n.*?\n    }\n", string=current_text, flags=re.DOTALL).group(0)
+    old_text = current_text.replace(current_mask_settings,
+                                    "MaskHead:\n" + OLD_MASK_POOL_SIZE_LINES + OLD_MASK_HEAD_CONFIGURATIONS_LINES, 1)
+    assert "mask_resolution" not in old_text
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(data=old_text)
+
+    # The migrated file is the current example, the second migration changing nothing
+    assert add_mask_head_geometry_to_configuration(configuration_path=configuration_path) is True
+    assert configuration_path.read_text() == current_text
+    assert add_mask_head_geometry_to_configuration(configuration_path=configuration_path) is False
+
+    # Heads written before a shared pool size of 7: masks of 14, every level pooling 7 cells
+    configuration_path.write_text(data=current_text.replace(current_mask_settings, "MaskHead:\n" +
+                                                            OLD_MASK_HEAD_CONFIGURATIONS_LINES +
+                                                            OLD_MASK_POOL_SIZE_LINES.replace(": 14", ": 7")))
+    assert add_mask_head_geometry_to_configuration(configuration_path=configuration_path) is True
+    mask_head_configuration = yaml.safe_load(stream=configuration_path.read_text())["MaskHead"]
+    assert mask_head_configuration["mask_resolution"] == 14 and mask_head_configuration["upsampling"] == "transposed"
+    assert mask_head_configuration["head_configurations"] == {
+        level: {"roi_align_pool_size": 7, "convolutions": [4, 64]} for level in ["5", "6", "7"]}
+    assert "roi_align_pool_size" not in mask_head_configuration
+
+    # A configuration without mask heads is left untouched
+    detection_path = tmp_path / "detection.yaml"
+    detection_path.write_text(data=EXAMPLE_CONFIGURATION_PATH.read_text())
+    assert add_mask_head_geometry_to_configuration(configuration_path=detection_path) is False
+    assert detection_path.read_text() == EXAMPLE_CONFIGURATION_PATH.read_text()

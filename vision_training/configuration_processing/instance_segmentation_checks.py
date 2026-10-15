@@ -7,6 +7,7 @@ configuration_checker.py for the instance_segmentation task.
 from typing import Any, Dict, List
 
 from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
+                                                                           VALID_UPSAMPLINGS,
                                                                            check_batch_normalization_momentum,
                                                                            check_boolean_flags, check_positive_integers,
                                                                            check_probability_value,
@@ -16,10 +17,11 @@ from vision_training.configuration_processing.detection_checks import check_dete
 
 def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'MaskHead' section built into one MaskHead per detection level: the RoIAlign pool size shared by
-    every level, the [number_layers, output_channels] of every level (a multiple of 8 channels with inception
-    modules), the normalization and the momentum of its batch statistics, the module flags and the mask threshold of
-    the inference. Its levels are compared with the detection blocks by check_detection_levels.
+    Verifies the 'MaskHead' section built into one MaskHead per detection level: the mask resolution and the
+    upsampling shared by every level, the RoIAlign pool size of every level (at most the mask resolution, the pooled
+    features being only enlarged) and its [number_layers, output_channels] convolutions (a multiple of 8 channels with
+    inception modules), the normalization and the momentum of its batch statistics, the module flags and the mask
+    threshold of the inference. Its levels are compared with the detection blocks by check_detection_levels.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'MaskHead' section.
@@ -27,22 +29,40 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
     Returns:
         List[str]: The description of every inconsistency found.
     """
-    errors = check_positive_integers(configuration=model_configuration, key_paths=["MaskHead.roi_align_pool_size"],
-                                     allow_zero=False)
+    # Side of the masks of every level and doubling of the pooled features
+    mask_resolution_errors = check_positive_integers(configuration=model_configuration,
+                                                     key_paths=["MaskHead.mask_resolution"], allow_zero=False)
+    errors = list(mask_resolution_errors)
+    mask_resolution = get_configuration_value(configuration=model_configuration, key_path="MaskHead.mask_resolution")
+    upsampling = get_configuration_value(configuration=model_configuration, key_path="MaskHead.upsampling")
+    if upsampling not in VALID_UPSAMPLINGS:
+        errors.append(f"'MaskHead.upsampling' must be one of {VALID_UPSAMPLINGS}, got {upsampling!r}.")
     inception = get_configuration_value(configuration=model_configuration, key_path="MaskHead.modules.inception")
 
-    # Each head is described by [number of layers, number of output channels]
+    # Each head defines its RoIAlign pool size and its [number of layers, number of output channels] convolutions
     head_configurations = get_configuration_value(configuration=model_configuration,
                                                   key_path="MaskHead.head_configurations")
-    for level, head_definition in head_configurations.items():
-        if not isinstance(head_definition, list) or len(head_definition) != 2 or \
+    for level in head_configurations:
+        key_prefix = f"MaskHead.head_configurations.{level}"
+        pool_size_errors = check_positive_integers(configuration=model_configuration,
+                                                   key_paths=[f"{key_prefix}.roi_align_pool_size"], allow_zero=False)
+        errors += pool_size_errors
+        pool_size = get_configuration_value(configuration=model_configuration,
+                                            key_path=f"{key_prefix}.roi_align_pool_size")
+        if not pool_size_errors and not mask_resolution_errors and pool_size > mask_resolution:
+            errors.append(f"'{key_prefix}.roi_align_pool_size' ({pool_size}) must not exceed "
+                          f"'MaskHead.mask_resolution' ({mask_resolution}), the pooled features being only enlarged "
+                          f"to the masks.")
+
+        convolutions = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.convolutions")
+        if not isinstance(convolutions, list) or len(convolutions) != 2 or \
                 not all(isinstance(value, int) and not isinstance(value, bool) and value >= 1
-                        for value in head_definition):
-            errors.append(f"'MaskHead.head_configurations.{level}' must be [number_layers, output_channels] with "
-                          f"positive integers, got {head_definition!r}.")
-        elif inception is True and head_definition[1] % 8 != 0:
-            errors.append(f"'MaskHead.head_configurations.{level}' has {head_definition[1]} output channels, "
-                          f"inception modules require a multiple of 8.")
+                        for value in convolutions):
+            errors.append(f"'{key_prefix}.convolutions' must be [number_layers, output_channels] with positive "
+                          f"integers, got {convolutions!r}.")
+        elif inception is True and convolutions[1] % 8 != 0:
+            errors.append(f"'{key_prefix}.convolutions' has {convolutions[1]} output channels, inception modules "
+                          f"require a multiple of 8.")
 
     # Feature map normalization strategy, momentum of its batch statistics and module flags of the mask head
     # convolution blocks

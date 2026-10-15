@@ -82,8 +82,10 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                      }}
     # Mask heads of the instance segmenter on the same levels as the detection heads
     if mask_head:
-        configuration['MaskHead'] = {'roi_align_pool_size': 7,
-                                     'head_configurations': {'5': [2, 32], '6': [2, 32], '7': [2, 32]},
+        configuration['MaskHead'] = {'mask_resolution': 14, 'upsampling': 'transposed',
+                                     'head_configurations': {
+                                         level: {'roi_align_pool_size': 7, 'convolutions': [2, 32]}
+                                         for level in ['5', '6', '7']},
                                      'normalization': {'feature_map_normalization': 'batch',
                                                        'batch_normalization_momentum': 0.1},
                                      'modules': {'squeeze_and_excite': False, 'residual_nets': True,

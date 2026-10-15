@@ -39,9 +39,9 @@ class InstanceSegmenter(TwoStageDetector):
         super(InstanceSegmenter, self).__init__(configuration=configuration, verbose=verbose, device=device,
                                                 dtype=dtype)
 
-        # Mask geometry shared by every level, and the probability from which a pixel belongs to its object
+        # Side of the masks of every level, and the probability from which a pixel belongs to its object
         self.mask_head_configuration = configuration["MaskHead"]
-        self.mask_size = 2 * self.mask_head_configuration["roi_align_pool_size"]
+        self.mask_size = self.mask_head_configuration["mask_resolution"]
         self.mask_threshold = self.mask_head_configuration["inference"]["mask_threshold"]
 
         # One mask head per detection level, built on the feature map of that level
@@ -50,8 +50,9 @@ class InstanceSegmenter(TwoStageDetector):
 
     def _build_mask_heads_dictionary(self, mask_head_configuration: Dict[str, Any]) -> nn.ModuleDict:
         """
-        Builds the mask head of every detection level, with the channel count and size of the backbone feature map of
-        that level, like the detection heads.
+        Builds the mask head of every detection level, with the pool size and convolutions of that level, the channel
+        count and size of its backbone feature map, like the detection heads, and the mask resolution and upsampling
+        shared by every level.
 
         Args:
             mask_head_configuration (Dict[str, Any]): The 'MaskHead' section of the configuration.
@@ -65,7 +66,8 @@ class InstanceSegmenter(TwoStageDetector):
         for index_string, level_information in self.detection_input_information.items():
             mask_heads_dictionary[index_string] = MaskHead(
                 head_configuration=mask_head_configuration["head_configurations"][index_string],
-                roi_align_pool_size=mask_head_configuration["roi_align_pool_size"],
+                mask_resolution=mask_head_configuration["mask_resolution"],
+                upsampling=mask_head_configuration["upsampling"],
                 number_classes=self.number_classes, input_channels=level_information["number_channels"],
                 feature_map_normalization=mask_head_configuration["normalization"]["feature_map_normalization"],
                 batch_normalization_momentum=mask_head_configuration["normalization"]["batch_normalization_momentum"],
@@ -205,11 +207,12 @@ class InstanceSegmenter(TwoStageDetector):
     def print_mask_summary(self) -> None:
         """
         Prints the mask head of every detection level: its modules, convolution layers, feature map size, RoIAlign
-        pool, mask size and spatial scale, under the normalization of the mask heads.
+        pool, doublings, mask size and spatial scale, under the normalization and the upsampling of the mask heads.
         """
         console = Console(width=80)
         normalization = str(self.mask_head_configuration["normalization"]["feature_map_normalization"]).capitalize()
-        summary_text = f"[bold]Normalization Strategy:[/bold] {normalization}\n\n"
+        summary_text = (f"[bold]Normalization Strategy:[/bold] {normalization}\n"
+                        f"[bold]Upsampling:[/bold] {self.mask_head_configuration['upsampling'].capitalize()}\n\n")
 
         # One block of lines per detection level
         for index_string, mask_head in self.mask_heads_dictionary.items():
@@ -219,9 +222,14 @@ class InstanceSegmenter(TwoStageDetector):
                 summary_text += f"  - Modules            : {', '.join(active_module_names)}\n"
             summary_text += f"  - Convolution Layers : {mask_head.convolution_number_layers}\n"
             summary_text += f"  - Feature Map Size   : [{mask_head.feature_map_size}, {mask_head.feature_map_size}]\n"
-            pool_size = mask_head.roi_align_pool_size
+            pool_size, upsampled_size = mask_head.roi_align_pool_size, mask_head.upsampled_size
             summary_text += f"  - RoI Align Pool     : [{pool_size}, {pool_size}]\n"
-            summary_text += f"  - Mask Size          : [{mask_head.mask_size}, {mask_head.mask_size}]\n"
+            summary_text += (f"  - Doublings          : {mask_head.number_upsamplings}, to [{upsampled_size}, "
+                             f"{upsampled_size}]\n")
+
+            # Masks resized bilinearly when the doublings fall short of the mask resolution
+            resize_note = "" if upsampled_size == mask_head.mask_size else ", resized bilinearly"
+            summary_text += f"  - Mask Size          : [{mask_head.mask_size}, {mask_head.mask_size}]{resize_note}\n"
             summary_text += f"  - Spatial Scale      : {mask_head.spatial_scale:.4f}\n\n"
 
         console.print(Panel(summary_text.rstrip("\n"), title="[bold]Mask Architecture[/bold]", border_style="magenta"))

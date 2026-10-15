@@ -1,33 +1,95 @@
 """
-Tests of vision_training/models/instance_segmentation/mask_operations.py and the mask head: the shapes of the mask head
-outputs, the mask targets cropped from the ground truth masks, the pasting of the predicted masks into their boxes and
-the intersection over union of binary masks.
+Tests of vision_training/models/instance_segmentation/mask_operations.py and the mask head: the mask geometry of the
+mask head (its doublings, the resize of its masks and the shapes of its outputs), the loading of the checkpoints
+written before the mask geometry could be configured, the mask targets cropped from the ground truth masks, the pasting
+of the predicted masks into their boxes and the intersection over union of binary masks.
 """
 
+import pytest
 import torch
 
+from torch import nn
+
 from tests.fixtures.configuration_fixtures import get_detection_model_configuration
-from vision_training.models.instance_segmentation.mask_head import MaskHead
+from vision_training.models.instance_segmentation.mask_head import MaskHead, count_mask_upsamplings
 from vision_training.models.instance_segmentation.mask_operations import (build_mask_targets,
                                                                           compute_mask_intersection_over_union,
                                                                           paste_instance_masks)
 
 
-def test_mask_head_predicts_one_doubled_mask_per_class() -> None:
+def build_mask_head(roi_align_pool_size: int, mask_resolution: int, upsampling: str) -> MaskHead:
     """
-    Verifies that the mask head of a level gives [R, C, 2P, 2P] logits for R boxes, including no box at all.
+    Builds the mask head of a 16 x 16 feature map of 8 channels for a 128 pixel input and 6 classes, with the modules
+    of the mask head fixture and the given mask geometry, in evaluation mode.
+
+    Args:
+        roi_align_pool_size (int): The RoIAlign pool size of the level.
+        mask_resolution (int): The side of the masks.
+        upsampling (str): The doubling of the pooled features, "transposed" or "bilinear".
+
+    Returns:
+        MaskHead: The mask head.
     """
     configuration, device, dtype = get_detection_model_configuration(mask_head=True)
-    mask_head_configuration = configuration["MaskHead"]
-    mask_head = MaskHead(head_configuration=[2, 16], roi_align_pool_size=7, number_classes=6, input_channels=8,
-                         feature_map_normalization="batch", batch_normalization_momentum=0.1, input_image_size=128,
-                         feature_map_size=16,
-                         modules=mask_head_configuration["modules"], dtype=dtype, device=device).eval()
+    return MaskHead(head_configuration={"roi_align_pool_size": roi_align_pool_size, "convolutions": [2, 16]},
+                    mask_resolution=mask_resolution, upsampling=upsampling, number_classes=6, input_channels=8,
+                    feature_map_normalization="batch", batch_normalization_momentum=0.1, input_image_size=128,
+                    feature_map_size=16, modules=configuration["MaskHead"]["modules"], dtype=dtype,
+                    device=device).eval()
+
+
+@pytest.mark.parametrize(argnames=["roi_align_pool_size", "mask_resolution", "upsampling", "number_upsamplings"],
+                         argvalues=[(7, 14, "transposed", 1), (7, 28, "bilinear", 2), (10, 28, "transposed", 1),
+                                    (14, 14, "bilinear", 0)])
+def test_mask_head_doubles_its_pooled_features_up_to_the_mask_resolution(roi_align_pool_size: int,
+                                                                          mask_resolution: int, upsampling: str,
+                                                                          number_upsamplings: int) -> None:
+    """
+    Verifies that the mask head of a level doubles its pooled features as many times as fits in the mask resolution,
+    with layers of the chosen upsampling, and gives [R, C, M, M] logits for R boxes, including no box at all, the
+    logits of a pool size whose doublings fall short of M being resized to it.
+
+    Args:
+        roi_align_pool_size (int): The RoIAlign pool size of the level.
+        mask_resolution (int): The side of the masks.
+        upsampling (str): The doubling of the pooled features.
+        number_upsamplings (int): The expected number of doublings.
+    """
+    assert count_mask_upsamplings(roi_align_pool_size=roi_align_pool_size,
+                                  mask_resolution=mask_resolution) == number_upsamplings
+    mask_head = build_mask_head(roi_align_pool_size=roi_align_pool_size, mask_resolution=mask_resolution,
+                                upsampling=upsampling)
+    expected_layer_type = nn.ConvTranspose2d if upsampling == "transposed" else nn.Sequential
+    assert len(mask_head.upsampling_layers) == number_upsamplings
+    assert all(isinstance(layer, expected_layer_type) for layer in mask_head.upsampling_layers)
+
     feature_map = torch.rand(size=(2, 8, 16, 16))
     boxes = torch.tensor(data=[[0.0, 10.0, 10.0, 60.0, 80.0], [1.0, 0.0, 0.0, 128.0, 128.0], [1.0, 5.0, 5.0, 9.0, 9.0]])
+    assert mask_head(proposal_boxes=boxes, input_tensor=feature_map).shape == (3, 6, mask_resolution, mask_resolution)
+    assert mask_head(proposal_boxes=boxes[:0], input_tensor=feature_map).shape == (0, 6, mask_resolution,
+                                                                                    mask_resolution)
 
-    assert mask_head(proposal_boxes=boxes, input_tensor=feature_map).shape == (3, 6, 14, 14)
-    assert mask_head(proposal_boxes=boxes[:0], input_tensor=feature_map).shape == (0, 6, 14, 14)
+
+def test_mask_head_loads_the_checkpoints_of_the_single_transposed_convolution() -> None:
+    """
+    Verifies that the weights of a mask head saved before the mask geometry could be configured, its transposed
+    convolution named 'upsampling', load into the first upsampling layer of the same default geometry, strictly and
+    giving the same masks, inside a larger model as in the checkpoints.
+    """
+    torch.manual_seed(seed=0)
+    saved_head = nn.ModuleDict(modules={"5": build_mask_head(roi_align_pool_size=7, mask_resolution=14,
+                                                             upsampling="transposed")})
+    legacy_state = {key.replace("upsampling_layers.0.", "upsampling."): value
+                    for key, value in saved_head.state_dict().items()}
+    assert "5.upsampling.weight" in legacy_state and "5.upsampling.bias" in legacy_state
+
+    loaded_head = nn.ModuleDict(modules={"5": build_mask_head(roi_align_pool_size=7, mask_resolution=14,
+                                                              upsampling="transposed")})
+    loaded_head.load_state_dict(state_dict=legacy_state, strict=True)
+    feature_map = torch.rand(size=(1, 8, 16, 16))
+    boxes = torch.tensor(data=[[0.0, 10.0, 10.0, 60.0, 80.0]])
+    assert torch.equal(input=loaded_head["5"](proposal_boxes=boxes, input_tensor=feature_map),
+                       other=saved_head["5"](proposal_boxes=boxes, input_tensor=feature_map))
 
 
 def test_mask_targets_crop_the_matched_ground_truth_masks() -> None:

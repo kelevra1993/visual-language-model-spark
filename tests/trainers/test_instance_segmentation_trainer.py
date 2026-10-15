@@ -76,8 +76,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     for level, scales in SMOKE_ANCHOR_SCALES.items():
         configuration["Anchors"]["scales_and_ratios"][level]["scales"] = scales
-        configuration["MaskHead"]["head_configurations"][level] = [1, 16]
-    configuration["MaskHead"]["roi_align_pool_size"] = 7
+        configuration["MaskHead"]["head_configurations"][level] = {"roi_align_pool_size": 7, "convolutions": [1, 16]}
+    configuration["MaskHead"]["mask_resolution"] = 14
 
     # Every training image augmented by the geometric augmentations
     augmentation_configuration = configuration["Data"]["data_augmentation"]
