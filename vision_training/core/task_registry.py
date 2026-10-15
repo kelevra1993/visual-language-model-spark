@@ -11,6 +11,7 @@ from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.trainers.frame_selection_trainer import FrameSelectionTrainer
 from vision_training.trainers.instance_segmentation_trainer import InstanceSegmentationTrainer
 from vision_training.trainers.segmentation_trainer import SegmentationTrainer
+from vision_training.trainers.self_supervised_trainer import SelfSupervisedTrainer
 from vision_training.trainers.sequence_classification_trainer import SequenceClassificationTrainer
 from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
 from vision_training.trainers.sequence_labelling_trainer import SequenceLabellingTrainer
@@ -23,7 +24,8 @@ TASK_TRAINER_CLASSES: Dict[str, Type[BaseTrainer]] = {"object_detection": Detect
                                                       "sequence_classification": SequenceClassificationTrainer,
                                                       "sequence_labelling": SequenceLabellingTrainer,
                                                       "sequence_comparison": SequenceComparisonTrainer,
-                                                      "frame_selection": FrameSelectionTrainer}
+                                                      "frame_selection": FrameSelectionTrainer,
+                                                      "self_supervised": SelfSupervisedTrainer}
 
 
 def get_trainer_class(task: str) -> Type[BaseTrainer]:
