@@ -27,8 +27,13 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 LAUNCH_FOLDER_PATTERN = re.compile(pattern=r"run_(\d+)([a-z]*)")
 
 # Settings changed by the stages of the classification experiment, written as columns: their column name and their
-# keys in training_configuration.yaml, from the section down to the setting
+# keys in training_configuration.yaml, from the section down to the setting. The training data folder and the source
+# runs of the transferred backbone and classification head (empty without transfer) separate the launches adding
+# classes to a trained run (stage 14) from the launches whose settings they copy
 SWEPT_SETTINGS = {"learning_rate": ("ExperimentConfiguration", "learning_rate"),
+                  "train_data_folder": ("ExperimentConfiguration", "train_data_folder"),
+                  "pretrained_backbone": ("Backbone", "pretrained", "experiment_folder"),
+                  "pretrained_classification_head": ("ClassificationHead", "pretrained", "experiment_folder"),
                   "data_augmentation": ("Data", "data_augmentation", "activated"),
                   "global_pooling": ("ClassificationHead", "global_pooling"),
                   "residual_nets": ("Backbone", "modules", "residual_nets"),
