@@ -48,9 +48,16 @@ Every item of the implementation plan of `README.md`, ticked once its code is co
 12. On the GPU: speed of the kornia views per batch, the embedding standard deviation staying away from 0 (no collapse), the k-NN accuracy rising on the synthetic shapes, then a classification run fine-tuned from the self-supervised backbone with 1 %, 10 % and 100 % of the labels against a run from scratch.
 
 ## Checks Left To Run
-1. Import every new module and load both configuration files through `load_experiment_configuration` (the checks of the task must pass).
-2. Run the whole existing test suite (`uv run pytest tests`): the registration of the new task must not break the other tasks, in particular `tests/core/test_task_registry.py`.
-3. Train both methods on the synthetic classification dataset on the GPU, then fine-tune a classification run from the self-supervised backbone, as described in item 12 of the tests above.
+Done in the development environment (PyTorch on the CPU, no GPU), on 2026-10-15:
+- Every new module imports, and the synthetic shapes configuration, pointed to a generated dataset, passes the checks.
+- Short CPU trainings of both methods (64 pixel images, batches of 4, 5 iterations, moving average of the weights on) on a generated synthetic classification dataset: checkpoints, validation passes, evaluation of the trained and averaged weights (k-NN metrics, effective rank, representation standard deviation, per-class table, class_metrics.csv, sample images of the image and its two views), no failed iteration. The validation InfoNCE loss started at log(2 x 4 - 1) = 1.95, as expected for random embeddings.
+- `tests/core`, `tests/configuration_processing` and `tests/deployment/test_export_specifications.py` pass, the expected list of tasks of the configuration checker test now holding `self_supervised`.
+
+Left to do:
+1. Run the whole test suite (`uv run pytest tests`) once more after the tests of the task are written.
+2. Train both methods on the GPU on the synthetic shapes (`self_supervised/configuration_synthetic_shapes.yaml`) until the k-NN accuracy stops rising, watching `Embedding Std` stay away from 0 and the positive pair accuracy not reaching 1 long before the k-NN accuracy rises (a shortcut shared by the views).
+3. Export the encoder of a trained run (`vision_training/deployment/export_model.py`) and check the `image_encoder` model in Triton.
+4. Fine-tune a classification run from the self-supervised backbone, as described in item 12 of the tests above.
 
 ## Open Points
 - The views are drawn on the device with kornia, batch by batch: their speed on large batches is to be measured on the GPU.
