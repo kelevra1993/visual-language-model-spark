@@ -2,7 +2,8 @@
 Tests of DataAugmenter of vision_training/data/augmentations.py: geometric augmentations moving and removing boxes,
 geometric augmentations moving the segmentation masks with nearest interpolation, geometric augmentations moving the
 instance masks and recomputing their boxes, photometric augmentations keeping boxes, masks and pixel range, images
-without boxes, shared or per-frame draws of the sequence frames, frame shuffling and the rejected inputs.
+without boxes, shared or per-frame draws of the sequence frames, frame shuffling, the rejected inputs, the zoom-out
+and the removal of the fragments of objects left by the crop.
 """
 
 import random
@@ -13,7 +14,7 @@ from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, GEOMETRIC_AUGMENTATION_TYPES,
-                                                 PHOTOMETRIC_AUGMENTATION_TYPES)
+                                                 MINIMUM_CROP_FRACTION, PHOTOMETRIC_AUGMENTATION_TYPES)
 
 IMAGE_SIZE = 96
 
@@ -437,3 +438,89 @@ def test_instance_masks_of_removed_objects_and_images_without_objects() -> None:
         augmenter.augment_batch(images=images, bounding_boxes=[mask_boxes], labels=[torch.tensor(data=[3, 4])],
                                 masks=torch.zeros(size=(1, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.int64),
                                 instance_masks=[instance_masks])
+
+
+def test_zoom_out_shrinks_the_image_boxes_and_masks_onto_a_black_canvas() -> None:
+    """
+    Verifies that the zoom-out shrinks the rectangle and its box together onto a black canvas, gives the squared shrink
+    factor as area scale, ignores the uncovered border of a class mask and leaves it as background in the instance
+    masks, for several random draws.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[]))
+    box = [20.0, 30.0, 50.0, 70.0]
+    class_mask = torch.ones(size=(IMAGE_SIZE, IMAGE_SIZE), dtype=torch.int64)
+    instance_masks = torch.ones(size=(1, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
+
+    for seed in range(5):
+        random.seed(seed)
+        image, boxes, mask, area_scale = augmenter.random_zoom_out(image=create_rectangle_image(box=box),
+                                                                   bounding_boxes=torch.tensor(data=[box]),
+                                                                   mask=class_mask)
+
+        # The box follows the shrunk rectangle, and its area shrinks by the area scale
+        assert torch.allclose(input=boxes[0], other=torch.tensor(data=get_bright_region_box(image=image)), atol=2.0)
+        box_area = float((boxes[0, 2] - boxes[0, 0]) * (boxes[0, 3] - boxes[0, 1]))
+        assert 0.25 <= area_scale <= 1.0 and box_area == pytest.approx(expected=30.0 * 40.0 * area_scale, rel=0.05)
+
+        # The class mask keeps its class on the shrunk image and is ignored on the canvas around it
+        assert int((mask == 1).sum()) == pytest.approx(expected=IMAGE_SIZE * IMAGE_SIZE * area_scale, rel=1e-6)
+        assert set(mask.unique().tolist()) <= {1, IGNORED_LABEL_INDEX}
+
+        # The instance masks stay binary, background around the shrunk image
+        random.seed(seed)
+        _, _, moved_masks, _ = augmenter.random_zoom_out(image=create_rectangle_image(box=box),
+                                                         bounding_boxes=torch.tensor(data=[box]), mask=instance_masks)
+        assert moved_masks.dtype == torch.uint8 and set(moved_masks.unique().tolist()) <= {0, 1}
+        assert int(moved_masks.sum()) == int((mask == 1).sum())
+
+
+def test_fragments_of_objects_are_removed_with_their_labels() -> None:
+    """
+    Verifies that a box keeping less than a quarter of its area inside the image is removed, while one keeping at least
+    a quarter is clipped and kept, and that the shares measured on the instance masks replace those of the boxes.
+    """
+    boxes = torch.tensor(data=[[-30.0, 10.0, 10.0, 40.0], [-35.0, 10.0, 5.0, 40.0], [10.0, 10.0, 40.0, 40.0]])
+    labels = torch.tensor(data=[3, 2, 1])
+
+    # 10 of 40 pixels of width inside the image is a quarter, kept, 5 of 40 is removed
+    kept_boxes, kept_labels, _ = DataAugmenter.clean_bounding_boxes(bounding_boxes=boxes, labels=labels,
+                                                                    image_height=IMAGE_SIZE, image_width=IMAGE_SIZE)
+    assert kept_labels.tolist() == [3, 1]
+    assert kept_boxes.tolist() == [[0.0, 10.0, 10.0, 40.0], [10.0, 10.0, 40.0, 40.0]]
+
+    # The shares of the mask pixels decide when they are given, whatever the boxes
+    instance_masks = torch.zeros(size=(3, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
+    _, kept_labels, kept_masks = DataAugmenter.clean_bounding_boxes(
+        bounding_boxes=boxes, labels=labels, image_height=IMAGE_SIZE, image_width=IMAGE_SIZE,
+        instance_masks=instance_masks, visible_fractions=torch.tensor(data=[0.1, 0.9, 0.5]))
+    assert kept_labels.tolist() == [2, 1] and kept_masks.shape[0] == 2
+
+
+def test_crop_removes_the_fragments_of_boxes_and_instance_masks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that a crop keeping the top left 75% of each side removes the object left with 4 of its 28 columns inside
+    the crop, from the boxes of the object detection and from the masks of the instance segmentation, and keeps the
+    object fully inside the crop.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): Fixes the crop fraction at 0.75 and its position at the top left corner.
+    """
+    monkeypatch.setattr(target=random, name="uniform", value=lambda low, high: MINIMUM_CROP_FRACTION)
+    monkeypatch.setattr(target=random, name="randint", value=lambda low, high: 0)
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_crop"]))
+    boxes = torch.tensor(data=[[68.0, 10.0, 96.0, 40.0], [10.0, 10.0, 40.0, 40.0]])
+    instance_masks = torch.zeros(size=(2, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
+    instance_masks[0, 10:40, 68:96] = 1
+    instance_masks[1, 10:40, 10:40] = 1
+
+    # Object detection: the box of the fragment keeps 1/7 of its area inside the crop
+    _, kept_boxes, kept_labels, _, _ = augmenter.augment_batch(images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)),
+                                                               bounding_boxes=[boxes],
+                                                               labels=[torch.tensor(data=[2, 1])])
+    assert kept_labels[0].tolist() == [1] and kept_boxes[0].shape == (1, 4)
+
+    # Instance segmentation: the mask of the fragment keeps 1/7 of the pixels it would have at the zoom of the crop
+    _, kept_boxes, kept_labels, _, kept_masks = augmenter.augment_batch(
+        images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)), bounding_boxes=[boxes],
+        labels=[torch.tensor(data=[2, 1])], instance_masks=[instance_masks])
+    assert kept_labels[0].tolist() == [1] and kept_masks[0].shape == (1, IMAGE_SIZE, IMAGE_SIZE)
