@@ -400,12 +400,11 @@ Detector:
   total_training_samples: 128
   # Beta scalar for the Smooth L1 Loss bounding box regression transition.
   localisation_loss_beta: 1/9
-  # Detection heads of another DET or INS run initialising this run. Their levels, head_configurations,
-  # normalization and modules must be identical in both runs, as well as the channels of the backbone blocks feeding
-  # them, the classification and per-class box regression layers being transferred too. The classes of the source
-  # run, read from its data.json, must be the first classes of this run, in the same order: classes may be appended
-  # after them, starting with zero weights and a bias 3 below the mean of the copied foreground ones, and with zero
-  # box regression weights.
+  # Detection heads of another DET or INS run initialising this run. Their levels, head_configurations, normalization
+  # and modules must be identical in both runs, as well as the channels of the backbone blocks feeding them, the
+  # classification and per-class box regression layers being transferred too. The classes of the source run, read from
+  # its data.json, must be the first classes of this run, in the same order: classes may be appended after them,
+  # initialised as set by new_class_initialisation below.
   pretrained:
     # Run folder whose trained detection heads initialise this run, null to start from random weights. A run resuming
     # from its own checkpoints does not load them again.
@@ -418,3 +417,8 @@ Detector:
     # Multiplies the learning rate of the loaded heads, e.g. 0.1 to fine-tune them ten times slower than the new
     # layers.
     learning_rate_multiplier: 1.0
+    # Initialisation of the classes this run adds after those of the source run: "source" (classification rows
+    # with zero weights and a bias 3 below the mean of the copied foreground biases, box regression rows at zero)
+    # or "random" (the random initialisation of a run trained from scratch, whose first rows are replaced by the
+    # copied classes). Gives the DRND run name token when "random".
+    new_class_initialisation: "source"
