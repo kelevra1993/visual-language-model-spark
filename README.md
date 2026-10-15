@@ -111,23 +111,22 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 
 | Task | Synthetic dataset | Classes | Configuration |
 |---|---|---|---|
-| CLS | one shape per 512 pixel image | 21 shapes: square, circle, triangle, rectangle, pentagon, hexagon, plus sign, star, octagon, rhombus, parallelogram, trapezoid, kite, right triangle, heptagon, nonagon, ellipse, semicircle, annulus, capsule, L-shape | `classification/configuration_synthetic_shapes.yaml` |
-| DET | up to 6 shapes per 1024 pixel image, a shape left with fewer than 64 visible pixels by the later ones being left out | the 21 shapes | `object_detection/configuration_synthetic_shapes.yaml` |
-| INS | up to 6 shapes per 512 pixel image, with the run length encoding of the visible part of every shape, a shape left with fewer than 64 visible pixels being left out | the 21 shapes | `instance_segmentation/configuration_synthetic_shapes.yaml` |
-| SEG | up to 6 shapes per 512 pixel image, with the class mask of every image | the 21 shapes and the background | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
+| CLS | one shape per 512 pixel image | 20 shapes: square, circle, triangle, rectangle, pentagon, hexagon, plus sign, star, octagon, rhombus, parallelogram, trapezoid, kite, heptagon, nonagon, ellipse, semicircle, annulus, capsule, L-shape | `classification/configuration_synthetic_shapes.yaml` |
+| DET | up to 6 shapes per 1024 pixel image, a shape left with fewer than 64 visible pixels by the later ones being left out | the 20 shapes | `object_detection/configuration_synthetic_shapes.yaml` |
+| INS | up to 6 shapes per 512 pixel image, with the run length encoding of the visible part of every shape, a shape left with fewer than 64 visible pixels being left out | the 20 shapes | `instance_segmentation/configuration_synthetic_shapes.yaml` |
+| SEG | up to 6 shapes per 512 pixel image, with the class mask of every image | the 20 shapes and the background | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
 | M2O | one shape crossing 2 to 12 frames | `moving_left`, `moving_right`, `moving_up`, `moving_down` | `sequence_classification/configuration_synthetic_sequences.yaml` |
-| M2M | one shape changing class 1 to 3 times over 2 to 12 frames, labelled per frame | the 21 shapes | `sequence_labelling/configuration_synthetic_sequences.yaml` |
+| M2M | one shape changing class 1 to 3 times over 2 to 12 frames, labelled per frame | the 20 shapes | `sequence_labelling/configuration_synthetic_sequences.yaml` |
 | CMP | a before and an after member of 2 to 12 frames, the before member showing 2 to 6 shapes | `loss_of_object` (the after member lost one shape), `same_number_of_objects` | `sequence_comparison/configuration_synthetic_pairs.yaml` |
 | SEL | one shape per frame over 4 to 12 frames, the largest circle, triangle and star of the sequence being the frames to select, the other frames showing smaller copies of them or other shapes | `unselected`, `circle`, `triangle`, `star` | `frame_selection/configuration_synthetic_sequences.yaml` |
 
 The shapes of the CLS, DET, INS and SEG images measure from 64 pixels (`MINIMUM_SHAPE_SIZE`) to a third of the image side, and the changing shape of M2M at least 64 pixels, so that the nonagon, the roundest polygon, stays distinct from the octagon and the circle. Every class keeps apart from its neighbours:
-- the triangles have no angle within 15° of a right angle;
 - the rhombuses have acute angles of 44° to 70°;
 - the parallelograms have sides of different lengths (ratio 1.5 to 2.5);
 - the trapezoids have one pair of parallel sides of different lengths;
 - the ellipses and capsules are 1.5 to 3 times as long as they are wide.
 
-The first nine shapes keep their category identifiers. A dataset generated before the twelve others were added keeps its nine classes, which its `labels.json` and `label_mapping.json` give to the training.
+The first nine shapes keep their category identifiers. A dataset generated before the eleven others were added keeps its nine classes, which its `labels.json` and `label_mapping.json` give to the training.
 
 ## Training
 

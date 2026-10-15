@@ -1,7 +1,7 @@
-# Configuration of the synthetic shapes classification dataset (one shape per image, of the 21 classes of
+# Configuration of the synthetic shapes classification dataset (one shape per image, of the 20 classes of
 # SHAPE_CATEGORIES: square, circle, triangle, rectangle, pentagon, hexagon, plus sign, star, octagon, rhombus,
-# parallelogram, trapezoid, kite, right triangle, heptagon, nonagon, ellipse, semicircle, annulus, capsule,
-# L-shape, from 64 pixels to a third of the image side, a dataset created before the last twelve were added
+# parallelogram, trapezoid, kite, heptagon, nonagon, ellipse, semicircle, annulus, capsule,
+# L-shape, from 64 pixels to a third of the image side, a dataset created before the last eleven were added
 # keeping the first nine), created with
 # vision_training/data/synthetic/create_synthetic_dataset.py and its task set to "classification". It is a trivial
 # classification task, used to check that the classifier learns.

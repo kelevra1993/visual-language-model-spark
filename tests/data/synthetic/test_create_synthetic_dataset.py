@@ -4,8 +4,8 @@ classification, semantic segmentation, sequence classification, sequence labelli
 selection datasets are valid, load with the datasets of the framework and follow their labels, the objects hidden by
 later ones being left out of the detection and instance segmentation labels. The shapes stay inside their square, keep
 the geometry that tells their class apart from the neighbouring classes (rhombus and square, parallelogram and
-rectangle, trapezoid and triangle, kite and rhombus, right triangle and triangle, annulus and circle), and the shapes
-whose class is the label get the minimum size.
+rectangle, trapezoid and triangle, kite and rhombus, annulus and circle), and the shapes whose class is the label
+get the minimum size.
 """
 
 import json
@@ -30,19 +30,15 @@ from vision_training.data.synthetic.create_synthetic_dataset import (KITE_UPPER_
                                                                      PARALLELOGRAM_ANGLE_RANGE_DEGREES,
                                                                      PARALLELOGRAM_SIDE_RATIO_RANGE,
                                                                      RHOMBUS_DIAGONAL_RATIO_RANGE,
-                                                                     RIGHT_TRIANGLE_LEG_RATIO_RANGE,
                                                                      SELECTION_CATEGORIES, SHAPE_CATEGORIES,
                                                                      SHAPE_DRAWING_FUNCTIONS,
                                                                      TRAPEZOID_TOP_RATIO_RANGE,
-                                                                     TRIANGLE_RIGHT_ANGLE_MARGIN_DEGREES,
                                                                      build_kite_vertices,
                                                                      build_parallelogram_vertices,
                                                                      build_rhombus_vertices,
-                                                                     build_right_triangle_vertices,
                                                                      build_trapezoid_vertices,
-                                                                     compute_triangle_angles,
                                                                      create_synthetic_dataset, draw_annulus_mask,
-                                                                     draw_shapes_frame, draw_triangle_mask,
+                                                                     draw_shapes_frame,
                                                                      generate_changing_shape_sequence,
                                                                      generate_image, get_mask_bounding_box,
                                                                      keep_visible_objects)
@@ -171,14 +167,13 @@ def test_every_shape_stays_inside_its_square(shape_name: str) -> None:
             assert column_indices.min() >= 128 - size // 2 and column_indices.max() <= 128 + size // 2
 
 
-def test_quadrilaterals_and_right_triangles_keep_their_defining_geometry() -> None:
+def test_quadrilaterals_keep_their_defining_geometry() -> None:
     """
     Verifies the vertices of the new polygon classes against their neighbouring classes: the rhombus has four equal
     sides and acute angles far from the right angles of the square, the parallelogram has equal opposite sides of
     clearly different lengths and acute angles far from the right angles of the rectangle, the trapezoid has one pair of
-    parallel sides of clearly different lengths and acute angles at its long side, the kite has two pairs of equal
-    adjacent sides of different lengths and an upper corner that does not flatten, and the right triangle has its right
-    angle and legs in their ratio range.
+    parallel sides of clearly different lengths and acute angles at its long side, and the kite has two pairs of equal
+    adjacent sides of different lengths and an upper corner that does not flatten.
     """
     random_generator = np.random.default_rng(seed=0)
 
@@ -221,40 +216,6 @@ def test_quadrilaterals_and_right_triangles_keep_their_defining_geometry() -> No
         largest_upper_angle = np.degrees(2 * np.arctan(KITE_WIDTH_RATIO_RANGE[1] * (1 + KITE_UPPER_RATIO_RANGE[0]) /
                                                        (2 * KITE_UPPER_RATIO_RANGE[0])))
         assert compute_polygon_angles(vertices=kite)[0] <= largest_upper_angle + GEOMETRY_TOLERANCE
-
-        # Right triangle: an exact right angle between legs in their ratio range
-        right_triangle = build_right_triangle_vertices(random_generator=random_generator)
-        right_triangle_angles = compute_triangle_angles(vertices=right_triangle)
-        assert np.isclose(right_triangle_angles.max(), 90.0, atol=GEOMETRY_TOLERANCE)
-        leg_lengths = compute_side_lengths(vertices=right_triangle)[[0, 2]]
-        assert (RIGHT_TRIANGLE_LEG_RATIO_RANGE[0] - GEOMETRY_TOLERANCE <= leg_lengths.min() / leg_lengths.max() <=
-                RIGHT_TRIANGLE_LEG_RATIO_RANGE[1] + GEOMETRY_TOLERANCE)
-
-
-def test_triangles_stay_away_from_the_right_angle(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    Verifies that the triangles of the 'triangle' class, read from the vertices they are filled with, never have an
-    angle within TRIANGLE_RIGHT_ANGLE_MARGIN_DEGREES of 90 degrees, the right triangles being their own class, and
-    that the angles of a 3-4-5 triangle are found.
-
-    Args:
-        monkeypatch (pytest.MonkeyPatch): The pytest fixture recording the polygons filled by OpenCV.
-    """
-    assert np.allclose(compute_triangle_angles(vertices=np.array([[0, 0], [4, 0], [0, 3]])),
-                       [90.0, np.degrees(np.arctan(3 / 4)), np.degrees(np.arctan(4 / 3))])
-
-    # Vertices of every filled triangle, recorded on their way to OpenCV
-    fill_polygon_recorder = CallRecorder(function=cv2.fillPoly)
-    monkeypatch.setattr(target=synthetic_dataset_module.cv2, name="fillPoly", value=fill_polygon_recorder)
-    random_generator = np.random.default_rng(seed=0)
-    for _ in range(200):
-        draw_triangle_mask(mask=np.zeros(shape=(IMAGE_SIZE, IMAGE_SIZE), dtype=np.uint8), center_x=128, center_y=128,
-                           size=MINIMUM_SHAPE_SIZE, random_generator=random_generator)
-
-    for call in fill_polygon_recorder.calls:
-        triangle_angles = compute_triangle_angles(vertices=call["pts"][0].reshape(-1, 2))
-        assert np.abs(triangle_angles - 90.0).min() >= TRIANGLE_RIGHT_ANGLE_MARGIN_DEGREES
-    assert len(fill_polygon_recorder.calls) == 200
 
 
 def test_annulus_is_a_closed_ring_around_a_hole() -> None:
@@ -369,7 +330,7 @@ def test_created_dataset_is_valid_coco_and_loads(tmp_path: Path) -> None:
 def test_created_classification_dataset_has_one_shape_per_image(tmp_path: Path) -> None:
     """
     Verifies the classification mode of the generator: every split gets a manifest with one sample per image, labelled
-    with the category of its single shape, a label mapping giving the classes 0 to 20, and the classification dataset
+    with the category of its single shape, a label mapping giving the classes 0 to 19, and the classification dataset
     loads it with its class names.
 
     Args:
@@ -385,7 +346,7 @@ def test_created_classification_dataset_has_one_shape_per_image(tmp_path: Path) 
     assert all(sample["category_id"] in SHAPE_CATEGORIES.values() for sample in labels["samples"])
     assert all((tmp_path / "train" / "data" / sample["file_name"]).is_file() for sample in labels["samples"])
 
-    # The classifier predicts no background class: the 21 categories become the classes 0 to 20
+    # The classifier predicts no background class: the 20 categories become the classes 0 to 19
     label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
     assert label_mapping == {str(category_identifier): category_identifier - 1
                              for category_identifier in SHAPE_CATEGORIES.values()}
@@ -428,7 +389,7 @@ def test_created_segmentation_dataset_masks_match_the_shapes(tmp_path: Path) -> 
         assert np.array_equal(mask > 0, shape_pixels)
         assert set(np.unique(mask[mask > 0]).tolist()) <= set(SHAPE_CATEGORIES.values())
 
-    # The segmenter predicts the background as class 0: the 21 categories keep their identifiers as classes
+    # The segmenter predicts the background as class 0: the 20 categories keep their identifiers as classes
     label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
     assert label_mapping == {str(category_identifier): category_identifier
                              for category_identifier in SHAPE_CATEGORIES.values()}
@@ -593,8 +554,8 @@ def test_created_sequence_labelling_dataset_labels_every_frame(tmp_path: Path) -
     """
     Verifies the sequence labelling mode of the generator: every sequence lists the shape category of every frame,
     2 to 6 frames whose number varies from sequence to sequence, the shape changes class at least once, the frames of
-    the same class segment are identical and two consecutive segments differ, and the label mapping gives the 21
-    shapes the classes 0 to 20.
+    the same class segment are identical and two consecutive segments differ, and the label mapping gives the 20
+    shapes the classes 0 to 19.
 
     Args:
         tmp_path (Path): The pytest temporary directory.

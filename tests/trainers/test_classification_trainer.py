@@ -111,9 +111,9 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5, head_settings=head_settings,
         evaluation_settings={"error_dumps": {"activated": True, "maximum_per_class_pair": 1}}))
-    assert trainer.run_name.startswith("CLS_") and trainer.run_name.endswith("-LS0.1-CWB_MC21")
+    assert trainer.run_name.startswith("CLS_") and trainer.run_name.endswith("-LS0.1-CWB_MC20")
     assert trainer.class_names == list(SHAPE_CATEGORIES)
-    # Balanced weights, a class without training image counting as one, as some of the 21 classes may be empty
+    # Balanced weights, a class without training image counting as one, as some of the 20 classes may be empty
     class_counts = torch.tensor(data=trainer.train_dataloader.dataset.get_class_counts(), dtype=torch.float32)
     clamped_class_counts = class_counts.clamp(min=1.0)
     expected_class_weights = clamped_class_counts.sum() / (len(SHAPE_CATEGORIES) * clamped_class_counts)
@@ -206,7 +206,7 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5,
         head_settings={"output_mode": "multi_label"}, evaluation_settings={}))
-    assert trainer.run_name.endswith("_ML21")
+    assert trainer.run_name.endswith("_ML20")
     with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
         trainer.run_training_loop()
     results = report_mock.call_args.kwargs["results"]

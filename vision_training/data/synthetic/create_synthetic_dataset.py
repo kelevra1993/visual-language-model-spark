@@ -18,11 +18,11 @@ from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Shape classes of the synthetic dataset and their COCO category identifiers, the first nine keeping the identifiers
-# of the datasets created before the other twelve were added
+# of the datasets created before the other eleven were added
 SHAPE_CATEGORIES = {"square": 1, "circle": 2, "triangle": 3, "rectangle": 4, "pentagon": 5, "hexagon": 6,
                     "plus_sign": 7, "star": 8, "octagon": 9, "rhombus": 10, "parallelogram": 11, "trapezoid": 12,
-                    "kite": 13, "right_triangle": 14, "heptagon": 15, "nonagon": 16, "ellipse": 17, "semicircle": 18,
-                    "annulus": 19, "capsule": 20, "l_shape": 21}
+                    "kite": 13, "heptagon": 14, "nonagon": 15, "ellipse": 16, "semicircle": 17, "annulus": 18,
+                    "capsule": 19, "l_shape": 20}
 
 # Smallest size of the shapes whose class is the label (objects of the detection, segmentation and classification
 # images, changing shape of the sequence labelling): the sides of a nonagon, the roundest polygon, then bend 2 pixels
@@ -32,10 +32,8 @@ MINIMUM_SHAPE_SIZE = 64
 # Rectangles are elongated to exercise the 0.5 and 2.0 anchor aspect ratios (ratio of the long to the short side)
 RECTANGLE_ASPECT_RATIO_RANGE = (1.5, 3.0)
 
-# Minimum area of a triangle, relative to the area of the square region its vertices are drawn in, and smallest gap
-# between each of its angles and 90 degrees, the right triangles being a class of their own
+# Minimum area of a triangle, relative to the area of the square region its vertices are drawn in
 MINIMUM_TRIANGLE_AREA_FRACTION = 0.15
-TRIANGLE_RIGHT_ANGLE_MARGIN_DEGREES = 15.0
 
 # Ratio of the inner to the outer radius of the five-pointed stars, and width of the arms of the plus signs relative
 # to their length
@@ -64,9 +62,6 @@ TRAPEZOID_TOP_POSITION_RANGE = (0.25, 0.75)
 # does not flatten into a triangle
 KITE_UPPER_RATIO_RANGE = (0.35, 0.6)
 KITE_WIDTH_RATIO_RANGE = (0.5, 0.7)
-
-# Ratio of the short to the long leg of the right triangles
-RIGHT_TRIANGLE_LEG_RATIO_RANGE = (0.4, 1.0)
 
 # Ratio of the long to the short axis of the ellipses and of the capsules, far from the circles, and number of
 # vertices drawing each round end of a capsule
@@ -193,36 +188,11 @@ def draw_circle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, 
     cv2.circle(img=mask, center=(center_x, center_y), radius=size // 2, color=255, thickness=-1)
 
 
-def compute_triangle_angles(vertices: np.ndarray) -> np.ndarray:
-    """
-    Computes the three angles of a triangle, used to keep the triangles of the 'triangle' class away from the right
-    angle of the 'right_triangle' class.
-
-    Args:
-        vertices (np.ndarray): The [3, 2] vertices of a non-degenerate triangle.
-
-    Returns:
-        np.ndarray: The [3] angles in degrees, the angle at every vertex in turn.
-    """
-    vertices = vertices.astype(np.float64)
-    angles = []
-
-    # Angle at every vertex, between the edges going to the two other vertices
-    for vertex_index in range(3):
-        first_edge = vertices[(vertex_index + 1) % 3] - vertices[vertex_index]
-        second_edge = vertices[(vertex_index + 2) % 3] - vertices[vertex_index]
-        cosine = np.dot(first_edge, second_edge) / (np.linalg.norm(first_edge) * np.linalg.norm(second_edge))
-        angles.append(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))))
-    return np.array(angles)
-
-
 def draw_triangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
                        random_generator: np.random.Generator) -> None:
     """
     Draws a filled triangle with three random vertices inside a 'size' x 'size' square on a binary mask, one of the
-    synthetic shape classes. Vertices are redrawn until the triangle is not too flat to be recognisable and none of its
-    angles is within TRIANGLE_RIGHT_ANGLE_MARGIN_DEGREES of 90 degrees, the right triangles being the 'right_triangle'
-    class.
+    synthetic shape classes. Vertices are redrawn until the triangle is not too flat to be recognisable.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -238,12 +208,7 @@ def draw_triangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int
         # Twice the triangle area, from the cross product of two of its edges
         first_edge, second_edge = vertices[1] - vertices[0], vertices[2] - vertices[0]
         doubled_area = abs(int(first_edge[0] * second_edge[1] - first_edge[1] * second_edge[0]))
-        if doubled_area < 2 * MINIMUM_TRIANGLE_AREA_FRACTION * size * size:
-            continue
-
-        # A triangle large enough is kept when every one of its angles is far from the right angle
-        right_angle_gaps = np.abs(compute_triangle_angles(vertices=vertices) - 90.0)
-        if right_angle_gaps.min() >= TRIANGLE_RIGHT_ANGLE_MARGIN_DEGREES:
+        if doubled_area >= 2 * MINIMUM_TRIANGLE_AREA_FRACTION * size * size:
             break
 
     points = (vertices + np.array([center_x, center_y])).astype(np.int32).reshape(-1, 1, 2)
@@ -291,8 +256,8 @@ def fill_rotated_polygon(mask: np.ndarray, center_x: int, center_y: int, size: i
     Fills on a binary mask a polygon given by its vertices around its centre, mirrored for half of the shapes and
     turned by a random angle, then scaled so that its farthest vertex lies on the circle of diameter 'size' and kept
     inside the 'size' x 'size' square of the shape. Shared by the regular polygons and the stars (fill_radial_polygon)
-    and by the rhombuses, parallelograms, trapezoids, kites, right triangles, capsules and L-shapes, whose mirror
-    images (a parallelogram leaning the other way, an L turned into a J) belong to the same class.
+    and by the rhombuses, parallelograms, trapezoids, kites, capsules and L-shapes, whose mirror images (a
+    parallelogram leaning the other way, an L turned into a J) belong to the same class.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -587,39 +552,6 @@ def draw_kite_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
                          random_generator=random_generator)
 
 
-def build_right_triangle_vertices(random_generator: np.random.Generator) -> np.ndarray:
-    """
-    Builds the vertices of a right triangle for draw_right_triangle_mask, its short leg 0.4 to 1 times its long leg.
-
-    Args:
-        random_generator (np.random.Generator): The random generator drawing the ratio of the legs.
-
-    Returns:
-        np.ndarray: The [3, 2] vertices, centred on the middle of the hypotenuse, the legs along the axes.
-    """
-    leg_ratio = random_generator.uniform(low=RIGHT_TRIANGLE_LEG_RATIO_RANGE[0], high=RIGHT_TRIANGLE_LEG_RATIO_RANGE[1])
-    return centre_vertices(vertices=np.array([[0.0, 0.0], [1.0, 0.0], [0.0, leg_ratio]]))
-
-
-def draw_right_triangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                             random_generator: np.random.Generator) -> None:
-    """
-    Draws a filled right triangle whose hypotenuse is 'size' long, at a random rotation and mirrored for half of them,
-    on a binary mask. One of the synthetic shape classes, the triangles of the 'triangle' class having no angle close
-    to the right angle.
-
-    Args:
-        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
-        center_x (int): The horizontal centre of the shape in pixels.
-        center_y (int): The vertical centre of the shape in pixels.
-        size (int): The length of the hypotenuse in pixels.
-        random_generator (np.random.Generator): The random generator drawing the legs and the rotation.
-    """
-    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
-                         vertices=build_right_triangle_vertices(random_generator=random_generator),
-                         random_generator=random_generator)
-
-
 def draw_heptagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
                        random_generator: np.random.Generator) -> None:
     """
@@ -801,8 +733,7 @@ SHAPE_DRAWING_FUNCTIONS = {"square": draw_square_mask, "circle": draw_circle_mas
                            "hexagon": draw_hexagon_mask, "plus_sign": draw_plus_sign_mask, "star": draw_star_mask,
                            "octagon": draw_octagon_mask, "rhombus": draw_rhombus_mask,
                            "parallelogram": draw_parallelogram_mask, "trapezoid": draw_trapezoid_mask,
-                           "kite": draw_kite_mask, "right_triangle": draw_right_triangle_mask,
-                           "heptagon": draw_heptagon_mask, "nonagon": draw_nonagon_mask,
+                           "kite": draw_kite_mask, "heptagon": draw_heptagon_mask, "nonagon": draw_nonagon_mask,
                            "ellipse": draw_ellipse_mask, "semicircle": draw_semicircle_mask,
                            "annulus": draw_annulus_mask, "capsule": draw_capsule_mask, "l_shape": draw_l_shape_mask}
 

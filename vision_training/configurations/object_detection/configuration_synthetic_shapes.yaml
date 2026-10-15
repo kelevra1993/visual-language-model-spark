@@ -1,7 +1,7 @@
-# Configuration of the synthetic shapes dataset (the 21 shape classes of SHAPE_CATEGORIES: squares, circles,
+# Configuration of the synthetic shapes dataset (the 20 shape classes of SHAPE_CATEGORIES: squares, circles,
 # triangles, rectangles, pentagons, hexagons, plus signs, stars, octagons, rhombuses, parallelograms, trapezoids,
-# kites, right triangles, heptagons, nonagons, ellipses, semicircles, annuluses, capsules, L-shapes, from 64 pixels
-# to a third of the image side, a dataset created before the last twelve were added keeping the first nine),
+# kites, heptagons, nonagons, ellipses, semicircles, annuluses, capsules, L-shapes, from 64 pixels
+# to a third of the image side, a dataset created before the last eleven were added keeping the first nine),
 # created with vision_training/data/synthetic/create_synthetic_dataset.py. It is a trivial
 # detection task, used to check that the detector learns.
 ExperimentConfiguration:
