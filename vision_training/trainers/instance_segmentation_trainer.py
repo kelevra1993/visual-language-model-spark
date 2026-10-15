@@ -1,9 +1,10 @@
 """
 Trainer of the instance segmentation task: the detection trainer with the instance masks of the COCO loaders, the
 instance segmenter with its mask loss, the masks moved by the geometric augmentations with their boxes recomputed, and
-the evaluation of the checkpoints with the box and mask average precisions, the class thresholds, confusion matrix and
-error images of the detection trainer matched by the masks, the sample and error images painting the masks under the
-boxes. Registered for the instance segmentation task in the task registry.
+the evaluation of the checkpoints with the box and mask average precisions (the mask ones sizing the objects by their
+mask areas), the proposal recall, the class thresholds, confusion matrix and error images of the detection trainer
+matched by the masks, the sample and error images painting the masks under the boxes. Registered for the instance
+segmentation task in the task registry.
 """
 
 import numpy as np
@@ -127,9 +128,10 @@ class InstanceSegmentationTrainer(DetectionTrainer):
                                 image_index: int) -> Dict[str, torch.Tensor]:
         """
         Gives the valid detections of one test image like the detection trainer, with the mask intersection over union
-        of every valid detection with every ground truth mask, computed on the device of the model from the detection
-        masks pasted at the network resolution, for the mask average precision and the matching of the confusion
-        matrix. The masks themselves are not kept, since those of a whole test split would not fit in memory.
+        of every valid detection with every ground truth mask and the area of every detection mask, computed on the
+        device of the model from the detection masks pasted at the network resolution, for the mask average precision
+        (the areas sizing the detections) and the matching of the confusion matrix. The masks themselves are not kept,
+        since those of a whole test split would not fit in memory.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -137,20 +139,38 @@ class InstanceSegmentationTrainer(DetectionTrainer):
             image_index (int): The index of the image in the batch.
 
         Returns:
-            Dict[str, torch.Tensor]: The detection 'boxes' [D, 4], 'scores' [D] and 'labels' [D] of the image, and
-                their 'mask_overlaps' [D, G] with its objects.
+            Dict[str, torch.Tensor]: The detection 'boxes' [D, 4], 'scores' [D] and 'labels' [D] of the image, their
+                'mask_overlaps' [D, G] with its objects and their 'mask_areas' [D].
         """
         detection = super().gather_image_detections(batch=batch, predictions=predictions, image_index=image_index)
-        detection["mask_overlaps"] = self.compute_mask_overlaps(predictions=predictions,
-                                                                ground_truth_masks=batch["instance_masks"][image_index],
-                                                                image_index=image_index).cpu()
+        mask_overlaps, mask_areas = self.compute_mask_overlaps(predictions=predictions,
+                                                               ground_truth_masks=batch["instance_masks"][image_index],
+                                                               image_index=image_index)
+        detection["mask_overlaps"], detection["mask_areas"] = mask_overlaps.cpu(), mask_areas.cpu()
         return detection
 
-    def compute_mask_overlaps(self, predictions: Dict[str, Any], ground_truth_masks: torch.Tensor,
-                              image_index: int) -> torch.Tensor:
+    def gather_image_ground_truth(self, batch: Dict[str, Any], image_index: int) -> Dict[str, torch.Tensor]:
         """
-        Computes the mask intersection over union of the valid detections of an image with its ground truth masks,
-        the detection masks being pasted into their boxes and thresholded at the mask threshold, a few at a time.
+        Gives the objects of one test image like the detection trainer, with the number of pixels of every ground truth
+        mask, which sizes the objects of the mask average precision.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            image_index (int): The index of the image in the batch.
+
+        Returns:
+            Dict[str, torch.Tensor]: The ground truth 'boxes' [G, 4], 'labels' [G] and 'mask_areas' [G] of the image.
+        """
+        ground_truth = super().gather_image_ground_truth(batch=batch, image_index=image_index)
+        ground_truth["mask_areas"] = (batch["instance_masks"][image_index] > 0).flatten(start_dim=1).sum(dim=1).cpu()
+        return ground_truth
+
+    def compute_mask_overlaps(self, predictions: Dict[str, Any], ground_truth_masks: torch.Tensor,
+                              image_index: int) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes the mask intersection over union of the valid detections of an image with its ground truth masks and
+        the area of every detection mask, the detection masks being pasted into their boxes and thresholded at the mask
+        threshold, a few at a time.
 
         Args:
             predictions (Dict[str, Any]): The outputs of the instance segmenter, with the masks of the detections.
@@ -158,7 +178,8 @@ class InstanceSegmentationTrainer(DetectionTrainer):
             image_index (int): The index of the image in the batch.
 
         Returns:
-            torch.Tensor: The [D, G] mask intersection over union of the D valid detections.
+            Tuple[torch.Tensor, torch.Tensor]: The [D, G] mask intersection over union of the D valid detections, and
+                the [D] number of pixels of their thresholded masks.
         """
         number_detections = int(predictions["number_detections"][image_index])
         detection_masks = predictions["final_detection_masks"][image_index, :number_detections]
@@ -167,32 +188,36 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         binary_ground_truth_masks = ground_truth_masks > 0
         overlaps = [torch.zeros(size=(0, ground_truth_masks.shape[0]), dtype=torch.float64,
                                 device=ground_truth_masks.device)]
+        mask_areas = [torch.zeros(size=(0,), dtype=torch.int64, device=ground_truth_masks.device)]
 
-        # Paste and compare a chunk of detections at a time
+        # Paste and compare a chunk of detections at a time, counting the pixels of their masks
         for chunk_start in range(0, number_detections, MASK_OVERLAP_CHUNK_SIZE):
             chunk_end = chunk_start + MASK_OVERLAP_CHUNK_SIZE
             pasted_masks = paste_instance_masks(masks=detection_masks[chunk_start:chunk_end],
                                                 boxes=detection_boxes[chunk_start:chunk_end],
                                                 image_height=image_height, image_width=image_width)
+            binary_detection_masks = pasted_masks >= self.mask_threshold
             overlaps.append(compute_mask_intersection_over_union(
-                predicted_masks=pasted_masks >= self.mask_threshold, ground_truth_masks=binary_ground_truth_masks,
+                predicted_masks=binary_detection_masks, ground_truth_masks=binary_ground_truth_masks,
                 chunk_size=MASK_OVERLAP_CHUNK_SIZE))
-        return torch.cat(tensors=overlaps, dim=0)
+            mask_areas.append(binary_detection_masks.flatten(start_dim=1).sum(dim=1))
+        return torch.cat(tensors=overlaps, dim=0), torch.cat(tensors=mask_areas)
 
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
-        Computes the mask and box mean average precisions of the test split with the three average precision methods,
-        the mask mAP@0.5 of the area method comparing the checkpoints, and the score threshold of every class reaching
-        the target precision with the masks, and organises them for the report: the mask tables then the box tables
-        (methods always shown, classes with the per-class report, the thresholds in the mask table), the box scalars
-        under the names of the object detection and the mask scalars under 'Mask' names. The box and mask average
-        precisions and the thresholds of every class are saved together to class_metrics.csv in
-        '<run>/Evaluation/Iteration_<n>/', with the class thresholds, the confusion matrix and the error images of the
-        detection trainer (save_error_analysis).
+        Computes the mask and box mean average precisions of the test split with the three average precision methods
+        and for every object size (by mask and by box area), the mask mAP@0.5 of the area method comparing the
+        checkpoints, the score threshold of every class reaching the target precision with the masks and the proposal
+        recall, and organises them for the report: the mask tables then the box tables (methods and object sizes always
+        shown, then the proposal recall, classes with the per-class report, the thresholds in the mask table), the box
+        scalars under the names of the object detection and the mask scalars under 'Mask' names. The box and mask
+        average precisions and the thresholds of every class are saved together to class_metrics.csv in
+        '<run>/Evaluation/Iteration_<n>/', with the proposal recall (proposal_recall.csv), the class thresholds, the
+        confusion matrix and the error images of the detection trainer (save_error_analysis).
 
         Args:
-            accumulator (Dict[str, Any]): The detections, with their mask overlaps, and ground truths of the test split,
-                with the confusion matrix and the error images.
+            accumulator (Dict[str, Any]): The detections, with their mask overlaps and areas, and ground truths of the
+                test split, with the confusion matrix, the error images and the proposal recall.
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
@@ -204,24 +229,29 @@ class InstanceSegmentationTrainer(DetectionTrainer):
                                                          target_precision=self.target_precision)
         box_summary = self.summarise_average_precisions(accumulator=accumulator, overlap_type="boxes",
                                                         title_prefix="Box", legend=BOX_TABLE_LEGEND)
+        proposal_recall = self.save_proposal_recall(accumulator=accumulator, iteration=iteration)
 
-        # Box and mask average precisions of every class in one row per class, saved whatever the per-class report
+        # Box and mask average precisions of every class in one row per class, saved whatever the per-class report,
+        # and the proposal recall
         class_rows = [{**box_row, **mask_row} for box_row, mask_row in zip(box_summary["class_rows"],
                                                                            mask_summary["class_rows"], strict=True)]
         evaluation_folder = self.get_evaluation_folder(iteration=iteration)
-        files = {"Class Metrics": write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)}
+        files = {"Class Metrics": write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder),
+                 "Proposal Recall": proposal_recall["file"]}
 
         # Class thresholds, confusion matrix and error images of the detections of the deployed instance segmenter
         error_analysis = self.save_error_analysis(accumulator=accumulator, iteration=iteration,
                                                   class_score_thresholds=mask_summary["class_score_thresholds"])
         files.update(error_analysis["files"])
 
-        # Tables of the methods first, then the per-class tables, the masks before the boxes
-        tables = [mask_summary["tables"][0], box_summary["tables"][0], mask_summary["tables"][1],
-                  box_summary["tables"][1]]
+        # Tables of the methods and object sizes first, then the proposal recall and the per-class tables, the masks
+        # before the boxes
+        tables = [mask_summary["tables"]["methods"], mask_summary["tables"]["sizes"], box_summary["tables"]["methods"],
+                  box_summary["tables"]["sizes"], proposal_recall["table"], mask_summary["tables"]["classes"],
+                  box_summary["tables"]["classes"]]
         return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {},
                 "notes": error_analysis["notes"], "tables": tables,
-                "scalars": {**box_summary["scalars"], **mask_summary["scalars"]},
+                "scalars": {**box_summary["scalars"], **mask_summary["scalars"], **proposal_recall["scalars"]},
                 "class_scalars": {**box_summary["class_scalars"], **mask_summary["class_scalars"]},
                 "images": error_analysis["images"], "files": files, "headline_metric": "Mask mAP@0.5/area"}
 

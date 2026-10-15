@@ -1,6 +1,7 @@
 """
 CocoDetectionDataset, the dataset of the object detection and instance segmentation tasks reading a COCO 'labels.json'
-split with OpenCV on the CPU workers, and the collate function batching its images and per-image boxes, labels and
+split with OpenCV on the CPU workers, the selection of the objects of an image from its annotations (also used by the
+anchor recall of the detection trainer), and the collate function batching its images and per-image boxes, labels and
 instance masks. Used by get_detection_dataloader of data/loaders.py.
 """
 
@@ -11,7 +12,7 @@ import cv2
 import numpy as np
 import torch
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 from torch.utils.data import Dataset
 
 from vision_training.data.detection.coco_masks import build_instance_mask
@@ -50,6 +51,46 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
     if "instance_masks" in batch[0]:
         batched_samples["instance_masks"] = [item["instance_masks"] for item in batch]
     return batched_samples
+
+
+def select_image_objects(annotations: List[Dict[str, Any]], label_mode: str,
+                         label_dictionary: Dict[str, Any]) -> Tuple[List[List[float]], List[int],
+                                                                    List[Dict[str, Any]]]:
+    """
+    Selects the objects of one image the object detection and instance segmentation networks learn from its COCO
+    annotations, shared by CocoDetectionDataset, which loads them with the image, and by the anchor recall of the
+    detection trainer at launch, which measures how well the anchors fit them without loading any image. The crowd
+    annotations are left out, and every category is mapped to its class, a category mapped to the background (0) being
+    left out too.
+
+    Args:
+        annotations (List[Dict[str, Any]]): The COCO annotations of the image.
+        label_mode (str): "binary" (every category becomes class 1) or "multi_class" (label_dictionary).
+        label_dictionary (Dict[str, Any]): The class of every category identifier, as an integer or a string key.
+
+    Returns:
+        Tuple[List[List[float]], List[int], List[Dict[str, Any]]]: The [x1, y1, x2, y2] box of every kept object in
+            original image pixels, its class and its annotation.
+    """
+    bounding_boxes, labels, kept_annotations = [], [], []
+    for annotation in annotations:
+        # The crowd annotations cover several objects with one box and one mask, left out of the object detection and
+        # the instance segmentation, whose objects are single ones
+        if annotation.get('iscrowd', 0) == 1:
+            continue
+        raw_id = annotation['category_id']
+        if label_mode == "binary":
+            mapped_label = 1 if raw_id > 0 else 0
+        else:
+            mapped_label = label_dictionary.get(raw_id, label_dictionary.get(str(raw_id), 0))
+
+        # Objects mapped to the background are not learnt
+        if mapped_label > 0:
+            x_coordinate, y_coordinate, width, height = annotation['bbox']
+            bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
+            labels.append(mapped_label)
+            kept_annotations.append(annotation)
+    return bounding_boxes, labels, kept_annotations
 
 
 class CocoDetectionDataset(Dataset):
@@ -143,25 +184,10 @@ class CocoDetectionDataset(Dataset):
         else:
             image_annotations = []
 
-        bounding_boxes = []
-        labels = []
-        kept_annotations = []
-        for annotation in image_annotations:
-            # The crowd annotations cover several objects with one box and one mask, left out of the object
-            # detection and the instance segmentation, whose objects are single ones
-            if annotation.get('iscrowd', 0) == 1:
-                continue
-            raw_id = annotation['category_id']
-            if self.label_mode == "binary":
-                mapped_label = 1 if raw_id > 0 else 0
-            else:
-                mapped_label = self.label_dictionary.get(raw_id, self.label_dictionary.get(str(raw_id), 0))
-
-            if mapped_label > 0:
-                x_coordinate, y_coordinate, width, height = annotation['bbox']
-                bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
-                labels.append(mapped_label)
-                kept_annotations.append(annotation)
+        # Objects of the image the network learns, with their [x1, y1, x2, y2] boxes in original pixels
+        bounding_boxes, labels, kept_annotations = select_image_objects(annotations=image_annotations,
+                                                                        label_mode=self.label_mode,
+                                                                        label_dictionary=self.label_dictionary)
 
         if len(bounding_boxes) == 0:
             bounding_boxes_numpy = np.zeros(shape=(0, 4), dtype=np.float32)

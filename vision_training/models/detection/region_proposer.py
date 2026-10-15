@@ -261,7 +261,7 @@ class RegionProposalFilter(nn.Module):
     def forward(self, proposal_boxes: torch.Tensor,
                 proposal_scores: torch.Tensor,
                 proposal_origins: torch.Tensor,
-                input_image_size: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                input_image_size: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Filters region proposal bounding boxes using objectness scores and Non-Maximum Suppression (NMS).
 
@@ -270,7 +270,8 @@ class RegionProposalFilter(nn.Module):
         activation to the scores, selects the top-k highest scoring proposals of every image (Pre-NMS), clamps their
         coordinates to the image boundaries, applies NMS to remove overlapping duplicates, and finally selects the
         top-k proposals from the remaining set (Post-NMS), the slots of an image left empty being filled with copies
-        of its random survivors.
+        of its random survivors. The mask of the survivors tells them from these copies, for the proposal recall of
+        the evaluation, which counts the proposals of every level.
 
         Args:
             proposal_boxes (torch.Tensor): A tensor containing the proposed bounding boxes of shape [B, N, 4].
@@ -279,10 +280,12 @@ class RegionProposalFilter(nn.Module):
             input_image_size (int): The spatial dimension (height and width) of the square input image.
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
                 - filtered_proposal_boxes (torch.Tensor): The filtered bounding boxes of shape [B, Post_NMS, 4].
                 - filtered_proposal_scores (torch.Tensor): The objectness scores for the filtered boxes of shape [B, Post_NMS].
                 - filtered_proposal_origins (torch.Tensor): The origin indices of shape [B, Post_NMS].
+                - valid_proposal_mask (torch.Tensor): The [B, Post_NMS] boolean mask of the survivors, False for the
+                  padding copies.
         """
         pre_nms_filter_proposals = self.training_pre_nms_proposals if self.training else self.inference_pre_nms_proposals
         post_nms_filter_proposals = self.training_post_nms_proposals if self.training else self.inference_post_nms_proposals
@@ -294,8 +297,11 @@ class RegionProposalFilter(nn.Module):
             post_nms_proposals=post_nms_filter_proposals, nms_iou_threshold=self.nms_iou_threshold,
             input_image_size=input_image_size, suppress_per_image=True)
 
-        # Slots left empty by the suppression filled with copies of random survivors of the same image
-        return self._pad_proposals_to_target_size(boxes=boxes, scores=scores, origins=origins, valid_mask=valid_mask)
+        # Slots left empty by the suppression filled with copies of random survivors of the same image, the survivors
+        # keeping their slots
+        boxes, scores, origins = self._pad_proposals_to_target_size(boxes=boxes, scores=scores, origins=origins,
+                                                                    valid_mask=valid_mask)
+        return boxes, scores, origins, valid_mask
 
     def _pad_proposals_to_target_size(self, boxes: torch.Tensor, scores: torch.Tensor, origins: torch.Tensor,
                                       valid_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:

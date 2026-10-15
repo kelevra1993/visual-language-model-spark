@@ -1,8 +1,8 @@
 """
 Tests of vision_training/evaluation/detection/mean_average_precision.py on a worked example and edge cases: true
 positives, precision recall curve, average precision, duplicate, missing and wrong-class detections, the COCO-style
-mean over overlap thresholds, the score threshold of every class, and the mask average precision of the instance
-segmentation.
+mean over overlap thresholds, the score threshold of every class, the mask average precision of the instance
+segmentation, and the average precision of the small, medium and large objects with the COCO ignore rule.
 """
 
 import pytest
@@ -13,6 +13,7 @@ from typing import Dict, List
 from vision_training.evaluation.detection.mean_average_precision import (compute_average_precision, compute_precision_recall,
                                                evaluate_detections, gather_class_detections,
                                                match_detections_to_ground_truth)
+from vision_training.evaluation.detection.object_sizes import compute_box_areas
 from vision_training.models.detection.box_operations import get_intersection_over_union
 from vision_training.models.instance_segmentation.mask_operations import compute_mask_intersection_over_union
 
@@ -278,6 +279,49 @@ def test_unknown_method_is_rejected() -> None:
                                   method="trapezoid")
 
 
+def test_average_precision_by_object_size() -> None:
+    """
+    Verifies the breakdown by object size on one class with a small (10 x 10), a medium (50 x 50) and a large
+    (100 x 100) object: the small object is found after an unmatched small detection (AP 0.5 with the area method), the
+    medium one is never found (AP 0) and the large one is found before an unmatched large detection (AP 1). Every size
+    counts its own ground truths, and a size without any object gets no mAP.
+    """
+    ground_truths = [make_ground_truth(boxes=[[0, 0, 10, 10], [100, 100, 150, 150], [200, 200, 300, 300]],
+                                       labels=[1, 1, 1])]
+    detections = [make_detections(boxes=[[400, 400, 410, 410], [0, 0, 10, 10], [200, 200, 300, 300],
+                                         [500, 500, 700, 700]], scores=[0.95, 0.9, 0.8, 0.7], labels=[1, 1, 1, 1])]
+
+    sizes = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=2)["area"]["sizes"]
+    assert sizes["small"]["mAP@0.5"] == pytest.approx(expected=0.5)
+    assert sizes["medium"]["mAP@0.5"] == pytest.approx(expected=0.0)
+    assert sizes["large"]["mAP@[0.5:0.95]"] == pytest.approx(expected=1.0)
+    assert all(size_results["class_ground_truths"] == {1: 1} for size_results in sizes.values())
+
+    # Without the small and medium objects, those sizes give no mAP and no class average precision
+    large_only_sizes = evaluate_detections(detections=detections, ground_truths=[make_ground_truth(
+        boxes=[[200, 200, 300, 300]], labels=[1])], number_classes=2)["area"]["sizes"]
+    assert large_only_sizes["small"]["mAP@0.5"] is None and large_only_sizes["medium"]["mAP@0.75"] is None
+    assert large_only_sizes["small"]["class_AP@0.5"] == {}
+    assert large_only_sizes["small"]["class_ground_truths"] == {1: 0}
+
+
+def test_detection_matched_to_an_object_of_another_size_is_ignored() -> None:
+    """
+    Verifies the COCO ignore rule: a detection of medium area overlapping a large object by 0.6 finds it at the
+    threshold 0.5, so it counts for the large objects only and is ignored by the medium ones (whose object, found
+    after it, keeps an AP of 1), while at 0.75 it finds nothing and becomes a false positive of the medium objects by
+    its own area (AP 0.5).
+    """
+    ground_truths = [make_ground_truth(boxes=[[0, 0, 50, 50], [100, 100, 200, 200]], labels=[1, 1])]
+    detections = [make_detections(boxes=[[100, 100, 200, 160], [0, 0, 50, 50]], scores=[0.9, 0.8], labels=[1, 1])]
+
+    sizes = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=2)["area"]["sizes"]
+    assert sizes["medium"]["mAP@0.5"] == pytest.approx(expected=1.0)
+    assert sizes["medium"]["mAP@0.75"] == pytest.approx(expected=0.5)
+    assert sizes["large"]["mAP@0.5"] == pytest.approx(expected=1.0)
+    assert sizes["large"]["mAP@0.75"] == pytest.approx(expected=0.0)
+
+
 def fill_box_masks(boxes: torch.Tensor, image_size: int) -> torch.Tensor:
     """
     Builds the binary masks filling integer boxes exactly, whose mask intersection over union equals the box one.
@@ -322,6 +366,9 @@ def test_mask_average_precision_equals_box_average_precision_for_box_masks() -> 
                                                    boxes_2=ground_truth_boxes.double())
         assert torch.equal(input=mask_overlaps, other=box_overlaps)
         detection["mask_overlaps"] = box_overlaps
+        # Masks filling their boxes have the areas of their boxes, so the sizes of both evaluations match too
+        detection["mask_areas"] = compute_box_areas(boxes=detection["boxes"])
+        ground_truth["mask_areas"] = compute_box_areas(boxes=ground_truth["boxes"])
         detections.append(detection)
         ground_truths.append(ground_truth)
 
@@ -332,6 +379,9 @@ def test_mask_average_precision_equals_box_average_precision_for_box_masks() -> 
         for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"]:
             assert mask_results[method][metric_name] == pytest.approx(expected=method_results[metric_name])
         assert mask_results[method]["class_AP@0.5"] == pytest.approx(expected=method_results["class_AP@0.5"])
+        for object_size, size_results in method_results["sizes"].items():
+            assert mask_results[method]["sizes"][object_size]["class_AP@[0.5:0.95]"] == pytest.approx(
+                expected=size_results["class_AP@[0.5:0.95]"])
     assert 0.0 < box_results["area"]["mAP@0.5"] < 1.0
 
     with pytest.raises(ValueError, match="Unknown overlap type"):

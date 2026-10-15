@@ -197,6 +197,19 @@ class TwoStageDetector(TaskModel):
         # Concatenate them vertically to form a single continuous list of bounding boxes
         return torch.cat(tensors=aggregated_anchors, dim=0)
 
+    def get_level_anchors(self) -> Dict[int, torch.Tensor]:
+        """
+        Gives the anchors of every detection level, for the anchor recall the detection trainers measure on the
+        training objects at launch, which tells how many objects no anchor of a level can become a foreground anchor
+        for.
+
+        Returns:
+            Dict[int, torch.Tensor]: The [A, 4] [x_min, y_min, x_max, y_max] anchors of every level in network input
+                pixels, keyed by block number.
+        """
+        return {int(index_string): region_proposer.region_proposal_anchor_object.anchors
+                for index_string, region_proposer in self.region_proposer_dictionary.items()}
+
     def _build_region_proposal_filter(self, region_proposal_configuration: Dict[str, Any]) -> RegionProposalFilter:
         """
         Instantiates the RegionProposalFilter module to prune and refine bounding box proposals.
@@ -636,6 +649,9 @@ class TwoStageDetector(TaskModel):
                 - "detection_boxes" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes, 4].
                 - "sliced_origins" (torch.Tensor): Shape [Batch, Post_NMS_Proposals], the level of every proposal.
                 - the final detections of postprocess_detections, in evaluation mode only.
+                - "proposal_boxes", "proposal_levels" and "valid_proposal_mask" (torch.Tensor): The [Batch,
+                  Post_NMS_Proposals, 4] filtered proposals, their level and the mask of the survivors of the
+                  suppression, in evaluation mode only.
                 - "region_proposal_classification_loss" (Optional[torch.Tensor]): Scalar loss (if training).
                 - "region_proposal_localisation_loss" (Optional[torch.Tensor]): Scalar loss (if training).
                 - "detection_classification_loss" (Optional[torch.Tensor]): Scalar loss (if training).
@@ -658,7 +674,7 @@ class TwoStageDetector(TaskModel):
             region_proposal_output_tensor_dictionary=region_proposal_output_tensor_dictionary)
 
         # Refine the raw bounding box predictions by filtering out low scores and suppressing overlapping boxes
-        filtered_boxes, filtered_scores, filtered_origins = self.region_proposal_filter(
+        filtered_boxes, filtered_scores, filtered_origins, valid_proposal_mask = self.region_proposal_filter(
             proposal_boxes=aggregated_proposals_dictionary["proposal_boxes"],
             proposal_scores=aggregated_proposals_dictionary["classification_scores"],
             proposal_origins=aggregated_proposals_dictionary["convolution_block_origin"],
@@ -706,6 +722,11 @@ class TwoStageDetector(TaskModel):
                                                     dtype=torch.bool),
                 score_threshold=self.detection_score_threshold, nms_iou_threshold=self.detection_nms_iou_threshold,
                 maximum_detections=self.maximum_detections, input_image_size=self.input_image_size))
+
+            # Filtered proposals of every image with their level, the padding copies masked out, for the proposal
+            # recall of the evaluation
+            model_output_dictionary.update({"proposal_boxes": filtered_boxes, "proposal_levels": filtered_origins,
+                                            "valid_proposal_mask": valid_proposal_mask})
 
         # Train, Validation and Test -> Loss Computation :
         # - For Region Proposal

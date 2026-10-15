@@ -201,6 +201,25 @@ def build_table_renderable(table: EvaluationTable) -> Table:
     return renderable
 
 
+def build_table_renderables(table: EvaluationTable) -> List[RenderableType]:
+    """
+    Lays out one table of a report with its title above it and its legend below it, for the block of an evaluated
+    checkpoint (build_report_renderables) and for the tables printed at the launch of a run, such as the anchor recall
+    of the detection tasks, which take the layout of the report.
+
+    Args:
+        table (EvaluationTable): The table.
+
+    Returns:
+        List[RenderableType]: The title, the table and the legend when it has one.
+    """
+    renderables: List[RenderableType] = [Text(text=table["title"], style=TABLE_TITLE_STYLE),
+                                         build_table_renderable(table=table)]
+    if table["legend"]:
+        renderables.append(Text(text=table["legend"], style=LEGEND_STYLE))
+    return renderables
+
+
 def build_report_renderables(results: EvaluationResults, iteration: int, timestamp: str,
                              per_class_report: bool) -> List[RenderableType]:
     """
@@ -234,9 +253,7 @@ def build_report_renderables(results: EvaluationResults, iteration: int, timesta
             continue
         if content:
             content.append(Text(text=" "))
-        content += [Text(text=table["title"], style=TABLE_TITLE_STYLE), build_table_renderable(table=table)]
-        if table["legend"]:
-            content.append(Text(text=table["legend"], style=LEGEND_STYLE))
+        content += build_table_renderables(table=table)
 
     renderables += [Padding(renderable=part, pad=(0, 0, 0, REPORT_INDENT)) for part in content]
     return renderables

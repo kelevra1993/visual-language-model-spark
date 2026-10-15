@@ -108,7 +108,7 @@ def test_report_follows_the_per_class_report(tmp_path: Path, per_class_report: b
 def test_class_metrics_file(tmp_path: Path) -> None:
     """
     Verifies the per-class metrics file: one row per class in the given (class index) order, floats with 6 decimals and
-    missing values as empty cells.
+    missing values as empty cells, and the same file written under another name.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -123,3 +123,9 @@ def test_class_metrics_file(tmp_path: Path) -> None:
         rows = list(csv.reader(class_metrics_file))
     assert rows == [["class_index", "class", "samples", "f1", "threshold_at_target_precision"],
                     ["0", "circle", "3", "0.800000", "0.912346"], ["1", "square", "0", "0.000000", ""]]
+
+    # The same layout under another name, such as the proposal recall of the detection tasks
+    proposal_recall_path = write_class_metrics_file(class_rows=class_rows, evaluation_folder=tmp_path / "Iteration_4",
+                                                    file_name="proposal_recall.csv")
+    assert proposal_recall_path == tmp_path / "Iteration_4" / "proposal_recall.csv"
+    assert proposal_recall_path.read_text() == class_metrics_path.read_text()

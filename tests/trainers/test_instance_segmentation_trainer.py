@@ -110,12 +110,13 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     """
     Verifies the whole instance segmentation pipeline on a generated synthetic dataset: 5 iterations with the masks
     moved by the geometric augmentations save the intermediate, evaluated and final checkpoints and track the mask loss,
-    the evaluation reports the mask then box tables of the methods and of the classes, the mask mAP@0.5 of the area
-    method as headline metric, the box scalars under the object detection names and the mask scalars under 'Mask' names,
-    class_metrics.csv with the box and mask columns and the class thresholds of the masks, the confusion matrix, class
-    thresholds and error images of the detections matched by their masks, and the sample images. A second run with the
-    same settings resumes from the last checkpoint with exactly its weights and trains 2 more iterations, without any
-    failed step.
+    the evaluation reports the mask then box tables of the methods, of the object sizes (by mask and by box area) and
+    of the classes with the proposal recall, the mask mAP@0.5 of the area method as headline metric, the box scalars
+    under the object detection names and the mask scalars under 'Mask' names, class_metrics.csv with the box and mask
+    columns of all the objects and of every size and the class thresholds of the masks, the confusion matrix, class
+    thresholds and error images of the detections matched by their masks, and the sample images, the launch writing the
+    anchor recall. A second run with the same settings resumes from the last checkpoint with exactly its weights and
+    trains 2 more iterations, without any failed step.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -141,14 +142,17 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert results["headline_metric"] == "Mask mAP@0.5/area" and results["headline_metric"] in results["scalars"]
     assert {"mAP@0.5/area", "Mask mAP@[0.5:0.95]/101_point"} <= set(results["scalars"])
 
-    # Report of the two evaluations, with the mask then box tables
+    # Report of the two evaluations, with the mask then box tables, the proposal recall before the per-class tables
     results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
     assert [block["iteration"] for block in results_blocks] == [4, 5]
     assert [table["title"] for table in results["tables"]] == [
-        "Mask Mean Average Precision", "Box Mean Average Precision", "Mask Per Class Average Precision (Area)",
-        "Box Per Class Average Precision (Area)"]
+        "Mask Mean Average Precision", "Mask Mean Average Precision By Object Size (Area)",
+        "Box Mean Average Precision", "Box Mean Average Precision By Object Size (Area)", "Proposal Recall",
+        "Mask Per Class Average Precision (Area)", "Box Per Class Average Precision (Area)"]
     assert "Mask Per Class Average Precision (Area)" in results_blocks[1]["text"]
     assert all(scalar_name.startswith(("AP@0.5/", "Mask AP@0.5/")) for scalar_name in results["class_scalars"])
+    assert any(scalar_name.startswith("Mask mAP@0.5 By Size/") for scalar_name in results["scalars"])
+    assert "Proposal Recall@0.5/all" in results["scalars"] and "Proposal Recall" in results["files"]
 
     # Box and mask average precisions of every class, the ground truth objects summing to those of the test images
     test_dataset = trainer.test_dataloader.dataset
@@ -157,12 +161,21 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     with open(file=trainer.experiment_folder / "Evaluation" / "Iteration_5" / "class_metrics.csv", mode="r",
               newline="") as class_metrics_file:
         class_rows = list(csv.DictReader(f=class_metrics_file))
-    assert list(class_rows[0]) == ["class_index", "class", "ground_truths", "average_precision_50",
-                                   "average_precision_75", "average_precision_50_95", "mask_average_precision_50",
-                                   "mask_average_precision_75", "mask_average_precision_50_95",
-                                   "threshold_at_target_precision", "recall_at_target_precision"]
+    average_precision_columns = ["average_precision_50", "average_precision_75", "average_precision_50_95"] + [
+        f"average_precision_{threshold}_{object_size}" for object_size in ["small", "medium", "large"]
+        for threshold in ["50", "50_95"]]
+    assert list(class_rows[0]) == ["class_index", "class", "ground_truths"] + average_precision_columns + [
+        f"mask_{column_name}" for column_name in average_precision_columns] + ["threshold_at_target_precision",
+                                                                               "recall_at_target_precision"]
     assert sum(int(class_row["ground_truths"]) for class_row in class_rows) == number_objects
     assert [class_row["class"] for class_row in class_rows] == list(SHAPE_CATEGORIES)
+
+    # Every object has one size, by mask area for the mask table and by box area for the box table
+    for size_table in [results["tables"][1], results["tables"][3]]:
+        assert sum(row[1] for row in size_table["rows"]) == number_objects
+
+    # Anchor recall of the training objects written at launch, like the object detection
+    assert (trainer.experiment_folder / "anchor_recall.csv").is_file()
 
     # Confusion matrix, class thresholds and error images of the detections matched by their masks
     assert trainer.MATCHING_OVERLAP_TYPE == "masks"

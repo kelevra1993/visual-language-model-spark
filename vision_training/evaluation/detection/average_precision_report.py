@@ -1,16 +1,18 @@
 """
 Tables and per-class rows of the evaluation reports of the object detection and instance segmentation tasks: the mean
-average precisions of the three average precision methods, always shown, and the average precisions of every class
-(area method, at an intersection over union of 0.5, 0.75 and 0.5 to 0.95, with its ground truth boxes, and the score
-threshold reaching the target precision with the recall it keeps), as the rows of class_metrics.csv and as the
-per-class table of the report. The instance segmentation reports the box and the mask average precisions with the same
-builders, told apart by a title prefix and a column prefix. Used by the detection and instance segmentation trainers.
+average precisions of the three average precision methods and those of the small, medium and large objects (area
+method), always shown, and the average precisions of every class (area method, at an intersection over union of 0.5,
+0.75 and 0.5 to 0.95, with its ground truth boxes, those of every object size, and the score threshold reaching the
+target precision with the recall it keeps), as the rows of class_metrics.csv and as the per-class table of the report.
+The instance segmentation reports the box and the mask average precisions with the same builders, told apart by a title
+prefix and a column prefix. Used by the detection and instance segmentation trainers.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationTable
 from vision_training.evaluation.detection.mean_average_precision import AVERAGE_PRECISION_METHODS
+from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
 
 # Displayed name of every average precision method, the area method being the headline one
 AVERAGE_PRECISION_METHOD_NAMES = {"area": "Area", "11_point": "11 Point", "101_point": "101 Point"}
@@ -61,15 +63,44 @@ def build_mean_average_precision_table(results: Dict[str, Dict[Any, Any]], title
             "per_class": False, "legend": HEADLINE_LEGEND if legend is None else legend}
 
 
+def build_object_size_table(results: Dict[str, Dict[Any, Any]], title_prefix: str = "",
+                            area_name: str = "box") -> EvaluationTable:
+    """
+    Builds the table of the mean average precisions of the small, medium and large objects of an evaluated checkpoint
+    with the area method, shown whatever the per-class report, telling whether the detector misses the objects of one
+    size: one row per size, with its objects and its mAP at an intersection over union of 0.5, 0.75 and averaged over
+    0.5 to 0.95.
+
+    Args:
+        results (Dict[str, Dict[Any, Any]]): The results of evaluate_detections, keyed by method.
+        title_prefix (str): The prefix of the title ("Box", "Mask"), empty for the object detection. Defaults to "".
+        area_name (str): The area measuring the objects, "box", or "mask" for the mask average precisions. Defaults
+            to "box".
+
+    Returns:
+        EvaluationTable: The table of the object sizes.
+    """
+    size_results = results["area"]["sizes"]
+    rows = [[size_name, sum(size_results[object_size]["class_ground_truths"].values()),
+             size_results[object_size]["mAP@0.5"], size_results[object_size]["mAP@0.75"],
+             size_results[object_size]["mAP@[0.5:0.95]"]] for object_size, size_name in OBJECT_SIZE_NAMES.items()]
+    return {"title": add_title_prefix(title="Mean Average Precision By Object Size (Area)", title_prefix=title_prefix),
+            "columns": ["Object Size", "Objects", "mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"], "rows": rows,
+            "sort_column": None, "per_class": False,
+            "legend": f"COCO sizes by {area_name} area in network input pixels, the objects of the other sizes and the "
+                      f"detections finding them being ignored. — : no object of the size."}
+
+
 def build_class_average_precision_rows(results: Dict[str, Dict[Any, Any]], class_names: Dict[int, str],
                                        column_prefix: str = "") -> List[Dict[str, Any]]:
     """
     Gathers the average precisions of every foreground class of an evaluated checkpoint with the area method, in class
     index order, for the per-class metrics file and the per-class table: its ground truth boxes and its average
     precision at 0.5, 0.75 and averaged over 0.5 to 0.95 (None for a class without ground truth, which has no recall),
-    then, for results evaluated with a target precision, the score threshold reaching it and the recall it keeps (None
-    when no threshold reaches it). The threshold columns are not prefixed: the instance segmentation computes them on
-    the masks only.
+    its average precision at 0.5 and averaged over 0.5 to 0.95 for the objects of every size (None without object of
+    the size), then, for results evaluated with a target precision, the score threshold reaching it and the recall it
+    keeps (None when no threshold reaches it). The threshold columns are not prefixed: the instance segmentation
+    computes them on the masks only.
 
     Args:
         results (Dict[str, Dict[Any, Any]]): The results of evaluate_detections, keyed by method, with the
@@ -81,7 +112,8 @@ def build_class_average_precision_rows(results: Dict[str, Dict[Any, Any]], class
     Returns:
         List[Dict[str, Any]]: One row per foreground class, keyed by the columns of class_metrics.csv: 'class_index',
             'class', 'ground_truths', the prefixed 'average_precision_50', 'average_precision_75' and
-            'average_precision_50_95', and with the thresholds 'threshold_at_target_precision' and
+            'average_precision_50_95', the prefixed 'average_precision_50_<size>' and 'average_precision_50_95_<size>'
+            of every object size, and with the thresholds 'threshold_at_target_precision' and
             'recall_at_target_precision'.
     """
     area_results = results["area"]
@@ -90,11 +122,17 @@ def build_class_average_precision_rows(results: Dict[str, Dict[Any, Any]], class
         class_rows.append({"class_index": class_index, "class": class_names[class_index],
                            "ground_truths": area_results["class_ground_truths"][class_index]})
 
-        # Average precisions of the class, undefined without ground truth
-        for column_name, result_key in [("average_precision_50", "class_AP@0.5"),
-                                        ("average_precision_75", "class_AP@0.75"),
-                                        ("average_precision_50_95", "class_AP@[0.5:0.95]")]:
-            class_average_precisions = area_results[result_key]
+        # Average precisions of the class, undefined without ground truth, then those of every object size, undefined
+        # without object of the size
+        column_sources = [("average_precision_50", "class_AP@0.5", area_results),
+                          ("average_precision_75", "class_AP@0.75", area_results),
+                          ("average_precision_50_95", "class_AP@[0.5:0.95]", area_results)]
+        for object_size in OBJECT_SIZE_NAMES:
+            size_results = area_results["sizes"][object_size]
+            column_sources += [(f"average_precision_50_{object_size}", "class_AP@0.5", size_results),
+                               (f"average_precision_50_95_{object_size}", "class_AP@[0.5:0.95]", size_results)]
+        for column_name, result_key, source_results in column_sources:
+            class_average_precisions = source_results[result_key]
             class_rows[-1][f"{column_prefix}{column_name}"] = (class_average_precisions[class_index]
                                                                if class_index in class_average_precisions else None)
 
