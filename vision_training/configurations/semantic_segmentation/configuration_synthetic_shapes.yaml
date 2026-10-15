@@ -1,5 +1,8 @@
-# Configuration of the synthetic shapes semantic segmentation dataset (up to 6 squares, circles, triangles, rectangles,
-# pentagons, hexagons, plus signs, stars or octagons per image, with the class mask of every image), created with
+# Configuration of the synthetic shapes semantic segmentation dataset (up to 6 shapes per image, of the 21 classes
+# of SHAPE_CATEGORIES: square, circle, triangle, rectangle, pentagon, hexagon, plus sign, star, octagon, rhombus,
+# parallelogram, trapezoid, kite, right triangle, heptagon, nonagon, ellipse, semicircle, annulus, capsule,
+# L-shape, from 64 pixels to a third of the image side, a dataset created before the last twelve were added
+# keeping the first nine, with the class mask of every image), created with
 # vision_training/data/synthetic/create_synthetic_dataset.py and its task set to "semantic_segmentation". It is a
 # trivial segmentation task, used to check that the segmenter learns.
 ExperimentConfiguration:
@@ -10,7 +13,7 @@ ExperimentConfiguration:
   # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
   # backbone modules, normalization and blocks, decoder, classes, optimizer and weight decay unless plain Adam),
   # so that the same settings resume in the same folder and changed settings start a new one, e.g.
-  # SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9. The
+  # SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC21. The
   # augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision, dropout rates and
   # SegmentationLoss settings give no token, so that a run can be resumed in its folder with changed values. The
   # format is described in vision_training/configuration_processing/run_name.py.

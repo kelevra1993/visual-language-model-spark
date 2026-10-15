@@ -17,20 +17,70 @@ from vision_training.data.detection.coco_masks import encode_run_length_encoding
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
-# Shape classes of the synthetic dataset and their COCO category identifiers
+# Shape classes of the synthetic dataset and their COCO category identifiers, the first nine keeping the identifiers
+# of the datasets created before the other twelve were added
 SHAPE_CATEGORIES = {"square": 1, "circle": 2, "triangle": 3, "rectangle": 4, "pentagon": 5, "hexagon": 6,
-                    "plus_sign": 7, "star": 8, "octagon": 9}
+                    "plus_sign": 7, "star": 8, "octagon": 9, "rhombus": 10, "parallelogram": 11, "trapezoid": 12,
+                    "kite": 13, "right_triangle": 14, "heptagon": 15, "nonagon": 16, "ellipse": 17, "semicircle": 18,
+                    "annulus": 19, "capsule": 20, "l_shape": 21}
+
+# Smallest size of the shapes whose class is the label (objects of the detection, segmentation and classification
+# images, changing shape of the sequence labelling): the sides of a nonagon, the roundest polygon, then bend 2 pixels
+# away from its circle (0.03 x the size), so that the regular polygons stay distinct from each other and from the circle
+MINIMUM_SHAPE_SIZE = 64
 
 # Rectangles are elongated to exercise the 0.5 and 2.0 anchor aspect ratios (ratio of the long to the short side)
 RECTANGLE_ASPECT_RATIO_RANGE = (1.5, 3.0)
 
-# Minimum area of a triangle, relative to the area of the square region its vertices are drawn in
+# Minimum area of a triangle, relative to the area of the square region its vertices are drawn in, and smallest gap
+# between each of its angles and 90 degrees, the right triangles being a class of their own
 MINIMUM_TRIANGLE_AREA_FRACTION = 0.15
+TRIANGLE_RIGHT_ANGLE_MARGIN_DEGREES = 15.0
 
 # Ratio of the inner to the outer radius of the five-pointed stars, and width of the arms of the plus signs relative
 # to their length
 STAR_INNER_RADIUS_RATIO = 0.45
 PLUS_SIGN_ARM_WIDTH_RATIO = 0.35
+
+# Ratio of the short to the long diagonal of the rhombuses, giving acute angles of 44 to 70 degrees, far from the
+# right angles of the squares
+RHOMBUS_DIAGONAL_RATIO_RANGE = (0.4, 0.7)
+
+# Ratio of the long to the short side of the parallelograms, far from the equal sides of the rhombuses, and their
+# acute angle in degrees, far from the right angles of the rectangles
+PARALLELOGRAM_SIDE_RATIO_RANGE = (1.5, 2.5)
+PARALLELOGRAM_ANGLE_RANGE_DEGREES = (45.0, 65.0)
+
+# Length of the short parallel side of the trapezoids relative to the long one, far from both the parallelograms
+# (equal sides) and the triangles (no short side), their height relative to the long side, and the position of the
+# short side over the rest of the long side (0.5 centring it, an isosceles trapezoid), which keeps both angles of the
+# long side acute so that the parallel sides stay visible
+TRAPEZOID_TOP_RATIO_RANGE = (0.35, 0.65)
+TRAPEZOID_HEIGHT_RATIO_RANGE = (0.35, 0.65)
+TRAPEZOID_TOP_POSITION_RANGE = (0.25, 0.75)
+
+# Kites: part of the long diagonal above its crossing with the short diagonal relative to the part below it (1 being
+# a rhombus), and ratio of the short to the long diagonal, which keep the upper corner at most 107 degrees so that it
+# does not flatten into a triangle
+KITE_UPPER_RATIO_RANGE = (0.35, 0.6)
+KITE_WIDTH_RATIO_RANGE = (0.5, 0.7)
+
+# Ratio of the short to the long leg of the right triangles
+RIGHT_TRIANGLE_LEG_RATIO_RANGE = (0.4, 1.0)
+
+# Ratio of the long to the short axis of the ellipses and of the capsules, far from the circles, and number of
+# vertices drawing each round end of a capsule
+ELLIPSE_ASPECT_RATIO_RANGE = (1.5, 3.0)
+CAPSULE_ASPECT_RATIO_RANGE = (1.5, 3.0)
+CAPSULE_END_VERTICES = 16
+
+# Radius of the hole of the annuluses relative to their outer radius
+ANNULUS_INNER_RADIUS_RATIO_RANGE = (0.4, 0.6)
+
+# L-shapes: length of the foot relative to the long arm, and width of both arms relative to the long arm, the foot
+# sticking out of the long arm by at least a quarter of its length
+L_SHAPE_FOOT_RATIO_RANGE = (0.6, 1.0)
+L_SHAPE_ARM_WIDTH_RATIO_RANGE = (0.25, 0.35)
 
 # Maximum overlap allowed between two objects of the same image, and number of placement attempts per object
 MAXIMUM_OBJECT_INTERSECTION_OVER_UNION = 0.3
@@ -143,11 +193,36 @@ def draw_circle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, 
     cv2.circle(img=mask, center=(center_x, center_y), radius=size // 2, color=255, thickness=-1)
 
 
+def compute_triangle_angles(vertices: np.ndarray) -> np.ndarray:
+    """
+    Computes the three angles of a triangle, used to keep the triangles of the 'triangle' class away from the right
+    angle of the 'right_triangle' class.
+
+    Args:
+        vertices (np.ndarray): The [3, 2] vertices of a non-degenerate triangle.
+
+    Returns:
+        np.ndarray: The [3] angles in degrees, the angle at every vertex in turn.
+    """
+    vertices = vertices.astype(np.float64)
+    angles = []
+
+    # Angle at every vertex, between the edges going to the two other vertices
+    for vertex_index in range(3):
+        first_edge = vertices[(vertex_index + 1) % 3] - vertices[vertex_index]
+        second_edge = vertices[(vertex_index + 2) % 3] - vertices[vertex_index]
+        cosine = np.dot(first_edge, second_edge) / (np.linalg.norm(first_edge) * np.linalg.norm(second_edge))
+        angles.append(np.degrees(np.arccos(np.clip(cosine, -1.0, 1.0))))
+    return np.array(angles)
+
+
 def draw_triangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
                        random_generator: np.random.Generator) -> None:
     """
     Draws a filled triangle with three random vertices inside a 'size' x 'size' square on a binary mask, one of the
-    synthetic shape classes. Vertices are redrawn until the triangle is not too flat to be recognisable.
+    synthetic shape classes. Vertices are redrawn until the triangle is not too flat to be recognisable and none of its
+    angles is within TRIANGLE_RIGHT_ANGLE_MARGIN_DEGREES of 90 degrees, the right triangles being the 'right_triangle'
+    class.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -163,7 +238,12 @@ def draw_triangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int
         # Twice the triangle area, from the cross product of two of its edges
         first_edge, second_edge = vertices[1] - vertices[0], vertices[2] - vertices[0]
         doubled_area = abs(int(first_edge[0] * second_edge[1] - first_edge[1] * second_edge[0]))
-        if doubled_area >= 2 * MINIMUM_TRIANGLE_AREA_FRACTION * size * size:
+        if doubled_area < 2 * MINIMUM_TRIANGLE_AREA_FRACTION * size * size:
+            continue
+
+        # A triangle large enough is kept when every one of its angles is far from the right angle
+        right_angle_gaps = np.abs(compute_triangle_angles(vertices=vertices) - 90.0)
+        if right_angle_gaps.min() >= TRIANGLE_RIGHT_ANGLE_MARGIN_DEGREES:
             break
 
     points = (vertices + np.array([center_x, center_y])).astype(np.int32).reshape(-1, 1, 2)
@@ -191,32 +271,75 @@ def draw_rectangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: in
                   color=255, thickness=-1)
 
 
+def centre_vertices(vertices: np.ndarray) -> np.ndarray:
+    """
+    Moves the vertices of a polygon built by one of the vertex builders below so that the centre of its bounding box
+    is at the origin, the centre fill_rotated_polygon turns the shape around and places at the centre of its square.
+
+    Args:
+        vertices (np.ndarray): The [N, 2] vertices of the polygon.
+
+    Returns:
+        np.ndarray: The [N, 2] vertices, centred.
+    """
+    return vertices - (vertices.min(axis=0) + vertices.max(axis=0)) / 2
+
+
+def fill_rotated_polygon(mask: np.ndarray, center_x: int, center_y: int, size: int, vertices: np.ndarray,
+                         random_generator: np.random.Generator) -> None:
+    """
+    Fills on a binary mask a polygon given by its vertices around its centre, mirrored for half of the shapes and
+    turned by a random angle, then scaled so that its farthest vertex lies on the circle of diameter 'size' and kept
+    inside the 'size' x 'size' square of the shape. Shared by the regular polygons and the stars (fill_radial_polygon)
+    and by the rhombuses, parallelograms, trapezoids, kites, right triangles, capsules and L-shapes, whose mirror
+    images (a parallelogram leaning the other way, an L turned into a J) belong to the same class.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle the farthest vertex lies on, in pixels.
+        vertices (np.ndarray): The [N, 2] vertices of the polygon in order around its outline, centred on the origin,
+            at any scale.
+        random_generator (np.random.Generator): The random generator drawing the mirror and the rotation.
+    """
+    # Mirror half of the shapes, then turn them by a random angle around their centre
+    if random_generator.random() < 0.5:
+        vertices = vertices * np.array([-1.0, 1.0])
+    rotation_angle = random_generator.uniform(low=0.0, high=2 * np.pi)
+    rotation_matrix = np.array([[np.cos(rotation_angle), -np.sin(rotation_angle)],
+                                [np.sin(rotation_angle), np.cos(rotation_angle)]])
+    vertices = vertices @ rotation_matrix.T
+
+    # Scale the farthest vertex to the outer radius, then keep the vertices inside the 'size' x 'size' square
+    vertices = vertices * (size / 2) / np.linalg.norm(vertices, axis=1).max() + np.array([center_x, center_y])
+    points = np.clip(np.round(vertices), a_min=[center_x - size // 2, center_y - size // 2],
+                     a_max=[center_x + size // 2, center_y + size // 2]).astype(np.int32).reshape(-1, 1, 2)
+    cv2.fillPoly(img=mask, pts=[points], color=255)
+
+
 def fill_radial_polygon(mask: np.ndarray, center_x: int, center_y: int, size: int, vertex_radii: List[float],
                         random_generator: np.random.Generator) -> None:
     """
     Fills on a binary mask a polygon whose vertices are evenly spaced around its centre, at the given fractions of the
-    outer radius 'size' / 2, starting from a random angle: a regular polygon when every radius is 1, a star when the
-    radii alternate between 1 and a smaller one. Shared by the pentagons, hexagons, octagons and stars.
+    outer radius 'size' / 2, at a random rotation: a regular polygon when every radius is 1, a star when the radii
+    alternate between 1 and a smaller one. Shared by the pentagons, hexagons, heptagons, octagons, nonagons and stars.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
         center_x (int): The horizontal centre of the shape in pixels.
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle the outer vertices lie on, in pixels.
-        vertex_radii (List[float]): The radius of every vertex in turn, as a fraction of the outer radius.
+        vertex_radii (List[float]): The radius of every vertex in turn, as a fraction of the outer radius, the
+            largest being 1.
         random_generator (np.random.Generator): The random generator drawing the rotation of the shape.
     """
-    # Angles of the vertices, evenly spaced from a random rotation of the shape
-    outer_radius = size / 2
-    start_angle = random_generator.uniform(low=0.0, high=2 * np.pi)
-    angles = start_angle + 2 * np.pi * np.arange(len(vertex_radii)) / len(vertex_radii)
-
-    # Vertices at their radius around the centre, kept inside the 'size' x 'size' square of the shape
-    radii = outer_radius * np.array(vertex_radii)
-    vertices = np.stack([center_x + radii * np.cos(angles), center_y + radii * np.sin(angles)], axis=-1)
-    points = np.clip(np.round(vertices), a_min=[center_x - size // 2, center_y - size // 2],
-                     a_max=[center_x + size // 2, center_y + size // 2]).astype(np.int32).reshape(-1, 1, 2)
-    cv2.fillPoly(img=mask, pts=[points], color=255)
+    # Vertices evenly spaced around the centre at their radius, turned by fill_rotated_polygon
+    angles = 2 * np.pi * np.arange(len(vertex_radii)) / len(vertex_radii)
+    radii = np.array(vertex_radii)
+    vertices = np.stack([radii * np.cos(angles), radii * np.sin(angles)], axis=-1)
+    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertices=vertices,
+                         random_generator=random_generator)
 
 
 def draw_pentagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
@@ -311,11 +434,377 @@ def draw_plus_sign_mask(mask: np.ndarray, center_x: int, center_y: int, size: in
                   pt2=(center_x - half_width + arm_width - 1, center_y - half_size + size - 1), color=255, thickness=-1)
 
 
+def build_rhombus_vertices(random_generator: np.random.Generator) -> np.ndarray:
+    """
+    Builds the vertices of a rhombus for draw_rhombus_mask: four equal sides around perpendicular diagonals, the short
+    diagonal 0.4 to 0.7 of the long one, so that its acute angles (44 to 70 degrees) keep it apart from the squares.
+
+    Args:
+        random_generator (np.random.Generator): The random generator drawing the ratio of the diagonals.
+
+    Returns:
+        np.ndarray: The [4, 2] vertices, centred, the long diagonal along the x axis.
+    """
+    diagonal_ratio = random_generator.uniform(low=RHOMBUS_DIAGONAL_RATIO_RANGE[0], high=RHOMBUS_DIAGONAL_RATIO_RANGE[1])
+    return np.array([[1.0, 0.0], [0.0, diagonal_ratio], [-1.0, 0.0], [0.0, -diagonal_ratio]])
+
+
+def draw_rhombus_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                      random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled rhombus whose long diagonal is 'size' long, at a random rotation, on a binary mask. One of the
+    synthetic shape classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The length of the long diagonal in pixels.
+        random_generator (np.random.Generator): The random generator drawing the diagonals and the rotation.
+    """
+    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                         vertices=build_rhombus_vertices(random_generator=random_generator),
+                         random_generator=random_generator)
+
+
+def build_parallelogram_vertices(random_generator: np.random.Generator) -> np.ndarray:
+    """
+    Builds the vertices of a parallelogram for draw_parallelogram_mask: a long side 1.5 to 2.5 times its short side,
+    unlike the equal sides of the rhombuses, meeting it at an acute angle of 45 to 65 degrees, unlike the right angles
+    of the rectangles.
+
+    Args:
+        random_generator (np.random.Generator): The random generator drawing the side ratio and the angle.
+
+    Returns:
+        np.ndarray: The [4, 2] vertices, centred, the long sides along the x axis.
+    """
+    side_ratio = random_generator.uniform(low=PARALLELOGRAM_SIDE_RATIO_RANGE[0], high=PARALLELOGRAM_SIDE_RATIO_RANGE[1])
+    angle = np.radians(random_generator.uniform(low=PARALLELOGRAM_ANGLE_RANGE_DEGREES[0],
+                                                high=PARALLELOGRAM_ANGLE_RANGE_DEGREES[1]))
+
+    # Short side leaning from the end of the long side, the opposite sides being parallel and equal
+    short_side_x, short_side_y = np.cos(angle) / side_ratio, np.sin(angle) / side_ratio
+    return centre_vertices(vertices=np.array([[0.0, 0.0], [1.0, 0.0], [1.0 + short_side_x, short_side_y],
+                                              [short_side_x, short_side_y]]))
+
+
+def draw_parallelogram_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                            random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled parallelogram inscribed in a circle of diameter 'size', at a random rotation and mirrored for half
+    of them, on a binary mask. One of the synthetic shape classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle its farthest vertices lie on, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the sides, the angle and the rotation.
+    """
+    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                         vertices=build_parallelogram_vertices(random_generator=random_generator),
+                         random_generator=random_generator)
+
+
+def build_trapezoid_vertices(random_generator: np.random.Generator) -> np.ndarray:
+    """
+    Builds the vertices of a trapezoid for draw_trapezoid_mask: two parallel sides, the short one 0.35 to 0.65 of the
+    long one (neither the equal sides of a parallelogram nor the single corner of a triangle) above the middle half of
+    the rest of the long side, isosceles trapezoids included, at a height of 0.35 to 0.65 of the long side.
+
+    Args:
+        random_generator (np.random.Generator): The random generator drawing the short side, its position and the
+            height.
+
+    Returns:
+        np.ndarray: The [4, 2] vertices, centred, the parallel sides along the x axis.
+    """
+    top_ratio = random_generator.uniform(low=TRAPEZOID_TOP_RATIO_RANGE[0], high=TRAPEZOID_TOP_RATIO_RANGE[1])
+    height = random_generator.uniform(low=TRAPEZOID_HEIGHT_RATIO_RANGE[0], high=TRAPEZOID_HEIGHT_RATIO_RANGE[1])
+
+    # Short side above the middle of the long side, both angles of the long side staying acute
+    top_offset = (1.0 - top_ratio) * random_generator.uniform(low=TRAPEZOID_TOP_POSITION_RANGE[0],
+                                                              high=TRAPEZOID_TOP_POSITION_RANGE[1])
+    return centre_vertices(vertices=np.array([[0.0, 0.0], [1.0, 0.0], [top_offset + top_ratio, height],
+                                              [top_offset, height]]))
+
+
+def draw_trapezoid_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                        random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled trapezoid inscribed in a circle of diameter 'size', at a random rotation and mirrored for half of
+    them, on a binary mask. One of the synthetic shape classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle its farthest vertices lie on, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the sides, the height and the rotation.
+    """
+    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                         vertices=build_trapezoid_vertices(random_generator=random_generator),
+                         random_generator=random_generator)
+
+
+def build_kite_vertices(random_generator: np.random.Generator) -> np.ndarray:
+    """
+    Builds the vertices of a kite for draw_kite_mask: two pairs of equal adjacent sides around perpendicular
+    diagonals, the short diagonal crossing the long one at 26 to 38 % of its length (at its middle for a rhombus) and
+    being 0.5 to 0.7 of its length.
+
+    Args:
+        random_generator (np.random.Generator): The random generator drawing the crossing and the width.
+
+    Returns:
+        np.ndarray: The [4, 2] vertices, centred, the long diagonal along the y axis.
+    """
+    upper_ratio = random_generator.uniform(low=KITE_UPPER_RATIO_RANGE[0], high=KITE_UPPER_RATIO_RANGE[1])
+    width_ratio = random_generator.uniform(low=KITE_WIDTH_RATIO_RANGE[0], high=KITE_WIDTH_RATIO_RANGE[1])
+
+    # Short corner above the crossing of the diagonals, long corner below it, side corners on the short diagonal
+    half_width = width_ratio * (1.0 + upper_ratio) / 2
+    return centre_vertices(vertices=np.array([[0.0, -upper_ratio], [half_width, 0.0], [0.0, 1.0],
+                                              [-half_width, 0.0]]))
+
+
+def draw_kite_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                   random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled kite inscribed in a circle of diameter 'size', at a random rotation, on a binary mask. One of the
+    synthetic shape classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle its farthest vertices lie on, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the diagonals and the rotation.
+    """
+    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                         vertices=build_kite_vertices(random_generator=random_generator),
+                         random_generator=random_generator)
+
+
+def build_right_triangle_vertices(random_generator: np.random.Generator) -> np.ndarray:
+    """
+    Builds the vertices of a right triangle for draw_right_triangle_mask, its short leg 0.4 to 1 times its long leg.
+
+    Args:
+        random_generator (np.random.Generator): The random generator drawing the ratio of the legs.
+
+    Returns:
+        np.ndarray: The [3, 2] vertices, centred on the middle of the hypotenuse, the legs along the axes.
+    """
+    leg_ratio = random_generator.uniform(low=RIGHT_TRIANGLE_LEG_RATIO_RANGE[0], high=RIGHT_TRIANGLE_LEG_RATIO_RANGE[1])
+    return centre_vertices(vertices=np.array([[0.0, 0.0], [1.0, 0.0], [0.0, leg_ratio]]))
+
+
+def draw_right_triangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                             random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled right triangle whose hypotenuse is 'size' long, at a random rotation and mirrored for half of them,
+    on a binary mask. One of the synthetic shape classes, the triangles of the 'triangle' class having no angle close
+    to the right angle.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The length of the hypotenuse in pixels.
+        random_generator (np.random.Generator): The random generator drawing the legs and the rotation.
+    """
+    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                         vertices=build_right_triangle_vertices(random_generator=random_generator),
+                         random_generator=random_generator)
+
+
+def draw_heptagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                       random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled regular heptagon inscribed in a circle of diameter 'size', at a random rotation, on a binary mask.
+    One of the synthetic shape classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle the vertices lie on, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the rotation.
+    """
+    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 7,
+                        random_generator=random_generator)
+
+
+def draw_nonagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                      random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled regular nonagon inscribed in a circle of diameter 'size', at a random rotation, on a binary mask.
+    One of the synthetic shape classes, the closest to the circle, which sets MINIMUM_SHAPE_SIZE.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle the vertices lie on, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the rotation.
+    """
+    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 9,
+                        random_generator=random_generator)
+
+
+def draw_ellipse_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                      random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled ellipse whose long axis is 'size' long and 1.5 to 3 times its short axis, far from the circles, at
+    a random rotation, on a binary mask. One of the synthetic shape classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The length of the long axis in pixels.
+        random_generator (np.random.Generator): The random generator drawing the elongation and the rotation.
+    """
+    aspect_ratio = random_generator.uniform(low=ELLIPSE_ASPECT_RATIO_RANGE[0], high=ELLIPSE_ASPECT_RATIO_RANGE[1])
+    half_short_axis = max(1, int(round(size / 2 / aspect_ratio)))
+    cv2.ellipse(img=mask, center=(center_x, center_y), axes=(size // 2, half_short_axis),
+                angle=random_generator.uniform(low=0.0, high=180.0), startAngle=0.0, endAngle=360.0, color=255,
+                thickness=-1)
+
+
+def draw_semicircle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                         random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled half disc of diameter 'size', its straight side through the centre of the shape, at a random
+    rotation, on a binary mask. One of the synthetic shape classes, filling half of its square.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the half disc in pixels.
+        random_generator (np.random.Generator): The random generator drawing the rotation.
+    """
+    cv2.ellipse(img=mask, center=(center_x, center_y), axes=(size // 2, size // 2),
+                angle=random_generator.uniform(low=0.0, high=360.0), startAngle=0.0, endAngle=180.0, color=255,
+                thickness=-1)
+
+
+def draw_annulus_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                      random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled ring of outer diameter 'size' whose hole has 0.4 to 0.6 of its radius, on a binary mask. One of
+    the synthetic shape classes, the only one with a hole, which shows the background (or the objects below it) and is
+    left out of its instance mask. The hole is cleared on the mask, which must hold this shape only.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The outer diameter of the ring in pixels.
+        random_generator (np.random.Generator): The random generator drawing the size of the hole.
+    """
+    outer_radius = size // 2
+    inner_radius_ratio = random_generator.uniform(low=ANNULUS_INNER_RADIUS_RATIO_RANGE[0],
+                                                  high=ANNULUS_INNER_RADIUS_RATIO_RANGE[1])
+
+    # Disc of the ring, then its hole cleared
+    cv2.circle(img=mask, center=(center_x, center_y), radius=outer_radius, color=255, thickness=-1)
+    cv2.circle(img=mask, center=(center_x, center_y), radius=max(1, int(round(outer_radius * inner_radius_ratio))),
+               color=0, thickness=-1)
+
+
+def build_capsule_vertices(random_generator: np.random.Generator) -> np.ndarray:
+    """
+    Builds the outline of a capsule for draw_capsule_mask: a rectangle closed by two half discs, 1.5 to 3 times as
+    long as it is wide, its straight sides keeping it apart from the ellipses and its round ends from the rectangles.
+
+    Args:
+        random_generator (np.random.Generator): The random generator drawing the elongation.
+
+    Returns:
+        np.ndarray: The [2 x CAPSULE_END_VERTICES, 2] vertices of the outline, centred, the long axis along the x axis
+            from -1 to 1.
+    """
+    aspect_ratio = random_generator.uniform(low=CAPSULE_ASPECT_RATIO_RANGE[0], high=CAPSULE_ASPECT_RATIO_RANGE[1])
+    half_width = 1.0 / aspect_ratio
+    end_centre = 1.0 - half_width
+
+    # Round end on the right from the bottom to the top, then round end on the left from the top to the bottom
+    right_angles = np.linspace(start=-np.pi / 2, stop=np.pi / 2, num=CAPSULE_END_VERTICES)
+    left_angles = right_angles + np.pi
+    right_end = np.stack([end_centre + half_width * np.cos(right_angles), half_width * np.sin(right_angles)], axis=-1)
+    left_end = np.stack([-end_centre + half_width * np.cos(left_angles), half_width * np.sin(left_angles)], axis=-1)
+    return np.concatenate([right_end, left_end], axis=0)
+
+
+def draw_capsule_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                      random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled capsule (pill shape) 'size' long, at a random rotation, on a binary mask. One of the synthetic shape
+    classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The length of the capsule in pixels.
+        random_generator (np.random.Generator): The random generator drawing the elongation and the rotation.
+    """
+    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                         vertices=build_capsule_vertices(random_generator=random_generator),
+                         random_generator=random_generator)
+
+
+def build_l_shape_vertices(random_generator: np.random.Generator) -> np.ndarray:
+    """
+    Builds the vertices of an L-shape for draw_l_shape_mask: a long arm and a foot 0.6 to 1 times its length, both
+    0.25 to 0.35 of the long arm wide, so that the foot always sticks out of the long arm.
+
+    Args:
+        random_generator (np.random.Generator): The random generator drawing the foot and the width of the arms.
+
+    Returns:
+        np.ndarray: The [6, 2] vertices, centred, the long arm along the y axis and the foot at its bottom.
+    """
+    foot_ratio = random_generator.uniform(low=L_SHAPE_FOOT_RATIO_RANGE[0], high=L_SHAPE_FOOT_RATIO_RANGE[1])
+    arm_width = random_generator.uniform(low=L_SHAPE_ARM_WIDTH_RATIO_RANGE[0], high=L_SHAPE_ARM_WIDTH_RATIO_RANGE[1])
+
+    # Outline going down the long arm and back along the foot
+    return centre_vertices(vertices=np.array([[0.0, 0.0], [arm_width, 0.0], [arm_width, 1.0 - arm_width],
+                                              [foot_ratio, 1.0 - arm_width], [foot_ratio, 1.0], [0.0, 1.0]]))
+
+
+def draw_l_shape_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                      random_generator: np.random.Generator) -> None:
+    """
+    Draws a filled L-shape inscribed in a circle of diameter 'size', at a random rotation and mirrored for half of
+    them (a J), on a binary mask. One of the synthetic shape classes.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle its farthest vertices lie on, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the arms and the rotation.
+    """
+    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                         vertices=build_l_shape_vertices(random_generator=random_generator),
+                         random_generator=random_generator)
+
+
 # Drawing function of every shape class
 SHAPE_DRAWING_FUNCTIONS = {"square": draw_square_mask, "circle": draw_circle_mask, "triangle": draw_triangle_mask,
                            "rectangle": draw_rectangle_mask, "pentagon": draw_pentagon_mask,
                            "hexagon": draw_hexagon_mask, "plus_sign": draw_plus_sign_mask, "star": draw_star_mask,
-                           "octagon": draw_octagon_mask}
+                           "octagon": draw_octagon_mask, "rhombus": draw_rhombus_mask,
+                           "parallelogram": draw_parallelogram_mask, "trapezoid": draw_trapezoid_mask,
+                           "kite": draw_kite_mask, "right_triangle": draw_right_triangle_mask,
+                           "heptagon": draw_heptagon_mask, "nonagon": draw_nonagon_mask,
+                           "ellipse": draw_ellipse_mask, "semicircle": draw_semicircle_mask,
+                           "annulus": draw_annulus_mask, "capsule": draw_capsule_mask, "l_shape": draw_l_shape_mask}
 
 
 def get_mask_bounding_box(mask: np.ndarray) -> List[int]:
@@ -477,10 +966,11 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
 def generate_image(image_size: int, maximum_objects: int, random_generator: np.random.Generator) -> Tuple[
         np.ndarray, List[Tuple[int, List[int]]], np.ndarray, np.ndarray]:
     """
-    Generates one synthetic detection or segmentation image: a random-colour or black background with 1 to
-    'maximum_objects' shapes (squares, circles, triangles, rectangles, pentagons, hexagons, plus signs, stars,
-    octagons) of random colours, sizes from 32 pixels to a third of the image side, overlapping each other by at most
-    an intersection over union of 0.3, with the class map and the instance map of its pixels.
+    Generates one synthetic detection, segmentation or classification image: a random-colour or black background with
+    1 to 'maximum_objects' shapes of the SHAPE_CATEGORIES classes, of random colours and sizes from MINIMUM_SHAPE_SIZE
+    (64) pixels to a third of the image side, overlapping each other by at most an intersection over union of 0.3,
+    with the class map and the instance map of its pixels. On images too small for the minimum size (the 64 pixel
+    images of the tests), every shape gets the largest size.
 
     Args:
         image_size (int): The height and width of the square image in pixels.
@@ -499,10 +989,14 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
     instance_map = np.zeros(shape=(image_size, image_size), dtype=np.uint16)
     objects = []
 
+    # Shapes up to a third of the image side, at least MINIMUM_SHAPE_SIZE pixels when the image is large enough
+    maximum_size = max(33, image_size // 3)
+    minimum_size = min(MINIMUM_SHAPE_SIZE, maximum_size)
+
     # Place every object at a random position, an object overlapping the placed ones too much at every attempt being
     # left out
     for _ in range(int(random_generator.integers(low=1, high=maximum_objects + 1))):
-        shape_descriptor = draw_shape_descriptor(minimum_size=32, maximum_size=max(33, image_size // 3),
+        shape_descriptor = draw_shape_descriptor(minimum_size=minimum_size, maximum_size=maximum_size,
                                                  background_colour=background_colour,
                                                  random_generator=random_generator)
         box = place_shape(image=image, shape_descriptor=shape_descriptor,
@@ -777,7 +1271,8 @@ def generate_changing_shape_sequence(image_size: int, number_frames: int,
     """
     Generates one synthetic sequence labelling sample: a shape of fixed position, size and colour, over a background
     shared by every frame, whose class changes one to three times during the sequence, every frame being labelled
-    with the class of the shape it shows.
+    with the class of the shape it shows. The shape measures a sixth to a third of the frame side, and at least
+    MINIMUM_SHAPE_SIZE pixels when the frames are large enough, so that its classes stay distinct.
 
     Args:
         image_size (int): The height and width of the square frames in pixels.
@@ -789,7 +1284,11 @@ def generate_changing_shape_sequence(image_size: int, number_frames: int,
     """
     background, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
     colour = draw_contrasting_colour(background_colour=background_colour, random_generator=random_generator)
-    size = int(random_generator.integers(low=max(8, image_size // 6), high=max(9, image_size // 3) + 1))
+
+    # Size of the shape, its smallest value raised to MINIMUM_SHAPE_SIZE within the largest one
+    maximum_size = max(9, image_size // 3)
+    minimum_size = min(max(image_size // 6, MINIMUM_SHAPE_SIZE), maximum_size)
+    size = int(random_generator.integers(low=minimum_size, high=maximum_size + 1))
     center_x, center_y = random_generator.integers(low=size // 2 + 1, high=image_size - size // 2 - 1, size=2)
 
     # Frames from which the shape changes class, each change giving a class different from the previous one

@@ -1,5 +1,8 @@
-# Configuration of the synthetic shapes dataset (squares, circles, triangles, rectangles, pentagons, hexagons, plus
-# signs, stars, octagons), created with vision_training/data/synthetic/create_synthetic_dataset.py with the
+# Configuration of the synthetic shapes dataset (the 21 shape classes of SHAPE_CATEGORIES: squares, circles,
+# triangles, rectangles, pentagons, hexagons, plus signs, stars, octagons, rhombuses, parallelograms, trapezoids,
+# kites, right triangles, heptagons, nonagons, ellipses, semicircles, annuluses, capsules, L-shapes, from 64 pixels
+# to a third of the image side, a dataset created before the last twelve were added keeping the first nine),
+# created with vision_training/data/synthetic/create_synthetic_dataset.py with the
 # "instance_segmentation" task, whose objects carry the run length encoding of their visible part. It is a trivial
 # instance segmentation task, used to check that the instance segmenter learns.
 ExperimentConfiguration:

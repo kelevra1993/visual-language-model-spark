@@ -133,7 +133,7 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5,
         section_settings=section_settings, evaluation_settings=evaluation_settings))
-    assert trainer.run_name.startswith("SEG_") and trainer.run_name.endswith("_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9")
+    assert trainer.run_name.startswith("SEG_") and trainer.run_name.endswith("_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC21")
     assert trainer.class_names == ["background"] + list(SHAPE_CATEGORIES)
     assert list(trainer.tracked_metrics_mapping) == ["total_loss", "segmentation_loss", "dice_loss", "pixel_accuracy",
                                                      "mean_iou"]
@@ -301,7 +301,7 @@ def test_tiled_segmentation_training_evaluates_at_the_original_resolution(tmp_pa
         section_settings=section_settings,
         evaluation_settings={"number_sample_images": 1, "save_predicted_masks": True, "per_class_report": True,
                              "original_resolution": True, "boundary_tolerance": 1}))
-    assert trainer.run_name.endswith("_TL0.75_UTC-DBN-D2x64.2x64.2x32.2x32.1x16-AUX5.3_MC9")
+    assert trainer.run_name.endswith("_TL0.75_UTC-DBN-D2x64.2x64.2x32.2x32.1x16-AUX5.3_MC21")
     assert list(trainer.tracked_metrics_mapping) == ["total_loss", "segmentation_loss", "dice_loss", "lovasz_loss",
                                                      "boundary_loss", "deep_supervision_loss", "pixel_accuracy",
                                                      "mean_iou"]
