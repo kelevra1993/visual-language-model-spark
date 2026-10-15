@@ -112,8 +112,8 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 | Task | Synthetic dataset | Classes | Configuration |
 |---|---|---|---|
 | CLS | one shape per 512 pixel image | 9 shapes: square, circle, triangle, rectangle, pentagon, hexagon, plus sign, star, octagon | `classification/configuration_synthetic_shapes.yaml` |
-| DET | up to 6 shapes per 1024 pixel image | the 9 shapes | `object_detection/configuration_synthetic_shapes.yaml` |
-| INS | up to 6 shapes per 512 pixel image, with the run length encoding of the visible part of every shape | the 9 shapes | `instance_segmentation/configuration_synthetic_shapes.yaml` |
+| DET | up to 6 shapes per 1024 pixel image, a shape left with fewer than 64 visible pixels by the later ones being left out | the 9 shapes | `object_detection/configuration_synthetic_shapes.yaml` |
+| INS | up to 6 shapes per 512 pixel image, with the run length encoding of the visible part of every shape, a shape left with fewer than 64 visible pixels being left out | the 9 shapes | `instance_segmentation/configuration_synthetic_shapes.yaml` |
 | SEG | up to 6 shapes per 512 pixel image, with the class mask of every image | the 9 shapes and the background | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
 | M2O | one shape crossing 2 to 12 frames | `moving_left`, `moving_right`, `moving_up`, `moving_down` | `sequence_classification/configuration_synthetic_sequences.yaml` |
 | M2M | one shape changing class 1 to 3 times over 2 to 12 frames, labelled per frame | the 9 shapes | `sequence_labelling/configuration_synthetic_sequences.yaml` |
@@ -141,6 +141,8 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 <experiment_folder>/<run name>/
 ├── training_configuration.yaml        # Copy of the configuration of the last start of the run
 ├── training_configuration_until_iteration_<n>.yaml  # Configuration that trained the run up to iteration n, kept by a resume that changed it
+├── data.json                          # Data folder, SHA-256 of labels.json and images of every split
+├── data_until_iteration_<n>.json      # Data that trained the run up to iteration n, kept by a resume whose data changed
 ├── Weights/
 │   ├── full-checkpoint                # Registry of the saved checkpoints, the last one first
 │   └── Iteration_<n>/model_<n>.pt     # Weights, optimizer state, moving average of the weights and metadata of iteration n
@@ -156,10 +158,12 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 └── mlflow_run.json                    # MLflow run of the training, with the tracking on
 ```
 
+`data.json` records the data of the run: for the train, validation and test splits, the absolute data folder, the SHA-256 of `labels.json` (identifying its images and labels exactly) and the list of its images in manifest order (the `file_name` of the COCO images and of the samples, the frames of the sequences and of both members of the pairs). It is written when the run starts, and sent to the `data` folder of the MLflow run with the tracking on. For ImageNet-1k it takes about 1.5 seconds and 70 MB.
+
 A checkpoint is saved every `intermediate_weight_saving_iterations` iterations, and a checkpoint evaluated on the whole test split every `weight_saving_iterations` iterations. The files of an evaluation are listed in [Evaluation Outputs](#evaluation-outputs).
 
 ### Console Output
-At launch, the trainer prints the run name, its folders as clickable links, the settings changed since the last start of a resumed run ([Stopping And Resuming](#stopping-and-resuming)), every component initialised by another run, every split with its number of samples, the iterations per epoch, the main training settings and the summary of the model. A transferred component ([Transfer Between Runs](#transfer-between-runs)) is printed as a block with its source run folder, the source checkpoint iteration, whether it is frozen, whether the normalization layers of the backbone are frozen, and the learning rate it learns at with its `learning_rate_multiplier` (none for a frozen component, which does not learn):
+At launch, the trainer prints the run name, its folders and files as clickable links, the settings and the data changed since the last start of a resumed run ([Stopping And Resuming](#stopping-and-resuming)), every component initialised by another run, every split with its number of samples, the iterations per epoch, the main training settings and the summary of the model. A transferred component ([Transfer Between Runs](#transfer-between-runs)) is printed as a block with its source run folder, the source checkpoint iteration, whether it is frozen, whether the normalization layers of the backbone are frozen, and the learning rate it learns at with its `learning_rate_multiplier` (none for a frozen component, which does not learn):
 
 ```text
 - Pretrained Backbone     : file:///…/experiments/CLS_IN-KAR-256_…_HAVG.512.256-CWB_MC1000
@@ -211,6 +215,15 @@ A resumed run compares the launched configuration with the `training_configurati
 ```
 
 When the configuration changed, the previous file is kept as `training_configuration_until_iteration_<n>.yaml`, the configuration that trained the run up to the checkpoint of iteration n it resumes from. A file of that name is never replaced, so a run resumed twice from the same checkpoint keeps the configuration that really trained it. An unchanged configuration prints `- Changed Settings        : None Since Iteration <n>` and keeps no file.
+
+The data is compared the same way: a split changed when its data folder or the SHA-256 of its `labels.json` differs from `data.json`. The previous record is then kept as `data_until_iteration_<n>.json` (never replaced either) and the new one written:
+
+```text
+- Previous Data Record    : file:///…/data_until_iteration_72500.json
+- Changed Data Splits     : train Since Iteration 72500
+```
+
+Unchanged data prints `- Changed Data Splits     : None Since Iteration <n>` and keeps `data.json` as it is, with its date.
 
 ### Viewing The Input Images
 `ExperimentConfiguration.diagnosis_modes.view_input_images: True` opens a Training and a Validation window showing the samples exactly as the network receives them, the training ones augmented, each captioned with its targets. It checks the preprocessing, the label mapping and the augmentation before a training. SPACE shows the next samples, ENTER closes the windows and exits without training. It needs a display, and creates no run folder.
@@ -367,6 +380,8 @@ The two-stage detector predicts the box, class and score of every object of an i
 }
 ```
 
+The crowd annotations (`"iscrowd": 1`, one box around a group of objects too many to be labelled one by one) are left out of the training and the evaluation, as in INS, so that the detector learns and is scored on single objects only.
+
 **Converting a dataset.** `vision_training/data/data_retriever.py` downloads COCO 2017 with FiftyOne, whose splits have this layout (about 25 GB in full). Set the dataset folder and `maximum_samples` in its main block, then run `uv run python -m vision_training.data.data_retriever`.
 
 **Configuration.** Copy `object_detection/configuration_example.yaml`. The task keys are `Backbone.detection_convolution_block_indices`, `Anchors` (scales and aspect ratios of every level), `RegionProposal`, `Detector`, `evaluation.score_threshold`, `evaluation.target_precision` and `evaluation.error_dumps`.
@@ -382,7 +397,7 @@ The detections the deployed detector returns (score reaching `Detector.inference
 > **Screenshot placeholder** (`README/detection_sample.png`): a sample image of a detection evaluation, the ground truth boxes on the left next to the detections above `Detector.inference.score_threshold` on the right, every box in the colour of its class.
 
 ### Instance Segmentation (INS)
-The instance segmenter is the two-stage detector of DET with one mask head per detection level, as in Mask R-CNN ([He et al., 2017](https://arxiv.org/abs/1703.06870)): every detection gets its box, class and score, and the binary mask of its object. The mask head of a level pools every box from the feature map of that level with RoI Align (`MaskHead.roi_align_pool_size`, 14 by default), refines it with convolution layers and doubles its resolution, giving one M x M mask per class (M is twice the pool size, 28 by default), the mask of the detected class being kept. During the training, the mask heads learn on the positive proposals, whose mask targets are the ground truth masks cropped to the proposals; at inference, they run on the final detection boxes.
+The instance segmenter is the two-stage detector of DET with one mask head per detection level, as in Mask R-CNN ([He et al., 2017](https://arxiv.org/abs/1703.06870)): every detection gets its box, class and score, and the binary mask of its object. The mask head of a level pools every box from the feature map of that level with RoI Align, at the pool size of the level (`MaskHead.head_configurations.<level>.roi_align_pool_size`, 14 by default), and refines it with convolution layers. It then doubles its resolution as many times as fits in `MaskHead.mask_resolution` M (28 by default), with transposed convolutions or bilinear upsamplings followed by a convolution (`MaskHead.upsampling`), and gives one M x M mask per class, the mask of the detected class being kept. When the doublings fall short of M, as for a pool size of 10 doubled to 20, the masks are resized bilinearly to M, so that every level gives masks of the same size. During the training, the mask heads learn on the positive proposals, whose mask targets are the ground truth masks cropped to the proposals; at inference, they run on the final detection boxes.
 
 **Data.** The COCO `labels.json` of DET, every object having a `segmentation`: a list of polygons, every polygon a flat `[x1, y1, x2, y2, ...]` list in pixels of the original image (the parts of an object are united), or a run length encoding `{"size": [height, width], "counts": ...}`, uncompressed (a list of run lengths) or compressed (a string), the runs following the pixels column by column. The masks are built at the network resolution by the loader workers, a polygon covering the pixels whose centre lies inside it. The crowd annotations (`"iscrowd": 1`) are left out of the training and the evaluation, an object without `segmentation` stops the loading, and an object whose mask vanishes at the network resolution is removed with its box.
 
@@ -399,7 +414,7 @@ The instance segmenter is the two-stage detector of DET with one mask head per d
 
 The COCO 2017 splits downloaded by `vision_training/data/data_retriever.py` already hold the segmentations. The geometric augmentations move the masks with the image, and the box of every object becomes the tight box of its moved mask.
 
-**Configuration.** Copy `instance_segmentation/configuration_example.yaml`. The task keys are those of DET and the `MaskHead` section: the pool size, the `[layers, channels]` of the mask head of every detection level, its normalization and modules, and `inference.mask_threshold`, the mask probability from which a pixel belongs to its object.
+**Configuration.** Copy `instance_segmentation/configuration_example.yaml`. The task keys are those of DET and the `MaskHead` section: the mask resolution and the upsampling, the pool size and the `[layers, channels]` convolutions of the mask head of every detection level, its normalization and modules, and `inference.mask_threshold`, the mask probability from which a pixel belongs to its object. Older INS runs, with one `roi_align_pool_size` for every level, are upgraded by the configuration migration (masks twice the pool size, transposed convolution), and their checkpoints load into the current mask heads.
 
 **Evaluation.** The mask mAP and the box mAP of the same detections, each at IoU 0.5, 0.75 and 0.5:0.95 with the area, 11-point and 101-point methods, with the AP@0.5 of every class. The mask IoU compares the predicted masks, pasted into their boxes and thresholded at `mask_threshold`, with the ground truth masks at the network input resolution. The mask mAP@0.5 of the area method (`Mask mAP@0.5/area`) compares the checkpoints; the box scalars keep the names of DET, so that INS and DET runs can be compared. Both are saved in `class_metrics.csv`, the mask columns prefixed with `mask_`. The class thresholds, the confusion matrix and the error images are those of DET, the detections being matched to the objects by their masks at IoU 0.5, and the error images painting the masks under the boxes.
 
@@ -705,7 +720,7 @@ The models are written to `vision_training/deployment/triton/served_models/<mode
 | CMP | `sequence_comparator` | `before_images`, `after_images` [B, T, 3, S, S] | `class_probabilities` [B, K] |
 | SEL | `frame_selector` | `images` [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
 
-S is `Data.image_settings.size`, K the number of classes, D the largest number of detections per image, M twice `MaskHead.roi_align_pool_size`, and T any number of frames from 1 to `sequence_length`. The inputs are float32 BGR images in [0, 255], resized and padded like the data loaders do (`keep_ratio`); the input normalization is part of the exported model.
+S is `Data.image_settings.size`, K the number of classes, D the largest number of detections per image, M `MaskHead.mask_resolution`, and T any number of frames from 1 to `sequence_length`. The inputs are float32 BGR images in [0, 255], resized and padded like the data loaders do (`keep_ratio`); the input normalization is part of the exported model.
 
 The outputs of SEG are at the network resolution: `restore_prediction_to_original_image` of `vision_training/data/preprocessing.py` brings a class map or the class probabilities back to the original image. A SEG run trained on tiles (`Data.tiling`) is exported the same way, its input being one tile: the client scales the image by `Data.tiling.scale`, then segments it with `segment_image_by_tiles` of `vision_training/models/segmentation/sliding_window.py`, given a function sending a batch of tiles to Triton and returning their `class_probabilities`.
 
@@ -883,7 +898,9 @@ The training settings that can change between two resumptions of a run give no t
 | Detector | `DPT`, then `DFRZ` when frozen | `Detector.pretrained` | ✓ | ✓ | | | | | | |
 | Mask heads | `MSE`, `MRES`, `MINC` | `MaskHead.modules` | | ✓ | | | | | | |
 | Mask heads | `MBN`, `MLN`, `MNN` | `MaskHead.normalization.feature_map_normalization` | | ✓ | | | | | | |
-| Mask heads | `M<pool>.<layers>x<channels>` | `MaskHead.roi_align_pool_size`, `MaskHead.head_configurations` | | ✓ | | | | | | |
+| Mask heads | `MUTC` or `MUBL` | `MaskHead.upsampling`: transposed, bilinear | | ✓ | | | | | | |
+| Mask heads | `M<pool>.<layers>x<channels>` | `MaskHead.head_configurations` | | ✓ | | | | | | |
+| Mask heads | `MR<mask resolution>` | `MaskHead.mask_resolution` | | ✓ | | | | | | |
 | Tiling | `TL<scale>` | `Data.tiling.activated` is True, with `Data.tiling.scale` | | | | | | | ✓ | |
 | Decoder | `UTC` or `UBL` | `SegmentationDecoder.upsampling`: transposed, bilinear | | | | | | | ✓ | |
 | Decoder | `DSE`, `DRES` | `SegmentationDecoder.modules` | | | | | | | ✓ | |
@@ -923,7 +940,7 @@ Examples, built from the configurations of the repository:
 | Task | Run name |
 |---|---|
 | DET | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
-| INS | `INS_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MRES-MBN-M14.4x64_BIN` |
+| INS | `INS_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MRES-MBN-MUTC-M14.4x64-MR28_BIN` |
 | CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC4` |
 | M2O | `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HAVG.64_MC4` |
 | CMP | `CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64_MC2` |

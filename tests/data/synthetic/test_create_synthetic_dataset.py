@@ -1,7 +1,8 @@
 """
 Tests of vision_training/data/synthetic/create_synthetic_dataset.py: the synthetic detection, instance segmentation,
 classification, semantic segmentation, sequence classification, sequence labelling, sequence comparison and frame
-selection datasets are valid, load with the datasets of the framework and follow their labels.
+selection datasets are valid, load with the datasets of the framework and follow their labels, the objects hidden by
+later ones being left out of the detection and instance segmentation labels.
 """
 
 import json
@@ -21,7 +22,8 @@ from vision_training.data.synthetic.create_synthetic_dataset import (MINIMUM_VIS
                                                                      PAIR_CATEGORIES, SELECTION_CATEGORIES,
                                                                      SHAPE_CATEGORIES, SHAPE_DRAWING_FUNCTIONS,
                                                                      create_synthetic_dataset, draw_shapes_frame,
-                                                                     generate_image, get_mask_bounding_box)
+                                                                     generate_image, get_mask_bounding_box,
+                                                                     keep_visible_objects)
 
 IMAGE_SIZE = 256
 
@@ -184,6 +186,33 @@ def test_instance_map_gives_the_visible_part_of_every_object() -> None:
         assert np.array_equal(instance_map > 0, class_map > 0) and int(instance_map.max()) <= len(objects)
         object_categories = np.array(object=[0] + [category_identifier for category_identifier, _ in objects])
         assert np.array_equal(object_categories[instance_map], class_map)
+
+
+def test_covered_objects_are_left_out_of_the_labels() -> None:
+    """
+    Verifies that an object hidden by a later one down to fewer than MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels is
+    left out of the detection and instance segmentation labels, while a partly covered object stays: with the box of
+    the whole shape for the detection, and with the box and the encoding of its visible part for the instance
+    segmentation.
+    """
+    # First object fully covered by the third one, second object half covered by it, the third drawn last
+    instance_map = np.zeros(shape=(64, 64), dtype=np.uint16)
+    instance_map[0:10, 0:10] = 1
+    instance_map[20:40, 0:20] = 2
+    instance_map[0:10, 0:10] = 3
+    instance_map[20:40, 10:30] = 3
+    objects = [(1, [0, 0, 10, 10]), (2, [0, 20, 20, 40]), (3, [0, 0, 30, 40])]
+
+    # The detection keeps the whole boxes of the visible objects
+    detection_objects, detection_segmentations = keep_visible_objects(objects=objects, instance_map=instance_map,
+                                                                      keep_visible_parts=False)
+    assert detection_objects == [(2, [0, 20, 20, 40]), (3, [0, 0, 30, 40])] and detection_segmentations == []
+
+    # The instance segmentation keeps the box and the encoding of the visible part of every visible object
+    instance_objects, instance_segmentations = keep_visible_objects(objects=objects, instance_map=instance_map,
+                                                                    keep_visible_parts=True)
+    assert instance_objects == [(2, [0, 20, 10, 40]), (3, [0, 0, 30, 40])]
+    assert np.array_equal(decode_run_length_encoding(segmentation=instance_segmentations[0]), instance_map == 2)
 
 
 def test_created_instance_segmentation_dataset_encodes_the_visible_parts(tmp_path: Path) -> None:

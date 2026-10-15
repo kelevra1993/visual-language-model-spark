@@ -84,9 +84,10 @@ MINIMUM_SEQUENCE_FRAMES = 2
 MINIMUM_OBJECT_GAP = 2
 MAXIMUM_FRAME_ATTEMPTS = 20
 
-# Instance segmentation: an object with fewer visible pixels than this, mostly covered by later objects, is left out of
-# the labels
+# Detection and instance segmentation: an object with fewer visible pixels than this, mostly covered by later objects,
+# is left out of the labels
 MINIMUM_VISIBLE_OBJECT_PIXELS = 64
+TASKS_REMOVING_COVERED_OBJECTS = ["object_detection", "instance_segmentation"]
 
 # Categories of the synthetic dataset of every task, and the tasks whose samples are sequences of frames (one sequence,
 # or a pair of sequences)
@@ -514,23 +515,62 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
     return image, objects, class_map, instance_map
 
 
+def keep_visible_objects(objects: List[Tuple[int, List[int]]], instance_map: np.ndarray, keep_visible_parts: bool
+                         ) -> Tuple[List[Tuple[int, List[int]]], List[Dict[str, Any]]]:
+    """
+    Leaves out of the labels of a synthetic detection or instance segmentation image the objects mostly covered by the
+    objects drawn after them, those with fewer than MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels in the instance map:
+    place_shape only limits the box overlap of the shapes, so a shape can be hidden while its box stays in the image.
+    For the instance segmentation, every kept object gets the box and the run length encoding of its visible part; the
+    detection keeps the box of the whole shape.
+
+    Args:
+        objects (List[Tuple[int, List[int]]]): The category identifier and tight [x1, y1, x2, y2] box of every object,
+            in drawing order (generate_image).
+        instance_map (np.ndarray): The [H, W] uint16 index of the object of every pixel (object i of the list at
+            i + 1, 0 for the background).
+        keep_visible_parts (bool): True for the instance segmentation (boxes and encodings of the visible parts), False
+            for the detection (boxes of the whole shapes).
+
+    Returns:
+        Tuple[List[Tuple[int, List[int]]], List[Dict[str, Any]]]: The category identifier and box of every kept
+            object, and the uncompressed run length encoding of the visible part of every kept object (empty for the
+            detection).
+    """
+    kept_objects, segmentations = [], []
+    for object_index, (category_identifier, box) in enumerate(objects):
+        # Pixels of the object left visible by the objects drawn after it
+        visible_mask = instance_map == object_index + 1
+        if int(visible_mask.sum()) < MINIMUM_VISIBLE_OBJECT_PIXELS:
+            continue
+
+        # Box and encoding of the visible part for the instance segmentation, box of the whole shape for the detection
+        if keep_visible_parts:
+            kept_objects.append((category_identifier, get_mask_bounding_box(mask=visible_mask)))
+            segmentations.append(encode_run_length_encoding(mask=visible_mask))
+        else:
+            kept_objects.append((category_identifier, box))
+    return kept_objects, segmentations
+
+
 def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Generates and saves one chunk of images of a split, run by a worker process, with the class mask of every image
-    for the semantic segmentation task, and the visible part of every object for the instance segmentation task. Each
-    chunk draws its images with its own random generator, seeded from the operating system, so every generation
-    creates a different dataset.
+    for the semantic segmentation task, the objects mostly covered by later objects left out for the detection and
+    instance segmentation tasks, and the visible part of every object for the instance segmentation task. Each chunk
+    draws its images with its own random generator, seeded from the operating system, so every generation creates a
+    different dataset.
 
     Args:
         chunk (Dict[str, Any]): The chunk description: 'data_folder', 'masks_folder' (None without masks),
-            'split_name', 'first_index', 'number_images', 'image_size', 'maximum_objects' and
+            'split_name', 'first_index', 'number_images', 'image_size', 'maximum_objects', 'remove_covered_objects'
+            (whether the objects with fewer than MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels are left out) and
             'instance_segmentation' (whether the visible parts of the objects are kept).
 
     Returns:
         List[Dict[str, Any]]: For every image, its 'index', 'file_name' and list of (category, box) 'objects', and for
             the instance segmentation its 'segmentations', the uncompressed run length encoding of the visible part of
-            every object, the box of every object being the box of that part and the objects with fewer than
-            MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels being left out.
+            every object, the box of every object being the box of that part (see keep_visible_objects).
     """
     random_generator = np.random.default_rng()
     image_records = []
@@ -547,16 +587,13 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
             cv2.imwrite(filename=os.path.join(chunk["masks_folder"], file_name), img=class_map)
         image_record = {"index": image_index, "file_name": file_name, "objects": objects}
 
-        # Instance segmentation: the visible part of every object, once the later objects are drawn over it
-        if chunk["instance_segmentation"]:
-            visible_objects, segmentations = [], []
-            for object_index, (category_identifier, _) in enumerate(objects):
-                visible_mask = instance_map == object_index + 1
-                if int(visible_mask.sum()) < MINIMUM_VISIBLE_OBJECT_PIXELS:
-                    continue
-                visible_objects.append((category_identifier, get_mask_bounding_box(mask=visible_mask)))
-                segmentations.append(encode_run_length_encoding(mask=visible_mask))
-            image_record["objects"], image_record["segmentations"] = visible_objects, segmentations
+        # Detection and instance segmentation: the objects hidden by the later objects are left out, the instance
+        # segmentation keeping the visible part of every other object
+        if chunk["remove_covered_objects"]:
+            image_record["objects"], segmentations = keep_visible_objects(
+                objects=objects, instance_map=instance_map, keep_visible_parts=chunk["instance_segmentation"])
+            if chunk["instance_segmentation"]:
+                image_record["segmentations"] = segmentations
         image_records.append(image_record)
 
     return image_records
@@ -1138,6 +1175,7 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
                    "first_index": first_index, "number_images": min(IMAGES_PER_TASK, number_samples - first_index),
                    "image_size": image_size,
                    "maximum_objects": maximum_objects if task in TASKS_WITH_BACKGROUND_CLASS else 1,
+                   "remove_covered_objects": task in TASKS_REMOVING_COVERED_OBJECTS,
                    "instance_segmentation": task == "instance_segmentation"}
                   for first_index in range(0, number_samples, IMAGES_PER_TASK)]
         with Pool(processes=number_workers) as pool:
