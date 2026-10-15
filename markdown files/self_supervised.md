@@ -26,8 +26,8 @@ Every item of the implementation plan of `README.md`, ticked once its code is co
 - [x] 6. `vision_training/models/self_supervised/projection_head.py`
 - [x] 7. `vision_training/models/self_supervised/self_supervised_model.py`
 - [x] 8. `vision_training/models/self_supervised/inference_encoder.py`
-- [ ] 9. `vision_training/evaluation/self_supervised/representation_metrics.py`
-- [ ] 10. `vision_training/trainers/self_supervised_trainer.py`
+- [x] 9. `vision_training/evaluation/self_supervised/representation_metrics.py`
+- [x] 10. `vision_training/trainers/self_supervised_trainer.py`
 - [ ] 11. `vision_training/configuration_processing/self_supervised_checks.py`
 - [ ] 12. Registration in the task, model, check, run name and export tables
 - [ ] 13. `vision_training/configurations/self_supervised/` configuration files
