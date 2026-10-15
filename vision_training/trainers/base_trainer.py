@@ -30,15 +30,16 @@ from vision_training.configuration_processing.configuration_loader import load_c
 from vision_training.configuration_processing.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
-from vision_training.data.data_record import (DATA_RECORD_FILE_NAME, DATA_RECORD_SPLITS, DataRecordChanges,
-                                              build_split_record, find_changed_splits)
+from vision_training.data.data_record import (CLASS_NAMES_RECORD_KEY, DATA_RECORD_FILE_NAME, DATA_RECORD_SPLITS,
+                                              DataRecordChanges, build_split_record, find_changed_splits)
 from vision_training.evaluation.evaluation_report import report_evaluation_results
 from vision_training.evaluation.report_formatting import HEADER_SEPARATOR
 from vision_training.evaluation.sample_selection import choose_sample_identifiers
 from vision_training.models.model_registry import MODEL_DTYPE
 from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, freeze_batch_normalization_statistics,
                                                    freeze_component, freeze_normalization_parameters,
-                                                   get_component_name, load_pretrained_component)
+                                                   get_component_name, load_pretrained_component,
+                                                   load_segmentation_class_layers)
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import (EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, get_last_checkpoint_iteration,
                                                     load_checkpoint, save_checkpoint)
@@ -439,6 +440,18 @@ class BaseTrainer(ABC):
         """
         return build_split_record(split_data_folder=split_data_folder)
 
+    def list_class_names(self) -> Optional[List[str]]:
+        """
+        Gives the class names of the run in class index order (background first for the detection and segmentation
+        tasks), written in the record of its data ('data.json', see save_data_record) and compared with those of the
+        source run when a component with class layers is transferred, so that a run can add classes after those of
+        its source run. Built by the tasks after their data loaders; None for a task without class names.
+
+        Returns:
+            Optional[List[str]]: The class names, None when the task has none.
+        """
+        return None
+
     def get_test_sample_name(self, sample_identifier: int) -> str:
         """
         Gives the short name of a test sample, naming its sample image file and its TensorBoard tag. Given by the test
@@ -457,12 +470,12 @@ class BaseTrainer(ABC):
         Builds the optimizer of 'Optimization.optimizer' with its weight decay: Adam (weight decay added to the
         gradients), AdamW (weight decay decoupled from the gradients) or SGD with Nesterov momentum 0.9. Every component
         loaded from another run (backbone, temporal module, classification head, segmentation decoder, region proposal
-        heads, detection heads) that is not frozen gets its own parameter group at the learning rate times its
-        'pretrained.learning_rate_multiplier', so that it can be fine-tuned at another speed than the new layers. The
-        group is created even with a multiplier of 1, so that the layout of the groups only depends on the transfers and
-        freezes written in the run name, and the multiplier can change between two resumptions of a run without changing
-        the layout of its checkpoints. The first group holds every other parameter: without such a component, every
-        parameter shares this single group, the layout of the checkpoints of the runs without transfer, and a
+        heads, detection heads, mask heads) that is not frozen gets its own parameter group at the learning rate times
+        its 'pretrained.learning_rate_multiplier', so that it can be fine-tuned at another speed than the new layers.
+        The group is created even with a multiplier of 1, so that the layout of the groups only depends on the transfers
+        and freezes written in the run name, and the multiplier can change between two resumptions of a run without
+        changing the layout of its checkpoints. The first group holds every other parameter: without such a component,
+        every parameter shares this single group, the layout of the checkpoints of the runs without transfer, and a
         transferred backbone comes second, the layout of the runs that only transferred their backbone.
 
         Returns:
@@ -582,9 +595,12 @@ class BaseTrainer(ABC):
         """
         Loads the trained components of other runs into the model, for every section whose
         'pretrained.experiment_folder' is set (backbone, temporal module, classification head, segmentation decoder,
-        region proposal heads, detection heads), and freezes them when asked, or only the scale and shift of the
-        normalization layers of the backbone. A run resuming from its own checkpoints does not load them, its
-        checkpoint holding the components it was training, but keeps them frozen.
+        region proposal heads, detection heads, mask heads), and freezes them when asked, or only the scale and shift of
+        the normalization layers of the backbone. The class names of the run are given to the transfer, so that a run
+        may add classes after those of its source run, and the class layers of the semantic segmentation are loaded
+        with its decoder when 'SegmentationDecoder.pretrained.load_class_layers' is True (they are never frozen, the
+        new classes having to learn). A run resuming from its own checkpoints does not load them, its checkpoint holding
+        the components it was training, but keeps them frozen.
 
         Returns:
             Dict[str, Optional[Path]]: The checkpoint file every component was loaded from, keyed by the section names
@@ -608,13 +624,20 @@ class BaseTrainer(ABC):
             else:
                 pretrained_checkpoint_paths[section_name] = load_pretrained_component(
                     component=component, section_name=section_name, model_configuration=self.model_configuration,
-                    device=self.device)
+                    device=self.device, class_names=self.list_class_names())
 
             # Freeze the whole component, or only the scale and shift of the normalization layers of the backbone
             if pretrained_configuration["freeze"]:
                 freeze_component(component=component)
             elif section_name == "Backbone" and pretrained_configuration["freeze_normalization_parameters"]:
                 freeze_normalization_parameters(component=component)
+
+        # Class layers of the semantic segmentation, outside its decoder, loaded with the decoder of a new run only
+        if "SegmentationDecoder" in self.pretrained_configurations and \
+                self.pretrained_configurations["SegmentationDecoder"]["load_class_layers"] and \
+                pretrained_checkpoint_paths["SegmentationDecoder"] is not None:
+            load_segmentation_class_layers(segmenter=self.model, model_configuration=self.model_configuration,
+                                           device=self.device, class_names=self.list_class_names())
 
         # A model whose every parameter is frozen would not learn anything
         if not any(parameter.requires_grad for parameter in self.model.parameters()):
@@ -711,9 +734,10 @@ class BaseTrainer(ABC):
 
     def save_data_record(self, data_record_path: Path) -> Optional[DataRecordChanges]:
         """
-        Writes the record of the data of the run ('data.json') next to its configuration file: the data folder, the
-        SHA-256 of the 'labels.json' and the images of every split (record_split), so that the images a model was
-        trained and evaluated on stay known when the data folders change. A resumed run compares the data it is
+        Writes the record of the data of the run ('data.json') next to its configuration file: the class names of the
+        run (list_class_names, null for a task without them), then the data folder, the SHA-256 of the 'labels.json'
+        and the images of every split (record_split), so that the classes and the images a model was trained and
+        evaluated on stay known when the data folders change. A resumed run compares the data it is
         launched with against the record saved by its previous start: an unchanged record is kept with its date, and a
         changed one is kept as 'data_until_iteration_<n>.json', the data that trained the run up to the checkpoint of
         iteration n it resumes from, before the new record replaces it. As for the configurations, a file of that name
@@ -727,6 +751,7 @@ class BaseTrainer(ABC):
                 a run that does not resume from a checkpoint or has no saved record.
         """
         current_record = {"created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                          CLASS_NAMES_RECORD_KEY: self.list_class_names(),
                           "splits": {split_name: self.record_split(
                               split_data_folder=self.experiment_configuration[split_key])
                               for split_name, split_key in DATA_RECORD_SPLITS.items()}}
@@ -873,16 +898,16 @@ class BaseTrainer(ABC):
         """
         Prints, in the experiment information, one block per component initialised by the trained one of another run
         (backbone, temporal module, classification head, segmentation decoder, region proposal heads, detection
-        heads): its source run folder, then the
-        checkpoint iteration it comes from, whether it is frozen, whether the normalization layers of the backbone are
-        frozen, and the learning rate it learns at with its multiplier, which gives no token in the run name. A frozen
-        component does not learn, so it has no learning rate line. Components trained from random weights print
-        nothing.
+        heads, mask heads): its source run folder, then the checkpoint iteration it comes from, whether it is frozen,
+        whether the normalization layers of the backbone are frozen, whether the class layers of the semantic
+        segmentation are loaded with its decoder, and the learning rate it learns at with its multiplier, which gives
+        no token in the run name. A frozen component does not learn, so it has no learning rate line. Components
+        trained from random weights print nothing.
         """
         pretrained_labels = {"Backbone": "Pretrained Backbone", "TemporalModel": "Pretrained Temp. Module",
                              "ClassificationHead": "Pretrained Class. Head",
                              "SegmentationDecoder": "Pretrained Seg. Decoder", "RegionProposal": "Pretrained RPN Heads",
-                             "Detector": "Pretrained Det. Heads"}
+                             "Detector": "Pretrained Det. Heads", "MaskHead": "Pretrained Mask Heads"}
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             if pretrained_configuration["experiment_folder"] is None:
                 continue
@@ -899,6 +924,11 @@ class BaseTrainer(ABC):
             if section_name == "Backbone":
                 print_color(color="blue", output=f"    - Norm. Layers Frozen : "
                                                  f"{pretrained_configuration['freeze_normalization_parameters']}")
+
+            # Class layers of the semantic segmentation loaded with the decoder, a setting of the decoder only
+            if section_name == "SegmentationDecoder":
+                print_color(color="blue", output=f"    - Class Layers Loaded : "
+                                                 f"{pretrained_configuration['load_class_layers']}")
 
             # Learning rate of the parameter group of a component that learns, the learning rate of the run times its
             # multiplier
@@ -1638,7 +1668,8 @@ class BaseTrainer(ABC):
         ('mlflow_run_id', None without tracking or while the run is being opened), the source run of every
         transferable component of the task ('pretrained_backbone', 'pretrained_temporal_module',
         'pretrained_classification_head', 'pretrained_segmentation_decoder', 'pretrained_region_proposer_dictionary',
-        'pretrained_detector_heads_dictionary', None without transfer) and the moving average of the weights of a run
+        'pretrained_detector_heads_dictionary', 'pretrained_mask_heads_dictionary', None without transfer) and the
+        moving average of the weights of a run
         keeping one, and records it in the checkpoint registry of the run used to resume the training.
 
         Args:

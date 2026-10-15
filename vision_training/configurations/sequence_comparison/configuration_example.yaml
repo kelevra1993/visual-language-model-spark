@@ -135,7 +135,8 @@ Optimization:
   # update using min(decay, (1 + n) / (10 + n)) so that the random starting weights fade quickly. Every test
   # evaluation scores the trained weights, then the EMA weights, in Evaluation/Iteration_<n>/EMA/, the Test_EMA
   # TensorBoard curves and the "EMA Weights" blocks of Results.txt. Saved in the checkpoints, it gives no run name
-  # token and can be turned on or off when a run resumes.
+  # token and can be turned on or off when a run resumes. When on, the components transferred from another run (their
+  # 'pretrained' settings) load its averaged weights if its checkpoint holds them, otherwise its trained weights.
   exponential_moving_average:
     # Turns the moving average of the weights on.
     activated: False
@@ -392,9 +393,10 @@ ClassificationHead:
   class_weighting: "none"
   # Classification head of another training run initialising this run instead of random weights. Its
   # fully_connected layers and fully_connected_normalization must be identical in both runs (the dropout rate and
-  # the batch normalization momentum may differ), as well as the size of the vectors it reads and the classes it
-  # predicts, in the same order. The head of a comparison run, which reads the fused vectors of both members, only
-  # fits another comparison run.
+  # the batch normalization momentum may differ), as well as the size of the vectors it reads. The classes of the
+  # source run, read from its data.json, must be the first classes of this run, in the same order: classes may be
+  # appended after them, starting with zero weights and a bias 3 below the mean of the copied biases. The head of a
+  # comparison run, which reads the fused vectors of both members, only fits another comparison run.
   pretrained:
     # Run folder whose trained classification head initialises this run, null to start from random weights. A
     # run resuming from its own checkpoints does not load it again.

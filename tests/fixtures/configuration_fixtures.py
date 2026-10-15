@@ -1,7 +1,8 @@
 """
 Small model configuration dictionaries of the detection (with or without mask heads), classification, semantic
 segmentation, sequence and sequence comparison models, with their device and dtype, shared by the model, export and
-transfer tests.
+transfer tests. Every configuration keeps no moving average of the weights (the 'Optimization' setting read by the
+transfer of the components).
 """
 
 import torch
@@ -79,7 +80,8 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                          'modules': {'squeeze_and_excite': False, 'residual_nets': False, 'inception': False},
                          'nms_iou_threshold': 0.5,
                          'inference': {'score_threshold': 0.5, 'maximum_detections': 100},
-                     }}
+                     },
+                     'Optimization': {'exponential_moving_average': {'activated': False, 'decay': 0.9998}}}
     # Mask heads of the instance segmenter on the same levels as the detection heads
     if mask_head:
         configuration['MaskHead'] = {'mask_resolution': 14, 'upsampling': 'transposed',
@@ -123,7 +125,8 @@ def get_classification_model_configuration(output_mode: str) -> Tuple[Dict[str, 
                                             'fully_connected_normalization': 'none',
                                             'batch_normalization_momentum': 0.1, 'dropout_rate': 0.0,
                                             'output_mode': output_mode, 'label_smoothing': 0.0,
-                                            'class_weighting': 'none'}}
+                                            'class_weighting': 'none'},
+                     'Optimization': {'exponential_moving_average': {'activated': False, 'decay': 0.9998}}}
     device = torch.device(device="cpu")
     dtype = torch.float32
 

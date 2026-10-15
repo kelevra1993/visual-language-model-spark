@@ -4,8 +4,9 @@ the comments, the keys and sections added since (task, pretrained settings, eval
 sample images, MLflow tracking, sequence settings and batch padding, positional embedding of the transformer,
 segmentation losses, deep supervision, tiles and evaluation settings, Optimization, batch normalization momentums,
 normalization of the classification head, its True or False values becoming "batch" or "none", pre-activation
-placement of the backbone shortcuts, moving average of the weights and mask geometry of the instance segmentation, its
-shared RoIAlign pool size becoming the pool size of every level), and renames the run folder to its current run name
+placement of the backbone shortcuts, moving average of the weights, mask geometry of the instance segmentation, its
+shared RoIAlign pool size becoming the pool size of every level, and loading of the class layers of the segmentation
+decoder), and renames the run folder to its current run name
 (without the training, learning rate multiplier and dropout tokens no longer written in the run names). Called by
 scripts/configuration_processing/migrate_configuration.py.
 """
@@ -58,6 +59,12 @@ PRETRAINED_SETTINGS_BLOCKS = {
                        "    learning_rate_multiplier: 1.0\n"),
     "Detector": ("  # Detection heads of another training run initialising this run, null to start from random "
                  "weights.\n"
+                 "  pretrained:\n"
+                 "    experiment_folder: null\n"
+                 "    iteration: null\n"
+                 "    freeze: False\n"
+                 "    learning_rate_multiplier: 1.0\n"),
+    "MaskHead": ("  # Mask heads of another training run initialising this run, null to start from random weights.\n"
                  "  pretrained:\n"
                  "    experiment_folder: null\n"
                  "    iteration: null\n"
@@ -315,6 +322,13 @@ MASK_HEAD_CONFIGURATIONS_COMMENT_LINES = (
     "its\n"
     "  # proposal came from, like the detection heads.\n")
 
+# Header of the segmentation decoder section, and the loading of the class layers inserted after the freeze flag of its
+# pretrained settings, off as in every run written before it existed
+SEGMENTATION_DECODER_SECTION_HEADER = "SegmentationDecoder:\n"
+LOAD_CLASS_LAYERS_LINES = ("    # Also loads the segmentation head and the deep supervision heads of the source run "
+                           "(off).\n"
+                           "    load_class_layers: False\n")
+
 
 def add_task_to_configuration(configuration_path: Path, task: str) -> bool:
     """
@@ -347,10 +361,10 @@ def add_task_to_configuration(configuration_path: Path, task: str) -> bool:
 def add_pretrained_settings_to_configuration(configuration_path: Path, section_name: str) -> bool:
     """
     Upgrades a configuration file written before the transfer of a component by inserting the 'pretrained' settings of
-    its section (Backbone, TemporalModel, ClassificationHead, RegionProposal or Detector), those of a run trained from
-    random weights, right below the section header. The settings are inserted as text, so that every comment of the file
-    is kept, and a file that already has them, or that has no such section (e.g. no temporal module in a detection
-    configuration), is left untouched.
+    its section (Backbone, TemporalModel, ClassificationHead, RegionProposal, Detector or MaskHead), those of a run
+    trained from random weights, right below the section header. The settings are inserted as text, so that every
+    comment of the file is kept, and a file that already has them, or that has no such section (e.g. no temporal module
+    in a detection configuration), is left untouched.
 
     Args:
         configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
@@ -1183,28 +1197,64 @@ def add_mask_head_geometry_to_configuration(configuration_path: Path) -> bool:
     return True
 
 
+def add_class_layers_flag_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades a semantic segmentation configuration file written before the class layers of the decoder could be
+    transferred by inserting 'SegmentationDecoder.pretrained.load_class_layers', off as in every run of that time,
+    right after the freeze flag of the decoder pretrained settings, so that the run keeps initialising its segmentation
+    head and deep supervision heads with random weights. The flag is inserted as text, so that every comment of the file
+    is kept, and a file that already has it, or that has no decoder pretrained settings, is left untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the flag was added, False if the file already had it or has no decoder pretrained settings.
+
+    Raises:
+        ValueError: If the decoder pretrained settings have no freeze flag line of their own.
+    """
+    text = configuration_path.read_text()
+    configuration = yaml.safe_load(stream=text)
+
+    # Only the segmentation configurations with decoder pretrained settings written before the flag existed
+    if "SegmentationDecoder" not in configuration or "pretrained" not in configuration["SegmentationDecoder"] or \
+            "load_class_layers" in configuration["SegmentationDecoder"]["pretrained"]:
+        return False
+    lines = text.splitlines(keepends=True)
+    freeze_index = find_section_line(lines=lines, section_header=SEGMENTATION_DECODER_SECTION_HEADER,
+                                     line_start=PRETRAINED_FREEZE_LINE_START)
+    if freeze_index is None:
+        raise ValueError(f"No 'SegmentationDecoder.pretrained.freeze' line in "
+                         f"{format_path_link(path=configuration_path)}")
+    configuration_path.write_text(data="".join(lines[:freeze_index + 1] + [LOAD_CLASS_LAYERS_LINES] +
+                                               lines[freeze_index + 1:]))
+    return True
+
+
 def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path:
     """
     Upgrades a run trained with an older version of the code so that it can be resumed, evaluated and exported with the
-    current code: its saved configuration gets its task, the 'pretrained' settings of its backbone, temporal module and
-    classification head (those of a run trained from random weights), the
-    'Backbone.pretrained.freeze_normalization_parameters' flag (off), the evaluation outputs of the classification-like
-    tasks (no predictions file nor error images) and of the detection tasks (class thresholds at a precision of 0.99, no
-    error images), the per-class report switch of every task (on, the per-class report of that time), the number of
-    sample images (none), the MLflow tracking settings (off), the sequence augmentations (off), the scope of the
-    sequence normalization of the comparison task (per member), its 'Optimization' section (plain Adam at a constant
-    learning rate), its loading settings (4 worker processes), the padding of the batches of the sequence tasks (every
-    window padded to the sequence length), the positional embedding of their transformer (on), the settings of the
-    segmentation added since its first runs (off), the batch normalization momentum of every normalized section (0.1,
-    the PyTorch default), the normalization of the hidden layers of the classification head ("none", True and False
-    becoming "batch" and "none"), the pre-activation placement of the backbone shortcuts (off), the moving average of
-    the weights (off) and the mask geometry of the instance segmentation (masks twice the shared pool size, transposed
-    convolution), it loses the 'Data.DALI' block of the removed DALI loader, and its folder is renamed to the run
-    name the current code builds from that configuration (the task code being now the first section of the run names,
-    and the augmentation, batch size, learning rate, schedule, gradient clipping, mixed precision, dropout and learning
-    rate multiplier (BLR, TLR, HLR, DLR) tokens being no longer written). The configuration is fully checked on the way,
-    any other missing key being reported by the configuration checker. Two old folders differing only by these settings
-    get the same new name, the second one being refused.
+    current code: its saved configuration gets its task, the 'pretrained' settings of its backbone, temporal module,
+    classification head, region proposal heads, detection heads and mask heads (those of a run trained from random
+    weights), the 'Backbone.pretrained.freeze_normalization_parameters' flag (off), the evaluation outputs of the
+    classification-like tasks (no predictions file nor error images) and of the detection tasks (class thresholds at a
+    precision of 0.99, no error images), the per-class report switch of every task (on, the per-class report of that
+    time), the number of sample images (none), the MLflow tracking settings (off), the sequence augmentations (off), the
+    scope of the sequence normalization of the comparison task (per member), its 'Optimization' section (plain Adam at a
+    constant learning rate), its loading settings (4 worker processes), the padding of the batches of the sequence tasks
+    (every window padded to the sequence length), the positional embedding of their transformer (on), the settings of
+    the segmentation added since its first runs (off), the batch normalization momentum of every normalized section
+    (0.1, the PyTorch default), the normalization of the hidden layers of the classification head ("none", True and
+    False becoming "batch" and "none"), the pre-activation placement of the backbone shortcuts (off), the moving average
+    of the weights (off), the mask geometry of the instance segmentation (masks twice the shared pool size, transposed
+    convolution) and the loading of the class layers of the segmentation decoder (off), it loses the 'Data.DALI' block
+    of the removed DALI loader, and its folder is renamed to the run name the current code builds from that
+    configuration (the task code being now the first section of the run names, and the augmentation, batch size,
+    learning rate, schedule, gradient clipping, mixed precision, dropout and learning rate multiplier (BLR, TLR, HLR,
+    DLR) tokens being no longer written). The configuration is fully checked on the way, any other missing key being
+    reported by the configuration checker. Two old folders differing only by these settings get the same new name, the
+    second one being refused.
 
     Args:
         run_folder (Path): The run folder, holding 'training_configuration.yaml', 'Weights' and 'Tensorboard'.
@@ -1279,6 +1329,9 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
                                           f"{format_path_link(path=configuration_path)}")
     if add_mask_head_geometry_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Mask Resolution, Upsampling And Pool Size Per Level Added To : "
+                                          f"{format_path_link(path=configuration_path)}")
+    if add_class_layers_flag_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Class Layers Flag Of The Segmentation Decoder Added To : "
                                           f"{format_path_link(path=configuration_path)}")
 
     # The run name the current code gives to this configuration

@@ -1,11 +1,13 @@
 """
 Record of the data a run is trained on: the 'data.json' file the base trainer writes in the run folder next to
-'training_configuration.yaml', giving for every split (train, validation, test) its data folder, the SHA-256 of its
-'labels.json' and the list of its images, so that the images a model was trained and evaluated on stay known when the
-data folders change. The images are read from the four manifest formats of the framework: the COCO 'images' of the
-detection tasks, the 'samples' of the classification and semantic segmentation, the frames of the 'sequences' of the
-sequence tasks and the frames of both members of the 'pairs' of the sequence comparison. A resumed run compares its
-data with the saved record (BaseTrainer.save_data_record) and keeps the previous record when the data changed.
+'training_configuration.yaml', giving the class names of the run in class index order and, for every split (train,
+validation, test), its data folder, the SHA-256 of its 'labels.json' and the list of its images, so that the classes
+and the images a model was trained and evaluated on stay known when the data folders change, and that a run adding
+classes after those of its source run can check that the source classes come first (model_transfer.py). The images
+are read from the four manifest formats of the framework: the COCO 'images' of the detection tasks, the 'samples' of
+the classification and semantic segmentation, the frames of the 'sequences' of the sequence tasks and the frames of
+both members of the 'pairs' of the sequence comparison. A resumed run compares its data with the saved record
+(BaseTrainer.save_data_record) and keeps the previous record when the data changed.
 """
 
 import hashlib
@@ -18,6 +20,10 @@ from vision_training.utilities.os_utilities import read_json
 
 # Name of the record of the data in the run folder
 DATA_RECORD_FILE_NAME = "data.json"
+
+# Entry of the record listing the class names of the run in class index order (background first for the detection and
+# segmentation tasks), read by the transfer of the class layers to a run adding classes after those of its source run
+CLASS_NAMES_RECORD_KEY = "class_names"
 
 # Split of the record written for every data folder of the experiment configuration
 DATA_RECORD_SPLITS = {"train": "train_data_folder", "validation": "validation_data_folder",

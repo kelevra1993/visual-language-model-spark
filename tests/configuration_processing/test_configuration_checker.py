@@ -1394,12 +1394,25 @@ def set_invalid_decoder(configuration: Dict[str, Any]) -> None:
 
 def freeze_random_decoder(configuration: Dict[str, Any]) -> None:
     """
-    Freezes the decoder without loading one from another run, and multiplies its learning rate by zero.
+    Freezes the decoder and loads its class layers without loading one from another run, and multiplies its learning
+    rate by zero.
 
     Args:
         configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
     """
-    configuration["SegmentationDecoder"]["pretrained"].update({"freeze": True, "learning_rate_multiplier": 0})
+    configuration["SegmentationDecoder"]["pretrained"].update({"freeze": True, "learning_rate_multiplier": 0,
+                                                               "load_class_layers": True})
+
+
+def write_class_layers_flag_as_text(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the class layers flag of a transferred decoder as a quoted string instead of a boolean.
+
+    Args:
+        configuration (Dict[str, Any]): The raw segmentation configuration, modified in place.
+    """
+    configuration["SegmentationDecoder"]["pretrained"].update({"experiment_folder": "/runs/source",
+                                                               "load_class_layers": "True"})
 
 
 def remove_both_losses(configuration: Dict[str, Any]) -> None:
@@ -1473,7 +1486,12 @@ def set_invalid_segmentation_evaluation(configuration: Dict[str, Any]) -> None:
     (freeze_random_decoder, ["'SegmentationDecoder.pretrained.freeze' must be False when "
                              "'SegmentationDecoder.pretrained.experiment_folder' is null: only a transferred "
                              "segmentation decoder can be frozen.",
-                             "'SegmentationDecoder.pretrained.learning_rate_multiplier' must be > 0, got 0."]),
+                             "'SegmentationDecoder.pretrained.learning_rate_multiplier' must be > 0, got 0.",
+                             "'SegmentationDecoder.pretrained.load_class_layers' must be False when "
+                             "'SegmentationDecoder.pretrained.experiment_folder' is null: the class layers are loaded "
+                             "from the source run of the decoder."]),
+    (write_class_layers_flag_as_text, ["'SegmentationDecoder.pretrained.load_class_layers' must be True or False, got "
+                                       "'True'."]),
     (remove_both_losses, ["'SegmentationLoss.cross_entropy_weight', 'SegmentationLoss.dice_weight' and "
                           "'SegmentationLoss.lovasz_weight' cannot all be 0, the regions would have no loss.",
                           "'SegmentationLoss.boundary_weight' must be a number >= 0, got True.",
@@ -1581,6 +1599,42 @@ def test_instance_segmentation_configurations_are_consistent(tmp_path: Path, con
     assert model_configuration["MaskHead"]["head_configurations"]["5"]["roi_align_pool_size"] == 14
 
 
+def transfer_mask_heads_and_class_layers(configuration: Dict[str, Any]) -> None:
+    """
+    Initialises the frozen mask heads of an instance segmenter with those of another run, or the decoder of a semantic
+    segmenter and its class layers, depending on the sections of the configuration.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance or semantic segmentation configuration, modified in place.
+    """
+    if "MaskHead" in configuration:
+        configuration["MaskHead"]["pretrained"].update({"experiment_folder": "/runs/source", "freeze": True})
+    else:
+        configuration["SegmentationDecoder"]["pretrained"].update({"experiment_folder": "/runs/source",
+                                                                   "load_class_layers": True})
+
+
+@pytest.mark.parametrize(argnames="task_folder", argvalues=["instance_segmentation", "semantic_segmentation"])
+def test_transferred_mask_heads_and_class_layers_are_accepted(tmp_path: Path, task_folder: str) -> None:
+    """
+    Verifies that consistent pretrained settings of the mask heads of an instance segmenter, and of the decoder of a
+    semantic segmenter loading its class layers, pass the checks, the source run being only read when the training
+    starts.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task_folder (str): The folder of the configurations of the task.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=transfer_mask_heads_and_class_layers)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    if task_folder == "instance_segmentation":
+        assert model_configuration["MaskHead"]["pretrained"]["freeze"] is True
+    else:
+        assert model_configuration["SegmentationDecoder"]["pretrained"]["load_class_layers"] is True
+
+
 def set_mismatched_mask_head_levels(configuration: Dict[str, Any]) -> None:
     """
     Gives the mask heads a level that the backbone does not feed to the detection heads.
@@ -1620,7 +1674,21 @@ def set_pool_size_above_the_mask_resolution(configuration: Dict[str, Any]) -> No
     configuration["MaskHead"]["head_configurations"]["7"]["roi_align_pool_size"] = 32
 
 
+def freeze_random_mask_heads(configuration: Dict[str, Any]) -> None:
+    """
+    Freezes the mask heads without loading them from another run, and multiplies their learning rate by zero.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"]["pretrained"].update({"freeze": True, "learning_rate_multiplier": 0})
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (freeze_random_mask_heads, ["'MaskHead.pretrained.freeze' must be False when "
+                                "'MaskHead.pretrained.experiment_folder' is null: only a transferred mask heads can "
+                                "be frozen.",
+                                "'MaskHead.pretrained.learning_rate_multiplier' must be > 0, got 0."]),
     (set_pool_size_above_the_mask_resolution, ["'MaskHead.head_configurations.7.roi_align_pool_size' (32) must not "
                                                "exceed 'MaskHead.mask_resolution' (28), the pooled features being "
                                                "only enlarged to the masks."]),

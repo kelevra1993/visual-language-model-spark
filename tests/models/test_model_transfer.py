@@ -1,29 +1,36 @@
 """
 Tests of vision_training/models/model_transfer.py: backbones, temporal modules, heads, segmentation decoders and
-region proposal and detection heads of a saved run initialising other models and tasks, rejected architectures and
+region proposal, detection and mask heads of a saved run initialising other models and tasks, rejected architectures and
 components (flattened heads, decoders and detection heads of other levels included), order-blind transformers moving
 between window lengths, source runs missing a setting (the pre-activation flag of the backbone counting as off),
-frozen and fixed normalization parameters and backbones moving between batch and sequence normalization.
+frozen and fixed normalization parameters and backbones moving between batch and sequence normalization. The runs
+adding classes after those of their source run are covered too: the class layers of the classification, detection and
+mask heads and of the semantic segmentation grown to the new classes, the classes of another order or fewer classes
+rejected, the source runs without class names, the mask heads of the runs written before the mask geometry, and the
+averaged or trained weights read from the source checkpoint.
 """
 
 import copy
+import json
 import pytest
 import torch
 import yaml
 
 from pathlib import Path
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from vision_training.data.data_record import CLASS_NAMES_RECORD_KEY, DATA_RECORD_FILE_NAME
 from vision_training.models.classification.image_classifier import ImageClassifier
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
-from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, TRANSFERABLE_COMPONENTS,
-                                                   compare_detection_heads, disable_pretrained_settings,
-                                                   freeze_batch_normalization_statistics,
+from vision_training.models.model_transfer import (NEW_CLASS_BIAS_OFFSET, NORMALIZATION_LAYER_TYPES,
+                                                   TRANSFERABLE_COMPONENTS, compare_detection_heads,
+                                                   disable_pretrained_settings, freeze_batch_normalization_statistics,
                                                    freeze_component, freeze_normalization_parameters,
-                                                   load_pretrained_component)
+                                                   load_pretrained_component, load_segmentation_class_layers)
 from vision_training.models.task_model import TaskModel
-from vision_training.trainers.checkpointing import save_checkpoint
+from vision_training.trainers.checkpointing import get_checkpoint_file, save_checkpoint
+from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY, NUMBER_UPDATES_KEY
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
                                                    get_detection_model_configuration,
                                                    get_segmentation_model_configuration,
@@ -33,6 +40,10 @@ from tests.fixtures.configuration_fixtures import (get_classification_model_conf
 # Pretrained settings of a component trained from random weights, and the normalization flag of the backbone
 NO_TRANSFER = {"experiment_folder": None, "iteration": None, "freeze": False, "learning_rate_multiplier": 1.0}
 NO_BACKBONE_TRANSFER = {**NO_TRANSFER, "freeze_normalization_parameters": False}
+
+# Class names of the classification-like source runs of 3 classes, and of the classes a run adds after them
+SOURCE_CLASS_NAMES = ["square", "circle", "triangle"]
+NEW_CLASS_NAMES = ["rhombus", "ellipse"]
 
 
 def get_classifier_configuration(detection_configuration: Dict[str, Any]) -> Dict[str, Any]:
@@ -53,23 +64,41 @@ def get_classifier_configuration(detection_configuration: Dict[str, Any]) -> Dic
             "ClassificationHead": {"global_pooling": "average", "fully_connected": [],
                                    "fully_connected_normalization": "none", "batch_normalization_momentum": 0.1,
                                    "dropout_rate": 0.0, "output_mode": "multi_class", "label_smoothing": 0.0,
-                                   "class_weighting": "none"}}
+                                   "class_weighting": "none"},
+            "Optimization": {"exponential_moving_average": {"activated": False, "decay": 0.9998}}}
 
 
-def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: torch.nn.Module) -> None:
+def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: torch.nn.Module,
+                     averaged_model: Optional[torch.nn.Module] = None, class_names: Optional[List[str]] = None) -> None:
     """
-    Writes a trained run as the trainers save it: its configuration and one checkpoint of its model.
+    Writes a trained run as the trainers save it: its configuration, one checkpoint of its model, holding the moving
+    average of its weights when one is given, and the record of its data reduced to its class names when they are
+    given (a run written before the class names were recorded otherwise).
 
     Args:
         run_folder (Path): The run folder.
         configuration (Dict[str, Any]): The model configuration of the run.
         model (torch.nn.Module): The model whose weights are saved.
+        averaged_model (Optional[torch.nn.Module]): The model holding the moving average of the weights, None for a
+            run without average. Defaults to None.
+        class_names (Optional[List[str]]): The class names of the run in class index order, None to write no data
+            record. Defaults to None.
     """
     run_folder.mkdir(parents=True)
     (run_folder / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=configuration))
+
+    # Moving average stored in the checkpoint as the trainers save it
+    exponential_moving_average_state = None
+    if averaged_model is not None:
+        exponential_moving_average_state = {AVERAGED_MODEL_STATE_KEY: averaged_model.state_dict(),
+                                            NUMBER_UPDATES_KEY: 3}
     save_checkpoint(weights_directory=run_folder / "Weights", iteration=3, model=model,
                     optimizer=torch.optim.Adam(params=model.parameters()), metadata={"task": "classification"},
-                    exponential_moving_average_state=None)
+                    exponential_moving_average_state=exponential_moving_average_state)
+
+    # Class names of the data record written by BaseTrainer.save_data_record
+    if class_names is not None:
+        (run_folder / DATA_RECORD_FILE_NAME).write_text(data=json.dumps(obj={CLASS_NAMES_RECORD_KEY: class_names}))
 
 
 def point_to_source_run(configuration: Dict[str, Any], section_name: str, source_folder: Path) -> Dict[str, Any]:
@@ -967,20 +996,27 @@ def test_decoders_of_other_architectures_are_rejected(tmp_path: Path,
     assert expected_message in str(error_information.value)
 
 
-def write_detector_run(run_folder: Path) -> Tuple[Dict[str, Any], TaskModel]:
+def write_detector_run(run_folder: Path, mask_head: bool = False,
+                       class_names: Optional[List[str]] = None) -> Tuple[Dict[str, Any], TaskModel]:
     """
     Writes a trained object detection run with the small detector configuration of the tests, whose region proposal
-    and detection heads initialise the heads of other detection runs.
+    and detection heads initialise the heads of other detection runs, or an instance segmentation run with mask_head,
+    whose mask heads initialise those of other instance segmentation runs.
 
     Args:
         run_folder (Path): The run folder.
+        mask_head (bool): Whether to write an instance segmentation run with mask heads. Defaults to False.
+        class_names (Optional[List[str]]): The class names of the run in class index order, the background first,
+            None to write no data record. Defaults to None.
 
     Returns:
         Tuple[Dict[str, Any], TaskModel]: The configuration and the model of the run.
     """
-    configuration, _, _ = get_detection_model_configuration()
-    source_detector = build_task_model(task="object_detection", configuration=configuration, seed=0)
-    write_source_run(run_folder=run_folder, configuration=configuration, model=source_detector)
+    configuration, _, _ = get_detection_model_configuration(mask_head=mask_head)
+    task = "instance_segmentation" if mask_head else "object_detection"
+    source_detector = build_task_model(task=task, configuration=configuration, seed=0)
+    write_source_run(run_folder=run_folder, configuration=configuration, model=source_detector,
+                     class_names=class_names)
     return configuration, source_detector
 
 
@@ -1106,15 +1142,15 @@ def remove_foreground_class(configuration: Dict[str, Any]) -> None:
                                          "run and {'5': 9, '6': 6, '7': 6} in this run"),
     ("Detector", add_detection_level, "the levels of the detection heads."),
     ("Detector", add_detection_head_residuals, "'Detector.modules' is"),
-    ("Detector", remove_foreground_class, "'5.classifier.weight' has the shape [6, 128] in the source run and "
-                                          "[5, 128] in this run.")])
+    ("Detector", remove_foreground_class, "The source run predicts 6 classes and this run 5: a run can only add "
+                                          "classes after those of its source run.")])
 def test_detection_heads_of_other_architectures_are_rejected(tmp_path: Path, section_name: str,
                                                              modify_function: Callable[[Dict[str, Any]], None],
                                                              expected_message: str) -> None:
     """
     Verifies that region proposal or detection heads are not transferred to heads of other levels, layers, anchor
-    counts, modules or classes, the error naming the difference: the settings for the architectures, the tensors for
-    the number of classes.
+    counts, modules or fewer classes, the error naming the difference: the settings for the architectures, the class
+    layers for the number of classes.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1134,3 +1170,401 @@ def test_detection_heads_of_other_architectures_are_rejected(tmp_path: Path, sec
                                                                           section_name=section_name,
                                                                           source_folder=tmp_path / "detection_run"))
     assert expected_message in str(error_information.value)
+
+
+def get_class_configuration(task: str, number_classes: int) -> Dict[str, Any]:
+    """
+    Builds the small configuration of an image classifier or a sequence labeller (many-to-many) predicting the given
+    number of classes, for the runs adding classes after those of their source run.
+
+    Args:
+        task (str): "classification" or "sequence_labelling".
+        number_classes (int): The number of classes predicted by the head.
+
+    Returns:
+        Dict[str, Any]: The model configuration.
+    """
+    if task == "classification":
+        configuration, _, _ = get_classification_model_configuration(output_mode="multi_class")
+    else:
+        configuration, _, _ = get_sequence_model_configuration(temporal_type="gru")
+    configuration["Data"]["label_dictionary"] = {class_index + 1: class_index for class_index in range(number_classes)}
+    return configuration
+
+
+def list_detection_class_names(configuration: Dict[str, Any]) -> List[str]:
+    """
+    Lists the class names of a detector configuration in class index order, the background first, as
+    DetectionTrainer.list_class_names gives them.
+
+    Args:
+        configuration (Dict[str, Any]): The detector configuration.
+
+    Returns:
+        List[str]: The class names.
+    """
+    label_dictionary = configuration["Data"]["label_dictionary"]
+    return sorted(label_dictionary, key=lambda class_name: label_dictionary[class_name])
+
+
+@pytest.mark.parametrize(argnames="task", argvalues=["classification", "sequence_labelling"])
+def test_classification_head_adds_classes_after_the_source_classes(tmp_path: Path, task: str,
+                                                                   capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the classification head of a run of 3 classes initialises the head of a run adding 2 classes after
+    them, for an image classifier and a sequence labeller (many-to-many): the hidden layers and the classifier rows of
+    the source classes are copied exactly, and the new classes start with zero weights and a bias NEW_CLASS_BIAS_OFFSET
+    below the mean bias of the source classes.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task (str): The task of both runs.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+    """
+    source_configuration = get_class_configuration(task=task, number_classes=3)
+    source_model = build_task_model(task=task, configuration=source_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "source_run", configuration=source_configuration, model=source_model,
+                     class_names=SOURCE_CLASS_NAMES)
+    target_configuration = get_class_configuration(task=task, number_classes=5)
+    target_model = build_task_model(task=task, configuration=target_configuration, seed=1)
+    load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="ClassificationHead",
+                                                                      source_folder=tmp_path / "source_run"),
+                              device=torch.device("cpu"), class_names=SOURCE_CLASS_NAMES + NEW_CLASS_NAMES)
+
+    # Hidden layers and source classes copied exactly
+    source_state = source_model.classification_head.state_dict()
+    target_state = target_model.classification_head.state_dict()
+    for tensor_name, tensor_value in source_state.items():
+        if not tensor_name.startswith("classifier."):
+            assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
+    assert torch.equal(input=target_state["classifier.weight"][:3], other=source_state["classifier.weight"])
+    assert torch.equal(input=target_state["classifier.bias"][:3], other=source_state["classifier.bias"])
+
+    # New classes starting quiet
+    assert torch.count_nonzero(input=target_state["classifier.weight"][3:]) == 0
+    expected_bias = source_state["classifier.bias"].mean() - NEW_CLASS_BIAS_OFFSET
+    assert torch.allclose(input=target_state["classifier.bias"][3:], other=expected_bias.expand(2))
+    assert "Classification Head : 3 Classes Of The Source Run Kept, 2 New Classes Added After Them." in \
+        capsys.readouterr().out
+
+
+@pytest.mark.parametrize(argnames=("source_class_names", "target_class_names", "expected_message"), argvalues=[
+    (SOURCE_CLASS_NAMES, ["square", "triangle", "circle", "rhombus"],
+     "class 1 is 'circle' in the source run and 'triangle' in this run, class 2 is 'triangle' in the source run and "
+     "'circle' in this run."),
+    (SOURCE_CLASS_NAMES, ["square", "circle"], "The source run predicts 3 classes and this run 2: a run can only add "
+                                               "classes after those of its source run."),
+    (SOURCE_CLASS_NAMES + ["rhombus"], SOURCE_CLASS_NAMES + NEW_CLASS_NAMES,
+     "The data record of the source run names 4 classes and its checkpoint predicts 3 classes.")])
+def test_classes_of_another_order_or_fewer_classes_are_rejected(tmp_path: Path, source_class_names: List[str],
+                                                                target_class_names: List[str],
+                                                                expected_message: str) -> None:
+    """
+    Verifies that a classification head is not transferred to a run whose first classes are not those of the source
+    run in the same order, to a run of fewer classes, or from a source run whose data record names other classes than
+    its checkpoint predicts, the error naming the difference.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        source_class_names (List[str]): The class names recorded in the data record of the source run of 3 classes.
+        target_class_names (List[str]): The class names of the run receiving the head.
+        expected_message (str): The fragment of the error message naming the difference.
+    """
+    source_configuration = get_class_configuration(task="classification", number_classes=3)
+    write_source_run(run_folder=tmp_path / "source_run", configuration=source_configuration,
+                     model=build_task_model(task="classification", configuration=source_configuration, seed=0),
+                     class_names=source_class_names)
+    target_configuration = get_class_configuration(task="classification", number_classes=len(target_class_names))
+    target_model = build_task_model(task="classification", configuration=target_configuration, seed=1)
+
+    with pytest.raises(expected_exception=ValueError) as error_information:
+        load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name="ClassificationHead",
+                                                                          source_folder=tmp_path / "source_run"),
+                                  device=torch.device("cpu"), class_names=target_class_names)
+    assert "The Classification Head Of The Source Run" in str(error_information.value)
+    assert expected_message in str(error_information.value)
+
+
+def test_source_run_without_class_names_keeps_its_class_order(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a source run written before the class names were recorded (no data record) still initialises a run
+    adding classes after its own, its classes being taken as the first classes of the new run with a warning.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+    """
+    source_configuration = get_class_configuration(task="classification", number_classes=3)
+    source_model = build_task_model(task="classification", configuration=source_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "source_run", configuration=source_configuration, model=source_model)
+    target_configuration = get_class_configuration(task="classification", number_classes=5)
+    target_model = build_task_model(task="classification", configuration=target_configuration, seed=1)
+    load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="ClassificationHead",
+                                                                      source_folder=tmp_path / "source_run"),
+                              device=torch.device("cpu"), class_names=SOURCE_CLASS_NAMES + NEW_CLASS_NAMES)
+
+    assert torch.equal(input=target_model.classification_head.classifier.weight[:3],
+                       other=source_model.classification_head.classifier.weight)
+    assert f"The Source Run Has No Class Names In Its {DATA_RECORD_FILE_NAME}" in capsys.readouterr().out
+
+
+def test_detection_heads_add_classes_after_the_source_classes(tmp_path: Path) -> None:
+    """
+    Verifies that the detection heads of a detector of 5 foreground classes initialise the heads of a detector adding
+    2 classes after them: on every level the classifier keeps the rows of the background and of the source classes,
+    the new classes starting with zero weights and a bias NEW_CLASS_BIAS_OFFSET below the mean bias of the source
+    foreground classes, and the box regressor keeps the 4 rows of every source class, those of the new classes being
+    zero, the other layers being copied exactly.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    source_configuration, _, _ = get_detection_model_configuration()
+    source_configuration, source_detector = write_detector_run(
+        run_folder=tmp_path / "detection_run",
+        class_names=list_detection_class_names(configuration=source_configuration))
+    target_configuration = copy.deepcopy(source_configuration)
+    target_configuration["Data"]["label_dictionary"].update({"foreground_6": 6, "foreground_7": 7})
+    target_detector = build_task_model(task="object_detection", configuration=target_configuration, seed=1)
+    load_pretrained_component(component=target_detector.detector_heads_dictionary, section_name="Detector",
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="Detector",
+                                                                      source_folder=tmp_path / "detection_run"),
+                              device=torch.device("cpu"),
+                              class_names=list_detection_class_names(configuration=target_configuration))
+
+    source_state = source_detector.detector_heads_dictionary.state_dict()
+    target_state = target_detector.detector_heads_dictionary.state_dict()
+    for level in ["5", "6", "7"]:
+        # Layers without classes copied exactly
+        for tensor_name, tensor_value in source_state.items():
+            if tensor_name.startswith(f"{level}.") and "classifier" not in tensor_name and \
+                    "bounding_box_regressor" not in tensor_name:
+                assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
+
+        # Classifier: background and source classes copied, new classes quiet
+        source_bias = source_state[f"{level}.classifier.bias"]
+        assert torch.equal(input=target_state[f"{level}.classifier.weight"][:6],
+                           other=source_state[f"{level}.classifier.weight"])
+        assert torch.equal(input=target_state[f"{level}.classifier.bias"][:6], other=source_bias)
+        assert torch.count_nonzero(input=target_state[f"{level}.classifier.weight"][6:]) == 0
+        assert torch.allclose(input=target_state[f"{level}.classifier.bias"][6:],
+                              other=(source_bias[1:].mean() - NEW_CLASS_BIAS_OFFSET).expand(2))
+
+        # Box regressor: 4 rows per class, those of the new classes being zero
+        assert torch.equal(input=target_state[f"{level}.bounding_box_regressor.weight"][:24],
+                           other=source_state[f"{level}.bounding_box_regressor.weight"])
+        assert torch.count_nonzero(input=target_state[f"{level}.bounding_box_regressor.weight"][24:]) == 0
+        assert torch.count_nonzero(input=target_state[f"{level}.bounding_box_regressor.bias"][24:]) == 0
+
+
+def test_mask_heads_initialise_an_instance_segmenter_of_more_classes(tmp_path: Path,
+                                                                     capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the transfer of the mask heads between two instance segmenters, the run receiving them adding 2 classes:
+    the convolutions and upsamplings of every level are copied exactly, the mask predictor keeps the channels of the
+    background and of the source classes, and the channels of the new classes start as the mean of the source
+    foreground channels.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+    """
+    source_configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    source_configuration, source_segmenter = write_detector_run(
+        run_folder=tmp_path / "instance_run", mask_head=True,
+        class_names=list_detection_class_names(configuration=source_configuration))
+    target_configuration = copy.deepcopy(source_configuration)
+    target_configuration["Data"]["label_dictionary"].update({"foreground_6": 6, "foreground_7": 7})
+    target_segmenter = build_task_model(task="instance_segmentation", configuration=target_configuration, seed=1)
+    load_pretrained_component(component=target_segmenter.mask_heads_dictionary, section_name="MaskHead",
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="MaskHead",
+                                                                      source_folder=tmp_path / "instance_run"),
+                              device=torch.device("cpu"),
+                              class_names=list_detection_class_names(configuration=target_configuration))
+
+    source_state = source_segmenter.mask_heads_dictionary.state_dict()
+    target_state = target_segmenter.mask_heads_dictionary.state_dict()
+    for tensor_name, tensor_value in source_state.items():
+        # Layers without classes copied exactly
+        if "mask_predictor" not in tensor_name:
+            assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
+            continue
+
+        # Mask predictor: background and source classes copied, new classes as the mean source foreground channel
+        assert torch.equal(input=target_state[tensor_name][:6], other=tensor_value), tensor_name
+        assert torch.allclose(input=target_state[tensor_name][6:],
+                              other=tensor_value[1:].mean(dim=0, keepdim=True).expand(2, *tensor_value.shape[1:]))
+    assert "Mask Heads Initialised From The Trained Weights Of" in capsys.readouterr().out
+
+
+def test_mask_heads_of_another_mask_resolution_are_rejected(tmp_path: Path) -> None:
+    """
+    Verifies that mask heads are not transferred to mask heads of another mask resolution, whose upsampling layers
+    differ, the error naming the setting.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    source_configuration, _ = write_detector_run(run_folder=tmp_path / "instance_run", mask_head=True)
+    target_configuration = copy.deepcopy(source_configuration)
+    target_configuration["MaskHead"]["mask_resolution"] = 28
+    target_segmenter = build_task_model(task="instance_segmentation", configuration=target_configuration, seed=1)
+
+    with pytest.raises(expected_exception=ValueError) as error_information:
+        load_pretrained_component(component=target_segmenter.mask_heads_dictionary, section_name="MaskHead",
+                                  model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                          section_name="MaskHead",
+                                                                          source_folder=tmp_path / "instance_run"),
+                                  device=torch.device("cpu"))
+    assert "The Mask Heads Of The Source Run" in str(error_information.value)
+    assert "'MaskHead.mask_resolution' is 14 in the source run and 28 in this run." in str(error_information.value)
+
+
+def test_mask_heads_of_a_run_written_before_the_mask_geometry(tmp_path: Path) -> None:
+    """
+    Verifies that the mask heads of a run written before the mask geometry could be configured, whose checkpoint names
+    the single transposed convolution of every level '<level>.upsampling', initialise the current mask heads exactly.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    source_configuration, source_segmenter = write_detector_run(run_folder=tmp_path / "instance_run", mask_head=True)
+
+    # Checkpoint tensors renamed to the names of that time
+    checkpoint_path = get_checkpoint_file(weights_directory=tmp_path / "instance_run" / "Weights", iteration=3)
+    checkpoint = torch.load(f=checkpoint_path, weights_only=True)
+    checkpoint["model_state"] = {tensor_name.replace(".upsampling_layers.0.", ".upsampling."): tensor_value
+                                 for tensor_name, tensor_value in checkpoint["model_state"].items()}
+    torch.save(obj=checkpoint, f=checkpoint_path)
+
+    target_segmenter = build_task_model(task="instance_segmentation", configuration=source_configuration, seed=1)
+    load_pretrained_component(component=target_segmenter.mask_heads_dictionary, section_name="MaskHead",
+                              model_configuration=point_to_source_run(configuration=source_configuration,
+                                                                      section_name="MaskHead",
+                                                                      source_folder=tmp_path / "instance_run"),
+                              device=torch.device("cpu"))
+    for tensor_name, tensor_value in source_segmenter.mask_heads_dictionary.state_dict().items():
+        assert torch.equal(input=target_segmenter.mask_heads_dictionary.state_dict()[tensor_name],
+                           other=tensor_value), tensor_name
+
+
+def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the loading of the class layers of a semantic segmenter with its decoder
+    ('SegmentationDecoder.pretrained.load_class_layers'), the run receiving them adding 2 classes and a deep
+    supervision head: the segmentation head and the deep supervision head of level 3, supervised by both runs, keep the
+    channels of the background and of the source classes, the new classes starting quiet, while the deep supervision
+    head of level 2, supervised by this run only, keeps its random weights, which is reported.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+    """
+    source_configuration, _, _ = get_segmentation_model_configuration(upsampling="transposed")
+    source_configuration["SegmentationDecoder"]["deep_supervision_weights"] = {"3": 0.2}
+    source_segmenter = build_task_model(task="semantic_segmentation", configuration=source_configuration, seed=0)
+    write_source_run(run_folder=tmp_path / "segmentation_run", configuration=source_configuration,
+                     model=source_segmenter, class_names=["background", "class_1", "class_2"])
+
+    # Two more classes and a deep supervision head on level 2 in the run receiving the decoder and its class layers
+    target_configuration = copy.deepcopy(source_configuration)
+    target_configuration["Data"]["label_dictionary"].update({3: 3, 4: 4})
+    target_configuration["SegmentationDecoder"]["deep_supervision_weights"] = {"3": 0.2, "2": 0.3}
+    target_configuration = point_to_source_run(configuration=target_configuration, section_name="SegmentationDecoder",
+                                               source_folder=tmp_path / "segmentation_run")
+    target_configuration["SegmentationDecoder"]["pretrained"]["load_class_layers"] = True
+    target_segmenter = build_task_model(task="semantic_segmentation", configuration=target_configuration, seed=1)
+    level_2_state_before = copy.deepcopy(target_segmenter.deep_supervision_heads["2"].state_dict())
+    target_class_names = ["background", "class_1", "class_2", "class_3", "class_4"]
+    load_pretrained_component(component=target_segmenter.segmentation_decoder, section_name="SegmentationDecoder",
+                              model_configuration=target_configuration, device=torch.device("cpu"),
+                              class_names=target_class_names)
+    load_segmentation_class_layers(segmenter=target_segmenter, model_configuration=target_configuration,
+                                   device=torch.device("cpu"), class_names=target_class_names)
+
+    # Class layers of both runs: background and source classes copied, new classes quiet
+    source_state = source_segmenter.state_dict()
+    target_state = target_segmenter.state_dict()
+    for module_name in ["segmentation_head.1", "deep_supervision_heads.3"]:
+        source_bias = source_state[f"{module_name}.bias"]
+        assert torch.equal(input=target_state[f"{module_name}.weight"][:3], other=source_state[f"{module_name}.weight"])
+        assert torch.equal(input=target_state[f"{module_name}.bias"][:3], other=source_bias)
+        assert torch.count_nonzero(input=target_state[f"{module_name}.weight"][3:]) == 0
+        assert torch.allclose(input=target_state[f"{module_name}.bias"][3:],
+                              other=(source_bias[1:].mean() - NEW_CLASS_BIAS_OFFSET).expand(2))
+
+    # Deep supervision head of this run only kept random
+    for tensor_name, tensor_value in target_segmenter.deep_supervision_heads["2"].state_dict().items():
+        assert torch.equal(input=tensor_value, other=level_2_state_before[tensor_name]), tensor_name
+    console_output = capsys.readouterr().out
+    assert "The Source Run Has No Deep Supervision Head On The Levels ['2']" in console_output
+    assert "Segmentation Class Layers Initialised From The Trained Weights Of" in console_output
+
+
+@pytest.mark.parametrize(argnames=("source_has_average", "target_averages", "expected_weights"),
+                         argvalues=[(True, True, "Averaged"), (True, False, "Trained"), (False, True, "Trained")])
+def test_averaged_weights_initialise_a_run_keeping_a_moving_average(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                                    source_has_average: bool, target_averages: bool,
+                                                                    expected_weights: str) -> None:
+    """
+    Verifies which weights of a source checkpoint initialise a component: the moving average of the weights when the
+    checkpoint holds one and the new run keeps one too ('Optimization.exponential_moving_average.activated'), the
+    trained weights otherwise, the transfer printing which.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
+        source_has_average (bool): Whether the source checkpoint holds a moving average of the weights.
+        target_averages (bool): Whether the run receiving the backbone keeps a moving average.
+        expected_weights (str): The weights expected in the backbone, "Averaged" or "Trained".
+    """
+    configuration = get_class_configuration(task="classification", number_classes=3)
+    source_model = build_task_model(task="classification", configuration=configuration, seed=0)
+    averaged_model = build_task_model(task="classification", configuration=configuration, seed=2) \
+        if source_has_average else None
+    write_source_run(run_folder=tmp_path / "source_run", configuration=configuration, model=source_model,
+                     averaged_model=averaged_model)
+
+    target_configuration = copy.deepcopy(configuration)
+    target_configuration["Optimization"]["exponential_moving_average"]["activated"] = target_averages
+    target_model = build_task_model(task="classification", configuration=target_configuration, seed=1)
+    load_pretrained_component(component=target_model.backbone, section_name="Backbone", device=torch.device("cpu"),
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="Backbone",
+                                                                      source_folder=tmp_path / "source_run"))
+
+    expected_model = averaged_model if expected_weights == "Averaged" else source_model
+    for tensor_name, tensor_value in expected_model.backbone.state_dict().items():
+        assert torch.equal(input=target_model.backbone.state_dict()[tensor_name], other=tensor_value), tensor_name
+    assert f"Backbone Initialised From The {expected_weights} Weights Of" in capsys.readouterr().out
+
+
+def test_mask_heads_and_class_layers_transfers_are_disabled() -> None:
+    """
+    Verifies that turning off the transfers of the instance and semantic segmentation configurations also removes the
+    source run and the freezing of the mask heads and the loading of the class layers of the segmentation decoder.
+    """
+    instance_configuration, _, _ = get_detection_model_configuration(mask_head=True)
+    for section_name in ["Backbone", "RegionProposal", "Detector", "MaskHead"]:
+        no_transfer = NO_BACKBONE_TRANSFER if section_name == "Backbone" else NO_TRANSFER
+        instance_configuration[section_name]["pretrained"] = {**no_transfer, "experiment_folder": "/runs/source"}
+    instance_configuration["MaskHead"]["pretrained"]["freeze"] = True
+    segmentation_configuration, _, _ = get_segmentation_model_configuration(upsampling="transposed")
+    segmentation_configuration["Backbone"]["pretrained"] = dict(NO_BACKBONE_TRANSFER)
+    segmentation_configuration["SegmentationDecoder"]["pretrained"] = {**NO_TRANSFER, "load_class_layers": True,
+                                                                       "experiment_folder": "/runs/source"}
+
+    disable_pretrained_settings(model_configuration=instance_configuration)
+    disable_pretrained_settings(model_configuration=segmentation_configuration)
+
+    assert instance_configuration["MaskHead"]["pretrained"] == NO_TRANSFER
+    assert segmentation_configuration["SegmentationDecoder"]["pretrained"] == {**NO_TRANSFER,
+                                                                               "load_class_layers": False}

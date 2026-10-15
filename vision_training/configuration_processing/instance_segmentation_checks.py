@@ -12,6 +12,7 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            check_boolean_flags, check_positive_integers,
                                                                            check_probability_value,
                                                                            get_configuration_value)
+from vision_training.configuration_processing.common_checks import check_pretrained_configuration
 from vision_training.configuration_processing.detection_checks import check_detection_configuration
 
 
@@ -20,8 +21,9 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
     Verifies the 'MaskHead' section built into one MaskHead per detection level: the mask resolution and the
     upsampling shared by every level, the RoIAlign pool size of every level (at most the mask resolution, the pooled
     features being only enlarged) and its [number_layers, output_channels] convolutions (a multiple of 8 channels with
-    inception modules), the normalization and the momentum of its batch statistics, the module flags and the mask
-    threshold of the inference. Its levels are compared with the detection blocks by check_detection_levels.
+    inception modules), the normalization and the momentum of its batch statistics, the module flags, the mask
+    threshold of the inference and the 'pretrained' settings initialising the mask heads with those of another run.
+    Its levels are compared with the detection blocks by check_detection_levels.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'MaskHead' section.
@@ -81,6 +83,9 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
     errors += check_probability_value(
         value=get_configuration_value(configuration=model_configuration, key_path="MaskHead.inference.mask_threshold"),
         key_path="MaskHead.inference.mask_threshold")
+
+    # Mask heads initialised by those of another run
+    errors += check_pretrained_configuration(model_configuration=model_configuration, section_name="MaskHead")
     return errors
 
 

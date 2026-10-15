@@ -13,7 +13,7 @@ import numpy as np
 import torch
 
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from vision_training.core.contracts import (IGNORED_LABEL_INDEX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults,
                                             SegmentationBatch)
@@ -98,6 +98,17 @@ class SegmentationTrainer(BaseTrainer):
                             for class_index in range(training_dataset.number_classes)]
         self.class_colours = build_class_colours(number_classes=training_dataset.number_classes)
         return loaders
+
+    def list_class_names(self) -> Optional[List[str]]:
+        """
+        Gives the class names taken from the training manifest by build_dataloaders, the background first, for the
+        record of the data of the run and the transfer of the class layers of the segmenter to a run adding classes
+        after them ('SegmentationDecoder.pretrained.load_class_layers').
+
+        Returns:
+            Optional[List[str]]: The class names, in class index order.
+        """
+        return self.class_names
 
     def get_test_sample_classes(self) -> Dict[int, List[int]]:
         """

@@ -95,6 +95,17 @@ class ClassificationTrainer(BaseTrainer):
                             for class_index in range(training_dataset.number_classes)]
         return loaders
 
+    def list_class_names(self) -> Optional[List[str]]:
+        """
+        Gives the class names taken from the training manifest by build_dataloaders, for the record of the data of the
+        run and the transfer of the classification head to a run adding classes after them. Inherited by the sequence
+        trainers, whose heads predict the classes of their manifests too.
+
+        Returns:
+            Optional[List[str]]: The class names, in class index order.
+        """
+        return self.class_names
+
     def build_model(self) -> TaskModel:
         """
         Builds the model of the task from the model registry, and weights its classes in the loss inversely to their

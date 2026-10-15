@@ -3,8 +3,9 @@ Tests of vision_training/configuration_processing/configuration_migration.py: ev
 settings, normalization flag, evaluation outputs, per-class report, sample images, MLflow tracking, sequence
 augmentation, normalization scope, optimization section, loading settings, batch padding, positional embedding,
 segmentation settings, batch normalization momentums, classification head normalization, pre-activation flag of the
-residual shortcuts, moving average of the weights and mask geometry of the instance segmentation) is added once to an
-old configuration, and migrate_run_folder renames old run folders after their settings.
+residual shortcuts, moving average of the weights, mask geometry of the instance segmentation, pretrained settings of
+the mask heads and class layers flag of the segmentation decoder) is added once to an old configuration, and
+migrate_run_folder renames old run folders after their settings.
 """
 
 import json
@@ -16,8 +17,8 @@ from pathlib import Path
 
 from vision_training.configuration_processing.configuration_migration import (
     BOOLEAN_HEAD_NORMALIZATION_COMMENT_LINES, EXPONENTIAL_MOVING_AVERAGE_LINES, HEAD_NORMALIZATION_COMMENT_LINES,
-    HEAD_NORMALIZATION_LINE_START, MIXED_PRECISION_LINE_START, RESIDUAL_NETS_V2_LINES, TRACKING_SECTION_LINES,
-    add_batch_normalization_momentums_to_configuration,
+    HEAD_NORMALIZATION_LINE_START, LOAD_CLASS_LAYERS_LINES, MIXED_PRECISION_LINE_START, RESIDUAL_NETS_V2_LINES,
+    TRACKING_SECTION_LINES, add_batch_normalization_momentums_to_configuration, add_class_layers_flag_to_configuration,
     add_batch_padding_to_configuration, add_evaluation_outputs_to_configuration,
     add_head_normalization_to_configuration,
     add_freeze_normalization_parameters_to_configuration, add_loading_settings_to_configuration,
@@ -170,7 +171,7 @@ def test_pretrained_settings_are_added_once(tmp_path: Path) -> None:
     are added to a configuration written before the backbone transfer, keeping its other backbone settings, that a
     configuration which already has them is left untouched, that the region proposal and detection heads of a
     detection configuration get the pretrained settings of heads trained from random weights the same way, and that a
-    detection configuration, which has no temporal module nor classification head, is not changed by their
+    detection configuration, which has no temporal module, classification head nor mask heads, is not changed by their
     migrations.
 
     Args:
@@ -201,7 +202,7 @@ def test_pretrained_settings_are_added_once(tmp_path: Path) -> None:
 
     # Sections the detection configuration does not have
     text_before = configuration_path.read_text()
-    for section_name in ["TemporalModel", "ClassificationHead"]:
+    for section_name in ["TemporalModel", "ClassificationHead", "MaskHead"]:
         assert add_pretrained_settings_to_configuration(configuration_path=configuration_path,
                                                         section_name=section_name) is False
     assert configuration_path.read_text() == text_before
@@ -945,4 +946,52 @@ def test_mask_head_geometry_is_added_once(tmp_path: Path) -> None:
     detection_path = tmp_path / "detection.yaml"
     detection_path.write_text(data=EXAMPLE_CONFIGURATION_PATH.read_text())
     assert add_mask_head_geometry_to_configuration(configuration_path=detection_path) is False
+    assert detection_path.read_text() == EXAMPLE_CONFIGURATION_PATH.read_text()
+
+
+def test_mask_head_pretrained_settings_and_class_layers_flag_are_added_once(tmp_path: Path) -> None:
+    """
+    Verifies that an instance segmentation configuration written before the transfer of the mask heads gets the
+    pretrained settings of mask heads trained from random weights, keeping its other mask head settings, that a
+    semantic segmentation configuration written before the class layers of the decoder could be transferred gets the
+    flag, off, right after the freeze flag of the decoder pretrained settings, every other line of the file being
+    kept, that a second migration changes nothing, and that a configuration without decoder is left untouched.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Instance segmentation file without the pretrained settings of the mask heads
+    instance_configuration = yaml.safe_load(stream=INSTANCE_SEGMENTATION_CONFIGURATION_PATH.read_text())
+    del instance_configuration["MaskHead"]["pretrained"]
+    instance_path = tmp_path / "instance_segmentation.yaml"
+    instance_path.write_text(data=yaml.safe_dump(data=instance_configuration, sort_keys=False))
+    assert add_pretrained_settings_to_configuration(configuration_path=instance_path, section_name="MaskHead") is True
+    mask_head_configuration = yaml.safe_load(stream=instance_path.read_text())["MaskHead"]
+    assert mask_head_configuration["pretrained"] == RANDOM_PRETRAINED_SETTINGS
+    assert {key: value for key, value in mask_head_configuration.items() if key != "pretrained"} == \
+        instance_configuration["MaskHead"]
+    assert add_pretrained_settings_to_configuration(configuration_path=instance_path, section_name="MaskHead") is False
+
+    # Semantic segmentation file without the class layers flag and its comment
+    current_text = SEGMENTATION_CONFIGURATION_PATH.read_text()
+    old_text = re.sub(pattern=r"    # Also loads the segmentation head.*?    load_class_layers: \w+\n", repl="",
+                      string=current_text, count=1, flags=re.DOTALL)
+    assert "load_class_layers" not in yaml.safe_load(stream=old_text)["SegmentationDecoder"]["pretrained"]
+    segmentation_path = tmp_path / "semantic_segmentation.yaml"
+    segmentation_path.write_text(data=old_text)
+
+    # Only the flag is inserted after the freeze flag, the second migration changing nothing
+    assert add_class_layers_flag_to_configuration(configuration_path=segmentation_path) is True
+    migrated_text = segmentation_path.read_text()
+    assert migrated_text.replace(LOAD_CLASS_LAYERS_LINES, "", 1) == old_text
+    pretrained_configuration = yaml.safe_load(stream=migrated_text)["SegmentationDecoder"]["pretrained"]
+    setting_names = list(pretrained_configuration)
+    assert setting_names[setting_names.index("freeze") + 1] == "load_class_layers"
+    assert pretrained_configuration["load_class_layers"] is False
+    assert add_class_layers_flag_to_configuration(configuration_path=segmentation_path) is False
+
+    # A configuration without decoder is left untouched
+    detection_path = tmp_path / "detection.yaml"
+    detection_path.write_text(data=EXAMPLE_CONFIGURATION_PATH.read_text())
+    assert add_class_layers_flag_to_configuration(configuration_path=detection_path) is False
     assert detection_path.read_text() == EXAMPLE_CONFIGURATION_PATH.read_text()

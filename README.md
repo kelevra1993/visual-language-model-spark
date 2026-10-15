@@ -32,6 +32,7 @@
   - [Sequence Comparison (CMP)](#sequence-comparison-cmp)
   - [Frame Selection (SEL)](#frame-selection-sel)
 - [Transfer Between Runs](#transfer-between-runs)
+  - [Adding Classes](#adding-classes)
 - [Evaluating Checkpoints](#evaluating-checkpoints)
 - [Comparing Launches](#comparing-launches)
 - [Deployment](#deployment)
@@ -149,7 +150,7 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 <experiment_folder>/<run name>/
 ├── training_configuration.yaml        # Copy of the configuration of the last start of the run
 ├── training_configuration_until_iteration_<n>.yaml  # Configuration that trained the run up to iteration n, kept by a resume that changed it
-├── data.json                          # Data folder, SHA-256 of labels.json and images of every split
+├── data.json                          # Class names, and data folder, SHA-256 of labels.json and images of every split
 ├── data_until_iteration_<n>.json      # Data that trained the run up to iteration n, kept by a resume whose data changed
 ├── Weights/
 │   ├── full-checkpoint                # Registry of the saved checkpoints, the last one first
@@ -166,7 +167,7 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 └── mlflow_run.json                    # MLflow run of the training, with the tracking on
 ```
 
-`data.json` records the data of the run: for the train, validation and test splits, the absolute data folder, the SHA-256 of `labels.json` (identifying its images and labels exactly) and the list of its images in manifest order (the `file_name` of the COCO images and of the samples, the frames of the sequences and of both members of the pairs). It is written when the run starts, and sent to the `data` folder of the MLflow run with the tracking on. For ImageNet-1k it takes about 1.5 seconds and 70 MB.
+`data.json` records the data of the run: the class names in class index order (`class_names`, the background first for DET, INS and SEG), read by a run adding classes to this one ([Adding Classes](#adding-classes)), and for the train, validation and test splits, the absolute data folder, the SHA-256 of `labels.json` (identifying its images and labels exactly) and the list of its images in manifest order (the `file_name` of the COCO images and of the samples, the frames of the sequences and of both members of the pairs). It is written when the run starts, and sent to the `data` folder of the MLflow run with the tracking on. For ImageNet-1k it takes about 1.5 seconds and 70 MB.
 
 A checkpoint is saved every `intermediate_weight_saving_iterations` iterations, and a checkpoint evaluated on the whole test split every `weight_saving_iterations` iterations. The files of an evaluation are listed in [Evaluation Outputs](#evaluation-outputs).
 
@@ -276,7 +277,7 @@ Every test evaluation scores the trained weights, then the averaged weights of t
 | MLflow | `test/`, `test_class/`, `test/best_<headline metric>` (tag `best_iteration`) | `test_ema/`, `test_ema_class/`, `test_ema/best_<headline metric>` (tag `best_iteration_test_ema`) |
 | `evaluation_summary.csv` of `evaluate_checkpoint.py` | one column per scalar | the same columns preceded by `ema_` |
 
-The average is saved in every checkpoint and restored when the run resumes. It gives no run name token, so that it can be turned on or off when a run resumes: turned on from a checkpoint saved without it, it restarts from the weights of that checkpoint, and is evaluated from the next evaluation on. The validation curves use the trained weights; the export uses them unless `use_averaged_weights` is True in its main block (see Exporting Models).
+The average is saved in every checkpoint and restored when the run resumes. It gives no run name token, so that it can be turned on or off when a run resumes: turned on from a checkpoint saved without it, it restarts from the weights of that checkpoint, and is evaluated from the next evaluation on. The validation curves use the trained weights; the export uses them unless `use_averaged_weights` is True in its main block (see Exporting Models). A component transferred to another run is loaded from the averaged weights when that run keeps a moving average too ([Transfer Between Runs](#transfer-between-runs)).
 
 ## Tasks
 
@@ -461,7 +462,7 @@ The segmenter predicts the class of every pixel. The backbone is the encoder of 
 - `lovasz_weight`: Lovász-Softmax loss, a smooth version of one minus the mean IoU of the classes present in the batch, which optimizes the evaluated metric directly. It usually fine-tunes a run trained with the cross entropy.
 - `boundary_weight`: cross entropy of the pixels within `boundary_distance` pixels of a true edge between two classes, weighted from 1 on the edge down to 0 beyond `boundary_distance`. It sharpens the contours that the other losses, dominated by the inside of the regions, hardly see. The edges with the unlabelled pixels and the image border are not edges.
 
-**Deep supervision.** `SegmentationDecoder.deep_supervision_weights` adds a 1x1 class layer on every listed intermediate level of the decoder, keyed like `convolutions`, e.g. `{ "5": 0.1, "4": 0.2, "3": 0.3, "2": 0.4 }`. The logits of every level are upsampled to the input size and given the same losses as the final logits, times the weight of the level, in `deep_supervision_loss`. The gradient then reaches the early layers more directly, which helps deep decoders. These layers only serve the training: the inference, the test evaluation and the exported models never run them, and they are not transferred with the decoder. `{}` turns it off.
+**Deep supervision.** `SegmentationDecoder.deep_supervision_weights` adds a 1x1 class layer on every listed intermediate level of the decoder, keyed like `convolutions`, e.g. `{ "5": 0.1, "4": 0.2, "3": 0.3, "2": 0.4 }`. The logits of every level are upsampled to the input size and given the same losses as the final logits, times the weight of the level, in `deep_supervision_loss`. The gradient then reaches the early layers more directly, which helps deep decoders. These layers only serve the training: the inference, the test evaluation and the exported models never run them, and they are only transferred with the decoder when `SegmentationDecoder.pretrained.load_class_layers` is True ([Adding Classes](#adding-classes)). `{}` turns it off.
 
 **Training on tiles.** Images much larger than the network input lose their small objects and thin structures when resized to it. With `Data.tiling.activated: True`, the images and masks are first scaled by `Data.tiling.scale` (1.0 for their full resolution), then:
 - the training samples are tiles of `Data.image_settings.size` pixels cut at a random place of every image at every epoch, so that every part of the image is seen;
@@ -655,10 +656,11 @@ A component of a trained run can initialise the same component of a new run, of 
 |---|---|---|
 | `Backbone` | backbone | any task |
 | `TemporalModel` | temporal module | M2O, M2M, CMP, SEL |
-| `ClassificationHead` | classification head | CLS, M2O, M2M, CMP, SEL |
-| `SegmentationDecoder` | U-Net decoder, without its final class layer nor its deep supervision layers | SEG |
+| `ClassificationHead` | classification head, with its class layer | CLS, M2O, M2M, CMP, SEL |
+| `SegmentationDecoder` | U-Net decoder, with its final class layer and its deep supervision layers when `load_class_layers` is True | SEG |
 | `RegionProposal` | region proposal heads of every detection level | DET, INS |
 | `Detector` | detection heads of every detection level, with their classification and box regression layers | DET, INS |
+| `MaskHead` | mask heads of every detection level, with their mask prediction layers | INS |
 
 For example, a backbone trained on ImageNet classification initialises a detector, a segmenter or a sequence model:
 
@@ -677,7 +679,24 @@ Backbone:
     learning_rate_multiplier: 0.1
 ```
 
-The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`, a source run written before `modules.residual_nets_v2` counting as False; for the classification head: `fully_connected` and `fully_connected_normalization`), which is checked before the training starts. The `batch_normalization_momentum` of every section changes no weight and may differ. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The region proposal heads need the same detection levels, `head_configurations`, normalization and number of anchors per position of every level, other anchor scales or ratios of the same counts being reported; the detection heads need the same detection levels, `head_configurations`, normalization and modules, and the same number of classes. An object detection run thus initialises an instance segmentation run, whose mask heads learn alone when the backbone, region proposal and detection heads are frozen. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen, prefixed by the letter of its section (e.g. `RPT` and `RFRZ` for the region proposal heads, [Run Names](#run-names)). The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
+The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`, a source run written before `modules.residual_nets_v2` counting as False; for the classification head: `fully_connected` and `fully_connected_normalization`), which is checked before the training starts. The `batch_normalization_momentum` of every section changes no weight and may differ. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The region proposal heads need the same detection levels, `head_configurations`, normalization and number of anchors per position of every level, other anchor scales or ratios of the same counts being reported; the detection heads need the same detection levels, `head_configurations`, normalization and modules; the mask heads need the same detection levels, `mask_resolution`, `upsampling`, `head_configurations`, normalization and modules. An object detection run thus initialises an instance segmentation run, whose mask heads learn alone when the backbone, region proposal and detection heads are frozen. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen, prefixed by the letter of its section (e.g. `RPT` and `RFRZ` for the region proposal heads, [Run Names](#run-names)), and `SegmentationDecoder.pretrained.load_class_layers` adds `DCL` after `DPT`. The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
+
+A component is loaded from the averaged weights of the source checkpoint when the source run kept a moving average of the weights ([Moving Average Of The Weights](#moving-average-of-the-weights)) and the new run has `Optimization.exponential_moving_average.activated` True, and from its trained weights otherwise. The console prints which weights initialised every component.
+
+### Adding Classes
+A component with class layers (classification head, detection heads, mask heads, class layers of the SEG decoder) can initialise a run with more classes than its source run. The classes of the source run must be the first classes of the new run, in the same order, the background staying first for DET, INS and SEG; the new classes come after them. The class names of both runs are read from their `data.json` ([Run Folder](#run-folder)) and compared before the training starts: a renamed or reordered class, or fewer classes in the new run, stops the run. A source run written before the class names were recorded prints a warning and its classes are taken as the first classes of the new run. To add classes to a run, append them at the end of its label mapping file and give the new run the extended mapping.
+
+The rows of the source classes are copied, and the rows of the new classes are set as follows, the background being left out of the means:
+
+| Layer | Section | New classes |
+|---|---|---|
+| Class layer of the classification head | `ClassificationHead` | zero weights, bias 3 below the mean bias of the source classes |
+| Classification layer of the detection heads | `Detector` | zero weights, bias 3 below the mean bias of the source foreground classes |
+| Box regression layer of the detection heads (4 rows per class) | `Detector` | zero weights and biases |
+| Mask prediction layer of the mask heads | `MaskHead` | mean of the weights and biases of the source foreground classes |
+| Final class layer and deep supervision layers of the decoder | `SegmentationDecoder` with `load_class_layers` | zero weights, bias 3 below the mean bias of the source foreground classes |
+
+A new class thus starts at about 5 % of the probability of an average source class (e^-3), so that the predictions of the source classes are kept at the first iteration, and the box regression leaves its proposals unchanged. The mask classes do not compete with each other, so a new mask class starts from the mean mask of the source classes. The console prints the number of kept and added classes of every component. With `load_class_layers`, a deep supervision level of the new run that the source run does not have keeps its random weights, with a warning.
 
 ## Evaluating Checkpoints
 `scripts/evaluation/evaluate_checkpoint.py` evaluates the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, without modifying the run folder. Set in its main block:
@@ -909,13 +928,14 @@ The training settings that can change between two resumptions of a run give no t
 | Mask heads | `MUTC` or `MUBL` | `MaskHead.upsampling`: transposed, bilinear | | ✓ | | | | | | |
 | Mask heads | `M<pool>.<layers>x<channels>` | `MaskHead.head_configurations` | | ✓ | | | | | | |
 | Mask heads | `MR<mask resolution>` | `MaskHead.mask_resolution` | | ✓ | | | | | | |
+| Mask heads | `MPT`, then `MFRZ` when frozen | `MaskHead.pretrained` | | ✓ | | | | | | |
 | Tiling | `TL<scale>` | `Data.tiling.activated` is True, with `Data.tiling.scale` | | | | | | | ✓ | |
 | Decoder | `UTC` or `UBL` | `SegmentationDecoder.upsampling`: transposed, bilinear | | | | | | | ✓ | |
 | Decoder | `DSE`, `DRES` | `SegmentationDecoder.modules` | | | | | | | ✓ | |
 | Decoder | `DBN`, `DLN`, `DNN` | `SegmentationDecoder.feature_map_normalization` | | | | | | | ✓ | |
 | Decoder | `D<layers>x<channels>.…` | `SegmentationDecoder.convolutions`, one `<layers>x<channels>` per level from the deepest one | | | | | | | ✓ | |
 | Decoder | `AUX<level>.…` | `SegmentationDecoder.deep_supervision_weights` is not empty, its levels from the deepest one | | | | | | | ✓ | |
-| Decoder | `DPT`, then `DFRZ` when frozen | `SegmentationDecoder.pretrained` | | | | | | | ✓ | |
+| Decoder | `DPT`, then `DCL` with the class layers, then `DFRZ` when frozen | `SegmentationDecoder.pretrained`, `load_class_layers` is True | | | | | | | ✓ | |
 | Classes | `BIN` or `MC<classes>` | `Data.label_mapping.mode`: binary or multi_class, foreground classes of the label dictionary | ✓ | ✓ | | | | | ✓ | |
 | Window | `T<frames>` | `Data.sequence_settings.sequence_length` (frames per member for CMP) | | | | ✓ | ✓ | ✓ | | ✓ |
 | Temporal module | `MEAN`, `MAX`, `ATT<hidden size>` | `TemporalModel.type`: mean_pooling, max_pooling, attention_pooling | | | | ✓ | | ✓ | | |
@@ -1002,7 +1022,7 @@ What is logged:
 The `test_class/` metrics and `confusion_matrix.png` need `evaluation.per_class_report: True`, and the files need `tracking.log_artifacts: True`. MLflow writes `@` as `_at_` and `[0.5:0.95]` as `0.5-0.95` in the metric names. `scripts/evaluation/evaluate_checkpoint.py` logs its evaluations in a separate run, `<run name>-evaluation`.
 
 ## Migrating Old Runs
-`scripts/configuration_processing/migrate_configuration.py` updates a run folder trained before the task-aware configuration and the component transfers (e.g. the `pretrained` blocks of the region proposal and detection heads of DET) or before a newer setting (e.g. the `batch_normalization_momentum` of every section, 0.1 as in PyTorch, the `ClassificationHead.fully_connected_normalization` setting, `"none"`, its True or False values of the runs written before the layer normalization becoming `"batch"` or `"none"`, `Backbone.modules.residual_nets_v2`, False, `Optimization.exponential_moving_average`, off, and the `evaluation.target_precision`, 0.99, and `evaluation.error_dumps`, off, of DET and INS), so that it can be resumed, evaluated or exported. It adds the missing keys to its `training_configuration.yaml`, keeping its comments, and prints the folder name given by the current run name. Set `run_folder`, `task` and `rename_folder` (`True` renames the folder, never while a training writes into it) in its main block, then run:
+`scripts/configuration_processing/migrate_configuration.py` updates a run folder trained before the task-aware configuration and the component transfers (e.g. the `pretrained` blocks of the region proposal and detection heads of DET) or before a newer setting (e.g. the `batch_normalization_momentum` of every section, 0.1 as in PyTorch, the `ClassificationHead.fully_connected_normalization` setting, `"none"`, its True or False values of the runs written before the layer normalization becoming `"batch"` or `"none"`, `Backbone.modules.residual_nets_v2`, False, `Optimization.exponential_moving_average`, off, the `evaluation.target_precision`, 0.99, and `evaluation.error_dumps`, off, of DET and INS, the `MaskHead.pretrained` block of INS, without transfer, and `SegmentationDecoder.pretrained.load_class_layers` of SEG, False), so that it can be resumed, evaluated or exported. It adds the missing keys to its `training_configuration.yaml`, keeping its comments, and prints the folder name given by the current run name. Set `run_folder`, `task` and `rename_folder` (`True` renames the folder, never while a training writes into it) in its main block, then run:
 
 ```bash
 uv run python -m scripts.configuration_processing.migrate_configuration

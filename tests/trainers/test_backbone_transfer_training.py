@@ -1,22 +1,27 @@
 """
 Tests of the model transfers through the trainers of vision_training/trainers on synthetic datasets: a frozen backbone,
 the backbone, temporal module and head of a sequence classifier, the classification backbone and segmentation decoder
-of the semantic segmentation runs, and the backbone, region proposal and detection heads of an object detection run,
-initialise a new run that trains, saves and resumes correctly.
+of the semantic segmentation runs, the backbone, region proposal and detection heads of an object detection run, and
+the averaged backbone and head of a classifier of 9 classes initialising a run of 20 classes, initialise a new run that
+trains, saves and resumes correctly.
 """
 
 import copy
+import json
 import pytest
 import torch
 import yaml
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.core.task_registry import get_trainer_class
-from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
+from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
+from vision_training.models.model_transfer import NEW_CLASS_BIAS_OFFSET
 from vision_training.trainers.base_trainer import BaseTrainer
+from vision_training.trainers.checkpointing import EXPONENTIAL_MOVING_AVERAGE_STATE_KEY
+from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY
 from vision_training.utilities.os_utilities import format_path_link
 
 # Synthetic configuration of every task of the transfer tests
@@ -53,14 +58,15 @@ DETECTION_COMPONENTS = {"Backbone": "backbone", "RegionProposal": "region_propos
 
 
 def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, number_iterations: int,
-                           pretrained_settings: Dict[str, Dict[str, Any]], configuration_name: str,
-                           task: str) -> BaseTrainer:
+                           pretrained_settings: Dict[str, Dict[str, Any]], configuration_name: str, task: str,
+                           label_mapping_path: Optional[Path] = None, moving_average: bool = False) -> BaseTrainer:
     """
     Writes a copy of the synthetic configuration of a task (synthetic shapes classification, segmentation, object
     detection or instance segmentation, or synthetic sequences classification with windows of 4 frames) for a quick
     run on the generated dataset, with the given pretrained settings, and builds its trainer exactly like main.py
     does. The detection tasks run on 256 pixel images with anchors fitting them, and the instance segmentation with
-    small mask heads.
+    small mask heads. Another label mapping trains the run on some of the classes of the dataset only, and the moving
+    average of the weights can be turned on.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
@@ -70,6 +76,9 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
         configuration_name (str): The file name of the written configuration.
         task (str): "classification", "sequence_classification", "semantic_segmentation", "object_detection" or
             "instance_segmentation".
+        label_mapping_path (Optional[Path]): The label mapping of the run, None for the one of the generated dataset.
+            Defaults to None.
+        moving_average (bool): Whether the run keeps a moving average of its weights. Defaults to False.
 
     Returns:
         BaseTrainer: The trainer of the run.
@@ -104,7 +113,10 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
     if task == "sequence_classification":
         configuration["Data"]["sequence_settings"].update({"sequence_length": TRANSFER_NUMBER_FRAMES,
                                                            "window_stride": TRANSFER_NUMBER_FRAMES})
-    configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
+    if label_mapping_path is None:
+        label_mapping_path = dataset_folder / "label_mapping.json"
+    configuration["Data"]["label_mapping"]["mapping_file_path"] = str(label_mapping_path)
+    configuration["Optimization"]["exponential_moving_average"]["activated"] = moving_average
     for section_name, section_settings in pretrained_settings.items():
         configuration[section_name]["pretrained"].update(section_settings)
 
@@ -457,3 +469,72 @@ def test_detection_run_initialises_a_frozen_instance_segmentation_run(tmp_path: 
     assert "Pretrained RPN Heads" in console_output and "Pretrained Det. Heads" in console_output
     assert "Detection Heads Initialised From" in console_output
     assert "Error encountered during iteration" not in console_output and "Critical Error" not in console_output
+
+
+def test_averaged_run_of_9_classes_initialises_a_run_of_20_classes(tmp_path: Path,
+                                                                   capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the transfer to a run adding classes through the trainers: a source run trained on the first 9 classes of
+    the synthetic shapes with a moving average of its weights records its class names in its data.json, and its
+    backbone and classification head initialise a run of the 20 classes keeping a moving average too. Both components
+    start from the averaged weights of the source checkpoint, the classifier keeping the rows of the 9 source classes
+    and adding 11 classes after them with zero weights and a bias NEW_CLASS_BIAS_OFFSET below the mean source bias,
+    and the run trains and saves.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainers.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=TRANSFER_IMAGE_SIZE,
+                             split_sizes={"train": 40, "validation": 20, "test": 20}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+    no_transfer = {"experiment_folder": None, "iteration": None, "freeze": False, "learning_rate_multiplier": 1.0}
+
+    # Source run on the first 9 categories, the images of the other categories being left out
+    source_mapping_path = tmp_path / "label_mapping_9_classes.json"
+    source_mapping_path.write_text(data=json.dumps(obj={str(category_identifier): category_identifier - 1
+                                                        for category_identifier in range(1, 10)}))
+    source_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                            number_iterations=3, configuration_name="source.yaml",
+                                            pretrained_settings={"Backbone": no_transfer,
+                                                                 "ClassificationHead": no_transfer},
+                                            task="classification", label_mapping_path=source_mapping_path,
+                                            moving_average=True)
+    source_trainer.run_training_loop()
+    source_data_record = json.loads(s=(source_trainer.experiment_folder / "data.json").read_text())
+    assert source_data_record["class_names"] == list(SHAPE_CATEGORIES)[:9]
+    averaged_state = torch.load(f=source_trainer.weights_directory / "Iteration_3" / "model_000003.pt",
+                                map_location="cpu",
+                                weights_only=True)[EXPONENTIAL_MOVING_AVERAGE_STATE_KEY][AVERAGED_MODEL_STATE_KEY]
+    capsys.readouterr()
+
+    # Run of the 20 classes initialised by the averaged backbone and head of the source run
+    transfer_settings = {**no_transfer, "experiment_folder": str(source_trainer.experiment_folder)}
+    target_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                            number_iterations=2, configuration_name="target.yaml",
+                                            pretrained_settings={"Backbone": transfer_settings,
+                                                                 "ClassificationHead": transfer_settings},
+                                            task="classification", moving_average=True)
+    assert source_trainer.run_name.endswith("_MC9") and target_trainer.run_name.endswith("-HPT_MC20")
+    console_output = capsys.readouterr().out
+    assert "Classification Head : 9 Classes Of The Source Run Kept, 11 New Classes Added After Them." in console_output
+    assert "Backbone Initialised From The Averaged Weights Of" in console_output
+    assert "Classification Head Initialised From The Averaged Weights Of" in console_output
+
+    # Averaged weights copied, the classifier rows of the source classes included, and new classes starting quiet
+    target_state = {tensor_name: tensor_value.cpu() for tensor_name, tensor_value in
+                    target_trainer.model.state_dict().items()}
+    for tensor_name, tensor_value in averaged_state.items():
+        if tensor_name.startswith("classification_head.classifier."):
+            assert torch.equal(input=target_state[tensor_name][:9], other=tensor_value), tensor_name
+        elif tensor_name.startswith("backbone.") or tensor_name.startswith("classification_head."):
+            assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
+    source_bias = averaged_state["classification_head.classifier.bias"]
+    assert torch.count_nonzero(input=target_state["classification_head.classifier.weight"][9:]) == 0
+    assert torch.allclose(input=target_state["classification_head.classifier.bias"][9:],
+                          other=(source_bias.mean() - NEW_CLASS_BIAS_OFFSET).expand(11))
+
+    # The run of 20 classes trains and saves
+    target_trainer.run_training_loop()
+    assert (target_trainer.weights_directory / "Iteration_2" / "model_000002.pt").is_file()

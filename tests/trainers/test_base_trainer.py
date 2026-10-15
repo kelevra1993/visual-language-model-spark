@@ -280,9 +280,10 @@ def test_resumed_run_reports_and_keeps_its_changed_configuration(tmp_path: Path,
 
 def test_run_records_its_data_and_keeps_the_previous_data(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies the record of the data of a run ('data.json'): written by a new run with the images of every split, kept
-    with its date by a resume with the same data, kept as 'data_until_iteration_<n>.json' by a resume whose training
-    split changed before the new record replaces it, and that file kept by a second resume from the same checkpoint.
+    Verifies the record of the data of a run ('data.json'): written by a new run with the images of every split and no
+    class names (the dummy task has none), kept with its date by a resume with the same data, kept as
+    'data_until_iteration_<n>.json' by a resume whose training split changed before the new record replaces it, and that
+    file kept by a second resume from the same checkpoint.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -293,6 +294,7 @@ def test_run_records_its_data_and_keeps_the_previous_data(tmp_path: Path, capsys
     data_record_path = trainer.experiment_folder / "data.json"
     first_record = json.loads(s=data_record_path.read_text())
     assert trainer.data_record_changes is None
+    assert first_record["class_names"] is None
     assert {split_name: split_record["images"] for split_name, split_record in first_record["splits"].items()} == {
         "train": [f"sample_{index}" for index in range(8)], "validation": [f"sample_{index}" for index in range(4)],
         "test": ["sample_0", "sample_1", "sample_2", "sample_3", "sample_0", "sample_1"]}

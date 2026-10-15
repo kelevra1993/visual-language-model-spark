@@ -392,7 +392,7 @@ ClassificationHead(
 ```
 
 ### Step 2.17 — `initialise_pretrained_components()`
-The sequence classification can transfer the backbone, the temporal module and the head of other runs (the poolings without weights cannot be transferred).
+The sequence classification can transfer the backbone, the temporal module and the head of other runs (the poolings without weights cannot be transferred). The head may have more classes than its source run, appended after them as in the classification.
 
 **Example: a run from scratch**
 ```text

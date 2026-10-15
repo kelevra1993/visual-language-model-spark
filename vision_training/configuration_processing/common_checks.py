@@ -27,7 +27,7 @@ VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
 PRETRAINED_COMPONENT_NAMES = {"Backbone": "backbone", "TemporalModel": "temporal module",
                               "ClassificationHead": "classification head",
                               "SegmentationDecoder": "segmentation decoder", "RegionProposal": "region proposal heads",
-                              "Detector": "detection heads"}
+                              "Detector": "detection heads", "MaskHead": "mask heads"}
 
 
 def check_experiment_configuration(experiment_configuration: Dict[str, Any], valid_tasks: List[str]) -> List[str]:
@@ -295,12 +295,14 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
 def check_pretrained_configuration(model_configuration: Dict[str, Any], section_name: str) -> List[str]:
     """
     Verifies the 'pretrained' settings of a section (Backbone, TemporalModel, ClassificationHead, SegmentationDecoder,
-    RegionProposal or Detector), which initialise its component with the trained one of another run: the source run
-    folder or null, the checkpoint iteration or null for the last one, the freeze flag, only meaningful with a source
-    run, and the learning rate multiplier of the transferred component. For the backbone, the
+    RegionProposal, Detector or MaskHead), which initialise its component with the trained one of another run: the
+    source run folder or null, the checkpoint iteration or null for the last one, the freeze flag, only meaningful with
+    a source run, and the learning rate multiplier of the transferred component. For the backbone, the
     'freeze_normalization_parameters' flag keeps the scale and shift of its normalization layers fixed, which needs a
-    source run that is not frozen anyway and a backbone with normalization layers. The source run itself is only read
-    when a new training starts, so that a trained run can still be evaluated and exported once its source run is gone.
+    source run that is not frozen anyway and a backbone with normalization layers. For the segmentation decoder, the
+    'load_class_layers' flag also loads the segmentation head and the deep supervision heads, which needs a source run.
+    The source run itself is only read when a new training starts, so that a trained run can still be evaluated and
+    exported once its source run is gone.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the section.
@@ -337,6 +339,17 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
     if isinstance(learning_rate_multiplier, bool) or not isinstance(learning_rate_multiplier, (int, float)) or \
             learning_rate_multiplier <= 0:
         errors.append(f"'{key_prefix}.learning_rate_multiplier' must be > 0, got {learning_rate_multiplier!r}.")
+
+    # The class layers of the segmentation decoder are only loaded from a source run
+    if section_name == "SegmentationDecoder":
+        class_layers_errors = check_boolean_flags(configuration=model_configuration,
+                                                  key_paths=[f"{key_prefix}.load_class_layers"])
+        errors += class_layers_errors
+        load_class_layers = get_configuration_value(configuration=model_configuration,
+                                                    key_path=f"{key_prefix}.load_class_layers")
+        if not class_layers_errors and experiment_folder is None and load_class_layers:
+            errors.append(f"'{key_prefix}.load_class_layers' must be False when '{key_prefix}.experiment_folder' is "
+                          f"null: the class layers are loaded from the source run of the decoder.")
     if section_name != "Backbone":
         return errors
 

@@ -132,8 +132,8 @@ main()
 │       │               Data.loading.number_workers persistent worker processes, prefetch_batches batches prepared
 │       │               ahead, pinned memory for a fast copy to the GPU, one OpenCV thread per worker.
 │       ├── save_data_record() -> record_split() -> build_split_record()
-│       │       Writes data.json next to the YAML: the data folder, the SHA-256 of labels.json and the images of every
-│       │       split. A resumed run keeps an unchanged record, and keeps a changed one as
+│       │       Writes data.json next to the YAML: the class names (list_class_names), then the data folder, the
+│       │       SHA-256 of labels.json and the images of every split. A resumed run keeps an unchanged record, and keeps a changed one as
 │       │       data_until_iteration_<n>.json before writing the new one. With view_input_images nothing is written.
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       The hook lists the class of every test image. choose_sample_identifiers then picks, once for the whole
@@ -627,12 +627,13 @@ This hook of `ClassificationTrainer` builds the loaders of the three splits (Ste
 trainer.class_names[:5] -> ['n01440764', 'n01443537', 'n01484850', 'n01491361', 'n01494475']
 ```
 
-Once the loaders exist, `BaseTrainer.__init__()` writes `data.json` in the run folder (`save_data_record()`, with `record_split()` and `build_split_record()` of `vision_training/data/data_record.py`). For each split, it records the absolute data folder, the SHA-256 of `labels.json` (which identifies the images and their labels exactly) and the `file_name` of every sample in manifest order. A model can then be traced back to the exact images it saw, even after the data folders change. A resumed run compares the data folders and SHA-256 with the saved record. When they are unchanged, the record of the first start is kept with its date. When a split changed, the saved record is kept as `data_until_iteration_<n>.json` (never replaced, like the archived configurations) before the new record is written. The input viewer writes nothing. With MLflow on, the record is sent to the `data` folder of the run whenever it is written.
+Once the loaders exist, `BaseTrainer.__init__()` writes `data.json` in the run folder (`save_data_record()`, with `record_split()` and `build_split_record()` of `vision_training/data/data_record.py`). It starts with the class names of the run in class index order (`class_names`, given by `list_class_names()`), which a run adding classes to this one compares with its own (Step 2.19). For each split, it records the absolute data folder, the SHA-256 of `labels.json` (which identifies the images and their labels exactly) and the `file_name` of every sample in manifest order. A model can then be traced back to the exact images it saw, even after the data folders change. A resumed run compares the data folders and SHA-256 with the saved record. When they are unchanged, the record of the first start is kept with its date. When a split changed, the saved record is kept as `data_until_iteration_<n>.json` (never replaced, like the archived configurations) before the new record is written. The input viewer writes nothing. With MLflow on, the record is sent to the `data` folder of the run whenever it is written.
 
 **Example: the start of `data.json` for ImageNet-1k (1.4 seconds to build, 65 MB for the 1,271,167 training images)**
 ```text
 {
   "created": "2026-10-15 15:12:40",
+  "class_names": ["n01440764", "n01443537", "n01484850", ...],
   "splits": {
     "train": {
       "data_folder": "/home/.../imagenet-1k/manifests/train",
@@ -784,6 +785,14 @@ class with  722 images: 1271167 / (1000 x  722) = 1.7606     <- the largest weig
 
 ### Step 2.19 — `initialise_pretrained_components()`
 This is the transfer learning step. For each of the `Backbone` and `ClassificationHead` sections whose `pretrained.experiment_folder` is not `null`, it loads the trained weights of that other run into the component, and freezes it (or only the scale and shift of the normalization layers of the backbone) if asked. It raises an error if every parameter ends up frozen, since nothing would be learned. When a run resumes from its own checkpoint, the source run is not loaded again: the checkpoint already holds the components as they were trained.
+
+A component is read from the averaged weights of the source checkpoint when the source run kept a moving average and this run has `Optimization.exponential_moving_average.activated`, and from its trained weights otherwise (`read_checkpoint_model_state()`), the console printing which ones. The head may also have more classes than its source run: `prepare_class_layers()` compares the `class_names` of both `data.json` files (the source classes must be the first ones of this run, in the same order), then `extend_class_layers()` copies the rows of the source classes and appends the new ones with zero weights and a bias 3 below the mean source bias (`NEW_CLASS_BIAS_OFFSET`), so that they start quiet in the softmax.
+
+**Example: the head of a 9-class run initialising a run of 20 classes**
+```text
+Classification Head : 9 Classes Of The Source Run Kept, 11 New Classes Added After Them.
+Classification Head Initialised From The Averaged Weights Of : file:///.../run_37/CLS_IN-KAR-256_..._MC9/Weights/Iteration_2000/model_2000.pt
+```
 
 **Example: a run from scratch** (`configuration_example.yaml`)
 ```text

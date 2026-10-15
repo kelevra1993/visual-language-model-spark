@@ -128,7 +128,8 @@ Optimization:
   # update using min(decay, (1 + n) / (10 + n)) so that the random starting weights fade quickly. Every test
   # evaluation scores the trained weights, then the EMA weights, in Evaluation/Iteration_<n>/EMA/, the Test_EMA
   # TensorBoard curves and the "EMA Weights" blocks of Results.txt. Saved in the checkpoints, it gives no run name
-  # token and can be turned on or off when a run resumes.
+  # token and can be turned on or off when a run resumes. When on, the components transferred from another run (their
+  # 'pretrained' settings) load its averaged weights if its checkpoint holds them, otherwise its trained weights.
   exponential_moving_average:
     # Turns the moving average of the weights on.
     activated: False
@@ -337,8 +338,8 @@ SegmentationDecoder:
   deep_supervision_weights: {}
   # Decoder of another semantic segmentation run initialising this run instead of random weights. Its upsampling,
   # convolutions, modules and normalization must be identical in both runs, as well as the channels of the backbone
-  # blocks feeding its skip connections. The final 1x1 convolution giving the class logits is never transferred, so
-  # the classes may differ.
+  # blocks feeding its skip connections. The final 1x1 convolution giving the class logits and the deep supervision
+  # heads are only transferred with load_class_layers, the classes being free otherwise.
   pretrained:
     # Run folder whose trained decoder initialises this run, null to start from random weights. A run resuming from
     # its own checkpoints does not load it again.
@@ -348,6 +349,11 @@ SegmentationDecoder:
     # Keeps the loaded decoder fixed (no gradient, batch normalization statistics frozen) so that only the other
     # components learn. Requires an experiment_folder.
     freeze: False
+    # Also loads the segmentation head and the deep supervision heads of the levels present in both runs, which keep
+    # learning when the decoder is frozen. The classes of the source run, read from its data.json, must be the first
+    # classes of this run, in the same order: classes may be appended after them, starting with zero weights and a
+    # bias 3 below the mean of the copied foreground ones. Requires an experiment_folder, gives the DCL token.
+    load_class_layers: False
     # Multiplies the learning rate of the loaded decoder, e.g. 0.1 to fine-tune it ten times slower than the new
     # layers.
     learning_rate_multiplier: 1.0

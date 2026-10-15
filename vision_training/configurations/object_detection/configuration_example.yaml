@@ -130,7 +130,8 @@ Optimization:
   # update using min(decay, (1 + n) / (10 + n)) so that the random starting weights fade quickly. Every test
   # evaluation scores the trained weights, then the EMA weights, in Evaluation/Iteration_<n>/EMA/, the Test_EMA
   # TensorBoard curves and the "EMA Weights" blocks of Results.txt. Saved in the checkpoints, it gives no run name
-  # token and can be turned on or off when a run resumes.
+  # token and can be turned on or off when a run resumes. When on, the components transferred from another run (their
+  # 'pretrained' settings) load its averaged weights if its checkpoint holds them, otherwise its trained weights.
   exponential_moving_average:
     # Turns the moving average of the weights on.
     activated: False
@@ -401,7 +402,10 @@ Detector:
   localisation_loss_beta: 1/9
   # Detection heads of another DET or INS run initialising this run. Their levels, head_configurations,
   # normalization and modules must be identical in both runs, as well as the channels of the backbone blocks feeding
-  # them and the number of classes, the classification and per-class box regression layers being transferred too.
+  # them, the classification and per-class box regression layers being transferred too. The classes of the source
+  # run, read from its data.json, must be the first classes of this run, in the same order: classes may be appended
+  # after them, starting with zero weights and a bias 3 below the mean of the copied foreground ones, and with zero
+  # box regression weights.
   pretrained:
     # Run folder whose trained detection heads initialise this run, null to start from random weights. A run resuming
     # from its own checkpoints does not load them again.

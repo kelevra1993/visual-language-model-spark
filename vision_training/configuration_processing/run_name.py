@@ -34,10 +34,10 @@ UPSAMPLING_CODES = {"transposed": "UTC", "bilinear": "UBL"}
 # Prefix of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
 # followed by '<prefix>FRZ' when it is frozen, i.e. PT and FRZ for the backbone, TPT and TFRZ for the temporal module,
 # HPT and HFRZ for the classification head, DPT and DFRZ for the segmentation decoder, RPT and RFRZ for the region
-# proposal heads, DPT and DFRZ for the detection heads. The learning rate multiplier of the component gives no token,
-# so that it can change between two resumptions of a run
+# proposal heads, DPT and DFRZ for the detection heads, MPT and MFRZ for the mask heads. The learning rate multiplier
+# of the component gives no token, so that it can change between two resumptions of a run
 PRETRAINED_TOKEN_PREFIXES = {"Backbone": "", "TemporalModel": "T", "ClassificationHead": "H",
-                             "SegmentationDecoder": "D", "RegionProposal": "R", "Detector": "D"}
+                             "SegmentationDecoder": "D", "RegionProposal": "R", "Detector": "D", "MaskHead": "M"}
 
 
 def join_level_tokens(level_tokens: List[str]) -> str:
@@ -83,12 +83,12 @@ def build_input_tokens(model_configuration: Dict[str, Any]) -> List[str]:
 
 def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: str) -> List[str]:
     """
-    Builds the tokens of a component initialised by the trained one of another run, placed at the end of the section
-    of the component in the run name (see PRETRAINED_TOKEN_PREFIXES): e.g. PT, then FRZ when it is frozen, then FBN
-    when the scale and shift of the normalization layers of the backbone are kept fixed. A component trained from
-    random weights gives no token. The learning rate multiplier gives no token, the optimizer giving every transferred
-    component that learns its own parameter group whatever its multiplier, so that it can change between two
-    resumptions of a run.
+    Builds the tokens of a component initialised by the trained one of another run, placed at the end of the section of
+    the component in the run name (see PRETRAINED_TOKEN_PREFIXES): e.g. PT, then DCL when the segmentation decoder also
+    loads the class layers of the source run, then FRZ when it is frozen, then FBN when the scale and shift of the
+    normalization layers of the backbone are kept fixed. A component trained from random weights gives no token. The
+    learning rate multiplier gives no token, the optimizer giving every transferred component that learns its own
+    parameter group whatever its multiplier, so that it can change between two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -104,6 +104,10 @@ def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: s
     # Transferred component, frozen or not
     token_prefix = PRETRAINED_TOKEN_PREFIXES[section_name]
     pretrained_tokens = [f"{token_prefix}PT"]
+
+    # Segmentation head and deep supervision heads loaded with the decoder, which changes what the run starts from
+    if section_name == "SegmentationDecoder" and pretrained_configuration["load_class_layers"]:
+        pretrained_tokens.append("DCL")
     if pretrained_configuration["freeze"]:
         pretrained_tokens.append(f"{token_prefix}FRZ")
 
@@ -260,8 +264,9 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
     (build_detection_sections), with the mask heads section before the classes: the modules MSE, MRES, MINC, the
     normalization MBN, MLN or MNN, the upsampling MUTC or MUBL, then M<RoIAlign pool size>.<layers>x<channels> of the
     mask head of every level, written once when identical on every level, otherwise joined with '+' in level order,
-    and MR<mask resolution>, e.g. 'MRES-MBN-MUTC-M14.4x64-MR28'. The mask threshold gives no token, so that it can
-    change between two resumptions of a run.
+    MR<mask resolution>, and MPT, followed by MFRZ when frozen, when the mask heads are initialised by those of another
+    run (see build_pretrained_tokens), e.g. 'MRES-MBN-MUTC-M14.4x64-MR28'. The mask threshold gives no token, so that
+    it can change between two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -291,6 +296,7 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
         f"{mask_heads[level]['roi_align_pool_size']}.{mask_heads[level]['convolutions'][0]}x"
         f"{mask_heads[level]['convolutions'][1]}" for level in level_names]))
     mask_tokens.append(f"MR{mask_head_configuration['mask_resolution']}")
+    mask_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="MaskHead")
 
     # The mask heads section comes before the classes section of the detection sections
     detection_sections = build_detection_sections(model_configuration=model_configuration)
@@ -480,8 +486,8 @@ def build_segmentation_sections(model_configuration: Dict[str, Any]) -> List[Lis
     tiles of the images scaled by <scale>, the decoder (UTC or UBL for the transposed convolution or bilinear
     upsampling, the modules DSE and DRES, the normalization DBN, DLN or DNN, then D<layers>x<channels> of every level
     from the deepest one to the input resolution, AUX<levels> for the deep supervision heads of these levels, and DPT,
-    followed by DFRZ when frozen, when the decoder is initialised by the one of another run, see
-    build_pretrained_tokens),
+    followed by DCL when the class layers are loaded too and DFRZ when frozen, when the decoder is initialised by the
+    one of another run, see build_pretrained_tokens),
     then the classes (BIN or MC<foreground classes>), e.g. 'UTC-DBN-D2x64.2x64.2x32.2x32.1x16-AUX5.4_MC4'. The dropout
     of the segmentation head, the weights of the deep supervision losses, the overlap of the evaluation tiles and the
     'SegmentationLoss' settings give no token, so that they can change between two resumptions of a run.

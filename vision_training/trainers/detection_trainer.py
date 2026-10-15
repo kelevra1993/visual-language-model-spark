@@ -98,6 +98,17 @@ class DetectionTrainer(BaseTrainer):
                                          model_configuration=self.model_configuration, batch_size=self.batch_size,
                                          load_instance_masks=self.LOAD_INSTANCE_MASKS)
 
+    def list_class_names(self) -> Optional[List[str]]:
+        """
+        Gives the class names taken from the test manifest by build_dataloaders, the background first, for the record
+        of the data of the run and the transfer of the detection heads (and of the mask heads of the instance
+        segmentation, which inherits it) to a run adding classes after them.
+
+        Returns:
+            Optional[List[str]]: The class names, in class index order.
+        """
+        return [self.class_names[class_index] for class_index in range(len(self.class_names))]
+
     def build_model(self) -> TwoStageDetector:
         """
         Builds the two-stage detector from the model configuration.
