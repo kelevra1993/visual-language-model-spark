@@ -48,12 +48,12 @@ def compute_nearest_neighbour_predictions(representations: torch.Tensor, labels:
     for chunk_start in range(0, number_images, SIMILARITY_CHUNK_SIZE):
         chunk_end = min(chunk_start + SIMILARITY_CHUNK_SIZE, number_images)
         similarities = normalized_representations[chunk_start:chunk_end] @ normalized_representations.T
-        chunk_indices = torch.arange(chunk_start, chunk_end, device=similarities.device)
+        chunk_indices = torch.arange(start=chunk_start, end=chunk_end, device=similarities.device)
         similarities[chunk_indices - chunk_start, chunk_indices] = float("-inf")
 
         # Vote of the nearest neighbours, weighted by their similarity
         neighbour_similarities, neighbour_indices = similarities.topk(k=number_voting_neighbours, dim=1)
-        neighbour_weights = torch.exp(neighbour_similarities / NEAREST_NEIGHBOUR_TEMPERATURE)
+        neighbour_weights = torch.exp(input=neighbour_similarities / NEAREST_NEIGHBOUR_TEMPERATURE)
         class_votes = torch.zeros(size=(chunk_end - chunk_start, number_classes), device=similarities.device)
         class_votes.scatter_add_(dim=1, index=labels[neighbour_indices], src=neighbour_weights)
         predicted_labels.append(class_votes.argmax(dim=1))
@@ -75,5 +75,6 @@ def compute_effective_rank(representations: torch.Tensor) -> float:
     """
     singular_values = torch.linalg.svdvals(A=representations.double())
     singular_value_distribution = singular_values / singular_values.sum().clamp(min=EFFECTIVE_RANK_EPSILON)
-    entropy = -(singular_value_distribution * torch.log(singular_value_distribution + EFFECTIVE_RANK_EPSILON)).sum()
-    return float(torch.exp(entropy))
+    entropy = -(singular_value_distribution * torch.log(input=singular_value_distribution +
+                                                         EFFECTIVE_RANK_EPSILON)).sum()
+    return float(torch.exp(input=entropy))

@@ -52,7 +52,7 @@ def compute_info_nce_loss(first_embeddings: torch.Tensor, second_embeddings: tor
 
         # The partner of the first view i is the second view at i + N, and the partner of the second view i + N is
         # the first view at i
-        view_indices = torch.arange(number_images, device=embeddings.device)
+        view_indices = torch.arange(end=number_images, device=embeddings.device)
         partner_indices = torch.cat(tensors=[view_indices + number_images, view_indices], dim=0)
         info_nce_loss = torch_functional.cross_entropy(input=similarity_logits, target=partner_indices)
 
@@ -90,7 +90,7 @@ def compute_barlow_twins_loss(first_embeddings: torch.Tensor, second_embeddings:
             feature_means = view_embeddings.mean(dim=0, keepdim=True)
             feature_variances = view_embeddings.var(dim=0, unbiased=False, keepdim=True)
             normalized_views.append((view_embeddings - feature_means) /
-                                    torch.sqrt(feature_variances + BARLOW_TWINS_NORMALIZATION_EPSILON))
+                                    torch.sqrt(input=feature_variances + BARLOW_TWINS_NORMALIZATION_EPSILON))
 
         # Cross-correlation of the features of the first views with those of the second views
         cross_correlation = normalized_views[0].T @ normalized_views[1] / number_images

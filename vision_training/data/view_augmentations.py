@@ -98,7 +98,7 @@ class ViewAugmenter:
             torch.Tensor: The [B, 3, H, W] float BGR views in [0, 255].
         """
         rgb_images = images.flip(dims=(1,)) / MAXIMUM_PIXEL_VALUE
-        rgb_views = self.transformations(rgb_images).clamp(min=0.0, max=1.0)
+        rgb_views = self.transformations(input=rgb_images).clamp(min=0.0, max=1.0)
         return rgb_views.flip(dims=(1,)) * MAXIMUM_PIXEL_VALUE
 
     def create_views(self, images: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
