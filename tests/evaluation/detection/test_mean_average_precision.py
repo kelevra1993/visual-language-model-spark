@@ -1,7 +1,8 @@
 """
 Tests of vision_training/evaluation/detection/mean_average_precision.py on a worked example and edge cases: true
 positives, precision recall curve, average precision, duplicate, missing and wrong-class detections, the COCO-style
-mean over overlap thresholds, and the mask average precision of the instance segmentation.
+mean over overlap thresholds, the score threshold of every class, and the mask average precision of the instance
+segmentation.
 """
 
 import pytest
@@ -100,6 +101,41 @@ def test_worked_example_average_precision(method: str, expected_average_precisio
     results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=2)
     assert results[method]["mAP@0.5"] == pytest.approx(expected=expected_average_precision)
     assert results[method]["class_AP@0.5"][1] == pytest.approx(expected=expected_average_precision)
+
+
+@pytest.mark.parametrize(argnames=("target_precision", "expected_threshold"),
+                         argvalues=[(0.99, (0.95, 0.2)), (0.75, (0.75, 0.8)), (0.5, (0.75, 0.8))])
+def test_class_score_thresholds_of_the_worked_example(target_precision: float,
+                                                      expected_threshold: tuple) -> None:
+    """
+    Verifies the score threshold of the worked example, whose detections are by decreasing score a true positive, a
+    false positive and three true positives among 5 objects: only its first detection reaches a precision of 0.99
+    (recall 1 / 5), and its last one keeps a precision of 4 / 5 with a recall of 4 / 5. The thresholds are only given
+    with a target precision.
+
+    Args:
+        target_precision (float): The precision the threshold must reach.
+        expected_threshold (tuple): The expected threshold and recall.
+    """
+    detections, ground_truths = get_worked_example()
+    results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=2,
+                                  target_precision=target_precision)
+    assert results["class_score_thresholds"][1] == pytest.approx(expected=expected_threshold)
+    assert "class_score_thresholds" not in evaluate_detections(detections=detections, ground_truths=ground_truths,
+                                                               number_classes=2)
+
+
+def test_class_without_ground_truth_or_detection_has_no_threshold() -> None:
+    """
+    Verifies that a class without object and a class whose objects are never detected get no score threshold, next
+    to a class found exactly.
+    """
+    ground_truths = [make_ground_truth(boxes=[[0, 0, 10, 10], [20, 20, 30, 30]], labels=[1, 2])]
+    detections = [make_detections(boxes=[[0, 0, 10, 10], [40, 40, 50, 50]], scores=[0.9, 0.8], labels=[1, 3])]
+    results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=4,
+                                  target_precision=0.99)
+    assert results["class_score_thresholds"][1] == pytest.approx(expected=(0.9, 1.0))
+    assert results["class_score_thresholds"][2] is None and results["class_score_thresholds"][3] is None
 
 
 def test_perfect_detections_give_one() -> None:

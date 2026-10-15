@@ -13,7 +13,8 @@ from pathlib import Path
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
-from tests.fixtures.evaluation_checks import check_sample_images, read_results_blocks
+from tests.fixtures.evaluation_checks import (check_detection_error_analysis, check_sample_images,
+                                              read_results_blocks)
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                                 "configuration_synthetic_shapes.yaml")
@@ -24,12 +25,16 @@ SMOKE_IMAGE_SIZE = 256
 # Anchor scales of the smoke test: the configuration checker requires every scale to fit in the image
 SMOKE_ANCHOR_SCALES = {"5": [16, 32, 64], "6": [32, 64, 128], "7": [64, 128, 256]}
 
+# Largest number of error images saved per folder by the smoke test
+SMOKE_MAXIMUM_ERROR_IMAGES = 2
+
 
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int) -> Path:
     """
     Writes a copy of the synthetic shapes configuration adapted to a quick training smoke test: the generated
-    dataset, 256 pixel images, the Native loader, batches of 2 images and a saving schedule that triggers an
-    intermediate save, a save with test evaluation and a validation pass within a handful of iterations.
+    dataset, 256 pixel images, the Native loader, batches of 2 images, a saving schedule that triggers an
+    intermediate save, a save with test evaluation and a validation pass within a handful of iterations, and the error
+    images of the evaluation, at most 2 per folder.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
@@ -52,6 +57,13 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
                                      "validation_iteration_ratio": 2, "resume_training": True})
     experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": False,
                                                         "compute_model_size": False, "view_input_images": False})
+
+    # Error images of the evaluation, a few per folder, with the deployment threshold lowered to the evaluation one so
+    # that the barely trained detector gives false positives and confusions next to its missed objects
+    experiment_configuration["evaluation"]["error_dumps"] = {"activated": True,
+                                                             "maximum_per_class_pair": SMOKE_MAXIMUM_ERROR_IMAGES}
+    evaluation_score_threshold = experiment_configuration["evaluation"]["score_threshold"]
+    configuration["Detector"]["inference"]["score_threshold"] = evaluation_score_threshold
 
     # Read the small images, and map the generated categories to the model classes
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
@@ -86,10 +98,11 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     """
     Verifies the whole training pipeline on a generated synthetic dataset: 5 iterations save the intermediate and
     evaluated checkpoints and the final one, evaluate the test split into Results.txt (the table of the average
-    precision methods and the per-class table), class_metrics.csv (the ground truth boxes of every class summing to
-    those of the test images) and the sample images of the test images, and write the three TensorBoard folders. A
-    second run with the same settings resolves to the same run folder, resumes from the last checkpoint with exactly
-    its weights, and trains 2 more iterations. No training step may fail silently.
+    precision methods and the per-class table with the class thresholds), class_metrics.csv (the ground truth boxes of
+    every class summing to those of the test images), the confusion matrix, class thresholds and error images of the
+    detections (check_detection_error_analysis) and the sample images of the test images, and write the three
+    TensorBoard folders. A second run with the same settings resolves to the same run folder, resumes from the last
+    checkpoint with exactly its weights, and trains 2 more iterations. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -132,9 +145,16 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
               newline="") as class_metrics_file:
         class_rows = list(csv.DictReader(f=class_metrics_file))
     assert list(class_rows[0]) == ["class_index", "class", "ground_truths", "average_precision_50",
-                                   "average_precision_75", "average_precision_50_95"]
+                                   "average_precision_75", "average_precision_50_95", "threshold_at_target_precision",
+                                   "recall_at_target_precision"]
     assert sum(int(class_row["ground_truths"]) for class_row in class_rows) == number_boxes
     assert [class_row["class"] for class_row in class_rows] == list(SHAPE_CATEGORIES)
+
+    # Confusion matrix with its background row and column, class thresholds and error images of the detections
+    check_detection_error_analysis(
+        evaluation_folder=trainer.experiment_folder / "Evaluation" / "Iteration_5", results=results,
+        class_names=[trainer.class_names[class_index] for class_index in range(len(trainer.class_names))],
+        number_objects=number_boxes, maximum_per_class_pair=SMOKE_MAXIMUM_ERROR_IMAGES)
 
     # Every test image is a sample image (8 asked for 4 images), named after its file: its ground truth panel next to
     # its detection panel, between the caption and legend bars

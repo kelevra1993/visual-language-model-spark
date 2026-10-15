@@ -1,13 +1,13 @@
 """
 Tables and per-class rows of the evaluation reports of the object detection and instance segmentation tasks: the mean
 average precisions of the three average precision methods, always shown, and the average precisions of every class
-(area method, at an intersection over union of 0.5, 0.75 and 0.5 to 0.95, with its ground truth boxes), as the rows of
-class_metrics.csv and as the per-class table of the report. The instance segmentation reports the box and the mask
-average precisions with the same builders, told apart by a title prefix and a column prefix. Used by the detection
-and instance segmentation trainers.
+(area method, at an intersection over union of 0.5, 0.75 and 0.5 to 0.95, with its ground truth boxes, and the score
+threshold reaching the target precision with the recall it keeps), as the rows of class_metrics.csv and as the
+per-class table of the report. The instance segmentation reports the box and the mask average precisions with the same
+builders, told apart by a title prefix and a column prefix. Used by the detection and instance segmentation trainers.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationTable
 from vision_training.evaluation.detection.mean_average_precision import AVERAGE_PRECISION_METHODS
@@ -38,7 +38,7 @@ def add_title_prefix(title: str, title_prefix: str) -> str:
     return f"{title_prefix} {title}" if title_prefix else title
 
 
-def build_mean_average_precision_table(results: Dict[str, Dict[str, Any]], title_prefix: str = "",
+def build_mean_average_precision_table(results: Dict[str, Dict[Any, Any]], title_prefix: str = "",
                                        legend: Optional[str] = None) -> EvaluationTable:
     """
     Builds the table of the mean average precisions of an evaluated checkpoint, shown whatever the per-class report:
@@ -46,7 +46,7 @@ def build_mean_average_precision_table(results: Dict[str, Dict[str, Any]], title
     averaged over 0.5 to 0.95 (COCO).
 
     Args:
-        results (Dict[str, Dict[str, Any]]): The results of evaluate_detections, keyed by method.
+        results (Dict[str, Dict[Any, Any]]): The results of evaluate_detections, keyed by method.
         title_prefix (str): The prefix of the title ("Box", "Mask"), empty for the object detection. Defaults to "".
         legend (Optional[str]): The legend naming the mAP that compares the checkpoints, None for HEADLINE_LEGEND.
             Defaults to None.
@@ -61,23 +61,28 @@ def build_mean_average_precision_table(results: Dict[str, Dict[str, Any]], title
             "per_class": False, "legend": HEADLINE_LEGEND if legend is None else legend}
 
 
-def build_class_average_precision_rows(results: Dict[str, Dict[str, Any]], class_names: Dict[int, str],
+def build_class_average_precision_rows(results: Dict[str, Dict[Any, Any]], class_names: Dict[int, str],
                                        column_prefix: str = "") -> List[Dict[str, Any]]:
     """
     Gathers the average precisions of every foreground class of an evaluated checkpoint with the area method, in class
     index order, for the per-class metrics file and the per-class table: its ground truth boxes and its average
-    precision at 0.5, 0.75 and averaged over 0.5 to 0.95 (None for a class without ground truth, which has no recall).
+    precision at 0.5, 0.75 and averaged over 0.5 to 0.95 (None for a class without ground truth, which has no recall),
+    then, for results evaluated with a target precision, the score threshold reaching it and the recall it keeps (None
+    when no threshold reaches it). The threshold columns are not prefixed: the instance segmentation computes them on
+    the masks only.
 
     Args:
-        results (Dict[str, Dict[str, Any]]): The results of evaluate_detections, keyed by method.
+        results (Dict[str, Dict[Any, Any]]): The results of evaluate_detections, keyed by method, with the
+            'class_score_thresholds' when they were evaluated with a target precision.
         class_names (Dict[int, str]): The name of every class index.
         column_prefix (str): The prefix of the average precision columns ("mask_" for the mask average precisions),
             empty for the object detection. Defaults to "".
 
     Returns:
         List[Dict[str, Any]]: One row per foreground class, keyed by the columns of class_metrics.csv: 'class_index',
-            'class', 'ground_truths', and the prefixed 'average_precision_50', 'average_precision_75' and
-            'average_precision_50_95'.
+            'class', 'ground_truths', the prefixed 'average_precision_50', 'average_precision_75' and
+            'average_precision_50_95', and with the thresholds 'threshold_at_target_precision' and
+            'recall_at_target_precision'.
     """
     area_results = results["area"]
     class_rows = []
@@ -92,28 +97,46 @@ def build_class_average_precision_rows(results: Dict[str, Dict[str, Any]], class
             class_average_precisions = area_results[result_key]
             class_rows[-1][f"{column_prefix}{column_name}"] = (class_average_precisions[class_index]
                                                                if class_index in class_average_precisions else None)
+
+        # Score threshold of the class reaching the target precision, with the recall it keeps
+        if "class_score_thresholds" in results:
+            class_threshold: Optional[Tuple[float, float]] = results["class_score_thresholds"][class_index]
+            class_rows[-1]["threshold_at_target_precision"] = None if class_threshold is None else class_threshold[0]
+            class_rows[-1]["recall_at_target_precision"] = None if class_threshold is None else class_threshold[1]
     return class_rows
 
 
 def build_class_average_precision_table(class_rows: List[Dict[str, Any]], title_prefix: str = "",
-                                        column_prefix: str = "") -> EvaluationTable:
+                                        column_prefix: str = "",
+                                        target_precision: Optional[float] = None) -> EvaluationTable:
     """
     Builds the per-class table of the report of an evaluated checkpoint, shown with the per-class report and sorted by
     ascending AP@0.5 so that the worst classes come first: the ground truth boxes of every class and its average
-    precisions with the area method, a class without ground truth being listed last.
+    precisions with the area method, a class without ground truth being listed last, and with a target precision the
+    score threshold reaching it with the recall it keeps.
 
     Args:
         class_rows (List[Dict[str, Any]]): The average precisions of every class (build_class_average_precision_rows).
         title_prefix (str): The prefix of the title ("Box", "Mask"), empty for the object detection. Defaults to "".
         column_prefix (str): The prefix of the average precision columns of the rows to show. Defaults to "".
+        target_precision (Optional[float]): The precision targeted by the thresholds of the rows, None for a table
+            without thresholds (the box table of the instance segmentation). Defaults to None.
 
     Returns:
         EvaluationTable: The per-class table.
     """
+    columns = ["Class", "Ground\nTruths", CLASS_TABLE_SORT_COLUMN, "AP@0.75", "AP@[0.5:0.95]"]
     rows = [[class_row["class"], class_row["ground_truths"], class_row[f"{column_prefix}average_precision_50"],
              class_row[f"{column_prefix}average_precision_75"], class_row[f"{column_prefix}average_precision_50_95"]]
             for class_row in class_rows]
-    return {"title": add_title_prefix(title=CLASS_TABLE_TITLE, title_prefix=title_prefix),
-            "columns": ["Class", "Ground\nTruths", CLASS_TABLE_SORT_COLUMN, "AP@0.75", "AP@[0.5:0.95]"],
-            "rows": rows, "sort_column": CLASS_TABLE_SORT_COLUMN, "per_class": True,
-            "legend": "Worst AP@0.5 first, ties in class order. — : no ground truth box of the class."}
+    legend = "Worst AP@0.5 first, ties in class order. — : no ground truth box of the class."
+
+    # Threshold of every class reaching the target precision, with the recall it keeps
+    if target_precision is not None:
+        columns += [f"Threshold\n@ P{target_precision:g}", f"Recall\n@ P{target_precision:g}"]
+        for row, class_row in zip(rows, class_rows, strict=True):
+            row += [class_row["threshold_at_target_precision"], class_row["recall_at_target_precision"]]
+        legend = (f"Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision "
+                  f"{target_precision:g} is never reached.")
+    return {"title": add_title_prefix(title=CLASS_TABLE_TITLE, title_prefix=title_prefix), "columns": columns,
+            "rows": rows, "sort_column": CLASS_TABLE_SORT_COLUMN, "per_class": True, "legend": legend}

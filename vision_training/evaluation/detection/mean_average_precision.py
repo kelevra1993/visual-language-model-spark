@@ -1,13 +1,15 @@
 """
 Mean average precision of the object detection and instance segmentation tasks: matching of the detections to the
 ground truths by their boxes or masks, precision-recall curves and average precision (area, 11 or 101 points) over the
-IoU thresholds. Used by the detection and instance segmentation trainers to evaluate a checkpoint on the test split.
+IoU thresholds, and the score threshold of every class reaching a target precision at IoU 0.5. Used by the detection
+and instance segmentation trainers to evaluate a checkpoint on the test split.
 """
 
 import torch
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+from vision_training.evaluation.classification.threshold_finder import find_score_threshold
 from vision_training.models.detection.box_operations import get_intersection_over_union
 
 # Methods computing the average precision from a precision-recall curve
@@ -18,6 +20,9 @@ INTERSECTION_OVER_UNION_THRESHOLDS = [round(0.5 + 0.05 * index, 2) for index in 
 
 # Overlaps comparing a detection with a ground truth: their boxes, or their masks (instance segmentation)
 OVERLAP_TYPES = ["boxes", "masks"]
+
+# Intersection over union threshold of the score threshold of every class, the one of the headline mAP@0.5
+CLASS_THRESHOLD_INTERSECTION_OVER_UNION = 0.5
 
 
 def find_best_ground_truth(overlap_matrices: List[torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -179,8 +184,8 @@ def gather_class_detections(detections: List[Dict[str, torch.Tensor]], ground_tr
         overlap_type (str): "boxes" or "masks". Defaults to "boxes".
 
     Returns:
-        Dict[str, Any]: The sorted 'image_indices', 'best_intersection_over_union' and 'best_ground_truth_indices' of
-            the detections, and the 'number_ground_truth' of the class.
+        Dict[str, Any]: The sorted 'scores', 'image_indices', 'best_intersection_over_union' and
+            'best_ground_truth_indices' of the detections, and the 'number_ground_truth' of the class.
 
     Raises:
         ValueError: If the overlap type is not one of OVERLAP_TYPES.
@@ -209,7 +214,7 @@ def gather_class_detections(detections: List[Dict[str, torch.Tensor]], ground_tr
     best_intersection_over_union, best_ground_truth_indices = find_best_ground_truth(overlap_matrices=overlap_matrices)
     scores, image_indices = torch.cat(tensors=scores), torch.cat(tensors=image_indices)
     sorted_indices = torch.argsort(input=scores, descending=True, stable=True)
-    return {"image_indices": image_indices[sorted_indices],
+    return {"scores": scores[sorted_indices], "image_indices": image_indices[sorted_indices],
             "best_intersection_over_union": best_intersection_over_union[sorted_indices],
             "best_ground_truth_indices": best_ground_truth_indices[sorted_indices],
             "number_ground_truth": number_ground_truth}
@@ -250,14 +255,49 @@ def compute_mean_average_precision(class_detections: Dict[int, Dict[str, Any]],
     return {"mean_average_precision": mean_average_precision, "class_average_precisions": class_average_precisions}
 
 
+def find_class_score_thresholds(class_detections: Dict[int, Dict[str, Any]],
+                                target_precision: float) -> Dict[int, Optional[Tuple[float, float]]]:
+    """
+    Finds, for every class, the detection score from which its detections reach a target precision, saved by the
+    detection trainers in class_thresholds.json so that a deployment can keep the detections class by class instead of
+    with the single 'Detector.inference.score_threshold'. A detection of the class is right when it finds an object of
+    the class at an intersection over union of 0.5, the matching of the AP@0.5 (the most confident detection takes the
+    object), and the recall counts every object of the class, including those found by no detection. Only the
+    detections kept for the evaluation ('evaluation.score_threshold') can give a threshold.
+
+    Args:
+        class_detections (Dict[int, Dict[str, Any]]): For every class index, its gathered detections, from
+            gather_class_detections.
+        target_precision (float): The precision the threshold must reach, e.g. 0.99.
+
+    Returns:
+        Dict[int, Optional[Tuple[float, float]]]: For every class index, its threshold and the recall it keeps, or None
+            if no threshold reaches the target precision (or the class has no ground truth or no detection).
+    """
+    class_thresholds = {}
+    for class_label, gathered in class_detections.items():
+        true_positive_flags = match_detections_to_ground_truth(
+            detection_image_indices=gathered["image_indices"],
+            best_intersection_over_union=gathered["best_intersection_over_union"],
+            best_ground_truth_indices=gathered["best_ground_truth_indices"],
+            intersection_over_union_threshold=CLASS_THRESHOLD_INTERSECTION_OVER_UNION)
+        class_thresholds[class_label] = find_score_threshold(scores=gathered["scores"], positives=true_positive_flags,
+                                                             number_positives=gathered["number_ground_truth"],
+                                                             target_precision=target_precision)
+    return class_thresholds
+
+
 def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths: List[Dict[str, torch.Tensor]],
-                        number_classes: int, overlap_type: str = "boxes") -> Dict[str, Dict[str, Any]]:
+                        number_classes: int, overlap_type: str = "boxes",
+                        target_precision: Optional[float] = None) -> Dict[str, Dict[Any, Any]]:
     """
     Evaluates the detections of a whole test split, as reported by the Trainer at every evaluated checkpoint: with
     every average precision method, the mAP at an intersection over union of 0.5 (PASCAL VOC), at 0.75, and averaged
     over the thresholds 0.5 to 0.95 (COCO), plus the average precision of every class at the same thresholds and the
     number of ground truth boxes of every class, for the per-class report. The detections are compared with the
-    ground truths by their boxes, or by their masks for the mask AP of the instance segmentation.
+    ground truths by their boxes, or by their masks for the mask AP of the instance segmentation. With a target
+    precision, the score threshold of every class reaching it is added (find_class_score_thresholds), from the same
+    gathered detections.
 
     Args:
         detections (List[Dict[str, torch.Tensor]]): For every image, its detection 'boxes' [N, 4], 'scores' [N] and
@@ -266,11 +306,14 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
             'labels' [M], in the same coordinates as the detections.
         number_classes (int): The number of classes, background (index 0) included.
         overlap_type (str): "boxes" or "masks". Defaults to "boxes".
+        target_precision (Optional[float]): The precision of the score threshold of every class, None to skip the
+            thresholds. Defaults to None.
 
     Returns:
-        Dict[str, Dict[str, Any]]: For every method, its 'mAP@0.5', 'mAP@0.75' and 'mAP@[0.5:0.95]', the average
+        Dict[str, Dict[Any, Any]]: For every method, its 'mAP@0.5', 'mAP@0.75' and 'mAP@[0.5:0.95]', the average
             precision of every class with ground truth at 0.5, at 0.75 and averaged over 0.5 to 0.95 ('class_AP@0.5',
-            'class_AP@0.75', 'class_AP@[0.5:0.95]'), and the 'class_ground_truths' boxes of every foreground class.
+            'class_AP@0.75', 'class_AP@[0.5:0.95]'), and the 'class_ground_truths' boxes of every foreground class;
+            with a target precision, the 'class_score_thresholds' of every foreground class.
     """
     # Gather the detections and best matches of every foreground class once, for all thresholds and methods
     class_detections = {class_label: gather_class_detections(detections=detections, ground_truths=ground_truths,
@@ -298,4 +341,9 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
                                / len(threshold_results) for class_label in class_labels},
                            "class_ground_truths": {class_label: gathered["number_ground_truth"]
                                                    for class_label, gathered in class_detections.items()}}
+
+    # Score threshold of every class reaching the target precision, for the deployment
+    if target_precision is not None:
+        results["class_score_thresholds"] = find_class_score_thresholds(class_detections=class_detections,
+                                                                        target_precision=target_precision)
     return results

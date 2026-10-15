@@ -1,8 +1,8 @@
 """
 Tests of vision_training/evaluation/detection/average_precision_report.py on the results of evaluate_detections: the
 table of the average precision methods, the per-class rows of class_metrics.csv (a class without ground truth having
-no average precision), the per-class table sorted by AP@0.5, and the title and column prefixes of the box and mask
-tables of the instance segmentation.
+no average precision), the per-class table sorted by AP@0.5, the class thresholds of both, and the title and column
+prefixes of the box and mask tables of the instance segmentation.
 """
 
 import pytest
@@ -62,6 +62,33 @@ def test_class_average_precision_rows_and_table() -> None:
     assert table["columns"] == ["Class", "Ground\nTruths", "AP@0.5", "AP@0.75", "AP@[0.5:0.95]"]
     assert table["sort_column"] == "AP@0.5" and table["per_class"] is True
     assert table["rows"][2] == ["star", 0, None, None, None]
+
+
+def test_class_thresholds_join_the_rows_and_the_table() -> None:
+    """
+    Verifies that the results evaluated with a target precision add the threshold of every class and the recall it
+    keeps, unprefixed, at the end of the class rows (None without threshold), and that the per-class table shows them
+    in two columns named after the target precision.
+    """
+    ground_truths = [{"boxes": torch.tensor(data=[[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 30.0, 30.0]]),
+                      "labels": torch.tensor(data=[1, 2])}]
+    detections = [{"boxes": torch.tensor(data=[[0.0, 0.0, 10.0, 10.0]]), "scores": torch.tensor(data=[0.9]),
+                   "labels": torch.tensor(data=[1])}]
+    results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=4,
+                                  target_precision=0.99)
+    class_rows = build_class_average_precision_rows(results=results, class_names={0: "background", 1: "square",
+                                                                                  2: "circle", 3: "star"},
+                                                    column_prefix="mask_")
+    assert list(class_rows[0])[-2:] == ["threshold_at_target_precision", "recall_at_target_precision"]
+    assert class_rows[0]["threshold_at_target_precision"] == pytest.approx(expected=0.9)
+    assert class_rows[0]["recall_at_target_precision"] == pytest.approx(expected=1.0)
+    assert class_rows[1]["threshold_at_target_precision"] is None
+    assert class_rows[1]["recall_at_target_precision"] is None
+
+    table = build_class_average_precision_table(class_rows=class_rows, column_prefix="mask_", target_precision=0.99)
+    assert table["columns"][-2:] == ["Threshold\n@ P0.99", "Recall\n@ P0.99"]
+    assert table["rows"][0][-2:] == pytest.approx(expected=[0.9, 1.0])
+    assert "precision 0.99 is never reached" in table["legend"]
 
 
 def test_box_and_mask_tables_are_told_apart_by_their_prefixes() -> None:

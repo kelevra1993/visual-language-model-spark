@@ -126,6 +126,18 @@ def set_evaluation_score_threshold(configuration: Dict[str, Any]) -> None:
     configuration["ExperimentConfiguration"]["evaluation"]["score_threshold"] = 1.5
 
 
+def set_invalid_detection_error_analysis(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a target precision of the class thresholds outside of [0, 1], the error images switch as a quoted string and
+    zero error images per folder.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"].update({
+        "target_precision": -0.1, "error_dumps": {"activated": "yes", "maximum_per_class_pair": 0}})
+
+
 def set_unknown_task(configuration: Dict[str, Any]) -> None:
     """
     Sets a task that no trainer implements.
@@ -301,6 +313,12 @@ def set_pre_activation_without_residual_shortcuts(configuration: Dict[str, Any])
                         "'sequence_comparison', 'frame_selection'], got 'segmentation'."]),
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
+    (set_invalid_detection_error_analysis, ["'ExperimentConfiguration.evaluation.target_precision' must be a "
+                                            "probability within [0, 1], got -0.1.",
+                                            "'ExperimentConfiguration.evaluation.error_dumps.activated' must be True "
+                                            "or False, got 'yes'.",
+                                            "'ExperimentConfiguration.evaluation.error_dumps.maximum_per_class_pair' "
+                                            "must be an integer >= 1, got 0."]),
     (set_multiple_errors, ["'Data.image_settings.size' must be a power of two",
                            "'Detector.number_training_positives' (500) must be <="]),
     (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "

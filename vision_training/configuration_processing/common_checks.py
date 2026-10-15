@@ -1,7 +1,8 @@
 """
 Checks of the configuration sections shared by every task: ExperimentConfiguration, Data, Backbone, the 'pretrained'
 settings of the transferable components and Optimization. Run first by configuration_checker.py, before the checks
-of the task sections, and reused by the task checks (e.g. refusing the sequence settings for the image tasks).
+of the task sections, and reused by the task checks (e.g. refusing the sequence settings for the image tasks, or the
+error images settings of the classification-like and detection tasks).
 """
 
 from typing import Any, Dict, List
@@ -360,6 +361,27 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
             errors.append("'Backbone.pretrained.freeze_normalization_parameters' must be False when "
                           "'Backbone.normalization.feature_map_normalization' is 'none': the backbone has no "
                           "normalization layer.")
+    return errors
+
+
+def check_error_dumps_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the 'ExperimentConfiguration.evaluation.error_dumps' settings of the tasks saving their errors as images
+    (the classification-like and detection tasks): a boolean switch, and a positive number of images per folder.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    # Nest the section under its name so that every reported key path matches its location in the YAML file
+    configuration = {"ExperimentConfiguration": experiment_configuration}
+    errors = check_boolean_flags(configuration=configuration,
+                                 key_paths=["ExperimentConfiguration.evaluation.error_dumps.activated"])
+    errors += check_positive_integers(configuration=configuration, allow_zero=False,
+                                      key_paths=["ExperimentConfiguration.evaluation.error_dumps."
+                                                 "maximum_per_class_pair"])
     return errors
 
 

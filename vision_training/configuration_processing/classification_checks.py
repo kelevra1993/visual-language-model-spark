@@ -7,7 +7,8 @@ reused by the sequence task checks.
 
 from typing import Any, Dict, List
 
-from vision_training.configuration_processing.common_checks import (check_image_task_sequence_settings,
+from vision_training.configuration_processing.common_checks import (check_error_dumps_configuration,
+                                                                    check_image_task_sequence_settings,
                                                                     check_pretrained_configuration)
 from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
                                                                            check_batch_normalization_momentum,
@@ -163,15 +164,10 @@ def check_classification_evaluation_configuration(experiment_configuration: Dict
                                   key_paths=["ExperimentConfiguration.evaluation.save_predictions"])
 
     # Error images, at most a positive number per class pair, for one class per sample only
-    error_flag_errors = check_boolean_flags(configuration=configuration,
-                                            key_paths=["ExperimentConfiguration.evaluation.error_dumps.activated"])
-    errors += error_flag_errors
-    errors += check_positive_integers(configuration=configuration, allow_zero=False,
-                                      key_paths=["ExperimentConfiguration.evaluation.error_dumps."
-                                                 "maximum_per_class_pair"])
+    errors += check_error_dumps_configuration(experiment_configuration=experiment_configuration)
     output_mode = get_configuration_value(configuration=model_configuration, key_path="ClassificationHead.output_mode")
-    if not error_flag_errors and output_mode == "multi_label" and get_configuration_value(
-            configuration=configuration, key_path="ExperimentConfiguration.evaluation.error_dumps.activated"):
+    if output_mode == "multi_label" and get_configuration_value(
+            configuration=configuration, key_path="ExperimentConfiguration.evaluation.error_dumps.activated") is True:
         errors.append("'ExperimentConfiguration.evaluation.error_dumps.activated' must be False with "
                       "'ClassificationHead.output_mode' 'multi_label': a sample with several classes has no single "
                       "true and predicted class pair.")

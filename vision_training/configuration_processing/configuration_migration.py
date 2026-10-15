@@ -79,10 +79,18 @@ SAVE_PREDICTIONS_LINE_START = "    save_predictions:"
 SAVE_PREDICTIONS_LINES = ("    # Saves the predictions of every test sample in the evaluation folder of every "
                           "evaluated checkpoint.\n"
                           "    save_predictions: False\n")
-ERROR_DUMPS_LINES = ("    # Saves the misclassified test samples as images at every evaluation.\n"
+ERROR_DUMPS_LINES = ("    # Saves the errors of the test samples as images at every evaluation (misclassified samples, "
+                     "detection errors).\n"
                      "    error_dumps:\n"
                      "      activated: False\n"
                      "      maximum_per_class_pair: 20\n")
+
+# Start of the line of the score threshold of the evaluation settings of the detection tasks, and the precision of
+# the class thresholds inserted after it, the error images setting following, off, in every run written before them
+SCORE_THRESHOLD_LINE_START = "    score_threshold:"
+TARGET_PRECISION_LINES = ("    # Precision reached by the score threshold of every class saved in "
+                          "class_thresholds.json.\n"
+                          "    target_precision: 0.99\n")
 
 # Line of the evaluation settings of the experiment section, and the switch of the per-class part of the evaluation
 # reports inserted as their first setting, on as in every run written before it existed
@@ -382,25 +390,47 @@ def add_freeze_normalization_parameters_to_configuration(configuration_path: Pat
 
 def add_evaluation_outputs_to_configuration(configuration_path: Path) -> bool:
     """
-    Upgrades the configuration file of a classification-like run written before the evaluation outputs by inserting
-    the settings it lacks, off as in the runs of that time: 'ExperimentConfiguration.evaluation.save_predictions' right
-    after the target precision of its evaluation settings, then 'ExperimentConfiguration.evaluation.error_dumps' right
-    after it. The settings are inserted as text, so that every comment of the file is kept, and a file that already
-    has them, or whose evaluation settings have no target precision (object detection), is left untouched.
+    Upgrades the configuration file of a run written before the evaluation outputs by inserting the settings it lacks,
+    off as in the runs of that time. A classification-like run gets
+    'ExperimentConfiguration.evaluation.save_predictions' right after the target precision of its evaluation settings,
+    then 'ExperimentConfiguration.evaluation.error_dumps' right after it. An object detection or instance segmentation
+    run, whose evaluation settings have a score threshold, gets 'ExperimentConfiguration.evaluation.target_precision'
+    (0.99) right after that score threshold, then the error images setting right after it. The settings are inserted
+    as text, so that every comment of the file is kept, and a file that already has them, or whose evaluation settings
+    have neither a score threshold nor a target precision (semantic segmentation), is left untouched.
 
     Args:
         configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
 
     Returns:
-        bool: True if a setting was added, False if the file already had them or is not a classification-like run.
+        bool: True if a setting was added, False if the file already had them or its task has none of them.
     """
     text = configuration_path.read_text()
     experiment_configuration = yaml.safe_load(stream=text)["ExperimentConfiguration"]
-    if "evaluation" not in experiment_configuration or \
-            "target_precision" not in experiment_configuration["evaluation"]:
+    if "evaluation" not in experiment_configuration:
         return False
     evaluation_settings = experiment_configuration["evaluation"]
     lines = text.splitlines(keepends=True)
+
+    # Detection runs: the target precision after the score threshold of the evaluation, then the error images
+    if "score_threshold" in evaluation_settings:
+        if "target_precision" not in evaluation_settings:
+            score_threshold_index = find_section_line(lines=lines, section_header=EXPERIMENT_SECTION_HEADER,
+                                                      line_start=SCORE_THRESHOLD_LINE_START)
+            lines = "".join(lines[:score_threshold_index + 1] + [TARGET_PRECISION_LINES] +
+                            lines[score_threshold_index + 1:]).splitlines(keepends=True)
+        if "error_dumps" not in evaluation_settings:
+            precision_index = find_section_line(lines=lines, section_header=EXPERIMENT_SECTION_HEADER,
+                                                line_start=TARGET_PRECISION_LINE_START)
+            lines = lines[:precision_index + 1] + [ERROR_DUMPS_LINES] + lines[precision_index + 1:]
+        added_settings = "target_precision" not in evaluation_settings or "error_dumps" not in evaluation_settings
+        if added_settings:
+            configuration_path.write_text(data="".join(lines))
+        return added_settings
+
+    # Other runs without class thresholds have none of these settings
+    if "target_precision" not in evaluation_settings:
+        return False
     added_settings = False
 
     # Predictions setting after the line of the target precision, the only one of the file
@@ -1041,25 +1071,25 @@ def add_moving_average_to_configuration(configuration_path: Path) -> bool:
 
 def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path:
     """
-    Upgrades a run trained with an older version of the code so that it can be resumed, evaluated and exported with
-    the current code: its saved configuration gets its task, the 'pretrained' settings of its backbone, temporal
-    module and classification head (those of a run trained from random weights), the
+    Upgrades a run trained with an older version of the code so that it can be resumed, evaluated and exported with the
+    current code: its saved configuration gets its task, the 'pretrained' settings of its backbone, temporal module and
+    classification head (those of a run trained from random weights), the
     'Backbone.pretrained.freeze_normalization_parameters' flag (off), the evaluation outputs of the classification-like
-    tasks (no predictions file nor error images), the per-class report switch of every task (on, the per-class
-    report of that time), the number of sample images (none), the MLflow tracking settings (off), the sequence
-    augmentations (off), the scope of the sequence normalization of the comparison task (per member), its
-    'Optimization' section (plain Adam at a constant learning rate), its loading settings (4 worker processes), the
-    padding of the batches of the sequence tasks (every window padded to the sequence length), the positional
-    embedding of their transformer (on), the settings of the segmentation added since its first runs (off), the batch
-    normalization momentum of every normalized section (0.1, the PyTorch default), the normalization of the hidden
-    layers of the classification head ("none", True and False becoming "batch" and "none"), the pre-activation
-    placement of the backbone shortcuts (off) and the moving average of the weights (off), it loses the 'Data.DALI'
-    block of the removed DALI loader, and its folder is renamed to the run name the current code builds from that
-    configuration (the task code being now the first section of the run names, and the augmentation, batch size,
-    learning rate, schedule, gradient clipping, mixed precision, dropout and learning rate multiplier (BLR, TLR, HLR,
-    DLR) tokens being no longer written). The configuration is fully checked on the way, any other missing key being
-    reported by the configuration checker. Two old folders differing only by these settings get the same new name, the
-    second one being refused.
+    tasks (no predictions file nor error images) and of the detection tasks (class thresholds at a precision of 0.99, no
+    error images), the per-class report switch of every task (on, the per-class report of that time), the number of
+    sample images (none), the MLflow tracking settings (off), the sequence augmentations (off), the scope of the
+    sequence normalization of the comparison task (per member), its 'Optimization' section (plain Adam at a constant
+    learning rate), its loading settings (4 worker processes), the padding of the batches of the sequence tasks (every
+    window padded to the sequence length), the positional embedding of their transformer (on), the settings of the
+    segmentation added since its first runs (off), the batch normalization momentum of every normalized section (0.1,
+    the PyTorch default), the normalization of the hidden layers of the classification head ("none", True and False
+    becoming "batch" and "none"), the pre-activation placement of the backbone shortcuts (off) and the moving average of
+    the weights (off), it loses the 'Data.DALI' block of the removed DALI loader, and its folder is renamed to the run
+    name the current code builds from that configuration (the task code being now the first section of the run names,
+    and the augmentation, batch size, learning rate, schedule, gradient clipping, mixed precision, dropout and learning
+    rate multiplier (BLR, TLR, HLR, DLR) tokens being no longer written). The configuration is fully checked on the way,
+    any other missing key being reported by the configuration checker. Two old folders differing only by these settings
+    get the same new name, the second one being refused.
 
     Args:
         run_folder (Path): The run folder, holding 'training_configuration.yaml', 'Weights' and 'Tensorboard'.

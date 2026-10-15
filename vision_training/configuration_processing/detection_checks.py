@@ -9,7 +9,8 @@ import math
 
 from typing import Any, Dict, List
 
-from vision_training.configuration_processing.common_checks import (check_image_task_sequence_settings,
+from vision_training.configuration_processing.common_checks import (check_error_dumps_configuration,
+                                                                    check_image_task_sequence_settings,
                                                                     check_pretrained_configuration)
 from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
                                                                            check_batch_normalization_momentum,
@@ -319,8 +320,10 @@ def check_sampling_configuration(model_configuration: Dict[str, Any], section_ke
 
 def check_detection_evaluation_configuration(experiment_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'ExperimentConfiguration.evaluation' settings of the object detection task: the score threshold of
-    the detections kept for the mean average precision must be a probability.
+    Verifies the 'ExperimentConfiguration.evaluation' settings of the object detection and instance segmentation
+    tasks: the score threshold of the detections kept for the mean average precision and the precision targeted by
+    the score threshold of every class must be probabilities, and the error images need a switch and a positive
+    number of images per folder.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -330,10 +333,13 @@ def check_detection_evaluation_configuration(experiment_configuration: Dict[str,
     """
     # Nest the section under its name so that every reported key path matches its location in the YAML file
     configuration = {"ExperimentConfiguration": experiment_configuration}
-    return check_probability_value(
-        value=get_configuration_value(configuration=configuration,
-                                      key_path="ExperimentConfiguration.evaluation.score_threshold"),
-        key_path="ExperimentConfiguration.evaluation.score_threshold")
+    errors = []
+    for key_path in ["ExperimentConfiguration.evaluation.score_threshold",
+                     "ExperimentConfiguration.evaluation.target_precision"]:
+        errors += check_probability_value(value=get_configuration_value(configuration=configuration, key_path=key_path),
+                                          key_path=key_path)
+    errors += check_error_dumps_configuration(experiment_configuration=experiment_configuration)
+    return errors
 
 
 def check_detection_configuration(experiment_configuration: Dict[str, Any],

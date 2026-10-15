@@ -34,7 +34,8 @@ main()
 │   └── check_configuration()
 │       ├── common checks
 │       └── check_detection_configuration()
-│               ├── check_detection_evaluation_configuration()   evaluation.score_threshold
+│               ├── check_detection_evaluation_configuration()   evaluation.score_threshold, target_precision and
+│               │                                                error_dumps
 │               ├── no sequence settings
 │               ├── check_detection_levels()                     the levels of the heads and anchors are the
 │               │                                                detection_convolution_block_indices of the backbone
@@ -97,19 +98,23 @@ main()
 
 run_test_evaluation(iteration)  [STAGE 4]
 ├── evaluation_context()                    the score threshold of the model lowered to evaluation.score_threshold
-├── create_evaluation_accumulator()         the detections and ground truths of every test image
+├── create_evaluation_accumulator()         the detections and ground truths of every test image, the confusion matrix
 ├── for each test batch:
 │   ├── prepare_batch() / predict_batch()   TwoStageDetector.forward() without ground truth -> postprocess_detections()
-│   ├── accumulate_evaluation_batch()
+│   ├── accumulate_evaluation_batch()       for every image, the detections reaching the deployment threshold:
+│   │   ├── compute_overlap_matrix() + match_image_detections() + add_to_confusion_matrix()
+│   │   └── dump_errors() -> group_image_errors() + draw_test_image()          Errors/ (error_dumps on)
 │   └── save_sample_images() -> build_sample_image() -> build_detection_sample_grid()
 ├── compute_evaluation_results()
 │   ├── evaluate_detections()
 │   │   ├── gather_class_detections() -> find_best_ground_truth()             for every class, once
-│   │   └── for every method (area, 11 point, 101 point) and IoU threshold (0.50 to 0.95):
-│   │       compute_mean_average_precision() -> match_detections_to_ground_truth() + compute_precision_recall() +
-│   │       compute_average_precision()
+│   │   ├── for every method (area, 11 point, 101 point) and IoU threshold (0.50 to 0.95):
+│   │   │   compute_mean_average_precision() -> match_detections_to_ground_truth() + compute_precision_recall() +
+│   │   │   compute_average_precision()
+│   │   └── find_class_score_thresholds() -> find_score_threshold()           at IoU 0.5, for every class
 │   ├── build_class_average_precision_rows() + write_class_metrics_file()      class_metrics.csv
-│   └── build_mean_average_precision_table() + build_class_average_precision_table()
+│   ├── build_mean_average_precision_table() + build_class_average_precision_table()
+│   └── save_error_analysis()      class_thresholds.json, confusion_matrix.csv and .png, the notes of the report
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
@@ -126,12 +131,13 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 The entry point is the same for every task (see `classification_workflow.md`, Step 1.1).
 
 ### Step 1.2 — `load_experiment_configuration()`
-The model sections of the detection are `Backbone` (with `detection_convolution_block_indices`, the blocks whose feature maps feed the detection), `RegionProposal` (the heads proposing boxes on every detection level, the IoU thresholds labelling the anchors, the proposals kept before and after the non-maximum suppression), `Anchors` (the scales and aspect ratios of the anchors of every level) and `Detector` (the heads classifying and refining the proposals, the post-processing of the inference). The `evaluation` section has its own `score_threshold`, the lowest score of the detections kept for the mean average precision.
+The model sections of the detection are `Backbone` (with `detection_convolution_block_indices`, the blocks whose feature maps feed the detection), `RegionProposal` (the heads proposing boxes on every detection level, the IoU thresholds labelling the anchors, the proposals kept before and after the non-maximum suppression), `Anchors` (the scales and aspect ratios of the anchors of every level) and `Detector` (the heads classifying and refining the proposals, the post-processing of the inference). The `evaluation` section has its own `score_threshold`, the lowest score of the detections kept for the mean average precision, the `target_precision` of the score threshold of every class (Step 4.12) and the `error_dumps` of the error images (Step 4.5).
 
 **Example: the sections and the detection settings**
 ```text
 model_configuration keys: Optimization, Data, Backbone, RegionProposal, Anchors, Detector
-evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'score_threshold': 0.05}
+evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'score_threshold': 0.05, 'target_precision': 0.99,
+                           'error_dumps': {'activated': False, 'maximum_per_class_pair': 20}}
 Data keys after loading:  DALI, loading, image_settings, label_mapping, data_augmentation, label_mode, label_dictionary
 RegionProposal:           {"head_configurations": {"5": [2, 64], "6": [2, 64], "7": [2, 64]}, "normalization": {"feature_map_normalization": "batch"},
                            "training": {"pre_nms_proposals": 1000, "post_nms_proposals": 500}, "inference": {"pre_nms_proposals": 500, "post_nms_proposals": 250},
@@ -188,12 +194,14 @@ get_trainer_class(task="object_detection") -> <class 'vision_training.trainers.d
 > The examples below are real outputs from building the trainer on the redirected `configuration_synthetic_shapes.yaml` (1024 pixel images, batch size 40), with the run folder redirected to a temporary folder. The whole construction took 2.1 s on CPU.
 
 ### Step 2.1 — `DetectionTrainer.__init__()`
-Before calling the shared constructor, the trainer reads two score thresholds: `evaluation.score_threshold`, the lowest score of the detections kept for the mean average precision (low, so that the precision-recall curves keep their low-confidence end), and `Detector.inference.score_threshold`, the deployment one, used to draw the detections of the sample images.
+Before calling the shared constructor, the trainer reads two score thresholds: `evaluation.score_threshold`, the lowest score of the detections kept for the mean average precision (low, so that the precision-recall curves keep their low-confidence end), and `Detector.inference.score_threshold`, the deployment one, used to draw the detections of the sample images and to count the detections of the confusion matrix and of the error images. It also reads the `target_precision` of the class thresholds and the `error_dumps` settings.
 
 **Example: the attributes after the construction**
 ```text
 self.evaluation_score_threshold = 0.05
-self.sample_score_threshold     = 0.5
+self.deployment_score_threshold = 0.5
+self.target_precision           = 0.99
+self.error_dumps_configuration  = {'activated': False, 'maximum_per_class_pair': 20}
 TASK_NAME = 'object_detection'   SAMPLE_NAME = 'Images'   COUNTS_FRAMES = False
 ```
 
@@ -703,7 +711,7 @@ Iteration 12 · 20 Test Images · 2026-10-10 07:40 ─────────�
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (20 images, 57 boxes), with `per_class_report: True`, `number_sample_images: 8`, `score_threshold: 0.05` and the MLflow tracking on. Both checkpoints find no shape: at iteration 12 the 10 class probabilities of a proposal are all close to 0.1.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (20 images, 57 boxes), with `per_class_report: True`, `number_sample_images: 8`, `score_threshold: 0.05`, `target_precision: 0.99`, the error images off and the MLflow tracking on. Both checkpoints find no shape: at iteration 12 the 10 class probabilities of a proposal are all close to 0.1.
 
 ### Step 4.1 — `run_test_evaluation()` → `evaluation_context()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1). The `evaluation_context()` of the detection lowers the score threshold of the model from the deployment one (`Detector.inference.score_threshold`, 0.5) to `evaluation.score_threshold` (0.05) during the evaluation, so that the precision-recall curves keep their low-confidence end, and restores it afterwards, even when the evaluation fails.
@@ -714,11 +722,12 @@ Test Evaluation Iteration 12: 100%|██████████| 10/10 [00:03<
 ```
 
 ### Step 4.2 — `create_evaluation_accumulator()`
-The detections and the ground truth of every test image, kept on the CPU in network input pixels.
+The detections and the ground truth of every test image, kept on the CPU in network input pixels, the confusion matrix of the classes (background included), filled image by image (Step 4.5), and the folder and counts of the error images.
 
 **Example: the accumulator at the end of the loop of iteration 12**
 ```text
-{'detections': 20 entries {'boxes': (100, 4), 'scores': (100,), 'labels': (100,)}, 'ground_truths': 20 entries {'boxes', 'labels'}}
+{'detections': 20 entries {'boxes': (100, 4), 'scores': (100,), 'labels': (100,)}, 'ground_truths': 20 entries {'boxes', 'labels'},
+ 'confusion_matrix': (10, 10) int64, 'errors_folder': .../Evaluation/Iteration_12/Errors, 'error_counts': {}}
 detections per image   [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100]
 ground truths per image [1, 6, 1, 3, 6, 4, 4, 6, 1, 1, 2, 2, 1, 3, 1, 1, 3, 6, 3, 2]
 first image: best scores [0.1091, 0.1091, 0.1091, 0.1091, 0.1091]   labels [9, 9, 9, 9, 9]   ground truth [[281.0, 184.0, 426.0, 336.0]] label [5]
@@ -749,8 +758,32 @@ class probabilities of the first proposal of image 0: [0.1327, 0.0894, 0.0938, 0
 ```
 No foreground class reaches 0.5, so the deployed detector returns nothing; at the evaluation threshold 0.05, every test image gets its 100 detections (Step 4.3), all of them `octagon`, the most probable foreground class (Step 4.8).
 
-### Step 4.5 — `accumulate_evaluation_batch()`
-For every image of the batch, the `number_detections` valid detections (boxes, scores, labels) and the ground truth boxes and labels are kept on the CPU.
+### Step 4.5 — `accumulate_evaluation_batch()` → `match_image_detections()` + `add_to_confusion_matrix()` + `dump_errors()`
+For every image of the batch, the `number_detections` valid detections (boxes, scores, labels) and the ground truth boxes and labels are kept on the CPU for the mean average precision. The detections reaching the deployment threshold (`Detector.inference.score_threshold`), those the deployed detector returns, are then matched to the objects of the image for the confusion matrix. `compute_overlap_matrix()` gives the IoU of every detection with every object, whatever their classes, and `match_image_detections()` goes twice through the detections from the most to the least confident, each one taking the free object that overlaps it the most, at least by 0.5: first among the objects of its class, so that an object found with its class counts as found even when a detection of another class overlaps it more, then among the objects left of any class (the confusions). `add_to_confusion_matrix()` counts every matched detection in the cell of the class of its object and of its own class, every detection left without object in the background row (a false positive) and every object left without detection in the background column (missed). The mean average precision keeps its own matching, per class and down to `evaluation.score_threshold` (Step 4.9). At iteration 12, no detection reaches 0.5, so the 57 objects of the test split go to the background column.
+
+With `error_dumps.activated`, `dump_errors()` saves the image once in the folder of every kind of error it holds (`group_image_errors()`): `Errors/FALSE-POSITIVE/<class>` for the detections of a class finding no object, `Errors/MISSED/<class>` for the objects of a class found by no detection, and `Errors/<TRUE>-TO-<PREDICTED>` for the objects found with another class. `draw_test_image()` draws it like a sample image (Step 4.6), the boxes of these errors outlined with red dashes (an `Error` entry heading the legend) and the errors described at the start of the caption. The file is named after the image and the highest score of its detections in error (the image name alone for the missed objects), with at most `maximum_per_class_pair` images per folder, the first ones met.
+
+**Example: the error images of the detection smoke test** (`tests/trainers/test_detection_trainer.py`: 4 test images of 256 pixels, 5 iterations, the deployment threshold lowered to 0.05 so that the detector returns detections, at most 2 images per folder; the run of Stage 3 returns no detection at 0.5)
+```text
+Evaluation/Iteration_5/Errors/
+├── FALSE-POSITIVE/circle/      test_000001_0.109.png  test_000002_0.109.png
+├── FALSE-POSITIVE/pentagon/    test_000001_0.107.png  test_000002_0.107.png
+├── FALSE-POSITIVE/rectangle/   test_000001_0.106.png  test_000002_0.106.png
+├── FALSE-POSITIVE/square/      test_000001_0.106.png  test_000002_0.106.png
+├── FALSE-POSITIVE/triangle/    test_000001_0.109.png  test_000002_0.109.png
+├── MISSED/circle/              test_000000.png
+├── MISSED/hexagon/             test_000001.png  test_000002.png
+├── MISSED/octagon/             test_000001.png  test_000002.png
+├── MISSED/pentagon/            test_000000.png
+├── MISSED/rectangle/           test_000003.png
+├── MISSED/square/              test_000002.png
+└── plus_sign-TO-triangle/      test_000000_0.109.png
+
+plus_sign-TO-triangle/test_000000_0.109.png (516 x 304 pixels = 2 x 256 + 4 by 24 + 256 + 24)
+caption:  "plus_sign -> triangle | 4 ground truth boxes | 100 detections with score >= 0.05"
+outlined: the plus_sign box of the Ground Truth panel and the triangle detection that found it in the Prediction panel
+legend:   Error, square, circle, triangle, rectangle, pentagon
+```
 
 ### Step 4.6 — `save_sample_images()` → `build_sample_image()` → `build_detection_sample_grid()`
 Two titled panels side by side, the ground truth boxes and the detections reaching the deployment threshold (`Detector.inference.score_threshold`, so that the image shows what the deployed detector returns), every box captioned with its class (and score) in the colour of its class, under a caption bar counting both and above a legend bar naming the classes drawn.
@@ -765,19 +798,22 @@ build_sample_image -> [560, 1028, 3] torch.uint8
 No detection is drawn at iterations 6 and 12, so the sample images of both evaluations are identical (same file sizes).
 
 ### Step 4.7 — `compute_evaluation_results()`
-`evaluate_detections()` computes the mean average precision of the test split with the three average precision methods (Steps 4.8 to 4.10), then the average precisions of every class go to `class_metrics.csv` (Step 4.11). The detection has no headline metric line (`metrics` is empty): the report shows the table of the methods and the per-class table. The checkpoints are compared on the `mAP@0.5/area` scalar.
+`evaluate_detections()` computes the mean average precision of the test split with the three average precision methods (Steps 4.8 to 4.10), then the average precisions of every class go to `class_metrics.csv` (Step 4.11) and `save_error_analysis()` saves the class thresholds and the confusion matrix (Step 4.12). The detection has no headline metric line (`metrics` is empty): the report shows the table of the methods and the per-class table. The checkpoints are compared on the `mAP@0.5/area` scalar.
 
 **Example: the results of iteration 12**
 ```text
 evaluated_samples = '20 Test Images'
 metrics           = {}
-notes             = ['Sample Images : 8 fixed test images']
+notes             = ['Confusion Matrix : score >= 0.50, IoU >= 0.5 (boxes), 0 right, 0 wrong class, 0 false positives, 57 missed',
+                     'Sample Images : 8 fixed test images']
 headline_metric   = 'mAP@0.5/area'
-files             = ['Class Metrics', 'Sample Images']
+files             = ['Class Metrics', 'Class Thresholds', 'Confusion Matrix Table', 'Confusion Matrix Image', 'Sample Images']
+images            = ['Confusion Matrix']
 scalars           = {'mAP@0.5/area': 0.0, 'mAP@0.75/area': 0.0, 'mAP@[0.5:0.95]/area': 0.0, 'mAP@0.5/11_point': 0.0, ..., 'mAP@[0.5:0.95]/101_point': 0.0}
 class_scalars     = 9: AP@0.5/square, AP@0.5/circle, ..., AP@0.5/octagon
 tables            = Mean Average Precision: Method, mAP@0.5, mAP@0.75, mAP@[0.5:0.95]
-                    Per Class Average Precision (Area): Class, Ground Truths, AP@0.5, AP@0.75, AP@[0.5:0.95]
+                    Per Class Average Precision (Area): Class, Ground Truths, AP@0.5, AP@0.75, AP@[0.5:0.95], Threshold @ P0.99,
+                    Recall @ P0.99
 ```
 
 ### Step 4.8 — `gather_class_detections()` → `find_best_ground_truth()`
@@ -814,21 +850,52 @@ class_ground_truths {1: 4, 2: 8, 3: 9, 4: 3, 5: 14, 6: 6, 7: 4, 8: 2, 9: 7}
 ```
 
 ### Step 4.11 — `build_class_average_precision_rows()` + `write_class_metrics_file()`
-The average precisions of every foreground class with the area method, saved whatever the per-class report.
+The average precisions of every foreground class with the area method, with the score threshold of the class reaching the target precision and the recall it keeps (Step 4.12), empty when the precision is never reached, saved whatever the per-class report.
 
 **Example: `Evaluation/Iteration_12/class_metrics.csv`**
 ```text
-class_index,class,ground_truths,average_precision_50,average_precision_75,average_precision_50_95
-1,square,4,0.000000,0.000000,0.000000
-2,circle,8,0.000000,0.000000,0.000000
+class_index,class,ground_truths,average_precision_50,average_precision_75,average_precision_50_95,threshold_at_target_precision,recall_at_target_precision
+1,square,4,0.000000,0.000000,0.000000,,
+2,circle,8,0.000000,0.000000,0.000000,,
 ...
-9,octagon,7,0.000000,0.000000,0.000000
+9,octagon,7,0.000000,0.000000,0.000000,,
 ```
 
-### Step 4.12 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
+### Step 4.12 — `find_class_score_thresholds()` + `save_error_analysis()`
+With a target precision, `evaluate_detections()` also gives the score threshold of every class. From the matching of the AP@0.5 (Step 4.9), `find_score_threshold()`, the function of the class thresholds of the classification, keeps the lowest score whose detections of the class at or above it reach the target precision, i.e. the highest recall at this precision. The recall counts every ground truth box of the class, those found by no detection included, and only the detections down to `evaluation.score_threshold` can give a threshold. `save_error_analysis()` saves these thresholds in `class_thresholds.json`, in the format of the classification tasks (`null` for a class whose detections never reach the precision), and the confusion matrix of Step 4.5 in `confusion_matrix.csv`, rows the true classes and columns the predicted classes, the background first. With the per-class report, the confusion matrix is also drawn in `confusion_matrix.png` and logged to TensorBoard: its background cell is left blank, and its background row and column have no recall or precision. The report gets a note counting the outcomes of the detections and, with the error images on, a note counting the images and their folders.
+
+At iteration 12, the deployed detector returns nothing and no class reaches the precision 0.99: every class threshold is `null`, and the confusion matrix has the 57 objects in its background column (`0 right, 0 wrong class, 0 false positives, 57 missed`).
+
+**Example: the files of the detection smoke test** (the run of Step 4.5, 9 objects in 4 test images, every detection reaching 0.05)
+```text
+confusion_matrix.csv
+true \ predicted,background,square,circle,triangle,rectangle,pentagon,hexagon,plus_sign,star,octagon
+background,0,168,52,59,60,60,0,0,0,0
+square,1,0,0,0,0,0,0,0,0,0
+circle,1,0,0,0,0,0,0,0,0,0
+triangle,0,0,0,0,0,0,0,0,0,0
+rectangle,1,0,0,0,0,0,0,0,0,0
+pentagon,1,0,0,0,0,0,0,0,0,0
+hexagon,2,0,0,0,0,0,0,0,0,0
+plus_sign,0,0,0,1,0,0,0,0,0,0
+star,0,0,0,0,0,0,0,0,0,0
+octagon,3,0,0,0,0,0,0,0,0,0
+
+class_thresholds.json
+{"target_precision": 0.99, "classes": {"square": null, "circle": null, "triangle": null, ..., "octagon": null}}
+
+notes:
+  Confusion Matrix : score >= 0.05, IoU >= 0.5 (boxes), 0 right, 1 wrong class, 399 false positives, 9 missed
+  Error Images : 19 in 12 folders, at most 2 per folder
+confusion_matrix.png (1192 x 1155 pixels)
+```
+The plus_sign found as a triangle is the confusion of Step 4.5; the 8 other objects are missed, and the 399 other detections overlap no object enough.
+
+### Step 4.13 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
 ```text
 Iteration 12 · 20 Test Images · 2026-10-10 07:40 ───────────────────────────────────────────────────────────────────────
+  Confusion Matrix : score >= 0.50, IoU >= 0.5 (boxes), 0 right, 0 wrong class, 0 false positives, 57 missed
   Sample Images : 8 fixed test images
 
   Mean Average Precision
@@ -840,27 +907,31 @@ Iteration 12 · 20 Test Images · 2026-10-10 07:40 ─────────�
   The mAP@0.5 of the area method compares the checkpoints of the run.
 
   Per Class Average Precision (Area)
-               Ground
-   Class       Truths   AP@0.5   AP@0.75   AP@[0.5:0.95]
-  ───────────────────────────────────────────────────────
-   square           4   0.0000    0.0000          0.0000
-   circle           8   0.0000    0.0000          0.0000
+               Ground                                      Threshold    Recall
+   Class       Truths   AP@0.5   AP@0.75   AP@[0.5:0.95]     @ P0.99   @ P0.99
+  ─────────────────────────────────────────────────────────────────────────────
+   square           4   0.0000    0.0000          0.0000           —         —
+   circle           8   0.0000    0.0000          0.0000           —         —
    ...
-   octagon          7   0.0000    0.0000          0.0000
-  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class.
+   octagon          7   0.0000    0.0000          0.0000           —         —
+  Worst AP@0.5 first, ties in class order. — : no ground truth box of the class, or the precision 0.99 is never reached.
   - Results : file:///.../Results.txt
   - Class Metrics : file:///.../Evaluation/Iteration_12/class_metrics.csv
+  - Class Thresholds : file:///.../Evaluation/Iteration_12/class_thresholds.json
+  - Confusion Matrix Table : file:///.../Evaluation/Iteration_12/confusion_matrix.csv
+  - Confusion Matrix Image : file:///.../Evaluation/Iteration_12/confusion_matrix.png
   - Sample Images : file:///.../Evaluation/Iteration_12/Samples
 ```
 
 **Example: TensorBoard and MLflow after the two evaluations**
 ```text
-Tensorboard/Test: 18 scalars (9 mAP + 9 AP@0.5 per class), 8 images (the samples)
+Tensorboard/Test: 18 scalars (9 mAP + 9 AP@0.5 per class), 9 images (the samples and the confusion matrix)
     scalar mAP@0.5/area      6: 0.0000, 12: 0.0000
     scalar AP@0.5/octagon    6: 0.0000, 12: 0.0000
 MLflow: test/mAP_at_0.5/area, test/mAP_at_0.75/area, test/mAP_at_0.5-0.95/area, ... (3 methods),
         test/best_mAP_at_0.5/area (steps 6, 12), 9 test_class/AP_at_0.5/<class>
-artifacts: Results.txt, configuration/training_configuration.yaml, metric_names.json, evaluation/iteration_<6|12>/class_metrics.csv
+artifacts: Results.txt, configuration/training_configuration.yaml, metric_names.json,
+           evaluation/iteration_<6|12>/confusion_matrix.png, class_metrics.csv, class_thresholds.json
 ```
 `sanitise_metric_name()` writes `@` as `_at_`, drops the brackets and writes `:` as `-`, so `mAP@[0.5:0.95]/area` becomes `mAP_at_0.5-0.95/area` in MLflow (the original names are kept in `metric_names.json`).
 

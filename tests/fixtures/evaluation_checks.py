@@ -1,9 +1,11 @@
 """
 Checks of the evaluation outputs written by the trainers (the blocks of Results.txt, the per-class metrics file, the
-predictions file, the error image folders and the sample images), shared by the trainer smoke tests of every task.
+predictions file, the error image folders, the sample images, and the confusion matrix, class thresholds and error
+images of the detection tasks), shared by the trainer smoke tests of every task.
 """
 
 import csv
+import json
 import re
 import cv2
 import numpy as np
@@ -188,3 +190,59 @@ def check_sample_images(evaluation_folder: Path, results: Dict[str, Any], number
             caption_colour = CORRECT_PREDICTION_COLOUR if correct_predictions[sample_name] else WRONG_PREDICTION_COLOUR
             caption_bar = sample_image[:CAPTION_BAR_HEIGHT]
             assert (caption_bar == np.array(object=caption_colour[::-1])).all(axis=-1).any(), sample_name
+
+
+def check_detection_error_analysis(evaluation_folder: Path, results: Dict[str, Any], class_names: List[str],
+                                   number_objects: int, maximum_per_class_pair: int) -> None:
+    """
+    Verifies the error analysis of a detection evaluation, shared by the object detection and instance segmentation
+    smoke tests: confusion_matrix.csv with its background row and column, every object of the test images counted
+    once (found or missed) and its background cell empty, the note counting the outcomes, class_thresholds.json with a
+    threshold and recall within [0, 1] or None for every foreground class, and the error images, one folder per
+    non-empty error cell of the matrix ('FALSE-POSITIVE/<class>', 'MISSED/<class>', '<TRUE>-TO-<PREDICTED>'), each
+    holding at most the errors of its cell and the maximum per folder, the total in the notes.
+
+    Args:
+        evaluation_folder (Path): The evaluation folder of the checkpoint.
+        results (Dict[str, Any]): The evaluation results of the checkpoint.
+        class_names (List[str]): The name of every class, background first.
+        number_objects (int): The number of objects of the test images.
+        maximum_per_class_pair (int): The largest number of images saved per folder.
+    """
+    # Confusion matrix: rows true classes, columns predicted classes, the background first
+    with open(file=evaluation_folder / "confusion_matrix.csv", mode="r", newline="") as matrix_file:
+        matrix_rows = list(csv.reader(matrix_file))
+    assert matrix_rows[0] == ["true \\ predicted"] + class_names
+    assert [matrix_row[0] for matrix_row in matrix_rows[1:]] == class_names
+    counts = np.array(object=[[int(count) for count in matrix_row[1:]] for matrix_row in matrix_rows[1:]])
+    assert counts[0, 0] == 0 and int(counts[1:].sum()) == number_objects
+    right, found = int(np.trace(counts[1:, 1:])), int(counts[1:, 1:].sum())
+    assert any(note.startswith("Confusion Matrix : ") and note.endswith(
+        f"{right} right, {found - right} wrong class, {int(counts[0].sum())} false positives, "
+        f"{int(counts[:, 0].sum())} missed") for note in results["notes"])
+
+    # Threshold of every foreground class, or None
+    class_thresholds = json.loads(s=(evaluation_folder / "class_thresholds.json").read_text())
+    assert class_thresholds["target_precision"] == 0.99 and list(class_thresholds["classes"]) == class_names[1:]
+    for class_threshold in class_thresholds["classes"].values():
+        assert class_threshold is None or (0.0 <= class_threshold["threshold"] <= 1.0 and
+                                           0.0 <= class_threshold["recall"] <= 1.0)
+
+    # One error folder per non-empty error cell of the matrix, at most its errors and the maximum per folder
+    expected_folders = {}
+    for class_index, class_name in enumerate(class_names[1:], start=1):
+        expected_folders[f"FALSE-POSITIVE/{class_name}"] = int(counts[0, class_index])
+        expected_folders[f"MISSED/{class_name}"] = int(counts[class_index, 0])
+        for predicted_index, predicted_name in enumerate(class_names[1:], start=1):
+            if predicted_index != class_index:
+                expected_folders[f"{class_name}-TO-{predicted_name}"] = int(counts[class_index, predicted_index])
+    errors_folder = evaluation_folder / "Errors"
+    error_folders = {str(image_path.parent.relative_to(errors_folder)) for image_path in errors_folder.rglob("*.png")}
+    assert error_folders == {folder_name for folder_name, number_errors in expected_folders.items() if number_errors}
+    number_images = 0
+    for folder_name in error_folders:
+        image_paths = list((errors_folder / folder_name).glob("*.png"))
+        assert 1 <= len(image_paths) <= min(expected_folders[folder_name], maximum_per_class_pair)
+        number_images += len(image_paths)
+    assert (f"Error Images : {number_images} in {len(error_folders)} folders, at most {maximum_per_class_pair} per "
+            f"folder") in results["notes"]

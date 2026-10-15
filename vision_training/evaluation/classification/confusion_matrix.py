@@ -2,7 +2,8 @@
 Drawing and saving of the confusion matrix of an evaluated checkpoint: the CSV table, always saved in the evaluation
 folder of the checkpoint, and the matplotlib image (with the recall of every true class, the precision of every
 predicted class and the accuracy), saved and logged to TensorBoard when the per-class report is on. Used by the
-classification trainer and the trainers inheriting from it, and by the segmentation trainer for its pixels.
+classification trainer and the trainers inheriting from it, by the segmentation trainer for its pixels, and by the
+detection trainers for the detections matched to the objects, with a background row and column.
 """
 
 import csv
@@ -17,7 +18,7 @@ from matplotlib.colors import Colormap, Normalize
 from matplotlib.figure import Figure
 from matplotlib.ticker import PercentFormatter
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 # Largest number of classes whose cells show their count and share of the true class, show their count only, and
 # show the class names as tick labels (class indices above, matching the 'class_index' column of class_metrics.csv)
@@ -66,11 +67,12 @@ def compute_text_colour(cell_colour: Tuple[float, float, float, float]) -> str:
 
 
 def write_cell_texts(axes: Axes, counts: np.ndarray, shares: np.ndarray, colour_map: Colormap,
-                     normalization: Normalize, show_counts: bool) -> None:
+                     normalization: Normalize, show_counts: bool, background_index: Optional[int]) -> None:
     """
     Writes the count of every cell of the matrix of a confusion matrix image, with its share of the true class up to
     20 classes, the diagonal counts (the right predictions) in bold and the empty off-diagonal cells left blank.
-    Without counts (e.g. the pixels of the segmentation, too many to print), the cells only show their share.
+    Without counts (e.g. the pixels of the segmentation, too many to print), the cells only show their share. The
+    background cell of the detection matrices, the background found as background, is never counted and stays blank.
 
     Args:
         axes (Axes): The axes of the matrix.
@@ -79,6 +81,8 @@ def write_cell_texts(axes: Axes, counts: np.ndarray, shares: np.ndarray, colour_
         colour_map (Colormap): The colour map of the shares, giving the colour behind every text.
         normalization (Normalize): The normalization of the shares into the colour map.
         show_counts (bool): Whether the cells show their count, or only their share of the true class.
+        background_index (Optional[int]): The index of the background class of the detection matrices, None for the
+            other tasks.
     """
     number_classes = counts.shape[0]
     show_shares = number_classes <= MAXIMUM_CLASSES_WITH_SHARES
@@ -87,7 +91,7 @@ def write_cell_texts(axes: Axes, counts: np.ndarray, shares: np.ndarray, colour_
         for predicted_index in range(number_classes):
             count = int(counts[true_index, predicted_index])
             is_diagonal = true_index == predicted_index
-            if count == 0 and not is_diagonal:
+            if (count == 0 and not is_diagonal) or (is_diagonal and true_index == background_index):
                 continue
 
             # Count, with the share of the true class below it when the cells are large enough, or the share alone
@@ -153,14 +157,17 @@ def set_class_ticks(axes: Axes, class_names: List[str], along_columns: bool) -> 
 
 
 def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str], title: str,
-                          show_counts: bool = True) -> np.ndarray:
+                          show_counts: bool = True, background_index: Optional[int] = None) -> np.ndarray:
     """
     Draws the confusion matrix of an evaluated checkpoint as an image, saved in its evaluation folder and logged to
     TensorBoard by the per-class report: every cell coloured by its share of the samples of its true class, with its
     count, a recall column on the right (the diagonal share of every true class), a precision row at the bottom (the
     share of right predictions of every predicted class) and the accuracy in the corner, all on the same colour scale,
     so that the classes confused with each other stand out. It is drawn on a matplotlib figure of its own, without
-    pyplot, its size growing with the number of classes (capped).
+    pyplot, its size growing with the number of classes (capped). The detection matrices have a background row (the
+    false positives) and a background column (the missed objects): their background cell, the recall of the background
+    and its precision are undefined and left blank, and the accuracy is the share of the right detections among the
+    objects, the false positives and the confusions.
 
     Args:
         confusion_matrix (torch.Tensor): The [K, K] confusion matrix (rows true classes, columns predicted classes).
@@ -168,6 +175,8 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
         title (str): The title of the image, e.g. 'Confusion Matrix · Iteration 4000 · Accuracy 0.8123'.
         show_counts (bool): Whether the cells show their count, False for counts too large to print (pixels), the
             cells then showing their share of the true class only. Defaults to True.
+        background_index (Optional[int]): The index of the background row and column of the detection matrices, None
+            for a matrix without background. Defaults to None.
 
     Returns:
         np.ndarray: The [H, W, 3] uint8 RGB image.
@@ -182,6 +191,11 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
         recalls = right_counts / true_counts
         precisions = right_counts / predicted_counts
     accuracy = float(right_counts.sum() / counts.sum()) if counts.sum() > 0 else float("nan")
+
+    # Background of the detection matrices: its cell, its recall and its precision are undefined
+    if background_index is not None:
+        shares[background_index, background_index] = np.nan
+        recalls[background_index], precisions[background_index] = np.nan, np.nan
 
     # One colour scale for the matrix and its strips, the rows without samples in grey
     colour_map = colormaps[COLOUR_MAP_NAME].with_extremes(bad=EMPTY_ROW_COLOUR)
@@ -212,7 +226,7 @@ def draw_confusion_matrix(confusion_matrix: torch.Tensor, class_names: List[str]
     matrix_axes.set_ylabel(ylabel="True Class", fontsize=10, fontweight="bold")
     if number_classes <= MAXIMUM_CLASSES_WITH_COUNTS:
         write_cell_texts(axes=matrix_axes, counts=counts, shares=shares, colour_map=colour_map,
-                         normalization=normalization, show_counts=show_counts)
+                         normalization=normalization, show_counts=show_counts, background_index=background_index)
 
         # Thin white separators between the cells
         matrix_axes.set_xticks(ticks=np.arange(-0.5, number_classes, 1.0), minor=True)
@@ -283,7 +297,8 @@ def save_confusion_matrix_table(confusion_matrix: torch.Tensor, class_names: Lis
 
 
 def save_confusion_matrix_image(confusion_matrix: torch.Tensor, class_names: List[str], output_folder: Path,
-                                title: str, show_counts: bool = True) -> Tuple[Path, np.ndarray]:
+                                title: str, show_counts: bool = True,
+                                background_index: Optional[int] = None) -> Tuple[Path, np.ndarray]:
     """
     Draws the confusion matrix of an evaluated checkpoint (draw_confusion_matrix) and saves it as
     'confusion_matrix.png' in its evaluation folder, for the per-class report, which also logs the returned image to
@@ -296,13 +311,15 @@ def save_confusion_matrix_image(confusion_matrix: torch.Tensor, class_names: Lis
         title (str): The title of the image.
         show_counts (bool): Whether the cells show their count, or only their share of the true class. Defaults to
             True.
+        background_index (Optional[int]): The index of the background row and column of the detection matrices, None
+            for a matrix without background. Defaults to None.
 
     Returns:
         Tuple[Path, np.ndarray]: The path of the image and the [H, W, 3] uint8 RGB image.
     """
     output_folder.mkdir(parents=True, exist_ok=True)
     image = draw_confusion_matrix(confusion_matrix=confusion_matrix, class_names=class_names, title=title,
-                                  show_counts=show_counts)
+                                  show_counts=show_counts, background_index=background_index)
     image_path = output_folder / "confusion_matrix.png"
     cv2.imwrite(filename=str(image_path), img=cv2.cvtColor(src=image, code=cv2.COLOR_RGB2BGR))
     return image_path, image

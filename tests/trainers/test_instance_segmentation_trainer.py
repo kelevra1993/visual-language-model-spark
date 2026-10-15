@@ -14,7 +14,8 @@ from pathlib import Path
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.instance_segmentation_trainer import InstanceSegmentationTrainer
-from tests.fixtures.evaluation_checks import check_sample_images, read_results_blocks
+from tests.fixtures.evaluation_checks import (check_detection_error_analysis, check_sample_images,
+                                              read_results_blocks)
 
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                 "instance_segmentation" / "configuration_synthetic_shapes.yaml")
@@ -28,13 +29,17 @@ SMOKE_ANCHOR_SCALES = {"5": [16, 32, 64], "6": [32, 64, 128], "7": [64, 128, 256
 # Geometric augmentations turned on, so that the instance masks are moved and their boxes recomputed
 SMOKE_GEOMETRIC_AUGMENTATIONS = ["random_crop", "random_left_right_flip", "random_rotation"]
 
+# Largest number of error images saved per folder by the smoke test
+SMOKE_MAXIMUM_ERROR_IMAGES = 2
+
 
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int) -> Path:
     """
     Writes a copy of the synthetic shapes instance segmentation configuration adapted to a quick training smoke test:
     the generated dataset, 256 pixel images, batches of 2 images, every training image augmented with the geometric
-    augmentations, small mask heads, and a saving schedule that triggers an intermediate save, a save with test
-    evaluation and a validation pass within a handful of iterations.
+    augmentations, small mask heads, a saving schedule that triggers an intermediate save, a save with test
+    evaluation and a validation pass within a handful of iterations, and the error images of the evaluation, at most 2
+    per folder.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
@@ -57,6 +62,13 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
                                      "validation_iteration_ratio": 2, "resume_training": True})
     experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": False,
                                                         "compute_model_size": False, "view_input_images": False})
+
+    # Error images of the evaluation, a few per folder, with the deployment threshold lowered to the evaluation one so
+    # that the barely trained detector gives false positives and confusions next to its missed objects
+    experiment_configuration["evaluation"]["error_dumps"] = {"activated": True,
+                                                             "maximum_per_class_pair": SMOKE_MAXIMUM_ERROR_IMAGES}
+    evaluation_score_threshold = experiment_configuration["evaluation"]["score_threshold"]
+    configuration["Detector"]["inference"]["score_threshold"] = evaluation_score_threshold
 
     # Small images and mask heads, two loader workers, and the generated categories mapped to the model classes
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
@@ -97,11 +109,12 @@ def build_trainer(configuration_path: Path) -> InstanceSegmentationTrainer:
 def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the whole instance segmentation pipeline on a generated synthetic dataset: 5 iterations with the masks
-    moved by the geometric augmentations save the intermediate, evaluated and final checkpoints and track the mask
-    loss, the evaluation reports the mask then box tables of the methods and of the classes, the mask mAP@0.5 of the
-    area method as headline metric, the box scalars under the object detection names and the mask scalars under
-    'Mask' names, class_metrics.csv with the box and mask columns, and the sample images. A second run with the same
-    settings resumes from the last checkpoint with exactly its weights and trains 2 more iterations, without any
+    moved by the geometric augmentations save the intermediate, evaluated and final checkpoints and track the mask loss,
+    the evaluation reports the mask then box tables of the methods and of the classes, the mask mAP@0.5 of the area
+    method as headline metric, the box scalars under the object detection names and the mask scalars under 'Mask' names,
+    class_metrics.csv with the box and mask columns and the class thresholds of the masks, the confusion matrix, class
+    thresholds and error images of the detections matched by their masks, and the sample images. A second run with the
+    same settings resumes from the last checkpoint with exactly its weights and trains 2 more iterations, without any
     failed step.
 
     Args:
@@ -146,9 +159,17 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
         class_rows = list(csv.DictReader(f=class_metrics_file))
     assert list(class_rows[0]) == ["class_index", "class", "ground_truths", "average_precision_50",
                                    "average_precision_75", "average_precision_50_95", "mask_average_precision_50",
-                                   "mask_average_precision_75", "mask_average_precision_50_95"]
+                                   "mask_average_precision_75", "mask_average_precision_50_95",
+                                   "threshold_at_target_precision", "recall_at_target_precision"]
     assert sum(int(class_row["ground_truths"]) for class_row in class_rows) == number_objects
     assert [class_row["class"] for class_row in class_rows] == list(SHAPE_CATEGORIES)
+
+    # Confusion matrix, class thresholds and error images of the detections matched by their masks
+    assert trainer.MATCHING_OVERLAP_TYPE == "masks"
+    check_detection_error_analysis(
+        evaluation_folder=trainer.experiment_folder / "Evaluation" / "Iteration_5", results=results,
+        class_names=[trainer.class_names[class_index] for class_index in range(len(trainer.class_names))],
+        number_objects=number_objects, maximum_per_class_pair=SMOKE_MAXIMUM_ERROR_IMAGES)
 
     # Every test image is a sample image, its ground truth panel next to its detection panel
     check_sample_images(evaluation_folder=trainer.experiment_folder / "Evaluation" / "Iteration_5", results=results,

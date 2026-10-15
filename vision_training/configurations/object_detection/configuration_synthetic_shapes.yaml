@@ -37,9 +37,11 @@ ExperimentConfiguration:
   # Test evaluation run at every weight_saving_iterations checkpoint, computing the mean average precision (mAP)
   # on the whole test split.
   evaluation:
-    # Reports every class at every evaluation: the table of the classes (ground truth boxes and average precision at
-    # IoU 0.5, 0.75 and 0.5:0.95, area method, worst AP@0.5 first) in the console and Results.txt, and their AP@0.5
-    # Test scalars in TensorBoard. False keeps the mean average precisions only: class_metrics.csv is saved either way.
+    # Reports every class at every evaluation: the table of the classes (ground truth boxes, average precision at IoU
+    # 0.5, 0.75 and 0.5:0.95 with the area method, worst AP@0.5 first, and the threshold reaching target_precision
+    # with the recall it keeps) in the console and Results.txt, their AP@0.5 Test scalars in TensorBoard, and the
+    # confusion matrix image (confusion_matrix.png and TensorBoard). False keeps the mean average precisions only:
+    # class_metrics.csv, class_thresholds.json and confusion_matrix.csv are saved either way.
     per_class_report: True
     # Number of test images drawn once and shown at every evaluation, each as its ground truth boxes next to its
     # detections whose score reaches Detector.inference.score_threshold (the deployment threshold, not
@@ -50,10 +52,29 @@ ExperimentConfiguration:
     # during the evaluation only: the mAP needs the low-confidence detections too, otherwise the end of the
     # precision-recall curve is cut off and the mAP is underestimated. Must be within [0, 1].
     score_threshold: 0.05
+    # Precision that the score threshold of every class must reach, saved in class_thresholds.json for a deployment
+    # keeping the detections class by class: the detections of a class, from the most confident, are right when they
+    # find an object of the class at an IoU of 0.5 (the matching of the AP@0.5), and the lowest score keeping the
+    # precision (the highest recall) is saved with the recall it keeps. Only the detections reaching score_threshold
+    # can give a threshold. Must be within [0, 1].
+    target_precision: 0.99
+    # Saves the errors of the detections reaching Detector.inference.score_threshold (those of the deployment, matched
+    # to the objects at an IoU of 0.5, the right class first, like in confusion_matrix.csv) as images at every
+    # evaluation: 'Evaluation/Iteration_<n>/Errors/FALSE-POSITIVE/<class>/' for a detection finding no object,
+    # 'Errors/MISSED/<class>/' for an object found by no detection and 'Errors/<TRUE>-TO-<PREDICTED>/' for an object
+    # found with another class. Every image is drawn like the sample images, the boxes in error outlined with red
+    # dashes and the errors written first in the caption, and is named '<image>_<score>.png' after the highest score
+    # of its detections in error ('<image>.png' for the missed objects).
+    error_dumps:
+      # Turns the error images on.
+      activated: False
+      # Largest number of images saved in every folder of the errors, the first ones met.
+      maximum_per_class_pair: 20
   # Tracking of the run in MLflow, next to TensorBoard and Results.txt: the hyperparameters, the averages of the
   # training and validation metrics of every information_dump interval, the learning rate, the test metrics of every
-  # evaluated checkpoint and a few small artifacts (configuration, class metrics, Results.txt). The tracking never
-  # blocks nor stops the training: any MLflow error prints one warning and the training continues without it.
+  # evaluated checkpoint and a few small artifacts (configuration, confusion matrices, class metrics and thresholds,
+  # Results.txt). The tracking never blocks nor stops the training: any MLflow error prints one warning and the
+  # training continues without it.
   tracking:
     # Turns the MLflow tracking on.
     activated: False
@@ -65,7 +86,8 @@ ExperimentConfiguration:
     tracking_uri: null
     # MLflow experiment grouping the runs, null for the task name (e.g. "object_detection").
     experiment_name: null
-    # Sends the configuration, the class metrics and Results.txt as artifacts.
+    # Sends the configuration, the confusion matrix image, the class metrics and thresholds and Results.txt as
+    # artifacts.
     log_artifacts: True
   # Base learning rate used by the optimizer.
   learning_rate: 2.0e-4

@@ -1,11 +1,14 @@
 """
 Trainer of the object detection task: the COCO-format loaders, the two-stage detector with its four
 losses, the geometric augmentations moving the bounding boxes, and the evaluation of the checkpoints on the test split
-with the mean average precision and the average precision of every class, and the sample images of fixed test images
-with their true and detected boxes. Registered for the object detection task in the task registry.
+with the mean average precision and the average precision of every class, the score threshold of every class reaching
+the target precision, the confusion matrix and the error images of the detections the deployed detector returns, and
+the sample images of fixed test images with their true and detected boxes. Registered for the object detection task in
+the task registry, and extended by the instance segmentation trainer.
 """
 
 import json
+import cv2
 import numpy as np
 import torch
 
@@ -13,13 +16,20 @@ from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
-from vision_training.core.contracts import DetectionBatch, EvaluationResults
+from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY, DetectionBatch, EvaluationResults
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.loaders import get_detection_dataloaders
 from vision_training.data.split_description import count_split_images_and_annotations
+from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
+                                                                        save_confusion_matrix_table)
 from vision_training.evaluation.detection.average_precision_report import (build_class_average_precision_rows,
                                                                            build_class_average_precision_table,
                                                                            build_mean_average_precision_table)
+from vision_training.evaluation.detection.detection_confusion import (BACKGROUND_CLASS_INDEX,
+                                                                      MATCHING_INTERSECTION_OVER_UNION_THRESHOLD,
+                                                                      add_to_confusion_matrix, compute_overlap_matrix,
+                                                                      group_image_errors, match_image_detections,
+                                                                      summarise_confusion_matrix)
 from vision_training.evaluation.detection.mean_average_precision import AVERAGE_PRECISION_METHODS, evaluate_detections
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
@@ -39,10 +49,15 @@ class DetectionTrainer(BaseTrainer):
     # Whether the loaders give the binary mask of every object, for the instance segmentation subclass
     LOAD_INSTANCE_MASKS = False
 
+    # Overlap matching the detections to the objects for the class thresholds, the confusion matrix and the error
+    # images, the one of the headline metric: the boxes, or the masks for the instance segmentation subclass
+    MATCHING_OVERLAP_TYPE = "boxes"
+
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
         """
-        Reads the detection evaluation settings, then prepares the training run through the general trainer.
+        Reads the detection evaluation settings (score thresholds, target precision of the class thresholds, error
+        images), then prepares the training run through the general trainer.
 
         Args:
             experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
@@ -54,9 +69,13 @@ class DetectionTrainer(BaseTrainer):
         # precision-recall curves keep their low-confidence end
         self.evaluation_score_threshold = experiment_configuration["evaluation"]["score_threshold"]
 
-        # Score threshold of the detections drawn on the sample images, the deployment one, so that the images show
-        # what the deployed detector returns
-        self.sample_score_threshold = model_configuration["Detector"]["inference"]["score_threshold"]
+        # Score threshold of the deployment, keeping the detections of the sample images, the confusion matrix and the
+        # error images, so that they show what the deployed detector returns
+        self.deployment_score_threshold = model_configuration["Detector"]["inference"]["score_threshold"]
+
+        # Precision targeted by the score threshold of every class, and the error images of the evaluation
+        self.target_precision = experiment_configuration["evaluation"]["target_precision"]
+        self.error_dumps_configuration = experiment_configuration["evaluation"]["error_dumps"]
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
@@ -194,74 +213,241 @@ class DetectionTrainer(BaseTrainer):
 
     def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
-        Creates the lists of detections and ground truths filled during the evaluation of the test split.
+        Creates the lists of detections and ground truths filled during the evaluation of the test split, with the
+        confusion matrix of the detections the deployed detector returns, and the folder and the counts of the error
+        images.
 
         Args:
-            iteration (int): The training iteration of the evaluated checkpoint, unused by the detection task.
+            iteration (int): The training iteration of the evaluated checkpoint, which names its evaluation folder.
 
         Returns:
-            Dict[str, Any]: The empty 'detections' and 'ground_truths' lists.
+            Dict[str, Any]: The empty 'detections' and 'ground_truths' lists, the [K, K] zero 'confusion_matrix'
+                (background included), the 'errors_folder' of the error images and their empty 'error_counts' per
+                folder.
         """
-        return {"detections": [], "ground_truths": []}
+        number_classes = len(self.class_names)
+        return {"detections": [], "ground_truths": [],
+                "confusion_matrix": torch.zeros(size=(number_classes, number_classes), dtype=torch.int64),
+                "errors_folder": self.get_evaluation_folder(iteration=iteration) / "Errors", "error_counts": {}}
 
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
         """
         Keeps the valid detections and the ground truth of every kept image of a test batch on the CPU, both expressed
-        in network input pixels.
+        in network input pixels, matches the detections the deployed detector returns (score reaching
+        'Detector.inference.score_threshold') to the objects of the image at an overlap of 0.5 for the confusion
+        matrix, and saves the errors of the image as images when the error images are on, while the image is still in
+        the batch.
 
         Args:
-            accumulator (Dict[str, Any]): The 'detections' and 'ground_truths' lists, extended in place.
+            accumulator (Dict[str, Any]): The evaluation accumulator, its lists extended and its confusion matrix
+                filled in place.
             batch (Dict[str, Any]): The prepared test batch.
             predictions (Dict[str, Any]): The detector outputs.
             sample_indices (List[int]): The indices of the images to keep.
         """
         for image_index in sample_indices:
-            number_detections = int(predictions["number_detections"][image_index])
-            accumulator["detections"].append({
-                "boxes": predictions["final_detection_boxes"][image_index, :number_detections].cpu(),
+            detection = self.gather_image_detections(batch=batch, predictions=predictions, image_index=image_index)
+            ground_truth = {"boxes": batch["bounding_boxes"][image_index].cpu(),
+                            "labels": batch["labels"][image_index].cpu()}
+            accumulator["detections"].append(detection)
+            accumulator["ground_truths"].append(ground_truth)
+
+            # Detections of the deployed detector matched to the objects of the image, counted in the confusion matrix
+            kept_detections = detection["scores"] >= self.deployment_score_threshold
+            detection_scores = detection["scores"][kept_detections]
+            detection_labels = detection["labels"][kept_detections]
+            overlaps = compute_overlap_matrix(detection=detection, ground_truth=ground_truth,
+                                              overlap_type=self.MATCHING_OVERLAP_TYPE)[kept_detections]
+            matched_ground_truth_indices = match_image_detections(
+                overlaps=overlaps, detection_scores=detection_scores, detection_labels=detection_labels,
+                ground_truth_labels=ground_truth["labels"],
+                intersection_over_union_threshold=MATCHING_INTERSECTION_OVER_UNION_THRESHOLD)
+            add_to_confusion_matrix(confusion_matrix=accumulator["confusion_matrix"],
+                                    matched_ground_truth_indices=matched_ground_truth_indices,
+                                    detection_labels=detection_labels, ground_truth_labels=ground_truth["labels"])
+
+            # Errors of the image saved as images while the image is still in the batch
+            if self.error_dumps_configuration["activated"]:
+                self.dump_errors(accumulator=accumulator, batch=batch, predictions=predictions, image_index=image_index,
+                                 matched_ground_truth_indices=matched_ground_truth_indices,
+                                 detection_scores=detection_scores, detection_labels=detection_labels,
+                                 ground_truth_labels=ground_truth["labels"])
+
+    def gather_image_detections(self, batch: Dict[str, Any], predictions: Dict[str, Any],
+                                image_index: int) -> Dict[str, torch.Tensor]:
+        """
+        Gives the valid detections of one test image on the CPU, without the padding of the batch, for the mean
+        average precision and the matching of the confusion matrix. The instance segmentation trainer adds the mask
+        overlaps of the detections with the objects of the image.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The detector outputs.
+            image_index (int): The index of the image in the batch.
+
+        Returns:
+            Dict[str, torch.Tensor]: The detection 'boxes' [D, 4], 'scores' [D] and 'labels' [D] of the image.
+        """
+        number_detections = int(predictions["number_detections"][image_index])
+        return {"boxes": predictions["final_detection_boxes"][image_index, :number_detections].cpu(),
                 "scores": predictions["final_detection_scores"][image_index, :number_detections].cpu(),
-                "labels": predictions["final_detection_labels"][image_index, :number_detections].cpu()})
-            accumulator["ground_truths"].append({"boxes": batch["bounding_boxes"][image_index].cpu(),
-                                                 "labels": batch["labels"][image_index].cpu()})
+                "labels": predictions["final_detection_labels"][image_index, :number_detections].cpu()}
+
+    def dump_errors(self, accumulator: Dict[str, Any], batch: Dict[str, Any], predictions: Dict[str, Any],
+                    image_index: int, matched_ground_truth_indices: torch.Tensor, detection_scores: torch.Tensor,
+                    detection_labels: torch.Tensor, ground_truth_labels: torch.Tensor) -> None:
+        """
+        Saves the errors of a test image as images, to look at the errors of the checkpoint: the image is saved once in
+        the folder of every kind of error it holds, 'Errors/FALSE-POSITIVE/<class>', 'Errors/MISSED/<class>' or
+        'Errors/<TRUE>-TO-<PREDICTED>' in its evaluation folder, drawn like the sample images with the boxes of these
+        errors outlined with red dashes and the errors described in the caption. It is named after the image and, but
+        for the missed objects, the highest score of its detections in error. At most 'maximum_per_class_pair' images
+        are saved per folder, the first ones met.
+
+        Args:
+            accumulator (Dict[str, Any]): The evaluation accumulator, holding the 'errors_folder' and 'error_counts'.
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The detector outputs.
+            image_index (int): The index of the image in the batch.
+            matched_ground_truth_indices (torch.Tensor): The [D] object found by every detection of the deployed
+                detector, -1 for none (match_image_detections).
+            detection_scores (torch.Tensor): The [D] scores of the detections of the deployed detector.
+            detection_labels (torch.Tensor): The [D] class indices of the detections of the deployed detector.
+            ground_truth_labels (torch.Tensor): The [G] class indices of the objects of the image.
+        """
+        image_errors = group_image_errors(matched_ground_truth_indices=matched_ground_truth_indices,
+                                          detection_scores=detection_scores, detection_labels=detection_labels,
+                                          ground_truth_labels=ground_truth_labels, class_names=self.class_names)
+        image_name = self.get_test_sample_name(sample_identifier=int(batch[SAMPLE_IDENTIFIERS_KEY][image_index]))
+        for folder_name, image_error in image_errors.items():
+            # The folder of the error, unless it is full
+            error_folder = self.reserve_error_folder(accumulator=accumulator, folder_name=folder_name)
+            if error_folder is None:
+                continue
+
+            # Boxes in error outlined on the image drawn like a sample image, named after the image and its score
+            highlighted_ground_truths = np.zeros(shape=(len(ground_truth_labels),), dtype=bool)
+            highlighted_ground_truths[image_error["ground_truth_indices"]] = True
+            highlighted_detections = np.zeros(shape=(len(detection_labels),), dtype=bool)
+            highlighted_detections[image_error["detection_indices"]] = True
+            error_image = self.draw_test_image(batch=batch, predictions=predictions, sample_index=image_index,
+                                               error_description=image_error["description"],
+                                               highlighted_ground_truths=highlighted_ground_truths,
+                                               highlighted_detections=highlighted_detections)
+            file_name = image_name if image_error["score"] is None else f"{image_name}_{image_error['score']:.3f}"
+            cv2.imwrite(filename=str(error_folder / f"{file_name}.png"), img=error_image)
 
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
         Computes the mean average precision of the test split with the three average precision methods (the area
-        method being the headline one, its mAP@0.5 comparing the checkpoints) and the average precisions of every class,
-        and organises them for the report: the table of the methods, always shown, and the per-class table (shown with
-        the per-class report, worst AP@0.5 first), with the same values as TensorBoard scalars (the AP@0.5 of every
-        class only with the per-class report). The average precisions of every class are saved to class_metrics.csv
-        in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever the per-class report.
+        method being the headline one, its mAP@0.5 comparing the checkpoints), the average precisions of every class
+        and the score threshold of every class reaching the target precision, and organises them for the report: the
+        table of the methods, always shown, and the per-class table (shown with the per-class report, worst AP@0.5
+        first), with the same values as TensorBoard scalars (the AP@0.5 of every class only with the per-class
+        report). The average precisions and thresholds of every class are saved to class_metrics.csv, the thresholds
+        to class_thresholds.json and the confusion matrix to confusion_matrix.csv in the evaluation folder of the
+        checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever the per-class report (save_error_analysis).
 
         Args:
-            accumulator (Dict[str, Any]): The detections and ground truths of the test split.
+            accumulator (Dict[str, Any]): The detections and ground truths of the test split, with the confusion matrix
+                and the error images.
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
             EvaluationResults: The results of the evaluation.
         """
-        summary = self.summarise_average_precisions(accumulator=accumulator)
+        summary = self.summarise_average_precisions(accumulator=accumulator, target_precision=self.target_precision)
 
-        # Average precisions of every class, saved whatever the per-class report
+        # Average precisions and thresholds of every class, saved whatever the per-class report
         evaluation_folder = self.get_evaluation_folder(iteration=iteration)
         files = {"Class Metrics": write_class_metrics_file(class_rows=summary["class_rows"],
                                                            evaluation_folder=evaluation_folder)}
 
-        return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {}, "notes": [],
-                "tables": summary["tables"], "scalars": summary["scalars"], "class_scalars": summary["class_scalars"],
-                "images": {}, "files": files, "headline_metric": "mAP@0.5/area"}
+        # Class thresholds, confusion matrix and error images of the detections of the deployed detector
+        error_analysis = self.save_error_analysis(accumulator=accumulator, iteration=iteration,
+                                                  class_score_thresholds=summary["class_score_thresholds"])
+        files.update(error_analysis["files"])
+
+        return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {},
+                "notes": error_analysis["notes"], "tables": summary["tables"], "scalars": summary["scalars"],
+                "class_scalars": summary["class_scalars"], "images": error_analysis["images"], "files": files,
+                "headline_metric": "mAP@0.5/area"}
+
+    def save_error_analysis(self, accumulator: Dict[str, Any], iteration: int,
+                            class_score_thresholds: Dict[int, Optional[Tuple[float, float]]]) -> Dict[str, Any]:
+        """
+        Saves the outputs of the evaluation of a checkpoint telling where the detector fails, in its evaluation
+        folder, '<run>/Evaluation/Iteration_<n>/', for compute_evaluation_results: the score threshold of every class
+        reaching the target precision in class_thresholds.json (the format of the classification tasks, for the
+        deployment), and the confusion matrix of the detections the deployed detector returns in confusion_matrix.csv,
+        both whatever the per-class report, the confusion matrix image only with it, also logged to TensorBoard. The
+        report gets a note counting the outcomes of the detections and, when the error images are on, a note counting
+        them with their folder.
+
+        Args:
+            accumulator (Dict[str, Any]): The evaluation accumulator, with the confusion matrix and the error images.
+            iteration (int): The training iteration of the evaluated checkpoint.
+            class_score_thresholds (Dict[int, Optional[Tuple[float, float]]]): The threshold and recall of every
+                foreground class, or None (evaluate_detections with a target precision).
+
+        Returns:
+            Dict[str, Any]: The 'files' (Class Thresholds, Confusion Matrix Table, Confusion Matrix Image, Error
+                Images), the 'images' (Confusion Matrix) and the 'notes' of the report.
+        """
+        evaluation_folder = self.get_evaluation_folder(iteration=iteration)
+        evaluation_folder.mkdir(parents=True, exist_ok=True)
+        files, images, notes = {}, {}, []
+
+        # Threshold of every class reaching the target precision, saved for the deployment of the checkpoint
+        thresholds_path = evaluation_folder / "class_thresholds.json"
+        thresholds_path.write_text(data=json.dumps(obj={
+            "target_precision": self.target_precision,
+            "classes": {self.class_names[class_index]: None if class_threshold is None else
+                        {"threshold": class_threshold[0], "recall": class_threshold[1]}
+                        for class_index, class_threshold in class_score_thresholds.items()}}, indent=4))
+        files["Class Thresholds"] = thresholds_path
+
+        # Confusion matrix with its background row and column, the image only with the per-class report
+        confusion_matrix = accumulator["confusion_matrix"]
+        class_names = [self.class_names[class_index] for class_index in range(len(self.class_names))]
+        files["Confusion Matrix Table"] = save_confusion_matrix_table(confusion_matrix=confusion_matrix,
+                                                                      class_names=class_names,
+                                                                      output_folder=evaluation_folder)
+        if self.per_class_report:
+            files["Confusion Matrix Image"], images["Confusion Matrix"] = save_confusion_matrix_image(
+                confusion_matrix=confusion_matrix, class_names=class_names, output_folder=evaluation_folder,
+                title=f"Confusion Matrix · Iteration {iteration} · Score >= {self.deployment_score_threshold:.2f} · "
+                      f"IoU >= {MATCHING_INTERSECTION_OVER_UNION_THRESHOLD:g}", background_index=BACKGROUND_CLASS_INDEX)
+
+        # Outcomes of the detections of the deployed detector
+        outcomes = summarise_confusion_matrix(confusion_matrix=confusion_matrix)
+        notes.append(f"Confusion Matrix : score >= {self.deployment_score_threshold:.2f}, IoU >= "
+                     f"{MATCHING_INTERSECTION_OVER_UNION_THRESHOLD:g} ({self.MATCHING_OVERLAP_TYPE}), "
+                     f"{outcomes['right']} right, {outcomes['wrong_class']} wrong class, {outcomes['false_positives']} "
+                     f"false positives, {outcomes['missed']} missed")
+
+        # Number of error images and their folder when some were saved
+        if self.error_dumps_configuration["activated"]:
+            error_counts = accumulator["error_counts"]
+            notes.append(f"Error Images : {sum(error_counts.values())} in {len(error_counts)} folders, at most "
+                         f"{self.error_dumps_configuration['maximum_per_class_pair']} per folder")
+            if error_counts:
+                files["Error Images"] = accumulator["errors_folder"]
+        return {"files": files, "images": images, "notes": notes}
 
     def summarise_average_precisions(self, accumulator: Dict[str, Any], overlap_type: str = "boxes",
                                      title_prefix: str = "", name_prefix: str = "", column_prefix: str = "",
-                                     legend: Optional[str] = None) -> Dict[str, Any]:
+                                     legend: Optional[str] = None,
+                                     target_precision: Optional[float] = None) -> Dict[str, Any]:
         """
         Computes the average precisions of the test split with one overlap (the boxes, or the masks of the instance
         segmentation) and organises them for the report: the table of the methods and the per-class table, the rows of
         class_metrics.csv, the mean average precisions of every method as TensorBoard scalars, to follow them over the
-        training, and the AP@0.5 of every class for the per-class report. The object detection uses no prefix, the
-        instance segmentation prefixes the titles of both its box and mask tables, and the names of its mask scalars
-        and columns.
+        training, and the AP@0.5 of every class for the per-class report. With a target precision, the score threshold
+        of every class reaching it joins the class rows and the per-class table. The object detection uses no prefix,
+        the instance segmentation prefixes the titles of both its box and mask tables, and the names of its mask
+        scalars and columns.
 
         Args:
             accumulator (Dict[str, Any]): The detections and ground truths of the test split.
@@ -272,13 +458,16 @@ class DetectionTrainer(BaseTrainer):
                 to "".
             legend (Optional[str]): The legend of the table of the methods, None for the one naming its mAP@0.5 as the
                 metric comparing the checkpoints. Defaults to None.
+            target_precision (Optional[float]): The precision of the class thresholds, None for no thresholds (the box
+                average precisions of the instance segmentation). Defaults to None.
 
         Returns:
-            Dict[str, Any]: The 'class_rows', the 'tables' (methods, then classes), the 'scalars' and the
-                'class_scalars'.
+            Dict[str, Any]: The 'class_rows', the 'tables' (methods, then classes), the 'scalars', the 'class_scalars'
+                and the 'class_score_thresholds' of every foreground class (None without target precision).
         """
         results = evaluate_detections(detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
-                                      number_classes=len(self.label_dictionary), overlap_type=overlap_type)
+                                      number_classes=len(self.label_dictionary), overlap_type=overlap_type,
+                                      target_precision=target_precision)
         class_rows = build_class_average_precision_rows(results=results, class_names=self.class_names,
                                                         column_prefix=column_prefix)
 
@@ -292,8 +481,9 @@ class DetectionTrainer(BaseTrainer):
 
         tables = [build_mean_average_precision_table(results=results, title_prefix=title_prefix, legend=legend),
                   build_class_average_precision_table(class_rows=class_rows, title_prefix=title_prefix,
-                                                      column_prefix=column_prefix)]
-        return {"class_rows": class_rows, "tables": tables, "scalars": scalars, "class_scalars": class_scalars}
+                                                      column_prefix=column_prefix, target_precision=target_precision)]
+        return {"class_rows": class_rows, "tables": tables, "scalars": scalars, "class_scalars": class_scalars,
+                "class_score_thresholds": results["class_score_thresholds"] if target_precision is not None else None}
 
     def get_test_sample_classes(self) -> Dict[int, List[int]]:
         """
@@ -322,7 +512,7 @@ class DetectionTrainer(BaseTrainer):
         """
         Draws a fixed test image for the sample images of the evaluation: its ground truth boxes next to its
         detections whose score reaches the deployment score threshold ('Detector.inference.score_threshold'), the
-        evaluation keeping lower scores for the mAP, under a caption counting both.
+        evaluation keeping lower scores for the mAP, under a caption counting both (draw_test_image).
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -332,13 +522,39 @@ class DetectionTrainer(BaseTrainer):
         Returns:
             np.ndarray: The [H, W, 3] uint8 BGR image of the sample.
         """
+        return self.draw_test_image(batch=batch, predictions=predictions, sample_index=sample_index,
+                                    error_description=None, highlighted_ground_truths=None,
+                                    highlighted_detections=None)
+
+    def draw_test_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
+                        error_description: Optional[str], highlighted_ground_truths: Optional[np.ndarray],
+                        highlighted_detections: Optional[np.ndarray]) -> np.ndarray:
+        """
+        Draws a test image for the sample images and the error images of the evaluation: its ground truth boxes next to
+        its detections whose score reaches the deployment score threshold ('Detector.inference.score_threshold'), with
+        the masks of the instance segmentation painted under them, under a caption counting both. An error image
+        outlines the boxes of its errors and describes them first in the caption.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            predictions (Dict[str, Any]): The detector outputs, with the final detections of every image.
+            sample_index (int): The index of the image in the batch.
+            error_description (Optional[str]): The errors written first in the caption, None for a sample image.
+            highlighted_ground_truths (Optional[np.ndarray]): The [G] flags of the true boxes in error, None for a
+                sample image.
+            highlighted_detections (Optional[np.ndarray]): The [D] flags of the drawn detections in error (those
+                reaching the deployment score threshold), None for a sample image.
+
+        Returns:
+            np.ndarray: The [H, W, 3] uint8 BGR image.
+        """
         image = np.ascontiguousarray(batch["images"][sample_index].detach().cpu().clamp(min=0.0, max=255.0)
                                      .to(dtype=torch.uint8).permute(1, 2, 0).numpy())
 
         # Valid detections of the image, kept from the deployment score threshold
         number_detections = int(predictions["number_detections"][sample_index])
         scores = predictions["final_detection_scores"][sample_index, :number_detections].detach().float().cpu().numpy()
-        kept_detections = scores >= self.sample_score_threshold
+        kept_detections = scores >= self.deployment_score_threshold
         predicted_boxes = predictions["final_detection_boxes"][sample_index, :number_detections].detach().float()
         predicted_labels = predictions["final_detection_labels"][sample_index, :number_detections].detach()
         ground_truth_boxes = batch["bounding_boxes"][sample_index].detach().float().cpu().numpy()
@@ -346,15 +562,20 @@ class DetectionTrainer(BaseTrainer):
                                                                     sample_index=sample_index,
                                                                     kept_detections=kept_detections)
 
+        # Caption counting the boxes, after the errors of an error image
+        caption = (f"{len(ground_truth_boxes)} ground truth boxes | {int(kept_detections.sum())} detections with "
+                   f"score >= {self.deployment_score_threshold:.2f}")
+        if error_description is not None:
+            caption = f"{error_description} | {caption}"
+
         return build_detection_sample_grid(
             image=image, ground_truth_boxes=ground_truth_boxes,
             ground_truth_labels=batch["labels"][sample_index].detach().cpu().numpy(),
             predicted_boxes=predicted_boxes.cpu().numpy()[kept_detections],
             predicted_labels=predicted_labels.cpu().numpy()[kept_detections], predicted_scores=scores[kept_detections],
-            class_names=self.class_names, class_colours=self.class_colours,
-            caption=f"{len(ground_truth_boxes)} ground truth boxes | {int(kept_detections.sum())} detections with "
-                    f"score >= {self.sample_score_threshold:.2f}", ground_truth_masks=ground_truth_masks,
-            predicted_masks=predicted_masks)
+            class_names=self.class_names, class_colours=self.class_colours, caption=caption,
+            ground_truth_masks=ground_truth_masks, predicted_masks=predicted_masks,
+            highlighted_ground_truths=highlighted_ground_truths, highlighted_detections=highlighted_detections)
 
     def get_sample_masks(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
                          kept_detections: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:

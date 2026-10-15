@@ -1,7 +1,8 @@
 """
 Tests of the classification evaluation of vision_training/evaluation/classification: the confusion matrix and metrics
 against hand-computed values, the top-k accuracy, the multi-label metrics, the class thresholds of threshold_finder.py
-and the confusion matrix files.
+(with the recall of the detection classes) and the confusion matrix files and images (with the background of the
+detection tasks).
 """
 
 import csv
@@ -20,7 +21,7 @@ from vision_training.evaluation.classification.classification_metrics import (co
 from vision_training.evaluation.classification.confusion_matrix import (draw_confusion_matrix,
                                                                         save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
-from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
+from vision_training.evaluation.classification.threshold_finder import find_class_thresholds, find_score_threshold
 
 
 def test_confusion_matrix_and_metrics_match_hand_computed_values() -> None:
@@ -118,6 +119,21 @@ def test_tied_scores_are_cut_together() -> None:
                                  target_precision=0.9)[0] == pytest.approx(expected=(0.9, 0.5))
 
 
+def test_recall_counts_the_members_never_predicted() -> None:
+    """
+    Verifies the threshold of one class whose recall is counted over more members than its right predictions, the
+    objects of a detection class found by no detection: the precision decides the cut, the recall divides by every
+    member, and a class without prediction or without member gets None.
+    """
+    scores = torch.tensor(data=[0.9, 0.8, 0.3])
+    positives = torch.tensor(data=[True, True, False])
+    assert find_score_threshold(scores=scores, positives=positives, number_positives=4,
+                                target_precision=0.99) == pytest.approx(expected=(0.8, 0.5))
+    assert find_score_threshold(scores=torch.zeros(size=(0,)), positives=torch.zeros(size=(0,), dtype=torch.bool),
+                                number_positives=3, target_precision=0.99) is None
+    assert find_score_threshold(scores=scores, positives=positives, number_positives=0, target_precision=0.99) is None
+
+
 def test_confusion_matrix_files(tmp_path: Path) -> None:
     """
     Verifies that the confusion matrix is saved as a CSV table, one row per true class, and as an image identical to
@@ -161,3 +177,18 @@ def test_confusion_matrix_image_grows_with_the_classes_and_stays_headless() -> N
     empty_image = draw_confusion_matrix(confusion_matrix=torch.zeros(size=(3, 3), dtype=torch.int64),
                                         class_names=["circle", "square", "triangle"], title="Empty")
     assert empty_image.shape == small_image.shape
+
+
+def test_detection_confusion_matrix_leaves_its_background_cell_blank() -> None:
+    """
+    Verifies the confusion matrix image of the detection tasks: with a background row and column, it is drawn like
+    the others, the background cell (left blank, never counted) being the only difference from the same matrix drawn
+    without background, whose background cell shows a bold 0 and whose background recall and precision are drawn.
+    """
+    confusion_matrix = torch.tensor(data=[[0, 3, 1], [2, 5, 0], [1, 1, 4]])
+    class_names = ["background", "circle", "square"]
+    detection_image = draw_confusion_matrix(confusion_matrix=confusion_matrix, class_names=class_names,
+                                            title="Detection", background_index=0)
+    plain_image = draw_confusion_matrix(confusion_matrix=confusion_matrix, class_names=class_names, title="Detection")
+    assert detection_image.shape == plain_image.shape
+    assert not np.array_equal(detection_image, plain_image)

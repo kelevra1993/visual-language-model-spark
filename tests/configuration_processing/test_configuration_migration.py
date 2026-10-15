@@ -325,12 +325,48 @@ def test_evaluation_outputs_are_added_once(tmp_path: Path) -> None:
     evaluation_settings = yaml.safe_load(stream=configuration_path.read_text())["ExperimentConfiguration"]["evaluation"]
     assert evaluation_settings["save_predictions"] is True and evaluation_settings["error_dumps"]["activated"] is False
 
-    # The detection configuration keeps its evaluation settings
+    # The detection configuration, which has its own target precision and error images, keeps its evaluation settings
     detection_text = EXAMPLE_CONFIGURATION_PATH.read_text()
     detection_path = tmp_path / "detection_configuration.yaml"
     detection_path.write_text(data=detection_text)
     assert add_evaluation_outputs_to_configuration(configuration_path=detection_path) is False
     assert detection_path.read_text() == detection_text
+
+
+@pytest.mark.parametrize(argnames="configuration_path", argvalues=[EXAMPLE_CONFIGURATION_PATH,
+                                                                   INSTANCE_SEGMENTATION_CONFIGURATION_PATH])
+def test_detection_evaluation_outputs_are_added_once(tmp_path: Path, configuration_path: Path) -> None:
+    """
+    Verifies that a detection or instance segmentation run written before the class thresholds and the error images
+    gets the target precision (0.99) right after the score threshold of its evaluation settings, and the error images
+    (off) right after it, the score threshold of the Detector section being left alone, that a run with the target
+    precision only gets the error images, and that nothing changes the second time.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_path (Path): The configuration of the task.
+    """
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    for key_name in ["target_precision", "error_dumps"]:
+        del configuration["ExperimentConfiguration"]["evaluation"][key_name]
+    migrated_path = tmp_path / "configuration.yaml"
+    migrated_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+
+    assert add_evaluation_outputs_to_configuration(configuration_path=migrated_path) is True
+    migrated_configuration = yaml.safe_load(stream=migrated_path.read_text())
+    evaluation_settings = migrated_configuration["ExperimentConfiguration"]["evaluation"]
+    assert list(evaluation_settings.items())[-3:] == [
+        ("score_threshold", configuration["ExperimentConfiguration"]["evaluation"]["score_threshold"]),
+        ("target_precision", 0.99), ("error_dumps", {"activated": False, "maximum_per_class_pair": 20})]
+    assert migrated_configuration["Detector"] == configuration["Detector"]
+    assert add_evaluation_outputs_to_configuration(configuration_path=migrated_path) is False
+
+    # A run with the target precision only gets the error images
+    configuration["ExperimentConfiguration"]["evaluation"]["target_precision"] = 0.9
+    migrated_path.write_text(data=yaml.safe_dump(data=configuration, sort_keys=False))
+    assert add_evaluation_outputs_to_configuration(configuration_path=migrated_path) is True
+    evaluation_settings = yaml.safe_load(stream=migrated_path.read_text())["ExperimentConfiguration"]["evaluation"]
+    assert evaluation_settings["target_precision"] == 0.9 and evaluation_settings["error_dumps"]["activated"] is False
 
 
 @pytest.mark.parametrize(argnames="configuration_path", argvalues=[SEQUENCE_CONFIGURATION_PATH,

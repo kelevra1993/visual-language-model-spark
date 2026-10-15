@@ -1,7 +1,7 @@
 """
-OpenCV drawing helpers: bounding boxes of the detection sample images and anchors, the input viewer of the trainers,
-the frame grids of the sequence tasks, the caption bars of the evaluation error images, the class colours, mask
-overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
+OpenCV drawing helpers: bounding boxes of the detection sample and error images and anchors, the input viewer of the
+trainers, the frame grids of the sequence tasks, the caption bars of the evaluation error images, the class colours,
+mask overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
 segmentation, and the selection grids with their probability heat map of the frame selection. Used by the trainers.
 """
 
@@ -44,6 +44,12 @@ DARK_CLASS_COLOUR_VALUE = 160
 # Height in pixels of the legend bar written below the segmentation sample grids, and gap between their panels
 LEGEND_BAR_HEIGHT = 24
 GRID_GAP = 4
+
+# Detection error images: pixels between a box in error and its dashed outline, length of the dashes, and the name of
+# the outline in the legend
+ERROR_OUTLINE_MARGIN = 4
+ERROR_OUTLINE_DASH_LENGTH = 6
+ERROR_OUTLINE_LEGEND = "Error"
 
 # Frame selection drawings: side in pixels of the thumbnails of the frames, thumbnails per row, width of the selection
 # borders, length of the dashes of the missed true frames, brightness kept by the frames rightly unselected, height of
@@ -556,13 +562,17 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
                                 predicted_boxes: np.ndarray, predicted_labels: np.ndarray,
                                 predicted_scores: np.ndarray, class_names: Dict[int, str], class_colours: np.ndarray,
                                 caption: str, ground_truth_masks: Optional[np.ndarray] = None,
-                                predicted_masks: Optional[np.ndarray] = None) -> np.ndarray:
+                                predicted_masks: Optional[np.ndarray] = None,
+                                highlighted_ground_truths: Optional[np.ndarray] = None,
+                                highlighted_detections: Optional[np.ndarray] = None) -> np.ndarray:
     """
     Lays out one evaluated test image of the object detection in two titled panels side by side, saved and sent to
     TensorBoard at every evaluation so that the detections of the same images can be followed over the training: the
     ground truth boxes captioned with their class, and the detections captioned with their class and score, every box
     in the colour of its class. A caption bar names the sample above the panels, and a legend bar below them names the
-    classes drawn. For the instance segmentation, the masks of the objects are painted under their boxes.
+    classes drawn. For the instance segmentation, the masks of the objects are painted under their boxes. The error
+    images of the evaluation outline the boxes in error (a missed object, a false positive, an object found with
+    another class) with red dashes, named 'Error' in the legend.
 
     Args:
         image (np.ndarray): The [H, W, 3] uint8 BGR network input.
@@ -578,6 +588,10 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
             detection. Defaults to None.
         predicted_masks (Optional[np.ndarray]): The [M, H, W] binary masks of the detections, None for the object
             detection. Defaults to None.
+        highlighted_ground_truths (Optional[np.ndarray]): The [N] flags of the true boxes outlined as errors, None for
+            none. Defaults to None.
+        highlighted_detections (Optional[np.ndarray]): The [M] flags of the detections outlined as errors, None for
+            none. Defaults to None.
 
     Returns:
         np.ndarray: The [24 + H + 24, 2 x W + 4, 3] uint8 BGR grid.
@@ -606,11 +620,26 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
                            input_image_size=image_size, color=class_colour,
                            captions=[f"{class_names[class_index]} {score:.2f}"
                                      for score in predicted_scores[prediction_mask]])
+
+    # Boxes in error outlined with red dashes a few pixels around them, on the panel of their side
+    for panel, boxes, highlighted_boxes in [(ground_truth_panel, ground_truth_boxes, highlighted_ground_truths),
+                                            (prediction_panel, predicted_boxes, highlighted_detections)]:
+        if highlighted_boxes is None:
+            continue
+        for x_min, y_min, x_max, y_max in boxes[highlighted_boxes]:
+            draw_dashed_rectangle(image=panel, top_left=(max(0, int(x_min) - ERROR_OUTLINE_MARGIN),
+                                                         max(0, int(y_min) - ERROR_OUTLINE_MARGIN)),
+                                  bottom_right=(min(image_size - 1, int(x_max) + ERROR_OUTLINE_MARGIN),
+                                                min(image_size - 1, int(y_max) + ERROR_OUTLINE_MARGIN)),
+                                  colour=WRONG_PREDICTION_COLOUR, thickness=2, dash_length=ERROR_OUTLINE_DASH_LENGTH)
     grid = place_panels_side_by_side(panels={"Ground Truth": ground_truth_panel, "Prediction": prediction_panel})
 
-    # Legend of the classes of the true and detected boxes
+    # Legend of the error outline when there is one, first so that it is never cut, then of the classes of the true
+    # and detected boxes
     legend_entries = [(class_names[class_index], tuple(class_colours[class_index].tolist()))
                       for class_index in drawn_class_indices]
+    if highlighted_ground_truths is not None or highlighted_detections is not None:
+        legend_entries.insert(0, (ERROR_OUTLINE_LEGEND, WRONG_PREDICTION_COLOUR))
     legend_bar = draw_legend_bar(width=grid.shape[1], legend_entries=legend_entries)
     return add_caption_bar(image=np.concatenate([grid, legend_bar], axis=0), caption=caption)
 

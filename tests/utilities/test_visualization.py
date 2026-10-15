@@ -2,14 +2,16 @@
 Tests of the evaluation drawings of vision_training/utilities/visualization.py: the class colours are distinct with
 an unpainted background, the mask overlay paints the classes and grays the ignored pixels only, the error map gives
 every kind of pixel its colour, the segmentation sample grid lays out its four panels and the detection sample grid its
-two panels between their caption and legend bars, the caption bar is written in the given colour, and the frame
-selection image draws the borders of the selection over its grid of thumbnails above the probability heat map.
+two panels between their caption and legend bars, outlining the boxes in error of the error images, the caption bar
+is written in the given colour, and the frame selection image draws the borders of the selection over its grid of
+thumbnails above the probability heat map.
 """
 
 import numpy as np
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, CORRECT_PREDICTION_COLOUR, GRID_GAP,
+from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, CORRECT_PREDICTION_COLOUR,
+                                                     ERROR_OUTLINE_MARGIN, GRID_GAP,
                                                      HEAT_MAP_ROW_HEIGHT, IGNORED_PIXEL_COLOUR, LEGEND_BAR_HEIGHT,
                                                      SELECTION_COLOURS, SELECTION_THUMBNAIL_SIZE,
                                                      UNSELECTED_FRAME_BRIGHTNESS, WRONG_PREDICTION_COLOUR,
@@ -127,6 +129,35 @@ def test_detection_grid_draws_the_boxes_in_their_class_colour() -> None:
         predicted_labels=empty_labels, predicted_scores=np.zeros(shape=(0,)), class_names=class_names,
         class_colours=class_colours, caption="test")
     assert np.all(empty_grid[CAPTION_BAR_HEIGHT + 50, 60] == 100)
+
+
+def test_detection_grid_outlines_the_boxes_in_error() -> None:
+    """
+    Verifies the outline of the error images: a true box in error gets red dashes a few pixels outside its edges on
+    the ground truth panel, the detection not in error gets none, and the legend names the outline first, its colour
+    square in red.
+    """
+    image = np.full(shape=(96, 128, 3), fill_value=100, dtype=np.uint8)
+    grid = build_detection_sample_grid(
+        image=image, ground_truth_boxes=np.array(object=[[20.0, 30.0, 60.0, 70.0]]),
+        ground_truth_labels=np.array(object=[1]), predicted_boxes=np.array(object=[[70.0, 30.0, 110.0, 70.0]]),
+        predicted_labels=np.array(object=[2]), predicted_scores=np.array(object=[0.9]),
+        class_names={0: "background", 1: "circle", 2: "square"}, class_colours=build_class_colours(number_classes=3),
+        caption="MISSED circle", highlighted_ground_truths=np.array(object=[True]),
+        highlighted_detections=np.array(object=[False]))
+    panels = grid[CAPTION_BAR_HEIGHT:CAPTION_BAR_HEIGHT + 96]
+    ground_truth_panel, prediction_panel = panels[:, :128], panels[:, 128 + GRID_GAP:]
+    is_red = np.all(a=ground_truth_panel == np.array(object=WRONG_PREDICTION_COLOUR), axis=-1)
+
+    # Dashes on the outline left of the true box only, none around the detection
+    outline_column = 20 - ERROR_OUTLINE_MARGIN
+    assert is_red[:, outline_column - 1:outline_column + 2].any()
+    assert not np.all(a=prediction_panel == np.array(object=WRONG_PREDICTION_COLOUR), axis=-1)[
+        :, 70 - ERROR_OUTLINE_MARGIN - 1:70 - ERROR_OUTLINE_MARGIN + 2].any()
+
+    # The legend starts with the colour square of the outline
+    legend_bar = grid[-LEGEND_BAR_HEIGHT:]
+    assert np.all(legend_bar[12, 10] == np.array(object=WRONG_PREDICTION_COLOUR))
 
 
 def test_caption_bar_is_written_in_its_colour() -> None:

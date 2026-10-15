@@ -1,15 +1,16 @@
 """
 Trainer of the instance segmentation task: the detection trainer with the instance masks of the COCO loaders, the
 instance segmenter with its mask loss, the masks moved by the geometric augmentations with their boxes recomputed, and
-the evaluation of the checkpoints with the box and mask average precisions, the sample images painting the masks under
-the boxes. Registered for the instance segmentation task in the task registry.
+the evaluation of the checkpoints with the box and mask average precisions, the class thresholds, confusion matrix and
+error images of the detection trainer matched by the masks, the sample and error images painting the masks under the
+boxes. Registered for the instance segmentation task in the task registry.
 """
 
 import numpy as np
 import torch
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationResults, InstanceSegmentationBatch
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
@@ -37,6 +38,10 @@ class InstanceSegmentationTrainer(DetectionTrainer):
 
     TASK_NAME = "instance_segmentation"
     LOAD_INSTANCE_MASKS = True
+
+    # The class thresholds, the confusion matrix and the error images match the detections to the objects by their
+    # masks, like the headline mask mAP
+    MATCHING_OVERLAP_TYPE = "masks"
 
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
@@ -118,29 +123,28 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         return self.model(input_tensor=batch["images"], ground_truth_bounding_boxes=batch["bounding_boxes"],
                           ground_truth_labels=batch["labels"], ground_truth_masks=batch["instance_masks"])
 
-    def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
-                                    predictions: Dict[str, Any], sample_indices: List[int]) -> None:
+    def gather_image_detections(self, batch: Dict[str, Any], predictions: Dict[str, Any],
+                                image_index: int) -> Dict[str, torch.Tensor]:
         """
-        Keeps the detections and ground truths of every kept image like the detection trainer, with the mask
-        intersection over union of every valid detection with every ground truth mask, computed on the device of the
-        model from the detection masks pasted at the network resolution. The masks themselves are not kept, since
-        those of a whole test split would not fit in memory.
+        Gives the valid detections of one test image like the detection trainer, with the mask intersection over union
+        of every valid detection with every ground truth mask, computed on the device of the model from the detection
+        masks pasted at the network resolution, for the mask average precision and the matching of the confusion
+        matrix. The masks themselves are not kept, since those of a whole test split would not fit in memory.
 
         Args:
-            accumulator (Dict[str, Any]): The 'detections' and 'ground_truths' lists, extended in place.
             batch (Dict[str, Any]): The prepared test batch.
             predictions (Dict[str, Any]): The outputs of the instance segmenter.
-            sample_indices (List[int]): The indices of the images to keep.
-        """
-        super().accumulate_evaluation_batch(accumulator=accumulator, batch=batch, predictions=predictions,
-                                            sample_indices=sample_indices)
+            image_index (int): The index of the image in the batch.
 
-        # The mask overlaps join the detections of the kept images, appended last by the detection trainer
-        first_kept_index = len(accumulator["detections"]) - len(sample_indices)
-        for kept_offset, image_index in enumerate(sample_indices):
-            accumulator["detections"][first_kept_index + kept_offset]["mask_overlaps"] = self.compute_mask_overlaps(
-                predictions=predictions, ground_truth_masks=batch["instance_masks"][image_index],
-                image_index=image_index).cpu()
+        Returns:
+            Dict[str, torch.Tensor]: The detection 'boxes' [D, 4], 'scores' [D] and 'labels' [D] of the image, and
+                their 'mask_overlaps' [D, G] with its objects.
+        """
+        detection = super().gather_image_detections(batch=batch, predictions=predictions, image_index=image_index)
+        detection["mask_overlaps"] = self.compute_mask_overlaps(predictions=predictions,
+                                                                ground_truth_masks=batch["instance_masks"][image_index],
+                                                                image_index=image_index).cpu()
+        return detection
 
     def compute_mask_overlaps(self, predictions: Dict[str, Any], ground_truth_masks: torch.Tensor,
                               image_index: int) -> torch.Tensor:
@@ -178,13 +182,17 @@ class InstanceSegmentationTrainer(DetectionTrainer):
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
         Computes the mask and box mean average precisions of the test split with the three average precision methods,
-        the mask mAP@0.5 of the area method comparing the checkpoints, and organises them for the report: the mask
-        tables then the box tables (methods always shown, classes with the per-class report), the box scalars under
-        the names of the object detection and the mask scalars under 'Mask' names. The box and mask average precisions
-        of every class are saved together to class_metrics.csv in '<run>/Evaluation/Iteration_<n>/'.
+        the mask mAP@0.5 of the area method comparing the checkpoints, and the score threshold of every class reaching
+        the target precision with the masks, and organises them for the report: the mask tables then the box tables
+        (methods always shown, classes with the per-class report, the thresholds in the mask table), the box scalars
+        under the names of the object detection and the mask scalars under 'Mask' names. The box and mask average
+        precisions and the thresholds of every class are saved together to class_metrics.csv in
+        '<run>/Evaluation/Iteration_<n>/', with the class thresholds, the confusion matrix and the error images of the
+        detection trainer (save_error_analysis).
 
         Args:
-            accumulator (Dict[str, Any]): The detections, with their mask overlaps, and ground truths of the test split.
+            accumulator (Dict[str, Any]): The detections, with their mask overlaps, and ground truths of the test split,
+                with the confusion matrix and the error images.
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
@@ -192,7 +200,8 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         """
         mask_summary = self.summarise_average_precisions(accumulator=accumulator, overlap_type="masks",
                                                          title_prefix="Mask", name_prefix="Mask ",
-                                                         column_prefix="mask_", legend=MASK_TABLE_LEGEND)
+                                                         column_prefix="mask_", legend=MASK_TABLE_LEGEND,
+                                                         target_precision=self.target_precision)
         box_summary = self.summarise_average_precisions(accumulator=accumulator, overlap_type="boxes",
                                                         title_prefix="Box", legend=BOX_TABLE_LEGEND)
 
@@ -202,13 +211,19 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         evaluation_folder = self.get_evaluation_folder(iteration=iteration)
         files = {"Class Metrics": write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)}
 
+        # Class thresholds, confusion matrix and error images of the detections of the deployed instance segmenter
+        error_analysis = self.save_error_analysis(accumulator=accumulator, iteration=iteration,
+                                                  class_score_thresholds=mask_summary["class_score_thresholds"])
+        files.update(error_analysis["files"])
+
         # Tables of the methods first, then the per-class tables, the masks before the boxes
         tables = [mask_summary["tables"][0], box_summary["tables"][0], mask_summary["tables"][1],
                   box_summary["tables"][1]]
-        return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {}, "notes": [],
-                "tables": tables, "scalars": {**box_summary["scalars"], **mask_summary["scalars"]},
-                "class_scalars": {**box_summary["class_scalars"], **mask_summary["class_scalars"]}, "images": {},
-                "files": files, "headline_metric": "Mask mAP@0.5/area"}
+        return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {},
+                "notes": error_analysis["notes"], "tables": tables,
+                "scalars": {**box_summary["scalars"], **mask_summary["scalars"]},
+                "class_scalars": {**box_summary["class_scalars"], **mask_summary["class_scalars"]},
+                "images": error_analysis["images"], "files": files, "headline_metric": "Mask mAP@0.5/area"}
 
     def get_sample_masks(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int,
                          kept_detections: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:

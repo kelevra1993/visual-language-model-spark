@@ -199,7 +199,7 @@ Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the 
 ### Stopping And Resuming
 Ctrl+C stops the training and saves a checkpoint of the current iteration. With `resume_training: true`, launching the same configuration again resumes from the last checkpoint of its run folder, with its optimizer state.
 
-The settings that give no token in the run name (augmentation, batch size, learning rate and its schedule, `pretrained.learning_rate_multiplier`, gradient clipping, mixed precision, weight initialisation, moving average of the weights, dropout rates) can be changed between two resumptions of a run. `Optimization.weight_initialization` only sets the starting weights of a new run: the checkpoint replaces them when the run resumes. Changing any other setting gives another run name, so the training starts in a new run folder.
+The settings that give no token in the run name (augmentation, batch size, learning rate and its schedule, `pretrained.learning_rate_multiplier`, gradient clipping, mixed precision, moving average of the weights, dropout rates) can be changed between two resumptions of a run. Changing any other setting gives another run name, so the training starts in a new run folder.
 
 A resumed run compares the launched configuration with the `training_configuration.yaml` saved in its folder by the previous start, before the copy of the new one replaces it, and prints every setting changed, added or removed since:
 
@@ -369,9 +369,11 @@ The two-stage detector predicts the box, class and score of every object of an i
 
 **Converting a dataset.** `vision_training/data/data_retriever.py` downloads COCO 2017 with FiftyOne, whose splits have this layout (about 25 GB in full). Set the dataset folder and `maximum_samples` in its main block, then run `uv run python -m vision_training.data.data_retriever`.
 
-**Configuration.** Copy `object_detection/configuration_example.yaml`. The task keys are `Backbone.detection_convolution_block_indices`, `Anchors` (scales and aspect ratios of every level), `RegionProposal`, `Detector` and `evaluation.score_threshold`.
+**Configuration.** Copy `object_detection/configuration_example.yaml`. The task keys are `Backbone.detection_convolution_block_indices`, `Anchors` (scales and aspect ratios of every level), `RegionProposal`, `Detector`, `evaluation.score_threshold`, `evaluation.target_precision` and `evaluation.error_dumps`.
 
-**Evaluation.** The mAP at IoU 0.5, 0.75 and 0.5:0.95 with the area, 11-point and 101-point methods, and the AP@0.5 of every class. The detections below `evaluation.score_threshold` are left out of the mAP.
+**Evaluation.** The mAP at IoU 0.5, 0.75 and 0.5:0.95 with the area, 11-point and 101-point methods, and the AP@0.5 of every class. The detections below `evaluation.score_threshold` are left out of the mAP. The score threshold of every class reaching `target_precision`, the detections of a class being right when they find an object of the class at IoU 0.5 (the AP@0.5 matching), is saved in `class_thresholds.json` with the recall it keeps, for a deployment filtering the detections class by class.
+
+The detections the deployed detector returns (score reaching `Detector.inference.score_threshold`) are matched to the objects of every test image at IoU 0.5, from the most confident: first to the objects of their class, then to the objects left of any class. The matches give `confusion_matrix.csv` and `.png`, with a `background` row for the false positives (a detection finding no object) and a `background` column for the missed objects (an object found by no detection). The report counts the right detections, the wrong classes, the false positives and the missed objects. With `error_dumps.activated`, every test image with errors is saved in `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/` and `Errors/<TRUE>-TO-<PREDICTED>/`, drawn like the sample images with the boxes in error outlined with red dashes, at most `maximum_per_class_pair` images per folder.
 
 <p align="center">
   <img src="README/detection_sample.png" width="80%" />
@@ -399,7 +401,7 @@ The COCO 2017 splits downloaded by `vision_training/data/data_retriever.py` alre
 
 **Configuration.** Copy `instance_segmentation/configuration_example.yaml`. The task keys are those of DET and the `MaskHead` section: the pool size, the `[layers, channels]` of the mask head of every detection level, its normalization and modules, and `inference.mask_threshold`, the mask probability from which a pixel belongs to its object.
 
-**Evaluation.** The mask mAP and the box mAP of the same detections, each at IoU 0.5, 0.75 and 0.5:0.95 with the area, 11-point and 101-point methods, with the AP@0.5 of every class. The mask IoU compares the predicted masks, pasted into their boxes and thresholded at `mask_threshold`, with the ground truth masks at the network input resolution. The mask mAP@0.5 of the area method (`Mask mAP@0.5/area`) compares the checkpoints; the box scalars keep the names of DET, so that INS and DET runs can be compared. Both are saved in `class_metrics.csv`, the mask columns prefixed with `mask_`.
+**Evaluation.** The mask mAP and the box mAP of the same detections, each at IoU 0.5, 0.75 and 0.5:0.95 with the area, 11-point and 101-point methods, with the AP@0.5 of every class. The mask IoU compares the predicted masks, pasted into their boxes and thresholded at `mask_threshold`, with the ground truth masks at the network input resolution. The mask mAP@0.5 of the area method (`Mask mAP@0.5/area`) compares the checkpoints; the box scalars keep the names of DET, so that INS and DET runs can be compared. Both are saved in `class_metrics.csv`, the mask columns prefixed with `mask_`. The class thresholds, the confusion matrix and the error images are those of DET, the detections being matched to the objects by their masks at IoU 0.5, and the error images painting the masks under the boxes.
 
 <p align="center">
   <img src="README/instance_segmentation_sample.png" width="80%" />
@@ -679,7 +681,7 @@ The evaluation writes `Results.txt`, `Tensorboard/Test` and the `Evaluation/` fo
 uv run python -m scripts.evaluation.collect_experiment_results
 ```
 
-The file has one row per launch, in launch order (every repeat launch right after its original one: `run_23`, `run_23b`, `run_23c`, `run_24`): the launch, the metric at every evaluated iteration, the mean of these values, the mean of the values at the last `number_last_evaluations` iterations evaluated in the experiment (`<metric>_last_<n>_mean`, which leaves out how fast a launch starts), `finished` (evaluated at its last iteration), the swept settings (`SWEPT_SETTINGS`: learning rate, augmentation, global pooling, residual connections and their pre-activation placement, squeeze and excitation, normalization of the fully connected head, batch normalization momentums of the backbone and of the head, feature map normalization, mixed precision, weight initialisation, moving average of the weights, class weighting and dropout rate) and the run folder. The launches of the same settings, repeat launches included, are grouped and followed by a `mean` row averaging them. A launch still training has empty cells for the iterations not evaluated yet, so the file can be written again at any time.
+The file has one row per launch, in launch order (every repeat launch right after its original one: `run_23`, `run_23b`, `run_23c`, `run_24`): the launch, the metric at every evaluated iteration, the mean of these values, the mean of the values at the last `number_last_evaluations` iterations evaluated in the experiment (`<metric>_last_<n>_mean`, which leaves out how fast a launch starts), `finished` (evaluated at its last iteration), the swept settings (`SWEPT_SETTINGS`: learning rate, augmentation, global pooling, residual connections and their pre-activation placement, squeeze and excitation, normalization of the fully connected head, batch normalization momentums of the backbone and of the head, feature map normalization, mixed precision, moving average of the weights, class weighting and dropout rate) and the run folder. The launches of the same settings, repeat launches included, are grouped and followed by a `mean` row averaging them. A launch still training has empty cells for the iterations not evaluated yet, so the file can be written again at any time.
 
 ## Deployment
 
@@ -771,9 +773,9 @@ The tables below list only the keys that are not in every task. Every other key 
 | `ExperimentConfiguration.evaluation.score_threshold` | ✓ | ✓ | | | | | | |
 | `MaskHead` | | ✓ | | | | | | |
 | `ExperimentConfiguration.evaluation.top_k` | | | ✓ | ✓ | ✓ | ✓ | | ✓ |
-| `ExperimentConfiguration.evaluation.target_precision` | | | ✓ | ✓ | ✓ | ✓ | | ✓ |
+| `ExperimentConfiguration.evaluation.target_precision` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | ✓ |
 | `ExperimentConfiguration.evaluation.save_predictions` | | | ✓ | ✓ | ✓ | ✓ | | ✓ |
-| `ExperimentConfiguration.evaluation.error_dumps` | | | ✓ | ✓ | ✓ | ✓ | | ✓ |
+| `ExperimentConfiguration.evaluation.error_dumps` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | ✓ |
 | `ClassificationHead` | | | ✓ | ✓ | ✓ | ✓ | | ✓ |
 | `TemporalModel` | | | | ✓ | ✓ | ✓ | | ✓ |
 | `Data.sequence_settings` | | | | ✓ | ✓ | ✓ | | ✓ |
@@ -793,7 +795,8 @@ The tables below list only the keys that are not in every task. Every other key 
 |---|---|
 | DET, INS | `RegionProposal`, `Anchors`, `Detector`, `ExperimentConfiguration.evaluation.score_threshold` |
 | INS | `MaskHead` |
-| CLS, M2O, M2M, CMP, SEL | `ClassificationHead`, `ExperimentConfiguration.evaluation.top_k`, `target_precision`, `save_predictions`, `error_dumps` |
+| DET, INS, CLS, M2O, M2M, CMP, SEL | `ExperimentConfiguration.evaluation.target_precision`, `error_dumps` |
+| CLS, M2O, M2M, CMP, SEL | `ClassificationHead`, `ExperimentConfiguration.evaluation.top_k`, `save_predictions` |
 | M2O, M2M, CMP, SEL | `TemporalModel`, `Data.sequence_settings` (`sequence_length`, `batch_padding`) |
 | M2O, M2M, CMP | `Data.sequence_settings.short_sequences` |
 | M2O, M2M | `Data.sequence_settings.window_stride` |
@@ -831,14 +834,15 @@ Every evaluated checkpoint is reported in the console and in a block of `<run>/R
 |---|---|---|
 | Global metrics and notes (console, `Results.txt`), global Test scalars (TensorBoard) | all | every evaluation |
 | Per-class table (console, `Results.txt`), per-class Test scalars (TensorBoard) | all | with `per_class_report` |
-| `class_metrics.csv`: one row per class (samples, precision, recall, F1, threshold and recall at the target precision; detection: ground truths and average precisions, with the mask average precisions for INS; segmentation: pixels, IoU, Dice, boundary IoU, boundary F1, precision, recall) | all | every evaluation |
-| `class_thresholds.json` | CLS, M2O, M2M, CMP, SEL | every evaluation |
-| `confusion_matrix.csv` (pixels for SEG, decoded frames for SEL) | CLS (multi-class), M2O, M2M, CMP, SEG, SEL | every evaluation |
-| `confusion_matrix.png` and its Test image (TensorBoard), the shares of the true class only for SEG | CLS (multi-class), M2O, M2M, CMP, SEG, SEL | with `per_class_report` |
+| `class_metrics.csv`: one row per class (samples, precision, recall, F1, threshold and recall at the target precision; detection: ground truths and average precisions, with the mask average precisions for INS, and the threshold and recall at the target precision; segmentation: pixels, IoU, Dice, boundary IoU, boundary F1, precision, recall) | all | every evaluation |
+| `class_thresholds.json` | DET, INS, CLS, M2O, M2M, CMP, SEL | every evaluation |
+| `confusion_matrix.csv` (pixels for SEG, decoded frames for SEL, detections of the deployed detector with a `background` row and column for DET and INS) | DET, INS, CLS (multi-class), M2O, M2M, CMP, SEG, SEL | every evaluation |
+| `confusion_matrix.png` and its Test image (TensorBoard), the shares of the true class only for SEG | DET, INS, CLS (multi-class), M2O, M2M, CMP, SEG, SEL | with `per_class_report` |
 | `predictions.csv` | CLS, M2O, M2M, CMP | with `save_predictions` |
 | `selections.csv`: one row per sequence and wanted class | SEL | with `save_predictions` |
 | `Errors/<TRUE>-TO-<PREDICTED>/` | CLS (multi-class), M2O, M2M, CMP | with `error_dumps.activated` |
 | `Errors/<CLASS>/<sequence>.png` | SEL | with `error_dumps.activated` |
+| `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/`, `Errors/<TRUE>-TO-<PREDICTED>/`: the test images with errors, the boxes in error outlined with red dashes | DET, INS | with `error_dumps.activated` |
 | `Samples/<sample>.png` and its Test image `Samples/<sample>` (TensorBoard): the same test samples at every evaluation with their targets and predictions. CLS, M2O, CMP: the input (frame grid of the window, before member above after member for CMP) captioned `true -> predicted probability`, green when right and red when wrong. M2M: the frame grid, every frame captioned `true/predicted` with `X` on the wrong ones. SEL: the thumbnail grid of the whole sequence with the borders of the selection, and the probability heat map of the wanted classes. DET: ground truth boxes next to the detections above `Detector.inference.score_threshold`. INS: the same, with the masks of the objects painted under their boxes. SEG: input, true mask, predicted mask and error map | all | with `number_sample_images` above 0, whatever `per_class_report` |
 | `Predicted_Masks/<image>.png`: class index of every pixel at the resolution of the metrics (network input, scaled image with `Data.tiling`, original image with `original_resolution`) | SEG | with `save_predicted_masks` |
 | `Evaluation/evaluation_summary.csv` (`scripts/evaluation/evaluate_checkpoint.py` with `iteration = "all"`) | all | per-class columns with `per_class_report` |
@@ -850,7 +854,7 @@ A training run is saved in `<ExperimentConfiguration.experiment_folder>/<run nam
 
 The name is made of sections joined with `_`, the tokens of a section being joined with `-`. A flag token is left out when its setting is off, and the optimizer section is left out with plain Adam without weight decay. The sections always come in the order of the table below. Values in `<...>` are read from the configuration.
 
-The training settings that can change between two resumptions of a run give no token: augmentation (including `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up, cosine schedule, the `pretrained.learning_rate_multiplier` of the transferred components, gradient clipping, mixed precision, the weight initialisation (`Optimization.weight_initialization`), the moving average of the weights (`Optimization.exponential_moving_average`), the `batch_normalization_momentum` of every section, the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`, `SegmentationDecoder.dropout_rate`) and the losses of SEG (`SegmentationLoss`, Lovász and boundary losses included, whose class weights are set again from the configuration when a run resumes) and the decoding of SEL (`Selection.decoding`, both decodings being scored at every evaluation). A run can be resumed in its folder with changed values, and two runs differing only by these settings share a folder. The optimizer keeps its token, because the state of one optimizer cannot be resumed by another.
+The training settings that can change between two resumptions of a run give no token: augmentation (including `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up, cosine schedule, the `pretrained.learning_rate_multiplier` of the transferred components, gradient clipping, mixed precision, the moving average of the weights (`Optimization.exponential_moving_average`), the `batch_normalization_momentum` of every section, the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`, `SegmentationDecoder.dropout_rate`) and the losses of SEG (`SegmentationLoss`, Lovász and boundary losses included, whose class weights are set again from the configuration when a run resumes) and the decoding of SEL (`Selection.decoding`, both decodings being scored at every evaluation). A run can be resumed in its folder with changed values, and two runs differing only by these settings share a folder. The optimizer keeps its token, because the state of one optimizer cannot be resumed by another.
 
 | Section | Token | Meaning (configuration key) | DET | INS | CLS | M2O | M2M | CMP | SEG | SEL |
 |---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -964,7 +968,7 @@ What is logged:
 | `train/frame_throughput` (real frames per second, padding frames excluded) | M2O, M2M, CMP, SEL |
 | `test/best_<headline metric>`, `Results.txt` and the configuration file | all |
 | `test_ema/<metric>`, `test_ema_class/<metric>` and the files under `evaluation/iteration_<n>/ema/`: the metrics and files below for the moving average of the weights | all, with `Optimization.exponential_moving_average.activated` |
-| `test/mAP@0.5`, `mAP@0.75`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test_class/AP@0.5/<class>`; `class_metrics.csv` | DET |
+| `test/mAP@0.5`, `mAP@0.75`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test_class/AP@0.5/<class>`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | DET |
 | `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-<k> Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`); `test_class/Precision`, `Recall`, `F1` per class; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | CLS, M2O, M2M, CMP |
 | `test/Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `Segment F1@25`, `Segment F1@50` | M2M |
 | `test/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `<Decoding> Fully Right Sequences`, `<Decoding> Unselected Precision`, `<Decoding> Unselected Recall`, `Top-<k> Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`; `test_class/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `Mean True Frame Rank` per wanted class; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | SEL |
@@ -973,7 +977,7 @@ What is logged:
 The `test_class/` metrics and `confusion_matrix.png` need `evaluation.per_class_report: True`, and the files need `tracking.log_artifacts: True`. MLflow writes `@` as `_at_` and `[0.5:0.95]` as `0.5-0.95` in the metric names. `scripts/evaluation/evaluate_checkpoint.py` logs its evaluations in a separate run, `<run name>-evaluation`.
 
 ## Migrating Old Runs
-`scripts/configuration_processing/migrate_configuration.py` updates a run folder trained before the task-aware configuration and the component transfers (e.g. the `pretrained` blocks of the region proposal and detection heads of DET) or before a newer setting (e.g. the `batch_normalization_momentum` of every section, 0.1 as in PyTorch, the `ClassificationHead.fully_connected_normalization` setting, `"none"`, its True or False values of the runs written before the layer normalization becoming `"batch"` or `"none"`, `Backbone.modules.residual_nets_v2`, False, `Optimization.weight_initialization`, `"default"`, and `Optimization.exponential_moving_average`, off), so that it can be resumed, evaluated or exported. It adds the missing keys to its `training_configuration.yaml`, keeping its comments, and prints the folder name given by the current run name. Set `run_folder`, `task` and `rename_folder` (`True` renames the folder, never while a training writes into it) in its main block, then run:
+`scripts/configuration_processing/migrate_configuration.py` updates a run folder trained before the task-aware configuration and the component transfers (e.g. the `pretrained` blocks of the region proposal and detection heads of DET) or before a newer setting (e.g. the `batch_normalization_momentum` of every section, 0.1 as in PyTorch, the `ClassificationHead.fully_connected_normalization` setting, `"none"`, its True or False values of the runs written before the layer normalization becoming `"batch"` or `"none"`, `Backbone.modules.residual_nets_v2`, False, `Optimization.exponential_moving_average`, off, and the `evaluation.target_precision`, 0.99, and `evaluation.error_dumps`, off, of DET and INS), so that it can be resumed, evaluated or exported. It adds the missing keys to its `training_configuration.yaml`, keeping its comments, and prints the folder name given by the current run name. Set `run_folder`, `task` and `rename_folder` (`True` renames the folder, never while a training writes into it) in its main block, then run:
 
 ```bash
 uv run python -m scripts.configuration_processing.migrate_configuration
@@ -1008,7 +1012,7 @@ The checkpoint evaluation, launch comparison and configuration migration scripts
 │   │   ├── segmentation/              # Segmentation dataset
 │   │   ├── sequence/                  # Sequence and pair datasets, pair list converter
 │   │   └── synthetic/                 # Synthetic shapes datasets of every task
-│   ├── models/                        # Backbone, task models, components, weight initialisation and transfer between runs
+│   ├── models/                        # Backbone, task models, components and transfer between runs
 │   ├── losses/                        # Losses of every task
 │   ├── trainers/                      # Base trainer, trainer of every task, checkpoints, metric tracking, moving average of the weights
 │   ├── evaluation/                    # Metrics, reports and checkpoint evaluation
