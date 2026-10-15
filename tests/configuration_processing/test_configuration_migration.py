@@ -28,7 +28,8 @@ from vision_training.configuration_processing.configuration_migration import (
     add_sequence_augmentation_to_configuration, add_sequence_normalization_scope_to_configuration,
     add_residual_nets_v2_to_configuration, add_task_to_configuration, add_tracking_to_configuration,
     add_mask_head_geometry_to_configuration, add_moving_average_to_configuration, migrate_run_folder,
-    remove_dali_settings_from_configuration)
+    remove_dali_settings_from_configuration, NEW_CLASS_INITIALISATION_LINES,
+    add_new_class_initialisation_to_configuration)
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -299,8 +300,9 @@ def test_old_sequence_run_is_fully_migrated(tmp_path: Path) -> None:
     assert renamed_folder.name.startswith("M2O_") and "PT" not in renamed_folder.name.split("_")
     migrated_configuration = yaml.safe_load(stream=(renamed_folder / "training_configuration.yaml").read_text())
     assert migrated_configuration["Backbone"]["pretrained"] == RANDOM_PRETRAINED_BACKBONE_SETTINGS
-    for section_name in ["TemporalModel", "ClassificationHead"]:
-        assert migrated_configuration[section_name]["pretrained"] == RANDOM_PRETRAINED_SETTINGS
+    assert migrated_configuration["TemporalModel"]["pretrained"] == RANDOM_PRETRAINED_SETTINGS
+    assert migrated_configuration["ClassificationHead"]["pretrained"] == {**RANDOM_PRETRAINED_SETTINGS,
+                                                                          "new_class_initialisation": "source"}
     assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["save_predictions"] is False
     assert migrated_configuration["ExperimentConfiguration"]["evaluation"]["error_dumps"] == {
         "activated": False, "maximum_per_class_pair": 20}
@@ -995,3 +997,45 @@ def test_mask_head_pretrained_settings_and_class_layers_flag_are_added_once(tmp_
     detection_path.write_text(data=EXAMPLE_CONFIGURATION_PATH.read_text())
     assert add_class_layers_flag_to_configuration(configuration_path=detection_path) is False
     assert detection_path.read_text() == EXAMPLE_CONFIGURATION_PATH.read_text()
+
+
+def test_new_class_initialisation_is_added_once(tmp_path: Path) -> None:
+    """
+    Verifies the migration of the initialisation of the classes added after those of a source run: an instance
+    segmentation file written before it gets 'new_class_initialisation: "source"' right after the learning rate
+    multiplier of the pretrained settings of its detection heads and of its mask heads, every other line being kept,
+    a second migration changes nothing, and a section without pretrained settings is left out.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Instance segmentation file without the setting and its comment in both sections with class layers
+    current_text = INSTANCE_SEGMENTATION_CONFIGURATION_PATH.read_text()
+    old_text = re.sub(pattern=r"    # Initialisation of the classes this run adds.*?    new_class_initialisation: \"\w+\"\n",
+                      repl="", string=current_text, flags=re.DOTALL)
+    old_configuration = yaml.safe_load(stream=old_text)
+    for section_name in ["Detector", "MaskHead"]:
+        assert "new_class_initialisation" not in old_configuration[section_name]["pretrained"]
+    instance_path = tmp_path / "instance_segmentation.yaml"
+    instance_path.write_text(data=old_text)
+
+    # The setting is inserted after the learning rate multiplier of both sections, the second migration changing nothing
+    assert add_new_class_initialisation_to_configuration(configuration_path=instance_path) is True
+    migrated_text = instance_path.read_text()
+    assert migrated_text.count(NEW_CLASS_INITIALISATION_LINES) == 2
+    assert migrated_text.replace(NEW_CLASS_INITIALISATION_LINES, "") == old_text
+    migrated_configuration = yaml.safe_load(stream=migrated_text)
+    for section_name in ["Detector", "MaskHead"]:
+        setting_names = list(migrated_configuration[section_name]["pretrained"])
+        assert setting_names[setting_names.index("learning_rate_multiplier") + 1] == "new_class_initialisation"
+        assert migrated_configuration[section_name]["pretrained"]["new_class_initialisation"] == "source"
+    assert add_new_class_initialisation_to_configuration(configuration_path=instance_path) is False
+
+    # A section without pretrained settings is left out, the other one still being migrated
+    del old_configuration["MaskHead"]["pretrained"]
+    partial_path = tmp_path / "instance_segmentation_without_mask_transfer.yaml"
+    partial_path.write_text(data=yaml.safe_dump(data=old_configuration, sort_keys=False))
+    assert add_new_class_initialisation_to_configuration(configuration_path=partial_path) is True
+    partial_configuration = yaml.safe_load(stream=partial_path.read_text())
+    assert partial_configuration["Detector"]["pretrained"]["new_class_initialisation"] == "source"
+    assert "pretrained" not in partial_configuration["MaskHead"]
