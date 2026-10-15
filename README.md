@@ -1069,3 +1069,28 @@ The checkpoint evaluation, launch comparison and configuration migration scripts
 ```
 
 ## TODO
+
+## Implementation Plan
+Self-supervised learning task (`self_supervised`, run name code `SSL`): the backbone learns from unlabelled images, two random views of every image being pulled together by SimCLR (InfoNCE) or Barlow Twins, then initialises the backbone of the other tasks through `Backbone.pretrained`. Tests are left for later.
+
+Current behavior:
+- Every task is a trainer subclassing `BaseTrainer` (`vision_training/trainers/`), registered with its model, configuration checks, run name sections and export specification in five tables (`core/task_registry.py`, `models/model_registry.py`, `configuration_processing/configuration_checker.py`, `configuration_processing/run_name.py`, `deployment/export_specifications.py`).
+- The base trainer prepares and augments the training batches (`Data.data_augmentation`, mild crops, flips and colour changes), sums every `_loss` output of the model, tracks the batch metrics of the task and evaluates the test split at every `weight_saving_iterations` checkpoint through the evaluation hooks of the task.
+- Every task model keeps its backbone in `self.backbone`, so that `Backbone.pretrained` loads the backbone of a run of any task (`models/model_transfer.py`).
+- The classification datasets read the `labels.json` manifests (`categories`, `samples` with `file_name` and `category_id`) and leave out the samples of unmapped categories.
+
+Needed changes:
+1. `vision_training/data/self_supervised/self_supervised_dataset.py` (new): `SelfSupervisedDataset` reading the classification manifests, keeping every sample, the unlabelled and unmapped ones with the label `IGNORED_LABEL_INDEX`.
+2. `vision_training/data/view_augmentations.py` (new): `ViewAugmenter`, the two random views of every image drawn on the device with kornia (random resized crop, flips, rotation, colour jitter, grayscale, Gaussian blur) from the `Data.view_augmentation` section.
+3. `vision_training/data/loaders.py`: `get_self_supervised_dataloaders`.
+4. `vision_training/core/contracts.py`: `SelfSupervisedBatch`.
+5. `vision_training/losses/self_supervised_losses.py` (new): `compute_info_nce_loss` (SimCLR, with the positive pair accuracy), `compute_barlow_twins_loss` (with the mean diagonal and off-diagonal cross-correlations) and `compute_embedding_standard_deviation` (collapse monitor), computed in float32.
+6. `vision_training/models/self_supervised/projection_head.py` (new): `ProjectionHead` (hidden layers with their normalization and ReLU, then the linear embedding layer) and its summary panel.
+7. `vision_training/models/self_supervised/self_supervised_model.py` (new): `SelfSupervisedModel` (backbone, global pooling `average`, `max` or `flatten`, projection head), returning the representations and embeddings, and the loss and batch metrics of the method when the second views are given.
+8. `vision_training/models/self_supervised/inference_encoder.py` (new): `InferenceEncoder`, the L2-normalized representations exported for deployment.
+9. `vision_training/evaluation/self_supervised/representation_metrics.py` (new): leave-one-out k-nearest neighbour accuracy of the labelled test images, effective rank and standard deviation of the representations.
+10. `vision_training/trainers/self_supervised_trainer.py` (new): `SelfSupervisedTrainer`, the hooks of the task: views drawn in the forward pass of the training and validation batches, the method metrics tracked, the evaluation report, the sample images (image, its two views and their similarity), and the input viewer showing the two views.
+11. `vision_training/configuration_processing/self_supervised_checks.py` (new): checks of `Data.view_augmentation`, `ProjectionHead`, `ExperimentConfiguration.evaluation.number_neighbours`, `Data.data_augmentation.activated` False.
+12. `configuration_checker.py`, `run_name.py` (`SSL` code, `P<pool>.<layers>`, `PBN` or `PLN`, `SIMCLR-T<temperature>` or `BT-OD<weight>`), `model_registry.py`, `task_registry.py`, `export_specifications.py` (`image_encoder`, `representations` output, `compare_representations`): registration of the task.
+13. `vision_training/configurations/self_supervised/configuration_example.yaml` and `configuration_synthetic_shapes.yaml` (new), on the classification layout.
+14. `README.md`: the task in the description, quick start, tasks, transfer, configurations, evaluation outputs, run names, MLflow and repository structure; this plan removed once the task is complete.
