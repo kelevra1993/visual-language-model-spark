@@ -7,12 +7,11 @@ the TorchScript and ONNX exports served by Triton.
 import torch
 
 from torch import nn
-from torchvision.ops import batched_nms
 from typing import Any, Dict, Optional, Tuple
 
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
-from vision_training.models.detection.box_operations import clamp_boxes_to_image_boundaries
 from vision_training.models.detection.postprocessing import postprocess_detections
+from vision_training.models.detection.region_proposer import select_best_proposals
 
 
 class InferenceDetector(nn.Module):
@@ -114,8 +113,9 @@ class InferenceDetector(nn.Module):
     def filter_proposals(self, proposal_scores: torch.Tensor, proposal_boxes: torch.Tensor,
                          proposal_levels: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Keeps, for every image, the best 'post_nms_proposals' proposals after non-maximum suppression, like the
-        training-time region proposal filter but for the whole batch at once and with a fixed output size.
+        Keeps, for every image, the best 'post_nms_proposals' proposals after non-maximum suppression, with the
+        batched selection of the training-time region proposal filter (select_best_proposals), the padding slots being
+        masked instead of filled with copies.
 
         Args:
             proposal_scores (torch.Tensor): The objectness logits of all anchors, shape [B, N].
@@ -126,34 +126,15 @@ class InferenceDetector(nn.Module):
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The kept boxes [B, P, 4], their level indices [B, P] and a
                 boolean mask [B, P] which is False for padding slots when fewer than P proposals survive.
         """
-        batch_size = proposal_scores.shape[0]
-
-        # Keep the best pre-NMS proposals of every image and clip them to the image
-        top_scores, top_indices = torch.topk(input=torch.sigmoid(input=proposal_scores),
-                                             k=min(self.pre_nms_proposals, self.number_anchors), dim=1)
-        top_boxes = clamp_boxes_to_image_boundaries(
-            boxes=torch.gather(input=proposal_boxes, dim=1, index=top_indices.unsqueeze(dim=-1).expand(-1, -1, 4)),
-            input_image_size=self.input_image_size)
-        top_levels = torch.gather(input=proposal_levels, dim=1, index=top_indices)
-
-        # Suppress overlapping proposals of the same image with a single NMS call over the whole batch
-        number_candidates = top_scores.shape[1]
-        batch_indices = torch.arange(end=batch_size, device=proposal_scores.device).unsqueeze(dim=1)
-        kept_indices = batched_nms(boxes=top_boxes.reshape(-1, 4), scores=top_scores.reshape(-1),
-                                   idxs=batch_indices.expand(-1, number_candidates).reshape(-1),
-                                   iou_threshold=self.proposal_nms_iou_threshold)
-        kept_mask = torch.zeros_like(input=top_scores.reshape(-1), dtype=torch.bool)
-        kept_mask[kept_indices] = True
-
-        # Select the best surviving proposals of every image, suppressed ones only fill the remaining slots
-        candidate_scores = torch.where(kept_mask.reshape(batch_size, -1), top_scores,
-                                       torch.full_like(input=top_scores, fill_value=-1.0))
-        selected_scores, selected_indices = torch.topk(input=candidate_scores, k=self.post_nms_proposals, dim=1)
-
-        selected_boxes = torch.gather(input=top_boxes, dim=1,
-                                      index=selected_indices.unsqueeze(dim=-1).expand(-1, -1, 4))
-        selected_levels = torch.gather(input=top_levels, dim=1, index=selected_indices)
-        return selected_boxes, selected_levels, selected_scores >= 0.0
+        # Batched selection shared with the region proposal filter of the training, with a single suppression call
+        # for the exports, the top-k limit clamped to the number of anchors stored as a plain number so that tracing
+        # never reads it from a tensor shape
+        selected_boxes, _, selected_levels, valid_proposal_mask = select_best_proposals(
+            proposal_scores=proposal_scores, proposal_boxes=proposal_boxes, proposal_levels=proposal_levels,
+            pre_nms_proposals=min(self.pre_nms_proposals, self.number_anchors),
+            post_nms_proposals=self.post_nms_proposals, nms_iou_threshold=self.proposal_nms_iou_threshold,
+            input_image_size=self.input_image_size, suppress_per_image=False)
+        return selected_boxes, selected_levels, valid_proposal_mask
 
     def detect(self, feature_maps: dict, proposal_boxes: torch.Tensor, proposal_levels: torch.Tensor) -> Tuple[
             torch.Tensor, torch.Tensor]:

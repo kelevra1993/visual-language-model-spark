@@ -298,8 +298,8 @@ def fill_box_masks(boxes: torch.Tensor, image_size: int) -> torch.Tensor:
 def test_mask_average_precision_equals_box_average_precision_for_box_masks() -> None:
     """
     Verifies that when every detection and ground truth mask fills its box exactly, the mask overlaps equal the box
-    overlaps (within the epsilon of the box overlap, which puts an exact ratio such as 3 / 4 just below its
-    threshold), that the mask average precision read from overlaps equal to the box ones gives the box average
+    overlaps exactly (both exact ratios of pixel counts, so that an exact ratio such as 3 / 4 reaches its threshold
+    with both), that the mask average precision read from overlaps equal to the box ones gives the box average
     precision of every method, threshold and class (the rows and columns of every class being sliced from the
     overlaps of the whole image), and that an unknown overlap type is refused.
     """
@@ -320,7 +320,7 @@ def test_mask_average_precision_equals_box_average_precision_for_box_masks() -> 
             ground_truth_masks=fill_box_masks(boxes=ground_truth_boxes, image_size=64), chunk_size=3)
         box_overlaps = get_intersection_over_union(boxes_1=detection_boxes.double(),
                                                    boxes_2=ground_truth_boxes.double())
-        assert torch.allclose(input=mask_overlaps, other=box_overlaps, atol=1e-6)
+        assert torch.equal(input=mask_overlaps, other=box_overlaps)
         detection["mask_overlaps"] = box_overlaps
         detections.append(detection)
         ground_truths.append(ground_truth)

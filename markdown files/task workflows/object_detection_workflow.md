@@ -81,10 +81,10 @@ main()
         │   │   │   ├── Backbone.forward()                                   feature maps of the detection blocks
         │   │   │   ├── _forward_region_proposals() -> RegionProposal.forward()  objectness and boxes of every anchor
         │   │   │   ├── aggregate_proposals_and_anchors()
-        │   │   │   ├── RegionProposalFilter.forward()                       top-k, NMS, padded to a fixed number
+        │   │   │   ├── RegionProposalFilter.forward() -> select_best_proposals()   top-k, NMS, padded to a fixed number
         │   │   │   ├── _prepare_detector_inputs()
         │   │   │   │       batch_assign_targets_to_proposals() + turn_boxes_to_transformation_targets() +
-        │   │   │   │       sample_positive_and_negative_training_targets()
+        │   │   │   │       sample_positive_and_negative_training_targets()        every image of the batch at once
         │   │   │   ├── _forward_detections() -> DetectionHead.forward()     RoIAlign, class logits, box regressions
         │   │   │   ├── aggregate_detection_outputs() + _rearrange_predictions_by_batch()
         │   │   │   ├── compute_region_proposal_losses()
@@ -567,7 +567,7 @@ objectness of image 0 (sigmoid): min 0.4179   max 0.5723   mean 0.4970
 ```
 
 ### Step 3.13 — `RegionProposalFilter.forward()`
-For every image: the sigmoid of the objectness, the `pre_nms_proposals` best proposals (1000 in training, all of them when there are fewer anchors), their boxes clamped to the image, the non-maximum suppression at 0.5, then the `post_nms_proposals` first ones (500 in training, 250 in inference). An image with fewer survivors is padded with copies of random survivors, so that every image has the same number of proposals.
+For the whole batch at once, with `select_best_proposals()`, shared with the `InferenceDetector` of the deployment: the sigmoid of the objectness, the `pre_nms_proposals` best proposals of every image (1000 in training, all of them when there are fewer anchors), their boxes clamped to the image, the non-maximum suppression at 0.5 of every image, then the `post_nms_proposals` best survivors of every image (500 in training, 250 in inference). The suppression is the only step run image by image (`suppress_overlapping_proposals()`, one torchvision `nms` call per image, its fastest form on the GPU), the exported detector running a single `batched_nms` call over the batch, which keeps the same proposals. An image with fewer survivors is padded with copies of random survivors, so that every image has the same number of proposals.
 
 **Example output**
 ```text
@@ -606,7 +606,7 @@ by image:   classification_scores (2, 128, 10)   box_regressions (2, 128, 10, 4)
 ```
 
 ### Step 3.17 — `compute_region_proposal_losses()`
-`batch_assign_targets_to_anchors()` labels every anchor from its best IoU with a ground truth box: foreground from `RegionProposal.foreground_iou_threshold.min` (0.5), background between `background_iou_threshold.min` and `.max` (0.1 to 0.3), ignored otherwise (between 0.3 and 0.5, and below 0.1); the anchors overlapping a ground truth box the most are foreground whatever their IoU (above 0), so that every box has at least one anchor. `sample_positive_and_negative_training_targets()` keeps at most `number_training_positives` (128) foreground anchors per image, filled to `total_training_samples` (256) with background ones. The classification loss is the binary cross entropy of the objectness of the sampled anchors; the regression loss is the smooth L1 (`localisation_loss_beta` 1/9) between the predicted and target offsets of the sampled foreground anchors, summed and divided by their number.
+`batch_assign_targets_to_anchors()` labels every anchor of every image of the batch at once (`pad_ground_truths()` completes the ground truths of every image with empty boxes up to the largest number of objects of the batch) from its best IoU with a ground truth box: foreground from `RegionProposal.foreground_iou_threshold.min` (0.5), background between `background_iou_threshold.min` and `.max` (0.1 to 0.3), ignored otherwise (between 0.3 and 0.5, and below 0.1); the anchors overlapping a ground truth box the most are foreground whatever their IoU (above 0), so that every box has at least one anchor. `sample_positive_and_negative_training_targets()` keeps at most `number_training_positives` (128) foreground anchors per image, filled to `total_training_samples` (256) with background ones, drawn at random for all the images with one sort of random keys. The classification loss is the binary cross entropy of the objectness of the sampled anchors; the regression loss is the smooth L1 (`localisation_loss_beta` 1/9) between the predicted and target offsets of the sampled foreground anchors, summed and divided by their number.
 
 **Example: the anchors of the first batch**
 ```text

@@ -73,8 +73,8 @@ class CocoDetectionDataset(Dataset):
             keep_ratio (bool): Whether to maintain the aspect ratio during scaling by padding.
             label_mode (str): Mode for class assignment ("binary" or "multi_class").
             label_dictionary (Dict[str, Any]): Dictionary to map raw classes.
-            load_instance_masks (bool): Whether to return the binary mask of every object (instance segmentation),
-                the crowd annotations being left out. Defaults to False (object detection).
+            load_instance_masks (bool): Whether to return the binary mask of every object (instance segmentation).
+                Defaults to False (object detection). The crowd annotations are left out of both tasks.
             shuffle (bool): Whether to randomly shuffle the dataset internally. Defaults to True.
         """
         self.data_directory = data_directory
@@ -147,8 +147,9 @@ class CocoDetectionDataset(Dataset):
         labels = []
         kept_annotations = []
         for annotation in image_annotations:
-            # The crowd annotations cover several objects with one mask, left out of the instance segmentation
-            if self.load_instance_masks and annotation.get('iscrowd', 0) == 1:
+            # The crowd annotations cover several objects with one box and one mask, left out of the object
+            # detection and the instance segmentation, whose objects are single ones
+            if annotation.get('iscrowd', 0) == 1:
                 continue
             raw_id = annotation['category_id']
             if self.label_mode == "binary":

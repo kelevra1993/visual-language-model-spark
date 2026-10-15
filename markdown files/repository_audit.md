@@ -31,8 +31,8 @@
 | Task | Findings |
 |---|---|
 | All tasks (training loop, backbone, data, configuration) | C1, C4, H4, H5, H6, M1, M2, M6, M7, M8, M9, M10, M15, M17, M19, M20, L13–L18 |
-| DET | C3, H1, H2, H3, M3, M4, M13, M14, M16, M21, L1, L2, L5, L6, L7, L8 |
-| INS | Everything DET has, plus M5 (RLE masks), M12, L19, L22 |
+| DET | C3, H1, H2, H3, M3, M4, M12, M13, M14, M16, M21, L1, L2, L5, L6, L7, L8 |
+| INS | Everything DET has, plus M5 (RLE masks), L19, L22 |
 | CLS | C2, L3, L4, L9 |
 | SEG | C2, M5, M13, L20 |
 | M2O, M2M, CMP, SEL | C2, M11 (M2M), M18 (CMP), L10, L11 (M2M), L12, L21 (M2M), L23 (SEL) |
@@ -365,12 +365,13 @@
 - **Fix:** compute the frame metrics from the merged per-(sequence, frame) probabilities, and name the counts
   "windows" and "unique frames".
 
-### M12. INS removes crowd annotations instead of ignoring them
-- **Where:** `coco_dataset.py:151-152`.
+### M12. DET and INS remove crowd annotations instead of ignoring them
+- **Where:** the `iscrowd` filter of `CocoDetectionDataset.__getitem__` (`coco_dataset.py`), DET leaving the crowds
+  out like INS since E15 of `suggestions.md`.
 - **Effect:**
   - Crowd regions become pure background, so the anchors and proposals on them train as negatives.
-  - At test time, detections on crowds count as false positives in the box and mask AP. COCO ignores them in both
-    cases.
+  - At test time, detections on crowds count as false positives in the box AP of DET and the box and mask AP of
+    INS. COCO ignores them in both cases.
 - **Fix:** return the crowd boxes separately. Keep anchors and proposals covering more than half of a crowd box out of
   the negatives, and let an unmatched detection overlapping a crowd region be ignored by `evaluate_detections`.
 
@@ -388,13 +389,14 @@
   policy and use the same flag in training and in `deployment_utilities.py:80`.
 
 ### M14. Under mixed precision the objectness is ranked in bfloat16
-- **Where:** `region_proposer.py:207`: `torch.sigmoid(input=scores)` inside the bf16 autocast of
-  `base_trainer.py:1270`. The RPN logits are bf16, and `sigmoid` is not cast to float32 by autocast.
+- **Where:** `select_best_proposals` of `region_proposer.py`: `torch.sigmoid(input=proposal_scores)` inside the bf16
+  autocast of `base_trainer.py:1270`. The RPN logits are bf16, and `sigmoid` is not cast to float32 by autocast.
 - **Effect (reproduced):**
   - 1000 logits in [4, 9] give 6 distinct bf16 probabilities, so the pre-NMS top-k and the NMS order among confident
     anchors are close to arbitrary in training and validation.
   - The test evaluation runs in float32 and is not affected.
-- **Fix:** `torch.sigmoid(input=scores.float())`, and the same in `InferenceDetector.filter_proposals`.
+- **Fix:** `torch.sigmoid(input=proposal_scores.float())` in `select_best_proposals`, shared by the training filter and
+  `InferenceDetector.filter_proposals`.
 
 ### M15. A failed export check still leaves the new model in the served repository
 - **Where:** `deployment/export_model.py:231-256`: `model.pt` / `model.onnx` and `config.pbtxt` are written into

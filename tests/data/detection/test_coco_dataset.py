@@ -1,9 +1,9 @@
 """
 Tests of the instance masks of CocoDetectionDataset (vision_training/data/detection/coco_dataset.py), read by the
-instance segmentation task: the crowd annotations are left out, every other object gets its mask at the network
-resolution in the order of its box, the objects whose mask vanishes are removed with their box and label, an
-annotation without segmentation is refused, the collate function keeps the masks as a list, and the object detection
-samples stay without masks.
+instance segmentation task: the crowd annotations are left out (of the object detection samples too), every other
+object gets its mask at the network resolution in the order of its box, the objects whose mask vanishes are removed
+with their box and label, an annotation without segmentation is refused, the collate function keeps the masks as a
+list, and the object detection samples stay without masks.
 """
 
 import json
@@ -65,7 +65,8 @@ def test_instance_masks_follow_the_objects(tmp_path: Path) -> None:
     """
     Verifies that a polygon and an encoded object get their masks in the order of their boxes, that the crowd
     annotation and the object too small to cover a pixel centre are removed with their box and label, and that the
-    collate function keeps the masks as a list. Without instance masks, the crowd and the tiny objects stay.
+    collate function keeps the masks as a list. Without instance masks, the crowd is left out too and the tiny object
+    stays.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -99,9 +100,9 @@ def test_instance_masks_follow_the_objects(tmp_path: Path) -> None:
     batch = collate_function(batch=[sample, sample])
     assert isinstance(batch["instance_masks"], list) and len(batch["instance_masks"]) == 2
 
-    # The object detection samples keep every object and carry no masks
+    # The object detection samples leave the crowd out, keep the tiny object and carry no masks
     detection_sample = build_dataset(folder=tmp_path, labels_file=labels_file, load_instance_masks=False)[0]
-    assert detection_sample["labels"].tolist() == [1, 2, 1, 2] and "instance_masks" not in detection_sample
+    assert detection_sample["labels"].tolist() == [1, 1, 2] and "instance_masks" not in detection_sample
     assert "instance_masks" not in collate_function(batch=[detection_sample])
 
 

@@ -43,41 +43,46 @@ def get_area(boxes: torch.Tensor) -> torch.Tensor:
 
 def get_intersection_over_union(boxes_1: torch.Tensor, boxes_2: torch.Tensor) -> torch.Tensor:
     """
-    Calculates the Intersection over Union (IoU) matrix between two sets of bounding boxes.
-    
-    This function computes the overlap between anchor boxes and ground truth boxes (or other anchors),
-    which is fundamentally required for matching ground truth targets to anchors during Region Proposal
-    Network training and for non-maximum suppression during inference.
-    
+    Calculates the Intersection over Union (IoU) matrix between two sets of bounding boxes, for every image of a batch
+    at once when the boxes have leading batch dimensions.
+
+    This function computes the overlap between anchor boxes and ground truth boxes (or proposals), which the target
+    assignment of the region proposal network and of the detection heads needs for every image of a training batch,
+    and between detections and ground truth boxes for the mean average precision and the confusion matrix. The union
+    is clamped to the smallest positive value of its type instead of being increased by an epsilon, so that an exact
+    ratio such as 3 / 4 stays exact and reaches its threshold (like the mask overlap of the instance segmentation),
+    and two empty boxes still give 0.
+
     Args:
-        boxes_1 (torch.Tensor): A tensor of shape (N, 4) for first set of bounding boxes [x_min, y_min, x_max, y_max].
-        boxes_2 (torch.Tensor): A tensor of shape (M, 4) for second set of bounding boxes [x_min, y_min, x_max, y_max].
-        
+        boxes_1 (torch.Tensor): A tensor of shape (..., N, 4) for first set of bounding boxes [x_min, y_min, x_max,
+            y_max].
+        boxes_2 (torch.Tensor): A tensor of shape (..., M, 4) for second set of bounding boxes [x_min, y_min, x_max,
+            y_max], its leading dimensions broadcasting with those of boxes_1.
+
     Returns:
-        torch.Tensor: A tensor of shape (N, M) containing the computed IoU values for every pair of boxes.
+        torch.Tensor: A tensor of shape (..., N, M) containing the computed IoU values for every pair of boxes.
     """
-    # compute area of box 1 and box2
-    area_1 = (boxes_1[:, 2] - boxes_1[:, 0]) * (boxes_1[:, 3] - boxes_1[:, 1])
-    area_2 = (boxes_2[:, 2] - boxes_2[:, 0]) * (boxes_2[:, 3] - boxes_2[:, 1])
+    # Areas of both sets of boxes, shapes (..., N) and (..., M)
+    area_1 = get_area(boxes=boxes_1)
+    area_2 = get_area(boxes=boxes_2)
 
-    # Get the top left coordinates of intersection area using broadcasting to create an (N, M, 2) tensor
-    top_left_coordinates = torch.max(input=boxes_1.unsqueeze(dim=1)[:, :, :2],
-                                     other=boxes_2.unsqueeze(dim=0)[:, :, :2])
+    # Get the top left coordinates of intersection area using broadcasting to create an (..., N, M, 2) tensor
+    top_left_coordinates = torch.max(input=boxes_1.unsqueeze(dim=-2)[..., :2], other=boxes_2.unsqueeze(dim=-3)[..., :2])
 
-    # Get the bottom right coordinates of intersection area using broadcasting to create an (N, M, 2) tensor
-    bottom_right_coordinates = torch.min(input=boxes_1.unsqueeze(dim=1)[:, :, 2:],
-                                         other=boxes_2.unsqueeze(dim=0)[:, :, 2:])
+    # Get the bottom right coordinates of intersection area using broadcasting to create an (..., N, M, 2) tensor
+    bottom_right_coordinates = torch.min(input=boxes_1.unsqueeze(dim=-2)[..., 2:],
+                                         other=boxes_2.unsqueeze(dim=-3)[..., 2:])
 
     # Compute intersection area (clamped to 0, to avoid negative values)
     intersection_dimensions = (bottom_right_coordinates - top_left_coordinates).clamp(min=0)
-    intersection_area = intersection_dimensions[:, :, 0] * intersection_dimensions[:, :, 1]
+    intersection_area = intersection_dimensions[..., 0] * intersection_dimensions[..., 1]
 
     # Compute union area by summing individual areas and subtracting the overlapping intersection area
-    union_area = area_1.unsqueeze(dim=1) + area_2.unsqueeze(dim=0) - intersection_area
+    union_area = area_1.unsqueeze(dim=-1) + area_2.unsqueeze(dim=-2) - intersection_area
 
-    # Compute the final metric and return intersection_over_union variable, avoiding division by zero
-    # Tensor of shape (N, M)
-    intersection_over_union = intersection_area / (union_area + 1e-6)
+    # Divide by the union clamped to the smallest positive value of its type, exact for every non-empty union and 0
+    # for two empty boxes, of shape (..., N, M)
+    intersection_over_union = intersection_area / union_area.clamp(min=torch.finfo(union_area.dtype).tiny)
 
     return intersection_over_union
 

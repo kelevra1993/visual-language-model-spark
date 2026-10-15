@@ -1,19 +1,108 @@
 """
 First stage of the object detector: RegionProposal predicts the objectness scores and box offsets of the anchors of
 one feature map scale, and RegionProposalFilter keeps the best proposals with non-maximum suppression and pads them
-to a fixed number, with different limits in training and inference. Both are built by the TwoStageDetector.
+to a fixed number, with different limits in training and inference. Both are built by the TwoStageDetector. The
+selection of the best proposals of every image (select_best_proposals) handles the whole batch at once and is shared
+with the deployed InferenceDetector, so that training and deployment filter the proposals identically.
 """
 
 import torch
 
 from torch import nn
 from typing import List, Dict, Tuple, Any
-from torchvision.ops import nms
+from torchvision.ops import batched_nms, nms
 
 from vision_training.models.detection.anchors import Anchors
 from vision_training.models.components.convolution_block import ConvolutionBlock
 from vision_training.models.detection.box_operations import (apply_regression_predictions,
                                                              clamp_boxes_to_image_boundaries)
+
+
+def suppress_overlapping_proposals(boxes: torch.Tensor, scores: torch.Tensor, nms_iou_threshold: float,
+                                   suppress_per_image: bool) -> torch.Tensor:
+    """
+    Applies the non-maximum suppression to the best proposals of every image of a batch for select_best_proposals,
+    each image on its own. The eager training and evaluation run one torchvision nms call per image on views of the
+    batch, the fastest form on the GPU (batched_nms loops over the images itself for large batches, with more
+    overhead, and its single call over the whole batch is slower still), while the deployed detector runs a single
+    batched_nms call, the only form that the TorchScript and ONNX exports keep for any batch size. Both keep the same
+    proposals.
+
+    Args:
+        boxes (torch.Tensor): The candidate boxes of every image, shape [B, K, 4].
+        scores (torch.Tensor): The objectness scores of the candidates, shape [B, K].
+        nms_iou_threshold (float): The overlap above which the less confident of two proposals is suppressed.
+        suppress_per_image (bool): True for one nms call per image (eager), False for one batched_nms call (export).
+
+    Returns:
+        torch.Tensor: The [B, K] boolean mask of the candidates kept by the suppression.
+    """
+    kept_mask = torch.zeros_like(input=scores, dtype=torch.bool)
+
+    # One suppression per image on views of the batch, the kept candidates marked without waiting for the GPU
+    if suppress_per_image:
+        for image_index in range(boxes.shape[0]):
+            kept_indices = nms(boxes=boxes[image_index], scores=scores[image_index], iou_threshold=nms_iou_threshold)
+            kept_mask[image_index, kept_indices] = True
+        return kept_mask
+
+    # A single suppression call over the whole batch, every image its own group
+    batch_size, number_candidates = scores.shape
+    batch_indices = torch.arange(end=batch_size, device=scores.device).unsqueeze(dim=1)
+    kept_indices = batched_nms(boxes=boxes.reshape(-1, 4), scores=scores.reshape(-1),
+                               idxs=batch_indices.expand(-1, number_candidates).reshape(-1),
+                               iou_threshold=nms_iou_threshold)
+    kept_mask.view(-1)[kept_indices] = True
+    return kept_mask
+
+
+def select_best_proposals(proposal_scores: torch.Tensor, proposal_boxes: torch.Tensor, proposal_levels: torch.Tensor,
+                          pre_nms_proposals: int, post_nms_proposals: int, nms_iou_threshold: float,
+                          input_image_size: int,
+                          suppress_per_image: bool) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Keeps the best proposals of every image of a batch, for the whole batch at once and with a fixed output size: the
+    proposals the detection heads classify, selected the same way by the RegionProposalFilter of the training and
+    evaluation and by the InferenceDetector of the deployment. The sigmoid of the objectness ranks the proposals, the
+    pre_nms_proposals best ones of every image are clamped to the image, the non-maximum suppression of every image
+    removes the overlapping duplicates (suppress_overlapping_proposals), and the post_nms_proposals best survivors of
+    every image are returned, best first, the suppressed proposals only filling the slots left (marked invalid).
+
+    Args:
+        proposal_scores (torch.Tensor): The objectness logits of all anchors, shape [B, N].
+        proposal_boxes (torch.Tensor): The decoded proposal boxes, shape [B, N, 4].
+        proposal_levels (torch.Tensor): The detection level of every proposal, shape [B, N].
+        pre_nms_proposals (int): The number of best proposals of every image kept before the suppression, at most N.
+        post_nms_proposals (int): The number of proposals returned for every image, at most pre_nms_proposals.
+        nms_iou_threshold (float): The overlap above which the less confident of two proposals is suppressed.
+        input_image_size (int): The spatial dimension (height and width) of the square input image.
+        suppress_per_image (bool): True for one suppression call per image (eager training and evaluation), False for
+            a single call over the batch (deployed detector, exported).
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: The kept boxes [B, P, 4], their objectness
+            scores [B, P] (-1 for the padding slots), their levels [B, P] and a boolean mask [B, P] which is False for
+            the padding slots when fewer than P proposals survive.
+    """
+    # Keep the best pre-NMS proposals of every image and clip them to the image
+    top_scores, top_indices = torch.topk(input=torch.sigmoid(input=proposal_scores), k=pre_nms_proposals, dim=1)
+    top_boxes = clamp_boxes_to_image_boundaries(
+        boxes=torch.gather(input=proposal_boxes, dim=1, index=top_indices.unsqueeze(dim=-1).expand(-1, -1, 4)),
+        input_image_size=input_image_size)
+    top_levels = torch.gather(input=proposal_levels, dim=1, index=top_indices)
+
+    # Suppress the overlapping proposals of every image
+    kept_mask = suppress_overlapping_proposals(boxes=top_boxes, scores=top_scores, nms_iou_threshold=nms_iou_threshold,
+                                               suppress_per_image=suppress_per_image)
+
+    # Select the best surviving proposals of every image, suppressed ones only fill the remaining slots
+    candidate_scores = torch.where(condition=kept_mask, input=top_scores,
+                                   other=torch.full_like(input=top_scores, fill_value=-1.0))
+    selected_scores, selected_indices = torch.topk(input=candidate_scores, k=post_nms_proposals, dim=1)
+
+    selected_boxes = torch.gather(input=top_boxes, dim=1, index=selected_indices.unsqueeze(dim=-1).expand(-1, -1, 4))
+    selected_levels = torch.gather(input=top_levels, dim=1, index=selected_indices)
+    return selected_boxes, selected_scores, selected_levels, selected_scores >= 0.0
 
 
 class RegionProposal(nn.Module):
@@ -176,10 +265,12 @@ class RegionProposalFilter(nn.Module):
         """
         Filters region proposal bounding boxes using objectness scores and Non-Maximum Suppression (NMS).
 
-        This function processes the batched raw proposals generated by the Region Proposal Network. It iterates
-        through each image in the batch, applies a sigmoid activation to the scores, selects the top-k highest 
-        scoring proposals (Pre-NMS), clamps their coordinates to the image boundaries, applies NMS to remove 
-        overlapping duplicates, and finally selects the top-k proposals from the remaining set (Post-NMS).
+        This function processes the batched raw proposals generated by the Region Proposal Network, for all the
+        images at once (select_best_proposals, shared with the deployed InferenceDetector): it applies a sigmoid
+        activation to the scores, selects the top-k highest scoring proposals of every image (Pre-NMS), clamps their
+        coordinates to the image boundaries, applies NMS to remove overlapping duplicates, and finally selects the
+        top-k proposals from the remaining set (Post-NMS), the slots of an image left empty being filled with copies
+        of its random survivors.
 
         Args:
             proposal_boxes (torch.Tensor): A tensor containing the proposed bounding boxes of shape [B, N, 4].
@@ -196,88 +287,42 @@ class RegionProposalFilter(nn.Module):
         pre_nms_filter_proposals = self.training_pre_nms_proposals if self.training else self.inference_pre_nms_proposals
         post_nms_filter_proposals = self.training_post_nms_proposals if self.training else self.inference_post_nms_proposals
 
-        batch_size = proposal_scores.shape[0]
+        # Best proposals of every image after the suppression, the top-k limit clamped to the number of anchors
+        boxes, scores, origins, valid_mask = select_best_proposals(
+            proposal_scores=proposal_scores, proposal_boxes=proposal_boxes, proposal_levels=proposal_origins,
+            pre_nms_proposals=min(pre_nms_filter_proposals, proposal_scores.shape[1]),
+            post_nms_proposals=post_nms_filter_proposals, nms_iou_threshold=self.nms_iou_threshold,
+            input_image_size=input_image_size, suppress_per_image=True)
 
-        filtered_boxes_list = []
-        filtered_scores_list = []
-        filtered_origins_list = []
+        # Slots left empty by the suppression filled with copies of random survivors of the same image
+        return self._pad_proposals_to_target_size(boxes=boxes, scores=scores, origins=origins, valid_mask=valid_mask)
 
-        for batch_index in range(batch_size):
-            scores = proposal_scores[batch_index]
-            boxes = proposal_boxes[batch_index]
-            origins = proposal_origins[batch_index]
-
-            scores = torch.sigmoid(input=scores)
-
-            # Clamp the topk limit to avoid out-of-bounds errors if total anchors < pre_nms threshold
-            maximum_pre_nms_proposals = min(pre_nms_filter_proposals, scores.shape[0])
-            _, top_proposal_indices = scores.topk(k=maximum_pre_nms_proposals)
-
-            scores = scores[top_proposal_indices]
-            boxes = boxes[top_proposal_indices]
-            origins = origins[top_proposal_indices]
-
-            # Clamp boxes to image boundary
-            boxes = clamp_boxes_to_image_boundaries(boxes=boxes, input_image_size=input_image_size)
-
-            # todo later on we should also remove boxes of small area.
-
-            # Apply NMS based on objectness
-            proposal_post_nms_indices = nms(boxes=boxes,
-                                            scores=scores,
-                                            iou_threshold=self.nms_iou_threshold)
-
-            # Post NMS top k filtering
-            boxes = boxes[proposal_post_nms_indices][:post_nms_filter_proposals]
-            scores = scores[proposal_post_nms_indices][:post_nms_filter_proposals]
-            origins = origins[proposal_post_nms_indices][:post_nms_filter_proposals]
-
-            boxes, scores, origins = self._pad_proposals_to_target_size(boxes=boxes, scores=scores, origins=origins,
-                                                                        post_nms_filter_proposals=post_nms_filter_proposals)
-
-            filtered_boxes_list.append(boxes)
-            filtered_scores_list.append(scores)
-            filtered_origins_list.append(origins)
-
-        # Re-stack into a single batched tensor
-        return (torch.stack(tensors=filtered_boxes_list, dim=0),
-                torch.stack(tensors=filtered_scores_list, dim=0),
-                torch.stack(tensors=filtered_origins_list, dim=0))
-
-    def _pad_proposals_to_target_size(self, boxes: torch.Tensor, scores: torch.Tensor,
-                                      origins: torch.Tensor, post_nms_filter_proposals: int) -> Tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor]:
+    def _pad_proposals_to_target_size(self, boxes: torch.Tensor, scores: torch.Tensor, origins: torch.Tensor,
+                                      valid_mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Pads the filtered bounding boxes and scores up to post_nms_filter_proposals size by duplicating 
-        valid proposals to ensure uniform tensor shapes across the batch.
-        
+        Fills the slots of every image left without proposal after the suppression with copies of random valid
+        proposals of the same image, for all the images at once, so that every image gives the target assignment and
+        the detection heads the same number of real boxes.
+
         Args:
-            boxes (torch.Tensor): The remaining bounding boxes after NMS of shape [N_remaining, 4].
-            scores (torch.Tensor): The objectness scores for those boxes of shape [N_remaining].
-            origins (torch.Tensor): The block origin indices for those boxes of shape [N_remaining].
-            post_nms_filter_proposals (int): The target uniform batch size to pad the bounding boxes up to.
-            
+            boxes (torch.Tensor): The selected bounding boxes of shape [B, P, 4], the valid ones first in every image.
+            scores (torch.Tensor): The objectness scores for those boxes of shape [B, P].
+            origins (torch.Tensor): The block origin indices for those boxes of shape [B, P].
+            valid_mask (torch.Tensor): The boolean mask of the valid proposals of shape [B, P], at least one per image.
+
         Returns:
-            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The padded boxes of shape [post_nms_filter_proposals, 4], 
-                                                             scores of shape [post_nms_filter_proposals], 
-                                                             and origins of shape [post_nms_filter_proposals].
+            Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The padded boxes of shape [B, P, 4], scores of shape
+                [B, P], and origins of shape [B, P].
         """
-        number_of_proposals = boxes.shape[0]
-        if number_of_proposals < post_nms_filter_proposals and number_of_proposals > 0:
-            # Calculate how many extra proposals we need to reach the uniform batched size
-            missing_proposals_count = post_nms_filter_proposals - number_of_proposals
+        # Random valid slot of every image, uniform over its number of valid proposals (the first slots)
+        number_valid = valid_mask.sum(dim=1, keepdim=True)
+        random_valid_slots = (torch.rand(size=valid_mask.shape, device=valid_mask.device) * number_valid).long()
+        random_valid_slots = torch.minimum(input=random_valid_slots, other=number_valid - 1)
 
-            # Sample random indices from the valid proposals to duplicate them
-            random_indices = torch.randint(low=0, high=number_of_proposals, size=(missing_proposals_count,),
-                                           device=boxes.device, dtype=torch.long)
-
-            extra_boxes = boxes[random_indices]
-            extra_scores = scores[random_indices]
-            extra_origins = origins[random_indices]
-
-            # Add the extra boxes, scores, and origins
-            boxes = torch.cat(tensors=[boxes, extra_boxes], dim=0)
-            scores = torch.cat(tensors=[scores, extra_scores], dim=0)
-            origins = torch.cat(tensors=[origins, extra_origins], dim=0)
-
+        # Every valid slot keeps its own proposal, every padding slot takes the one of its random valid slot
+        slots = torch.arange(end=valid_mask.shape[1], device=valid_mask.device).expand_as(valid_mask)
+        source_slots = torch.where(condition=valid_mask, input=slots, other=random_valid_slots)
+        boxes = torch.gather(input=boxes, dim=1, index=source_slots.unsqueeze(dim=-1).expand(-1, -1, 4))
+        scores = torch.gather(input=scores, dim=1, index=source_slots)
+        origins = torch.gather(input=origins, dim=1, index=source_slots)
         return boxes, scores, origins

@@ -1,63 +1,103 @@
 """
 Training target assignment of the object detector: matching of the ground truth boxes to the anchors (region
 proposal stage) and to the proposals (detection stage) by intersection over union, regression targets, and the
-sampling of positive and negative examples. Used by the TwoStageDetector and vision_training/losses/detection_losses.py.
+sampling of positive and negative examples. Every function handles all the images of a training batch at once, the
+ground truths of the images being padded to the same number, so that a batch costs the same few GPU operations
+whatever its size and the GPU never waits for the host. Used by the TwoStageDetector and
+vision_training/losses/detection_losses.py.
 """
 
 import torch
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from vision_training.models.detection.box_operations import (get_box_dimensions_and_centers,
                                                              get_intersection_over_union)
 from vision_training.utilities.os_utilities import print_color
 
 
-def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
-                              anchors: torch.Tensor,
-                              background_iou_threshold: Dict[str, float],
-                              foreground_iou_threshold: Dict[str, float],
-                              strict_fallback_assignment: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
+def pad_ground_truths(batched_ground_truth_boxes: List[torch.Tensor],
+                      batched_ground_truth_labels: Optional[List[torch.Tensor]] = None
+                      ) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]:
     """
-    Assigns ground truth boxes to anchors to prepare the binary classification and regression targets
-    for the Region Proposal Network.
-
-    This function sits at the heart of the RPN training pipeline. It computes the IoU between every anchor 
-    and every ground truth box, categorizing each anchor as foreground (positive object), background (negative), 
-    or grey zone (ignored during training). It guarantees that every ground truth box has at least one positive 
-    anchor assigned to it to prevent objects from being missed during training.
+    Stacks the ground truth boxes (and labels) of the images of a training batch into padded tensors, so that the
+    anchor and proposal target assignments match every image of the batch at once. The images have different numbers
+    of objects: every image is completed with empty boxes [0, 0, 0, 0] (label 0) up to the largest number of objects
+    of the batch, at least one, an empty box overlapping nothing.
 
     Args:
-        ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes in [x_min, y_min, x_max, y_max] format of shape [Num_GT, 4].
-        anchors (torch.Tensor): A tensor of the base anchors generated for the current feature map of shape [Num_Anchors, 4].
+        batched_ground_truth_boxes (List[torch.Tensor]): The [G_i, 4] ground truth boxes of every image.
+        batched_ground_truth_labels (Optional[List[torch.Tensor]]): The [G_i] class indices of every image, or None.
+
+    Returns:
+        Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor]: The [B, G, 4] padded boxes, the [B, G] int64
+            padded labels (None without labels) and the [B, G] boolean mask of the real objects.
+    """
+    # Object counts of the images, known on the host from the tensor shapes without waiting for the GPU
+    number_objects = [int(boxes.shape[0]) for boxes in batched_ground_truth_boxes]
+    maximum_objects = max(max(number_objects), 1)
+    device = batched_ground_truth_boxes[0].device
+
+    # Boxes of every image followed by empty boxes, at least one row even when no image has an object
+    padded_boxes = torch.nn.utils.rnn.pad_sequence(sequences=batched_ground_truth_boxes, batch_first=True)
+    padded_boxes = torch.nn.functional.pad(input=padded_boxes, pad=(0, 0, 0, maximum_objects - padded_boxes.shape[1]))
+
+    # Labels of every image followed by the background label
+    padded_labels = None
+    if batched_ground_truth_labels is not None:
+        padded_labels = torch.nn.utils.rnn.pad_sequence(sequences=batched_ground_truth_labels, batch_first=True)
+        padded_labels = torch.nn.functional.pad(input=padded_labels.to(dtype=torch.int64),
+                                                pad=(0, maximum_objects - padded_labels.shape[1]))
+
+    # Real objects of every image, the first ones of its padded rows
+    object_counts = torch.tensor(data=number_objects, device=device)
+    row_positions = torch.arange(end=maximum_objects, device=device).unsqueeze(dim=0)
+    valid_ground_truths = row_positions < object_counts.unsqueeze(dim=1)
+    return padded_boxes, padded_labels, valid_ground_truths
+
+
+def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tensor],
+                                    batched_anchors: torch.Tensor,
+                                    background_iou_threshold: Dict[str, float],
+                                    foreground_iou_threshold: Dict[str, float],
+                                    strict_fallback_assignment: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Assigns ground truth boxes to the anchors of every image of a batch to prepare the binary classification and
+    regression targets for the Region Proposal Network.
+
+    This function sits at the heart of the RPN training pipeline. It computes the IoU between every anchor and every
+    ground truth box of its image, for all the images at once (the ground truths padded with empty boxes, which
+    overlap nothing), categorizing each anchor as foreground (positive object), background (negative), or grey zone
+    (ignored during training). It guarantees that every ground truth box has at least one positive anchor assigned to
+    it to prevent objects from being missed during training. The anchors of an image without ground truth are all
+    background.
+
+    Args:
+        batched_ground_truth_boxes (List[torch.Tensor]): A list of length batch_size, where each tensor contains the
+            [Num_GT, 4] ground truth boxes of that image in [x_min, y_min, x_max, y_max] format.
+        batched_anchors (torch.Tensor): A tensor of shape [batch_size, number_of_anchors, 4].
         background_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for background.
         foreground_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for foreground.
         strict_fallback_assignment (bool): If True, assigns resurrected anchors strictly to the ground truth box
-        that triggered their resurrection. If False, follows default PyTorch RPN behavior of assigning them to
-        the ground truth box they overlap with most. Defaults to False.
-        
+            that triggered their resurrection (the last one when several did). If False, follows default PyTorch RPN
+            behavior of assigning them to the ground truth box they overlap with most. Defaults to False.
+
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
-            - matched_ground_truth_boxes (torch.Tensor): The assigned ground truth boxes for each anchor of shape [Num_Anchors, 4].
-            - labels (torch.Tensor): The binary labels for each anchor of shape [Num_Anchors]
-                                     (1.0 = foreground, 0.0 = background, -1.0 = ignored).
+            - batched_target_boxes (torch.Tensor): The assigned ground truth box of each anchor, shape
+              [batch_size, number_of_anchors, 4].
+            - batched_labels (torch.Tensor): The float32 label of each anchor (1.0 = foreground, 0.0 = background,
+              -1.0 = ignored), shape [batch_size, number_of_anchors].
     """
+    padded_boxes, _, valid_ground_truths = pad_ground_truths(batched_ground_truth_boxes=batched_ground_truth_boxes)
 
-    # Intercept images completely lacking valid ground truth boxes (due to filtering or native empty sets)
-    # PyTorch's max() reduction will crash if it attempts to operate on a zero-length dimension.
-    # We safely bypass the IoU matrix matching and strictly assign all generated anchors to the background.
-    if ground_truth_boxes.size(0) == 0:
-        matched_ground_truth_boxes = torch.zeros_like(anchors)
-        # Background gets label 0.0, ignore gets -1.0. We can safely set all to background or ignore.
-        # Setting to background (0.0) means RPN is penalized for ANY proposal.
-        labels = torch.zeros(anchors.size(0), dtype=torch.float32, device=anchors.device)
-        return matched_ground_truth_boxes, labels
-
-    # Shape: [number_of_ground_truths, number_of_anchors]
-    intersection_over_union_matrix = get_intersection_over_union(boxes_1=ground_truth_boxes, boxes_2=anchors)
+    # Shape: [batch_size, number_of_ground_truths, number_of_anchors], the padding rows overlapping nothing
+    intersection_over_union_matrix = get_intersection_over_union(boxes_1=padded_boxes, boxes_2=batched_anchors)
+    intersection_over_union_matrix = intersection_over_union_matrix.masked_fill(
+        mask=~valid_ground_truths.unsqueeze(dim=-1), value=0.0)
 
     # For every anchor, find the ground truth box that has the highest IoU with it
-    best_match_ground_truth_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=0)
+    best_match_ground_truth_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=1)
 
     # Store a pristine copy of the best matches before we corrupt it with negative labels
     # This guarantees we can later recover the best match to fulfill the "at least one anchor per GT box" rule
@@ -67,45 +107,41 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
     below_background_min = best_match_ground_truth_iou < background_iou_threshold['min']
     above_or_equal_background_min = best_match_ground_truth_iou >= background_iou_threshold['min']
     below_background_max = best_match_ground_truth_iou < background_iou_threshold['max']
-
     above_or_equal_background_max = best_match_ground_truth_iou >= background_iou_threshold['max']
-
     below_foreground_min = best_match_ground_truth_iou < foreground_iou_threshold['min']
 
     # Anchors that fall strictly within the background IoU limits are true negatives
     background_indices = above_or_equal_background_min & below_background_max
 
-    # Anchors that fall between the maximum background limit and the minimum foreground limit, 
+    # Anchors that fall between the maximum background limit and the minimum foreground limit,
     # or below the absolute minimum background limit, are ignored (grey zone)
     grey_zone_indices = (above_or_equal_background_max & below_foreground_min) | below_background_min
 
-    # Assign labels to our different anchors
-    # Each anchor for which it's highest scoring iou ground truth box
-    # is either considered background or in the grey zone are labelled as such :
-    # - background > -1
-    # - grey zone > -2
-    best_match_ground_truth_index[background_indices] = -1
-    best_match_ground_truth_index[grey_zone_indices] = -2
+    # Label the background anchors -1 and the grey zone anchors -2, with masked fills that never wait for the GPU
+    best_match_ground_truth_index = best_match_ground_truth_index.masked_fill(mask=background_indices, value=-1)
+    best_match_ground_truth_index = best_match_ground_truth_index.masked_fill(mask=grey_zone_indices, value=-2)
 
     # Making sure that every ground truth will have at least one positive anchor bounding box
-    # Get the best iou value for each ground truth box across all available anchors
-    best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=1)
+    # Get the best iou value for each ground truth box across all the anchors of its image, shape [batch, GT]
+    best_match_anchor_iou, _ = intersection_over_union_matrix.max(dim=2)
 
     # This gives us all the anchors that tie for the highest iou for each ground truth box.
-    # We use torch.isclose to safely handle float32 truncation artifacts where mathematically 
+    # We use torch.isclose to safely handle float32 truncation artifacts where mathematically
     # identical bounding box areas might differ by ~1e-6.
-    # We also enforce a strict > 0.0 threshold to prevent the "Zero-IoU Explosion", 
-    # preventing a ground truth box with no overlap from resurrecting thousands of background anchors.
-    best_anchor_indices_for_each_ground_truth_box = torch.where(
-        torch.isclose(input=intersection_over_union_matrix,
-                      other=best_match_anchor_iou.unsqueeze(dim=-1),
-                      atol=1e-6) & (best_match_anchor_iou.unsqueeze(dim=-1) > 0.0))
-
-    anchor_indices_to_retrieve = best_anchor_indices_for_each_ground_truth_box[1]
+    # We also enforce a strict > 0.0 threshold to prevent the "Zero-IoU Explosion",
+    # preventing a ground truth box with no overlap (or a padding row) from resurrecting thousands of anchors.
+    is_best_anchor = (torch.isclose(input=intersection_over_union_matrix,
+                                    other=best_match_anchor_iou.unsqueeze(dim=-1), atol=1e-6)
+                      & (best_match_anchor_iou.unsqueeze(dim=-1) > 0.0))
+    resurrected_anchors = is_best_anchor.any(dim=1)
 
     if strict_fallback_assignment:
-        ground_truths_for_retrieved_anchors = best_anchor_indices_for_each_ground_truth_box[0]
-        best_match_ground_truth_index[anchor_indices_to_retrieve] = ground_truths_for_retrieved_anchors
+        # Every resurrected anchor goes to the ground truth box that resurrected it, the last one when several did
+        ground_truth_indices = torch.arange(end=is_best_anchor.shape[1], device=is_best_anchor.device).view(1, -1, 1)
+        resurrecting_ground_truths = torch.where(condition=is_best_anchor, input=ground_truth_indices,
+                                                 other=-1).max(dim=1).values
+        best_match_ground_truth_index = torch.where(condition=resurrected_anchors, input=resurrecting_ground_truths,
+                                                    other=best_match_ground_truth_index)
     else:
         # We recover the positive labels for the anchors that had the highest IoU for each ground truth box.
         # IMPORTANT QUIRK: Notice that we are assigning the anchor to its absolute best match overall
@@ -113,71 +149,28 @@ def assign_targets_to_anchors(ground_truth_boxes: torch.Tensor,
         # match the specific ground truth box that selected it. For example, if an anchor is forced
         # positive to cover Ground Truth A, but it actually overlaps more with Ground Truth B, it will
         # be assigned to predict Ground Truth B. This perfectly mirrors the official PyTorch RPN logic!
-        best_match_ground_truth_index[anchor_indices_to_retrieve] = best_match_ground_truth_index_before_thresholding[
-            anchor_indices_to_retrieve]
+        best_match_ground_truth_index = torch.where(condition=resurrected_anchors,
+                                                    input=best_match_ground_truth_index_before_thresholding,
+                                                    other=best_match_ground_truth_index)
 
     # Get coordinates of best matching ground truth target boxes (so each anchor will have at least one target)
     # But we will not necessarily train on all the assigned targets because the -1 and -2 will be bogus targets.
-    # Be careful with coordinates -1 and -2 to clamp to 0 to always have the same coordinates for background and grey zone
-    target_ground_truth_boxes = ground_truth_boxes[best_match_ground_truth_index.clamp(0)]
+    # The -1 and -2 are clamped to 0 to always have the same coordinates for background and grey zone, the empty
+    # padding box for an image without ground truth
+    target_indices = best_match_ground_truth_index.clamp(min=0).unsqueeze(dim=-1).expand(-1, -1, 4)
+    batched_target_boxes = torch.gather(input=padded_boxes, dim=1, index=target_indices)
 
     # Now set all labels for training so there is no ambiguity
     # For classification loss we consider labels above 0, where 0 is background and 1 is foreground
     # For bounding box regression we only consider labels equal to 1 which are foreground
-    # Shape (anchor_boxes)
-    labels = (best_match_ground_truth_index >= 0).to(dtype=torch.float32)
-    labels[best_match_ground_truth_index == -1] = 0.0  # set -1 to 0 (background)
-    labels[best_match_ground_truth_index == -2] = -1.0  # set -2 to -1 (ignored)
+    # The -1 indices give 0 (background) and the -2 indices give -1 (ignored), shape [batch, anchors]
+    batched_labels = (best_match_ground_truth_index >= 0).to(dtype=torch.float32)
+    batched_labels = batched_labels.masked_fill(mask=best_match_ground_truth_index == -2, value=-1.0)
 
-    return target_ground_truth_boxes, labels
-
-
-def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tensor],
-                                    batched_anchors: torch.Tensor,
-                                    background_iou_threshold: Dict[str, float],
-                                    foreground_iou_threshold: Dict[str, float],
-                                    strict_fallback_assignment: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Applies target assignment logic across an entire batch of images.
-    
-    This function iterates over the batch dimension to match anchors to ground truth boxes 
-    independently for each image, avoiding the complexity and memory overhead of padding 
-    varying numbers of ground truth boxes. The results are then stacked into unified batch tensors.
-    
-    Args:
-        batched_ground_truth_boxes (List[torch.Tensor]): A list of length batch_size, where each tensor 
-                                                         contains the ground truth boxes for that image.
-        batched_anchors (torch.Tensor): A tensor of shape [batch_size, number_of_anchors, 4].
-        background_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for background.
-        foreground_iou_threshold (Dict[str, float]): Dictionary defining 'min' and 'max' IoU thresholds for foreground.
-        strict_fallback_assignment (bool): Propagates the resurrection override flag to the assignment logic.
-        Defaults to False.
-        
-    Returns:
-        Tuple[torch.Tensor, torch.Tensor]: A tuple containing:
-            - batched_target_boxes (torch.Tensor): Shape [batch_size, number_of_anchors, 4]
-            - batched_labels (torch.Tensor): Shape [batch_size, number_of_anchors]
-    """
-    aggregated_target_boxes = []
-    aggregated_labels = []
-
-    # Iterate over each image in the batch to independently process target assignments
-    for batch_index in range(len(batched_ground_truth_boxes)):
-        # Calculate assignments for the current image using explicit argument naming
-        target_boxes, labels = assign_targets_to_anchors(
-            ground_truth_boxes=batched_ground_truth_boxes[batch_index],
-            anchors=batched_anchors[batch_index],
-            background_iou_threshold=background_iou_threshold,
-            foreground_iou_threshold=foreground_iou_threshold,
-            strict_fallback_assignment=strict_fallback_assignment)
-
-        # Store the processed targets and labels
-        aggregated_target_boxes.append(target_boxes)
-        aggregated_labels.append(labels)
-
-    # Stack the lists along a new batch dimension (dim=0)
-    batched_target_boxes = torch.stack(tensors=aggregated_target_boxes, dim=0)
-    batched_labels = torch.stack(tensors=aggregated_labels, dim=0)
+    # The anchors of an image without ground truth are all background, whatever the thresholds
+    has_ground_truth = valid_ground_truths.any(dim=1, keepdim=True)
+    batched_labels = torch.where(condition=has_ground_truth, input=batched_labels,
+                                 other=torch.zeros_like(input=batched_labels))
 
     return batched_target_boxes, batched_labels
 
@@ -186,10 +179,10 @@ def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
                                          predicted_boxes: torch.Tensor) -> torch.Tensor:
     """
     Computes ideal regression targets (dx, dy, dw, dh) required to transform predicted boxes into ground truth boxes.
-    
-    In object detection pipelines, bounding box regression heads do not directly predict absolute coordinates. 
-    Instead, they predict parameterized offsets relative to a base box (like an anchor or a previous proposal). 
-    This function calculates those continuous targets by computing the scale-invariant center shifts (dx, dy) 
+
+    In object detection pipelines, bounding box regression heads do not directly predict absolute coordinates.
+    Instead, they predict parameterized offsets relative to a base box (like an anchor or a previous proposal).
+    This function calculates those continuous targets by computing the scale-invariant center shifts (dx, dy)
     and the log-space dimension adjustments (dw, dh) so the network can safely regress them using Smooth L1 Loss.
 
     Args:
@@ -236,14 +229,17 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
     """
     Randomly samples positive and negative targets (anchors or proposals) to maintain a fixed ratio during training.
 
-    This utility is universally applicable to both the Region Proposal Network (sampling raw anchors) and the 
-    Detector Network (sampling NMS-filtered proposals). To prevent the classification loss from being completely 
-    overwhelmed by the massive number of background targets, this function constructs a balanced mini-batch 
-    for each image. It guarantees up to `desired_positives` foreground targets, and fills the remainder 
-    of the `desired_total` quota with background targets.
+    This utility is universally applicable to both the Region Proposal Network (sampling raw anchors) and the
+    Detector Network (sampling NMS-filtered proposals). To prevent the classification loss from being completely
+    overwhelmed by the massive number of background targets, this function constructs a balanced mini-batch
+    for each image. It guarantees up to `desired_positives` foreground targets, and fills the remainder
+    of the `desired_total` quota with background targets, more positives filling the slots of an image short of
+    negatives. Every image is sampled at once: a single sort of random keys gives every target a random rank among
+    the targets of its kind in its image, and the targets ranked below the count of their kind are kept, a uniform
+    draw without replacement like a random permutation of every kind.
 
     Args:
-        labels (torch.Tensor): A batched tensor of shape (B, N) containing target labels 
+        labels (torch.Tensor): A batched tensor of shape (B, N) containing target labels
                                (Values >= 1.0 = positive foreground, 0.0 = negative background).
         desired_positives (int): The maximum number of positive targets to sample per image.
         desired_total (int): The total combined number of targets (positive + negative) to sample per image.
@@ -255,44 +251,33 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
             - sampled_positive_mask (torch.Tensor): True for selected positive targets.
             - sampled_negative_mask (torch.Tensor): True for selected negative targets.
     """
-    # Create batched boolean masks highlighting only the randomly sampled positive and negative anchors
-    sampled_positive_mask = torch.zeros_like(input=labels, dtype=torch.bool)
-    sampled_negative_mask = torch.zeros_like(input=labels, dtype=torch.bool)
+    is_positive = labels >= 1.0
+    is_negative = labels == 0.0
+    number_positives = is_positive.sum(dim=1)
+    number_negatives = is_negative.sum(dim=1)
 
-    # Iterate over each image in the batch to independently sample targets
-    for batch_index in range(labels.size(0)):
-        image_labels = labels[batch_index]
+    # Calculate the actual number of positives of every image, capped by availability, and fill the remaining
+    # slots with negatives, capped by availability
+    possible_positives = number_positives.clamp(max=desired_positives)
+    desired_negatives = desired_total - possible_positives
+    possible_negatives = torch.minimum(input=number_negatives, other=desired_negatives)
 
-        # Identify the raw indices for all available positive and negative anchors in this specific image
-        positive_labels_indices = torch.where(condition=image_labels >= 1.0)[0]
-        negative_labels_indices = torch.where(condition=image_labels == 0.0)[0]
+    # CRITICAL FIX: If an image ran out of negatives, we must over-sample positives to maintain
+    # a uniform number of samples across the batch!
+    possible_positives = torch.minimum(input=number_positives,
+                                       other=possible_positives + desired_negatives - possible_negatives)
 
-        # Calculate the actual number of positives to sample, capped by availability
-        possible_positives = min(positive_labels_indices.numel(), desired_positives)
+    # Random rank of every target among the targets of its kind in its image: the random keys offset by kind sort the
+    # positives first, then the negatives, then the ignored targets, each kind in a random order
+    kind_offsets = (~is_positive).to(dtype=torch.float32) + (~is_positive & ~is_negative).to(dtype=torch.float32)
+    random_order = torch.argsort(input=torch.rand(size=labels.shape, device=labels.device) + kind_offsets, dim=1)
+    positions = torch.arange(end=labels.shape[1], device=labels.device).expand_as(random_order)
+    ranks = torch.empty_like(input=random_order).scatter_(dim=1, index=random_order, src=positions)
 
-        # Fill the remaining slots with negatives, capped by availability
-        desired_negatives = desired_total - possible_positives
-        possible_negatives = min(negative_labels_indices.numel(), desired_negatives)
-
-        # CRITICAL FIX: If we ran out of negatives, we must over-sample positives to maintain 
-        # a uniform tensor shape for torch.stack() downstream across the batch!
-        if possible_negatives < desired_negatives:
-            shortfall = desired_negatives - possible_negatives
-            possible_positives = min(positive_labels_indices.numel(), possible_positives + shortfall)
-
-        # Generate random permutations to shuffle and select the required number of indices
-        random_positive_indices = torch.randperm(n=positive_labels_indices.numel(),
-                                                 device=positive_labels_indices.device)[:possible_positives]
-        random_negative_indices = torch.randperm(n=negative_labels_indices.numel(),
-                                                 device=negative_labels_indices.device)[:possible_negatives]
-
-        # Map the shuffled local indices back to the absolute anchor indices
-        final_positive_indices = positive_labels_indices[random_positive_indices]
-        final_negative_indices = negative_labels_indices[random_negative_indices]
-
-        # Apply the selected indices to the batched masks for this specific image
-        sampled_positive_mask[batch_index, final_positive_indices] = True
-        sampled_negative_mask[batch_index, final_negative_indices] = True
+    # Keep the positives ranked below their count, and the negatives ranked below theirs after the positives
+    sampled_positive_mask = is_positive & (ranks < possible_positives.unsqueeze(dim=1))
+    sampled_negative_mask = is_negative & (ranks - number_positives.unsqueeze(dim=1)
+                                           < possible_negatives.unsqueeze(dim=1))
 
     # Calculate and display the final breakdown of sampled anchors per image in the batch for debugging
     if verbose:
@@ -307,127 +292,68 @@ def sample_positive_and_negative_training_targets(labels: torch.Tensor, desired_
     return sampled_positive_mask, sampled_negative_mask
 
 
-def assign_targets_to_proposals(ground_truth_boxes: torch.Tensor, proposals: torch.Tensor,
-                                ground_truth_labels: torch.Tensor,
-                                foreground_iou_threshold: float) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Assigns ground truth bounding boxes and class labels to region proposals for Detection Head training.
-    
-    This function matches the predicted region proposals (from the Region Proposal Network) against 
-    the actual ground truth boxes using Intersection over Union (IoU). Proposals with an IoU 
-    greater than or equal to the foreground threshold are assigned the corresponding ground truth class.
-    Proposals falling below the threshold are assigned the background class (class index 0). The index of the matched
-    ground truth is returned too, so that the instance segmenter picks the ground truth mask of every positive proposal.
-
-    Args:
-        ground_truth_boxes (torch.Tensor): A tensor of ground truth boxes of shape [Num_GT, 4] in [x_min, y_min, x_max, y_max] format.
-        proposals (torch.Tensor): A tensor of proposed bounding boxes of shape [Num_Proposals, 4].
-        ground_truth_labels (torch.Tensor): A tensor of the true class indices for each ground truth box of shape [Num_GT].
-        foreground_iou_threshold (float): The minimum IoU required for a proposal to be considered a positive match.
-
-    Returns:
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
-            - target_ground_truth_boxes (torch.Tensor): The assigned ground truth coordinates for each proposal of shape [Num_Proposals, 4].
-            - target_labels (torch.Tensor): The assigned class labels for each proposal (0 for background) of shape [Num_Proposals].
-            - matched_ground_truth_indices (torch.Tensor): The int64 index of the matched ground truth of each proposal
-              within the image, -1 for the background, of shape [Num_Proposals].
-    """
-    # Note to self to check afterwards : ground truth boxes and labels should have the same first dimension shape which are the number of ground truth boxes in the image
-
-    # Intercept images completely lacking valid ground truth boxes (due to filtering or native empty sets)
-    # PyTorch's max() reduction will crash if it attempts to operate on a zero-length dimension.
-    # We safely bypass the IoU matrix matching and map all generated proposals strictly to the background class.
-    if ground_truth_boxes.size(0) == 0:
-        target_ground_truth_boxes = torch.zeros_like(proposals)
-        target_labels = torch.zeros(proposals.size(0), dtype=torch.int64, device=proposals.device)
-        matched_ground_truth_indices = torch.full(size=(proposals.size(0),), fill_value=-1, dtype=torch.int64,
-                                                  device=proposals.device)
-        return target_ground_truth_boxes, target_labels, matched_ground_truth_indices
-
-    # Shape: [number_of_ground_truths, number_of_proposals]
-    intersection_over_union_matrix = get_intersection_over_union(boxes_1=ground_truth_boxes, boxes_2=proposals)
-
-    # For every proposal, find the ground truth box that has the highest IoU with it
-    best_match_ground_truth_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=0)
-
-    # Create readable condition variables based on the IoU thresholds
-    below_foreground_min = best_match_ground_truth_iou < foreground_iou_threshold
-
-    # Proposals that fall strictly within the foreground IoU limits are considered negatives
-    # Will never be considered for the detection loss
-    background_indices = below_foreground_min
-
-    # Assign background labels for these proposals
-    # - background > -1
-    best_match_ground_truth_index[background_indices] = -1
-
-    # Get coordinates of best matching ground truth target boxes (so each proposal will have at least one target)
-    # But we will not necessarily train on all the assigned targets because the -1 are bogus targets.
-    # Be careful Coordinates -1 are clamped to 0 to always have the same coordinates for background
-    target_ground_truth_boxes = ground_truth_boxes[best_match_ground_truth_index.clamp(min=0)]
-
-    # Now set all labels for training so there is no ambiguity
-    # For classification loss we get the labels of the best iou ground truth match for each proposal
-    # We then set to -1 all negatives
-    # Shape (proposal_boxes)
-    target_labels = ground_truth_labels[best_match_ground_truth_index.clamp(min=0)].to(dtype=torch.int64)
-    target_labels[background_indices] = 0
-    # For bounding box regression we only consider labels larger than 0 which are foreground
-
-    # The background proposals keep the index -1 of their match
-    return target_ground_truth_boxes, target_labels, best_match_ground_truth_index
-
-
 def batch_assign_targets_to_proposals(batched_ground_truth_boxes: List[torch.Tensor],
-                                      batched_proposals: List[torch.Tensor],
+                                      batched_proposals: torch.Tensor,
                                       batched_ground_truth_labels: List[torch.Tensor], foreground_iou_threshold: float
                                       ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
-    Applies proposal target assignment logic across an entire batch of images.
-    
-    This function iterates over the batch dimension to match Region Proposal Network (RPN) proposals 
-    to ground truth boxes independently for each image, avoiding the complexity of padding 
-    varying numbers of ground truth boxes. The results are stacked into unified batch tensors.
-    
+    Assigns ground truth bounding boxes and class labels to the region proposals of every image of a batch for
+    Detection Head training.
+
+    This function matches the predicted region proposals (from the Region Proposal Network) against the actual ground
+    truth boxes of their image using Intersection over Union (IoU), for all the images at once (the ground truths
+    padded with empty boxes, which overlap nothing). Proposals with an IoU greater than or equal to the foreground
+    threshold are assigned the corresponding ground truth class. Proposals falling below the threshold, and all the
+    proposals of an image without ground truth, are assigned the background class (class index 0). The index of the
+    matched ground truth is returned too, so that the instance segmenter picks the ground truth mask of every positive
+    proposal.
+
     Args:
-        batched_ground_truth_boxes (List[torch.Tensor]): A list of length batch_size, where each tensor 
-                                                         contains the ground truth boxes for that image.
-        batched_proposals (List[torch.Tensor]): A list of length batch_size (or a unified tensor), 
-                                                where each tensor contains the proposed bounding boxes for that image.
-        batched_ground_truth_labels (List[torch.Tensor]): A list of length batch_size, containing the true class 
-                                                          indices for the ground truth boxes of each image.
+        batched_ground_truth_boxes (List[torch.Tensor]): A list of length batch_size, where each tensor contains the
+            [Num_GT, 4] ground truth boxes of that image in [x_min, y_min, x_max, y_max] format.
+        batched_proposals (torch.Tensor): The proposed bounding boxes of every image, shape
+            [batch_size, number_of_proposals, 4].
+        batched_ground_truth_labels (List[torch.Tensor]): A list of length batch_size, containing the true class
+            indices for the ground truth boxes of each image.
         foreground_iou_threshold (float): The minimum IoU required for a proposal to be considered foreground.
-        
+
     Returns:
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
             - batched_target_boxes (torch.Tensor): The assigned ground truth coordinates.
              Shape [batch_size, number_of_proposals, 4]
-            - batched_labels (torch.Tensor): The assigned class labels.
+            - batched_labels (torch.Tensor): The assigned int64 class labels (0 for background).
              Shape [batch_size, number_of_proposals]
-            - batched_matched_ground_truth_indices (torch.Tensor): The index of the matched ground truth within its
-             image, -1 for the background. Shape [batch_size, number_of_proposals]
+            - batched_matched_ground_truth_indices (torch.Tensor): The int64 index of the matched ground truth within
+             its image, -1 for the background. Shape [batch_size, number_of_proposals]
     """
-    aggregated_target_boxes = []
-    aggregated_labels = []
-    aggregated_matched_indices = []
+    padded_boxes, padded_labels, valid_ground_truths = pad_ground_truths(
+        batched_ground_truth_boxes=batched_ground_truth_boxes, batched_ground_truth_labels=batched_ground_truth_labels)
 
-    # Iterate over each image in the batch to independently process target assignments
-    for batch_index in range(len(batched_ground_truth_boxes)):
-        # Calculate assignments for the current image using explicit argument naming
-        target_boxes, target_labels, matched_ground_truth_indices = assign_targets_to_proposals(
-            ground_truth_boxes=batched_ground_truth_boxes[batch_index],
-            proposals=batched_proposals[batch_index],
-            ground_truth_labels=batched_ground_truth_labels[batch_index],
-            foreground_iou_threshold=foreground_iou_threshold)
+    # Shape: [batch_size, number_of_ground_truths, number_of_proposals], the padding rows overlapping nothing
+    intersection_over_union_matrix = get_intersection_over_union(boxes_1=padded_boxes, boxes_2=batched_proposals)
+    intersection_over_union_matrix = intersection_over_union_matrix.masked_fill(
+        mask=~valid_ground_truths.unsqueeze(dim=-1), value=0.0)
 
-        # Store the processed targets and labels
-        aggregated_target_boxes.append(target_boxes)
-        aggregated_labels.append(target_labels)
-        aggregated_matched_indices.append(matched_ground_truth_indices)
+    # For every proposal, find the ground truth box that has the highest IoU with it
+    best_match_ground_truth_iou, best_match_ground_truth_index = intersection_over_union_matrix.max(dim=1)
 
-    # Stack the lists along a new batch dimension (dim=0)
-    batched_target_boxes = torch.stack(tensors=aggregated_target_boxes, dim=0)
-    batched_target_labels = torch.stack(tensors=aggregated_labels, dim=0)
-    batched_matched_ground_truth_indices = torch.stack(tensors=aggregated_matched_indices, dim=0)
+    # Proposals below the foreground threshold, and those of an image without ground truth, are background
+    # They will never be considered for the regression loss, and keep the index -1 of their match
+    background_indices = ((best_match_ground_truth_iou < foreground_iou_threshold)
+                          | ~valid_ground_truths.any(dim=1, keepdim=True))
+    best_match_ground_truth_index = best_match_ground_truth_index.masked_fill(mask=background_indices, value=-1)
 
-    return batched_target_boxes, batched_target_labels, batched_matched_ground_truth_indices
+    # Get coordinates of best matching ground truth target boxes (so each proposal will have at least one target)
+    # But we will not necessarily train on all the assigned targets because the -1 are bogus targets.
+    # The -1 are clamped to 0 to always have the same coordinates for background
+    target_indices = best_match_ground_truth_index.clamp(min=0)
+    batched_target_boxes = torch.gather(input=padded_boxes, dim=1,
+                                        index=target_indices.unsqueeze(dim=-1).expand(-1, -1, 4))
+
+    # For classification loss we get the labels of the best iou ground truth match for each proposal, the
+    # background proposals getting the class 0
+    # For bounding box regression we only consider labels larger than 0 which are foreground
+    batched_target_labels = torch.gather(input=padded_labels, dim=1, index=target_indices)
+    batched_target_labels = batched_target_labels.masked_fill(mask=background_indices, value=0)
+
+    return batched_target_boxes, batched_target_labels, best_match_ground_truth_index
