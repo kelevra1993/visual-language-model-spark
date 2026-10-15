@@ -446,7 +446,8 @@ The segmentation can transfer the backbone and the decoder of other runs. The se
 ```text
 pretrained_configurations['Backbone']            = {'experiment_folder': None, 'iteration': None, 'freeze': False, ...}
 pretrained_configurations['SegmentationDecoder'] = {'experiment_folder': None, 'iteration': None, 'freeze': False,
-                                                    'load_class_layers': False, 'learning_rate_multiplier': 1.0}
+                                                    'load_class_layers': False, 'learning_rate_multiplier': 1.0,
+                                                    'new_class_initialisation': 'source'}
 pretrained_checkpoint_paths                      = {'Backbone': None, 'SegmentationDecoder': None}
 ```
 

@@ -138,6 +138,16 @@ def set_invalid_detection_error_analysis(configuration: Dict[str, Any]) -> None:
         "target_precision": -0.1, "error_dumps": {"activated": "yes", "maximum_per_class_pair": 0}})
 
 
+def set_unknown_new_class_initialisation(configuration: Dict[str, Any]) -> None:
+    """
+    Sets an initialisation of the classes added after those of the source run that the transfer does not know.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Detector"]["pretrained"]["new_class_initialisation"] = "zeros"
+
+
 def set_unknown_task(configuration: Dict[str, Any]) -> None:
     """
     Sets a task that no trainer implements.
@@ -330,7 +340,9 @@ def set_pre_activation_without_residual_shortcuts(configuration: Dict[str, Any])
                             "'ExperimentConfiguration.tracking.tracking_uri' must be null or a non-empty string, "
                             "got ' '.",
                             "'ExperimentConfiguration.tracking.experiment_name' must be null or a non-empty string, "
-                            "got 12."])])
+                            "got 12."]),
+    (set_unknown_new_class_initialisation, ["'Detector.pretrained.new_class_initialisation' must be one of ['source', "
+                                            "'random'], got 'zeros'."])])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                 expected_messages: List[str]) -> None:

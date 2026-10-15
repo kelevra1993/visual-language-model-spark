@@ -5,8 +5,9 @@ sample images, MLflow tracking, sequence settings and batch padding, positional 
 segmentation losses, deep supervision, tiles and evaluation settings, Optimization, batch normalization momentums,
 normalization of the classification head, its True or False values becoming "batch" or "none", pre-activation
 placement of the backbone shortcuts, moving average of the weights, mask geometry of the instance segmentation, its
-shared RoIAlign pool size becoming the pool size of every level, and loading of the class layers of the segmentation
-decoder), and renames the run folder to its current run name
+shared RoIAlign pool size becoming the pool size of every level, loading of the class layers of the segmentation
+decoder, and initialisation of the classes added after those of a source run), and renames the run folder to its
+current run name
 (without the training, learning rate multiplier and dropout tokens no longer written in the run names). Called by
 scripts/configuration_processing/migrate_configuration.py.
 """
@@ -18,6 +19,7 @@ from typing import List, Optional, Tuple
 
 from vision_training.configuration_processing.classification_checks import BOOLEAN_HEAD_NORMALIZATIONS
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.configuration_values import CLASS_LAYER_SECTIONS
 from vision_training.configuration_processing.run_name import build_run_name
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
@@ -328,6 +330,15 @@ SEGMENTATION_DECODER_SECTION_HEADER = "SegmentationDecoder:\n"
 LOAD_CLASS_LAYERS_LINES = ("    # Also loads the segmentation head and the deep supervision heads of the source run "
                            "(off).\n"
                            "    load_class_layers: False\n")
+
+# Start of the line of the learning rate multiplier of the pretrained settings, and the initialisation of the classes
+# added after those of the source run inserted after it in every section with class layers, built from the source
+# classes as in every run written before the setting existed
+PRETRAINED_MULTIPLIER_LINE_START = "    learning_rate_multiplier:"
+NEW_CLASS_INITIALISATION_LINES = ("    # Initialisation of the classes added after those of the source run: \"source\" "
+                                  "(built from the source classes)\n"
+                                  "    # or \"random\" (the random initialisation of a run trained from scratch).\n"
+                                  "    new_class_initialisation: \"source\"\n")
 
 
 def add_task_to_configuration(configuration_path: Path, task: str) -> bool:
@@ -1232,6 +1243,48 @@ def add_class_layers_flag_to_configuration(configuration_path: Path) -> bool:
     return True
 
 
+def add_new_class_initialisation_to_configuration(configuration_path: Path) -> bool:
+    """
+    Upgrades a configuration file written before the initialisation of the new classes of a transferred component could
+    be chosen by inserting '<section>.pretrained.new_class_initialisation', "source" as in every run of that time,
+    right after the learning rate multiplier of the pretrained settings of every section with class layers
+    (classification head, detection heads, mask heads, segmentation decoder), so that the run keeps building the
+    classes it adds after those of its source run from the source classes. The setting is inserted as text, so that
+    every comment of the file is kept, and a section that already has it, or that has no pretrained settings, is left
+    untouched.
+
+    Args:
+        configuration_path (Path): The configuration file, usually the 'training_configuration.yaml' of a run.
+
+    Returns:
+        bool: True if the setting was added to at least one section, False otherwise.
+
+    Raises:
+        ValueError: If the pretrained settings of a section have no learning rate multiplier line of their own.
+    """
+    text = configuration_path.read_text()
+    configuration = yaml.safe_load(stream=text)
+    lines = text.splitlines(keepends=True)
+    setting_added = False
+
+    # Every section with class layers whose pretrained settings were written before the setting existed
+    for section_name in CLASS_LAYER_SECTIONS:
+        if section_name not in configuration or "pretrained" not in configuration[section_name] or \
+                "new_class_initialisation" in configuration[section_name]["pretrained"]:
+            continue
+        multiplier_index = find_section_line(lines=lines, section_header=f"{section_name}:\n",
+                                             line_start=PRETRAINED_MULTIPLIER_LINE_START)
+        if multiplier_index is None:
+            raise ValueError(f"No '{section_name}.pretrained.learning_rate_multiplier' line in "
+                             f"{format_path_link(path=configuration_path)}")
+        lines = lines[:multiplier_index + 1] + [NEW_CLASS_INITIALISATION_LINES] + lines[multiplier_index + 1:]
+        setting_added = True
+
+    if setting_added:
+        configuration_path.write_text(data="".join(lines))
+    return setting_added
+
+
 def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path:
     """
     Upgrades a run trained with an older version of the code so that it can be resumed, evaluated and exported with the
@@ -1248,7 +1301,8 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
     (0.1, the PyTorch default), the normalization of the hidden layers of the classification head ("none", True and
     False becoming "batch" and "none"), the pre-activation placement of the backbone shortcuts (off), the moving average
     of the weights (off), the mask geometry of the instance segmentation (masks twice the shared pool size, transposed
-    convolution) and the loading of the class layers of the segmentation decoder (off), it loses the 'Data.DALI' block
+    convolution), the loading of the class layers of the segmentation decoder (off) and the initialisation of the
+    classes added after those of a source run ("source", built from the source classes), it loses the 'Data.DALI' block
     of the removed DALI loader, and its folder is renamed to the run name the current code builds from that
     configuration (the task code being now the first section of the run names, and the augmentation, batch size,
     learning rate, schedule, gradient clipping, mixed precision, dropout and learning rate multiplier (BLR, TLR, HLR,
@@ -1332,6 +1386,9 @@ def migrate_run_folder(run_folder: Path, task: str, rename_folder: bool) -> Path
                                           f"{format_path_link(path=configuration_path)}")
     if add_class_layers_flag_to_configuration(configuration_path=configuration_path):
         print_color(color="green", output=f"Class Layers Flag Of The Segmentation Decoder Added To : "
+                                          f"{format_path_link(path=configuration_path)}")
+    if add_new_class_initialisation_to_configuration(configuration_path=configuration_path):
+        print_color(color="green", output=f"Initialisation Of The New Classes Of The Transferred Components Added To : "
                                           f"{format_path_link(path=configuration_path)}")
 
     # The run name the current code gives to this configuration
