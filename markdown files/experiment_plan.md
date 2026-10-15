@@ -308,12 +308,14 @@ In 2,000 iterations, the decay of the n-th update, min(decay, (1 + n) / (10 + n)
 | trained (EMA off) | run_23 (stage 7) | 0.4871 | 0.8713 | 0.9362 | 0.9721 | 0.9807 | 0.9744 | 0.9826 | 0.9916 | 0.8995 |
 | trained (EMA off) | run_24 (stage 7) | 0.5368 | 0.7841 | 0.9642 | 0.9788 | 0.9808 | 0.9879 | 0.9900 | 0.9892 | 0.9015 |
 | trained (EMA off) | **Mean** | 0.5119 | 0.8277 | 0.9502 | 0.9755 | 0.9807 | 0.9811 | 0.9863 | 0.9904 | 0.9005 |
-| trained (EMA on) | run_37 | | | | | | | | | |
-| trained (EMA on) | run_38 | | | | | | | | | |
-| trained (EMA on) | **Mean** | | | | | | | | | |
-| EMA | run_37 | | | | | | | | | |
-| EMA | run_38 | | | | | | | | | |
-| EMA | **Mean** | | | | | | | | | |
+| trained (EMA on) | run_37 | 0.4896 | 0.8186 | 0.9571 | 0.9757 | 0.9794 | 0.9854 | 0.9913 | 0.9906 | 0.8985 |
+| trained (EMA on) | run_38 | 0.4672 | 0.8123 | 0.9752 | 0.9083 | 0.9611 | 0.9853 | 0.9908 | 0.9908 | 0.8864 |
+| trained (EMA on) | **Mean** | 0.4784 | 0.8155 | 0.9662 | 0.9420 | 0.9702 | 0.9854 | 0.9911 | 0.9907 | 0.8924 |
+| EMA | run_37 | 0.5675 | 0.8761 | 0.9832 | 0.9899 | 0.9928 | 0.9953 | 0.9962 | 0.9968 | 0.9247 |
+| EMA | run_38 | 0.5074 | 0.9295 | 0.9841 | 0.9904 | 0.9925 | 0.9940 | 0.9955 | 0.9957 | 0.9236 |
+| EMA | **Mean** | 0.5374 | 0.9028 | 0.9836 | 0.9901 | 0.9927 | 0.9946 | 0.9959 | 0.9962 | 0.9242 |
+
+**Kept: True.** The averaged weights are ahead of the trained weights at all 16 evaluations of the two launches, with a mean of 0.9242 against 0.8924 (0.9005 for the reference pair without average) and 0.9962 against 0.9907 at iteration 2000, the errors falling from 0.9 % to 0.4 %. Their two curves stay within 0.001 of each other from iteration 750, where the trained weights of the two launches differ by up to 0.067 (run_38 dropping to 0.9083 at iteration 1000), and the trained weights of the launches keeping the average stay within the noise of the reference, the average never feeding back into the training. An audit of run_37 found no leakage: no test image is identical to a training image, the evaluation leaves every buffer of the averaged model unchanged, and the checkpoints of iterations 500, 1000 and 2000, scored again outside the trainer, give the logged accuracies. Swapping the batch normalization statistics between the two sets of weights shows that the averaged parameters bring most of the gain from iteration 1000 (0.9899 and 0.9955 with the statistics of the trained weights at iterations 1000 and 2000), the averaged statistics mattering early (0.8212 instead of 0.8760 at iteration 500). The launches keep a constant learning rate, whose noise the average removes: a decaying learning rate would leave a smaller gap, and the decay of 0.9998, never reached in 2,000 iterations, needs longer trainings.
 
 ## Total
 
