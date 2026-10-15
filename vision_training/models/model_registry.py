@@ -1,7 +1,8 @@
 """
 Registry of the model class of every task, keyed by 'ExperimentConfiguration.task' (object detection, instance
 segmentation, classification, semantic segmentation, sequence classification, labelling and comparison, frame
-selection). Read by the trainers and by model_loading.py to rebuild a run from its saved configuration.
+selection, self-supervised learning). Read by the trainers and by model_loading.py to rebuild a run from its saved
+configuration.
 """
 
 import torch
@@ -12,6 +13,7 @@ from vision_training.models.classification.image_classifier import ImageClassifi
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.instance_segmentation.instance_segmenter import InstanceSegmenter
 from vision_training.models.segmentation.semantic_segmenter import SemanticSegmenter
+from vision_training.models.self_supervised.self_supervised_model import SelfSupervisedModel
 from vision_training.models.sequence.frame_selector import FrameSelector
 from vision_training.models.sequence.sequence_classifier import SequenceClassifier
 from vision_training.models.sequence.sequence_comparator import SequenceComparator
@@ -27,7 +29,8 @@ TASK_MODEL_CLASSES: Dict[str, Type[TaskModel]] = {"object_detection": TwoStageDe
                                                   "sequence_classification": SequenceClassifier,
                                                   "sequence_labelling": SequenceLabeller,
                                                   "sequence_comparison": SequenceComparator,
-                                                  "frame_selection": FrameSelector}
+                                                  "frame_selection": FrameSelector,
+                                                  "self_supervised": SelfSupervisedModel}
 
 # Data type of the weights and inputs of every model, set here only: the trainings run in float32, mixed precision
 # computing their forward passes in bfloat16 on top of it (Optimization.mixed_precision)

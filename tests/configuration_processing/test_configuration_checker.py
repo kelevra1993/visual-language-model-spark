@@ -320,7 +320,7 @@ def set_pre_activation_without_residual_shortcuts(configuration: Dict[str, Any])
                                       "must be smaller than"]),
     (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'instance_segmentation', "
                         "'classification', 'semantic_segmentation', 'sequence_classification', 'sequence_labelling', "
-                        "'sequence_comparison', 'frame_selection'], got 'segmentation'."]),
+                        "'sequence_comparison', 'frame_selection', 'self_supervised'], got 'segmentation'."]),
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
     (set_invalid_detection_error_analysis, ["'ExperimentConfiguration.evaluation.target_precision' must be a "

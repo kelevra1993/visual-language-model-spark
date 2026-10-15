@@ -14,6 +14,7 @@ from vision_training.models.classification.inference_classifier import Inference
 from vision_training.models.detection.inference_detector import InferenceDetector
 from vision_training.models.instance_segmentation.inference_instance_segmenter import InferenceInstanceSegmenter
 from vision_training.models.segmentation.inference_segmenter import InferenceSegmenter
+from vision_training.models.self_supervised.inference_encoder import InferenceEncoder
 from vision_training.models.sequence.inference_sequence_comparator import InferenceSequenceComparator
 from vision_training.models.sequence.inference_sequence_model import InferenceSequenceModel
 from vision_training.models.task_model import TaskModel
@@ -25,7 +26,7 @@ INFERENCE_MODEL_CLASSES = {"object_detection": InferenceDetector, "instance_segm
                            "sequence_classification": InferenceSequenceModel,
                            "sequence_labelling": InferenceSequenceModel,
                            "sequence_comparison": InferenceSequenceComparator,
-                           "frame_selection": InferenceSequenceModel}
+                           "frame_selection": InferenceSequenceModel, "self_supervised": InferenceEncoder}
 
 # Triton model name of every task, followed by '_<export format>' in the model repository (and by '_decoder' and
 # '_<export format>_ensemble' for the decoder and the ensembles of the frame selector)
@@ -33,7 +34,7 @@ TASK_MODEL_NAMES = {"object_detection": "object_detector", "instance_segmentatio
                     "classification": "image_classifier",
                     "semantic_segmentation": "semantic_segmenter", "sequence_classification": "sequence_classifier",
                     "sequence_labelling": "sequence_labeller", "sequence_comparison": "sequence_comparator",
-                    "frame_selection": "frame_selector"}
+                    "frame_selection": "frame_selector", "self_supervised": "image_encoder"}
 
 # Tasks whose inputs are windows of frames [B, T, 3, H, W] instead of images [B, 3, H, W]
 SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison", "frame_selection"]
@@ -47,7 +48,8 @@ FRAME_OUTPUT_TASKS = ["sequence_labelling", "frame_selection"]
 TASK_INPUT_NAMES = {"object_detection": ["images"], "instance_segmentation": ["images"], "classification": ["images"],
                     "semantic_segmentation": ["images"], "sequence_classification": ["images"],
                     "sequence_labelling": ["images"],
-                    "sequence_comparison": ["before_images", "after_images"], "frame_selection": ["images"]}
+                    "sequence_comparison": ["before_images", "after_images"], "frame_selection": ["images"],
+                    "self_supervised": ["images"]}
 
 
 def build_inference_model(task: str, model: TaskModel) -> nn.Module:
@@ -214,6 +216,28 @@ def compare_probabilities(reference: Sequence[np.ndarray], candidate: Sequence[n
     return []
 
 
+def compare_representations(reference: Sequence[np.ndarray], candidate: Sequence[np.ndarray],
+                            tolerance: float) -> List[str]:
+    """
+    Compares the L2 normalized representations of an exported encoder of the self-supervised task with those of the
+    eager inference encoder, value by value.
+
+    Args:
+        reference (Sequence[np.ndarray]): The eager [B, F] representations, as a one-element sequence.
+        candidate (Sequence[np.ndarray]): The exported model representations, as a one-element sequence.
+        tolerance (float): The largest accepted difference of a representation value.
+
+    Returns:
+        List[str]: A description of the mismatch, empty when the outputs agree.
+    """
+    if reference[0].shape != candidate[0].shape:
+        return [f"representation shapes differ: {reference[0].shape} vs {candidate[0].shape}"]
+    representation_difference = np.abs(reference[0] - candidate[0]).max()
+    if representation_difference > tolerance:
+        return [f"representations differ by up to {representation_difference:.2e}"]
+    return []
+
+
 def compare_segmentations(reference: Sequence[np.ndarray], candidate: Sequence[np.ndarray], tolerance: float,
                           minimum_equal_share: float) -> List[str]:
     """
@@ -353,6 +377,13 @@ def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str,
         return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs, "outputs": detection_outputs + [mask_output],
                 "compare_outputs": compare_instance_segmentations,
                 "comparison_tolerances": {"box_tolerance": 1e-2, "score_tolerance": 1e-4, "mask_tolerance": 1e-3}}
+
+    # Self-supervised learning: the L2 normalized representation of every image, for similarity searches
+    if task == "self_supervised":
+        return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs,
+                "outputs": [{"name": "representations", "dimensions": [inference_model.representation_size],
+                             "data_type": "TYPE_FP32", "reshape_to_scalar": False}],
+                "compare_outputs": compare_representations, "comparison_tolerances": {"tolerance": 1e-4}}
 
     # Number of classes of the segmenter, the classifiers and the sequence models
     number_classes = inference_model.number_classes

@@ -16,7 +16,7 @@ NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN", "sequence": "
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
 TASK_CODES = {"object_detection": "DET", "instance_segmentation": "INS", "classification": "CLS",
               "sequence_classification": "M2O", "sequence_labelling": "M2M", "sequence_comparison": "CMP",
-              "semantic_segmentation": "SEG", "frame_selection": "SEL"}
+              "semantic_segmentation": "SEG", "frame_selection": "SEL", "self_supervised": "SSL"}
 
 # Run name code of every temporal module type of the sequence tasks
 TEMPORAL_TYPE_CODES = {"mean_pooling": "MEAN", "max_pooling": "MAX", "attention_pooling": "ATT", "gru": "GRU",
@@ -28,6 +28,10 @@ FUSION_TYPE_CODES = {"concatenation": "FCAT", "difference": "FDIF", "cross_atten
 # Run name code of every reduction of the final feature map before the classification head: its average or maximum,
 # or all its values flattened (image classifier only)
 GLOBAL_POOLING_CODES = {"average": "AVG", "max": "MAX", "flatten": "FLAT"}
+
+# Run name code of every method of the self-supervised task, followed by its setting: the temperature of SimCLR
+# (T<temperature>) or the off-diagonal weight of Barlow Twins (OD<weight>)
+SELF_SUPERVISED_METHOD_CODES = {"simclr": "SIMCLR", "barlow_twins": "BT"}
 
 # Run name code of every upsampling of the segmentation decoder levels and of the mask heads (prefixed with M): a
 # transposed convolution, or a bilinear upsampling followed by a convolution
@@ -545,13 +549,45 @@ def build_segmentation_sections(model_configuration: Dict[str, Any]) -> List[Lis
     return tiling_sections + [decoder_tokens, [classes_token]]
 
 
+def build_self_supervised_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
+    """
+    Builds the sections of the run name specific to the self-supervised task: the projection head
+    P<global pooling AVG, MAX or FLAT>.<layer sizes, the embedding size last>, PBN or PLN when its hidden layers are
+    batch or layer normalized, then the method with its setting, SIMCLR-T<temperature> or BT-OD<off-diagonal weight>,
+    e.g. 'PAVG.2048.128-PBN_SIMCLR-T0.1' or 'PAVG.2048.2048.2048-PBN_BT-OD0.005'. The view augmentation and the batch
+    normalization momentum give no token, so that they can change between two resumptions of a run.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration.
+
+    Returns:
+        List[List[str]]: The tokens of every section.
+    """
+    head_configuration = model_configuration["ProjectionHead"]
+
+    # Pooling and layers of the projection head with the normalization of its hidden layers
+    pooling_code = GLOBAL_POOLING_CODES[head_configuration["global_pooling"]]
+    head_tokens = ["P" + ".".join([pooling_code] + [str(size) for size in head_configuration["fully_connected"]])]
+    if head_configuration["fully_connected_normalization"] != "none":
+        head_tokens.append("P" + NORMALIZATION_CODES[head_configuration["fully_connected_normalization"]])
+
+    # Method with the setting changing its loss
+    method = head_configuration["method"]
+    if method == "simclr":
+        method_tokens = [SELF_SUPERVISED_METHOD_CODES[method], f"T{head_configuration['simclr']['temperature']:g}"]
+    else:
+        method_tokens = [SELF_SUPERVISED_METHOD_CODES[method],
+                         f"OD{head_configuration['barlow_twins']['off_diagonal_weight']:g}"]
+    return [head_tokens, method_tokens]
+
+
 # Builder of the task-specific sections of the run name, placed between the backbone and training sections
 TASK_RUN_NAME_SECTIONS: Dict[str, Callable[[Dict[str, Any]], List[List[str]]]] = {
     "object_detection": build_detection_sections, "instance_segmentation": build_instance_segmentation_sections,
     "classification": build_classification_sections,
     "sequence_classification": build_sequence_sections, "sequence_labelling": build_sequence_sections,
     "sequence_comparison": build_sequence_comparison_sections, "semantic_segmentation": build_segmentation_sections,
-    "frame_selection": build_frame_selection_sections}
+    "frame_selection": build_frame_selection_sections, "self_supervised": build_self_supervised_sections}
 
 
 def build_run_name(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> str:
@@ -565,8 +601,8 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
 
     The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
     is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
-    DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, INS, CLS, M2O, M2M, CMP, SEG or
-    SEL), the input and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the
+    DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, INS, CLS, M2O, M2M, CMP, SEG,
+    SEL or SSL), the input and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the
     sections of the task (e.g. build_detection_sections), then the optimizer section (build_optimizer_tokens), left out
     when empty.
 
