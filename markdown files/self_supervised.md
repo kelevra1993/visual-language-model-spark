@@ -31,7 +31,7 @@ Every item of the implementation plan of `README.md`, ticked once its code is co
 - [x] 11. `vision_training/configuration_processing/self_supervised_checks.py`
 - [x] 12. Registration in the task, model, check, run name and export tables
 - [x] 13. `vision_training/configurations/self_supervised/` configuration files
-- [ ] 14. `README.md` documentation of the task
+- [x] 14. `README.md` documentation of the task
 
 ## Tests Left To Write
 1. `tests/data/self_supervised/test_self_supervised_dataset.py`: every sample is kept, the unlabelled and unmapped ones with `IGNORED_LABEL_INDEX`; class names, `get_sample_class_indices` (empty list for the unlabelled samples), `describe_sample` and `get_sample_name`.
