@@ -1,9 +1,9 @@
 """
 Tests of the MLflow tracking of the trainings and of the standalone evaluations: on the dummy task, a recording tracker
 checks the hooks of the general trainer (run opened at the start of the loop, interval averages, test evaluations,
-configuration and Results.txt artifacts, run identifier in the checkpoints, status of the end of the training); on a
-synthetic classification dataset, a training, its resumption and a standalone evaluation of its checkpoints are written
-to the local MLflow database and read back.
+configuration, data record and Results.txt artifacts, run identifier in the checkpoints, status of the end of the
+training); on a synthetic classification dataset, a training, its resumption and a standalone evaluation of its
+checkpoints are written to the local MLflow database and read back.
 """
 
 import pytest
@@ -202,8 +202,9 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
     assert any(metric_name.startswith("test_class/Recall/") for metric_name in test_metrics[0][1])
     assert recording_tracker.best_metrics == [("Accuracy", test_metrics[0][1]["test/Accuracy"], 4, "test")]
 
-    # Configuration at the start, Results.txt at the end, then the run closed as finished
+    # Configuration and record of the data at the start, Results.txt at the end, then the run closed as finished
     assert recording_tracker.artifacts == [(trainer.configuration_path, "configuration", None),
+                                           (trainer.data_record_path, "data", None),
                                            (trainer.experiment_folder / "Results.txt", None, None)]
     assert recording_tracker.close_statuses == [FINISHED_STATUS]
     checkpoint = torch.load(f=trainer.weights_directory / "Iteration_5" / "model_000005.pt", map_location="cpu",
@@ -219,6 +220,9 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
     assert resumed_tracker.started_with["resumed_iteration"] == 5
     assert resumed_tracker.artifacts[0] == (resumed_trainer.configuration_path, "configuration",
                                             "training_configuration_resume_5.yaml")
+
+    # The data did not change, so its record is not sent again
+    assert all(artifact_folder != "data" for _, artifact_folder, _ in resumed_tracker.artifacts)
     assert resumed_tracker.close_statuses == [FINISHED_STATUS]
 
 
@@ -297,9 +301,9 @@ def test_classification_training_and_evaluation_are_tracked(tmp_path: Path, trac
     for metric_key in ["test/Accuracy", "test/best_Accuracy", f"test_class/Recall/{trainer.class_names[0]}"]:
         assert read_metric_steps(client=client, run_id=training_run_id, metric_key=metric_key) == [4]
 
-    # Artifacts: configuration, small evaluation files, Results.txt and the original metric names
+    # Artifacts: configuration, record of the data, small evaluation files, Results.txt and the original metric names
     assert sorted(artifact.path for artifact in client.list_artifacts(run_id=training_run_id)) == [
-        "Results.txt", "configuration", "evaluation", "metric_names.json"]
+        "Results.txt", "configuration", "data", "evaluation", "metric_names.json"]
     assert sorted(artifact.path for artifact in client.list_artifacts(run_id=training_run_id,
                                                                       path="evaluation/iteration_4")) == [
         "evaluation/iteration_4/class_metrics.csv", "evaluation/iteration_4/class_thresholds.json",
@@ -324,6 +328,8 @@ def test_classification_training_and_evaluation_are_tracked(tmp_path: Path, trac
     assert read_metric_steps(client=client, run_id=training_run_id, metric_key="train/Total Loss") == [2, 4, 6]
     assert "configuration/training_configuration_resume_5.yaml" in [
         artifact.path for artifact in client.list_artifacts(run_id=training_run_id, path="configuration")]
+    assert [artifact.path for artifact in client.list_artifacts(run_id=training_run_id, path="data")] == [
+        "data/data.json"]
 
     # Standalone evaluation of two checkpoints, built like scripts/evaluation/evaluate_checkpoint.py
     experiment_configuration, model_configuration = load_experiment_configuration(

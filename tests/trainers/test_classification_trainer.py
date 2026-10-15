@@ -93,9 +93,9 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     Verifies the classification training pipeline on a generated synthetic dataset: the balanced class weights of the
     training split are set in the model, 5 iterations save the intermediate, evaluated and final checkpoints, the
     evaluation of the test split is reported (Results.txt block with its per-class table, per-class scalars and
-    confusion matrix image) with its per-class metrics, confusion matrix and class thresholds files, and a second run
-    with the same settings resumes from the last checkpoint with exactly its weights. No training step may fail
-    silently.
+    confusion matrix image) with its per-class metrics, confusion matrix and class thresholds files, the record of the
+    data lists the images of every split, and a second run with the same settings resumes from the last checkpoint
+    with exactly its weights. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -118,6 +118,12 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     clamped_class_counts = class_counts.clamp(min=1.0)
     expected_class_weights = clamped_class_counts.sum() / (len(SHAPE_CATEGORIES) * clamped_class_counts)
     assert torch.allclose(input=trainer.model.class_weights.cpu(), other=expected_class_weights)
+
+    # Record of the data: the images of every split, in the order of their labels file
+    data_record = json.loads(s=(trainer.experiment_folder / "data.json").read_text())
+    for split_name in ["train", "validation", "test"]:
+        labels = json.loads(s=(dataset_folder / split_name / "labels.json").read_text())
+        assert data_record["splits"][split_name]["images"] == [sample["file_name"] for sample in labels["samples"]]
     with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
         trainer.run_training_loop()
     results = report_mock.call_args.kwargs["results"]

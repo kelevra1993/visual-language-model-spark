@@ -131,6 +131,10 @@ main()
 │       │               Wraps the dataset in a torch DataLoader: batch_size from the YAML, reshuffling at every epoch,
 │       │               Data.loading.number_workers persistent worker processes, prefetch_batches batches prepared
 │       │               ahead, pinned memory for a fast copy to the GPU, one OpenCV thread per worker.
+│       ├── save_data_record() -> record_split() -> build_split_record()
+│       │       Writes data.json next to the YAML: the data folder, the SHA-256 of labels.json and the images of every
+│       │       split. A resumed run keeps an unchanged record, and keeps a changed one as
+│       │       data_until_iteration_<n>.json before writing the new one. With view_input_images nothing is written.
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       The hook lists the class of every test image. choose_sample_identifiers then picks, once for the whole
 │       │       run, the evaluation.number_sample_images test images drawn at every evaluation (Stage 4), spread over
@@ -623,6 +627,23 @@ This hook of `ClassificationTrainer` builds the loaders of the three splits (Ste
 trainer.class_names[:5] -> ['n01440764', 'n01443537', 'n01484850', 'n01491361', 'n01494475']
 ```
 
+Once the loaders exist, `BaseTrainer.__init__()` writes `data.json` in the run folder (`save_data_record()`, with `record_split()` and `build_split_record()` of `vision_training/data/data_record.py`). For each split, it records the absolute data folder, the SHA-256 of `labels.json` (which identifies the images and their labels exactly) and the `file_name` of every sample in manifest order. A model can then be traced back to the exact images it saw, even after the data folders change. A resumed run compares the data folders and SHA-256 with the saved record. When they are unchanged, the record of the first start is kept with its date. When a split changed, the saved record is kept as `data_until_iteration_<n>.json` (never replaced, like the archived configurations) before the new record is written. The input viewer writes nothing. With MLflow on, the record is sent to the `data` folder of the run whenever it is written.
+
+**Example: the start of `data.json` for ImageNet-1k (1.4 seconds to build, 65 MB for the 1,271,167 training images)**
+```text
+{
+  "created": "2026-10-15 15:12:40",
+  "splits": {
+    "train": {
+      "data_folder": "/home/.../imagenet-1k/manifests/train",
+      "labels_sha256": "973d0172c405b0f1705b5cc04a45d24ab28f676def1fb067d2d37c9e746108f4",
+      "number_images": 1271167,
+      "images": [
+        "n01440764/n01440764_10026_n01440764.JPEG",
+        "n01440764/n01440764_10027_n01440764.JPEG",
+        ...
+```
+
 ### Step 2.8 — `get_classification_dataloaders()`
 For each of `train_data_folder`, `validation_data_folder` and `test_data_folder`, it builds one `ClassificationDataset` (Step 2.9) from `<folder>/labels.json` and the images in `<folder>/data/`, then wraps it in a loader (Step 2.10). The three splits share the image size, `keep_ratio`, the label dictionary of Stage 1 and the `Data.loading` settings. Only the training split is used to learn: the validation split gives the curves of Stage 3 and the test split is only used by Stage 4.
 
@@ -803,7 +824,7 @@ MetricTracker: batch_size 256, validation_iteration_ratio 25, sample_name 'Image
 ```
 
 ### Step 2.22 — `print_experiment_information()`
-This prints the launch panel, so the settings of the run can be checked before anything long starts: the run name, the clickable folders (`file://` links), the settings changed since the last start of a resumed run (`print_configuration_changes()`, Step 2.6), one block per component initialised by another run with its source run folder, source iteration, freezes and learning rate times its multiplier (`print_pretrained_components()`), one line per split (Step 2.23), the number of iterations per epoch (`ceil(training samples / batch size)`), the checkpoint frequencies, the optimization settings and the MLflow backend (`Off`, the local database of the experiments root folder, or a server). It also keeps the number of samples of every split and the iterations per epoch, sent to MLflow as parameters.
+This prints the launch panel, so the settings of the run can be checked before anything long starts: the run name, the clickable folders (`file://` links), the settings and the data changed since the last start of a resumed run (`print_configuration_changes()`, Step 2.6, and `print_data_record_changes()`, Step 2.7), one block per component initialised by another run with its source run folder, source iteration, freezes and learning rate times its multiplier (`print_pretrained_components()`), one line per split (Step 2.23), the number of iterations per epoch (`ceil(training samples / batch size)`), the checkpoint frequencies, the optimization settings and the MLflow backend (`Off`, the local database of the experiments root folder, or a server). It also keeps the number of samples of every split and the iterations per epoch, sent to MLflow as parameters.
 
 **Example output**
 ```text
@@ -815,6 +836,7 @@ This prints the launch panel, so the settings of the run can be checked before a
 - Tensorboard Directory   : file:///.../CLS_IN-KAR-256_.../Tensorboard
 - Weights Directory       : file:///.../CLS_IN-KAR-256_.../Weights
 - Configuration File      : file:///.../CLS_IN-KAR-256_.../training_configuration.yaml
+- Data Record             : file:///.../CLS_IN-KAR-256_.../data.json
 - Train Data Folder       : file:///home/.../imagenet-1k/manifests/train (1271167 images, 1000 categories)
 - Validation Data Folder  : file:///home/.../imagenet-1k/manifests/validation (10000 images, 1000 categories)
 - Test Data Folder        : file:///home/.../imagenet-1k/manifests/test (50000 images, 1000 categories)

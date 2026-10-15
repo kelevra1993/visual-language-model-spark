@@ -1,11 +1,13 @@
 """
-General trainer shared by every task: the run folder, the training loop with its validation passes, the starting
-weights, the optimizer and learning rate schedule, the moving average of the weights, the checkpoints and the resume,
-the evaluation of the saved checkpoints on the test split (trained and averaged weights), the MLflow tracking of the run
-(vision_training/tracking) and the input batch viewer. The task trainers subclass it and implement its abstract hooks,
-and vision_training/main.py builds them through the task registry.
+General trainer shared by every task: the run folder with the copy of the configuration and the record of the images
+of every split, the training loop with its validation passes, the starting weights, the optimizer and learning rate
+schedule, the moving average of the weights, the checkpoints and the resume, the evaluation of the saved checkpoints on
+the test split (trained and averaged weights), the MLflow tracking of the run (vision_training/tracking) and the input
+batch viewer. The task trainers subclass it and implement its abstract hooks, and vision_training/main.py builds them
+through the task registry.
 """
 
+import json
 import math
 import cv2
 import numpy as np
@@ -13,6 +15,7 @@ import torch
 
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from shutil import copyfile
 from torch.utils.data import DataLoader
@@ -27,6 +30,8 @@ from vision_training.configuration_processing.configuration_loader import load_c
 from vision_training.configuration_processing.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
+from vision_training.data.data_record import (DATA_RECORD_FILE_NAME, DATA_RECORD_SPLITS, DataRecordChanges,
+                                              build_split_record, find_changed_splits)
 from vision_training.evaluation.evaluation_report import report_evaluation_results
 from vision_training.evaluation.report_formatting import HEADER_SEPARATOR
 from vision_training.evaluation.sample_selection import choose_sample_identifiers
@@ -44,7 +49,7 @@ from vision_training.tracking.experiment_tracker import (FAILED_STATUS, FINISHED
                                                          RUN_RECORD_FILE_NAME, TRAINED_WEIGHTS_METRIC_PREFIX,
                                                          DisabledTracker, create_experiment_tracker,
                                                          resolve_tracking_uri)
-from vision_training.utilities.os_utilities import format_path_link, print_color
+from vision_training.utilities.os_utilities import format_path_link, print_color, read_json
 from vision_training.utilities.tensor_utilities import get_device
 
 # Evaluation files of a checkpoint sent to the MLflow run, small whatever the size of the test split: the confusion
@@ -168,6 +173,13 @@ class BaseTrainer(ABC):
         print_color(color="blue",
                     output="Initializing Training, Validation And Test DataLoaders...", add_separators=True)
         self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.build_dataloaders()
+
+        # Record of the images of every split next to the configuration, written for a training only like the run
+        # folder, a resumed run whose data changed keeping the record of its previous data
+        self.data_record_path = self.experiment_folder / DATA_RECORD_FILE_NAME
+        self.data_record_changes = None
+        if not self.diagnosis_modes["view_input_images"]:
+            self.data_record_changes = self.save_data_record(data_record_path=self.data_record_path)
 
         # Fixed test samples drawn at every evaluation, chosen once from the classes of the test samples so that the
         # same samples are followed over the training and its resumptions
@@ -412,6 +424,20 @@ class BaseTrainer(ABC):
         """
         return build_run_name(experiment_configuration=self.experiment_configuration,
                               model_configuration=self.model_configuration)
+
+    def record_split(self, split_data_folder: Path) -> Dict[str, Any]:
+        """
+        Describes one split for the record of the data of the run ('data.json', see save_data_record): its data
+        folder, the SHA-256 of its 'labels.json' and its images, read from the labels file whatever the task. A task
+        whose splits have no labels file overrides it.
+
+        Args:
+            split_data_folder (Path): The root folder of the split.
+
+        Returns:
+            Dict[str, Any]: The 'data_folder', 'labels_sha256', 'number_images' and 'images' of the split.
+        """
+        return build_split_record(split_data_folder=split_data_folder)
 
     def get_test_sample_name(self, sample_identifier: int) -> str:
         """
@@ -683,6 +709,50 @@ class BaseTrainer(ABC):
         return ConfigurationChanges(resumed_iteration=resumed_iteration, changed_settings=changed_settings,
                                     archived_configuration_path=archived_configuration_path)
 
+    def save_data_record(self, data_record_path: Path) -> Optional[DataRecordChanges]:
+        """
+        Writes the record of the data of the run ('data.json') next to its configuration file: the data folder, the
+        SHA-256 of the 'labels.json' and the images of every split (record_split), so that the images a model was
+        trained and evaluated on stay known when the data folders change. A resumed run compares the data it is
+        launched with against the record saved by its previous start: an unchanged record is kept with its date, and a
+        changed one is kept as 'data_until_iteration_<n>.json', the data that trained the run up to the checkpoint of
+        iteration n it resumes from, before the new record replaces it. As for the configurations, a file of that name
+        is never replaced.
+
+        Args:
+            data_record_path (Path): The record of the data in the run folder.
+
+        Returns:
+            Optional[DataRecordChanges]: The changed splits with the resumed iteration and the archived file, None for
+                a run that does not resume from a checkpoint or has no saved record.
+        """
+        current_record = {"created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                          "splits": {split_name: self.record_split(
+                              split_data_folder=self.experiment_configuration[split_key])
+                              for split_name, split_key in DATA_RECORD_SPLITS.items()}}
+
+        # A resumed run compares its data with the record of its previous start, an unchanged record being kept
+        data_record_changes = None
+        resumed_iteration = get_last_checkpoint_iteration(weights_directory=self.weights_directory)
+        if self.resume_training and resumed_iteration and data_record_path.is_file():
+            changed_splits = find_changed_splits(previous_record=read_json(path=str(data_record_path)),
+                                                 current_record=current_record)
+            if not changed_splits:
+                return DataRecordChanges(resumed_iteration=resumed_iteration, changed_splits=[],
+                                         archived_data_record_path=None)
+
+            # Keep the record of the data that trained the run up to the resumed checkpoint, unless an earlier resume
+            # kept it
+            archived_data_record_path = data_record_path.parent / f"data_until_iteration_{resumed_iteration}.json"
+            if not archived_data_record_path.exists():
+                copyfile(src=str(data_record_path), dst=str(archived_data_record_path))
+            data_record_changes = DataRecordChanges(resumed_iteration=resumed_iteration, changed_splits=changed_splits,
+                                                    archived_data_record_path=archived_data_record_path)
+
+        # Written for a new run, for a run started before the record existed and for a resumed run whose data changed
+        data_record_path.write_text(data=json.dumps(obj=current_record, indent=2))
+        return data_record_changes
+
     def print_experiment_information(self) -> None:
         """
         Prints out a summary of the experiment's configurations and paths to the console before training begins.
@@ -697,11 +767,14 @@ class BaseTrainer(ABC):
         print_color(color="blue", output=f"- Weights Directory       : {format_path_link(path=self.weights_directory)}")
         print_color(color="blue", output=f"- Configuration File      : "
                                          f"{format_path_link(path=self.configuration_path)}")
+        print_color(color="blue", output=f"- Data Record             : {format_path_link(path=self.data_record_path)}")
         if self.diagnosis_modes["view_input_images"]:
             print_color(color="yellow", output="- Run Folder Not Created  : The Input Viewer Exits Without Training")
 
-        # Settings changed since the last start of a resumed run, then every component initialised by another run
+        # Settings and data changed since the last start of a resumed run, then every component initialised by another
+        # run
         self.print_configuration_changes()
+        self.print_data_record_changes()
         self.print_pretrained_components()
 
         # Print every split folder with its number of samples, described by the task, kept for the MLflow parameters
@@ -774,6 +847,27 @@ class BaseTrainer(ABC):
             print_color(color="yellow", output=f"    - {setting_key:<{key_width}} : "
                                                f"{format_setting_value(value=previous_value)} -> "
                                                f"{format_setting_value(value=current_value)}")
+
+    def print_data_record_changes(self) -> None:
+        """
+        Prints, in the experiment information of a resumed run, whether its data changed since its last start (see
+        save_data_record): the splits whose data folder or labels file changed, with the file keeping the previous
+        record of the data. Nothing is printed for a run that does not resume from a checkpoint.
+        """
+        if self.data_record_changes is None:
+            return
+        resumed_iteration = self.data_record_changes["resumed_iteration"]
+        changed_splits = self.data_record_changes["changed_splits"]
+        if not changed_splits:
+            print_color(color="blue", output=f"- Changed Data Splits     : None Since Iteration {resumed_iteration}")
+            return
+
+        # File keeping the previous record, then the changed splits
+        archived_data_record_path = self.data_record_changes["archived_data_record_path"]
+        print_color(color="yellow", output=f"- Previous Data Record    : "
+                                           f"{format_path_link(path=archived_data_record_path)}")
+        print_color(color="yellow", output=f"- Changed Data Splits     : {', '.join(changed_splits)} Since Iteration "
+                                           f"{resumed_iteration}")
 
     def print_pretrained_components(self) -> None:
         """
@@ -1207,6 +1301,13 @@ class BaseTrainer(ABC):
             f"training_configuration_resume_{resumed_iteration}.yaml"
         self.experiment_tracker.log_artifact(file_path=self.configuration_path, artifact_folder="configuration",
                                              artifact_name=artifact_name)
+
+        # The record of the data is sent when this start wrote it: a new run, or a resumed run whose data changed
+        if self.data_record_changes is None or self.data_record_changes["changed_splits"]:
+            data_record_name = None if self.data_record_changes is None else \
+                f"data_resume_{self.data_record_changes['resumed_iteration']}.json"
+            self.experiment_tracker.log_artifact(file_path=self.data_record_path, artifact_folder="data",
+                                                 artifact_name=data_record_name)
 
     def log_interval_metrics(self, iteration: int, training_trackers: Dict[str, Any],
                              validation_trackers: Optional[Dict[str, Any]]) -> None:

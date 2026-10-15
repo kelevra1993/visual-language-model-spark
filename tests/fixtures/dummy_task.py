@@ -4,6 +4,7 @@ vision_training/trainers/base_trainer.py with the smallest code, used by the tra
 evaluation tests to check the general training loop without any real model or dataset.
 """
 
+import hashlib
 import numpy as np
 import torch
 
@@ -187,6 +188,23 @@ class DummyTrainer(BaseTrainer):
         """
         number_samples = len(self.datasets[Path(split_data_folder).name])
         return number_samples, f"{number_samples} samples"
+
+    def record_split(self, split_data_folder: Path) -> Dict[str, Any]:
+        """
+        Describes a split for the record of the data of the run, the dummy splits having no labels file: the samples
+        named after their identifiers, and the SHA-256 of these names standing for the one of a labels file.
+
+        Args:
+            split_data_folder (Path): The split folder of the configuration ('train', 'validation' or 'test').
+
+        Returns:
+            Dict[str, Any]: The 'data_folder', 'labels_sha256', 'number_images' and 'images' of the split.
+        """
+        images = [f"sample_{sample_identifier}"
+                  for sample_identifier in self.datasets[Path(split_data_folder).name].sample_identifiers]
+        return {"data_folder": str(split_data_folder),
+                "labels_sha256": hashlib.sha256("\n".join(images).encode()).hexdigest(),
+                "number_images": len(images), "images": images}
 
     def prepare_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
