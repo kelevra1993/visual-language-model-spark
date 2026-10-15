@@ -22,10 +22,10 @@ Every item of the implementation plan of `README.md`, ticked once its code is co
 - [x] 2. `vision_training/data/view_augmentations.py`
 - [x] 3. `vision_training/data/loaders.py`: `get_self_supervised_dataloaders`
 - [x] 4. `vision_training/core/contracts.py`: `SelfSupervisedBatch`
-- [ ] 5. `vision_training/losses/self_supervised_losses.py`
-- [ ] 6. `vision_training/models/self_supervised/projection_head.py`
-- [ ] 7. `vision_training/models/self_supervised/self_supervised_model.py`
-- [ ] 8. `vision_training/models/self_supervised/inference_encoder.py`
+- [x] 5. `vision_training/losses/self_supervised_losses.py`
+- [x] 6. `vision_training/models/self_supervised/projection_head.py`
+- [x] 7. `vision_training/models/self_supervised/self_supervised_model.py`
+- [x] 8. `vision_training/models/self_supervised/inference_encoder.py`
 - [ ] 9. `vision_training/evaluation/self_supervised/representation_metrics.py`
 - [ ] 10. `vision_training/trainers/self_supervised_trainer.py`
 - [ ] 11. `vision_training/configuration_processing/self_supervised_checks.py`
