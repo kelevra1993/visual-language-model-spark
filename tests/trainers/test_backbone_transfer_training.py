@@ -518,7 +518,8 @@ def test_averaged_run_of_9_classes_initialises_a_run_of_20_classes(tmp_path: Pat
                                             task="classification", moving_average=True)
     assert source_trainer.run_name.endswith("_MC9") and target_trainer.run_name.endswith("-HPT_MC20")
     console_output = capsys.readouterr().out
-    assert "Classification Head : 9 Classes Of The Source Run Kept, 11 New Classes Added After Them." in console_output
+    assert ("Classification Head : 9 Classes Of The Source Run Kept, 11 New Classes Added After Them, Built From The "
+            "Source Classes.") in console_output
     assert "Backbone Initialised From The Averaged Weights Of" in console_output
     assert "Classification Head Initialised From The Averaged Weights Of" in console_output
 
