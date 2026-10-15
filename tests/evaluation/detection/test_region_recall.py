@@ -1,9 +1,9 @@
 """
 Tests of vision_training/evaluation/detection/region_recall.py, the anchor recall measured at the launch of the
 object detection and instance segmentation runs and the proposal recall of every evaluated checkpoint: the training
-boxes read from the annotations and placed like the images, the best anchor overlaps whatever the chunk size, the
-recall of all the objects and of every size, the rows and table of anchor_recall.csv, and the proposal recall of the
-valid proposals only, with its rows, scalars and table.
+boxes read from the annotations (from the segmentation for the instance segmentation) and placed like the images,
+the best anchor overlaps whatever the chunk size, the recall of all the objects and of every size, the rows and table
+of anchor_recall.csv, and the proposal recall of the valid proposals only, with its rows, scalars and table.
 """
 
 import json
@@ -176,3 +176,26 @@ def test_proposal_recall_without_any_image() -> None:
         proposal_accumulator=create_proposal_recall_accumulator(levels=[3]))
     assert all(row["objects"] == 0 and row["recall_50"] is None for row in proposal_recall["rows"])
     assert proposal_recall["scalars"] == {"Proposals Per Image/all": 0.0, "Proposals Per Image/block_3": 0.0}
+
+
+def test_instance_segmentation_object_boxes_come_from_the_segmentation(tmp_path: Path) -> None:
+    """
+    Verifies that the boxes of the training objects of an instance segmentation split, whose annotations have no
+    'bbox', are read from their segmentation, without any image file being read.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    labels_file = tmp_path / "labels.json"
+    labels_file.write_text(json.dumps({
+        "images": [{"id": 1, "file_name": "square.png", "width": 80, "height": 80}],
+        "annotations": [{"id": 1, "image_id": 1, "category_id": 1, "iscrowd": 0,
+                         "segmentation": [[10.0, 20.0, 30.0, 20.0, 30.0, 50.0, 10.0, 50.0]]},
+                        {"id": 2, "image_id": 1, "category_id": 1, "iscrowd": 0,
+                         "segmentation": {"size": [80, 80], "counts": [80 * 40 + 5, 10, 80 * 40 - 15]}}],
+        "categories": [{"id": 1, "name": "first"}]}))
+    dataset = CocoDetectionDataset(data_directory=str(tmp_path / "missing"), labels_file=str(labels_file),
+                                   image_size=80, keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1},
+                                   load_instance_masks=True, shuffle=False)
+    object_boxes = gather_training_object_boxes(dataset=dataset)
+    assert torch.equal(object_boxes, torch.tensor(data=[[10.0, 20.0, 30.0, 50.0], [40.0, 5.0, 41.0, 15.0]]))

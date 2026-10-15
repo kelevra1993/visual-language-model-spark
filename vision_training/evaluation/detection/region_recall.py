@@ -49,10 +49,12 @@ def gather_training_object_boxes(dataset: CocoDetectionDataset) -> torch.Tensor:
     """
     object_boxes = []
     for image_information in dataset.images:
-        # Objects of the image the network learns, in original pixels
+        # Objects of the image the network learns, in original pixels, the instance segmentation boxes coming from
+        # the segmentation of every object like in the dataset
         image_annotations = dataset.image_to_annotations.get(image_information["id"], [])
         bounding_boxes, _, _ = select_image_objects(annotations=image_annotations, label_mode=dataset.label_mode,
-                                                    label_dictionary=dataset.label_dictionary)
+                                                    label_dictionary=dataset.label_dictionary,
+                                                    boxes_from_segmentation=dataset.load_instance_masks)
         if not bounding_boxes:
             continue
 

@@ -18,6 +18,7 @@ from torchvision.transforms.v2 import functional as vision_functional
 from torchvision.transforms.v2 import InterpolationMode
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
+from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
 
 # kornia decorates some of its functions with torch.jit.script when it is imported, which recent PyTorch versions
 # report as deprecated; the notice is harmless and cannot be fixed on our side, so it is silenced for this import only
@@ -223,7 +224,7 @@ class DataAugmenter:
         if moves_instance_masks:
             instance_masks, mask = mask, None
             if geometry_changed:
-                bounding_boxes = self.compute_mask_bounding_boxes(instance_masks=instance_masks).to(
+                bounding_boxes = compute_mask_bounding_boxes(instance_masks=instance_masks).to(
                     dtype=bounding_boxes.dtype)
                 visible_mask_pixels = instance_masks.flatten(start_dim=1).sum(dim=1, dtype=torch.float32)
                 expected_mask_pixels = original_mask_pixels * area_scale
@@ -313,33 +314,6 @@ class DataAugmenter:
         """
         is_activated, probability = self.type_settings[augmentation_type]
         return is_activated and random.random() < probability
-
-    @staticmethod
-    def compute_mask_bounding_boxes(instance_masks: torch.Tensor) -> torch.Tensor:
-        """
-        Gives the tight box of every instance mask, which replaces the moved box of its object after a geometric
-        augmentation of the instance segmentation (a rotated box would become the larger enclosing box of its
-        corners). An empty mask, whose object left the image, gives an empty box, removed by clean_bounding_boxes.
-
-        Args:
-            instance_masks (torch.Tensor): The [N, H, W] binary masks.
-
-        Returns:
-            torch.Tensor: The [N, 4] float [x1, y1, x2, y2] boxes, x2 and y2 one past the last pixel of the mask.
-        """
-        mask_height, mask_width = instance_masks.shape[-2], instance_masks.shape[-1]
-        occupied_pixels = instance_masks > 0
-        occupied_rows, occupied_columns = occupied_pixels.any(dim=2), occupied_pixels.any(dim=1)
-
-        # First occupied row and column from the start, last ones from the end
-        y_1 = occupied_rows.int().argmax(dim=1)
-        y_2 = mask_height - occupied_rows.flip(dims=(1,)).int().argmax(dim=1)
-        x_1 = occupied_columns.int().argmax(dim=1)
-        x_2 = mask_width - occupied_columns.flip(dims=(1,)).int().argmax(dim=1)
-        boxes = torch.stack(tensors=[x_1, y_1, x_2, y_2], dim=1).float()
-
-        # The empty masks give an empty box
-        return torch.where(occupied_rows.any(dim=1)[:, None], boxes, torch.zeros_like(boxes))
 
     @staticmethod
     def clean_bounding_boxes(bounding_boxes: torch.Tensor, labels: torch.Tensor, image_height: int, image_width: int,

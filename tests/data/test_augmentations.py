@@ -15,6 +15,7 @@ from typing import Any, Dict, List
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, GEOMETRIC_AUGMENTATION_TYPES,
                                                  MINIMUM_CROP_FRACTION, PHOTOMETRIC_AUGMENTATION_TYPES)
+from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
 
 IMAGE_SIZE = 96
 
@@ -382,7 +383,7 @@ def test_geometric_augmentation_moves_instance_masks_and_recomputes_boxes(augmen
                               atol=BOX_TOLERANCES[augmentation_type])
 
         # Every box is the tight box of its moved mask
-        assert torch.equal(input=boxes[0], other=DataAugmenter.compute_mask_bounding_boxes(
+        assert torch.equal(input=boxes[0], other=compute_mask_bounding_boxes(
             instance_masks=moved_masks[0]))
 
 
@@ -414,7 +415,7 @@ def test_instance_masks_of_removed_objects_and_images_without_objects() -> None:
     # An empty mask gives an empty box, removed together with its label and mask
     instance_masks = torch.zeros(size=(2, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
     instance_masks[1, 5:9, 10:20] = 1
-    mask_boxes = DataAugmenter.compute_mask_bounding_boxes(instance_masks=instance_masks)
+    mask_boxes = compute_mask_bounding_boxes(instance_masks=instance_masks)
     assert mask_boxes.tolist() == [[0.0, 0.0, 0.0, 0.0], [10.0, 5.0, 20.0, 9.0]]
     kept_boxes, kept_labels, kept_masks = DataAugmenter.clean_bounding_boxes(
         bounding_boxes=mask_boxes, labels=torch.tensor(data=[3, 4]), image_height=IMAGE_SIZE,
