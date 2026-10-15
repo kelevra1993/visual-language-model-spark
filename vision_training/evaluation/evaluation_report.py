@@ -19,22 +19,28 @@ from vision_training.evaluation.report_formatting import (TIMESTAMP_FORMAT, buil
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 
-def write_class_metrics_file(class_rows: List[Dict[str, Any]], evaluation_folder: Path) -> Path:
+def write_class_metrics_file(class_rows: List[Dict[str, Any]], evaluation_folder: Path,
+                             file_name: str = "class_metrics.csv") -> Path:
     """
     Saves the metrics of every class of an evaluated checkpoint to 'class_metrics.csv' in its evaluation folder, at
     every evaluation whatever the per-class report, so that the details of every class stay available on the disk
     even for runs with many classes: one row per class in class index order, floats with 6 decimals, missing values
-    as empty cells.
+    as empty cells. The other metric tables of the detection tasks are saved the same way under their own name: the
+    proposal recall of a checkpoint (proposal_recall.csv) and the anchor recall of the run (anchor_recall.csv, in the
+    run folder).
 
     Args:
-        class_rows (List[Dict[str, Any]]): The metrics of every class, keyed by column name, in class index order.
-        evaluation_folder (Path): The evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/'.
+        class_rows (List[Dict[str, Any]]): The metrics of every class (or of every row of the table), keyed by column
+            name, in class index order.
+        evaluation_folder (Path): The folder of the file, the evaluation folder of the checkpoint,
+            '<run>/Evaluation/Iteration_<n>/', or the run folder for the anchor recall.
+        file_name (str): The name of the file. Defaults to "class_metrics.csv".
 
     Returns:
         Path: The written file.
     """
     evaluation_folder.mkdir(parents=True, exist_ok=True)
-    class_metrics_path = evaluation_folder / "class_metrics.csv"
+    class_metrics_path = evaluation_folder / file_name
     with open(file=class_metrics_path, mode="w", newline="") as class_metrics_file:
         writer = csv.DictWriter(f=class_metrics_file, fieldnames=list(class_rows[0]) if class_rows else [])
         writer.writeheader()

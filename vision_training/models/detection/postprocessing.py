@@ -32,7 +32,8 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
             produce a detection (used by the exportable inference path, which pads with placeholder proposals).
         score_threshold (float): The minimum class probability of a returned detection.
         nms_iou_threshold (float): The IoU above which a lower scoring box of the same class is suppressed.
-        maximum_detections (int): The fixed number K of detections returned per image.
+        maximum_detections (int): The fixed number K of detections returned per image, padded when the image has
+            fewer (proposal, foreground class) pairs, as in the validation, which classifies the sampled proposals only.
         input_image_size (int): The size of the square network input, used to clip the boxes to the image.
 
     Returns:
@@ -69,6 +70,13 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
     kept_mask = kept_mask.reshape(batch_size, -1) & (probabilities >= score_threshold) & \
         valid_candidate_mask.reshape(batch_size, -1)
     candidate_scores = torch.where(kept_mask, probabilities, torch.full_like(input=probabilities, fill_value=-1.0))
+
+    # Append maximum_detections invalid candidates (empty box, background label), so that an image with fewer
+    # candidates than detections (few proposals and classes) still fills its fixed number of detections, without
+    # any Python condition on the tensor sizes that the exports would freeze
+    candidate_scores = torch.nn.functional.pad(input=candidate_scores, pad=(0, maximum_detections), value=-1.0)
+    boxes = torch.nn.functional.pad(input=boxes, pad=(0, 0, 0, maximum_detections))
+    labels = torch.nn.functional.pad(input=labels, pad=(0, maximum_detections))
 
     # Select the fixed number of best detections per image and zero out the padded entries
     top_scores, top_indices = torch.topk(input=candidate_scores, k=maximum_detections, dim=1)

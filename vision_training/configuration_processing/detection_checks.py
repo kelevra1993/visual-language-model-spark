@@ -1,8 +1,8 @@
 """
-Checks of the configuration sections specific to the object detection task: the detection levels, the anchors, the
-region proposal network, the detector heads, the proposal and anchor sampling and the evaluation settings. Run by
-configuration_checker.py for the object_detection task, and by instance_segmentation_checks.py for the instance
-segmentation task, which adds its mask heads to the detector.
+Checks of the configuration sections specific to the object detection task: the detection levels (anchors, region
+proposal and detection heads of every level), the region proposal network, the detector heads, the proposal and anchor
+sampling and the evaluation settings. Run by configuration_checker.py for the object_detection task, and by
+instance_segmentation_checks.py for the instance segmentation task, which adds its mask heads to the detector.
 """
 
 import math
@@ -21,12 +21,65 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            get_configuration_value)
 
 
+# Settings of every detection level of the object detection, the instance segmentation adding the mask head of the
+# level ('mask_head', checked by instance_segmentation_checks.py)
+DETECTION_LEVEL_COMPONENTS = ["anchors", "region_proposal", "detector"]
+MASK_HEAD_LEVEL_COMPONENT = "mask_head"
+
+
+def check_convolution_layers(convolutions: Any, key_path: str, inception: Any) -> List[str]:
+    """
+    Verifies the [number_layers, output_channels] convolution block of a head of a detection level (region proposal,
+    detection or mask head), shared by the object detection and instance segmentation checks: two positive integers,
+    the output channels being a multiple of 8 when the heads use inception modules.
+
+    Args:
+        convolutions (Any): The configured convolutions of the head.
+        key_path (str): The location of the convolutions in the YAML file, named in the errors.
+        inception (Any): The 'modules.inception' flag of the heads, False for the region proposal heads, which have
+            no modules.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    if not isinstance(convolutions, list) or len(convolutions) != 2 or \
+            not all(isinstance(value, int) and not isinstance(value, bool) and value >= 1 for value in convolutions):
+        return [f"'{key_path}' must be [number_layers, output_channels] with positive integers, got {convolutions!r}."]
+    if inception is True and convolutions[1] % 8 != 0:
+        return [f"'{key_path}' has {convolutions[1]} output channels, inception modules require a multiple of 8."]
+    return []
+
+
+def list_checked_detection_levels(model_configuration: Dict[str, Any], component_names: List[str]) -> List[str]:
+    """
+    Lists the levels of the 'DetectionLevels' section whose settings can be read by their key path, the quoted block
+    numbers holding a dictionary with the components to check, so that the checks of the settings of every level (here
+    and in instance_segmentation_checks.py) skip the levels already reported by check_detection_levels.
+
+    Args:
+        model_configuration (Dict[str, Any]): The model configuration.
+        component_names (List[str]): The components of a level whose settings are checked, e.g. ['mask_head'].
+
+    Returns:
+        List[str]: The keys of the levels whose settings are checked.
+    """
+    detection_levels = get_configuration_value(configuration=model_configuration, key_path="DetectionLevels")
+    if not isinstance(detection_levels, dict):
+        return []
+    return [level_key for level_key, level_configuration in detection_levels.items()
+            if isinstance(level_key, str) and isinstance(level_configuration, dict) and
+            all(component_name in level_configuration for component_name in component_names)]
+
+
 def check_detection_levels(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies that the same detection levels are configured everywhere. The TwoStageDetector builds one set of
-    anchors, one Region Proposal head and one Detection head per detection block, so the three per-level dictionaries
-    must use exactly the block numbers listed in 'Backbone.detection_convolution_block_indices', like the mask heads of
-    the instance segmentation when its 'MaskHead' section exists.
+    Verifies the 'DetectionLevels' section, which lists the backbone blocks feeding the detection heads with the
+    settings of every level: its anchors, its region proposal head and its detection head, and its mask head for the
+    instance segmentation (whose settings are checked by instance_segmentation_checks.py). The TwoStageDetector builds
+    one set of anchors and one head of every kind per level, so the levels must be quoted numbers of existing backbone
+    blocks, from the finest to the coarsest one, each holding exactly the settings of the heads of the task. The anchor
+    scales are anchor sizes in pixels, positive integers fitting in the input image, and the aspect ratios (height /
+    width) positive numbers.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration.
@@ -34,73 +87,88 @@ def check_detection_levels(model_configuration: Dict[str, Any]) -> List[str]:
     Returns:
         List[str]: The description of every inconsistency found.
     """
+    detection_levels = get_configuration_value(configuration=model_configuration, key_path="DetectionLevels")
+    if not isinstance(detection_levels, dict) or not detection_levels:
+        return [f"'DetectionLevels' must map at least one backbone block number to the settings of its level, got "
+                f"{detection_levels!r}."]
     errors = []
-    detection_block_indices = get_configuration_value(configuration=model_configuration,
-                                                      key_path="Backbone.detection_convolution_block_indices")
-    expected_levels = sorted(str(index) for index in detection_block_indices)
 
-    # The detector needs at least one detection block feeding its heads
-    if not detection_block_indices:
-        errors.append("'Backbone.detection_convolution_block_indices' must list at least one block for the object "
-                      "detection task.")
+    # Levels are quoted numbers of the backbone blocks, listed from the finest to the coarsest one
+    backbone_convolutions = get_configuration_value(configuration=model_configuration,
+                                                    key_path="Backbone.convolutions")
+    number_blocks = len(backbone_convolutions) if isinstance(backbone_convolutions, dict) else 0
+    valid_level_keys = [str(block_number) for block_number in range(1, number_blocks + 1)]
+    level_keys = list(detection_levels.keys())
+    if any(level_key not in valid_level_keys for level_key in level_keys):
+        errors.append(f"'DetectionLevels' keys must be quoted backbone block numbers between \"1\" and "
+                      f"\"{number_blocks}\", got {level_keys!r}.")
+    elif level_keys != sorted(level_keys, key=int):
+        errors.append(f"'DetectionLevels' keys must be in increasing order, got {level_keys!r}.")
 
-    # Compare the levels of every per-level dictionary with the Backbone detection blocks
-    per_level_key_paths = ["Anchors.scales_and_ratios", "RegionProposal.head_configurations",
-                           "Detector.head_configurations"]
-    if "MaskHead" in model_configuration:
-        per_level_key_paths.append("MaskHead.head_configurations")
-    for key_path in per_level_key_paths:
-        levels = sorted(get_configuration_value(configuration=model_configuration, key_path=key_path).keys())
-        if levels != expected_levels:
-            errors.append(f"'{key_path}' levels {levels} do not match "
-                          f"'Backbone.detection_convolution_block_indices' {expected_levels}.")
-
-    return errors
-
-
-def check_anchors_configuration(model_configuration: Dict[str, Any]) -> List[str]:
-    """
-    Verifies the anchor scales and aspect ratios of every detection level. Scales are anchor sizes in pixels, so
-    they must be positive integers that fit in the input image; aspect ratios (height / width) must be positive.
-
-    Args:
-        model_configuration (Dict[str, Any]): The model configuration containing the 'Anchors' section.
-
-    Returns:
-        List[str]: The description of every inconsistency found.
-    """
-    errors = []
-    image_size = get_configuration_value(configuration=model_configuration, key_path="Data.image_settings.size")
-    scales_and_ratios = get_configuration_value(configuration=model_configuration,
-                                                key_path="Anchors.scales_and_ratios")
+    # Every level holds the settings of the heads of the task, the mask head for the instance segmentation only
+    expected_components = DETECTION_LEVEL_COMPONENTS + (
+        [MASK_HEAD_LEVEL_COMPONENT] if "MaskHead" in model_configuration else [])
+    for level_key, level_configuration in detection_levels.items():
+        level_components = list(level_configuration) if isinstance(level_configuration, dict) else level_configuration
+        if not isinstance(level_configuration, dict) or sorted(level_configuration) != sorted(expected_components):
+            errors.append(f"'DetectionLevels.{level_key}' must hold exactly {expected_components}, got "
+                          f"{level_components!r}.")
 
     # Bound the scales by the image size, unless the image size itself is invalid (reported by the Data check)
+    image_size = get_configuration_value(configuration=model_configuration, key_path="Data.image_settings.size")
     maximum_scale = image_size if isinstance(image_size, int) and not isinstance(image_size, bool) else math.inf
+    detector_inception = get_configuration_value(configuration=model_configuration,
+                                                 key_path="Detector.modules.inception")
 
-    # Check the scales and aspect ratios of each level
-    for level in scales_and_ratios:
-        scales = get_configuration_value(configuration=model_configuration,
-                                         key_path=f"Anchors.scales_and_ratios.{level}.scales")
+    # Settings of the anchors and of the heads of every level
+    for level_key in list_checked_detection_levels(model_configuration=model_configuration,
+                                                   component_names=DETECTION_LEVEL_COMPONENTS):
+        key_prefix = f"DetectionLevels.{level_key}"
+
+        # Anchor sizes in pixels and height / width ratios
+        scales = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.anchors.scales")
         aspect_ratios = get_configuration_value(configuration=model_configuration,
-                                                key_path=f"Anchors.scales_and_ratios.{level}.aspect_ratios")
-
-        if not scales or not all(isinstance(scale, int) and not isinstance(scale, bool) and 0 < scale <= maximum_scale
-                                 for scale in scales):
-            errors.append(f"'Anchors.scales_and_ratios.{level}.scales' must be integers within [1, {maximum_scale}], "
+                                                key_path=f"{key_prefix}.anchors.aspect_ratios")
+        if not isinstance(scales, list) or not scales or \
+                not all(isinstance(scale, int) and not isinstance(scale, bool) and 0 < scale <= maximum_scale
+                        for scale in scales):
+            errors.append(f"'{key_prefix}.anchors.scales' must be integers within [1, {maximum_scale}], "
                           f"got {scales!r}.")
-        if not aspect_ratios or not all(isinstance(ratio, (int, float)) and not isinstance(ratio, bool) and ratio > 0
-                                        for ratio in aspect_ratios):
-            errors.append(f"'Anchors.scales_and_ratios.{level}.aspect_ratios' must be positive numbers, "
-                          f"got {aspect_ratios!r}.")
+        if not isinstance(aspect_ratios, list) or not aspect_ratios or \
+                not all(isinstance(ratio, (int, float)) and not isinstance(ratio, bool) and ratio > 0
+                        for ratio in aspect_ratios):
+            errors.append(f"'{key_prefix}.anchors.aspect_ratios' must be positive numbers, got {aspect_ratios!r}.")
+
+        # Region proposal head, described by the [number of layers, number of output channels] of its convolutions
+        errors += check_convolution_layers(
+            convolutions=get_configuration_value(configuration=model_configuration,
+                                                 key_path=f"{key_prefix}.region_proposal.convolutions"),
+            key_path=f"{key_prefix}.region_proposal.convolutions", inception=False)
+
+        # Detection head: its RoIAlign pool size, its convolution block and its fully connected layers
+        errors += check_positive_integers(configuration=model_configuration,
+                                          key_paths=[f"{key_prefix}.detector.roi_align_pool_size"], allow_zero=False)
+        errors += check_convolution_layers(
+            convolutions=get_configuration_value(configuration=model_configuration,
+                                                 key_path=f"{key_prefix}.detector.convolutions"),
+            key_path=f"{key_prefix}.detector.convolutions", inception=detector_inception)
+        fully_connected = get_configuration_value(configuration=model_configuration,
+                                                  key_path=f"{key_prefix}.detector.fully_connected")
+        if not isinstance(fully_connected, list) or not fully_connected or \
+                not all(isinstance(value, int) and not isinstance(value, bool) and value >= 1
+                        for value in fully_connected):
+            errors.append(f"'{key_prefix}.detector.fully_connected' must be a non-empty list of positive integers, "
+                          f"got {fully_connected!r}.")
 
     return errors
 
 
 def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'RegionProposal' section: head definitions, IoU thresholds used to label anchors, proposal counts
-    kept around non-maximum suppression, the anchor sampling budget of the proposal losses, and the 'pretrained'
-    settings initialising the heads with those of another run.
+    Verifies the 'RegionProposal' section, the settings shared by the region proposal heads of every level (their
+    convolutions being checked with the levels): the normalization, the IoU thresholds used to label anchors, the
+    proposal counts kept around non-maximum suppression, the anchor sampling budget of the proposal losses, and the
+    'pretrained' settings initialising the heads with those of another run.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'RegionProposal' section.
@@ -109,16 +177,6 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
         List[str]: The description of every inconsistency found.
     """
     errors = []
-
-    # Each head is described by [number of layers, number of output channels]
-    head_configurations = get_configuration_value(configuration=model_configuration,
-                                                  key_path="RegionProposal.head_configurations")
-    for level, head_definition in head_configurations.items():
-        if not isinstance(head_definition, list) or len(head_definition) != 2 or \
-                not all(isinstance(value, int) and not isinstance(value, bool) and value >= 1
-                        for value in head_definition):
-            errors.append(f"'RegionProposal.head_configurations.{level}' must be [number_layers, output_channels] "
-                          f"with positive integers, got {head_definition!r}.")
 
     # Feature map normalization strategy of the region proposal convolution blocks, and the momentum of its batch
     # statistics
@@ -183,9 +241,10 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
 
 def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'Detector' section: head definitions, normalization, modules, IoU thresholds, that the proposal
-    sampling budget fits within the proposals kept by the Region Proposal stage during training, and the 'pretrained'
-    settings initialising the heads with those of another run.
+    Verifies the 'Detector' section, the settings shared by the detection heads of every level (their pool size,
+    convolutions and fully connected layers being checked with the levels): the normalization, the modules, the IoU
+    thresholds, that the proposal sampling budget fits within the proposals kept by the Region Proposal stage during
+    training, and the 'pretrained' settings initialising the heads with those of another run.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Detector' section.
@@ -194,32 +253,6 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
         List[str]: The description of every inconsistency found.
     """
     errors = []
-    inception = get_configuration_value(configuration=model_configuration, key_path="Detector.modules.inception")
-
-    # Each head defines its RoIAlign pool size, its convolution block and its fully connected layers
-    head_configurations = get_configuration_value(configuration=model_configuration,
-                                                  key_path="Detector.head_configurations")
-    for level in head_configurations:
-        key_prefix = f"Detector.head_configurations.{level}"
-        errors += check_positive_integers(configuration=model_configuration,
-                                          key_paths=[f"{key_prefix}.roi_align_pool_size"], allow_zero=False)
-
-        convolutions = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.convolutions")
-        if not isinstance(convolutions, list) or len(convolutions) != 2 or \
-                not all(isinstance(value, int) and not isinstance(value, bool) and value >= 1 for value in convolutions):
-            errors.append(f"'{key_prefix}.convolutions' must be [number_layers, output_channels] with positive "
-                          f"integers, got {convolutions!r}.")
-        elif inception is True and convolutions[1] % 8 != 0:
-            errors.append(f"'{key_prefix}.convolutions' has {convolutions[1]} output channels, inception modules "
-                          f"require a multiple of 8.")
-
-        fully_connected = get_configuration_value(configuration=model_configuration,
-                                                  key_path=f"{key_prefix}.fully_connected")
-        if not isinstance(fully_connected, list) or not fully_connected or \
-                not all(isinstance(value, int) and not isinstance(value, bool) and value >= 1
-                        for value in fully_connected):
-            errors.append(f"'{key_prefix}.fully_connected' must be a non-empty list of positive integers, "
-                          f"got {fully_connected!r}.")
 
     # Feature map normalization strategy, momentum of its batch statistics and module flags of the detection head
     # convolution blocks
@@ -346,7 +379,7 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
                                   model_configuration: Dict[str, Any]) -> List[str]:
     """
     Runs every check specific to the object detection task: its evaluation settings, its data settings without the
-    sequence settings, its detection levels, anchors, region proposal and detector sections.
+    sequence settings, its detection levels (anchors and heads of every level), region proposal and detector sections.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -359,7 +392,6 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
     errors += check_detection_evaluation_configuration(experiment_configuration=experiment_configuration)
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
     errors += check_detection_levels(model_configuration=model_configuration)
-    errors += check_anchors_configuration(model_configuration=model_configuration)
     errors += check_region_proposal_configuration(model_configuration=model_configuration)
     errors += check_detector_configuration(model_configuration=model_configuration)
     return errors

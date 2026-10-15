@@ -20,6 +20,9 @@ from vision_training.data.augmentations import AUGMENTATION_TYPES
 # Label mapping modes handled by the configuration loader
 VALID_LABEL_MODES = ["binary", "multi_class"]
 
+# Channels of the images given by the loaders of every task (BGR) and taken by the exported models
+IMAGE_CHANNELS = 3
+
 # Optimizers and learning rate schedules of the 'Optimization' section
 VALID_OPTIMIZERS = ["adam", "adamw", "sgd"]
 VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
@@ -230,8 +233,11 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
             errors.append(f"'Backbone.convolutions.{block_key}' must be [number_layers, output_channels] with "
                           f"positive integers, got {block_definition!r}.")
 
-    errors += check_positive_integers(configuration=model_configuration, key_paths=["Backbone.input_channels"],
-                                      allow_zero=False)
+    # The loaders of every task give 3-channel BGR images, and the exports take 3-channel inputs
+    input_channels = get_configuration_value(configuration=model_configuration, key_path="Backbone.input_channels")
+    if isinstance(input_channels, bool) or input_channels != IMAGE_CHANNELS:
+        errors.append(f"'Backbone.input_channels' must be {IMAGE_CHANNELS}, the loaders giving 3-channel BGR images "
+                      f"and the exports taking 3-channel inputs, got {input_channels!r}.")
     errors += check_boolean_flags(configuration=model_configuration,
                                   key_paths=["Backbone.last_max_pooling", "Backbone.normalization.input_normalization",
                                              "Backbone.normalization.per_sample_normalization",
@@ -255,17 +261,6 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
                       f"{BACKBONE_FEATURE_MAP_NORMALIZATIONS}, got {feature_map_normalization!r}.")
     errors += check_batch_normalization_momentum(configuration=model_configuration,
                                                  key_path="Backbone.normalization.batch_normalization_momentum")
-
-    # Blocks feeding task heads (detection levels) must exist in the Backbone and be listed from the finest to the
-    # coarsest level; the tasks whose heads use the final feature map list none
-    detection_block_indices = get_configuration_value(configuration=model_configuration,
-                                                      key_path="Backbone.detection_convolution_block_indices")
-    if any(index not in range(1, number_blocks + 1) for index in detection_block_indices):
-        errors.append(f"'Backbone.detection_convolution_block_indices' must be block numbers between 1 and "
-                      f"{number_blocks}, got {detection_block_indices!r}.")
-    elif detection_block_indices != sorted(set(detection_block_indices)):
-        errors.append(f"'Backbone.detection_convolution_block_indices' must be unique and in increasing order, "
-                      f"got {detection_block_indices!r}.")
 
     # Every block except the last one is followed by a max pooling layer, the last one only if requested
     image_size = get_configuration_value(configuration=model_configuration, key_path="Data.image_settings.size")

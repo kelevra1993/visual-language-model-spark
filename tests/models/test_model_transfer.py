@@ -6,8 +6,7 @@ between window lengths, source runs missing a setting (the pre-activation flag o
 frozen and fixed normalization parameters and backbones moving between batch and sequence normalization. The runs
 adding classes after those of their source run are covered too: the class layers of the classification, detection and
 mask heads and of the semantic segmentation grown to the new classes, the classes of another order or fewer classes
-rejected, the source runs without class names, the mask heads of the runs written before the mask geometry, and the
-averaged or trained weights read from the source checkpoint.
+rejected, the source runs without class names, and the averaged or trained weights read from the source checkpoint.
 """
 
 import copy
@@ -30,7 +29,7 @@ from vision_training.models.model_transfer import (NEW_CLASS_BIAS_OFFSET, NORMAL
                                                    freeze_component, freeze_normalization_parameters,
                                                    load_pretrained_component, load_segmentation_class_layers)
 from vision_training.models.task_model import TaskModel
-from vision_training.trainers.checkpointing import get_checkpoint_file, save_checkpoint
+from vision_training.trainers.checkpointing import save_checkpoint
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY, NUMBER_UPDATES_KEY
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
                                                    get_detection_model_configuration,
@@ -59,7 +58,6 @@ def get_classifier_configuration(detection_configuration: Dict[str, Any]) -> Dic
         Dict[str, Any]: The classifier configuration.
     """
     backbone_configuration = copy.deepcopy(detection_configuration["Backbone"])
-    backbone_configuration["detection_convolution_block_indices"] = []
     return {"Data": {"image_settings": {"size": 512}, "label_dictionary": {1: 0, 2: 1}},
             "Backbone": backbone_configuration,
             "ClassificationHead": {"global_pooling": "average", "fully_connected": [],
@@ -531,7 +529,7 @@ def test_order_blind_transformer_initialises_runs_of_other_sequence_lengths(tmp_
 def test_source_run_written_before_a_temporal_setting_is_rejected(tmp_path: Path) -> None:
     """
     Verifies that a transformer run written before the positional embedding flag existed is not read with a guessed
-    value: the transfer stops with the missing setting and the script migrating the run.
+    value: the transfer stops with the missing setting and asks for its value in the configuration of the run.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -560,7 +558,7 @@ def test_source_run_written_before_the_head_normalization_is_rejected(tmp_path: 
     """
     Verifies that a classification head of a run written before the normalization of the hidden layers existed, or
     with True or False before the layer normalization existed, is not read with a guessed value: the transfer stops
-    with the setting and the script migrating the run.
+    with the setting and the value to write in the configuration of the run.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1038,7 +1036,7 @@ def test_detection_heads_initialise_an_instance_segmenter(tmp_path: Path, capsys
     """
     _, source_detector = write_detector_run(run_folder=tmp_path / "detection_run")
     target_configuration, _, _ = get_detection_model_configuration(mask_head=True)
-    target_configuration["Anchors"]["scales_and_ratios"]["5"]["scales"] = [32, 64]
+    target_configuration["DetectionLevels"]["5"]["anchors"]["scales"] = [32, 64]
     instance_segmenter = build_task_model(task="instance_segmentation", configuration=target_configuration, seed=1)
     mask_heads_before = copy.deepcopy(instance_segmenter.mask_heads_dictionary.state_dict())
 
@@ -1092,11 +1090,7 @@ def add_detection_level(configuration: Dict[str, Any]) -> None:
     Args:
         configuration (Dict[str, Any]): The detector configuration, modified in place.
     """
-    configuration["Backbone"]["detection_convolution_block_indices"] = [5, 6, 7, 8]
-    for level_configurations in [configuration["Anchors"]["scales_and_ratios"],
-                                 configuration["RegionProposal"]["head_configurations"],
-                                 configuration["Detector"]["head_configurations"]]:
-        level_configurations["8"] = copy.deepcopy(level_configurations["7"])
+    configuration["DetectionLevels"]["8"] = copy.deepcopy(configuration["DetectionLevels"]["7"])
 
 
 def deepen_region_proposal_head(configuration: Dict[str, Any]) -> None:
@@ -1106,7 +1100,7 @@ def deepen_region_proposal_head(configuration: Dict[str, Any]) -> None:
     Args:
         configuration (Dict[str, Any]): The detector configuration, modified in place.
     """
-    configuration["RegionProposal"]["head_configurations"]["7"] = [3, 128]
+    configuration["DetectionLevels"]["7"]["region_proposal"]["convolutions"] = [3, 128]
 
 
 def add_anchor_scale(configuration: Dict[str, Any]) -> None:
@@ -1116,7 +1110,7 @@ def add_anchor_scale(configuration: Dict[str, Any]) -> None:
     Args:
         configuration (Dict[str, Any]): The detector configuration, modified in place.
     """
-    configuration["Anchors"]["scales_and_ratios"]["5"]["scales"] = [32, 64, 128]
+    configuration["DetectionLevels"]["5"]["anchors"]["scales"] = [32, 64, 128]
 
 
 def add_detection_head_residuals(configuration: Dict[str, Any]) -> None:
@@ -1140,10 +1134,10 @@ def remove_foreground_class(configuration: Dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize(argnames=("section_name", "modify_function", "expected_message"), argvalues=[
-    ("RegionProposal", add_detection_level, "'Backbone.detection_convolution_block_indices' is [5, 6, 7] in the "
-                                            "source run and [5, 6, 7, 8] in this run, the levels of the region "
+    ("RegionProposal", add_detection_level, "The detection levels are ['5', '6', '7'] in the source run and "
+                                            "['5', '6', '7', '8'] in this run, the levels of the region "
                                             "proposal heads."),
-    ("RegionProposal", deepen_region_proposal_head, "'RegionProposal.head_configurations' is"),
+    ("RegionProposal", deepen_region_proposal_head, "'DetectionLevels.7.region_proposal' is"),
     ("RegionProposal", add_anchor_scale, "The levels have {'5': 6, '6': 6, '7': 6} anchors per position in the source "
                                          "run and {'5': 9, '6': 6, '7': 6} in this run"),
     ("Detector", add_detection_level, "the levels of the detection heads."),
@@ -1487,34 +1481,6 @@ def test_mask_heads_of_another_mask_resolution_are_rejected(tmp_path: Path) -> N
                                   device=torch.device("cpu"))
     assert "The Mask Heads Of The Source Run" in str(error_information.value)
     assert "'MaskHead.mask_resolution' is 14 in the source run and 28 in this run." in str(error_information.value)
-
-
-def test_mask_heads_of_a_run_written_before_the_mask_geometry(tmp_path: Path) -> None:
-    """
-    Verifies that the mask heads of a run written before the mask geometry could be configured, whose checkpoint names
-    the single transposed convolution of every level '<level>.upsampling', initialise the current mask heads exactly.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    source_configuration, source_segmenter = write_detector_run(run_folder=tmp_path / "instance_run", mask_head=True)
-
-    # Checkpoint tensors renamed to the names of that time
-    checkpoint_path = get_checkpoint_file(weights_directory=tmp_path / "instance_run" / "Weights", iteration=3)
-    checkpoint = torch.load(f=checkpoint_path, weights_only=True)
-    checkpoint["model_state"] = {tensor_name.replace(".upsampling_layers.0.", ".upsampling."): tensor_value
-                                 for tensor_name, tensor_value in checkpoint["model_state"].items()}
-    torch.save(obj=checkpoint, f=checkpoint_path)
-
-    target_segmenter = build_task_model(task="instance_segmentation", configuration=source_configuration, seed=1)
-    load_pretrained_component(component=target_segmenter.mask_heads_dictionary, section_name="MaskHead",
-                              model_configuration=point_to_source_run(configuration=source_configuration,
-                                                                      section_name="MaskHead",
-                                                                      source_folder=tmp_path / "instance_run"),
-                              device=torch.device("cpu"))
-    for tensor_name, tensor_value in source_segmenter.mask_heads_dictionary.state_dict().items():
-        assert torch.equal(input=target_segmenter.mask_heads_dictionary.state_dict()[tensor_name],
-                           other=tensor_value), tensor_name
 
 
 def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

@@ -36,7 +36,7 @@ def test_region_proposer() -> None:
     # Create a dictionary of configurations to test various paths of the RegionProposal
     region_proposal_configurations = {
         "basic_region_proposal": {
-            "head_configurations": [2, 64],
+            "convolutions": [2, 64],
             "input_channels": input_channels,
             "scales": [32.0, 64.0],
             "aspect_ratios": [0.5, 1.0, 2.0],
@@ -47,7 +47,7 @@ def test_region_proposer() -> None:
             "device": device,
             "dtype": dtype},
         "complex_region_proposal": {
-            "head_configurations": [3, 32],
+            "convolutions": [3, 32],
             "input_channels": input_channels,
             "scales": [16.0, 32.0, 64.0, 128.0],
             "aspect_ratios": [0.5, 1.0, 2.0],
@@ -85,7 +85,8 @@ def test_proposal_filter_keeps_the_best_survivors_of_every_image() -> None:
     """
     Verifies the filtered proposals of a batch of two images: the duplicates of a better proposal are suppressed, the
     survivors of every image come in decreasing score order with their score and level, a proposal outside the
-    pre-suppression limit is never kept, and the image left with one survivor fills its other slots with copies of it.
+    pre-suppression limit is never kept, and the image left with one survivor fills its other slots with copies of it,
+    the mask of the survivors leaving these copies out.
     """
     proposal_filter = RegionProposalFilter(configuration={
         "training": {"pre_nms_proposals": 4, "post_nms_proposals": 3},
@@ -97,12 +98,13 @@ def test_proposal_filter_keeps_the_best_survivors_of_every_image() -> None:
     logits = torch.tensor(data=[[3.0, 2.0, 1.0, -5.0, -6.0], [3.0, 2.5, 2.2, 2.1, -6.0]])
     origins = torch.tensor(data=[[5, 6, 7, 5, 6], [7, 6, 5, 7, 6]])
 
-    filtered_boxes, filtered_scores, filtered_origins = proposal_filter(
+    filtered_boxes, filtered_scores, filtered_origins, valid_proposal_mask = proposal_filter(
         proposal_boxes=boxes, proposal_scores=logits, proposal_origins=origins, input_image_size=100)
     assert filtered_boxes[0].tolist() == [[0.0, 0.0, 10.0, 10.0], [20.0, 20.0, 30.0, 30.0], [40.0, 40.0, 50.0, 50.0]]
     assert torch.equal(input=filtered_scores[0], other=torch.sigmoid(input=logits[0, [0, 2, 3]]))
     assert filtered_origins.tolist() == [[5, 7, 5], [7, 7, 7]]
     assert filtered_boxes[1].tolist() == [[0.0, 0.0, 10.0, 10.0]] * 3
+    assert valid_proposal_mask.tolist() == [[True, True, True], [True, False, False]]
 
 
 def test_per_image_and_batched_suppressions_keep_the_same_proposals() -> None:

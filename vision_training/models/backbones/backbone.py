@@ -300,18 +300,22 @@ class Backbone(nn.Module):
 
 
 def build_backbone(backbone_configuration: Dict[str, Any], input_image_size: int, device: torch.device,
-                   dtype: torch.dtype) -> Backbone:
+                   dtype: torch.dtype, detection_convolution_block_indices: Optional[List[int]] = None) -> Backbone:
     """
     Builds the Backbone of a task model from the 'Backbone' configuration section. Every task model (detector,
     classifiers, sequence models) builds its feature extractor through this function, so that their backbones are
-    identical for identical settings and a backbone trained for one task can initialise another one.
+    identical for identical settings and a backbone trained for one task can initialise another one. Only the
+    two-stage detector of the object detection and instance segmentation gives the blocks feeding its heads, the
+    levels of its 'DetectionLevels' section; the other tasks read the final feature map or every block.
 
     Args:
-        backbone_configuration (Dict[str, Any]): The 'Backbone' configuration section (blocks, modules, normalization
-            and the blocks feeding task heads).
+        backbone_configuration (Dict[str, Any]): The 'Backbone' configuration section (blocks, modules and
+            normalization).
         input_image_size (int): The size of the square input images, used to compute the feature map sizes.
         device (torch.device): The device of the parameters.
         dtype (torch.dtype): The precision of the parameters.
+        detection_convolution_block_indices (Optional[List[int]]): The increasing block numbers whose feature maps
+            feed the detection heads, None for the tasks without detection heads.
 
     Returns:
         Backbone: The feature extractor.
@@ -320,5 +324,5 @@ def build_backbone(backbone_configuration: Dict[str, Any], input_image_size: int
                     convolutions=backbone_configuration["convolutions"], modules=backbone_configuration["modules"],
                     last_max_pooling=backbone_configuration["last_max_pooling"],
                     normalization=backbone_configuration["normalization"],
-                    detection_convolution_block_indices=backbone_configuration["detection_convolution_block_indices"],
+                    detection_convolution_block_indices=detection_convolution_block_indices or [],
                     input_image_size=input_image_size, device=device, dtype=dtype)

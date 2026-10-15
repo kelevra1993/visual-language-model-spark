@@ -6,7 +6,7 @@
 # detection task, used to check that the detector learns.
 ExperimentConfiguration:
   # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
-  # "object_detection" trains the two-stage detector, and requires the RegionProposal, Anchors and Detector
+  # "object_detection" trains the two-stage detector, and requires the RegionProposal, DetectionLevels and Detector
   # sections. The labels are COCO annotations, the crowd annotations (iscrowd 1) being left out.
   task: "object_detection"
   # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
@@ -210,7 +210,7 @@ Data:
       random_blur: { activated: False, probability: 0.3 }
 
 Backbone:
-  # Number of input channels for the initial convolution block (e.g., 3 for RGB images)
+  # Number of input channels of the initial convolution block: must be 3, the loaders giving BGR images
   input_channels : 3
 
   # First axis : Number of convolution Kernel maps per Convolution Block
@@ -267,13 +267,9 @@ Backbone:
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
 
-  # TODO See if we cannot just keep all of this in one place ?
-  # Backbone spatial resolution block indices to branch out to the object detection heads.
-  detection_convolution_block_indices: [5, 6, 7]
-
   # Backbone of another training run (of any task) initialising this run instead of random weights. Its settings
   # defining the layers (input_channels, convolutions, modules, normalization, last_max_pooling) must be identical to
-  # the ones above, the detection blocks, the image size and the batch normalization momentum may differ.
+  # the ones above, the detection levels, the image size and the batch normalization momentum may differ.
   pretrained:
     # Run folder whose trained backbone initialises this run, null to start from random weights. A run resuming
     # from its own checkpoints does not load it again.
@@ -290,14 +286,34 @@ Backbone:
     # Multiplies the learning rate of the loaded backbone, e.g. 0.1 to fine-tune it ten times slower than the heads.
     learning_rate_multiplier: 1.0
 
-# Careful because here the number of proposals seems to be global
+# Detection levels: every key is the quoted number of a Backbone.convolutions block (from "1") whose feature map
+# feeds the heads of the level, the keys going up from the finest feature map to the coarsest. Every level has its
+# own anchors, region proposal head and detection head, built on its feature map, the settings shared by every level
+# being in the RegionProposal and Detector sections. Every proposal and detection uses the heads and the feature map
+# of the level whose anchor it came from. An instance segmentation run adds a mask_head to every level.
+DetectionLevels:
+  "5":
+    # Anchors of every position of the feature map, one per scale and aspect ratio: a scale is the side in input
+    # pixels of a square anchor, and an aspect ratio the height / width of the anchor at the same area. The anchors
+    # per position (scales x aspect_ratios) give the outputs of the region proposal head of the level.
+    anchors: { scales: [32, 64, 128], aspect_ratios: [0.5, 1.0, 2.0] }
+    # Region proposal head: [number_layers, output_channels] of its convolutions, followed by its objectness and
+    # box regression layers.
+    region_proposal: { convolutions: [2, 64] }
+    # Detection head: side of the RoIAlign grid pooled from the feature map for every proposal, [number_layers,
+    # output_channels] of its convolutions (multiples of 8 with Detector.modules.inception) and sizes of its fully
+    # connected layers before the classifier and the box regressor.
+    detector: { roi_align_pool_size: 7, convolutions: [2, 64], fully_connected: [256, 128] }
+  "6":
+    anchors: { scales: [64, 128, 256], aspect_ratios: [0.5, 1.0, 2.0] }
+    region_proposal: { convolutions: [2, 64] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 64], fully_connected: [256, 128] }
+  "7":
+    anchors: { scales: [128, 256, 512], aspect_ratios: [0.5, 1.0, 2.0] }
+    region_proposal: { convolutions: [2, 64] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 64], fully_connected: [256, 128] }
+
 RegionProposal:
-  head_configurations:
-    {
-      "5": [2, 64 ],
-      "6": [2, 64 ],
-      "7": [2, 64 ],
-    }
   normalization:
     # Options: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
     feature_map_normalization: "batch"
@@ -335,10 +351,10 @@ RegionProposal:
   total_training_samples: 256
   # Beta scaling parameter for Smooth L1 Loss during bounding box regression.
   localisation_loss_beta: 1/9
-  # Region proposal heads of another DET or INS run initialising this run. Their levels, head_configurations,
-  # normalization and number of anchors per position (scales x aspect_ratios) of every level must be identical in
-  # both runs, as well as the channels of the backbone blocks feeding them. Other anchor scales or ratios of the same
-  # counts are reported, not refused.
+  # Region proposal heads of another DET or INS run initialising this run. Their levels, the region_proposal and the
+  # number of anchors per position (scales x aspect_ratios) of every level of DetectionLevels, and the normalization
+  # must be identical in both runs, as well as the channels of the backbone blocks feeding them. Other anchor scales
+  # or ratios of the same counts are reported, not refused.
   pretrained:
     # Run folder whose trained region proposal heads initialise this run, null to start from random weights. A run
     # resuming from its own checkpoints does not load them again.
@@ -352,26 +368,7 @@ RegionProposal:
     # layers.
     learning_rate_multiplier: 1.0
 
-Anchors:
-  # Todo : Maybe keep it as a list ? Dictionary modification is cumbersome.
-  # Dictionary mapping anchor scales and aspect ratios to specific feature map indices.
-  scales_and_ratios:
-    {
-      "5":{"scales":[ 32, 64, 128], "aspect_ratios":[0.5, 1.0, 2.0]},
-      "6":{"scales":[ 64, 128, 256], "aspect_ratios":[0.5, 1.0, 2.0]},
-      "7":{"scales":[ 128, 256, 512], "aspect_ratios":[0.5, 1.0, 2.0]},
-    }
-
 Detector:
-  # Todo : Maybe keep it as a list ? Dictonary modification is cumbersome.
-  # Master configuration parameterizing the prediction heads assigned to each feature map scale.
-  head_configurations:
-    {
-      "5": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
-      "6": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
-      "7": { "roi_align_pool_size" : 7, "convolutions": [ 2, 64 ], "fully_connected": [256,128] },
-    }
-
   normalization:
     # Options: "batch" (Batch Normalization), "layer" (Layer Normalization over channels), or "none" (No normalization)
     feature_map_normalization: "batch"
@@ -401,17 +398,18 @@ Detector:
   foreground_iou_threshold: 0.5
   # IoU overlap tolerance for the final per-class Non-Maximum Suppression pass on predictions.
   nms_iou_threshold: 0.8
-  # Upper limit of positive (foreground) region proposals sampled per image.
+  # Upper limit of positive (foreground) region proposals sampled per image. The ground truth boxes of the image are
+  # written into its last proposal slots first, so every object has a positive proposal to sample from.
   number_training_positives: 64
   # Total budget of positive and negative region proposals sampled per image.
   total_training_samples: 128
   # Beta scalar for the Smooth L1 Loss bounding box regression transition.
   localisation_loss_beta: 1/9
-  # Detection heads of another DET or INS run initialising this run. Their levels, head_configurations, normalization
-  # and modules must be identical in both runs, as well as the channels of the backbone blocks feeding them, the
-  # classification and per-class box regression layers being transferred too. The classes of the source run, read from
-  # its data.json, must be the first classes of this run, in the same order: classes may be appended after them,
-  # initialised as set by new_class_initialisation below.
+  # Detection heads of another DET or INS run initialising this run. Their levels, the detector of every level of
+  # DetectionLevels, the normalization and the modules must be identical in both runs, as well as the channels of the
+  # backbone blocks feeding them, the classification and per-class box regression layers being transferred too. The
+  # classes of the source run, read from its data.json, must be the first classes of this run, in the same order:
+  # classes may be appended after them, initialised as set by new_class_initialisation below.
   pretrained:
     # Run folder whose trained detection heads initialise this run, null to start from random weights. A run resuming
     # from its own checkpoints does not load them again.

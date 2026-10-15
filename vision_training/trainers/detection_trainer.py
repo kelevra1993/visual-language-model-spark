@@ -1,10 +1,11 @@
 """
 Trainer of the object detection task: the COCO-format loaders, the two-stage detector with its four
-losses, the geometric augmentations moving the bounding boxes, and the evaluation of the checkpoints on the test split
-with the mean average precision and the average precision of every class, the score threshold of every class reaching
-the target precision, the confusion matrix and the error images of the detections the deployed detector returns, and
-the sample images of fixed test images with their true and detected boxes. Registered for the object detection task in
-the task registry, and extended by the instance segmentation trainer.
+losses, the geometric augmentations moving the bounding boxes, the anchor recall of the training objects printed at
+every launch, and the evaluation of the checkpoints on the test split with the mean average precision (all the objects
+and every object size) and the average precision of every class, the proposal recall, the score threshold of every
+class reaching the target precision, the confusion matrix and the error images of the detections the deployed detector
+returns, and the sample images of fixed test images with their true and detected boxes. Registered for the object
+detection task in the task registry, and extended by the instance segmentation trainer.
 """
 
 import json
@@ -24,17 +25,29 @@ from vision_training.evaluation.classification.confusion_matrix import (save_con
                                                                         save_confusion_matrix_table)
 from vision_training.evaluation.detection.average_precision_report import (build_class_average_precision_rows,
                                                                            build_class_average_precision_table,
-                                                                           build_mean_average_precision_table)
+                                                                           build_mean_average_precision_table,
+                                                                           build_object_size_table)
 from vision_training.evaluation.detection.detection_confusion import (BACKGROUND_CLASS_INDEX,
                                                                       MATCHING_INTERSECTION_OVER_UNION_THRESHOLD,
                                                                       add_to_confusion_matrix, compute_overlap_matrix,
                                                                       group_image_errors, match_image_detections,
                                                                       summarise_confusion_matrix)
 from vision_training.evaluation.detection.mean_average_precision import AVERAGE_PRECISION_METHODS, evaluate_detections
+from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES, compute_box_areas
+from vision_training.evaluation.detection.region_recall import (
+    accumulate_proposal_recall, compute_best_anchor_overlaps, create_proposal_recall_accumulator,
+    gather_training_object_boxes, summarise_anchor_recall, summarise_proposal_recall)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
+from vision_training.evaluation.report_formatting import build_table_renderables, print_report
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.trainers.base_trainer import BaseTrainer
+from vision_training.utilities.os_utilities import print_color
 from vision_training.utilities.visualization import build_class_colours, build_detection_sample_grid, view_input_data
+
+# Files of the recalls of the anchors, in the run folder, and of the proposals, in the evaluation folder of every
+# checkpoint
+ANCHOR_RECALL_FILE_NAME = "anchor_recall.csv"
+PROPOSAL_RECALL_FILE_NAME = "proposal_recall.csv"
 
 
 class DetectionTrainer(BaseTrainer):
@@ -61,8 +74,8 @@ class DetectionTrainer(BaseTrainer):
 
         Args:
             experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
-            model_configuration (Dict[str, Any]): The processed model sections (Data, Backbone, RegionProposal, Anchors,
-                Detector).
+            model_configuration (Dict[str, Any]): The processed model sections (Data, Backbone, DetectionLevels,
+                RegionProposal, Detector).
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
         # Score threshold of the detections kept for the mAP, lower than the deployment one so that the
@@ -108,6 +121,33 @@ class DetectionTrainer(BaseTrainer):
             Optional[List[str]]: The class names, in class index order.
         """
         return [self.class_names[class_index] for class_index in range(len(self.class_names))]
+
+    def analyse_training_data(self) -> Dict[str, Path]:
+        """
+        Measures at every launch how well the anchors of the detector fit the objects of the training split, before
+        training on them: the share of the objects with an anchor overlapping them by at least the foreground threshold
+        of the region proposal network, in every level and in all of them, for all the objects and every object size.
+        Printed in the console and saved to anchor_recall.csv in the run folder, the objects being read from the
+        annotations without loading any image.
+
+        Returns:
+            Dict[str, Path]: The 'Anchor Recall' file.
+        """
+        # Best anchor of every training object in every level
+        object_boxes = gather_training_object_boxes(dataset=self.train_dataloader.dataset)
+        best_anchor_overlaps = compute_best_anchor_overlaps(object_boxes=object_boxes,
+                                                            level_anchors=self.model.get_level_anchors())
+        anchor_recall = summarise_anchor_recall(
+            best_anchor_overlaps=best_anchor_overlaps, object_areas=compute_box_areas(boxes=object_boxes),
+            foreground_threshold=self.model_configuration["RegionProposal"]["foreground_iou_threshold"]["min"])
+
+        # Table printed with the layout of the report, and its rows saved in the run folder
+        print_color(color="blue", output=f"Anchor Recall Of The {object_boxes.shape[0]} Training Objects...",
+                    add_separators=True)
+        print_report(renderables=build_table_renderables(table=anchor_recall["table"]))
+        return {"Anchor Recall": write_class_metrics_file(class_rows=anchor_recall["rows"],
+                                                          evaluation_folder=self.experiment_folder,
+                                                          file_name=ANCHOR_RECALL_FILE_NAME)}
 
     def build_model(self) -> TwoStageDetector:
         """
@@ -225,8 +265,8 @@ class DetectionTrainer(BaseTrainer):
     def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
         Creates the lists of detections and ground truths filled during the evaluation of the test split, with the
-        confusion matrix of the detections the deployed detector returns, and the folder and the counts of the error
-        images.
+        confusion matrix of the detections the deployed detector returns, the folder and the counts of the error
+        images, and the overlaps of the objects with the proposals for the proposal recall.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint, which names its evaluation folder.
@@ -234,35 +274,42 @@ class DetectionTrainer(BaseTrainer):
         Returns:
             Dict[str, Any]: The empty 'detections' and 'ground_truths' lists, the [K, K] zero 'confusion_matrix'
                 (background included), the 'errors_folder' of the error images and their empty 'error_counts' per
-                folder.
+                folder, and the empty 'proposal_recall' accumulator of the detection levels.
         """
         number_classes = len(self.class_names)
         return {"detections": [], "ground_truths": [],
                 "confusion_matrix": torch.zeros(size=(number_classes, number_classes), dtype=torch.int64),
-                "errors_folder": self.get_evaluation_folder(iteration=iteration) / "Errors", "error_counts": {}}
+                "errors_folder": self.get_evaluation_folder(iteration=iteration) / "Errors", "error_counts": {},
+                "proposal_recall": create_proposal_recall_accumulator(levels=list(self.model.get_level_anchors()))}
 
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
         """
         Keeps the valid detections and the ground truth of every kept image of a test batch on the CPU, both expressed
-        in network input pixels, matches the detections the deployed detector returns (score reaching
-        'Detector.inference.score_threshold') to the objects of the image at an overlap of 0.5 for the confusion
-        matrix, and saves the errors of the image as images when the error images are on, while the image is still in
-        the batch.
+        in network input pixels, adds the overlaps of its objects with the proposals to the proposal recall, matches the
+        detections the deployed detector returns (score reaching 'Detector.inference.score_threshold') to the objects
+        of the image at an overlap of 0.5 for the confusion matrix, and saves the errors of the image as images when the
+        error images are on, while the image is still in the batch.
 
         Args:
             accumulator (Dict[str, Any]): The evaluation accumulator, its lists extended and its confusion matrix
                 filled in place.
             batch (Dict[str, Any]): The prepared test batch.
-            predictions (Dict[str, Any]): The detector outputs.
+            predictions (Dict[str, Any]): The detector outputs, with the filtered proposals of every image.
             sample_indices (List[int]): The indices of the images to keep.
         """
         for image_index in sample_indices:
             detection = self.gather_image_detections(batch=batch, predictions=predictions, image_index=image_index)
-            ground_truth = {"boxes": batch["bounding_boxes"][image_index].cpu(),
-                            "labels": batch["labels"][image_index].cpu()}
+            ground_truth = self.gather_image_ground_truth(batch=batch, image_index=image_index)
             accumulator["detections"].append(detection)
             accumulator["ground_truths"].append(ground_truth)
+
+            # Best overlap of every object with the proposals given to the detection heads, on the device of the model
+            accumulate_proposal_recall(proposal_accumulator=accumulator["proposal_recall"],
+                                       proposal_boxes=predictions["proposal_boxes"][image_index],
+                                       proposal_levels=predictions["proposal_levels"][image_index],
+                                       valid_proposal_mask=predictions["valid_proposal_mask"][image_index],
+                                       ground_truth_boxes=batch["bounding_boxes"][image_index])
 
             # Detections of the deployed detector matched to the objects of the image, counted in the confusion matrix
             kept_detections = detection["scores"] >= self.deployment_score_threshold
@@ -304,6 +351,21 @@ class DetectionTrainer(BaseTrainer):
         return {"boxes": predictions["final_detection_boxes"][image_index, :number_detections].cpu(),
                 "scores": predictions["final_detection_scores"][image_index, :number_detections].cpu(),
                 "labels": predictions["final_detection_labels"][image_index, :number_detections].cpu()}
+
+    def gather_image_ground_truth(self, batch: Dict[str, Any], image_index: int) -> Dict[str, torch.Tensor]:
+        """
+        Gives the objects of one test image on the CPU, for the mean average precision (by box area for the object
+        sizes) and the matching of the confusion matrix. The instance segmentation trainer adds the areas of their
+        masks, which size the objects of the mask average precision.
+
+        Args:
+            batch (Dict[str, Any]): The prepared test batch.
+            image_index (int): The index of the image in the batch.
+
+        Returns:
+            Dict[str, torch.Tensor]: The ground truth 'boxes' [G, 4] and 'labels' [G] of the image.
+        """
+        return {"boxes": batch["bounding_boxes"][image_index].cpu(), "labels": batch["labels"][image_index].cpu()}
 
     def dump_errors(self, accumulator: Dict[str, Any], batch: Dict[str, Any], predictions: Dict[str, Any],
                     image_index: int, matched_ground_truth_indices: torch.Tensor, detection_scores: torch.Tensor,
@@ -352,38 +414,67 @@ class DetectionTrainer(BaseTrainer):
     def compute_evaluation_results(self, accumulator: Dict[str, Any], iteration: int) -> EvaluationResults:
         """
         Computes the mean average precision of the test split with the three average precision methods (the area
-        method being the headline one, its mAP@0.5 comparing the checkpoints), the average precisions of every class
-        and the score threshold of every class reaching the target precision, and organises them for the report: the
-        table of the methods, always shown, and the per-class table (shown with the per-class report, worst AP@0.5
-        first), with the same values as TensorBoard scalars (the AP@0.5 of every class only with the per-class
-        report). The average precisions and thresholds of every class are saved to class_metrics.csv, the thresholds
-        to class_thresholds.json and the confusion matrix to confusion_matrix.csv in the evaluation folder of the
-        checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever the per-class report (save_error_analysis).
+        method being the headline one, its mAP@0.5 comparing the checkpoints), the mean average precision of every
+        object size, the average precisions of every class, the score threshold of every class reaching the target
+        precision and the proposal recall, and organises them for the report: the tables of the methods, of the object
+        sizes and of the proposal recall, always shown, and the per-class table (shown with the per-class report, worst
+        AP@0.5 first), with the same values as TensorBoard scalars (the AP@0.5 of every class only with the per-class
+        report). The average precisions and thresholds of every class are saved to class_metrics.csv, the proposal
+        recall to proposal_recall.csv, the thresholds to class_thresholds.json and the confusion matrix to
+        confusion_matrix.csv in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever
+        the per-class report (save_error_analysis).
 
         Args:
-            accumulator (Dict[str, Any]): The detections and ground truths of the test split, with the confusion matrix
-                and the error images.
+            accumulator (Dict[str, Any]): The detections and ground truths of the test split, with the confusion matrix,
+                the error images and the proposal recall.
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
             EvaluationResults: The results of the evaluation.
         """
         summary = self.summarise_average_precisions(accumulator=accumulator, target_precision=self.target_precision)
+        proposal_recall = self.save_proposal_recall(accumulator=accumulator, iteration=iteration)
 
-        # Average precisions and thresholds of every class, saved whatever the per-class report
+        # Average precisions and thresholds of every class, saved whatever the per-class report, and the proposal
+        # recall
         evaluation_folder = self.get_evaluation_folder(iteration=iteration)
         files = {"Class Metrics": write_class_metrics_file(class_rows=summary["class_rows"],
-                                                           evaluation_folder=evaluation_folder)}
+                                                           evaluation_folder=evaluation_folder),
+                 "Proposal Recall": proposal_recall["file"]}
 
         # Class thresholds, confusion matrix and error images of the detections of the deployed detector
         error_analysis = self.save_error_analysis(accumulator=accumulator, iteration=iteration,
                                                   class_score_thresholds=summary["class_score_thresholds"])
         files.update(error_analysis["files"])
 
+        # Tables always shown first, the per-class table last
+        tables = [summary["tables"]["methods"], summary["tables"]["sizes"], proposal_recall["table"],
+                  summary["tables"]["classes"]]
         return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {},
-                "notes": error_analysis["notes"], "tables": summary["tables"], "scalars": summary["scalars"],
+                "notes": error_analysis["notes"], "tables": tables,
+                "scalars": {**summary["scalars"], **proposal_recall["scalars"]},
                 "class_scalars": summary["class_scalars"], "images": error_analysis["images"], "files": files,
                 "headline_metric": "mAP@0.5/area"}
+
+    def save_proposal_recall(self, accumulator: Dict[str, Any], iteration: int) -> Dict[str, Any]:
+        """
+        Summarises the proposal recall of the test split for the report of an evaluated checkpoint, in the object
+        detection and the instance segmentation: its table, always shown, its TensorBoard scalars, and its rows saved
+        to proposal_recall.csv in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/', which is
+        sent to MLflow.
+
+        Args:
+            accumulator (Dict[str, Any]): The evaluation accumulator, with the filled 'proposal_recall'.
+            iteration (int): The training iteration of the evaluated checkpoint.
+
+        Returns:
+            Dict[str, Any]: The 'table', the 'scalars' and the written 'file'.
+        """
+        proposal_recall = summarise_proposal_recall(proposal_accumulator=accumulator["proposal_recall"])
+        proposal_recall_path = write_class_metrics_file(
+            class_rows=proposal_recall["rows"], evaluation_folder=self.get_evaluation_folder(iteration=iteration),
+            file_name=PROPOSAL_RECALL_FILE_NAME)
+        return {"table": proposal_recall["table"], "scalars": proposal_recall["scalars"], "file": proposal_recall_path}
 
     def save_error_analysis(self, accumulator: Dict[str, Any], iteration: int,
                             class_score_thresholds: Dict[int, Optional[Tuple[float, float]]]) -> Dict[str, Any]:
@@ -453,12 +544,12 @@ class DetectionTrainer(BaseTrainer):
                                      target_precision: Optional[float] = None) -> Dict[str, Any]:
         """
         Computes the average precisions of the test split with one overlap (the boxes, or the masks of the instance
-        segmentation) and organises them for the report: the table of the methods and the per-class table, the rows of
-        class_metrics.csv, the mean average precisions of every method as TensorBoard scalars, to follow them over the
-        training, and the AP@0.5 of every class for the per-class report. With a target precision, the score threshold
-        of every class reaching it joins the class rows and the per-class table. The object detection uses no prefix,
-        the instance segmentation prefixes the titles of both its box and mask tables, and the names of its mask
-        scalars and columns.
+        segmentation) and organises them for the report: the tables of the methods and of the object sizes and the
+        per-class table, the rows of class_metrics.csv, the mean average precisions of every method and those of every
+        object size (area method) as TensorBoard scalars, to follow them over the training, and the AP@0.5 of every
+        class for the per-class report. With a target precision, the score threshold of every class reaching it joins
+        the class rows and the per-class table. The object detection uses no prefix, the instance segmentation prefixes
+        the titles of both its box and mask tables, and the names of its mask scalars and columns.
 
         Args:
             accumulator (Dict[str, Any]): The detections and ground truths of the test split.
@@ -473,8 +564,9 @@ class DetectionTrainer(BaseTrainer):
                 average precisions of the instance segmentation). Defaults to None.
 
         Returns:
-            Dict[str, Any]: The 'class_rows', the 'tables' (methods, then classes), the 'scalars', the 'class_scalars'
-                and the 'class_score_thresholds' of every foreground class (None without target precision).
+            Dict[str, Any]: The 'class_rows', the 'tables' ('methods', 'sizes' and 'classes'), the 'scalars', the
+                'class_scalars' and the 'class_score_thresholds' of every foreground class (None without target
+                precision).
         """
         results = evaluate_detections(detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
                                       number_classes=len(self.label_dictionary), overlap_type=overlap_type,
@@ -490,9 +582,20 @@ class DetectionTrainer(BaseTrainer):
         class_scalars = {f"{name_prefix}AP@0.5/{self.class_names[class_index]}": average_precision
                          for class_index, average_precision in results["area"]["class_AP@0.5"].items()}
 
-        tables = [build_mean_average_precision_table(results=results, title_prefix=title_prefix, legend=legend),
-                  build_class_average_precision_table(class_rows=class_rows, title_prefix=title_prefix,
-                                                      column_prefix=column_prefix, target_precision=target_precision)]
+        # The mean average precisions of every object size with the area method, a size without objects having none
+        for object_size in OBJECT_SIZE_NAMES:
+            for metric_name in ["mAP@0.5", "mAP@[0.5:0.95]"]:
+                size_mean_average_precision = results["area"]["sizes"][object_size][metric_name]
+                if size_mean_average_precision is not None:
+                    scalars[f"{name_prefix}{metric_name} By Size/{object_size}"] = size_mean_average_precision
+
+        tables = {"methods": build_mean_average_precision_table(results=results, title_prefix=title_prefix,
+                                                                legend=legend),
+                  "sizes": build_object_size_table(results=results, title_prefix=title_prefix,
+                                                   area_name="mask" if overlap_type == "masks" else "box"),
+                  "classes": build_class_average_precision_table(class_rows=class_rows, title_prefix=title_prefix,
+                                                                 column_prefix=column_prefix,
+                                                                 target_precision=target_precision)}
         return {"class_rows": class_rows, "tables": tables, "scalars": scalars, "class_scalars": class_scalars,
                 "class_score_thresholds": results["class_score_thresholds"] if target_precision is not None else None}
 

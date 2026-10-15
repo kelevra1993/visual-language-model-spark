@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.configuration_processing.detection_checks import check_detection_levels
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -74,14 +75,41 @@ def set_overlapping_thresholds(configuration: Dict[str, Any]) -> None:
     configuration["RegionProposal"]["background_iou_threshold"]["max"] = 0.6
 
 
-def remove_anchor_level(configuration: Dict[str, Any]) -> None:
+def remove_level_anchors(configuration: Dict[str, Any]) -> None:
     """
-    Removes one detection level from the anchors only.
+    Removes the anchors of the seventh detection level, whose region proposal head then has no outputs.
 
     Args:
         configuration (Dict[str, Any]): The raw example configuration, modified in place.
     """
-    del configuration["Anchors"]["scales_and_ratios"]["7"]
+    del configuration["DetectionLevels"]["7"]["anchors"]
+
+
+def set_invalid_detection_level_settings(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the fifth detection level an anchor scale of zero, a negative aspect ratio, region proposal convolutions
+    without channels, a pool size of zero and no fully connected layer, and the sixth level detection convolutions of
+    60 channels with inception modules in the detection heads.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    level_configuration = configuration["DetectionLevels"]["5"]
+    level_configuration["anchors"] = {"scales": [0, 64], "aspect_ratios": [-1.0]}
+    level_configuration["region_proposal"]["convolutions"] = [2]
+    level_configuration["detector"].update({"roi_align_pool_size": 0, "fully_connected": []})
+    configuration["Detector"]["modules"]["inception"] = True
+    configuration["DetectionLevels"]["6"]["detector"]["convolutions"] = [2, 60]
+
+
+def set_single_input_channel(configuration: Dict[str, Any]) -> None:
+    """
+    Builds the backbone on single-channel images, while the loaders give BGR images.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["Backbone"]["input_channels"] = 1
 
 
 def set_string_flag(configuration: Dict[str, Any]) -> None:
@@ -312,7 +340,22 @@ def set_pre_activation_without_residual_shortcuts(configuration: Dict[str, Any])
                                 "[0, 1], got 1.5."]),
     (set_image_size, ["'Data.image_settings.size' must be a power of two"]),
     (set_overlapping_thresholds, ["'RegionProposal.background_iou_threshold.max' (0.6) must be <="]),
-    (remove_anchor_level, ["'Anchors.scales_and_ratios' levels ['5', '6'] do not match"]),
+    (remove_level_anchors, ["'DetectionLevels.7' must hold exactly ['anchors', 'region_proposal', 'detector'], "
+                            "got ['detector', 'region_proposal']."]),
+    (set_invalid_detection_level_settings, ["'DetectionLevels.5.anchors.scales' must be integers within [1, 1024], "
+                                            "got [0, 64].",
+                                            "'DetectionLevels.5.anchors.aspect_ratios' must be positive numbers, "
+                                            "got [-1.0].",
+                                            "'DetectionLevels.5.region_proposal.convolutions' must be "
+                                            "[number_layers, output_channels] with positive integers, got [2].",
+                                            "'DetectionLevels.5.detector.roi_align_pool_size' must be an integer "
+                                            ">= 1, got 0.",
+                                            "'DetectionLevels.5.detector.fully_connected' must be a non-empty list "
+                                            "of positive integers, got [].",
+                                            "'DetectionLevels.6.detector.convolutions' has 60 output channels, "
+                                            "inception modules require a multiple of 8."]),
+    (set_single_input_channel, ["'Backbone.input_channels' must be 3, the loaders giving 3-channel BGR images and "
+                                "the exports taking 3-channel inputs, got 1."]),
     (set_string_flag, ["'Backbone.modules.inception' must be True or False"]),
     (set_detector_samples, ["'Detector.total_training_samples' (1000) must be <="]),
     (set_inception_channels, ["'Backbone.convolutions.4' has 20 output channels"]),
@@ -384,11 +427,87 @@ def test_missing_configuration_key_is_reported_with_its_path(tmp_path: Path, cap
     assert "Missing configuration key 'Detector.modules.residual_nets'." in capsys.readouterr().out
 
 
+def empty_detection_levels(configuration: Dict[str, Any]) -> None:
+    """
+    Removes every detection level.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["DetectionLevels"] = {}
+
+
+def unquote_detection_level(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the key of the seventh detection level as a number instead of a quoted block number.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["DetectionLevels"][7] = configuration["DetectionLevels"].pop("7")
+
+
+def add_level_beyond_the_backbone(configuration: Dict[str, Any]) -> None:
+    """
+    Adds an eighth detection level, while the backbone of the example has seven blocks.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["DetectionLevels"]["8"] = copy.deepcopy(configuration["DetectionLevels"]["7"])
+
+
+def reverse_detection_levels(configuration: Dict[str, Any]) -> None:
+    """
+    Lists the detection levels from the coarsest to the finest one.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["DetectionLevels"] = dict(reversed(list(configuration["DetectionLevels"].items())))
+
+
+def add_mask_head_to_detection_level(configuration: Dict[str, Any]) -> None:
+    """
+    Gives the fifth detection level of the object detection a mask head, which only the instance segmentation has.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["DetectionLevels"]["5"]["mask_head"] = {"roi_align_pool_size": 14, "convolutions": [4, 64]}
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_errors"), argvalues=[
+    (empty_detection_levels, ["'DetectionLevels' must map at least one backbone block number to the settings of its "
+                              "level, got {}."]),
+    (unquote_detection_level, ["'DetectionLevels' keys must be quoted backbone block numbers between \"1\" and "
+                               "\"7\", got ['5', '6', 7]."]),
+    (add_level_beyond_the_backbone, ["'DetectionLevels' keys must be quoted backbone block numbers between \"1\" "
+                                     "and \"7\", got ['5', '6', '7', '8']."]),
+    (reverse_detection_levels, ["'DetectionLevels' keys must be in increasing order, got ['7', '6', '5']."]),
+    (add_mask_head_to_detection_level, ["'DetectionLevels.5' must hold exactly ['anchors', 'region_proposal', "
+                                        "'detector'], got ['anchors', 'region_proposal', 'detector', 'mask_head']."])])
+def test_inconsistent_detection_levels_are_rejected(modify_function: Callable[[Dict[str, Any]], None],
+                                                    expected_errors: List[str]) -> None:
+    """
+    Verifies the keys and components of the detection levels on the example configuration itself, since writing it
+    back to a YAML file would sort its keys and turn its unquoted keys back into numbers of their own: the levels must
+    be the quoted numbers of existing backbone blocks, in increasing order, each holding the anchors and the heads of
+    the task only.
+
+    Args:
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_errors (List[str]): The exact errors of the detection level checks.
+    """
+    configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
+    modify_function(configuration=configuration)
+    assert check_detection_levels(model_configuration=configuration) == expected_errors
+
+
 def test_missing_task_is_reported(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that a configuration without task, written before the task-aware configuration, is rejected with the
-    path of the missing key (scripts/configuration_processing/migrate_configuration.py adds it to the runs of that
-    time).
+    path of the missing key.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -453,16 +572,6 @@ def use_binary_labels(configuration: Dict[str, Any]) -> None:
         configuration (Dict[str, Any]): The raw classification configuration, modified in place.
     """
     configuration["Data"]["label_mapping"]["mode"] = "binary"
-
-
-def add_detection_block(configuration: Dict[str, Any]) -> None:
-    """
-    Lists a detection block, although the classification head uses the final feature map.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["Backbone"]["detection_convolution_block_indices"] = [3]
 
 
 def set_invalid_head(configuration: Dict[str, Any]) -> None:
@@ -554,7 +663,6 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_negative_number_workers, ["'Data.loading.number_workers' must be an integer >= 0, got -1."]),
     (use_binary_labels, ["'Data.label_mapping.mode' must be 'multi_class' for the classification tasks"]),
-    (add_detection_block, ["'Backbone.detection_convolution_block_indices' must be [] for the classification tasks"]),
     (set_invalid_head, ["'ClassificationHead.global_pooling' must be one of ['average', 'max', 'flatten'], got "
                         "'median'.",
                         "'ClassificationHead.fully_connected' must be a list of positive integers, got [0].",
@@ -1476,8 +1584,6 @@ def set_invalid_segmentation_evaluation(configuration: Dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (add_detection_block, ["'Backbone.detection_convolution_block_indices' must be [] for the semantic segmentation "
-                           "task, its decoder reads every block, got [3]."]),
     (use_sequence_normalization, ["'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for "
                                   "this task, whose samples have no frames."]),
     (remove_decoder_level, ["'SegmentationDecoder.convolutions' keys must be the backbone blocks of its skip "
@@ -1608,7 +1714,7 @@ def test_instance_segmentation_configurations_are_consistent(tmp_path: Path, con
     assert experiment_configuration["task"] == "instance_segmentation"
     assert model_configuration["Data"]["label_dictionary"]["background"] == 0
     assert model_configuration["MaskHead"]["mask_resolution"] == 28
-    assert model_configuration["MaskHead"]["head_configurations"]["5"]["roi_align_pool_size"] == 14
+    assert model_configuration["DetectionLevels"]["5"]["mask_head"]["roi_align_pool_size"] == 14
 
 
 def transfer_mask_heads_and_class_layers(configuration: Dict[str, Any]) -> None:
@@ -1647,14 +1753,14 @@ def test_transferred_mask_heads_and_class_layers_are_accepted(tmp_path: Path, ta
         assert model_configuration["SegmentationDecoder"]["pretrained"]["load_class_layers"] is True
 
 
-def set_mismatched_mask_head_levels(configuration: Dict[str, Any]) -> None:
+def remove_level_mask_head(configuration: Dict[str, Any]) -> None:
     """
-    Gives the mask heads a level that the backbone does not feed to the detection heads.
+    Removes the mask head of the seventh detection level, whose boxes would then have no mask.
 
     Args:
         configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
     """
-    configuration["MaskHead"]["head_configurations"]["8"] = configuration["MaskHead"]["head_configurations"].pop("7")
+    del configuration["DetectionLevels"]["7"]["mask_head"]
 
 
 def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
@@ -1668,8 +1774,8 @@ def set_invalid_mask_head(configuration: Dict[str, Any]) -> None:
     mask_head_configuration = configuration["MaskHead"]
     mask_head_configuration["mask_resolution"] = 0
     mask_head_configuration["upsampling"] = "nearest"
-    mask_head_configuration["head_configurations"]["5"] = {"roi_align_pool_size": 0, "convolutions": [4]}
-    mask_head_configuration["head_configurations"]["6"]["convolutions"] = [4, 60]
+    configuration["DetectionLevels"]["5"]["mask_head"] = {"roi_align_pool_size": 0, "convolutions": [4]}
+    configuration["DetectionLevels"]["6"]["mask_head"]["convolutions"] = [4, 60]
     mask_head_configuration["normalization"]["feature_map_normalization"] = "group"
     mask_head_configuration["normalization"]["batch_normalization_momentum"] = -0.1
     mask_head_configuration["modules"].update({"inception": True, "residual_nets": "yes"})
@@ -1683,7 +1789,7 @@ def set_pool_size_above_the_mask_resolution(configuration: Dict[str, Any]) -> No
     Args:
         configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
     """
-    configuration["MaskHead"]["head_configurations"]["7"]["roi_align_pool_size"] = 32
+    configuration["DetectionLevels"]["7"]["mask_head"]["roi_align_pool_size"] = 32
 
 
 def freeze_random_mask_heads(configuration: Dict[str, Any]) -> None:
@@ -1701,18 +1807,18 @@ def freeze_random_mask_heads(configuration: Dict[str, Any]) -> None:
                                 "'MaskHead.pretrained.experiment_folder' is null: only a transferred mask heads can "
                                 "be frozen.",
                                 "'MaskHead.pretrained.learning_rate_multiplier' must be > 0, got 0."]),
-    (set_pool_size_above_the_mask_resolution, ["'MaskHead.head_configurations.7.roi_align_pool_size' (32) must not "
+    (set_pool_size_above_the_mask_resolution, ["'DetectionLevels.7.mask_head.roi_align_pool_size' (32) must not "
                                                "exceed 'MaskHead.mask_resolution' (28), the pooled features being "
                                                "only enlarged to the masks."]),
-    (set_mismatched_mask_head_levels, ["'MaskHead.head_configurations' levels ['5', '6', '8'] do not match "
-                                       "'Backbone.detection_convolution_block_indices' ['5', '6', '7']."]),
+    (remove_level_mask_head, ["'DetectionLevels.7' must hold exactly ['anchors', 'region_proposal', 'detector', "
+                              "'mask_head'], got ['anchors', 'detector', 'region_proposal']."]),
     (set_invalid_mask_head, ["'MaskHead.mask_resolution' must be an integer >= 1, got 0.",
                              "'MaskHead.upsampling' must be one of ['transposed', 'bilinear'], got 'nearest'.",
-                             "'MaskHead.head_configurations.5.roi_align_pool_size' must be an integer >= 1, got 0.",
-                             "'MaskHead.head_configurations.5.convolutions' must be [number_layers, output_channels] "
+                             "'DetectionLevels.5.mask_head.roi_align_pool_size' must be an integer >= 1, got 0.",
+                             "'DetectionLevels.5.mask_head.convolutions' must be [number_layers, output_channels] "
                              "with positive integers, got [4].",
-                             "'MaskHead.head_configurations.6.convolutions' has 60 output channels, inception modules "
-                             "require a multiple of 8.",
+                             "'DetectionLevels.6.mask_head.convolutions' has 60 output channels, inception "
+                             "modules require a multiple of 8.",
                              "'MaskHead.normalization.feature_map_normalization' must be one of",
                              "'MaskHead.normalization.batch_normalization_momentum' must be a number within (0, 1], "
                              "got -0.1.",
@@ -1723,7 +1829,7 @@ def test_inconsistent_instance_segmentation_configuration_is_rejected(
         expected_messages: List[str]) -> None:
     """
     Verifies that every inconsistency of the mask head section stops the loading with a short message naming the
-    faulty key, its levels being checked against the detection blocks like the detection heads.
+    faulty key, the mask head of every detection level included.
 
     Args:
         tmp_path (Path): The pytest temporary directory.

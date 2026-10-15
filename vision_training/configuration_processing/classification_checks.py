@@ -36,8 +36,7 @@ BOOLEAN_HEAD_NORMALIZATIONS = {True: "batch", False: "none"}
 def check_classification_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the data settings of the classification-like tasks (classification and both sequence tasks): a
-    multi-class label mapping whose class indices are 0 to K-1 (the classifiers predict no background
-    class), and no detection block, their heads using the final feature map of the backbone.
+    multi-class label mapping whose class indices are 0 to K-1 (the classifiers predict no background class).
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -58,13 +57,6 @@ def check_classification_data_configuration(model_configuration: Dict[str, Any])
         if len(class_indices) < 2 or class_indices != list(range(len(class_indices))):
             errors.append(f"The classes of the label mapping file must be at least two, indexed 0 to K-1 without gaps, "
                           f"got {class_indices}.")
-
-    # The heads use the final feature map of the backbone, so no block feeds them
-    detection_block_indices = get_configuration_value(configuration=model_configuration,
-                                                      key_path="Backbone.detection_convolution_block_indices")
-    if detection_block_indices != []:
-        errors.append(f"'Backbone.detection_convolution_block_indices' must be [] for the classification tasks, their "
-                      f"heads use the final feature map, got {detection_block_indices!r}.")
 
     return errors
 

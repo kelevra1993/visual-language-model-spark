@@ -27,7 +27,7 @@ EXPORT_MAXIMUM_BATCH_SIZE = 4
 
 # Mask heads with a pool size per level and bilinear upsamplings: 7 doubled once to the 14 x 14 masks, 14 never
 # doubled, and 5 doubled once then resized from 10 x 10, on level 7 which detects objects in the test model
-MIXED_MASK_HEAD_SETTINGS = {"mask_resolution": 14, "upsampling": "bilinear", "head_configurations": {
+MIXED_MASK_HEAD_SETTINGS = {"MaskHead": {"mask_resolution": 14, "upsampling": "bilinear"}, "level_mask_heads": {
     "5": {"roi_align_pool_size": 7, "convolutions": [2, 32]}, "6": {"roi_align_pool_size": 14, "convolutions": [2, 32]},
     "7": {"roi_align_pool_size": 5, "convolutions": [2, 32]}}}
 MASK_HEAD_GEOMETRIES = [None, MIXED_MASK_HEAD_SETTINGS]

@@ -18,6 +18,7 @@ from torchvision.transforms.v2 import functional as vision_functional
 from torchvision.transforms.v2 import InterpolationMode
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
+from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
 
 # kornia decorates some of its functions with torch.jit.script when it is imported, which recent PyTorch versions
 # report as deprecated; the notice is harmless and cannot be fixed on our side, so it is silenced for this import only
@@ -27,7 +28,8 @@ with warnings.catch_warnings():
     from kornia.enhance import equalize_clahe
 
 # Geometric augmentations, applied first, in this order. They move the bounding boxes and the masks along with the
-# image
+# image. random_zoom_out is written but not listed yet: it joins the list after random_crop once the configuration
+# files hold its key
 GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_left_right_flip", "random_up_down_flip", "random_rotation",
                                 "random_90_rotation"]
 
@@ -41,6 +43,7 @@ AUGMENTATION_TYPES = GEOMETRIC_AUGMENTATION_TYPES + PHOTOMETRIC_AUGMENTATION_TYP
 
 # Fixed augmentation strengths, documented in the data_augmentation section of the configuration file
 MINIMUM_CROP_FRACTION = 0.75
+MINIMUM_ZOOM_OUT_FRACTION = 0.5
 MAXIMUM_ROTATION_DEGREES = 5.0
 BRIGHTNESS_MAXIMUM_DELTA = 40.0
 CONTRAST_FACTOR_RANGE = (0.7, 1.0)
@@ -55,6 +58,11 @@ CLAHE_GRID_SIZE = (4, 4)
 
 # Boxes narrower or shorter than this many pixels after a geometric augmentation are removed with their label
 MINIMUM_BOX_SIDE = 1.0
+
+# Objects keeping less than this share of their area inside the image after a geometric augmentation (box area, or
+# mask pixels for the instance segmentation) are removed with their label, so that the detector is never trained to
+# find a fragment cut by the border of a crop or a rotation
+MINIMUM_VISIBLE_AREA_FRACTION = 0.25
 
 # Channel indices of the BGR images delivered by the data loaders
 BGR_CHANNEL_INDICES = {"B": [0], "G": [1], "R": [2], "BGR": [0, 1, 2]}
@@ -190,31 +198,46 @@ class DataAugmenter:
             Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor],
                 Optional[torch.Tensor]]: The augmented image, boxes, labels, mask and instance masks.
         """
-        # The instance masks go through the mask argument of the geometric methods, except for an image without objects
+        # The instance masks go through the mask argument of the geometric methods, except for an image without objects,
+        # their pixels counted first to measure the share of every object left inside the image afterwards
         moves_instance_masks = instance_masks is not None and instance_masks.shape[0] > 0
         if moves_instance_masks:
             mask = instance_masks
+            original_mask_pixels = instance_masks.flatten(start_dim=1).sum(dim=1, dtype=torch.float32)
 
-        # Apply the geometric augmentations, which move the boxes and the mask together with the image
+        # Apply the geometric augmentations, which move the boxes and the mask together with the image, the area scale
+        # of the objects (the zoom of a crop or a zoom-out) multiplying along the way
         geometry_changed = False
+        area_scale = 1.0
         for augmentation_type in GEOMETRIC_AUGMENTATION_TYPES:
             if self.should_apply(augmentation_type=augmentation_type):
                 augmentation_method = getattr(self, augmentation_type)
-                image, bounding_boxes, mask = augmentation_method(image=image, bounding_boxes=bounding_boxes, mask=mask)
+                image, bounding_boxes, mask, type_area_scale = augmentation_method(image=image,
+                                                                                   bounding_boxes=bounding_boxes,
+                                                                                   mask=mask)
+                area_scale *= type_area_scale
                 geometry_changed = True
 
-        # The moved instance masks give the exact boxes of their objects, tighter than the moved boxes
+        # The moved instance masks give the exact boxes of their objects, tighter than the moved boxes, and the share of
+        # the pixels every object kept inside the image, out of those it would have at the new scale
+        visible_fractions = None
         if moves_instance_masks:
             instance_masks, mask = mask, None
             if geometry_changed:
-                bounding_boxes = self.compute_mask_bounding_boxes(instance_masks=instance_masks).to(
+                bounding_boxes = compute_mask_bounding_boxes(instance_masks=instance_masks).to(
                     dtype=bounding_boxes.dtype)
+                visible_mask_pixels = instance_masks.flatten(start_dim=1).sum(dim=1, dtype=torch.float32)
+                expected_mask_pixels = original_mask_pixels * area_scale
+                visible_fractions = torch.where(expected_mask_pixels > 0.0,
+                                                visible_mask_pixels / expected_mask_pixels.clamp(min=1e-6),
+                                                torch.ones_like(input=visible_mask_pixels))
 
-        # Clip the boxes to the image and remove the ones that left it, together with their labels and masks
+        # Clip the boxes to the image and remove the ones that left it or kept too small a share of their area inside
+        # it, together with their labels and masks
         if bounding_boxes is not None:
             bounding_boxes, labels, instance_masks = self.clean_bounding_boxes(
                 bounding_boxes=bounding_boxes, labels=labels, image_height=image.shape[-2],
-                image_width=image.shape[-1], instance_masks=instance_masks)
+                image_width=image.shape[-1], instance_masks=instance_masks, visible_fractions=visible_fractions)
 
         # Apply the photometric augmentations, which never move the boxes nor change the mask, once for the sample or
         # frame by frame
@@ -293,48 +316,28 @@ class DataAugmenter:
         return is_activated and random.random() < probability
 
     @staticmethod
-    def compute_mask_bounding_boxes(instance_masks: torch.Tensor) -> torch.Tensor:
-        """
-        Gives the tight box of every instance mask, which replaces the moved box of its object after a geometric
-        augmentation of the instance segmentation (a rotated box would become the larger enclosing box of its
-        corners). An empty mask, whose object left the image, gives an empty box, removed by clean_bounding_boxes.
-
-        Args:
-            instance_masks (torch.Tensor): The [N, H, W] binary masks.
-
-        Returns:
-            torch.Tensor: The [N, 4] float [x1, y1, x2, y2] boxes, x2 and y2 one past the last pixel of the mask.
-        """
-        mask_height, mask_width = instance_masks.shape[-2], instance_masks.shape[-1]
-        occupied_pixels = instance_masks > 0
-        occupied_rows, occupied_columns = occupied_pixels.any(dim=2), occupied_pixels.any(dim=1)
-
-        # First occupied row and column from the start, last ones from the end
-        y_1 = occupied_rows.int().argmax(dim=1)
-        y_2 = mask_height - occupied_rows.flip(dims=(1,)).int().argmax(dim=1)
-        x_1 = occupied_columns.int().argmax(dim=1)
-        x_2 = mask_width - occupied_columns.flip(dims=(1,)).int().argmax(dim=1)
-        boxes = torch.stack(tensors=[x_1, y_1, x_2, y_2], dim=1).float()
-
-        # The empty masks give an empty box
-        return torch.where(occupied_rows.any(dim=1)[:, None], boxes, torch.zeros_like(boxes))
-
-    @staticmethod
     def clean_bounding_boxes(bounding_boxes: torch.Tensor, labels: torch.Tensor, image_height: int, image_width: int,
-                             instance_masks: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor,
-                                                                                    Optional[torch.Tensor]]:
+                             instance_masks: Optional[torch.Tensor] = None,
+                             visible_fractions: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor,
+                                                                                       Optional[torch.Tensor]]:
         """
         Clips the boxes to the image borders after the geometric augmentations and removes the boxes that became
-        too small (mostly cropped or rotated out of the image), so the detector only receives valid targets. The
-        instance masks of the removed boxes are removed with them.
+        too small (mostly cropped or rotated out of the image) or that kept less than MINIMUM_VISIBLE_AREA_FRACTION of
+        their area inside the image (a sliver of an object at the border of a crop, which would teach the detector to
+        fire on fragments), so the detector only receives valid targets. The instance masks of the removed boxes are
+        removed with them.
 
         Args:
-            bounding_boxes (torch.Tensor): The [N, 4] absolute [x1, y1, x2, y2] boxes.
+            bounding_boxes (torch.Tensor): The [N, 4] absolute [x1, y1, x2, y2] boxes, moved without clipping so that
+                their part outside the image is known.
             labels (torch.Tensor): The [N] labels of the boxes.
             image_height (int): The height of the augmented image.
             image_width (int): The width of the augmented image.
             instance_masks (Optional[torch.Tensor]): The [N, H, W] binary masks of the boxes, or None. Defaults to
                 None.
+            visible_fractions (Optional[torch.Tensor]): The [N] share of every object left inside the image measured
+                on its mask pixels (instance segmentation), or None to measure it on the boxes, as the clipped area
+                over the area of the moved box. Defaults to None.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]: The kept boxes, their labels and their instance
@@ -349,6 +352,13 @@ class DataAugmenter:
         box_heights = clipped_boxes[:, 3] - clipped_boxes[:, 1]
         kept_mask = (box_widths >= MINIMUM_BOX_SIDE) & (box_heights >= MINIMUM_BOX_SIDE)
 
+        # Share of every box left inside the image, unless the masks measured it, and removal of the fragments
+        if visible_fractions is None:
+            moved_areas = ((bounding_boxes[:, 2] - bounding_boxes[:, 0]).clamp(min=0.0) *
+                           (bounding_boxes[:, 3] - bounding_boxes[:, 1]).clamp(min=0.0))
+            visible_fractions = box_widths.clamp(min=0.0) * box_heights.clamp(min=0.0) / moved_areas.clamp(min=1e-6)
+        kept_mask &= visible_fractions >= MINIMUM_VISIBLE_AREA_FRACTION
+
         kept_instance_masks = instance_masks[kept_mask] if instance_masks is not None else None
         return clipped_boxes[kept_mask], labels[kept_mask], kept_instance_masks
 
@@ -356,7 +366,8 @@ class DataAugmenter:
     def wrap_bounding_boxes(bounding_boxes: torch.Tensor, image: torch.Tensor) -> tv_tensors.BoundingBoxes:
         """
         Wraps plain boxes as torchvision BoundingBoxes so that torchvision's geometric functions transform them
-        exactly like the image.
+        exactly like the image. The boxes are moved without being clipped to the image, so that clean_bounding_boxes
+        can measure the share of every box left inside it.
 
         Args:
             bounding_boxes (torch.Tensor): The [N, 4] absolute [x1, y1, x2, y2] boxes.
@@ -366,15 +377,16 @@ class DataAugmenter:
             tv_tensors.BoundingBoxes: The wrapped boxes.
         """
         return tv_tensors.BoundingBoxes(data=bounding_boxes, format="XYXY",
-                                        canvas_size=(image.shape[-2], image.shape[-1]))
+                                        canvas_size=(image.shape[-2], image.shape[-1]), clamping_mode=None)
 
     def random_crop(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                     mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                           Optional[torch.Tensor]]:
+                                                           Optional[torch.Tensor], float]:
         """
         Crops a random region covering 75 to 100% of each side and resizes it back to the original size, which
-        zooms slightly into the image. Boxes are shifted and scaled accordingly; boxes leaving the crop are removed
-        afterwards by 'clean_bounding_boxes'. The mask is cropped and resized with the nearest interpolation.
+        zooms slightly into the image. Boxes are shifted and scaled accordingly; boxes leaving the crop, or keeping
+        too small a share of their area inside it, are removed afterwards by 'clean_bounding_boxes'. The mask is
+        cropped and resized with the nearest interpolation.
 
         Args:
             image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
@@ -382,7 +394,8 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The cropped image, boxes and mask.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The cropped image, boxes and
+                mask, and the area scale of the objects (the squared zoom, above 1).
         """
         image_height, image_width = image.shape[-2], image.shape[-1]
 
@@ -405,11 +418,60 @@ class DataAugmenter:
             cropped_mask = vision_functional.resized_crop(tv_tensors.Mask(mask), top=top, left=left,
                                                           height=crop_height, width=crop_width,
                                                           size=[image_height, image_width]).as_subclass(torch.Tensor)
-        return cropped_image, cropped_boxes, cropped_mask
+        return cropped_image, cropped_boxes, cropped_mask, (image_height * image_width) / (crop_height * crop_width)
+
+    def random_zoom_out(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
+                        mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
+                                                               Optional[torch.Tensor], float]:
+        """
+        Shrinks the image to 50 to 100% of each side and places it at a random position of a black canvas of the
+        original size, the padding of the data loaders, which shows the objects smaller than in the dataset, the
+        opposite of the crop: the finest detection levels then also train on the objects that are large in the
+        dataset. Boxes are scaled and shifted with the image and never leave it. The mask is shrunk with the nearest
+        interpolation, the uncovered border being ignored in a class mask, like the padding of the loaders, and
+        background (0) in the binary instance masks.
+
+        Args:
+            image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
+            bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes, or None.
+            mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
+
+        Returns:
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The zoomed out image, boxes and
+                mask, and the area scale of the objects (the squared shrink factor, below 1).
+        """
+        image_height, image_width = image.shape[-2], image.shape[-1]
+
+        # Draw one shrink fraction for both sides to keep the aspect ratio, and a random position on the canvas
+        zoom_fraction = random.uniform(MINIMUM_ZOOM_OUT_FRACTION, 1.0)
+        shrunk_height, shrunk_width = round(image_height * zoom_fraction), round(image_width * zoom_fraction)
+        top, left = random.randint(0, image_height - shrunk_height), random.randint(0, image_width - shrunk_width)
+
+        # Shrink the image and place it on the black canvas
+        zoomed_image = torch.zeros_like(input=image)
+        zoomed_image[..., top:top + shrunk_height, left:left + shrunk_width] = vision_functional.resize(
+            image, size=[shrunk_height, shrunk_width], antialias=True)
+
+        # Scale and shift the boxes exactly like the image
+        zoomed_boxes, zoomed_mask = None, None
+        if bounding_boxes is not None:
+            scales = torch.tensor(data=[shrunk_width / image_width, shrunk_height / image_height] * 2,
+                                  dtype=bounding_boxes.dtype, device=bounding_boxes.device)
+            offsets = torch.tensor(data=[left, top] * 2, dtype=bounding_boxes.dtype, device=bounding_boxes.device)
+            zoomed_boxes = bounding_boxes * scales + offsets
+
+        # Shrink the mask with the nearest interpolation onto its canvas, ignored around a class mask and background
+        # around binary instance masks
+        if mask is not None:
+            mask_fill = IGNORED_LABEL_INDEX if mask.dtype == torch.int64 else 0
+            zoomed_mask = torch.full_like(input=mask, fill_value=mask_fill)
+            zoomed_mask[..., top:top + shrunk_height, left:left + shrunk_width] = vision_functional.resize(
+                tv_tensors.Mask(mask), size=[shrunk_height, shrunk_width]).as_subclass(torch.Tensor)
+        return zoomed_image, zoomed_boxes, zoomed_mask, (shrunk_height * shrunk_width) / (image_height * image_width)
 
     def random_left_right_flip(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                                mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                                      Optional[torch.Tensor]]:
+                                                                      Optional[torch.Tensor], float]:
         """
         Mirrors the image from left to right, together with its boxes and its mask.
 
@@ -419,7 +481,8 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The flipped image, boxes and mask.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The flipped image, boxes and
+                mask, and the area scale of the objects (1, the sizes are kept).
         """
         flipped_image = vision_functional.horizontal_flip(image)
         flipped_boxes = None
@@ -427,11 +490,11 @@ class DataAugmenter:
             flipped_boxes = vision_functional.horizontal_flip(
                 self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image)).as_subclass(torch.Tensor)
         flipped_mask = mask.flip(dims=(-1,)) if mask is not None else None
-        return flipped_image, flipped_boxes, flipped_mask
+        return flipped_image, flipped_boxes, flipped_mask, 1.0
 
     def random_up_down_flip(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                             mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                                   Optional[torch.Tensor]]:
+                                                                   Optional[torch.Tensor], float]:
         """
         Mirrors the image from top to bottom, together with its boxes and its mask.
 
@@ -441,7 +504,8 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The flipped image, boxes and mask.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The flipped image, boxes and
+                mask, and the area scale of the objects (1, the sizes are kept).
         """
         flipped_image = vision_functional.vertical_flip(image)
         flipped_boxes = None
@@ -449,11 +513,11 @@ class DataAugmenter:
             flipped_boxes = vision_functional.vertical_flip(
                 self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image)).as_subclass(torch.Tensor)
         flipped_mask = mask.flip(dims=(-2,)) if mask is not None else None
-        return flipped_image, flipped_boxes, flipped_mask
+        return flipped_image, flipped_boxes, flipped_mask, 1.0
 
     def random_rotation(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                         mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                               Optional[torch.Tensor]]:
+                                                               Optional[torch.Tensor], float]:
         """
         Rotates the image by a random angle between -5 and 5 degrees around its centre, filling the uncovered
         corners with black like the padding of the data loaders. A rotated box is no longer axis aligned, so it is
@@ -467,7 +531,8 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The rotated image, boxes and mask.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The rotated image, boxes and
+                mask, and the area scale of the objects (1, the sizes are kept).
         """
         angle = random.uniform(-MAXIMUM_ROTATION_DEGREES, MAXIMUM_ROTATION_DEGREES)
 
@@ -485,12 +550,12 @@ class DataAugmenter:
             mask_fill = IGNORED_LABEL_INDEX if mask.dtype == torch.int64 else 0
             rotated_mask = vision_functional.rotate(tv_tensors.Mask(mask), angle=angle,
                                                     fill=mask_fill).as_subclass(torch.Tensor)
-        return rotated_image, rotated_boxes, rotated_mask
+        return rotated_image, rotated_boxes, rotated_mask, 1.0
 
     @staticmethod
     def random_90_rotation(image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                            mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                                  Optional[torch.Tensor]]:
+                                                                  Optional[torch.Tensor], float]:
         """
         Rotates a square image by 90 degrees clockwise or counter-clockwise, chosen at random. The rotation is an
         exact pixel permutation, so the boxes and the mask are transformed exactly.
@@ -501,7 +566,8 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The rotated image, boxes and mask.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The rotated image, boxes and
+                mask, and the area scale of the objects (1, the sizes are kept).
 
         Raises:
             ValueError: If the image is not square, since the batch could then no longer be stacked.
@@ -515,14 +581,14 @@ class DataAugmenter:
         rotated_image = torch.rot90(image, k=1 if counter_clockwise else -1, dims=(-2, -1))
         rotated_mask = torch.rot90(mask, k=1 if counter_clockwise else -1, dims=(-2, -1)) if mask is not None else None
         if bounding_boxes is None:
-            return rotated_image, None, rotated_mask
+            return rotated_image, None, rotated_mask, 1.0
 
         x_1, y_1, x_2, y_2 = bounding_boxes.unbind(dim=-1)
         if counter_clockwise:
             rotated_boxes = torch.stack(tensors=[y_1, image_width - x_2, y_2, image_width - x_1], dim=-1)
         else:
             rotated_boxes = torch.stack(tensors=[image_height - y_2, x_1, image_height - y_1, x_2], dim=-1)
-        return rotated_image, rotated_boxes, rotated_mask
+        return rotated_image, rotated_boxes, rotated_mask, 1.0
 
     @staticmethod
     def brightness_contrast_saturation(image: torch.Tensor) -> torch.Tensor:

@@ -10,16 +10,12 @@ detections, and reused by the InferenceInstanceSegmenter of the exports.
 
 import torch
 
-from typing import Any, Dict, List
+from typing import Any, Dict
 from torch import nn
 from torch.nn import functional as torch_functional
 from torchvision.ops import roi_align
 
 from vision_training.models.components.convolution_block import ConvolutionBlock
-
-# Parameters of the single transposed convolution of the mask heads written before the mask geometry could be
-# configured, loaded into the first upsampling layer
-LEGACY_UPSAMPLING_PARAMETER_NAMES = ["weight", "bias"]
 
 
 def count_mask_upsamplings(roi_align_pool_size: int, mask_resolution: int) -> int:
@@ -114,33 +110,6 @@ class MaskHead(nn.Module):
         # One mask logit map per class
         self.mask_predictor = nn.Conv2d(in_channels=convolution_output_channels, out_channels=number_classes,
                                         kernel_size=1, device=device, dtype=dtype)
-
-    def _load_from_state_dict(self, state_dictionary: Dict[str, Any], prefix: str, local_metadata: Dict[str, Any],
-                              strict: bool, missing_keys: List[str], unexpected_keys: List[str],
-                              error_messages: List[str]) -> None:
-        """
-        Loads the weights of this head from a checkpoint, the checkpoints written before the mask geometry could be
-        configured holding their single transposed convolution as 'upsampling': its weights go to the first upsampling
-        layer, the same layer of the default geometry (masks twice the pool size, transposed convolution), so that the
-        instance segmentation runs migrated by configuration_migration.py still resume, evaluate and export.
-
-        Args:
-            state_dictionary (Dict[str, Any]): The state dictionary being loaded, modified in place.
-            prefix (str): The prefix of the keys of this head in the state dictionary.
-            local_metadata (Dict[str, Any]): The metadata of this head in the state dictionary.
-            strict (bool): Whether the keys must match the parameters exactly.
-            missing_keys (List[str]): The missing keys found so far, filled by PyTorch.
-            unexpected_keys (List[str]): The unexpected keys found so far, filled by PyTorch.
-            error_messages (List[str]): The loading errors found so far, filled by PyTorch.
-        """
-        for parameter_name in LEGACY_UPSAMPLING_PARAMETER_NAMES:
-            legacy_key = f"{prefix}upsampling.{parameter_name}"
-            if legacy_key in state_dictionary:
-                state_dictionary[f"{prefix}upsampling_layers.0.{parameter_name}"] = state_dictionary.pop(legacy_key)
-        super(MaskHead, self)._load_from_state_dict(state_dict=state_dictionary, prefix=prefix,
-                                                    local_metadata=local_metadata, strict=strict,
-                                                    missing_keys=missing_keys, unexpected_keys=unexpected_keys,
-                                                    error_msgs=error_messages)
 
     def forward(self, proposal_boxes: torch.Tensor, input_tensor: torch.Tensor) -> torch.Tensor:
         """

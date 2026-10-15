@@ -49,9 +49,8 @@ def test_default_outputs_are_the_detection_blocks() -> None:
     pre-pooling outputs existed, and the same final feature map in both modes.
     """
     configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
-    configuration["Backbone"]["detection_convolution_block_indices"] = [2, 3]
     backbone = build_backbone(backbone_configuration=configuration["Backbone"], input_image_size=64, device=device,
-                              dtype=dtype).eval()
+                              dtype=dtype, detection_convolution_block_indices=[2, 3]).eval()
     images = torch.rand(size=(2, 3, 64, 64), device=device, dtype=dtype) * 255
 
     with torch.no_grad():

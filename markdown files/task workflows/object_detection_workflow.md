@@ -5,6 +5,7 @@ This document follows one object detection run (DET) from `main()` to the evalua
 The examples come from real runs on CPU, so that the GPU stayed free for another training. The synthetic dataset of the configuration, `synthetic_shapes`, is not on this machine, so a small one was generated in a temporary folder with `create_synthetic_dataset(task="object_detection")`: 100 training, 20 validation and 20 test images of 512 pixels, 1 to 6 shapes per image, 9 shape classes. The data folders and the mapping file of the configuration were redirected to it, and the DALI loader, which decodes the images on the GPU, was replaced by the Native loader (`Data.DALI.activated: False`).
 - **Stages 1 and 2**: `configurations/object_detection/configuration_synthetic_shapes.yaml` (1024 pixel images, batch size 40, detection on the blocks 5, 6 and 7 of the backbone), with the run folder redirected to a temporary folder.
 - **Stages 3, 4 and 5**: the same configuration, shortened to 512 pixel images (the smallest size that keeps the anchors of the configuration, the largest being 512 pixels), batch size 2, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the MLflow tracking turned on. After 12 iterations the detector finds no shape, so the metrics of the examples are 0 on purpose: the point is to see the shapes, the files and the order of the steps.
+- **Steps 2.21, 4.14 and 4.15** (the anchor recall, the mAP by object size and the proposal recall): a later run with the settings of Stages 3 to 5, on a dataset of the same sizes made by the current generator, with 20 shape classes; the examples of Steps 4.14 and 4.15 come from a second run on the same dataset with the same settings, trained for 400 iterations at a learning rate of 0.001 so that the region proposal network is partly trained.
 
 ## Table of Contents
 - [Call Tree Overview](#call-tree-overview)
@@ -25,7 +26,7 @@ main()
 │
 ├── load_experiment_configuration(configuration_path)
 │   │   Splits the YAML into experiment_configuration ('ExperimentConfiguration') and model_configuration (Optimization,
-│   │   Data, Backbone, RegionProposal, Anchors, Detector), converts the types, adds label_mode and label_dictionary.
+│   │   Data, Backbone, DetectionLevels, RegionProposal, Detector), converts the types, adds label_mode and label_dictionary.
 │   │
 │   ├── load_configuration(configuration_path)
 │   ├── build_label_dictionary(label_mapping_configuration, task)
@@ -37,11 +38,11 @@ main()
 │               ├── check_detection_evaluation_configuration()   evaluation.score_threshold, target_precision and
 │               │                                                error_dumps
 │               ├── no sequence settings
-│               ├── check_detection_levels()                     the levels of the heads and anchors are the
-│               │                                                detection_convolution_block_indices of the backbone
-│               ├── check_anchors_configuration()                scales within the image size, positive ratios
-│               ├── check_region_proposal_configuration()        heads, IoU thresholds, proposals before and after NMS
-│               └── check_detector_configuration()               heads, maximum detections, training samples
+│               ├── check_detection_levels()                     DetectionLevels: quoted backbone blocks in increasing
+│               │                                                order, anchor scales within the image size, positive
+│               │                                                ratios, region proposal and detection heads
+│               ├── check_region_proposal_configuration()        IoU thresholds, proposals before and after NMS
+│               └── check_detector_configuration()               maximum detections, training samples
 │
 ├── get_trainer_class(task)  -> DetectionTrainer
 │
@@ -67,6 +68,9 @@ main()
 │       ├── print_experiment_information() -> describe_split() -> count_split_images_and_annotations()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
 │       ├── view_input_batches() -> show_input_samples()   (only with view_input_images)
+│       ├── analyse_training_data()   anchor recall of the training objects, anchor_recall.csv
+│       │   └── gather_training_object_boxes() + get_level_anchors() + compute_best_anchor_overlaps() +
+│       │       summarise_anchor_recall()
 │       └── restore_last_model()
 │
 └── trainer.run_training_loop()  [STAGE 3]
@@ -103,17 +107,21 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   ├── prepare_batch() / predict_batch()   TwoStageDetector.forward() without ground truth -> postprocess_detections()
 │   ├── accumulate_evaluation_batch()       for every image, the detections reaching the deployment threshold:
 │   │   ├── compute_overlap_matrix() + match_image_detections() + add_to_confusion_matrix()
-│   │   └── dump_errors() -> group_image_errors() + draw_test_image()          Errors/ (error_dumps on)
+│   │   ├── dump_errors() -> group_image_errors() + draw_test_image()          Errors/ (error_dumps on)
+│   │   └── accumulate_proposal_recall()     best overlap of every object with the valid proposals
 │   └── save_sample_images() -> build_sample_image() -> build_detection_sample_grid()
 ├── compute_evaluation_results()
 │   ├── evaluate_detections()
 │   │   ├── gather_class_detections() -> find_best_ground_truth()             for every class, once
+│   │   ├── compute_class_true_positive_flags()                                for every IoU threshold, once
 │   │   ├── for every method (area, 11 point, 101 point) and IoU threshold (0.50 to 0.95):
 │   │   │   compute_mean_average_precision() -> match_detections_to_ground_truth() + compute_precision_recall() +
 │   │   │   compute_average_precision()
+│   │   ├── for every object size (small, medium, large), the same with select_object_size_detections()
 │   │   └── find_class_score_thresholds() -> find_score_threshold()           at IoU 0.5, for every class
 │   ├── build_class_average_precision_rows() + write_class_metrics_file()      class_metrics.csv
-│   ├── build_mean_average_precision_table() + build_class_average_precision_table()
+│   ├── build_mean_average_precision_table() + build_object_size_table() + build_class_average_precision_table()
+│   ├── save_proposal_recall() -> summarise_proposal_recall() + write_class_metrics_file()   proposal_recall.csv
 │   └── save_error_analysis()      class_thresholds.json, confusion_matrix.csv and .png, the notes of the report
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
@@ -131,27 +139,28 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 The entry point is the same for every task (see `classification_workflow.md`, Step 1.1).
 
 ### Step 1.2 — `load_experiment_configuration()`
-The model sections of the detection are `Backbone` (with `detection_convolution_block_indices`, the blocks whose feature maps feed the detection), `RegionProposal` (the heads proposing boxes on every detection level, the IoU thresholds labelling the anchors, the proposals kept before and after the non-maximum suppression), `Anchors` (the scales and aspect ratios of the anchors of every level) and `Detector` (the heads classifying and refining the proposals, the post-processing of the inference). The `evaluation` section has its own `score_threshold`, the lowest score of the detections kept for the mean average precision, the `target_precision` of the score threshold of every class (Step 4.12) and the `error_dumps` of the error images (Step 4.5).
+The model sections of the detection are `Backbone`, `DetectionLevels` (keyed by the backbone blocks whose feature maps feed the detection, every level holding the scales and aspect ratios of its anchors, its region proposal head and its detection head), `RegionProposal` (the settings shared by the region proposal heads: the IoU thresholds labelling the anchors, the proposals kept before and after the non-maximum suppression) and `Detector` (the settings shared by the heads classifying and refining the proposals, the post-processing of the inference). The `evaluation` section has its own `score_threshold`, the lowest score of the detections kept for the mean average precision, the `target_precision` of the score threshold of every class (Step 4.12) and the `error_dumps` of the error images (Step 4.5).
 
 **Example: the sections and the detection settings**
 ```text
-model_configuration keys: Optimization, Data, Backbone, RegionProposal, Anchors, Detector
+model_configuration keys: Optimization, Data, Backbone, DetectionLevels, RegionProposal, Detector
 evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'score_threshold': 0.05, 'target_precision': 0.99,
                            'error_dumps': {'activated': False, 'maximum_per_class_pair': 20}}
-Data keys after loading:  DALI, loading, image_settings, label_mapping, data_augmentation, label_mode, label_dictionary
-RegionProposal:           {"head_configurations": {"5": [2, 64], "6": [2, 64], "7": [2, 64]}, "normalization": {"feature_map_normalization": "batch"},
+Data keys after loading:  loading, image_settings, label_mapping, data_augmentation, label_mode, label_dictionary
+DetectionLevels:          {"5": {"anchors": {"scales": [32, 64, 128], "aspect_ratios": [0.5, 1.0, 2.0]}, "region_proposal": {"convolutions": [2, 64]},
+                                 "detector": {"roi_align_pool_size": 7, "convolutions": [2, 64], "fully_connected": [256, 128]}},
+                           "6": {"anchors": {"scales": [64, 128, 256], ...}, ...},
+                           "7": {"anchors": {"scales": [128, 256, 512], ...}, ...}}
+RegionProposal:           {"normalization": {"feature_map_normalization": "batch"},
                            "training": {"pre_nms_proposals": 1000, "post_nms_proposals": 500}, "inference": {"pre_nms_proposals": 500, "post_nms_proposals": 250},
                            "foreground_iou_threshold": {"min": 0.5, "max": 1.0}, ...}
-Anchors:                  {"scales_and_ratios": {"5": {"scales": [32, 64, 128], "aspect_ratios": [0.5, 1.0, 2.0]},
-                                                 "6": {"scales": [64, 128, 256], "aspect_ratios": [0.5, 1.0, 2.0]},
-                                                 "7": {"scales": [128, 256, 512], "aspect_ratios": [0.5, 1.0, 2.0]}}}
-Detector:                 {"head_configurations": {"5": {"roi_align_pool_size": 7, "convolutions": [2, 64], "fully_connected": [256, 128]}, ...}, ...}
+Detector:                 {"normalization": {"feature_map_normalization": "batch"}, "modules": {...}, "inference": {...}, ...}
 ```
 
 ### Step 1.3 — `load_configuration()`
 **Example output**
 ```text
-top-level keys:    ['ExperimentConfiguration', 'Optimization', 'Data', 'Backbone', 'RegionProposal', 'Anchors', 'Detector']
+top-level keys:    ['ExperimentConfiguration', 'Optimization', 'Data', 'Backbone', 'DetectionLevels', 'RegionProposal', 'Detector']
 number_iterations: '1e10'      <- still a string
 learning_rate:     0.0002
 ```
@@ -178,7 +187,7 @@ Invalid Configuration File : file:///.../configuration_wrong.yaml
   - 'Detector.total_training_samples' (600) must be <= 'RegionProposal.training.post_nms_proposals' (500), since the detector samples its targets among these proposals.
 SystemExit code 1
 ```
-The anchor scales are also checked against the image size: at 256 pixels, this configuration is refused with `'Anchors.scales_and_ratios.7.scales' must be integers within [1, 256], got [128, 256, 512].`
+The anchor scales are also checked against the image size: at 256 pixels, this configuration is refused with `'DetectionLevels.7.anchors.scales' must be integers within [1, 256], got [128, 256, 512].`
 
 ### Step 1.6 — `get_trainer_class()`
 **Example output**
@@ -313,7 +322,7 @@ model.detection_score_threshold = 0.5   model.maximum_detections = 100   model.d
 ```
 
 ### Step 2.13 — `build_backbone()` + `compute_detection_input_information()`
-The shared backbone (see `classification_workflow.md`, Step 2.14). The detector takes the feature maps of the blocks of `detection_convolution_block_indices` instead of the final pooled vector; `compute_detection_input_information()` computes their size and channels once.
+The shared backbone (see `classification_workflow.md`, Step 2.14). The detector takes the feature maps of the blocks numbered by the keys of `DetectionLevels` instead of the final pooled vector; `compute_detection_input_information()` computes their size and channels once.
 
 **Example output**
 ```text
@@ -445,6 +454,34 @@ No Initiation Model Weights Will Be Used...
 We Generate A New Model That Will Be Trained From Scratch.            -> start_iteration = 1
 ```
 
+### Step 2.21 — `analyse_training_data()` → anchor recall
+Called by `BaseTrainer.__init__()` between `view_input_batches()` and `restore_last_model()` (Step 2.20), at every launch, resumes included, and never in the input viewer mode. The hook of the general trainer writes nothing; the detection one measures how many training objects the anchors can learn. `gather_training_object_boxes()` reads the boxes of the training split from its annotations (`select_image_objects()`, the crowd and the background left out, as in `__getitem__()`), placed in network input pixels by `preprocess_boxes()` without loading any image and without the augmentations. `compute_best_anchor_overlaps()` gives the overlap of the best anchor of every object in every level (`TwoStageDetector.get_level_anchors()`), 2048 objects at a time on the device of the model. `summarise_anchor_recall()` counts the objects whose best anchor reaches `RegionProposal.foreground_iou_threshold.min`, in every level alone and in all of them, since the region proposal network assigns the objects to the anchors of all the levels at once. An object under the threshold everywhere only gets its single best anchor as foreground (the fallback assignment). The table is printed and `anchor_recall.csv` is written in the run folder, then sent to the `analysis` folder of the MLflow run by `start_experiment_tracking()` (Step 3.3), as `anchor_recall_resume_<n>.csv` for a resume.
+
+**Example output: the later run** (351 training objects)
+```text
+Anchor Recall Of The 351 Training Objects...
+---------------------------------------------
+Anchor Recall Of The Training Objects
+ Objects               Count   Block 5   Block 6   Block 7   All Levels
+────────────────────────────────────────────────────────────────────────
+ All Objects             351    0.8974    0.5442    0.4160       0.8974
+ Small (< 32²)             0         —         —         —            —
+ Medium (32² to 96²)     178    0.7978    0.2978    0.0449       0.7978
+ Large (>= 96²)          173    1.0000    0.7977    0.7977       1.0000
+Share of the objects whose best anchor overlaps them by at least 0.5 (RegionProposal.foreground_iou_threshold.min),
+sizes by box area in network input pixels. The other objects only get their single best anchor as foreground. — : no
+object of the size.
+```
+```text
+anchor_recall.csv
+objects,count,recall_block_5,recall_block_6,recall_block_7,recall_all_levels
+all,351,0.897436,0.544160,0.415954,0.897436
+small,0,,,,
+medium,178,0.797753,0.297753,0.044944,0.797753
+large,173,1.000000,0.797688,0.797688,1.000000
+```
+Block 5 (scales 32 to 128) gives a foreground anchor to every large object, while 36 of the 178 medium objects reach 0.5 with no anchor of any level and are only learnt through their best anchor. The blocks 6 and 7, whose smallest anchors are 64 and 128 pixels, cover few medium objects.
+
 
 ---
 
@@ -478,7 +515,7 @@ Tensorboard/Validation/   Total Loss, RPN Classification Loss, RPN Regression Lo
 ```text
 MLflow Run Created In The Experiment 'object_detection' : d34603eb46cb459982f88c208dd1a275 (Browse : mlflow ui --backend-store-uri sqlite:///.../runs/mlflow.db)
 ```
-The MLflow run is created by a background thread. In this run it existed before the first checkpoint, so the four checkpoints hold its identifier; a checkpoint saved while the run is still being created holds `mlflow_run_id: None`.
+The MLflow run is created by a background thread. In this run it existed before the first checkpoint, so the four checkpoints hold its identifier; a checkpoint saved while the run is still being created holds `mlflow_run_id: None`. The configuration, `anchor_recall.csv` of Step 2.21 (folder `analysis`) and `data.json` are sent as soon as the run is open.
 
 ### Step 3.4 — `save_model()` → `save_checkpoint()`
 The backbone is the only transferable component of the detector, so the checkpoint has only `pretrained_backbone`.
@@ -514,7 +551,7 @@ images [2, 3, 512, 512] torch.uint8 -> torch.float32     bounding_boxes: float32
 ```
 
 ### Step 3.8 — `augment_batch()` → `DataAugmenter.augment_batch(bounding_boxes=..., labels=...)`
-The geometric augmentations move the boxes with the image, and the boxes leaving the image are dropped with their labels. This configuration turns every type off, so nothing changes.
+The geometric augmentations move the boxes with the image, and `clean_bounding_boxes()` clips them to the image and drops with their labels the boxes left narrower or shorter than 1 pixel or with less than 25 % of their moved area inside the image (`MINIMUM_VISIBLE_AREA_FRACTION`), the fragments a crop or a rotation cuts at the border. This configuration turns every type off, so nothing changes.
 
 **Example output**
 ```text
@@ -567,7 +604,7 @@ objectness of image 0 (sigmoid): min 0.4179   max 0.5723   mean 0.4970
 ```
 
 ### Step 3.13 — `RegionProposalFilter.forward()`
-For the whole batch at once, with `select_best_proposals()`, shared with the `InferenceDetector` of the deployment: the sigmoid of the objectness, the `pre_nms_proposals` best proposals of every image (1000 in training, all of them when there are fewer anchors), their boxes clamped to the image, the non-maximum suppression at 0.5 of every image, then the `post_nms_proposals` best survivors of every image (500 in training, 250 in inference). The suppression is the only step run image by image (`suppress_overlapping_proposals()`, one torchvision `nms` call per image, its fastest form on the GPU), the exported detector running a single `batched_nms` call over the batch, which keeps the same proposals. An image with fewer survivors is padded with copies of random survivors, so that every image has the same number of proposals.
+For the whole batch at once, with `select_best_proposals()`, shared with the `InferenceDetector` of the deployment: the sigmoid of the objectness, the `pre_nms_proposals` best proposals of every image (1000 in training, all of them when there are fewer anchors), their boxes clamped to the image, the non-maximum suppression at 0.5 of every image, then the `post_nms_proposals` best survivors of every image (500 in training, 250 in inference). The suppression is the only step run image by image (`suppress_overlapping_proposals()`, one torchvision `nms` call per image, its fastest form on the GPU), the exported detector running a single `batched_nms` call over the batch, which keeps the same proposals. An image with fewer survivors is padded with copies of random survivors, so that every image has the same number of proposals; the filter also returns the mask of the slots holding a real survivor, which the proposal recall of the evaluation reads (Step 4.15).
 
 **Example output**
 ```text
@@ -577,7 +614,7 @@ image 1: 500 distinct boxes, levels {5: 466, 6: 22, 7: 12}
 ```
 
 ### Step 3.14 — `_prepare_detector_inputs()`
-In training, `batch_assign_targets_to_proposals()` gives every filtered proposal the class of the ground truth box it overlaps most when their IoU reaches `Detector.foreground_iou_threshold` (0.5), and the background (0) otherwise; `turn_boxes_to_transformation_targets()` computes the offsets that would move the proposal onto its ground truth box; `sample_positive_and_negative_training_targets()` keeps, for every image, at most `number_training_positives` (64) foreground proposals and fills `total_training_samples` (128) with background ones, chosen at random. The kept proposals are written `[image index, x_min, y_min, x_max, y_max]` for `roi_align()`. In inference, every filtered proposal is kept.
+In training, `add_ground_truth_proposals()` first writes the ground truth boxes of every image into the last slots of its filtered proposals (the padding copies, then the least confident survivors), each at the level of the anchor overlapping it most, so that every object has a positive proposal with a zero regression target even when the region proposal network misses it. This happens whenever the ground truth is given, in the validation loss too; the proposals returned for the proposal recall and the test predictions, made without ground truth, are left as they are. `batch_assign_targets_to_proposals()` then gives every proposal the class of the ground truth box it overlaps most when their IoU reaches `Detector.foreground_iou_threshold` (0.5), and the background (0) otherwise; `turn_boxes_to_transformation_targets()` computes the offsets that would move the proposal onto its ground truth box; `sample_positive_and_negative_training_targets()` keeps, for every image, at most `number_training_positives` (64) foreground proposals and fills `total_training_samples` (128) with background ones, chosen at random. The kept proposals are written `[image index, x_min, y_min, x_max, y_max]` for `roi_align()`. In inference, every filtered proposal is kept.
 
 **Example output**
 ```text
@@ -722,7 +759,7 @@ Test Evaluation Iteration 12: 100%|██████████| 10/10 [00:03<
 ```
 
 ### Step 4.2 — `create_evaluation_accumulator()`
-The detections and the ground truth of every test image, kept on the CPU in network input pixels, the confusion matrix of the classes (background included), filled image by image (Step 4.5), and the folder and counts of the error images.
+The detections and the ground truth of every test image, kept on the CPU in network input pixels, the confusion matrix of the classes (background included), filled image by image (Step 4.5), the folder and counts of the error images, and the `proposal_recall` accumulator of Step 4.15.
 
 **Example: the accumulator at the end of the loop of iteration 12**
 ```text
@@ -734,7 +771,7 @@ first image: best scores [0.1091, 0.1091, 0.1091, 0.1091, 0.1091]   labels [9, 9
 ```
 
 ### Step 4.3 — `prepare_batch()` + `predict_batch()`
-`predict_batch()` runs the detector without the ground truth, as in deployment: with it, the detector would only classify the proposals sampled around the true boxes, which would inflate the mAP. In `eval()` mode, the filter keeps 250 proposals per image and the outputs go through `postprocess_detections()` (Step 4.4).
+`predict_batch()` runs the detector without the ground truth, as in deployment: with it, the detector would only classify the proposals sampled around the true boxes, which would inflate the mAP. In `eval()` mode, the filter keeps 250 proposals per image and the outputs go through `postprocess_detections()` (Step 4.4). The outputs also keep the filtered proposals (`proposal_boxes` [2, 250, 4], `proposal_levels` and `valid_proposal_mask` [2, 250]) for the proposal recall (Step 4.15).
 
 **Example: the predictions of a test batch**
 ```text
@@ -798,7 +835,7 @@ build_sample_image -> [560, 1028, 3] torch.uint8
 No detection is drawn at iterations 6 and 12, so the sample images of both evaluations are identical (same file sizes).
 
 ### Step 4.7 — `compute_evaluation_results()`
-`evaluate_detections()` computes the mean average precision of the test split with the three average precision methods (Steps 4.8 to 4.10), then the average precisions of every class go to `class_metrics.csv` (Step 4.11) and `save_error_analysis()` saves the class thresholds and the confusion matrix (Step 4.12). The detection has no headline metric line (`metrics` is empty): the report shows the table of the methods and the per-class table. The checkpoints are compared on the `mAP@0.5/area` scalar.
+`evaluate_detections()` computes the mean average precision of the test split with the three average precision methods (Steps 4.8 to 4.10) and of every object size (Step 4.14), then the average precisions of every class go to `class_metrics.csv` (Step 4.11), `save_proposal_recall()` writes the proposal recall (Step 4.15) and `save_error_analysis()` saves the class thresholds and the confusion matrix (Step 4.12). The detection has no headline metric line (`metrics` is empty): the report shows the table of the methods, the table of the object sizes, the proposal recall and the per-class table. The checkpoints are compared on the `mAP@0.5/area` scalar. The example below comes from the first run, before the object sizes and the proposal recall: the later run adds the scalars, tables and file of Steps 4.14 and 4.15.
 
 **Example: the results of iteration 12**
 ```text
@@ -859,6 +896,15 @@ class_index,class,ground_truths,average_precision_50,average_precision_75,averag
 2,circle,8,0.000000,0.000000,0.000000,,
 ...
 9,octagon,7,0.000000,0.000000,0.000000,,
+```
+
+Since the object sizes (Step 4.14), the AP@0.5 and AP@[0.5:0.95] of every size follow the average precisions of all the objects, empty for a size the class has no object of.
+
+**Example: `Evaluation/Iteration_12/class_metrics.csv` of the later run** (no object under 32² pixels)
+```text
+class_index,class,ground_truths,average_precision_50,average_precision_75,average_precision_50_95,average_precision_50_small,average_precision_50_95_small,average_precision_50_medium,average_precision_50_95_medium,average_precision_50_large,average_precision_50_95_large,threshold_at_target_precision,recall_at_target_precision
+1,square,4,0.000000,0.000000,0.000000,,,0.000000,0.000000,0.000000,0.000000,,
+2,circle,5,0.000000,0.000000,0.000000,,,0.000000,0.000000,0.000000,0.000000,,
 ```
 
 ### Step 4.12 — `find_class_score_thresholds()` + `save_error_analysis()`
@@ -934,6 +980,63 @@ artifacts: Results.txt, configuration/training_configuration.yaml, metric_names.
            evaluation/iteration_<6|12>/confusion_matrix.png, class_metrics.csv, class_thresholds.json
 ```
 `sanitise_metric_name()` writes `@` as `_at_`, drops the brackets and writes `:` as `-`, so `mAP@[0.5:0.95]/area` becomes `mAP_at_0.5-0.95/area` in MLflow (the original names are kept in `metric_names.json`).
+
+### Step 4.14 — `select_object_size_detections()` + `build_object_size_table()`
+`evaluate_detections()` computes the same mean average precisions again for the small, medium and large objects of COCO, with every method and threshold, reusing the gathered detections of Step 4.8 and the matching of Step 4.9. The size of an object is the area of its box in network input pixels (`OBJECT_SIZE_RANGES` in `object_sizes.py`): small below 32², medium from 32² to 96², large from 96². `select_object_size_detections()` keeps the detections of a class that count for a size with the COCO rule: the ground truths of the other sizes are ignored, and so are the detections matched to them (their best ground truth reaching the threshold) and the unmatched detections whose own box is of another size. A detection whose best ground truth of the size was already taken by a more confident detection stays a false positive, as without the sizes. A class without any object of the size is left out of the mean of that size, and a size without any object has no mAP: `—` in the table and no scalar. `build_object_size_table()` shows the mAPs of the area method of every size with its number of objects, after the table of the methods. The scalars `mAP@0.5 By Size/<size>` and `mAP@[0.5:0.95] By Size/<size>` go to TensorBoard and MLflow, and the values of every class to `class_metrics.csv` (Step 4.11). The instance segmentation has two of these tables, by mask area for the mask AP and by box area for the box AP.
+
+**Example output: the table of iteration 400 of the second run** (66 test objects, none under 32² pixels: the generator draws no shape under 64 pixels, `MINIMUM_SHAPE_SIZE`)
+```text
+  Mean Average Precision By Object Size (Area)
+   Object Size           Objects   mAP@0.5   mAP@0.75   mAP@[0.5:0.95]
+  ─────────────────────────────────────────────────────────────────────
+   Small (< 32²)               0         —          —                —
+   Medium (32² to 96²)        35    0.0000     0.0000           0.0000
+   Large (>= 96²)             31    0.0000     0.0000           0.0000
+  COCO sizes by box area in network input pixels, the objects of the other sizes and the detections finding them being
+  ignored. — : no object of the size.
+```
+```text
+Tensorboard/Test: 49 scalars (9 mAP + 20 AP@0.5 per class + 4 by size + 16 proposal recall of Step 4.15)
+    mAP@0.5 By Size/medium, mAP@[0.5:0.95] By Size/medium, mAP@0.5 By Size/large, mAP@[0.5:0.95] By Size/large
+MLflow: test/mAP_at_0.5 By Size/medium, test/mAP_at_0.5-0.95 By Size/medium, test/mAP_at_0.5 By Size/large,
+        test/mAP_at_0.5-0.95 By Size/large
+```
+Without small objects, the small size has no scalar. After 400 iterations the detection heads still find none of the test objects, so every mAP is 0; the proposal recall of Step 4.15 shows how far the region proposal network got.
+
+### Step 4.15 — `accumulate_proposal_recall()` + `save_proposal_recall()`
+The anchor recall of Step 2.21 measures what the anchors allow; the proposal recall measures what the trained region proposal network gives the detection heads. `create_evaluation_accumulator()` creates its accumulator for the detection levels (`create_proposal_recall_accumulator()`), and `accumulate_evaluation_batch()` calls `accumulate_proposal_recall()` for every test image with the filtered proposals of Step 4.3: the padding copies are left out with `valid_proposal_mask`, the best IoU of every object is kept with all the proposals and with the proposals of every level alone, computed on the device of the model, and the valid proposals of every level are counted. In `compute_evaluation_results()`, `save_proposal_recall()` calls `summarise_proposal_recall()`, which gives the share of the objects whose best IoU reaches 0.5 and 0.7 (`PROPOSAL_RECALL_THRESHOLDS`) for all the objects, every size (by box area, Step 4.14) and the proposals of every block alone, with the mean number of valid proposals per image of all the blocks and of every block. A block row counts all the objects, so its recall shows how many objects that level brings to the detection heads. The table is always shown after the size table; the rows are written to `proposal_recall.csv` in the evaluation folder of the checkpoint, which is sent to MLflow, and the scalars `Proposal Recall@0.5/<group>`, `Proposal Recall@0.7/<group>` and `Proposals Per Image/<group>` go to TensorBoard and MLflow, a size without object having none. The instance segmentation shows the same table once, after its box size table.
+
+**Example output: the table of iteration 400 of the second run**
+```text
+  Proposal Recall
+                                                           Proposals
+   Objects               Count   Recall@0.5   Recall@0.7   Per Image
+  ───────────────────────────────────────────────────────────────────
+   All Objects              66       0.4848       0.1818     72.1500
+   Small (< 32²)             0            —            —           —
+   Medium (32² to 96²)      35       0.1429       0.0286           —
+   Large (>= 96²)           31       0.8710       0.3548           —
+   Block 5 Proposals        66       0.4697       0.1818     68.4000
+   Block 6 Proposals        66       0.0152       0.0000      3.0500
+   Block 7 Proposals        66       0.0000       0.0000      0.7000
+  Share of the test objects overlapped by a proposal of the region proposal network by at least the IoU, sizes by box
+  area in network input pixels. A block row keeps the proposals of that block only. — : no object of the size.
+```
+```text
+Evaluation/Iteration_400/proposal_recall.csv
+group,objects,recall_50,recall_70,proposals_per_image
+all,66,0.484848,0.181818,72.150000
+small,0,,,
+medium,35,0.142857,0.028571,
+large,31,0.870968,0.354839,
+block_5,66,0.469697,0.181818,68.400000
+block_6,66,0.015152,0.000000,3.050000
+block_7,66,0.000000,0.000000,0.700000
+
+MLflow: test/Proposal Recall_at_0.5/<group>, test/Proposal Recall_at_0.7/<group>, test/Proposals Per Image/<group>,
+        evaluation/iteration_400/proposal_recall.csv
+```
+At the end of the 12-iteration run of Step 2.21, the 250 proposals of every image all came from block 5 and reached none of the 66 objects. At iteration 400, the non-maximum suppression leaves 72.15 valid proposals per image of the 250 slots, the others being padding copies, and 68.4 of them come from block 5. The proposals reach 27 of the 31 large objects at 0.5 but only 5 of the 35 medium ones, although Step 2.21 gave a foreground anchor to 80% of the medium training objects; at 0.7 they reach 12 of the 66 objects. The proposals of blocks 6 and 7 reach almost none of them.
 
 
 ---

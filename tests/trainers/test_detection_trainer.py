@@ -71,7 +71,7 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     for level, scales in SMOKE_ANCHOR_SCALES.items():
-        configuration["Anchors"]["scales_and_ratios"][level]["scales"] = scales
+        configuration["DetectionLevels"][level]["anchors"]["scales"] = scales
 
     configuration_path = temporary_directory / f"configuration_{number_iterations}_iterations.yaml"
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))
@@ -96,11 +96,13 @@ def build_trainer(configuration_path: Path) -> DetectionTrainer:
 
 def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies the whole training pipeline on a generated synthetic dataset: 5 iterations save the intermediate and
-    evaluated checkpoints and the final one, evaluate the test split into Results.txt (the table of the average
-    precision methods and the per-class table with the class thresholds), class_metrics.csv (the ground truth boxes of
-    every class summing to those of the test images), the confusion matrix, class thresholds and error images of the
-    detections (check_detection_error_analysis) and the sample images of the test images, and write the three
+    Verifies the whole training pipeline on a generated synthetic dataset: the launch prints the anchor recall of the
+    training objects and writes anchor_recall.csv to the run folder, 5 iterations save the intermediate and evaluated
+    checkpoints and the final one, evaluate the test split into Results.txt (the tables of the average precision
+    methods, of the object sizes and of the proposal recall, and the per-class table with the class thresholds),
+    class_metrics.csv (the ground truth boxes of every class summing to those of the test images, the average
+    precisions of every object size), proposal_recall.csv, the confusion matrix, class thresholds and error images of
+    the detections (check_detection_error_analysis) and the sample images of the test images, and write the three
     TensorBoard folders. A second run with the same settings resolves to the same run folder, resumes from the last
     checkpoint with exactly its weights, and trains 2 more iterations. No training step may fail silently.
 
@@ -133,11 +135,17 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
         (4, "4 Test Images"), (5, "4 Test Images")]
     assert [table["title"] for table in results["tables"]] == ["Mean Average Precision",
-                                                              "Per Class Average Precision (Area)"]
+                                                              "Mean Average Precision By Object Size (Area)",
+                                                              "Proposal Recall", "Per Class Average Precision (Area)"]
     assert "Per Class Average Precision (Area)" in results_blocks[1]["text"]
+    assert "Proposal Recall" in results_blocks[1]["text"]
     assert all(scalar_name.startswith("AP@0.5/") for scalar_name in results["class_scalars"])
+    assert {"Proposal Recall@0.5/all", "Proposal Recall@0.7/block_5", "Proposals Per Image/all"} <= set(
+        results["scalars"])
+    assert any(scalar_name.startswith("mAP@0.5 By Size/") for scalar_name in results["scalars"])
 
-    # The ground truth boxes of every class sum to the boxes of the test images
+    # The ground truth boxes of every class sum to the boxes of the test images, with the average precisions of every
+    # object size before the thresholds
     test_dataset = trainer.test_dataloader.dataset
     number_boxes = sum(test_dataset[sample_index]["bounding_boxes"].shape[0]
                        for sample_index in range(len(test_dataset)))
@@ -145,10 +153,39 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
               newline="") as class_metrics_file:
         class_rows = list(csv.DictReader(f=class_metrics_file))
     assert list(class_rows[0]) == ["class_index", "class", "ground_truths", "average_precision_50",
-                                   "average_precision_75", "average_precision_50_95", "threshold_at_target_precision",
-                                   "recall_at_target_precision"]
+                                   "average_precision_75", "average_precision_50_95"] + [
+        f"average_precision_{threshold}_{object_size}" for object_size in ["small", "medium", "large"]
+        for threshold in ["50", "50_95"]] + ["threshold_at_target_precision", "recall_at_target_precision"]
     assert sum(int(class_row["ground_truths"]) for class_row in class_rows) == number_boxes
     assert [class_row["class"] for class_row in class_rows] == list(SHAPE_CATEGORIES)
+
+    # Proposal recall of the test objects: every object counted once, by size, and the proposals of every level
+    # summing to those of all the levels
+    with open(file=trainer.experiment_folder / "Evaluation" / "Iteration_5" / "proposal_recall.csv", mode="r",
+              newline="") as proposal_recall_file:
+        proposal_rows = {row["group"]: row for row in csv.DictReader(f=proposal_recall_file)}
+    assert list(proposal_rows) == ["all", "small", "medium", "large", "block_5", "block_6", "block_7"]
+    assert int(proposal_rows["all"]["objects"]) == number_boxes == sum(
+        int(proposal_rows[object_size]["objects"]) for object_size in ["small", "medium", "large"])
+    assert float(proposal_rows["all"]["proposals_per_image"]) == pytest.approx(expected=sum(
+        float(proposal_rows[f"block_{level}"]["proposals_per_image"]) for level in [5, 6, 7]), abs=1e-5)
+    assert results["files"]["Proposal Recall"].name == "proposal_recall.csv"
+
+    # Anchor recall of the training objects, written to the run folder at launch
+    train_dataset = trainer.train_dataloader.dataset
+    number_training_boxes = sum(train_dataset[sample_index]["bounding_boxes"].shape[0]
+                                for sample_index in range(len(train_dataset)))
+    assert trainer.training_data_analysis_files == {"Anchor Recall": trainer.experiment_folder / "anchor_recall.csv"}
+    with open(file=trainer.experiment_folder / "anchor_recall.csv", mode="r", newline="") as anchor_recall_file:
+        anchor_rows = list(csv.DictReader(f=anchor_recall_file))
+    assert list(anchor_rows[0]) == ["objects", "count", "recall_block_5", "recall_block_6", "recall_block_7",
+                                    "recall_all_levels"]
+    assert [row["objects"] for row in anchor_rows] == ["all", "small", "medium", "large"]
+    assert int(anchor_rows[0]["count"]) == number_training_boxes
+    assert float(anchor_rows[0]["recall_all_levels"]) >= max(float(anchor_rows[0][f"recall_block_{level}"])
+                                                             for level in [5, 6, 7])
+    first_run_output = capsys.readouterr().out
+    assert "Anchor Recall Of The Training Objects" in first_run_output
 
     # Confusion matrix with its background row and column, class thresholds and error images of the detections
     check_detection_error_analysis(
@@ -182,7 +219,7 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
                                                                                  "Iteration_7"]
     assert (weights_directory / "full-checkpoint").read_text().splitlines()[0] == 'model_checkpoint_path: "Iteration_7"'
 
-    # The training loop catches errors and keeps going, so make sure that no iteration failed along the way
-    console_output = capsys.readouterr().out
+    # The training loop catches errors and keeps going, so make sure that no iteration of both runs failed
+    console_output = first_run_output + capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

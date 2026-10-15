@@ -148,8 +148,9 @@ def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False,
             behaviour baseline, whose recorded values must not depend on float32 rounding.
         instance_segmentation (bool): Whether to build the InstanceSegmenter instead of the TwoStageDetector.
             Defaults to False.
-        mask_head_settings (Optional[Dict[str, Any]]): Settings of the 'MaskHead' section replacing those of the
-            fixture (e.g. 'mask_resolution', 'upsampling', 'head_configurations'), None to keep them. Defaults to None.
+        mask_head_settings (Optional[Dict[str, Any]]): The mask geometry replacing the one of the fixture: the
+            'MaskHead' settings under 'MaskHead' (e.g. 'mask_resolution', 'upsampling') and the mask head of every
+            detection level under 'level_mask_heads', None to keep them. Defaults to None.
 
     Returns:
         TwoStageDetector: The detector (or instance segmenter) in evaluation mode, on the CPU.
@@ -159,8 +160,11 @@ def build_test_model(dtype: torch.dtype, instance_segmentation: bool = False,
     configuration: Dict[str, Any] = copy.deepcopy(x=configuration)
     configuration["Data"]["image_settings"]["size"] = 512
     configuration["Detector"]["inference"]["score_threshold"] = 0.0
+    # Replace the mask geometry of the fixture: the settings shared by the levels and the mask head of every level
     if mask_head_settings is not None:
-        configuration["MaskHead"].update(mask_head_settings)
+        configuration["MaskHead"].update(mask_head_settings["MaskHead"])
+        for level_key, level_mask_head in mask_head_settings["level_mask_heads"].items():
+            configuration["DetectionLevels"][level_key]["mask_head"] = level_mask_head
 
     # Move the model to its device and precision after building it, as the Trainer does, since a few layers (the
     # region proposal output layers) are created in the default float32 precision

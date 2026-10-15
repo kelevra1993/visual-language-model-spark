@@ -89,13 +89,6 @@ def check_self_supervised_data_configuration(model_configuration: Dict[str, Any]
             errors.append(f"The classes of the label mapping file must be indexed 0 to K-1 without gaps, "
                           f"got {class_indices}.")
 
-    # The representation is the pooled final feature map, so no block feeds a head
-    detection_block_indices = get_configuration_value(configuration=model_configuration,
-                                                      key_path="Backbone.detection_convolution_block_indices")
-    if detection_block_indices != []:
-        errors.append(f"'Backbone.detection_convolution_block_indices' must be [] for the self-supervised task, its "
-                      f"representation is the pooled final feature map, got {detection_block_indices!r}.")
-
     # The views replace the data augmentation of the other tasks
     if get_configuration_value(configuration=model_configuration, key_path="Data.data_augmentation.activated") is True:
         errors.append("'Data.data_augmentation.activated' must be False for the self-supervised task: the random views "

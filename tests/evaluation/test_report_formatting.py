@@ -2,7 +2,7 @@
 Tests of vision_training/evaluation/report_formatting.py: the formatting of the report cells and of the per-class
 metrics files, the order of the table rows (worst first, missing values last), and the block of the report rendered as
 plain text for Results.txt (header, metrics, notes, tables, width, class names kept as text, per-class tables hidden
-without the per-class report).
+without the per-class report), and the layout of a table printed alone with its title and legend.
 """
 
 import math
@@ -12,8 +12,8 @@ from typing import Any, Dict
 
 from vision_training.core.contracts import EvaluationResults, EvaluationTable
 from vision_training.evaluation.report_formatting import (REPORT_WIDTH, build_report_header, build_report_renderables,
-                                                          format_file_value, format_report_value, order_table_rows,
-                                                          render_report_text)
+                                                          build_table_renderables, format_file_value,
+                                                          format_report_value, order_table_rows, render_report_text)
 
 
 def build_class_table(rows: list) -> EvaluationTable:
@@ -127,6 +127,21 @@ def test_per_class_tables_are_hidden_without_the_per_class_report() -> None:
                                                                    per_class_report=False))
     assert "Mean Average Precision" in text and "Error Images" in text and "Macro F1" in text
     assert "Per Class Metrics" not in text and "circle" not in text
+
+
+def test_table_is_laid_out_with_its_title_and_legend() -> None:
+    """
+    Verifies the layout of one table printed alone, such as the anchor recall at the launch of a detection run: its
+    title above it, its rows, and its legend below it only when it has one.
+    """
+    table: EvaluationTable = {"title": "Anchor Recall", "columns": ["Objects", "Recall"], "rows": [["All", 0.5]],
+                              "sort_column": None, "per_class": False, "legend": "Share of the objects."}
+    renderables = build_table_renderables(table=table)
+    text = render_report_text(renderables=renderables)
+    assert len(renderables) == 3
+    assert text.splitlines()[0] == "Anchor Recall" and "0.5000" in text
+    assert text.rstrip().endswith("Share of the objects.")
+    assert len(build_table_renderables(table={**table, "legend": ""})) == 2
 
 
 def test_report_header() -> None:

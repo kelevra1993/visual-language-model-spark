@@ -113,9 +113,9 @@ class InferenceDetector(nn.Module):
     def filter_proposals(self, proposal_scores: torch.Tensor, proposal_boxes: torch.Tensor,
                          proposal_levels: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Keeps, for every image, the best 'post_nms_proposals' proposals after non-maximum suppression, with the
-        batched selection of the training-time region proposal filter (select_best_proposals), the padding slots being
-        masked instead of filled with copies.
+        Keeps, for every image, the best 'post_nms_proposals' proposals after non-maximum suppression (fewer when the
+        pre-NMS count or the number of anchors is smaller), with the batched selection of the training-time region
+        proposal filter (select_best_proposals), the padding slots being masked instead of filled with copies.
 
         Args:
             proposal_scores (torch.Tensor): The objectness logits of all anchors, shape [B, N].

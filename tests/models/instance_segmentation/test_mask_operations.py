@@ -1,8 +1,7 @@
 """
 Tests of vision_training/models/instance_segmentation/mask_operations.py and the mask head: the mask geometry of the
-mask head (its doublings, the resize of its masks and the shapes of its outputs), the loading of the checkpoints
-written before the mask geometry could be configured, the mask targets cropped from the ground truth masks, the pasting
-of the predicted masks into their boxes and the intersection over union of binary masks.
+mask head (its doublings, the resize of its masks and the shapes of its outputs), the mask targets cropped from the
+ground truth masks, the pasting of the predicted masks into their boxes and the intersection over union of binary masks.
 """
 
 import pytest
@@ -68,28 +67,6 @@ def test_mask_head_doubles_its_pooled_features_up_to_the_mask_resolution(roi_ali
     assert mask_head(proposal_boxes=boxes, input_tensor=feature_map).shape == (3, 6, mask_resolution, mask_resolution)
     assert mask_head(proposal_boxes=boxes[:0], input_tensor=feature_map).shape == (0, 6, mask_resolution,
                                                                                     mask_resolution)
-
-
-def test_mask_head_loads_the_checkpoints_of_the_single_transposed_convolution() -> None:
-    """
-    Verifies that the weights of a mask head saved before the mask geometry could be configured, its transposed
-    convolution named 'upsampling', load into the first upsampling layer of the same default geometry, strictly and
-    giving the same masks, inside a larger model as in the checkpoints.
-    """
-    torch.manual_seed(seed=0)
-    saved_head = nn.ModuleDict(modules={"5": build_mask_head(roi_align_pool_size=7, mask_resolution=14,
-                                                             upsampling="transposed")})
-    legacy_state = {key.replace("upsampling_layers.0.", "upsampling."): value
-                    for key, value in saved_head.state_dict().items()}
-    assert "5.upsampling.weight" in legacy_state and "5.upsampling.bias" in legacy_state
-
-    loaded_head = nn.ModuleDict(modules={"5": build_mask_head(roi_align_pool_size=7, mask_resolution=14,
-                                                              upsampling="transposed")})
-    loaded_head.load_state_dict(state_dict=legacy_state, strict=True)
-    feature_map = torch.rand(size=(1, 8, 16, 16))
-    boxes = torch.tensor(data=[[0.0, 10.0, 10.0, 60.0, 80.0]])
-    assert torch.equal(input=loaded_head["5"](proposal_boxes=boxes, input_tensor=feature_map),
-                       other=saved_head["5"](proposal_boxes=boxes, input_tensor=feature_map))
 
 
 def test_mask_targets_crop_the_matched_ground_truth_masks() -> None:

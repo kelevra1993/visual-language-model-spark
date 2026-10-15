@@ -2,14 +2,17 @@
 Tests of the batched training target assignment of vision_training/models/detection/target_assignment.py: the
 padding of the ground truths of a batch, the foreground, background and ignored anchors of every image (an image
 without object included), the best anchor of every object made foreground with both fallback rules, the proposal
-targets of images with different object counts, and the number, kind and uniformity of the sampled targets.
+targets of images with different object counts, the number, kind and uniformity of the sampled targets, and the
+ground truth boxes added to the proposals of the detection heads (slots, levels, positives).
 """
 
 import torch
 
-from vision_training.models.detection.target_assignment import (batch_assign_targets_to_anchors,
+from vision_training.models.detection.target_assignment import (add_ground_truth_proposals,
+                                                                batch_assign_targets_to_anchors,
                                                                 batch_assign_targets_to_proposals, pad_ground_truths,
-                                                                sample_positive_and_negative_training_targets)
+                                                                sample_positive_and_negative_training_targets,
+                                                                turn_boxes_to_transformation_targets)
 
 # Anchor thresholds of the tests: background from 0.1 to 0.3, foreground from 0.7
 BACKGROUND_THRESHOLD = {"min": 0.1, "max": 0.3}
@@ -116,3 +119,61 @@ def test_sampling_counts_kinds_and_uniformity() -> None:
         assert not bool((sampled_positives & sampled_negatives).any())
         positive_frequencies += sampled_positives[0, :10].float()
     assert torch.allclose(input=positive_frequencies / 2000, other=torch.full(size=(10,), fill_value=0.3), atol=0.05)
+
+
+def test_ground_truth_boxes_overwrite_the_last_proposal_slots() -> None:
+    """
+    Verifies that the ground truth boxes of every image overwrite its last proposal slots in their order, at the level
+    of their best anchor (a small object at the fine level, a large one at the coarse level), that an image without
+    object keeps its proposals, that an image with more objects than slots keeps its last objects, and that the input
+    proposals are left unchanged.
+    """
+    level_anchors = {5: torch.tensor(data=[[0.0, 0.0, 16.0, 16.0], [16.0, 16.0, 32.0, 32.0]]),
+                     6: torch.tensor(data=[[0.0, 0.0, 64.0, 64.0]])}
+    proposals = torch.arange(end=2 * 4 * 4, dtype=torch.float32).reshape(2, 4, 4)
+    levels = torch.full(size=(2, 4), fill_value=5, dtype=torch.int64)
+    boxes = [torch.tensor(data=[[16.0, 16.0, 30.0, 30.0], [0.0, 0.0, 60.0, 60.0]]), torch.zeros(size=(0, 4))]
+    new_proposals, new_levels = add_ground_truth_proposals(batched_ground_truth_boxes=boxes,
+                                                           batched_proposals=proposals, batched_proposal_levels=levels,
+                                                           level_anchors=level_anchors)
+    assert torch.equal(input=new_proposals[0, :2], other=proposals[0, :2])
+    assert torch.equal(input=new_proposals[0, 2:], other=boxes[0])
+    assert new_levels.tolist() == [[5, 5, 5, 6], [5, 5, 5, 5]]
+    assert torch.equal(input=new_proposals[1], other=proposals[1])
+    assert torch.equal(input=proposals, other=torch.arange(end=2 * 4 * 4, dtype=torch.float32).reshape(2, 4, 4))
+
+    # An image with five objects for three slots keeps its last three objects
+    many_boxes = torch.tensor(data=[[float(index), 0.0, float(index) + 10.0, 10.0] for index in range(5)])
+    new_proposals, _ = add_ground_truth_proposals(batched_ground_truth_boxes=[many_boxes],
+                                                  batched_proposals=torch.zeros(size=(1, 3, 4)),
+                                                  batched_proposal_levels=torch.full(size=(1, 3), fill_value=5),
+                                                  level_anchors=level_anchors)
+    assert torch.equal(input=new_proposals[0], other=many_boxes[2:])
+
+
+def test_every_object_gives_a_positive_proposal_with_its_ground_truth_box() -> None:
+    """
+    Verifies that proposals far from every object give no positive target, and that once the ground truth boxes are
+    added every object gives a positive proposal of its class with a zero regression target.
+    """
+    level_anchors = {5: torch.tensor(data=[[0.0, 0.0, 32.0, 32.0]])}
+    boxes = [torch.tensor(data=[[100.0, 100.0, 140.0, 150.0], [10.0, 200.0, 60.0, 240.0]])]
+    labels = [torch.tensor(data=[4, 7])]
+    proposals = torch.tensor(data=[[[300.0, 300.0, 340.0, 340.0]] * 6])
+    levels = torch.full(size=(1, 6), fill_value=5, dtype=torch.int64)
+    _, target_labels, _ = batch_assign_targets_to_proposals(batched_ground_truth_boxes=boxes,
+                                                            batched_proposals=proposals,
+                                                            batched_ground_truth_labels=labels,
+                                                            foreground_iou_threshold=0.5)
+    assert int((target_labels > 0).sum()) == 0
+
+    # The added ground truth boxes are the positives of their objects, already in place
+    new_proposals, _ = add_ground_truth_proposals(batched_ground_truth_boxes=boxes, batched_proposals=proposals,
+                                                  batched_proposal_levels=levels, level_anchors=level_anchors)
+    target_boxes, target_labels, matched_indices = batch_assign_targets_to_proposals(
+        batched_ground_truth_boxes=boxes, batched_proposals=new_proposals, batched_ground_truth_labels=labels,
+        foreground_iou_threshold=0.5)
+    assert target_labels.tolist() == [[0, 0, 0, 0, 4, 7]] and matched_indices[0, 4:].tolist() == [0, 1]
+    regression_targets = turn_boxes_to_transformation_targets(ground_truth_boxes=target_boxes,
+                                                              predicted_boxes=new_proposals)
+    assert torch.allclose(input=regression_targets[0, 4:], other=torch.zeros(size=(2, 4)), atol=1e-6)

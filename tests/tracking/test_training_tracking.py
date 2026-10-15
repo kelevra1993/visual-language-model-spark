@@ -1,7 +1,8 @@
 """
 Tests of the MLflow tracking of the trainings and of the standalone evaluations: on the dummy task, a recording tracker
 checks the hooks of the general trainer (run opened at the start of the loop, interval averages, test evaluations,
-configuration, data record and Results.txt artifacts, run identifier in the checkpoints, status of the end of the
+configuration, training data analysis, data record and Results.txt artifacts, run identifier in the checkpoints, status
+of the end of the
 training); on a synthetic classification dataset, a training, its resumption and a standalone evaluation of its
 checkpoints are written to the local MLflow database and read back.
 """
@@ -154,9 +155,10 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
     Verifies the tracking hooks of the general trainer on the dummy task: the tracker is disabled until the training
     loop opens the run with the settings, derived values and tags of the run, then receives the training and
     validation averages, learning rate and throughput of every console summary, the test scalars of the evaluated
-    checkpoint with the per-class ones and its headline metric, the configuration at the start and Results.txt at the
-    end, and is closed as finished, its run identifier being stored in the checkpoints. A resumed training opens the
-    run as resumed and sends its configuration under the name of the resumption.
+    checkpoint with the per-class ones and its headline metric, the configuration and the files of the analysis of
+    the training data at the start and Results.txt at the end, and is closed as finished, its run identifier being
+    stored in the checkpoints. A resumed training opens the run as resumed and sends its configuration and its analysis
+    files under the name of the resumption.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -164,6 +166,12 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
     trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=5, view_input_images=False,
                                   number_sample_images=0)
     assert isinstance(trainer.experiment_tracker, DisabledTracker)
+
+    # A file of the analysis of the training data, as the detection tasks write their anchor recall at launch
+    assert trainer.training_data_analysis_files == {}
+    analysis_file_path = trainer.experiment_folder / "analysis_example.csv"
+    analysis_file_path.write_text(data="objects,count\nall,8\n")
+    trainer.training_data_analysis_files = {"Analysis Example": analysis_file_path}
     recording_tracker = RecordingTracker()
     with patch(target=TRACKER_FACTORY_TARGET, return_value=recording_tracker) as factory_mock:
         trainer.run_training_loop()
@@ -202,8 +210,10 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
     assert any(metric_name.startswith("test_class/Recall/") for metric_name in test_metrics[0][1])
     assert recording_tracker.best_metrics == [("Accuracy", test_metrics[0][1]["test/Accuracy"], 4, "test")]
 
-    # Configuration and record of the data at the start, Results.txt at the end, then the run closed as finished
+    # Configuration, analysis of the training data and record of the data at the start, Results.txt at the end, then
+    # the run closed as finished
     assert recording_tracker.artifacts == [(trainer.configuration_path, "configuration", None),
+                                           (analysis_file_path, "analysis", None),
                                            (trainer.data_record_path, "data", None),
                                            (trainer.experiment_folder / "Results.txt", None, None)]
     assert recording_tracker.close_statuses == [FINISHED_STATUS]
@@ -214,12 +224,14 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
     # A resumed training, from the checkpoint of iteration 5
     resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
                                           number_sample_images=0)
+    resumed_trainer.training_data_analysis_files = {"Analysis Example": analysis_file_path}
     resumed_tracker = RecordingTracker()
     with patch(target=TRACKER_FACTORY_TARGET, return_value=resumed_tracker):
         resumed_trainer.run_training_loop()
     assert resumed_tracker.started_with["resumed_iteration"] == 5
-    assert resumed_tracker.artifacts[0] == (resumed_trainer.configuration_path, "configuration",
-                                            "training_configuration_resume_5.yaml")
+    assert resumed_tracker.artifacts[:2] == [
+        (resumed_trainer.configuration_path, "configuration", "training_configuration_resume_5.yaml"),
+        (analysis_file_path, "analysis", "analysis_example_resume_5.csv")]
 
     # The data did not change, so its record is not sent again
     assert all(artifact_folder != "data" for _, artifact_folder, _ in resumed_tracker.artifacts)

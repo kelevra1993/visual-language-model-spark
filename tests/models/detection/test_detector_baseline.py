@@ -18,11 +18,13 @@ FIXED_GROUND_TRUTH_LABELS = [[1, 3, 5], [2, 4]]
 # Values computed by the detector before the major refactoring (Phase 0 of its plan, kept in the git history:
 # git show bdaa51d:markdown_files/major_refactoring.md). They are not ground truth: they record the current behaviour,
 # so that moving, splitting or generalising the detector code is proven to leave every number unchanged. They may only
-# be updated together with a deliberate change of the detector behaviour
+# be updated together with a deliberate change of the detector behaviour: the two detection losses were updated when
+# the ground truth boxes were added to the training proposals (add_ground_truth_proposals), the region proposal
+# losses staying the same
 EXPECTED_TRAINING_LOSSES = {"region_proposal_classification_loss": 0.6914948225021362,
                             "region_proposal_localisation_loss": 0.9389231171898904,
-                            "detection_classification_loss": 1.8252800713607074,
-                            "detection_regression_loss": 0.8443907026391789}
+                            "detection_classification_loss": 1.824884097553785,
+                            "detection_regression_loss": 0.7420200225082583}
 EXPECTED_INFERENCE_SUMMARY = {"number_detections": [100, 100], "score_sum": 34.051725473826025,
                               "box_sum": 178328.6940448164, "label_sum": 478}
 

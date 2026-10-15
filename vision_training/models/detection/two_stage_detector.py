@@ -15,7 +15,8 @@ from vision_training.models.detection.region_proposer import RegionProposal, Reg
 from vision_training.models.detection.detection_head import DetectionHead
 from vision_training.models.detection.target_assignment import (turn_boxes_to_transformation_targets,
                                                                 sample_positive_and_negative_training_targets,
-                                                                batch_assign_targets_to_proposals)
+                                                                batch_assign_targets_to_proposals,
+                                                                add_ground_truth_proposals)
 from vision_training.models.detection.postprocessing import postprocess_detections
 from vision_training.losses.detection_losses import compute_detection_losses, compute_region_proposal_losses
 from vision_training.utilities.os_utilities import print_color
@@ -49,7 +50,7 @@ class TwoStageDetector(TaskModel):
         # Get configuration for each component of our model
         self.data_configuration = configuration['Data']
         self.backbone_configuration = configuration['Backbone']
-        self.anchors_configuration = configuration['Anchors']
+        self.detection_levels_configuration = configuration['DetectionLevels']
         self.region_proposal_configuration = configuration['RegionProposal']
         self.detector_configuration = configuration['Detector']
 
@@ -63,9 +64,11 @@ class TwoStageDetector(TaskModel):
         self.maximum_detections = self.detector_configuration["inference"]["maximum_detections"]
         self.detection_nms_iou_threshold = self.detector_configuration["nms_iou_threshold"]
 
-        # Initialize the backbone feature extractor using the dedicated builder method
+        # Initialize the backbone feature extractor, whose outputs are the blocks numbered by the detection levels
+        detection_convolution_block_indices = sorted(int(level_key) for level_key in configuration["DetectionLevels"])
         self.backbone = build_backbone(backbone_configuration=self.backbone_configuration,
-                                       input_image_size=self.input_image_size, device=self.device, dtype=self.dtype)
+                                       input_image_size=self.input_image_size, device=self.device, dtype=self.dtype,
+                                       detection_convolution_block_indices=detection_convolution_block_indices)
 
         # Pre-compute spatial dimensions and channel depths of the backbone's feature maps just once
         self.detection_input_information = self.backbone.compute_detection_input_information()
@@ -73,11 +76,12 @@ class TwoStageDetector(TaskModel):
         # Initialize the region proposal dictionary (since we are using a Feature Pyramid Network Approach)
         self.region_proposer_dictionary = self._build_region_proposer_dictionary(
             region_proposal_configuration=self.region_proposal_configuration,
-            anchors_configuration=self.anchors_configuration)
+            detection_levels_configuration=self.detection_levels_configuration)
 
         # Initialize the detection head dictionary (each FPN scale gets its own detection head)
         self.detector_heads_dictionary = self._build_detector_heads_dictionary(
-            detector_configuration=self.detector_configuration)
+            detector_configuration=self.detector_configuration,
+            detection_levels_configuration=self.detection_levels_configuration)
 
         # Aggregate all unbatched anchors across all scales into a single global tensor
         self.anchors = self._aggregate_all_anchors()
@@ -88,29 +92,33 @@ class TwoStageDetector(TaskModel):
             region_proposal_configuration=self.region_proposal_configuration)
 
     def _build_region_proposer_dictionary(self, region_proposal_configuration: Dict[str, Any],
-                                          anchors_configuration: Dict[str, Any]) -> nn.ModuleDict:
+                                          detection_levels_configuration: Dict[str, Any]) -> nn.ModuleDict:
         """
         Dynamically constructs the Region Proposal components tailored for each detection feature map scale.
-        
-        This builder method queries the Backbone for the exact spatial dimensions and channel depths 
-        of the intermediate feature maps. It then parses the specified anchor configurations to securely 
+
+        This builder method queries the Backbone for the exact spatial dimensions and channel depths
+        of the intermediate feature maps. It then reads the anchors and the convolutions of every detection level to
         instantiate a distinct RegionProposal module for each scale level in the Feature Pyramid Network.
-        
+
         Args:
-            region_proposal_configuration (Dict[str, Any]): Configuration governing region proposal settings and normalization.
-            anchors_configuration (Dict[str, Any]): Configuration governing anchor scales and aspect ratios
-                                                    per feature level.
-            
+            region_proposal_configuration (Dict[str, Any]): The 'RegionProposal' section, giving the normalization
+                                                            shared by every level.
+            detection_levels_configuration (Dict[str, Any]): The 'DetectionLevels' section, giving the anchor scales
+                                                             and aspect ratios and the region proposal convolutions
+                                                             of every level.
+
         Returns:
             nn.ModuleDict: A PyTorch ModuleDict mapping the stringified detection block indices to
                            their initialized RegionProposal modules.
         """
         region_proposer_dictionary = nn.ModuleDict()
+        feature_map_normalization = region_proposal_configuration["normalization"]["feature_map_normalization"]
+        batch_normalization_momentum = region_proposal_configuration["normalization"]["batch_normalization_momentum"]
 
         # Iterate over the sequentially ordered detection blocks computed by the backbone
         for index_string in self.detection_input_information.keys():
-            # Retrieve the specific anchor scales and ratios for this scale level
-            anchor_configuration = anchors_configuration["scales_and_ratios"][index_string]
+            # Retrieve the anchor scales and ratios of this scale level
+            anchor_configuration = detection_levels_configuration[index_string]["anchors"]
             scales = anchor_configuration["scales"]
             aspect_ratios = anchor_configuration["aspect_ratios"]
 
@@ -118,12 +126,9 @@ class TwoStageDetector(TaskModel):
             feature_map_size = self.detection_input_information[index_string]["feature_map_size"]
             input_channels = self.detection_input_information[index_string]["number_channels"]
 
-            feature_map_normalization = self.region_proposal_configuration["normalization"]["feature_map_normalization"]
-            batch_normalization_momentum = self.region_proposal_configuration["normalization"][
-                "batch_normalization_momentum"]
             # Initialize and store the RegionProposal module
             region_proposer_dictionary[index_string] = RegionProposal(
-                head_configurations=self.region_proposal_configuration["head_configurations"][index_string],
+                convolutions=detection_levels_configuration[index_string]["region_proposal"]["convolutions"],
                 input_channels=input_channels,
                 scales=scales,
                 aspect_ratios=aspect_ratios,
@@ -136,32 +141,35 @@ class TwoStageDetector(TaskModel):
 
         return region_proposer_dictionary
 
-    def _build_detector_heads_dictionary(self, detector_configuration: Dict[str, Any]) -> nn.ModuleDict:
+    def _build_detector_heads_dictionary(self, detector_configuration: Dict[str, Any],
+                                         detection_levels_configuration: Dict[str, Any]) -> nn.ModuleDict:
         """
         Dynamically constructs the Detection Head components tailored for each detection feature map scale.
-        
-        This builder method queries the Backbone for the exact spatial dimensions and channel depths 
-        of the intermediate feature maps. It then parses the specified detector configurations to securely 
+
+        This builder method queries the Backbone for the exact spatial dimensions and channel depths
+        of the intermediate feature maps. It then reads the detection head of every detection level to
         instantiate a distinct DetectionHead module for each scale level in the Feature Pyramid Network.
-        
+
         Args:
-            detector_configuration (Dict[str, Any]): Configuration governing the detection heads
-                                                     per feature level.
-            
+            detector_configuration (Dict[str, Any]): The 'Detector' section, giving the normalization and the
+                                                     modules shared by every level.
+            detection_levels_configuration (Dict[str, Any]): The 'DetectionLevels' section, giving the RoIAlign pool
+                                                             size, the convolutions and the fully connected layers
+                                                             of the detection head of every level.
+
         Returns:
             nn.ModuleDict: A PyTorch ModuleDict mapping the stringified detection block indices to
                            their initialized DetectionHead modules.
         """
         detector_heads_dictionary = nn.ModuleDict()
 
-        detector_head_configurations = detector_configuration["head_configurations"]
         feature_map_normalization = detector_configuration["normalization"]["feature_map_normalization"]
         batch_normalization_momentum = detector_configuration["normalization"]["batch_normalization_momentum"]
 
         # Iterate over the sequentially ordered detection blocks computed by the backbone
         for index_string in self.detection_input_information.keys():
-            # Retrieve the specific head configuration for this scale level
-            specific_configuration = detector_head_configurations[index_string]
+            # Retrieve the detection head configuration of this scale level
+            specific_configuration = detection_levels_configuration[index_string]["detector"]
 
             # Dynamically fetch the accurate structural size and channel depth generated by the Backbone
             feature_map_size = self.detection_input_information[index_string]["feature_map_size"]
@@ -196,6 +204,19 @@ class TwoStageDetector(TaskModel):
 
         # Concatenate them vertically to form a single continuous list of bounding boxes
         return torch.cat(tensors=aggregated_anchors, dim=0)
+
+    def get_level_anchors(self) -> Dict[int, torch.Tensor]:
+        """
+        Gives the anchors of every detection level, for the anchor recall the detection trainers measure on the
+        training objects at launch, which tells how many objects no anchor of a level can become a foreground anchor
+        for.
+
+        Returns:
+            Dict[int, torch.Tensor]: The [A, 4] [x_min, y_min, x_max, y_max] anchors of every level in network input
+                pixels, keyed by block number.
+        """
+        return {int(index_string): region_proposer.region_proposal_anchor_object.anchors
+                for index_string, region_proposer in self.region_proposer_dictionary.items()}
 
     def _build_region_proposal_filter(self, region_proposal_configuration: Dict[str, Any]) -> RegionProposalFilter:
         """
@@ -403,8 +424,9 @@ class TwoStageDetector(TaskModel):
         """
         Prepares the formatted inputs required by the Detection Head's RoIAlign and loss functions.
         
-        During training, it assigns ground truth targets to the filtered proposals, computes regression
-        targets, and samples a balanced set of positive and negative proposals.
+        With ground truth (training and validation loss), it writes the ground truth boxes into the last slots of
+        the filtered proposals of their image (add_ground_truth_proposals), assigns ground truth targets to the
+        proposals, computes regression targets, and samples a balanced set of positive and negative proposals.
         During inference, it simply flattens the filtered proposals and prepends batch indices.
         
         Args:
@@ -432,9 +454,13 @@ class TwoStageDetector(TaskModel):
                                      dtype=self.dtype).view(-1, 1).expand(batch_size, num_proposals)
 
         if ground_truth_bounding_boxes is not None:
-            # First assign targets based on ground truth bounding boxes
-            # Here we consider only the filtered proposal boxes from the NMS based on all ground truth boxes
-            # TODO Find out if this is the right approach.
+            # Add the ground truth boxes to the proposals of their image, at the level of their best anchor, so that
+            # every object gives a positive proposal even when the region proposal network misses it
+            filtered_boxes, filtered_origins = add_ground_truth_proposals(
+                batched_ground_truth_boxes=ground_truth_bounding_boxes, batched_proposals=filtered_boxes,
+                batched_proposal_levels=filtered_origins, level_anchors=self.get_level_anchors())
+
+            # Assign the ground truth boxes and classes to the proposals by their overlap
             (detector_proposal_targets, detector_proposal_labels,
              detector_matched_ground_truth_indices) = batch_assign_targets_to_proposals(
                 batched_ground_truth_boxes=ground_truth_bounding_boxes,
@@ -636,6 +662,10 @@ class TwoStageDetector(TaskModel):
                 - "detection_boxes" (torch.Tensor): Shape [Batch, Post_NMS_Proposals, number_classes, 4].
                 - "sliced_origins" (torch.Tensor): Shape [Batch, Post_NMS_Proposals], the level of every proposal.
                 - the final detections of postprocess_detections, in evaluation mode only.
+                - "proposal_boxes", "proposal_levels" and "valid_proposal_mask" (torch.Tensor): The [Batch,
+                  Post_NMS_Proposals, 4] filtered proposals, their level and the mask of the survivors of the
+                  suppression, in evaluation mode only, Post_NMS_Proposals being capped by the pre-NMS count and the
+                  number of anchors.
                 - "region_proposal_classification_loss" (Optional[torch.Tensor]): Scalar loss (if training).
                 - "region_proposal_localisation_loss" (Optional[torch.Tensor]): Scalar loss (if training).
                 - "detection_classification_loss" (Optional[torch.Tensor]): Scalar loss (if training).
@@ -658,7 +688,7 @@ class TwoStageDetector(TaskModel):
             region_proposal_output_tensor_dictionary=region_proposal_output_tensor_dictionary)
 
         # Refine the raw bounding box predictions by filtering out low scores and suppressing overlapping boxes
-        filtered_boxes, filtered_scores, filtered_origins = self.region_proposal_filter(
+        filtered_boxes, filtered_scores, filtered_origins, valid_proposal_mask = self.region_proposal_filter(
             proposal_boxes=aggregated_proposals_dictionary["proposal_boxes"],
             proposal_scores=aggregated_proposals_dictionary["classification_scores"],
             proposal_origins=aggregated_proposals_dictionary["convolution_block_origin"],
@@ -707,6 +737,11 @@ class TwoStageDetector(TaskModel):
                 score_threshold=self.detection_score_threshold, nms_iou_threshold=self.detection_nms_iou_threshold,
                 maximum_detections=self.maximum_detections, input_image_size=self.input_image_size))
 
+            # Filtered proposals of every image with their level, the padding copies masked out, for the proposal
+            # recall of the evaluation
+            model_output_dictionary.update({"proposal_boxes": filtered_boxes, "proposal_levels": filtered_origins,
+                                            "valid_proposal_mask": valid_proposal_mask})
+
         # Train, Validation and Test -> Loss Computation :
         # - For Region Proposal
         # - For Detection
@@ -722,10 +757,6 @@ class TwoStageDetector(TaskModel):
             (detection_classification_loss, detection_regression_loss) = compute_detection_losses(
                 aggregated_detections_dictionary=aggregated_detections_dictionary,
                 localisation_loss_beta=self.detector_configuration["localisation_loss_beta"])
-
-            # todo Consider adding the ground truth bounding boxes as well ?
-            #  so that the network also learns not to modify some boxes ?
-            #  would be easy to implement since we would be using lists ?
 
             # Append the assignments to the output dictionary
             model_output_dictionary["region_proposal_classification_loss"] = region_proposal_classification_loss
@@ -835,8 +866,8 @@ class TwoStageDetector(TaskModel):
         Returns:
             Dict[str, str]: The anchor scales line of every detection block, keyed by block number.
         """
-        return {block_string: f"Detection Block {block_string} Anchor Scales : {anchor_configuration['scales']}"
-                for block_string, anchor_configuration in self.anchors_configuration["scales_and_ratios"].items()}
+        return {block_string: f"Detection Block {block_string} Anchor Scales : {level['anchors']['scales']}"
+                for block_string, level in self.detection_levels_configuration.items()}
 
     def get_size_components(self) -> Dict[str, nn.Module]:
         """

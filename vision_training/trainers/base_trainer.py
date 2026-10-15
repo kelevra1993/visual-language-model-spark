@@ -55,9 +55,13 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 from vision_training.utilities.tensor_utilities import get_device
 
 # Evaluation files of a checkpoint sent to the MLflow run, small whatever the size of the test split: the confusion
-# matrix image (per-class report only), the metrics of every class and the class thresholds of the classification-like
-# tasks. The predictions, the error images and the sample images grow with the test split and stay in the run folder.
-TRACKED_EVALUATION_FILES = ["Confusion Matrix Image", "Class Metrics", "Class Thresholds"]
+# matrix image (per-class report only), the metrics of every class, the class thresholds of the classification-like
+# tasks and the proposal recall of the detection tasks. The predictions, the error images and the sample images grow
+# with the test split and stay in the run folder.
+TRACKED_EVALUATION_FILES = ["Confusion Matrix Image", "Class Metrics", "Class Thresholds", "Proposal Recall"]
+
+# MLflow artifact folder of the files written at launch by the analysis of the training data (analyse_training_data)
+TRAINING_DATA_ANALYSIS_ARTIFACT_FOLDER = "analysis"
 
 # Outputs of the evaluation of the moving average of the weights, next to those of the trained weights: its folder in
 # the evaluation folder of a checkpoint, its TensorBoard writer folder (its curves overlaid on the Test ones), the
@@ -240,6 +244,11 @@ class BaseTrainer(ABC):
         if self.diagnosis_modes["view_input_images"]:
             self.view_input_batches()
             exit()
+
+        # Analysis of the training data against the model printed before the training (the anchor recall of the
+        # detection tasks), its files written to the run folder at every launch and sent to MLflow with the
+        # configuration
+        self.training_data_analysis_files = self.analyse_training_data()
 
         # Restoration logic before starting any training or inference
         self.start_iteration = 1
@@ -452,6 +461,18 @@ class BaseTrainer(ABC):
             Optional[List[str]]: The class names, None when the task has none.
         """
         return None
+
+    def analyse_training_data(self) -> Dict[str, Path]:
+        """
+        Analyses the training split against the built model at every launch of a training, before the first
+        iteration, and writes its findings to the run folder: the detection tasks measure how many training objects
+        their anchors can cover (anchor_recall.csv), so that a badly sized anchor setting is seen before training on
+        it. Nothing for the other tasks.
+
+        Returns:
+            Dict[str, Path]: The written files keyed by display name, sent to MLflow by start_experiment_tracking.
+        """
+        return {}
 
     def get_test_sample_name(self, sample_identifier: int) -> str:
         """
@@ -1322,7 +1343,8 @@ class BaseTrainer(ABC):
         """
         Opens the MLflow run of the training when 'tracking.activated' is True, at the start of the training loop: a
         resumed training continues the MLflow run recorded in its run folder ('mlflow_run.json'). The configuration of
-        the run is sent as an artifact, under its own name at every resumption since its settings may have changed.
+        the run is sent as an artifact, under its own name at every resumption since its settings may have changed, and
+        so are the files of the analysis of the training data (analyse_training_data), under 'analysis'.
         """
         # MLflow tracker of the run, a DisabledTracker when the tracking is off or unavailable
         self.experiment_tracker = create_experiment_tracker(
@@ -1338,6 +1360,14 @@ class BaseTrainer(ABC):
             f"training_configuration_resume_{resumed_iteration}.yaml"
         self.experiment_tracker.log_artifact(file_path=self.configuration_path, artifact_folder="configuration",
                                              artifact_name=artifact_name)
+
+        # Files of the analysis of the training data, rewritten at every launch, under their own name at a resumption
+        for analysis_file_path in self.training_data_analysis_files.values():
+            analysis_artifact_name = None if resumed_iteration is None else \
+                f"{analysis_file_path.stem}_resume_{resumed_iteration}{analysis_file_path.suffix}"
+            self.experiment_tracker.log_artifact(file_path=analysis_file_path,
+                                                 artifact_folder=TRAINING_DATA_ANALYSIS_ARTIFACT_FOLDER,
+                                                 artifact_name=analysis_artifact_name)
 
         # The record of the data is sent when this start wrote it: a new run, or a resumed run whose data changed
         if self.data_record_changes is None or self.data_record_changes["changed_splits"]:

@@ -1,17 +1,21 @@
 """
 Tests of vision_training/data/detection/coco_masks.py, the decoding of the COCO segmentations into the instance masks
 of the instance segmentation task: exact pixels of the rasterised polygons with and without letterbox padding, union of
-overlapping polygon parts, uncompressed and compressed run length encodings, and polygons and encodings of the same
-object giving the same mask at the network resolution.
+overlapping polygon parts, uncompressed and compressed run length encodings, polygons and encodings of the same
+object giving the same mask and boxes at the network resolution, also once shrunk, and the boxes read from the
+segmentations without decoding.
 """
 
 import numpy as np
 import pytest
+import torch
 
 from typing import List
 
-from vision_training.data.detection.coco_masks import (build_instance_mask, decode_run_length_encoding,
-                                                        encode_run_length_encoding, rasterize_polygons)
+from vision_training.data.detection.coco_masks import (build_instance_mask, compute_mask_bounding_boxes,
+                                                        compute_segmentation_bounding_box,
+                                                        decode_run_length_encoding, encode_run_length_encoding,
+                                                        rasterize_polygons)
 
 
 def compress_counts(counts: List[int]) -> str:
@@ -149,3 +153,64 @@ def test_polygon_and_encoding_of_one_object_give_the_same_mask() -> None:
     # A square image keeps the same mask with or without the aspect ratio
     assert np.array_equal(build_instance_mask(segmentation=square, image_width=10, image_height=10, image_size=10,
                                               keep_ratio=True), build_square_mask(size=10, first_pixel=2, end_pixel=6))
+
+    # Shrunk by a non-integer factor, both forms give the boxes of the scaled rectangles, the encoding being resized on
+    # the pixel centres like the image instead of shifted by half a pixel to the bottom right
+    random_generator = np.random.default_rng(seed=0)
+    box_differences = []
+    for _ in range(40):
+        x_start, y_start = (int(value) for value in random_generator.integers(low=0, high=[900, 650]))
+        object_width, object_height = (int(value) for value in random_generator.integers(low=20, high=100, size=2))
+        x_end, y_end = x_start + object_width, y_start + object_height
+        original_mask = np.zeros(shape=(750, 1000), dtype=np.uint8)
+        original_mask[y_start:y_end, x_start:x_end] = 1
+        polygon = [[float(x_start), float(y_start), float(x_end), float(y_start), float(x_end), float(y_end),
+                    float(x_start), float(y_end)]]
+        polygon_mask = build_instance_mask(segmentation=polygon, image_width=1000, image_height=750, image_size=256,
+                                           keep_ratio=True)
+        encoded_mask = build_instance_mask(segmentation=encode_run_length_encoding(mask=original_mask),
+                                           image_width=1000, image_height=750, image_size=256, keep_ratio=True)
+        both_masks = torch.from_numpy(np.stack(arrays=[encoded_mask, polygon_mask]))
+        mask_boxes = compute_mask_bounding_boxes(instance_masks=both_masks)
+        box_differences.append((mask_boxes[0] - mask_boxes[1]).numpy())
+    assert np.abs(np.stack(arrays=box_differences)).max() <= 1
+    assert np.abs(np.mean(a=np.stack(arrays=box_differences), axis=0)).max() < 0.2
+
+
+@pytest.mark.parametrize(argnames="compressed", argvalues=[False, True])
+def test_segmentation_boxes_match_the_decoded_masks(compressed: bool) -> None:
+    """
+    Verifies that the box read from a run length encoding without decoding it is the tight box of its decoded mask
+    (an object within one column, an object crossing columns, an object touching the borders, random masks), that an
+    empty encoding gives an empty box, and that polygons give the extent of their valid parts, the short parts skipped.
+
+    Args:
+        compressed (bool): Whether the encoding is given in its compressed form.
+    """
+    random_generator = np.random.default_rng(seed=1)
+    column_mask = np.zeros(shape=(9, 6), dtype=np.uint8)
+    column_mask[2:5, 3] = 1
+    crossing_mask = np.zeros(shape=(9, 6), dtype=np.uint8)
+    crossing_mask[7:9, 1] = 1
+    crossing_mask[0:2, 2] = 1
+    border_mask = np.zeros(shape=(5, 7), dtype=np.uint8)
+    border_mask[0, 0] = border_mask[4, 6] = 1
+    masks = [column_mask, crossing_mask, border_mask] + [
+        (random_generator.random(size=(8, 11)) > 0.9).astype(np.uint8) for _ in range(20)]
+
+    for mask in masks:
+        encoding = encode_run_length_encoding(mask=mask)
+        if compressed:
+            encoding = {"size": encoding["size"], "counts": compress_counts(counts=encoding["counts"])}
+        rows, columns = np.nonzero(mask)
+        expected_box = [float(columns.min()), float(rows.min()), float(columns.max() + 1), float(rows.max() + 1)]
+        assert compute_segmentation_bounding_box(segmentation=encoding) == expected_box
+
+    # An empty encoding gives an empty box
+    empty_encoding = encode_run_length_encoding(mask=np.zeros(shape=(4, 4), dtype=np.uint8))
+    assert compute_segmentation_bounding_box(segmentation=empty_encoding) == [0.0, 0.0, 0.0, 0.0]
+
+    # Polygons give the extent of their parts of at least 3 vertices
+    polygons = [[2.0, 3.0, 6.0, 3.0, 6.0, 8.0], [10.0, 1.0, 12.0, 1.0, 11.0, 4.0], [0.0, 0.0, 50.0, 50.0]]
+    assert compute_segmentation_bounding_box(segmentation=polygons) == [2.0, 1.0, 12.0, 8.0]
+    assert compute_segmentation_bounding_box(segmentation=[[1.0, 1.0, 2.0, 2.0]]) == [0.0, 0.0, 0.0, 0.0]

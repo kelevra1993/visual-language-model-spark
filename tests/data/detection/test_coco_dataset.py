@@ -3,7 +3,9 @@ Tests of the instance masks of CocoDetectionDataset (vision_training/data/detect
 instance segmentation task: the crowd annotations are left out (of the object detection samples too), every other
 object gets its mask at the network resolution in the order of its box, the objects whose mask vanishes are removed
 with their box and label, an annotation without segmentation is refused, the collate function keeps the masks as a
-list, and the object detection samples stay without masks.
+list, the object detection samples stay without masks, the instance segmentation boxes come from the masks without
+any 'bbox', and the selection of the objects of an image maps the categories and leaves out the crowd and the
+background.
 """
 
 import json
@@ -15,8 +17,8 @@ import torch
 from pathlib import Path
 from typing import Any, Dict, List
 
-from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
-from vision_training.data.detection.coco_masks import encode_run_length_encoding
+from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function, select_image_objects
+from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes, encode_run_length_encoding
 
 IMAGE_WIDTH, IMAGE_HEIGHT = 40, 20
 
@@ -136,3 +138,60 @@ def test_annotation_without_segmentation_is_refused(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="annotation 7 of image 1"):
         _ = build_dataset(folder=tmp_path, labels_file=labels_file, load_instance_masks=True)[0]
+
+
+def test_object_selection_leaves_out_the_crowd_and_the_background() -> None:
+    """
+    Verifies that select_image_objects, shared by the dataset and the anchor recall, leaves out the crowd annotations
+    and the categories mapped to the background, maps every other category to its class (integer or string key) and
+    gives its [x1, y1, x2, y2] box, and that the binary mode gives class 1 to every category.
+    """
+    annotations = [{"category_id": 3, "bbox": [1.0, 2.0, 10.0, 5.0]},
+                   {"category_id": 3, "bbox": [0.0, 0.0, 4.0, 4.0], "iscrowd": 1},
+                   {"category_id": 7, "bbox": [5.0, 5.0, 2.0, 2.0]},
+                   {"category_id": 9, "bbox": [6.0, 1.0, 3.0, 8.0]}]
+
+    # Multi-class: the crowd and the unmapped category 7 are left out
+    boxes, labels, kept_annotations = select_image_objects(annotations=annotations, label_mode="multi_class",
+                                                           label_dictionary={3: 1, "9": 2})
+    assert boxes == [[1.0, 2.0, 11.0, 7.0], [6.0, 1.0, 9.0, 9.0]] and labels == [1, 2]
+    assert kept_annotations == [annotations[0], annotations[3]]
+
+    # Binary: every category except the crowd becomes class 1
+    _, binary_labels, _ = select_image_objects(annotations=annotations, label_mode="binary", label_dictionary={})
+    assert binary_labels == [1, 1, 1]
+
+
+def test_instance_boxes_come_from_the_masks_without_bbox(tmp_path: Path) -> None:
+    """
+    Verifies that the instance segmentation reads annotations without 'bbox', its boxes being the tight boxes of the
+    resized masks of a polygon, an encoded object and a diamond, whose mask box is narrower than its scaled outline,
+    that a wrong 'bbox' is ignored, and that a segmentation without any usable part is left out by the loader and by
+    the selection of the anchor recall alike.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    encoded_mask = np.zeros(shape=(IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8)
+    encoded_mask[3:9, 30:36] = 1
+    labels_file = write_split(folder=tmp_path, annotations=[
+        {"id": 1, "image_id": 1, "category_id": 1, "iscrowd": 0,
+         "segmentation": [[4.0, 5.0, 14.0, 5.0, 14.0, 10.0, 4.0, 10.0]]},
+        {"id": 2, "image_id": 1, "category_id": 2, "bbox": [0, 0, 1, 1], "iscrowd": 0,
+         "segmentation": encode_run_length_encoding(mask=encoded_mask)},
+        {"id": 3, "image_id": 1, "category_id": 1, "iscrowd": 0, "segmentation": [[20.0, 2.0, 25.0, 2.0]]},
+        {"id": 4, "image_id": 1, "category_id": 2, "iscrowd": 0,
+         "segmentation": [[20.0, 11.0, 23.5, 14.5, 20.0, 18.0, 16.5, 14.5]]}])
+
+    # The 40 x 20 image is scaled twice with 20 rows of padding above it, the diamond outline becoming [33, 42, 47, 56]
+    sample = build_dataset(folder=tmp_path, labels_file=labels_file, load_instance_masks=True)[0]
+    assert sample["labels"].tolist() == [1, 2, 2]
+    assert sample["bounding_boxes"][:2].tolist() == [[8.0, 30.0, 28.0, 40.0], [60.0, 26.0, 72.0, 38.0]]
+    assert torch.equal(sample["bounding_boxes"], compute_mask_bounding_boxes(instance_masks=sample["instance_masks"]))
+    assert sample["bounding_boxes"][2].tolist() != [33.0, 42.0, 47.0, 56.0]
+
+    # The selection reads the boxes from the segmentation in original pixels, without the unusable segmentation
+    boxes, labels, _ = select_image_objects(annotations=json.loads(labels_file.read_text())["annotations"],
+                                            label_mode="multi_class", label_dictionary={1: 1, 2: 2},
+                                            boxes_from_segmentation=True)
+    assert boxes == [[4.0, 5.0, 14.0, 10.0], [30.0, 3.0, 36.0, 9.0], [16.5, 11.0, 23.5, 18.0]] and labels == [1, 2, 2]

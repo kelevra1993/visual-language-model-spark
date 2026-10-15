@@ -43,7 +43,6 @@
 - [Configurations](#configurations)
 - [Run Names](#run-names)
 - [MLflow Tracking](#mlflow-tracking)
-- [Migrating Old Runs](#migrating-old-runs)
 - [Tests](#tests)
 - [Repository Structure](#repository-structure)
 - [TODO](#todo)
@@ -155,6 +154,7 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 ├── training_configuration_until_iteration_<n>.yaml  # Configuration that trained the run up to iteration n, kept by a resume that changed it
 ├── data.json                          # Class names, and data folder, SHA-256 of labels.json and images of every split
 ├── data_until_iteration_<n>.json      # Data that trained the run up to iteration n, kept by a resume whose data changed
+├── anchor_recall.csv                  # Anchor recall of the training objects (DET, INS), written at every launch
 ├── Weights/
 │   ├── full-checkpoint                # Registry of the saved checkpoints, the last one first
 │   └── Iteration_<n>/model_<n>.pt     # Weights, optimizer state, moving average of the weights and metadata of iteration n
@@ -371,7 +371,7 @@ The classifier predicts the class of an image (`ClassificationHead.output_mode: 
 > **Screenshot placeholder** (`README/error_dumps.png`): the `Errors/` folder of an evaluation in a file browser, with its `<TRUE>-TO-<PREDICTED>` folders and a few misclassified images.
 
 ### Object Detection (DET)
-The two-stage detector predicts the box, class and score of every object of an image. The region proposal heads and the detection heads run on several backbone levels (`Backbone.detection_convolution_block_indices`), each level having its own anchors.
+The two-stage detector predicts the box, class and score of every object of an image. The region proposal heads and the detection heads run on several backbone levels (the keys of `DetectionLevels`), each level having its own anchors and heads. In training and in the validation loss, the ground truth boxes of every image are added to its proposals before the detection heads sample their positives and negatives, each at the level of its best anchor, so that every object gives a positive proposal even when the region proposal network misses it.
 
 **Data.** Every split holds its images in `data/` and their annotations in a COCO `labels.json`, the boxes being `[x, y, width, height]` in pixels of the original image:
 
@@ -394,11 +394,35 @@ The two-stage detector predicts the box, class and score of every object of an i
 
 The crowd annotations (`"iscrowd": 1`, one box around a group of objects too many to be labelled one by one) are left out of the training and the evaluation, as in INS, so that the detector learns and is scored on single objects only.
 
+**Augmentation.** The geometric augmentations move the boxes with the image. An object keeping less than 25 % of its moved box inside the image after `random_crop` or `random_rotation` (`MINIMUM_VISIBLE_AREA_FRACTION` in `vision_training/data/augmentations.py`) is removed with its label, so that the detector is not trained to find a fragment cut by the border of the image.
+
 **Converting a dataset.** `vision_training/data/data_retriever.py` downloads COCO 2017 with FiftyOne, whose splits have this layout (about 25 GB in full). Set the dataset folder and `maximum_samples` in its main block, then run `uv run python -m vision_training.data.data_retriever`.
 
-**Configuration.** Copy `object_detection/configuration_example.yaml`. The task keys are `Backbone.detection_convolution_block_indices`, `Anchors` (scales and aspect ratios of every level), `RegionProposal`, `Detector`, `evaluation.score_threshold`, `evaluation.target_precision` and `evaluation.error_dumps`.
+**Configuration.** Copy `object_detection/configuration_example.yaml`. The task keys are `DetectionLevels`, `RegionProposal`, `Detector`, `evaluation.score_threshold`, `evaluation.target_precision` and `evaluation.error_dumps`. Every key of `DetectionLevels` is the quoted number of the backbone block whose feature map feeds the level, the keys going up from the finest feature map to the coarsest, and holds the settings of that level: its anchors (scales in input pixels, aspect ratios height / width), its region proposal head (`[layers, channels]` convolutions) and its detection head (RoI Align pool size, convolutions and fully connected layers). `RegionProposal` and `Detector` hold the settings shared by the levels: normalization, modules, proposal counts, IoU thresholds, sampling and pretrained heads.
+
+```yaml
+DetectionLevels:
+  "5":
+    anchors: { scales: [32, 64, 128], aspect_ratios: [0.5, 1.0, 2.0] }
+    region_proposal: { convolutions: [2, 64] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 64], fully_connected: [256, 128] }
+  "6":
+    anchors: { scales: [64, 128, 256], aspect_ratios: [0.5, 1.0, 2.0] }
+    region_proposal: { convolutions: [2, 64] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 64], fully_connected: [256, 128] }
+  "7":
+    anchors: { scales: [128, 256, 512], aspect_ratios: [0.5, 1.0, 2.0] }
+    region_proposal: { convolutions: [2, 64] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 64], fully_connected: [256, 128] }
+```
 
 **Evaluation.** The mAP at IoU 0.5, 0.75 and 0.5:0.95 with the area, 11-point and 101-point methods, and the AP@0.5 of every class. The detections below `evaluation.score_threshold` are left out of the mAP. The score threshold of every class reaching `target_precision`, the detections of a class being right when they find an object of the class at IoU 0.5 (the AP@0.5 matching), is saved in `class_thresholds.json` with the recall it keeps, for a deployment filtering the detections class by class.
+
+The table `Mean Average Precision By Object Size (Area)` gives the mAP of the small, medium and large objects with the area method, by box area in network input pixels as in COCO: small below 32², medium from 32² to 96², large from 96². The mAP of a size scores its objects only: the objects of the other sizes and the detections matched to them are ignored, as are the unmatched detections of another size. It is written to TensorBoard as `mAP@0.5 By Size/<size>` and `mAP@[0.5:0.95] By Size/<size>`, and `class_metrics.csv` gives the AP@0.5 and AP@[0.5:0.95] of every class and size (`average_precision_50_<size>`, `average_precision_50_95_<size>`, empty without object of the size).
+
+The recall of the region proposal network tells whether a missed object could have been found by the detection heads at all:
+- At every launch, `anchor_recall.csv` in the run folder and the console give the share of the training objects whose best anchor overlaps them by at least `RegionProposal.foreground_iou_threshold.min`, for every level and all of them, for all the objects and every size. The other objects only get their single best anchor as foreground anchor. It is read from the annotations of the training split, without loading the images and without the augmentations.
+- At every evaluation, the table `Proposal Recall` and `proposal_recall.csv` give the share of the test objects overlapped by a proposal given to the detection heads by at least 0.5 and 0.7, for all the objects, every size and the proposals of every level alone, with the mean number of proposals per image. It is written to TensorBoard as `Proposal Recall@0.5/<group>`, `Proposal Recall@0.7/<group>` and `Proposals Per Image/<group>`.
 
 The detections the deployed detector returns (score reaching `Detector.inference.score_threshold`) are matched to the objects of every test image at IoU 0.5, from the most confident: first to the objects of their class, then to the objects left of any class. The matches give `confusion_matrix.csv` and `.png`, with a `background` row for the false positives (a detection finding no object) and a `background` column for the missed objects (an object found by no detection). The report counts the right detections, the wrong classes, the false positives and the missed objects. With `error_dumps.activated`, every test image with errors is saved in `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/` and `Errors/<TRUE>-TO-<PREDICTED>/`, drawn like the sample images with the boxes in error outlined with red dashes, at most `maximum_per_class_pair` images per folder.
 
@@ -409,26 +433,25 @@ The detections the deployed detector returns (score reaching `Detector.inference
 > **Screenshot placeholder** (`README/detection_sample.png`): a sample image of a detection evaluation, the ground truth boxes on the left next to the detections above `Detector.inference.score_threshold` on the right, every box in the colour of its class.
 
 ### Instance Segmentation (INS)
-The instance segmenter is the two-stage detector of DET with one mask head per detection level, as in Mask R-CNN ([He et al., 2017](https://arxiv.org/abs/1703.06870)): every detection gets its box, class and score, and the binary mask of its object. The mask head of a level pools every box from the feature map of that level with RoI Align, at the pool size of the level (`MaskHead.head_configurations.<level>.roi_align_pool_size`, 14 by default), and refines it with convolution layers. It then doubles its resolution as many times as fits in `MaskHead.mask_resolution` M (28 by default), with transposed convolutions or bilinear upsamplings followed by a convolution (`MaskHead.upsampling`), and gives one M x M mask per class, the mask of the detected class being kept. When the doublings fall short of M, as for a pool size of 10 doubled to 20, the masks are resized bilinearly to M, so that every level gives masks of the same size. During the training, the mask heads learn on the positive proposals, whose mask targets are the ground truth masks cropped to the proposals; at inference, they run on the final detection boxes.
+The instance segmenter is the two-stage detector of DET with one mask head per detection level, as in Mask R-CNN ([He et al., 2017](https://arxiv.org/abs/1703.06870)): every detection gets its box, class and score, and the binary mask of its object. The mask head of a level pools every box from the feature map of that level with RoI Align, at the pool size of the level (`DetectionLevels.<level>.mask_head.roi_align_pool_size`, 14 by default), and refines it with convolution layers. It then doubles its resolution as many times as fits in `MaskHead.mask_resolution` M (28 by default), with transposed convolutions or bilinear upsamplings followed by a convolution (`MaskHead.upsampling`), and gives one M x M mask per class, the mask of the detected class being kept. When the doublings fall short of M, as for a pool size of 10 doubled to 20, the masks are resized bilinearly to M, so that every level gives masks of the same size. During the training, the mask heads learn on the positive proposals, whose mask targets are the ground truth masks cropped to the proposals; at inference, they run on the final detection boxes.
 
-**Data.** The COCO `labels.json` of DET, every object having a `segmentation`: a list of polygons, every polygon a flat `[x1, y1, x2, y2, ...]` list in pixels of the original image (the parts of an object are united), or a run length encoding `{"size": [height, width], "counts": ...}`, uncompressed (a list of run lengths) or compressed (a string), the runs following the pixels column by column. The masks are built at the network resolution by the loader workers, a polygon covering the pixels whose centre lies inside it. The crowd annotations (`"iscrowd": 1`) are left out of the training and the evaluation, an object without `segmentation` stops the loading, and an object whose mask vanishes at the network resolution is removed with its box.
+**Data.** The COCO `labels.json` of DET, every object having a `segmentation`: a list of polygons, every polygon a flat `[x1, y1, x2, y2, ...]` list in pixels of the original image (the parts of an object are united), or a run length encoding `{"size": [height, width], "counts": ...}`, uncompressed (a list of run lengths) or compressed (a string), the runs following the pixels column by column. The masks are built at the network resolution by the loader workers, a polygon covering the pixels whose centre lies inside it. The crowd annotations (`"iscrowd": 1`) are left out of the training and the evaluation, an object without `segmentation` stops the loading, and an object whose mask vanishes at the network resolution is removed with its box. The box of every object is the tight box of its mask at the network resolution, so the annotations need no `bbox` (a `bbox` given is ignored); the anchor recall at launch reads it from the `segmentation` without building the masks.
 
 ```json
 {
   "images": [{"id": 1, "file_name": "000001.png", "width": 1024, "height": 1024}],
   "annotations": [
-    {"id": 1, "image_id": 1, "category_id": 3, "bbox": [120, 340, 64, 48], "area": 1536, "iscrowd": 0,
-     "segmentation": [[120, 388, 152, 340, 184, 388]]}
+    {"id": 1, "image_id": 1, "category_id": 3, "iscrowd": 0, "segmentation": [[120, 388, 152, 340, 184, 388]]}
   ],
   "categories": [{"id": 3, "name": "triangle"}]
 }
 ```
 
-The COCO 2017 splits downloaded by `vision_training/data/data_retriever.py` already hold the segmentations. The geometric augmentations move the masks with the image, and the box of every object becomes the tight box of its moved mask.
+The COCO 2017 splits downloaded by `vision_training/data/data_retriever.py` already hold the segmentations. The geometric augmentations move the masks with the image, and the box of every object becomes the tight box of its moved mask. An object keeping less than 25 % of its mask pixels inside the image, out of those it would have at the zoom of the crop, is removed with its box and mask.
 
-**Configuration.** Copy `instance_segmentation/configuration_example.yaml`. The task keys are those of DET and the `MaskHead` section: the mask resolution and the upsampling, the pool size and the `[layers, channels]` convolutions of the mask head of every detection level, its normalization and modules, and `inference.mask_threshold`, the mask probability from which a pixel belongs to its object. Older INS runs, with one `roi_align_pool_size` for every level, are upgraded by the configuration migration (masks twice the pool size, transposed convolution), and their checkpoints load into the current mask heads.
+**Configuration.** Copy `instance_segmentation/configuration_example.yaml`. The task keys are those of DET, a `mask_head` in every level of `DetectionLevels` (the RoI Align pool size and the `[layers, channels]` convolutions of the mask head of the level, e.g. `mask_head: { roi_align_pool_size: 14, convolutions: [4, 64] }`), and the `MaskHead` section shared by the levels: the mask resolution and the upsampling, the normalization and modules of the mask heads, and `inference.mask_threshold`, the mask probability from which a pixel belongs to its object.
 
-**Evaluation.** The mask mAP and the box mAP of the same detections, each at IoU 0.5, 0.75 and 0.5:0.95 with the area, 11-point and 101-point methods, with the AP@0.5 of every class. The mask IoU compares the predicted masks, pasted into their boxes and thresholded at `mask_threshold`, with the ground truth masks at the network input resolution. The mask mAP@0.5 of the area method (`Mask mAP@0.5/area`) compares the checkpoints; the box scalars keep the names of DET, so that INS and DET runs can be compared. Both are saved in `class_metrics.csv`, the mask columns prefixed with `mask_`. The class thresholds, the confusion matrix and the error images are those of DET, the detections being matched to the objects by their masks at IoU 0.5, and the error images painting the masks under the boxes.
+**Evaluation.** The mask mAP and the box mAP of the same detections, each at IoU 0.5, 0.75 and 0.5:0.95 with the area, 11-point and 101-point methods, with the AP@0.5 of every class. The mask IoU compares the predicted masks, pasted into their boxes and thresholded at `mask_threshold`, with the ground truth masks at the network input resolution. The mask mAP@0.5 of the area method (`Mask mAP@0.5/area`) compares the checkpoints; the box scalars keep the names of DET, so that INS and DET runs can be compared. Both are saved in `class_metrics.csv`, the mask columns prefixed with `mask_`. The mAP by object size is given for the masks, the objects measured by their mask area, and for the boxes, measured by their box area (`Mask mAP@0.5 By Size/<size>` and `mAP@0.5 By Size/<size>`). The anchor and proposal recall are those of DET. The class thresholds, the confusion matrix and the error images are those of DET, the detections being matched to the objects by their masks at IoU 0.5, and the error images painting the masks under the boxes.
 
 <p align="center">
   <img src="README/instance_segmentation_sample.png" width="80%" />
@@ -717,7 +740,7 @@ Backbone:
     learning_rate_multiplier: 0.1
 ```
 
-The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`, a source run written before `modules.residual_nets_v2` counting as False; for the classification head: `fully_connected` and `fully_connected_normalization`), which is checked before the training starts. The `batch_normalization_momentum` of every section changes no weight and may differ. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The region proposal heads need the same detection levels, `head_configurations`, normalization and number of anchors per position of every level, other anchor scales or ratios of the same counts being reported; the detection heads need the same detection levels, `head_configurations`, normalization and modules; the mask heads need the same detection levels, `mask_resolution`, `upsampling`, `head_configurations`, normalization and modules. An object detection run thus initialises an instance segmentation run, whose mask heads learn alone when the backbone, region proposal and detection heads are frozen. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen, prefixed by the letter of its section (e.g. `RPT` and `RFRZ` for the region proposal heads, [Run Names](#run-names)), `SegmentationDecoder.pretrained.load_class_layers` adds `DCL` after `DPT`, and `new_class_initialisation: "random"` adds `HRND`, `DRND` or `MRND` ([Adding Classes](#adding-classes)). The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
+The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`, a source run written before `modules.residual_nets_v2` counting as False; for the classification head: `fully_connected` and `fully_connected_normalization`), which is checked before the training starts. The `batch_normalization_momentum` of every section changes no weight and may differ. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The region proposal heads need the same detection levels, the same `region_proposal` and number of anchors per position in every level and the same normalization, other anchor scales or ratios of the same counts being reported; the detection heads need the same detection levels, the same `detector` in every level, normalization and modules; the mask heads need the same detection levels, the same `mask_head` in every level, `mask_resolution`, `upsampling`, normalization and modules. An object detection run thus initialises an instance segmentation run, whose mask heads learn alone when the backbone, region proposal and detection heads are frozen. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen, prefixed by the letter of its section (e.g. `RPT` and `RFRZ` for the region proposal heads, [Run Names](#run-names)), `SegmentationDecoder.pretrained.load_class_layers` adds `DCL` after `DPT`, and `new_class_initialisation: "random"` adds `HRND`, `DRND` or `MRND` ([Adding Classes](#adding-classes)). The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
 
 A component is loaded from the averaged weights of the source checkpoint when the source run kept a moving average of the weights ([Moving Average Of The Weights](#moving-average-of-the-weights)) and the new run has `Optimization.exponential_moving_average.activated` True, and from its trained weights otherwise. The console prints which weights initialised every component.
 
@@ -850,8 +873,8 @@ The tables below list only the keys that are not in every task. Every other key 
 ### Keys Per Task
 | Key | DET | INS | CLS | M2O | M2M | CMP | SEG | SEL | SSL |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `DetectionLevels` | ✓ | ✓ | | | | | | | |
 | `RegionProposal` | ✓ | ✓ | | | | | | | |
-| `Anchors` | ✓ | ✓ | | | | | | | |
 | `Detector` | ✓ | ✓ | | | | | | | |
 | `ExperimentConfiguration.evaluation.score_threshold` | ✓ | ✓ | | | | | | | |
 | `MaskHead` | | ✓ | | | | | | | |
@@ -879,7 +902,7 @@ The tables below list only the keys that are not in every task. Every other key 
 ### Keys Per Group Of Tasks
 | Tasks | Keys they share that the other tasks do not have |
 |---|---|
-| DET, INS | `RegionProposal`, `Anchors`, `Detector`, `ExperimentConfiguration.evaluation.score_threshold` |
+| DET, INS | `DetectionLevels`, `RegionProposal`, `Detector`, `ExperimentConfiguration.evaluation.score_threshold` |
 | INS | `MaskHead` |
 | DET, INS, CLS, M2O, M2M, CMP, SEL | `ExperimentConfiguration.evaluation.target_precision`, `error_dumps` |
 | CLS, M2O, M2M, CMP, SEL | `ClassificationHead`, `ExperimentConfiguration.evaluation.top_k`, `save_predictions` |
@@ -900,7 +923,6 @@ Some keys are in several tasks but do not accept the same values in each. The ch
 | `Data.data_augmentation.activated` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` |
 | `Data.data_augmentation.independent_frames` | `False` | `False` | `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` | `True` or `False` | `False` |
 | `Data.data_augmentation.shuffle_frames.activated` | `False` | `False` | `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` | `True` or `False` | `False` |
-| `Backbone.detection_convolution_block_indices` | at least one block | at least one block | `[]` | `[]` | `[]` | `[]` | `[]` | `[]` | `[]` |
 | `Backbone.normalization.feature_map_normalization` | any except `sequence` | any except `sequence` | any except `sequence` | any | any | any | any except `sequence` | any | any except `sequence` |
 | `ClassificationHead.global_pooling` | | | `average`, `max` or `flatten` | `average` or `max` | `average` or `max` | `average` or `max` | | `average` or `max` | |
 | `ClassificationHead.output_mode` | | | `multi_class` or `multi_label` | `multi_class` | `multi_class` | `multi_class` | | `multi_class` | |
@@ -911,7 +933,7 @@ An empty cell means that the task does not have the key. The 7 temporal types ar
 
 For SEG, the keys of `SegmentationDecoder.convolutions` must be the backbone blocks whose output before pooling is a skip connection: blocks 1 to N-1 of a backbone of N blocks, and block N too with `Backbone.last_max_pooling: True`. The keys of `SegmentationDecoder.deep_supervision_weights` must be keys of `convolutions` other than the finest level, which gives the final logits. The categories of a `multi_class` mapping file are the pixel values of the masks (1 to 254, 0 being the background and 255 the unlabelled pixels).
 
-For INS, the keys of `MaskHead.head_configurations` must be the detection levels of `Backbone.detection_convolution_block_indices`, like those of `RegionProposal`, `Anchors` and `Detector`.
+For DET, every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`; for INS, it also holds `mask_head`, whose `roi_align_pool_size` must not exceed `MaskHead.mask_resolution`.
 
 INS has the keys of DET and `MaskHead`. M2O and M2M have exactly the same keys. SEL has the keys of M2M without `window_stride` and `short_sequences`, and `Selection`. SSL has the keys of CLS without `ClassificationHead`, `top_k`, `target_precision`, `save_predictions` and `error_dumps`, and `ProjectionHead`, `Data.view_augmentation` and `number_neighbours`. The number of blocks in `Backbone.convolutions` changes from one example to another, but this is a value, not a different key.
 
@@ -922,7 +944,8 @@ Every evaluated checkpoint is reported in the console and in a block of `<run>/R
 |---|---|---|
 | Global metrics and notes (console, `Results.txt`), global Test scalars (TensorBoard) | all | every evaluation |
 | Per-class table (console, `Results.txt`), per-class Test scalars (TensorBoard) | all | with `per_class_report` |
-| `class_metrics.csv`: one row per class (samples, precision, recall, F1, threshold and recall at the target precision; detection: ground truths and average precisions, with the mask average precisions for INS, and the threshold and recall at the target precision; segmentation: pixels, IoU, Dice, boundary IoU, boundary F1, precision, recall; self-supervised: labelled test images, k-NN precision, recall, F1) | all, SSL with labelled test images | every evaluation |
+| `class_metrics.csv`: one row per class (samples, precision, recall, F1, threshold and recall at the target precision; detection: ground truths and average precisions, of all the objects and of every object size, with the mask average precisions for INS, and the threshold and recall at the target precision; segmentation: pixels, IoU, Dice, boundary IoU, boundary F1, precision, recall; self-supervised: labelled test images, k-NN precision, recall, F1) | all, SSL with labelled test images | every evaluation |
+| `Mean Average Precision By Object Size (Area)` and `Proposal Recall` tables (console, `Results.txt`), their Test scalars (TensorBoard), `proposal_recall.csv` | DET, INS | every evaluation |
 | `class_thresholds.json` | DET, INS, CLS, M2O, M2M, CMP, SEL | every evaluation |
 | `confusion_matrix.csv` (pixels for SEG, decoded frames for SEL, detections of the deployed detector with a `background` row and column for DET and INS) | DET, INS, CLS (multi-class), M2O, M2M, CMP, SEG, SEL | every evaluation |
 | `confusion_matrix.png` and its Test image (TensorBoard), the shares of the true class only for SEG | DET, INS, CLS (multi-class), M2O, M2M, CMP, SEG, SEL | with `per_class_report` |
@@ -960,19 +983,19 @@ The training settings that can change between two resumptions of a run give no t
 | Backbone | `PT` | `Backbone.pretrained.experiment_folder` is set | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Backbone | `FRZ` | `Backbone.pretrained.freeze` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Backbone | `FBN` | `Backbone.pretrained.freeze_normalization_parameters` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Levels | `L<blocks>` | `Backbone.detection_convolution_block_indices` | ✓ | ✓ | | | | | | | |
-| Anchors | `A<anchors>.<smallest>-<largest>` | `Anchors.scales_and_ratios`: anchors per position, range of the scales | ✓ | ✓ | | | | | | | |
+| Levels | `L<blocks>` | The keys of `DetectionLevels` | ✓ | ✓ | | | | | | | |
+| Anchors | `A<anchors>.<smallest>-<largest>` | `DetectionLevels.<level>.anchors`: anchors per position, range of the scales | ✓ | ✓ | | | | | | | |
 | Region proposal | `RBN`, `RLN`, `RNN` | `RegionProposal.normalization.feature_map_normalization` | ✓ | ✓ | | | | | | | |
-| Region proposal | `R<layers>x<filters>` | `RegionProposal.head_configurations` | ✓ | ✓ | | | | | | | |
+| Region proposal | `R<layers>x<filters>` | `DetectionLevels.<level>.region_proposal.convolutions` | ✓ | ✓ | | | | | | | |
 | Region proposal | `RPT`, then `RFRZ` when frozen | `RegionProposal.pretrained` | ✓ | ✓ | | | | | | | |
 | Detector | `DSE`, `DRES`, `DINC` | `Detector.modules` | ✓ | ✓ | | | | | | | |
 | Detector | `DBN`, `DLN`, `DNN` | `Detector.normalization.feature_map_normalization` | ✓ | ✓ | | | | | | | |
-| Detector | `D<pool>.<layers>x<filters>.<fully connected>` | `Detector.head_configurations` | ✓ | ✓ | | | | | | | |
+| Detector | `D<pool>.<layers>x<filters>.<fully connected>` | `DetectionLevels.<level>.detector` | ✓ | ✓ | | | | | | | |
 | Detector | `DPT`, then `DRND` when the new classes start random, then `DFRZ` when frozen | `Detector.pretrained`, `new_class_initialisation` is random | ✓ | ✓ | | | | | | | |
 | Mask heads | `MSE`, `MRES`, `MINC` | `MaskHead.modules` | | ✓ | | | | | | | |
 | Mask heads | `MBN`, `MLN`, `MNN` | `MaskHead.normalization.feature_map_normalization` | | ✓ | | | | | | | |
 | Mask heads | `MUTC` or `MUBL` | `MaskHead.upsampling`: transposed, bilinear | | ✓ | | | | | | | |
-| Mask heads | `M<pool>.<layers>x<channels>` | `MaskHead.head_configurations` | | ✓ | | | | | | | |
+| Mask heads | `M<pool>.<layers>x<channels>` | `DetectionLevels.<level>.mask_head` | | ✓ | | | | | | | |
 | Mask heads | `MR<mask resolution>` | `MaskHead.mask_resolution` | | ✓ | | | | | | | |
 | Mask heads | `MPT`, then `MRND` when the new classes start random, then `MFRZ` when frozen | `MaskHead.pretrained`, `new_class_initialisation` is random | | ✓ | | | | | | | |
 | Tiling | `TL<scale>` | `Data.tiling.activated` is True, with `Data.tiling.scale` | | | | | | | ✓ | | |
@@ -1064,7 +1087,7 @@ What is logged:
 | `train/frame_throughput` (real frames per second, padding frames excluded) | M2O, M2M, CMP, SEL |
 | `test/best_<headline metric>`, `Results.txt` and the configuration file | all |
 | `test_ema/<metric>`, `test_ema_class/<metric>` and the files under `evaluation/iteration_<n>/ema/`: the metrics and files below for the moving average of the weights | all, with `Optimization.exponential_moving_average.activated` |
-| `test/mAP@0.5`, `mAP@0.75`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test_class/AP@0.5/<class>`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | DET |
+| `test/mAP@0.5`, `mAP@0.75`, `mAP@[0.5:0.95]` per method (`area`, `11_point`, `101_point`); `test/mAP@0.5 By Size/<size>`, `mAP@[0.5:0.95] By Size/<size>`; `test/Proposal Recall@0.5/<group>`, `Proposal Recall@0.7/<group>`, `Proposals Per Image/<group>`; `test_class/AP@0.5/<class>`; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png`, `proposal_recall.csv`; `anchor_recall.csv` at every launch under `analysis/` (under `anchor_recall_resume_<n>.csv` for a resume from iteration n) | DET, INS (with the `Mask` metrics of the masks) |
 | `test/Accuracy`, `Balanced Accuracy`, `Macro F1`, `Top-<k> Accuracy` (multi-label: `Subset Accuracy`, `Micro F1`, `Macro F1`); `test_class/Precision`, `Recall`, `F1` per class; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | CLS, M2O, M2M, CMP |
 | `test/Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `Segment F1@25`, `Segment F1@50` | M2M |
 | `test/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `<Decoding> Fully Right Sequences`, `<Decoding> Unselected Precision`, `<Decoding> Unselected Recall`, `Top-<k> Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`; `test_class/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `Mean True Frame Rank` per wanted class; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | SEL |
@@ -1073,13 +1096,6 @@ What is logged:
 
 The `test_class/` metrics and `confusion_matrix.png` need `evaluation.per_class_report: True`, and the files need `tracking.log_artifacts: True`. MLflow writes `@` as `_at_` and `[0.5:0.95]` as `0.5-0.95` in the metric names. `scripts/evaluation/evaluate_checkpoint.py` logs its evaluations in a separate run, `<run name>-evaluation`.
 
-## Migrating Old Runs
-`scripts/configuration_processing/migrate_configuration.py` updates a run folder trained before the task-aware configuration and the component transfers (e.g. the `pretrained` blocks of the region proposal and detection heads of DET) or before a newer setting (e.g. the `batch_normalization_momentum` of every section, 0.1 as in PyTorch, the `ClassificationHead.fully_connected_normalization` setting, `"none"`, its True or False values of the runs written before the layer normalization becoming `"batch"` or `"none"`, `Backbone.modules.residual_nets_v2`, False, `Optimization.exponential_moving_average`, off, the `evaluation.target_precision`, 0.99, and `evaluation.error_dumps`, off, of DET and INS, the `MaskHead.pretrained` block of INS, without transfer, and `SegmentationDecoder.pretrained.load_class_layers` of SEG, False, and the `new_class_initialisation` of the `pretrained` blocks of `ClassificationHead`, `Detector`, `MaskHead` and `SegmentationDecoder`, `"source"`), so that it can be resumed, evaluated or exported. It adds the missing keys to its `training_configuration.yaml`, keeping its comments, and prints the folder name given by the current run name. Set `run_folder`, `task` and `rename_folder` (`True` renames the folder, never while a training writes into it) in its main block, then run:
-
-```bash
-uv run python -m scripts.configuration_processing.migrate_configuration
-```
-
 ## Tests
 The tests are in `tests/`, in folders mirroring `vision_training/`. They include short trainings of every task on tiny synthetic datasets. To run them all:
 
@@ -1087,7 +1103,7 @@ The tests are in `tests/`, in folders mirroring `vision_training/`. They include
 uv run pytest tests
 ```
 
-The checkpoint evaluation, launch comparison and configuration migration scripts are in `scripts/`, also in folders mirroring `vision_training/`.
+The checkpoint evaluation and launch comparison scripts are in `scripts/`, also in folders mirroring `vision_training/`.
 
 ## Repository Structure
 
@@ -1101,7 +1117,7 @@ The checkpoint evaluation, launch comparison and configuration migration scripts
 ├── vision_training/                   # Training framework
 │   ├── main.py                        # Entry point of the trainings
 │   ├── configurations/                # Example and synthetic configuration of every task
-│   ├── configuration_processing/      # Loading, checks, run names, migration and comparison of the configurations
+│   ├── configuration_processing/      # Loading, checks, run names and comparison of the configurations
 │   ├── core/                          # Task registry and contracts shared by the tasks
 │   ├── data/                          # Datasets, loaders, preprocessing, augmentation, label mapping
 │   │   ├── classification/            # Classification dataset, class folder converter, ImageNet download
@@ -1117,7 +1133,7 @@ The checkpoint evaluation, launch comparison and configuration migration scripts
 │   ├── tracking/                      # MLflow tracking
 │   ├── deployment/                    # Export, Triton configuration and server, frame selection decoder, throughput measurement
 │   └── utilities/                     # File, tensor, mask morphology and visualization helpers
-├── scripts/                           # Checkpoint evaluation, launch comparison and configuration migration scripts
+├── scripts/                           # Checkpoint evaluation and launch comparison scripts
 └── tests/                             # Tests, mirroring vision_training/
 ```
 

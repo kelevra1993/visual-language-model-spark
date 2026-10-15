@@ -1,6 +1,7 @@
 """
 CocoDetectionDataset, the dataset of the object detection and instance segmentation tasks reading a COCO 'labels.json'
-split with OpenCV on the CPU workers, and the collate function batching its images and per-image boxes, labels and
+split with OpenCV on the CPU workers, the selection of the objects of an image from its annotations (also used by the
+anchor recall of the detection trainer), and the collate function batching its images and per-image boxes, labels and
 instance masks. Used by get_detection_dataloader of data/loaders.py.
 """
 
@@ -11,10 +12,11 @@ import cv2
 import numpy as np
 import torch
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 from torch.utils.data import Dataset
 
-from vision_training.data.detection.coco_masks import build_instance_mask
+from vision_training.data.detection.coco_masks import (build_instance_mask, compute_mask_bounding_boxes,
+                                                       compute_segmentation_bounding_box)
 from vision_training.data.preprocessing import preprocess_image_and_boxes
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
@@ -50,6 +52,68 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
     if "instance_masks" in batch[0]:
         batched_samples["instance_masks"] = [item["instance_masks"] for item in batch]
     return batched_samples
+
+
+def select_image_objects(annotations: List[Dict[str, Any]], label_mode: str, label_dictionary: Dict[str, Any],
+                         boxes_from_segmentation: bool = False) -> Tuple[List[List[float]], List[int],
+                                                                         List[Dict[str, Any]]]:
+    """
+    Selects the objects of one image the object detection and instance segmentation networks learn from its COCO
+    annotations, shared by CocoDetectionDataset, which loads them with the image, and by the anchor recall of the
+    detection trainer at launch, which measures how well the anchors fit them without loading any image. The crowd
+    annotations are left out, and every category is mapped to its class, a category mapped to the background (0) being
+    left out too. The object detection reads the 'bbox' of every object; the instance segmentation reads its box from
+    its 'segmentation' instead (compute_segmentation_bounding_box), so that its annotations need no 'bbox' and its
+    boxes always follow its masks, an object whose segmentation has no usable part being left out.
+
+    Args:
+        annotations (List[Dict[str, Any]]): The COCO annotations of the image.
+        label_mode (str): "binary" (every category becomes class 1) or "multi_class" (label_dictionary).
+        label_dictionary (Dict[str, Any]): The class of every category identifier, as an integer or a string key.
+        boxes_from_segmentation (bool): Whether to read the box of every object from its 'segmentation' (instance
+            segmentation) instead of its 'bbox' (object detection). Defaults to False.
+
+    Returns:
+        Tuple[List[List[float]], List[int], List[Dict[str, Any]]]: The [x1, y1, x2, y2] box of every kept object in
+            original image pixels, its class and its annotation.
+
+    Raises:
+        ValueError: If a kept object has no 'segmentation' while the boxes are read from it.
+    """
+    bounding_boxes, labels, kept_annotations = [], [], []
+    for annotation in annotations:
+        # The crowd annotations cover several objects with one box and one mask, left out of the object detection and
+        # the instance segmentation, whose objects are single ones
+        if annotation.get('iscrowd', 0) == 1:
+            continue
+        raw_id = annotation['category_id']
+        if label_mode == "binary":
+            mapped_label = 1 if raw_id > 0 else 0
+        else:
+            mapped_label = label_dictionary.get(raw_id, label_dictionary.get(str(raw_id), 0))
+
+        # Objects mapped to the background are not learnt
+        if mapped_label > 0:
+            # Instance segmentation: the box of the object comes from its mask, which every object needs
+            if boxes_from_segmentation:
+                if 'segmentation' not in annotation:
+                    raise ValueError(f"The annotation {annotation.get('id')} of image {annotation['image_id']} has "
+                                     f"no 'segmentation', which the instance segmentation needs for every object.")
+                segmentation_box = compute_segmentation_bounding_box(segmentation=annotation['segmentation'])
+
+                # A segmentation without any usable part gives an empty mask, which the loader drops: the object is
+                # left out here too, so that the anchor recall counts the objects the network learns
+                if segmentation_box[2] <= segmentation_box[0] or segmentation_box[3] <= segmentation_box[1]:
+                    continue
+                bounding_boxes.append(segmentation_box)
+
+            # Object detection: the box of the annotation, [x, y, width, height]
+            else:
+                x_coordinate, y_coordinate, width, height = annotation['bbox']
+                bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
+            labels.append(mapped_label)
+            kept_annotations.append(annotation)
+    return bounding_boxes, labels, kept_annotations
 
 
 class CocoDetectionDataset(Dataset):
@@ -143,25 +207,10 @@ class CocoDetectionDataset(Dataset):
         else:
             image_annotations = []
 
-        bounding_boxes = []
-        labels = []
-        kept_annotations = []
-        for annotation in image_annotations:
-            # The crowd annotations cover several objects with one box and one mask, left out of the object
-            # detection and the instance segmentation, whose objects are single ones
-            if annotation.get('iscrowd', 0) == 1:
-                continue
-            raw_id = annotation['category_id']
-            if self.label_mode == "binary":
-                mapped_label = 1 if raw_id > 0 else 0
-            else:
-                mapped_label = self.label_dictionary.get(raw_id, self.label_dictionary.get(str(raw_id), 0))
-
-            if mapped_label > 0:
-                x_coordinate, y_coordinate, width, height = annotation['bbox']
-                bounding_boxes.append([x_coordinate, y_coordinate, x_coordinate + width, y_coordinate + height])
-                labels.append(mapped_label)
-                kept_annotations.append(annotation)
+        # Objects of the image the network learns, with their [x1, y1, x2, y2] boxes in original pixels
+        bounding_boxes, labels, kept_annotations = select_image_objects(
+            annotations=image_annotations, label_mode=self.label_mode, label_dictionary=self.label_dictionary,
+            boxes_from_segmentation=self.load_instance_masks)
 
         if len(bounding_boxes) == 0:
             bounding_boxes_numpy = np.zeros(shape=(0, 4), dtype=np.float32)
@@ -192,8 +241,9 @@ class CocoDetectionDataset(Dataset):
                            image_width: int) -> Dict[str, Any]:
         """
         Adds the binary mask of every object of a sample at the network resolution, for the mask targets and the mask
-        evaluation of the instance segmentation task, and removes the objects whose mask is empty once resized (with
-        their box and label), since they cannot be segmented.
+        evaluation of the instance segmentation task, removes the objects whose mask is empty once resized (with
+        their box and label), since they cannot be segmented, and replaces the box of every object by the tight box
+        of its resized mask, so that the boxes and the masks of the instance segmentation always agree.
 
         Args:
             sample (Dict[str, Any]): The sample built by __getitem__, whose boxes and labels follow the annotations.
@@ -202,16 +252,12 @@ class CocoDetectionDataset(Dataset):
             image_width (int): The width of the original image.
 
         Returns:
-            Dict[str, Any]: The sample with its 'instance_masks' [N, S, S] uint8 and the objects of empty mask removed.
-
-        Raises:
-            ValueError: If an annotation has no 'segmentation'.
+            Dict[str, Any]: The sample with its 'instance_masks' [N, S, S] uint8, the boxes of its masks and the objects
+                of empty mask removed.
         """
+        # Mask of every object, select_image_objects having checked that every object has a 'segmentation'
         masks = []
         for annotation in annotations:
-            if 'segmentation' not in annotation:
-                raise ValueError(f"The annotation {annotation.get('id')} of image {annotation['image_id']} has no "
-                                 f"'segmentation', which the instance segmentation needs for every object.")
             masks.append(build_instance_mask(segmentation=annotation['segmentation'], image_width=image_width,
                                              image_height=image_height, image_size=self.image_size,
                                              keep_ratio=self.keep_ratio))
@@ -225,5 +271,8 @@ class CocoDetectionDataset(Dataset):
         # Remove the objects whose mask vanished at the network resolution, with their box and label
         non_empty = (instance_masks.flatten(start_dim=1) > 0).any(dim=1)
         sample["instance_masks"] = instance_masks[non_empty]
-        sample["bounding_boxes"], sample["labels"] = sample["bounding_boxes"][non_empty], sample["labels"][non_empty]
+        sample["labels"] = sample["labels"][non_empty]
+
+        # Box of every object from its mask at the network resolution
+        sample["bounding_boxes"] = compute_mask_bounding_boxes(instance_masks=sample["instance_masks"])
         return sample

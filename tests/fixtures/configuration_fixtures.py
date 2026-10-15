@@ -45,16 +45,14 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                                      'inception': False, 'inception_starting_block': 3},
                          'last_max_pooling': True,
                          'normalization': {'feature_map_normalization': 'none', 'batch_normalization_momentum': 0.1,
-                                           'input_normalization': False, 'per_sample_normalization': False},
-                         'detection_convolution_block_indices': [5, 6, 7]},
-                     'Anchors': {
-                         'scales_and_ratios': {
-                             '5': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
-                             '6': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
-                             '7': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]}
-                         }},
+                                           'input_normalization': False, 'per_sample_normalization': False}},
+                     'DetectionLevels': {
+                         level: {'anchors': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
+                                 'region_proposal': {'convolutions': [2, 128]},
+                                 'detector': {'roi_align_pool_size': 7, 'convolutions': [2, 64],
+                                              'fully_connected': [256, 128]}}
+                         for level in ['5', '6', '7']},
                      'RegionProposal': {
-                         'head_configurations': {'5': [2, 128], '6': [2, 128], '7': [2, 128]},
                          'normalization': {'feature_map_normalization': 'batch', 'batch_normalization_momentum': 0.1},
                          'nms_iou_threshold': 0.7,
                          'training': {'pre_nms_proposals': 500, 'post_nms_proposals': 250},
@@ -67,11 +65,6 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                          'localisation_loss_beta': 1 / 9
                      },
                      'Detector': {
-                         'head_configurations': {
-                             '5': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]},
-                             '6': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]},
-                             '7': {'roi_align_pool_size': 7, 'convolutions': [2, 64], 'fully_connected': [256, 128]}
-                         },
                          'normalization': {'feature_map_normalization': 'batch', 'batch_normalization_momentum': 0.1},
                          'foreground_iou_threshold': 0.3,
                          'number_training_positives': 128,
@@ -84,10 +77,9 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                      'Optimization': {'exponential_moving_average': {'activated': False, 'decay': 0.9998}}}
     # Mask heads of the instance segmenter on the same levels as the detection heads
     if mask_head:
+        for level_configuration in configuration['DetectionLevels'].values():
+            level_configuration['mask_head'] = {'roi_align_pool_size': 7, 'convolutions': [2, 32]}
         configuration['MaskHead'] = {'mask_resolution': 14, 'upsampling': 'transposed',
-                                     'head_configurations': {
-                                         level: {'roi_align_pool_size': 7, 'convolutions': [2, 32]}
-                                         for level in ['5', '6', '7']},
                                      'normalization': {'feature_map_normalization': 'batch',
                                                        'batch_normalization_momentum': 0.1},
                                      'modules': {'squeeze_and_excite': False, 'residual_nets': True,
@@ -119,8 +111,7 @@ def get_classification_model_configuration(output_mode: str) -> Tuple[Dict[str, 
                                   'last_max_pooling': False,
                                   'normalization': {'feature_map_normalization': 'batch',
                                                     'batch_normalization_momentum': 0.1, 'input_normalization': True,
-                                                    'per_sample_normalization': False},
-                                  'detection_convolution_block_indices': []},
+                                                    'per_sample_normalization': False}},
                      'ClassificationHead': {'global_pooling': 'average', 'fully_connected': [16],
                                             'fully_connected_normalization': 'none',
                                             'batch_normalization_momentum': 0.1, 'dropout_rate': 0.0,
