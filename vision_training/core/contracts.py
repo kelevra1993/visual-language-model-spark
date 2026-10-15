@@ -105,6 +105,17 @@ class ClassificationBatch(TypedDict):
     sample_identifiers: torch.Tensor
 
 
+class SelfSupervisedBatch(TypedDict):
+    """
+    Batch of the self-supervised task, on the device and in the precision of the model: [B, 3, H, W] images, from
+    which the trainer draws the two random views of every image, and one int64 class index per image ([B]), used by
+    the k-nearest neighbour evaluation only, IGNORED_LABEL_INDEX for the unlabelled images.
+    """
+    images: torch.Tensor
+    labels: torch.Tensor
+    sample_identifiers: torch.Tensor
+
+
 class SequenceBatch(TypedDict):
     """
     Batch of the sequence tasks, on the device and in the precision of the model: [B, T, C, H, W] frames padded with

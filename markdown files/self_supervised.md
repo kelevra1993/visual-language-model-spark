@@ -18,10 +18,10 @@ The trained backbone then initialises the backbone of the other tasks through `B
 
 ## Implementation State
 Every item of the implementation plan of `README.md`, ticked once its code is committed:
-- [ ] 1. `vision_training/data/self_supervised/self_supervised_dataset.py`
-- [ ] 2. `vision_training/data/view_augmentations.py`
-- [ ] 3. `vision_training/data/loaders.py`: `get_self_supervised_dataloaders`
-- [ ] 4. `vision_training/core/contracts.py`: `SelfSupervisedBatch`
+- [x] 1. `vision_training/data/self_supervised/self_supervised_dataset.py`
+- [x] 2. `vision_training/data/view_augmentations.py`
+- [x] 3. `vision_training/data/loaders.py`: `get_self_supervised_dataloaders`
+- [x] 4. `vision_training/core/contracts.py`: `SelfSupervisedBatch`
 - [ ] 5. `vision_training/losses/self_supervised_losses.py`
 - [ ] 6. `vision_training/models/self_supervised/projection_head.py`
 - [ ] 7. `vision_training/models/self_supervised/self_supervised_model.py`

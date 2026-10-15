@@ -1,7 +1,7 @@
 """
 Builds the training, validation and test data loaders of every task from the experiment and model configurations:
-COCO detection, classification, semantic segmentation, and the sequence and sequence comparison tasks, every one
-with a PyTorch DataLoader over its dataset. Called by the task trainers.
+COCO detection, classification, self-supervised learning, semantic segmentation, and the sequence and sequence
+comparison tasks, every one with a PyTorch DataLoader over its dataset. Called by the task trainers.
 """
 
 import os
@@ -13,6 +13,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
+from vision_training.data.self_supervised.self_supervised_dataset import SelfSupervisedDataset
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_longest_windows
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset
@@ -155,6 +156,39 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
 
     return loaders[0], loaders[1], loaders[2]
 
+
+def get_self_supervised_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
+                                    batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    Initializes the training, validation and testing loaders of the self-supervised task, read from the 'labels.json'
+    manifest of every split with the Native loader (OpenCV decoding and CPU resizing). Every image is kept, labelled
+    or not: the trainer draws the views of the training and validation images on the device, and the labels of the
+    test images only serve the k-nearest neighbour evaluation of the representations.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
+        model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label dictionary
+            and the loading settings.
+        batch_size (int): The number of images of a batch.
+
+    Returns:
+        Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
+    """
+    data_configuration = model_configuration["Data"]
+    loaders = []
+
+    # Build the loader of every split with the same settings
+    for split_key in ["train_data_folder", "validation_data_folder", "test_data_folder"]:
+        split_data_folder = str(experiment_configuration[split_key])
+        dataset = SelfSupervisedDataset(data_directory=os.path.join(split_data_folder, "data"),
+                                        labels_file=os.path.join(split_data_folder, "labels.json"),
+                                        image_size=data_configuration["image_settings"]["size"],
+                                        keep_ratio=data_configuration["image_settings"]["keep_ratio"],
+                                        label_dictionary=data_configuration["label_dictionary"])
+        loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
+                                           loading_configuration=data_configuration["loading"]))
+
+    return loaders[0], loaders[1], loaders[2]
 
 def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                                  batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
