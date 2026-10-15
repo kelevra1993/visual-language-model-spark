@@ -1,7 +1,7 @@
 """
 Checks of the configuration sections specific to the instance segmentation task: every check of the object detection
-task, whose two-stage detector the instance segmenter extends, and the 'MaskHead' section of its mask heads. Run by
-configuration_checker.py for the instance_segmentation task.
+task, whose two-stage detector the instance segmenter extends, and its mask heads (the 'MaskHead' section and the mask
+head of every detection level). Run by configuration_checker.py for the instance_segmentation task.
 """
 
 from typing import Any, Dict, List
@@ -13,17 +13,21 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            check_probability_value,
                                                                            get_configuration_value)
 from vision_training.configuration_processing.common_checks import check_pretrained_configuration
-from vision_training.configuration_processing.detection_checks import check_detection_configuration
+from vision_training.configuration_processing.detection_checks import (MASK_HEAD_LEVEL_COMPONENT,
+                                                                       check_convolution_layers,
+                                                                       check_detection_configuration,
+                                                                       list_checked_detection_levels)
 
 
 def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'MaskHead' section built into one MaskHead per detection level: the mask resolution and the
-    upsampling shared by every level, the RoIAlign pool size of every level (at most the mask resolution, the pooled
-    features being only enlarged) and its [number_layers, output_channels] convolutions (a multiple of 8 channels with
-    inception modules), the normalization and the momentum of its batch statistics, the module flags, the mask
-    threshold of the inference and the 'pretrained' settings initialising the mask heads with those of another run.
-    Its levels are compared with the detection blocks by check_detection_levels.
+    Verifies the mask heads, one MaskHead per detection level: the mask resolution and the upsampling shared by every
+    level in the 'MaskHead' section, the RoIAlign pool size of every level in 'DetectionLevels.<level>.mask_head' (at
+    most the mask resolution, the pooled features being only enlarged) and its [number_layers, output_channels]
+    convolutions (a multiple of 8 channels with inception modules), the normalization and the momentum of its batch
+    statistics, the module flags, the mask threshold of the inference and the 'pretrained' settings initialising the
+    mask heads with those of another run. The presence of the mask head of every level is checked by
+    check_detection_levels.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'MaskHead' section.
@@ -41,11 +45,11 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
         errors.append(f"'MaskHead.upsampling' must be one of {VALID_UPSAMPLINGS}, got {upsampling!r}.")
     inception = get_configuration_value(configuration=model_configuration, key_path="MaskHead.modules.inception")
 
-    # Each head defines its RoIAlign pool size and its [number of layers, number of output channels] convolutions
-    head_configurations = get_configuration_value(configuration=model_configuration,
-                                                  key_path="MaskHead.head_configurations")
-    for level in head_configurations:
-        key_prefix = f"MaskHead.head_configurations.{level}"
+    # The mask head of every level defines its RoIAlign pool size and its [number of layers, number of output
+    # channels] convolutions
+    for level_key in list_checked_detection_levels(model_configuration=model_configuration,
+                                                   component_names=[MASK_HEAD_LEVEL_COMPONENT]):
+        key_prefix = f"DetectionLevels.{level_key}.{MASK_HEAD_LEVEL_COMPONENT}"
         pool_size_errors = check_positive_integers(configuration=model_configuration,
                                                    key_paths=[f"{key_prefix}.roi_align_pool_size"], allow_zero=False)
         errors += pool_size_errors
@@ -55,16 +59,10 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
             errors.append(f"'{key_prefix}.roi_align_pool_size' ({pool_size}) must not exceed "
                           f"'MaskHead.mask_resolution' ({mask_resolution}), the pooled features being only enlarged "
                           f"to the masks.")
-
-        convolutions = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.convolutions")
-        if not isinstance(convolutions, list) or len(convolutions) != 2 or \
-                not all(isinstance(value, int) and not isinstance(value, bool) and value >= 1
-                        for value in convolutions):
-            errors.append(f"'{key_prefix}.convolutions' must be [number_layers, output_channels] with positive "
-                          f"integers, got {convolutions!r}.")
-        elif inception is True and convolutions[1] % 8 != 0:
-            errors.append(f"'{key_prefix}.convolutions' has {convolutions[1]} output channels, inception modules "
-                          f"require a multiple of 8.")
+        errors += check_convolution_layers(
+            convolutions=get_configuration_value(configuration=model_configuration,
+                                                 key_path=f"{key_prefix}.convolutions"),
+            key_path=f"{key_prefix}.convolutions", inception=inception)
 
     # Feature map normalization strategy, momentum of its batch statistics and module flags of the mask head
     # convolution blocks
@@ -92,8 +90,8 @@ def check_mask_head_configuration(model_configuration: Dict[str, Any]) -> List[s
 def check_instance_segmentation_configuration(experiment_configuration: Dict[str, Any],
                                               model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Runs every check specific to the instance segmentation task: those of the object detection task, the mask head
-    levels being compared with the detection blocks there, then the mask head section.
+    Runs every check specific to the instance segmentation task: those of the object detection task, every detection
+    level having to hold a mask head there, then the mask heads.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.

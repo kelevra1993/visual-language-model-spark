@@ -17,7 +17,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.configuration_processing.configuration_loader import load_configuration
 from vision_training.data.data_record import CLASS_NAMES_RECORD_KEY, DATA_RECORD_FILE_NAME
-from vision_training.models.instance_segmentation.mask_head import LEGACY_UPSAMPLING_PARAMETER_NAMES
 from vision_training.trainers.checkpointing import EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, get_checkpoint_path
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY
 from vision_training.utilities.os_utilities import format_path_link, print_color, read_json
@@ -42,8 +41,8 @@ COMPONENT_NAMES = {"RegionProposal": "region proposal heads", "Detector": "detec
 SEGMENTATION_CLASS_LAYER_ATTRIBUTES = ["segmentation_head", "deep_supervision_heads"]
 
 # Backbone settings defining its layers and their parameters, which must be identical in the source run and in the
-# run receiving its backbone. The detection block indices only select outputs, and the convolutions do not depend
-# on the image size, so both may differ
+# run receiving its backbone. The detection levels only select the blocks read by the heads, and the convolutions do
+# not depend on the image size, so both may differ
 ARCHITECTURE_BACKBONE_KEYS = ["input_channels", "convolutions", "modules", "normalization", "last_max_pooling"]
 
 # Backbone module settings added after the first runs, with the value of the runs written before them: a source run
@@ -74,15 +73,17 @@ CAUSAL_TEMPORAL_TYPES = ["transformer", "temporal_convolution"]
 # part of the decoder, so that a decoder serves runs of other classes
 SEGMENTATION_DECODER_WEIGHT_KEYS = ["upsampling", "convolutions", "modules", "feature_map_normalization"]
 
-# Settings of the region proposal and detection heads defining their weights, compared level by level. The RoIAlign
-# pool size of the detection heads gives the size of their first fully connected layer. The number of anchors per
-# position of the region proposal heads, giving the size of their output layers, is compared apart, the anchor scales
-# and ratios themselves not being weights. The mask resolution and the upsampling of the mask heads give their
-# upsampling layers, and their pool size and convolutions are in their head configurations
-DETECTION_HEAD_WEIGHT_KEYS = {"RegionProposal": ["head_configurations", "normalization"],
-                              "Detector": ["head_configurations", "normalization", "modules"],
-                              "MaskHead": ["mask_resolution", "upsampling", "head_configurations", "normalization",
-                                           "modules"]}
+# Component of every detection level ('DetectionLevels.<level>.<component>') holding the layers of the region
+# proposal, detection or mask head of that level, compared level by level. The RoIAlign pool size of the detection
+# heads gives the size of their first fully connected layer
+DETECTION_LEVEL_COMPONENTS = {"RegionProposal": "region_proposal", "Detector": "detector", "MaskHead": "mask_head"}
+
+# Settings of the region proposal, detection and mask heads shared by every level and defining their weights. The
+# number of anchors per position of the region proposal heads, giving the size of their output layers, is compared
+# apart, the anchor scales and ratios themselves not being weights. The mask resolution and the upsampling of the
+# mask heads give their upsampling layers
+DETECTION_HEAD_WEIGHT_KEYS = {"RegionProposal": ["normalization"], "Detector": ["normalization", "modules"],
+                              "MaskHead": ["mask_resolution", "upsampling", "normalization", "modules"]}
 
 # Normalization layers whose scale and shift can be kept fixed, and batch normalization layers whose statistics a
 # frozen component keeps
@@ -211,7 +212,7 @@ def compare_temporal_modules(source_configuration: Dict[str, Any], target_config
         return [f"'TemporalModel.type' is {source_temporal_configuration['type']!r} in the source run and "
                 f"{target_temporal_configuration['type']!r} in this run."]
 
-    # Settings defining the weights of the type, a source run written before one of them having to be migrated
+    # Settings defining the weights of the type, a source run written before one of them having to be given it
     differences = []
     differing_keys = []
     temporal_type = target_temporal_configuration["type"]
@@ -219,8 +220,8 @@ def compare_temporal_modules(source_configuration: Dict[str, Any], target_config
         if key_name not in source_temporal_configuration:
             differing_keys.append(key_name)
             differences.append(f"'TemporalModel.{key_name}' is missing from the source run, written before the "
-                               f"setting existed: migrate it with "
-                               f"scripts/configuration_processing/migrate_configuration.py.")
+                               f"setting existed: add it with the value the run was trained with to its "
+                               f"training_configuration.yaml.")
         elif source_temporal_configuration[key_name] != target_temporal_configuration[key_name]:
             differing_keys.append(key_name)
             differences.append(f"'TemporalModel.{key_name}' is {source_temporal_configuration[key_name]!r} in the "
@@ -273,16 +274,16 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
                            f"in the source run and {target_head_configuration['fully_connected']!r} in this run.")
 
     # Normalization layers of the hidden layers, a source run written before the setting existed, or with True or
-    # False before the layer normalization existed, having to be migrated
+    # False before the layer normalization existed, having to be given its current value
     if "fully_connected_normalization" not in source_head_configuration:
         differences.append("'ClassificationHead.fully_connected_normalization' is missing from the source run, "
-                           "written before the setting existed: migrate it with "
-                           "scripts/configuration_processing/migrate_configuration.py.")
+                           "written before the setting existed: add it with the value the run was trained with to its "
+                           "training_configuration.yaml.")
     elif isinstance(source_head_configuration["fully_connected_normalization"], bool):
         differences.append(f"'ClassificationHead.fully_connected_normalization' is "
                            f"{source_head_configuration['fully_connected_normalization']!r} in the source run, written "
-                           f"before the layer normalization existed: migrate it with "
-                           f"scripts/configuration_processing/migrate_configuration.py.")
+                           f"before the layer normalization existed: write it as \"batch\" (True) or \"none\" (False) "
+                           f"in its training_configuration.yaml.")
     elif source_head_configuration["fully_connected_normalization"] != \
             target_head_configuration["fully_connected_normalization"]:
         differences.append(f"'ClassificationHead.fully_connected_normalization' is "
@@ -349,9 +350,9 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     """
     Lists the differences between the settings defining the weights of the region proposal heads, of the detection
     heads or of the mask heads of two runs of the detection tasks (DET or INS, INS only for the mask heads): their
-    detection levels, then the settings of DETECTION_HEAD_WEIGHT_KEYS (the normalization without its batch
-    normalization momentum, which changes no tensor) and, for the region proposal heads, the number of anchors per
-    position of every level.
+    detection levels (the keys of 'DetectionLevels'), the head of every level (DETECTION_LEVEL_COMPONENTS), the
+    settings of DETECTION_HEAD_WEIGHT_KEYS (the normalization without its batch normalization momentum, which
+    changes no tensor) and, for the region proposal heads, the number of anchors per position of every level.
     The channels of the backbone blocks they read are compared on the weights themselves, and the classes of the
     detection and mask heads (classifier, per-class box regressor, per-class mask predictor) by
     load_pretrained_component, the run receiving the heads being allowed to add classes after those of the source run.
@@ -365,14 +366,23 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
         List[str]: The description of every difference, empty when the weights of the heads match.
     """
     # Heads of other levels have nothing in common, one head being built per level
-    source_levels = source_configuration["Backbone"]["detection_convolution_block_indices"]
-    target_levels = target_configuration["Backbone"]["detection_convolution_block_indices"]
+    source_levels = sorted(source_configuration["DetectionLevels"], key=int)
+    target_levels = sorted(target_configuration["DetectionLevels"], key=int)
     if source_levels != target_levels:
-        return [f"'Backbone.detection_convolution_block_indices' is {source_levels!r} in the source run and "
-                f"{target_levels!r} in this run, the levels of the {get_component_name(section_name=section_name)}."]
+        return [f"The detection levels are {source_levels!r} in the source run and {target_levels!r} in this run, "
+                f"the levels of the {get_component_name(section_name=section_name)}."]
 
-    # Settings of the layers of the heads
+    # Layers of the head of every level
     differences = []
+    level_component = DETECTION_LEVEL_COMPONENTS[section_name]
+    for level_key in target_levels:
+        source_level_value = source_configuration["DetectionLevels"][level_key][level_component]
+        target_level_value = target_configuration["DetectionLevels"][level_key][level_component]
+        if source_level_value != target_level_value:
+            differences.append(f"'DetectionLevels.{level_key}.{level_component}' is {source_level_value!r} in the "
+                               f"source run and {target_level_value!r} in this run.")
+
+    # Settings of the layers of the heads shared by every level
     source_section_configuration = source_configuration[section_name]
     target_section_configuration = target_configuration[section_name]
     for key_name in DETECTION_HEAD_WEIGHT_KEYS[section_name]:
@@ -389,9 +399,10 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     if section_name == "RegionProposal":
         anchor_counts = []
         for configuration in [source_configuration, target_configuration]:
-            scales_and_ratios = configuration["Anchors"]["scales_and_ratios"]
-            anchor_counts.append({str(level): len(scales_and_ratios[str(level)]["scales"]) *
-                                  len(scales_and_ratios[str(level)]["aspect_ratios"]) for level in target_levels})
+            detection_levels = configuration["DetectionLevels"]
+            anchor_counts.append({level_key: len(detection_levels[level_key]["anchors"]["scales"]) *
+                                  len(detection_levels[level_key]["anchors"]["aspect_ratios"])
+                                  for level_key in target_levels})
         if anchor_counts[0] != anchor_counts[1]:
             differences.append(f"The levels have {anchor_counts[0]} anchors per position in the source run and "
                                f"{anchor_counts[1]} in this run, the outputs of the region proposal heads.")
@@ -719,28 +730,6 @@ def read_checkpoint_model_state(checkpoint_path: Path, device: torch.device,
     return checkpoint["model_state"], False
 
 
-def rename_legacy_mask_head_tensors(component_state: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-    """
-    Renames the tensors of the mask heads of a source run written before the mask geometry could be configured, whose
-    single transposed convolution is '<level>.upsampling', to the first upsampling layer of the current heads, as
-    MaskHead._load_from_state_dict does when such a run resumes, so that their tensors are compared under the names of
-    the current heads.
-
-    Args:
-        component_state (Dict[str, torch.Tensor]): The tensors of the source mask heads, without prefix.
-
-    Returns:
-        Dict[str, torch.Tensor]: The same tensors, the legacy ones renamed.
-    """
-    renamed_state = {}
-    for tensor_name, tensor_value in component_state.items():
-        level_name, _, parameter_path = tensor_name.partition(".")
-        if parameter_path in [f"upsampling.{parameter_name}" for parameter_name in LEGACY_UPSAMPLING_PARAMETER_NAMES]:
-            tensor_name = f"{level_name}.upsampling_layers.0.{parameter_path.split('.')[-1]}"
-        renamed_state[tensor_name] = tensor_value
-    return renamed_state
-
-
 def load_pretrained_component(component: nn.Module, section_name: str, model_configuration: Dict[str, Any],
                               device: torch.device, class_names: Optional[List[str]] = None) -> Path:
     """
@@ -780,7 +769,7 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     pretrained_configuration = model_configuration[section_name]["pretrained"]
     source_folder = Path(pretrained_configuration["experiment_folder"])
 
-    # Only the configuration of the source run is read, not checked, so that a run of any task and any age can serve
+    # Only the configuration of the source run is read, not checked, so that a run of any task can serve
     source_configuration = load_configuration(configuration_path=source_folder / "training_configuration.yaml")
     if section_name not in source_configuration:
         raise ValueError(f"The Source Run {format_path_link(path=source_folder)} Has No '{section_name}' Section: "
@@ -811,8 +800,10 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
             print_color(color="yellow", output=f"The Pretrained Temporal Module Was Trained With 'causal' "
                                                f"{source_causal}, This Run Uses 'causal' {target_causal}.")
     if section_name == "RegionProposal":
-        source_anchors = source_configuration["Anchors"]["scales_and_ratios"]
-        target_anchors = model_configuration["Anchors"]["scales_and_ratios"]
+        source_anchors = {level_key: level_configuration["anchors"]
+                          for level_key, level_configuration in source_configuration["DetectionLevels"].items()}
+        target_anchors = {level_key: level_configuration["anchors"]
+                          for level_key, level_configuration in model_configuration["DetectionLevels"].items()}
         if source_anchors != target_anchors:
             print_color(color="yellow", output=f"The Pretrained Region Proposal Heads Were Trained With The Anchors "
                                                f"{source_anchors}, This Run Uses The Anchors {target_anchors}.")
@@ -827,8 +818,6 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     state_prefix = f"{TRANSFERABLE_COMPONENTS[section_name]}."
     component_state = {tensor_name[len(state_prefix):]: tensor_value
                        for tensor_name, tensor_value in model_state.items() if tensor_name.startswith(state_prefix)}
-    if section_name == "MaskHead":
-        component_state = rename_legacy_mask_head_tensors(component_state=component_state)
 
     # Class layers checked against the classes of this run, and grown when it adds classes after the source ones
     target_state = component.state_dict()

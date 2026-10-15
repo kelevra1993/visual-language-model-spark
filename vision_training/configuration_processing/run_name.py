@@ -1,7 +1,7 @@
 """
 Building of the run names: the name of the folder a training run is saved in, made of short tokens describing the
 settings of the run (task, input, backbone, task and optimizer sections). Called by the base trainer to create or
-resume a run folder, and by configuration_migration.py to rename migrated run folders.
+resume a run folder.
 """
 
 from typing import Any, Callable, Dict, List
@@ -198,8 +198,9 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     anchors A<anchors per position>.<smallest scale>-<largest scale>, the region proposal heads (R<normalization>,
     R<layers>x<filters>, then RPT and RFRZ when they are transferred and frozen), the detector heads (modules DSE,
     DRES, DINC, D<normalization>, D<RoIAlign pool size>.<layers>x<filters>.<fully connected sizes>, then DPT and DFRZ
-    when they are transferred and frozen) and the classes (BIN or MC<foreground classes>). Per-level settings are
-    written once when identical on every level, otherwise joined with '+' in level order.
+    when they are transferred and frozen) and the classes (BIN or MC<foreground classes>). The levels are the keys of
+    'DetectionLevels', whose anchors, region proposal and detector settings are written once when identical on
+    every level, otherwise joined with '+' in level order.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -210,18 +211,18 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     data_configuration = model_configuration["Data"]
     region_proposal_configuration = model_configuration["RegionProposal"]
     detector_configuration = model_configuration["Detector"]
-    level_names = [str(index) for index in model_configuration["Backbone"]["detection_convolution_block_indices"]]
+    detection_levels = model_configuration["DetectionLevels"]
+    level_names = sorted(detection_levels, key=int)
 
     # Detection levels, and the number of anchors per position (scales x ratios) with the range of anchor scales
     levels_token = "L" + "".join(level_names)
-    scales_and_ratios = model_configuration["Anchors"]["scales_and_ratios"]
-    anchor_counts = [str(len(scales_and_ratios[level]["scales"]) * len(scales_and_ratios[level]["aspect_ratios"]))
-                     for level in level_names]
-    anchor_scales = [scale for level in level_names for scale in scales_and_ratios[level]["scales"]]
+    anchor_counts = [str(len(detection_levels[level]["anchors"]["scales"]) *
+                         len(detection_levels[level]["anchors"]["aspect_ratios"])) for level in level_names]
+    anchor_scales = [scale for level in level_names for scale in detection_levels[level]["anchors"]["scales"]]
     anchors_token = f"A{join_level_tokens(level_tokens=anchor_counts)}.{min(anchor_scales)}-{max(anchor_scales)}"
 
     # Region proposal heads: normalization, then the layers and filters of the head of every level
-    region_proposal_heads = region_proposal_configuration["head_configurations"]
+    region_proposal_heads = {level: detection_levels[level]["region_proposal"]["convolutions"] for level in level_names}
     region_proposal_tokens = [
         "R" + NORMALIZATION_CODES[
             str(region_proposal_configuration["normalization"]["feature_map_normalization"]).lower().strip()],
@@ -241,7 +242,7 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
         detector_tokens.append("DINC")
     detector_tokens.append("D" + NORMALIZATION_CODES[
         str(detector_configuration["normalization"]["feature_map_normalization"]).lower().strip()])
-    detector_heads = detector_configuration["head_configurations"]
+    detector_heads = {level: detection_levels[level]["detector"] for level in level_names}
     detector_tokens.append("D" + join_level_tokens(level_tokens=[
         f"{detector_heads[level]['roi_align_pool_size']}.{detector_heads[level]['convolutions'][0]}x"
         f"{detector_heads[level]['convolutions'][1]}." + ".".join(str(size) for size in
@@ -263,10 +264,10 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
     Builds the sections of the run name specific to instance segmentation: the sections of object detection
     (build_detection_sections), with the mask heads section before the classes: the modules MSE, MRES, MINC, the
     normalization MBN, MLN or MNN, the upsampling MUTC or MUBL, then M<RoIAlign pool size>.<layers>x<channels> of the
-    mask head of every level, written once when identical on every level, otherwise joined with '+' in level order,
-    MR<mask resolution>, and MPT, followed by MFRZ when frozen, when the mask heads are initialised by those of another
-    run (see build_pretrained_tokens), e.g. 'MRES-MBN-MUTC-M14.4x64-MR28'. The mask threshold gives no token, so that
-    it can change between two resumptions of a run.
+    mask head of every level of 'DetectionLevels', written once when identical on every level, otherwise joined with
+    '+' in level order, MR<mask resolution>, and MPT, followed by MFRZ when frozen, when the mask heads are initialised
+    by those of another run (see build_pretrained_tokens), e.g. 'MRES-MBN-MUTC-M14.4x64-MR28'. The mask threshold gives
+    no token, so that it can change between two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -275,7 +276,8 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
         List[List[str]]: The tokens of every section.
     """
     mask_head_configuration = model_configuration["MaskHead"]
-    level_names = [str(index) for index in model_configuration["Backbone"]["detection_convolution_block_indices"]]
+    detection_levels = model_configuration["DetectionLevels"]
+    level_names = sorted(detection_levels, key=int)
 
     # Modules and normalization of the mask head convolution blocks
     mask_modules = mask_head_configuration["modules"]
@@ -291,7 +293,7 @@ def build_instance_segmentation_sections(model_configuration: Dict[str, Any]) ->
 
     # Upsampling, then the RoIAlign pool size, layers and channels of the head of every level, then the mask resolution
     mask_tokens.append("M" + UPSAMPLING_CODES[mask_head_configuration["upsampling"]])
-    mask_heads = mask_head_configuration["head_configurations"]
+    mask_heads = {level: detection_levels[level]["mask_head"] for level in level_names}
     mask_tokens.append("M" + join_level_tokens(level_tokens=[
         f"{mask_heads[level]['roi_align_pool_size']}.{mask_heads[level]['convolutions'][0]}x"
         f"{mask_heads[level]['convolutions'][1]}" for level in level_names]))

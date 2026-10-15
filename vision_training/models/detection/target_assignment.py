@@ -56,6 +56,64 @@ def pad_ground_truths(batched_ground_truth_boxes: List[torch.Tensor],
     return padded_boxes, padded_labels, valid_ground_truths
 
 
+def add_ground_truth_proposals(batched_ground_truth_boxes: List[torch.Tensor], batched_proposals: torch.Tensor,
+                               batched_proposal_levels: torch.Tensor, level_anchors: Dict[int, torch.Tensor]
+                               ) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Adds the ground truth boxes of every image to its filtered proposals before the proposal target assignment of
+    the detection heads, as Mask R-CNN does, so that every object of a training batch gives at least one positive
+    proposal (with a zero regression target) even when the region proposal network still misses it, early in the
+    training or for the objects its anchors cover badly. The ground truth boxes overwrite the last slots of every
+    image: the RegionProposalFilter returns the survivors of the suppression first, best first, then the padding
+    copies of random survivors, so the boxes replace the padding before the least confident proposals, and the
+    number of proposals per image stays the same, as the stacking of the detections per image needs. An image with
+    more objects than proposal slots keeps its last objects only. Every ground truth box takes the level of its best
+    anchor, the level whose detection head would have received it from the region proposal network.
+
+    Args:
+        batched_ground_truth_boxes (List[torch.Tensor]): The [G_i, 4] ground truth boxes of every image, in network
+            input pixels.
+        batched_proposals (torch.Tensor): The [B, P, 4] filtered proposals of every image.
+        batched_proposal_levels (torch.Tensor): The [B, P] int64 detection level (block number) of every proposal.
+        level_anchors (Dict[int, torch.Tensor]): The [A, 4] anchors of every detection level, keyed by block number.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: The new [B, P, 4] proposals and their [B, P] levels, the input tensors
+            being left unchanged.
+    """
+    padded_boxes, _, valid_ground_truths = pad_ground_truths(batched_ground_truth_boxes=batched_ground_truth_boxes)
+    padded_boxes = padded_boxes.to(dtype=batched_proposals.dtype)
+    number_proposals = batched_proposals.shape[1]
+
+    # Objects written into every image, at most one per proposal slot, starting at its first written slot
+    object_counts = valid_ground_truths.sum(dim=1, keepdim=True)
+    written_counts = object_counts.clamp(max=number_proposals)
+    first_written_slots = number_proposals - written_counts
+    slots = torch.arange(end=number_proposals, device=batched_proposals.device).unsqueeze(dim=0)
+    written_slots = slots >= first_written_slots
+
+    # Object of every written slot, the last objects of an image having more objects than slots
+    object_positions = (slots - first_written_slots + object_counts - written_counts).clamp(
+        min=0, max=padded_boxes.shape[1] - 1)
+    slot_boxes = torch.gather(input=padded_boxes, dim=1, index=object_positions.unsqueeze(dim=-1).expand(-1, -1, 4))
+
+    # Best anchor overlap of every object in every level, of shape [B, G, levels], the levels in increasing order
+    levels = sorted(level_anchors)
+    best_level_overlaps = torch.stack(tensors=[
+        get_intersection_over_union(boxes_1=padded_boxes, boxes_2=level_anchors[level].to(
+            dtype=padded_boxes.dtype)).amax(dim=-1) for level in levels], dim=-1)
+
+    # Level of the best anchor of every object, read for the object of every written slot
+    level_numbers = torch.tensor(data=levels, dtype=torch.int64, device=batched_proposals.device)
+    object_levels = level_numbers[best_level_overlaps.argmax(dim=-1)]
+    slot_levels = torch.gather(input=object_levels, dim=1, index=object_positions)
+
+    # Written slots take the ground truth boxes and their levels, the others keep their proposals
+    proposals = torch.where(condition=written_slots.unsqueeze(dim=-1), input=slot_boxes, other=batched_proposals)
+    proposal_levels = torch.where(condition=written_slots, input=slot_levels, other=batched_proposal_levels)
+    return proposals, proposal_levels
+
+
 def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tensor],
                                     batched_anchors: torch.Tensor,
                                     background_iou_threshold: Dict[str, float],

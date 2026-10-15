@@ -28,7 +28,8 @@ class InstanceSegmenter(TwoStageDetector):
     def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
                  dtype: torch.dtype = None) -> None:
         """
-        Builds the two-stage detector, then the mask head of every detection level from the 'MaskHead' section.
+        Builds the two-stage detector, then the mask head of every detection level from the 'MaskHead' section and
+        the mask head of that level in 'DetectionLevels'.
 
         Args:
             configuration (Dict[str, Any]): The complete configuration dictionary of the experiment.
@@ -46,9 +47,11 @@ class InstanceSegmenter(TwoStageDetector):
 
         # One mask head per detection level, built on the feature map of that level
         self.mask_heads_dictionary = self._build_mask_heads_dictionary(
-            mask_head_configuration=self.mask_head_configuration)
+            mask_head_configuration=self.mask_head_configuration,
+            detection_levels_configuration=self.detection_levels_configuration)
 
-    def _build_mask_heads_dictionary(self, mask_head_configuration: Dict[str, Any]) -> nn.ModuleDict:
+    def _build_mask_heads_dictionary(self, mask_head_configuration: Dict[str, Any],
+                                     detection_levels_configuration: Dict[str, Any]) -> nn.ModuleDict:
         """
         Builds the mask head of every detection level, with the pool size and convolutions of that level, the channel
         count and size of its backbone feature map, like the detection heads, and the mask resolution and upsampling
@@ -56,6 +59,9 @@ class InstanceSegmenter(TwoStageDetector):
 
         Args:
             mask_head_configuration (Dict[str, Any]): The 'MaskHead' section of the configuration.
+            detection_levels_configuration (Dict[str, Any]): The 'DetectionLevels' section, giving the RoIAlign
+                                                             pool size and the convolutions of the mask head of
+                                                             every level.
 
         Returns:
             nn.ModuleDict: The mask head of every level, keyed by the detection block index.
@@ -65,7 +71,7 @@ class InstanceSegmenter(TwoStageDetector):
         # Iterate over the detection levels in the order of the backbone outputs
         for index_string, level_information in self.detection_input_information.items():
             mask_heads_dictionary[index_string] = MaskHead(
-                head_configuration=mask_head_configuration["head_configurations"][index_string],
+                head_configuration=detection_levels_configuration[index_string]["mask_head"],
                 mask_resolution=mask_head_configuration["mask_resolution"],
                 upsampling=mask_head_configuration["upsampling"],
                 number_classes=self.number_classes, input_channels=level_information["number_channels"],

@@ -26,7 +26,7 @@ main()
 │
 ├── load_experiment_configuration(configuration_path)
 │   │   Splits the YAML into experiment_configuration ('ExperimentConfiguration') and model_configuration (Optimization,
-│   │   Data, Backbone, RegionProposal, Anchors, Detector), converts the types, adds label_mode and label_dictionary.
+│   │   Data, Backbone, DetectionLevels, RegionProposal, Detector), converts the types, adds label_mode and label_dictionary.
 │   │
 │   ├── load_configuration(configuration_path)
 │   ├── build_label_dictionary(label_mapping_configuration, task)
@@ -38,11 +38,11 @@ main()
 │               ├── check_detection_evaluation_configuration()   evaluation.score_threshold, target_precision and
 │               │                                                error_dumps
 │               ├── no sequence settings
-│               ├── check_detection_levels()                     the levels of the heads and anchors are the
-│               │                                                detection_convolution_block_indices of the backbone
-│               ├── check_anchors_configuration()                scales within the image size, positive ratios
-│               ├── check_region_proposal_configuration()        heads, IoU thresholds, proposals before and after NMS
-│               └── check_detector_configuration()               heads, maximum detections, training samples
+│               ├── check_detection_levels()                     DetectionLevels: quoted backbone blocks in increasing
+│               │                                                order, anchor scales within the image size, positive
+│               │                                                ratios, region proposal and detection heads
+│               ├── check_region_proposal_configuration()        IoU thresholds, proposals before and after NMS
+│               └── check_detector_configuration()               maximum detections, training samples
 │
 ├── get_trainer_class(task)  -> DetectionTrainer
 │
@@ -139,27 +139,28 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 The entry point is the same for every task (see `classification_workflow.md`, Step 1.1).
 
 ### Step 1.2 — `load_experiment_configuration()`
-The model sections of the detection are `Backbone` (with `detection_convolution_block_indices`, the blocks whose feature maps feed the detection), `RegionProposal` (the heads proposing boxes on every detection level, the IoU thresholds labelling the anchors, the proposals kept before and after the non-maximum suppression), `Anchors` (the scales and aspect ratios of the anchors of every level) and `Detector` (the heads classifying and refining the proposals, the post-processing of the inference). The `evaluation` section has its own `score_threshold`, the lowest score of the detections kept for the mean average precision, the `target_precision` of the score threshold of every class (Step 4.12) and the `error_dumps` of the error images (Step 4.5).
+The model sections of the detection are `Backbone`, `DetectionLevels` (keyed by the backbone blocks whose feature maps feed the detection, every level holding the scales and aspect ratios of its anchors, its region proposal head and its detection head), `RegionProposal` (the settings shared by the region proposal heads: the IoU thresholds labelling the anchors, the proposals kept before and after the non-maximum suppression) and `Detector` (the settings shared by the heads classifying and refining the proposals, the post-processing of the inference). The `evaluation` section has its own `score_threshold`, the lowest score of the detections kept for the mean average precision, the `target_precision` of the score threshold of every class (Step 4.12) and the `error_dumps` of the error images (Step 4.5).
 
 **Example: the sections and the detection settings**
 ```text
-model_configuration keys: Optimization, Data, Backbone, RegionProposal, Anchors, Detector
+model_configuration keys: Optimization, Data, Backbone, DetectionLevels, RegionProposal, Detector
 evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'score_threshold': 0.05, 'target_precision': 0.99,
                            'error_dumps': {'activated': False, 'maximum_per_class_pair': 20}}
-Data keys after loading:  DALI, loading, image_settings, label_mapping, data_augmentation, label_mode, label_dictionary
-RegionProposal:           {"head_configurations": {"5": [2, 64], "6": [2, 64], "7": [2, 64]}, "normalization": {"feature_map_normalization": "batch"},
+Data keys after loading:  loading, image_settings, label_mapping, data_augmentation, label_mode, label_dictionary
+DetectionLevels:          {"5": {"anchors": {"scales": [32, 64, 128], "aspect_ratios": [0.5, 1.0, 2.0]}, "region_proposal": {"convolutions": [2, 64]},
+                                 "detector": {"roi_align_pool_size": 7, "convolutions": [2, 64], "fully_connected": [256, 128]}},
+                           "6": {"anchors": {"scales": [64, 128, 256], ...}, ...},
+                           "7": {"anchors": {"scales": [128, 256, 512], ...}, ...}}
+RegionProposal:           {"normalization": {"feature_map_normalization": "batch"},
                            "training": {"pre_nms_proposals": 1000, "post_nms_proposals": 500}, "inference": {"pre_nms_proposals": 500, "post_nms_proposals": 250},
                            "foreground_iou_threshold": {"min": 0.5, "max": 1.0}, ...}
-Anchors:                  {"scales_and_ratios": {"5": {"scales": [32, 64, 128], "aspect_ratios": [0.5, 1.0, 2.0]},
-                                                 "6": {"scales": [64, 128, 256], "aspect_ratios": [0.5, 1.0, 2.0]},
-                                                 "7": {"scales": [128, 256, 512], "aspect_ratios": [0.5, 1.0, 2.0]}}}
-Detector:                 {"head_configurations": {"5": {"roi_align_pool_size": 7, "convolutions": [2, 64], "fully_connected": [256, 128]}, ...}, ...}
+Detector:                 {"normalization": {"feature_map_normalization": "batch"}, "modules": {...}, "inference": {...}, ...}
 ```
 
 ### Step 1.3 — `load_configuration()`
 **Example output**
 ```text
-top-level keys:    ['ExperimentConfiguration', 'Optimization', 'Data', 'Backbone', 'RegionProposal', 'Anchors', 'Detector']
+top-level keys:    ['ExperimentConfiguration', 'Optimization', 'Data', 'Backbone', 'DetectionLevels', 'RegionProposal', 'Detector']
 number_iterations: '1e10'      <- still a string
 learning_rate:     0.0002
 ```
@@ -186,7 +187,7 @@ Invalid Configuration File : file:///.../configuration_wrong.yaml
   - 'Detector.total_training_samples' (600) must be <= 'RegionProposal.training.post_nms_proposals' (500), since the detector samples its targets among these proposals.
 SystemExit code 1
 ```
-The anchor scales are also checked against the image size: at 256 pixels, this configuration is refused with `'Anchors.scales_and_ratios.7.scales' must be integers within [1, 256], got [128, 256, 512].`
+The anchor scales are also checked against the image size: at 256 pixels, this configuration is refused with `'DetectionLevels.7.anchors.scales' must be integers within [1, 256], got [128, 256, 512].`
 
 ### Step 1.6 — `get_trainer_class()`
 **Example output**
@@ -321,7 +322,7 @@ model.detection_score_threshold = 0.5   model.maximum_detections = 100   model.d
 ```
 
 ### Step 2.13 — `build_backbone()` + `compute_detection_input_information()`
-The shared backbone (see `classification_workflow.md`, Step 2.14). The detector takes the feature maps of the blocks of `detection_convolution_block_indices` instead of the final pooled vector; `compute_detection_input_information()` computes their size and channels once.
+The shared backbone (see `classification_workflow.md`, Step 2.14). The detector takes the feature maps of the blocks numbered by the keys of `DetectionLevels` instead of the final pooled vector; `compute_detection_input_information()` computes their size and channels once.
 
 **Example output**
 ```text
@@ -613,7 +614,7 @@ image 1: 500 distinct boxes, levels {5: 466, 6: 22, 7: 12}
 ```
 
 ### Step 3.14 — `_prepare_detector_inputs()`
-In training, `batch_assign_targets_to_proposals()` gives every filtered proposal the class of the ground truth box it overlaps most when their IoU reaches `Detector.foreground_iou_threshold` (0.5), and the background (0) otherwise; `turn_boxes_to_transformation_targets()` computes the offsets that would move the proposal onto its ground truth box; `sample_positive_and_negative_training_targets()` keeps, for every image, at most `number_training_positives` (64) foreground proposals and fills `total_training_samples` (128) with background ones, chosen at random. The kept proposals are written `[image index, x_min, y_min, x_max, y_max]` for `roi_align()`. In inference, every filtered proposal is kept.
+In training, `add_ground_truth_proposals()` first writes the ground truth boxes of every image into the last slots of its filtered proposals (the padding copies, then the least confident survivors), each at the level of the anchor overlapping it most, so that every object has a positive proposal with a zero regression target even when the region proposal network misses it. This happens whenever the ground truth is given, in the validation loss too; the proposals returned for the proposal recall and the test predictions, made without ground truth, are left as they are. `batch_assign_targets_to_proposals()` then gives every proposal the class of the ground truth box it overlaps most when their IoU reaches `Detector.foreground_iou_threshold` (0.5), and the background (0) otherwise; `turn_boxes_to_transformation_targets()` computes the offsets that would move the proposal onto its ground truth box; `sample_positive_and_negative_training_targets()` keeps, for every image, at most `number_training_positives` (64) foreground proposals and fills `total_training_samples` (128) with background ones, chosen at random. The kept proposals are written `[image index, x_min, y_min, x_max, y_max]` for `roi_align()`. In inference, every filtered proposal is kept.
 
 **Example output**
 ```text

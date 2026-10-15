@@ -100,14 +100,14 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
                                                                         "compute_model_size": False,
                                                                         "view_input_images": False})
     configuration["Data"]["image_settings"]["size"] = TRANSFER_IMAGE_SIZE
-    if "Anchors" in configuration:
+    if "DetectionLevels" in configuration:
         configuration["Data"]["image_settings"]["size"] = DETECTION_TRANSFER_IMAGE_SIZE
         for level, scales in DETECTION_TRANSFER_ANCHOR_SCALES.items():
-            configuration["Anchors"]["scales_and_ratios"][level]["scales"] = scales
+            configuration["DetectionLevels"][level]["anchors"]["scales"] = scales
     if "MaskHead" in configuration:
         configuration["MaskHead"]["mask_resolution"] = 14
         for level in DETECTION_TRANSFER_ANCHOR_SCALES:
-            configuration["MaskHead"]["head_configurations"][level] = DETECTION_TRANSFER_MASK_HEAD
+            configuration["DetectionLevels"][level]["mask_head"] = DETECTION_TRANSFER_MASK_HEAD
     # Two loader workers per split, enough for the small generated dataset
     configuration["Data"]["loading"]["number_workers"] = 2
     if task == "sequence_classification":

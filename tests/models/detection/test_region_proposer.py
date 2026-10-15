@@ -36,7 +36,7 @@ def test_region_proposer() -> None:
     # Create a dictionary of configurations to test various paths of the RegionProposal
     region_proposal_configurations = {
         "basic_region_proposal": {
-            "head_configurations": [2, 64],
+            "convolutions": [2, 64],
             "input_channels": input_channels,
             "scales": [32.0, 64.0],
             "aspect_ratios": [0.5, 1.0, 2.0],
@@ -47,7 +47,7 @@ def test_region_proposer() -> None:
             "device": device,
             "dtype": dtype},
         "complex_region_proposal": {
-            "head_configurations": [3, 32],
+            "convolutions": [3, 32],
             "input_channels": input_channels,
             "scales": [16.0, 32.0, 64.0, 128.0],
             "aspect_ratios": [0.5, 1.0, 2.0],

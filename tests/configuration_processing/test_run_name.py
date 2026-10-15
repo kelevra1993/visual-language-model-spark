@@ -54,25 +54,23 @@ def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
                                                              "feature_map_normalization": "batch"})
     model_configuration["Data"]["image_settings"].update({"size": 1024, "keep_ratio": True})
 
-    # Backbone modules, blocks and detection levels
+    # Backbone modules and blocks
     model_configuration["Backbone"]["modules"].update({"squeeze_and_excite": True, "residual_nets": True,
                                                        "inception": False, "inception_starting_block": 3})
     model_configuration["Backbone"]["convolutions"] = {"1": [1, 16], "2": [2, 32], "3": [2, 32], "4": [4, 64],
                                                        "5": [4, 64], "6": [6, 128], "7": [6, 128]}
-    model_configuration["Backbone"]["detection_convolution_block_indices"] = [5, 6, 7]
 
-    # Anchors, region proposal heads and detector heads, identical on every level
-    model_configuration["Anchors"]["scales_and_ratios"] = {
-        level: {"scales": scales, "aspect_ratios": [0.5, 1.0, 2.0]}
+    # Detection levels 5 to 7, whose anchors, region proposal heads and detector heads are identical on every level
+    # except for the anchor scales
+    model_configuration["DetectionLevels"] = {
+        level: {"anchors": {"scales": scales, "aspect_ratios": [0.5, 1.0, 2.0]},
+                "region_proposal": {"convolutions": [2, 64]},
+                "detector": {"roi_align_pool_size": 7, "convolutions": [2, 64], "fully_connected": [256, 128]}}
         for level, scales in [("5", [32, 64, 128]), ("6", [64, 128, 256]), ("7", [128, 256, 512])]}
     model_configuration["RegionProposal"]["normalization"]["feature_map_normalization"] = "batch"
-    model_configuration["RegionProposal"]["head_configurations"] = {level: [2, 64] for level in ["5", "6", "7"]}
     model_configuration["Detector"]["modules"].update({"squeeze_and_excite": True, "residual_nets": True,
                                                        "inception": False})
     model_configuration["Detector"]["normalization"]["feature_map_normalization"] = "batch"
-    model_configuration["Detector"]["head_configurations"] = {
-        level: {"roi_align_pool_size": 7, "convolutions": [2, 64], "fully_connected": [256, 128]}
-        for level in ["5", "6", "7"]}
 
     # Classes, augmentation, batch size and learning rate
     model_configuration["Data"]["label_mode"] = "binary"
@@ -164,7 +162,7 @@ def change_detection_levels(experiment_configuration: Dict[str, Any], model_conf
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
         model_configuration (Dict[str, Any]): The model configuration, modified in place.
     """
-    model_configuration["Backbone"]["detection_convolution_block_indices"] = [6, 7]
+    del model_configuration["DetectionLevels"]["5"]
 
 
 def differ_heads_per_level(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
@@ -176,10 +174,10 @@ def differ_heads_per_level(experiment_configuration: Dict[str, Any], model_confi
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
         model_configuration (Dict[str, Any]): The model configuration, modified in place.
     """
-    model_configuration["Anchors"]["scales_and_ratios"]["5"]["scales"] = [16, 32, 64, 128]
-    model_configuration["RegionProposal"]["head_configurations"]["7"] = [3, 128]
-    model_configuration["Detector"]["head_configurations"]["5"] = {"roi_align_pool_size": 14, "convolutions": [2, 64],
-                                                                   "fully_connected": [512]}
+    detection_levels = model_configuration["DetectionLevels"]
+    detection_levels["5"]["anchors"]["scales"] = [16, 32, 64, 128]
+    detection_levels["7"]["region_proposal"]["convolutions"] = [3, 128]
+    detection_levels["5"]["detector"] = {"roi_align_pool_size": 14, "convolutions": [2, 64], "fully_connected": [512]}
 
 
 def use_multi_class_labels(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
@@ -1095,10 +1093,9 @@ def get_instance_segmentation_reference_configurations() -> Tuple[Dict[str, Any]
     """
     experiment_configuration, model_configuration = get_reference_configurations()
     experiment_configuration["task"] = "instance_segmentation"
+    for level_configuration in model_configuration["DetectionLevels"].values():
+        level_configuration["mask_head"] = {"roi_align_pool_size": 14, "convolutions": [4, 64]}
     model_configuration["MaskHead"] = {"mask_resolution": 28, "upsampling": "transposed",
-                                       "head_configurations": {
-                                           level: {"roi_align_pool_size": 14, "convolutions": [4, 64]}
-                                           for level in ["5", "6", "7"]},
                                        "normalization": {"feature_map_normalization": "batch",
                                                          "batch_normalization_momentum": 0.1},
                                        "modules": {"squeeze_and_excite": False, "residual_nets": True,
@@ -1121,7 +1118,7 @@ def change_mask_heads(experiment_configuration: Dict[str, Any], model_configurat
     mask_head_configuration["normalization"]["feature_map_normalization"] = "layer"
     mask_head_configuration["upsampling"] = "bilinear"
     mask_head_configuration["mask_resolution"] = 56
-    mask_head_configuration["head_configurations"]["7"] = {"roi_align_pool_size": 7, "convolutions": [2, 128]}
+    model_configuration["DetectionLevels"]["7"]["mask_head"] = {"roi_align_pool_size": 7, "convolutions": [2, 128]}
 
 
 def change_mask_threshold(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:

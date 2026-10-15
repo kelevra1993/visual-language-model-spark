@@ -74,8 +74,8 @@ class DetectionTrainer(BaseTrainer):
 
         Args:
             experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
-            model_configuration (Dict[str, Any]): The processed model sections (Data, Backbone, RegionProposal, Anchors,
-                Detector).
+            model_configuration (Dict[str, Any]): The processed model sections (Data, Backbone, DetectionLevels,
+                RegionProposal, Detector).
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
         # Score threshold of the detections kept for the mAP, lower than the deployment one so that the

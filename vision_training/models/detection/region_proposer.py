@@ -73,7 +73,7 @@ def select_best_proposals(proposal_scores: torch.Tensor, proposal_boxes: torch.T
         proposal_boxes (torch.Tensor): The decoded proposal boxes, shape [B, N, 4].
         proposal_levels (torch.Tensor): The detection level of every proposal, shape [B, N].
         pre_nms_proposals (int): The number of best proposals of every image kept before the suppression, at most N.
-        post_nms_proposals (int): The number of proposals returned for every image, at most pre_nms_proposals.
+        post_nms_proposals (int): The number of proposals returned for every image, clamped to pre_nms_proposals.
         nms_iou_threshold (float): The overlap above which the less confident of two proposals is suppressed.
         input_image_size (int): The spatial dimension (height and width) of the square input image.
         suppress_per_image (bool): True for one suppression call per image (eager training and evaluation), False for
@@ -95,10 +95,12 @@ def select_best_proposals(proposal_scores: torch.Tensor, proposal_boxes: torch.T
     kept_mask = suppress_overlapping_proposals(boxes=top_boxes, scores=top_scores, nms_iou_threshold=nms_iou_threshold,
                                                suppress_per_image=suppress_per_image)
 
-    # Select the best surviving proposals of every image, suppressed ones only fill the remaining slots
+    # Select the best surviving proposals of every image, suppressed ones only fill the remaining slots, at most as
+    # many as the proposals kept before the suppression (fewer anchors than post_nms_proposals, e.g. coarse levels)
     candidate_scores = torch.where(condition=kept_mask, input=top_scores,
                                    other=torch.full_like(input=top_scores, fill_value=-1.0))
-    selected_scores, selected_indices = torch.topk(input=candidate_scores, k=post_nms_proposals, dim=1)
+    selected_scores, selected_indices = torch.topk(input=candidate_scores,
+                                                   k=min(post_nms_proposals, pre_nms_proposals), dim=1)
 
     selected_boxes = torch.gather(input=top_boxes, dim=1, index=selected_indices.unsqueeze(dim=-1).expand(-1, -1, 4))
     selected_levels = torch.gather(input=top_levels, dim=1, index=selected_indices)
@@ -106,7 +108,7 @@ def select_best_proposals(proposal_scores: torch.Tensor, proposal_boxes: torch.T
 
 
 class RegionProposal(nn.Module):
-    def __init__(self, head_configurations: List[int], input_channels: int, scales: List[float],
+    def __init__(self, convolutions: List[int], input_channels: int, scales: List[float],
                  aspect_ratios: List[float], input_image_size: int, feature_map_size: int,
                  feature_map_normalization: str, batch_normalization_momentum: float, dtype: torch.dtype,
                  device: torch.device) -> None:
@@ -118,7 +120,7 @@ class RegionProposal(nn.Module):
         necessary to convert relative regressions into absolute coordinates.
         
         Args:
-            head_configurations (List[int]): Architecture configurations [num_layers, channels] for this feature map's convolutions.
+            convolutions (List[int]): The [number_layers, output_channels] of the convolution block of this level.
             input_channels (int): The number of channels output by the corresponding backbone layer.
             scales (List[float]): A list of scaling factors for the anchor boxes at this specific feature map scale.
             aspect_ratios (List[float]): A list of aspect ratios (width/height) for the anchor boxes.
@@ -154,8 +156,8 @@ class RegionProposal(nn.Module):
         self.number_anchors_per_location = self.region_proposal_anchor_object.number_anchors_per_location
 
         # Region Proposal enhancement convolution block
-        self.convolution_number_layers = head_configurations[0]
-        convolution_output_channels = head_configurations[1]
+        self.convolution_number_layers = convolutions[0]
+        convolution_output_channels = convolutions[1]
 
         # 3x3 Convolution Layers
         # Convolutional feature extraction block, kept plain since the Region Proposal has no modules configuration
@@ -286,6 +288,7 @@ class RegionProposalFilter(nn.Module):
                 - filtered_proposal_origins (torch.Tensor): The origin indices of shape [B, Post_NMS].
                 - valid_proposal_mask (torch.Tensor): The [B, Post_NMS] boolean mask of the survivors, False for the
                   padding copies.
+                Post_NMS is the post-NMS count of the mode, capped by its pre-NMS count and by the number of anchors.
         """
         pre_nms_filter_proposals = self.training_pre_nms_proposals if self.training else self.inference_pre_nms_proposals
         post_nms_filter_proposals = self.training_post_nms_proposals if self.training else self.inference_post_nms_proposals

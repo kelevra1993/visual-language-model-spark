@@ -52,8 +52,8 @@ class InstanceSegmentationTrainer(DetectionTrainer):
 
         Args:
             experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
-            model_configuration (Dict[str, Any]): The processed model sections (Data, Backbone, RegionProposal, Anchors,
-                Detector, MaskHead).
+            model_configuration (Dict[str, Any]): The processed model sections (Data, Backbone, DetectionLevels,
+                RegionProposal, Detector, MaskHead).
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
         # Probability from which a pixel of a pasted mask belongs to its object, for the mask overlaps and the images

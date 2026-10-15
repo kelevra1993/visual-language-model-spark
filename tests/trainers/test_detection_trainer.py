@@ -71,7 +71,7 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     for level, scales in SMOKE_ANCHOR_SCALES.items():
-        configuration["Anchors"]["scales_and_ratios"][level]["scales"] = scales
+        configuration["DetectionLevels"][level]["anchors"]["scales"] = scales
 
     configuration_path = temporary_directory / f"configuration_{number_iterations}_iterations.yaml"
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))

@@ -37,8 +37,8 @@ def check_segmentation_data_configuration(model_configuration: Dict[str, Any]) -
     """
     Verifies the data settings of the semantic segmentation task: a label mapping whose classes are
     indexed 0 to K-1 with the background at 0, whose categories are mask values (1 to 254, 0 being the background and
-    255 the unlabelled pixels), no detection block, the decoder reading every block of the backbone, and the training
-    on tiles (a positive scale of the images and an overlap of the evaluation tiles smaller than a tile).
+    255 the unlabelled pixels), and the training on tiles (a positive scale of the images and an overlap of the
+    evaluation tiles smaller than a tile).
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -65,13 +65,6 @@ def check_segmentation_data_configuration(model_configuration: Dict[str, Any]) -
             errors.append(f"The categories of the label mapping file must be mask values between 1 and "
                           f"{IGNORED_MASK_VALUE - 1} (0 is the background, {IGNORED_MASK_VALUE} the unlabelled "
                           f"pixels), got {invalid_categories}.")
-
-    # The decoder reads the output of every block, so no block is selected for detection heads
-    detection_block_indices = get_configuration_value(configuration=model_configuration,
-                                                      key_path="Backbone.detection_convolution_block_indices")
-    if detection_block_indices != []:
-        errors.append(f"'Backbone.detection_convolution_block_indices' must be [] for the semantic segmentation "
-                      f"task, its decoder reads every block, got {detection_block_indices!r}.")
 
     # Training on tiles of the scaled images, and overlap of the tiles of the evaluation, smaller than a tile so that
     # the tiles advance, the tile size being only checked against it when the tiling is on

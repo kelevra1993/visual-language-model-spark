@@ -87,11 +87,10 @@ def read_setting(configuration: Dict[str, Any], keys: Tuple[str, ...], configura
     """
     value = configuration
     for key in keys:
-        # A launch trained before the setting existed gets it from the migration of its run folder
+        # A launch trained before the setting existed needs it written in its configuration with the value it used
         if key not in value:
             raise KeyError(f"No '{'.'.join(keys)}' setting in {format_path_link(path=configuration_path)}, written "
-                           f"before the setting existed: migrate its run folder with "
-                           f"scripts/configuration_processing/migrate_configuration.py")
+                           f"before the setting existed: add it with the value the launch was trained with")
         value = value[key]
     return value
 

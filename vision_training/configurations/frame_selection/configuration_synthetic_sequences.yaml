@@ -232,7 +232,7 @@ Data:
       random_blur: { activated: False, probability: 0.3 }
 
 Backbone:
-  # Number of input channels for the initial convolution block (e.g., 3 for RGB images)
+  # Number of input channels of the initial convolution block: must be 3, the loaders giving BGR images
   input_channels : 3
 
   # First axis : Number of convolution Kernel maps per Convolution Block
@@ -289,13 +289,9 @@ Backbone:
     # Squeeze and Excitation Nets : Paper "Squeeze and Excitation Networks" https://arxiv.org/pdf/1709.01507.pdf
     squeeze_and_excite: True
 
-  # Backbone blocks branching out to the object detection heads. Must be [] for the sequence tasks, whose frame
-  # vectors are pooled from the final feature map of the backbone.
-  detection_convolution_block_indices: []
-
   # Backbone of another training run (of any task) initialising this run instead of random weights. Its settings
   # defining the layers (input_channels, convolutions, modules, normalization, last_max_pooling) must be identical to
-  # the ones above, the detection blocks, the image size and the batch normalization momentum may differ.
+  # the ones above, the detection levels, the image size and the batch normalization momentum may differ.
   pretrained:
     # Run folder whose trained backbone initialises this run, null to start from random weights. A run resuming
     # from its own checkpoints does not load it again.
