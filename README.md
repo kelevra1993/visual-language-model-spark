@@ -1069,3 +1069,22 @@ The checkpoint evaluation, launch comparison and configuration migration scripts
 ```
 
 ## TODO
+
+## Implementation Plan
+Choice of the initialisation of the classes a run adds after those of its source run, so that both can be benchmarked: the current one, built from the source classes, or the random initialisation of a run trained from scratch.
+
+Current behavior:
+- `prepare_class_layers` (`vision_training/models/model_transfer.py`) checks that the source classes are the first classes of the new run, then `extend_class_layers` grows every class layer found by `CLASS_LAYERS` with `extend_class_layer`: the source rows are kept and the rows of the new classes are built from the source classes, "quiet" (zero weights, bias `NEW_CLASS_BIAS_OFFSET` below the mean source bias) for the classification head, the classifiers of the detection heads and the class layers of the semantic segmentation, "zero" for the box regressors and "average" (mean of the source foreground rows) for the mask predictors.
+- The component of the new run, built with the PyTorch initialisation before the transfer, is given to these functions as `target_state`, so its random rows are at hand.
+- The `pretrained` block of every transferable section is checked by `check_pretrained_configuration` (`common_checks.py`), gives the `<prefix>PT`, `DCL` and `<prefix>FRZ` run name tokens (`build_pretrained_tokens`), is printed by `print_pretrained_components` of the base trainer, and is added to old run folders by `configuration_migration.py`.
+
+Needed changes:
+1. `vision_training/configuration_processing/configuration_values.py`: `NEW_CLASS_INITIALISATIONS` ("source", "random") and `CLASS_LAYER_SECTIONS` (ClassificationHead, Detector, MaskHead, SegmentationDecoder).
+2. `vision_training/models/model_transfer.py`: `extend_class_layer` and `extend_class_layers` take the new class initialisation and the layers of the new run, "random" keeping the random rows of the new run for the new classes and copying the rows of the source classes over theirs; `prepare_class_layers`, `load_pretrained_component` and `load_segmentation_class_layers` pass `<section>.pretrained.new_class_initialisation`.
+3. `vision_training/configuration_processing/common_checks.py`: `check_pretrained_configuration` checks `new_class_initialisation` for the sections with class layers.
+4. `vision_training/configuration_processing/run_name.py`: `build_pretrained_tokens` adds `<prefix>RND` (HRND, DRND, MRND) after the transfer tokens when the new classes start random.
+5. `vision_training/trainers/base_trainer.py`: `print_pretrained_components` prints the initialisation of the new classes.
+6. `vision_training/configuration_processing/configuration_migration.py`: `add_new_class_initialisation_to_configuration`, adding "source" to the run folders written before the setting, called by `migrate_run_folder`.
+7. Every configuration file with a `ClassificationHead`, `Detector`, `MaskHead` or `SegmentationDecoder` `pretrained` block: the new key with its comment.
+8. Tests: the dictionaries of the `pretrained` settings in the tests get the new key; new tests of the random initialisation, the check, the run name token and the migration.
+9. `README.md`: Adding Classes, Run Names, Migrating Old Runs; this plan removed once done.
