@@ -1,6 +1,6 @@
 # Self-Supervised Learning Task
 
-State of the `self_supervised` task (run name code `SSL`) on the `self-supervised-learning` branch, and the work left to do once the code can be run with PyTorch and a GPU. The implementation plan itself is the `## Implementation Plan` section at the bottom of `README.md`.
+State of the `self_supervised` task (run name code `SSL`) on the `self-supervised-learning` branch, and the work left to do once the code can be run with PyTorch and a GPU. The implementation plan was kept at the bottom of `README.md` during the implementation and removed once it was done.
 
 ## Table Of Content
 - [Goal](#goal)
@@ -17,7 +17,7 @@ The backbone learns from images without labels: two random views of every image 
 The trained backbone then initialises the backbone of the other tasks through `Backbone.pretrained`, the projection head being left out.
 
 ## Implementation State
-Every item of the implementation plan of `README.md`, ticked once its code is committed:
+Every item of the implementation plan, ticked once its code was committed:
 - [x] 1. `vision_training/data/self_supervised/self_supervised_dataset.py`
 - [x] 2. `vision_training/data/view_augmentations.py`
 - [x] 3. `vision_training/data/loaders.py`: `get_self_supervised_dataloaders`
@@ -52,6 +52,10 @@ Done in the development environment (PyTorch on the CPU, no GPU), on 2026-10-15:
 - Every new module imports, and the synthetic shapes configuration, pointed to a generated dataset, passes the checks.
 - Short CPU trainings of both methods (64 pixel images, batches of 4, 5 iterations, moving average of the weights on) on a generated synthetic classification dataset: checkpoints, validation passes, evaluation of the trained and averaged weights (k-NN metrics, effective rank, representation standard deviation, per-class table, class_metrics.csv, sample images of the image and its two views), no failed iteration. The validation InfoNCE loss started at log(2 x 4 - 1) = 1.95, as expected for random embeddings.
 - `tests/core`, `tests/configuration_processing` and `tests/deployment/test_export_specifications.py` pass, the expected list of tasks of the configuration checker test now holding `self_supervised`.
+- The whole test suite: 931 passed, 1 skipped, 1 failed. The failure,
+  `tests/models/instance_segmentation/test_instance_segmenter.py::test_inference_instance_segmenter_matches_the_eager_model[None]`,
+  fails the same way on `main`: the boxes of the inference instance segmenter differ from the eager ones by a float32
+  rounding beyond the default tolerance of `torch.allclose` on this CPU. It does not come from this task.
 
 Left to do:
 1. Run the whole test suite (`uv run pytest tests`) once more after the tests of the task are written.
