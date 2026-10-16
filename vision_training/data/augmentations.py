@@ -29,9 +29,9 @@ with warnings.catch_warnings():
 
 # Geometric augmentations, applied first, in this order. They move the bounding boxes and the masks along with the
 # image. random_zoom_out follows random_crop, so that a sample drawing both is cropped first and then shrunk, its two
-# draws being independent
-GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_zoom_out", "random_left_right_flip", "random_up_down_flip",
-                                "random_rotation", "random_90_rotation"]
+# draws being independent, and random_translation then shifts the result
+GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_zoom_out", "random_translation", "random_left_right_flip",
+                                "random_up_down_flip", "random_rotation", "random_90_rotation"]
 
 # Photometric augmentations, applied after the geometric ones, in this order. They never move the bounding boxes and
 # never change the masks
@@ -44,6 +44,7 @@ AUGMENTATION_TYPES = GEOMETRIC_AUGMENTATION_TYPES + PHOTOMETRIC_AUGMENTATION_TYP
 # Fixed augmentation strengths, documented in the data_augmentation section of the configuration file
 MINIMUM_CROP_FRACTION = 0.75
 MINIMUM_ZOOM_OUT_FRACTION = 0.5
+MAXIMUM_TRANSLATION_FRACTION = 0.25
 MAXIMUM_ROTATION_DEGREES = 5.0
 BRIGHTNESS_MAXIMUM_DELTA = 40.0
 CONTRAST_FACTOR_RANGE = (0.7, 1.0)
@@ -55,6 +56,10 @@ SHARPENING_SIGMA = 1.5
 SHARPENING_STRENGTH = 3.0
 CLAHE_CLIP_LIMIT = 2.0
 CLAHE_GRID_SIZE = (4, 4)
+
+# Axes a translation shifts the image along, one of them drawn with equal chances: the width only, the height only, or
+# both at once, each shift being drawn independently up to MAXIMUM_TRANSLATION_FRACTION of its side
+TRANSLATION_AXES = ["x", "y", "xy"]
 
 # Boxes narrower or shorter than this many pixels after a geometric augmentation are removed with their label
 MINIMUM_BOX_SIDE = 1.0
@@ -468,6 +473,84 @@ class DataAugmenter:
             zoomed_mask[..., top:top + shrunk_height, left:left + shrunk_width] = vision_functional.resize(
                 tv_tensors.Mask(mask), size=[shrunk_height, shrunk_width]).as_subclass(torch.Tensor)
         return zoomed_image, zoomed_boxes, zoomed_mask, (shrunk_height * shrunk_width) / (image_height * image_width)
+
+    @staticmethod
+    def shift_tensor(tensor: torch.Tensor, shift_x: int, shift_y: int, fill_value: float) -> torch.Tensor:
+        """
+        Moves the content of an image, a sequence or masks by whole pixels along their last two dimensions, for
+        random_translation: the part pushed past a border is dropped, unlike torch.roll which would bring it back on the
+        other side, and the uncovered border is filled, so that the pixels are moved exactly without any resampling.
+
+        Args:
+            tensor (torch.Tensor): The [..., H, W] image [C, H, W], sequence [T, C, H, W], class mask [H, W] or
+                instance masks [N, H, W].
+            shift_x (int): The shift towards the right in pixels, negative towards the left.
+            shift_y (int): The shift downwards in pixels, negative upwards.
+            fill_value (float): The value of the uncovered border.
+
+        Returns:
+            torch.Tensor: The shifted tensor, of the same shape and type.
+        """
+        height, width = tensor.shape[-2], tensor.shape[-1]
+        shifted_tensor = torch.full_like(input=tensor, fill_value=fill_value)
+
+        # Rows and columns that stay inside the image, nothing being kept when a shift reaches the whole side
+        kept_height, kept_width = height - abs(shift_y), width - abs(shift_x)
+        if kept_height <= 0 or kept_width <= 0:
+            return shifted_tensor
+
+        # Source rows and columns of the kept part, and the rows and columns they land on
+        source_top, source_left = max(0, -shift_y), max(0, -shift_x)
+        destination_top, destination_left = max(0, shift_y), max(0, shift_x)
+        source_rows, source_columns = (slice(source_top, source_top + kept_height),
+                                       slice(source_left, source_left + kept_width))
+        destination_rows, destination_columns = (slice(destination_top, destination_top + kept_height),
+                                                 slice(destination_left, destination_left + kept_width))
+        shifted_tensor[..., destination_rows, destination_columns] = tensor[..., source_rows, source_columns]
+        return shifted_tensor
+
+    def random_translation(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
+                           mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
+                                                                  Optional[torch.Tensor], float]:
+        """
+        Shifts the image along its width, its height or both (TRANSLATION_AXES, drawn with equal chances) by whole
+        pixels, each shift being drawn up to MAXIMUM_TRANSLATION_FRACTION (25 %) of its side in either direction, so
+        that every task, the classification included, sees its objects away from the positions of the dataset. The
+        uncovered border is black like the padding of the data loaders. Boxes move by the same shifts without being
+        clipped, so that 'clean_bounding_boxes' removes the objects pushed out of the image or keeping too small a share
+        of their area inside it. The mask moves exactly, its uncovered border being ignored in a class mask and
+        background (0) in the binary instance masks.
+
+        Args:
+            image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
+            bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes, or None.
+            mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
+
+        Returns:
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The shifted image, boxes and
+                mask, and the area scale of the objects (1, the sizes are kept).
+        """
+        image_height, image_width = image.shape[-2], image.shape[-1]
+
+        # Draw the axes, then the shift along each of them, the other axis keeping a zero shift
+        translation_axes = random.choice(TRANSLATION_AXES)
+        maximum_shift_x = int(image_width * MAXIMUM_TRANSLATION_FRACTION)
+        maximum_shift_y = int(image_height * MAXIMUM_TRANSLATION_FRACTION)
+        shift_x = random.randint(-maximum_shift_x, maximum_shift_x) if "x" in translation_axes else 0
+        shift_y = random.randint(-maximum_shift_y, maximum_shift_y) if "y" in translation_axes else 0
+
+        # Shift the image onto a black canvas
+        translated_image = self.shift_tensor(tensor=image, shift_x=shift_x, shift_y=shift_y, fill_value=0.0)
+
+        # Shift the boxes by the same number of pixels, and the mask with its own border value
+        translated_boxes, translated_mask = None, None
+        if bounding_boxes is not None:
+            translated_boxes = bounding_boxes + torch.tensor(data=[shift_x, shift_y] * 2, dtype=bounding_boxes.dtype,
+                                                             device=bounding_boxes.device)
+        if mask is not None:
+            mask_fill = IGNORED_LABEL_INDEX if mask.dtype == torch.int64 else 0
+            translated_mask = self.shift_tensor(tensor=mask, shift_x=shift_x, shift_y=shift_y, fill_value=mask_fill)
+        return translated_image, translated_boxes, translated_mask, 1.0
 
     def random_left_right_flip(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                                mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],

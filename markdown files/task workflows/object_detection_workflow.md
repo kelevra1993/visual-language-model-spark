@@ -241,7 +241,7 @@ The same augmenter as the classification; the geometric augmentations move the b
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4
-0 of 15 types activated: []
+0 of 16 types activated: []
 ```
 
 ### Step 2.6 — `setup_training_paths()`

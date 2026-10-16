@@ -219,7 +219,7 @@ SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T12_GRU1x128-BI_HAVG.64_MC4_F
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.5}
-8 of 15 types activated: random_crop, random_left_right_flip, random_up_down_flip, random_rotation, random_90_rotation,
+8 of 16 types activated: random_crop, random_left_right_flip, random_up_down_flip, random_rotation, random_90_rotation,
                          brightness_contrast_saturation, random_noise, random_colour_augmentation
 ```
 

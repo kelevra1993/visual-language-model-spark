@@ -28,7 +28,9 @@
 > - ground truth boxes added to the proposals of the detection heads;
 > - instance segmentation boxes taken from the masks, without the annotation `bbox`;
 > - detector with fewer anchors than proposals or candidates than detections, in training and in the exports;
-> - zoom-out augmentation (`random_zoom_out`), on in the DET and INS `configuration_example.yaml`.
+> - zoom-out augmentation (`random_zoom_out`), on in the DET and INS `configuration_example.yaml`;
+> - translation augmentation (`random_translation`) along the width, the height or both, up to 25 % of each side, for
+>   every task, off in every configuration file.
 >
 > Dropped without being implemented:
 > - the masked proposal padding of the training;

@@ -197,6 +197,9 @@ Data:
       # Random Zoom Out : image shrunk to 50% to 100% of each side (same aspect ratio) at a random position of a
       # black canvas of the input size, the objects then appearing smaller than in the dataset
       random_zoom_out: { activated: False, probability: 0.3 }
+      # Random Translation : shift along x, y or both (drawn at random) of up to 25% of the image width and
+      # height, the uncovered border filled with black
+      random_translation: { activated: False, probability: 0.5 }
       # Random Left to Right Flip (mirror)
       random_left_right_flip: { activated: True, probability: 0.5 }
       # Random Up to Down Flip

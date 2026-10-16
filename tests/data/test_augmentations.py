@@ -2,8 +2,9 @@
 Tests of DataAugmenter of vision_training/data/augmentations.py: geometric augmentations moving and removing boxes,
 geometric augmentations moving the segmentation masks with nearest interpolation, geometric augmentations moving the
 instance masks and recomputing their boxes, photometric augmentations keeping boxes, masks and pixel range, images
-without boxes, shared or per-frame draws of the sequence frames, frame shuffling, the rejected inputs, the zoom-out
-and the removal of the fragments of objects left by the crop.
+without boxes, shared or per-frame draws of the sequence frames, frame shuffling, the rejected inputs, the zoom-out, the
+translation by whole pixels with the removal of the objects it pushes out, and the removal of the fragments of objects
+left by the crop.
 """
 
 import random
@@ -14,7 +15,8 @@ from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, GEOMETRIC_AUGMENTATION_TYPES,
-                                                 MINIMUM_CROP_FRACTION, PHOTOMETRIC_AUGMENTATION_TYPES)
+                                                 MAXIMUM_TRANSLATION_FRACTION, MINIMUM_CROP_FRACTION,
+                                                 PHOTOMETRIC_AUGMENTATION_TYPES)
 from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
 
 IMAGE_SIZE = 96
@@ -22,7 +24,7 @@ IMAGE_SIZE = 96
 # Tolerance in pixels between the bright rectangle and its transformed box: exact pixel permutations must match
 # exactly, while resampling (crop resize, small rotation) blurs the rectangle edges by a pixel or two
 BOX_TOLERANCES = {"random_left_right_flip": 0.0, "random_up_down_flip": 0.0, "random_90_rotation": 0.0,
-                  "random_crop": 2.0, "random_zoom_out": 2.0, "random_rotation": 2.5}
+                  "random_crop": 2.0, "random_zoom_out": 2.0, "random_translation": 0.0, "random_rotation": 2.5}
 
 
 def build_configuration(enabled_types: List[str], probability: float = 1.0, independent_frames: bool = False,
@@ -361,14 +363,14 @@ def test_geometric_augmentation_moves_instance_masks_and_recomputes_boxes(augmen
     box = [20.0, 30.0, 50.0, 70.0]
     instance_masks = torch.zeros(size=(2, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
     instance_masks[0, 30:70, 20:50] = 1
-    instance_masks[1, 10:20, 60:80] = 1
+    instance_masks[1, 40:56, 60:80] = 1
 
     for seed in range(5):
         random.seed(seed)
         torch.manual_seed(seed)
         images, boxes, labels, masks, moved_masks = augmenter.augment_batch(
             images=create_rectangle_image(box=box).unsqueeze(dim=0),
-            bounding_boxes=[torch.tensor(data=[box, [60.0, 10.0, 80.0, 20.0]])], labels=[torch.tensor(data=[1, 2])],
+            bounding_boxes=[torch.tensor(data=[box, [60.0, 40.0, 80.0, 56.0]])], labels=[torch.tensor(data=[1, 2])],
             instance_masks=[instance_masks])
 
         # Both objects stay inside the image, binary, the first one on the rectangle
@@ -473,6 +475,80 @@ def test_zoom_out_shrinks_the_image_boxes_and_masks_onto_a_black_canvas() -> Non
                                                          bounding_boxes=torch.tensor(data=[box]), mask=instance_masks)
         assert moved_masks.dtype == torch.uint8 and set(moved_masks.unique().tolist()) <= {0, 1}
         assert int(moved_masks.sum()) == int((mask == 1).sum())
+
+
+def test_translation_shifts_the_image_boxes_and_masks_by_whole_pixels() -> None:
+    """
+    Verifies that the translation moves the rectangle, its box, its class mask and its instance mask by the same whole
+    number of pixels, at most MAXIMUM_TRANSLATION_FRACTION of each side, that the uncovered border is black in the
+    image, ignored in the class mask and background in the instance masks, and that the draws cover the three axes
+    (width only, height only and both).
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[]))
+    box = [30.0, 30.0, 60.0, 66.0]
+    class_mask = torch.ones(size=(IMAGE_SIZE, IMAGE_SIZE), dtype=torch.int64)
+    instance_masks = torch.zeros(size=(1, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
+    instance_masks[0, 30:66, 30:60] = 1
+    maximum_shift = int(IMAGE_SIZE * MAXIMUM_TRANSLATION_FRACTION)
+    observed_axes = set()
+
+    for seed in range(30):
+        random.seed(seed)
+        image, boxes, mask, area_scale = augmenter.random_translation(image=create_rectangle_image(box=box),
+                                                                      bounding_boxes=torch.tensor(data=[box]),
+                                                                      mask=class_mask)
+
+        # The box moves by whole pixels within the limits, the sizes being kept
+        shift_x, shift_y = float(boxes[0, 0] - box[0]), float(boxes[0, 1] - box[1])
+        assert shift_x.is_integer() and shift_y.is_integer() and area_scale == 1.0
+        assert abs(shift_x) <= maximum_shift and abs(shift_y) <= maximum_shift
+        assert torch.equal(input=boxes[0], other=torch.tensor(data=box) + torch.tensor(data=[shift_x, shift_y] * 2))
+        observed_axes.add((shift_x != 0.0, shift_y != 0.0))
+
+        # The rectangle follows its box exactly, the rectangle staying inside the image at these limits
+        assert get_bright_region_box(image=image) == boxes[0].tolist()
+
+        # The class mask is ignored exactly on the uncovered border
+        uncovered_pixels = IMAGE_SIZE * IMAGE_SIZE - (IMAGE_SIZE - abs(shift_x)) * (IMAGE_SIZE - abs(shift_y))
+        assert int((mask == IGNORED_LABEL_INDEX).sum()) == uncovered_pixels
+        assert set(mask.unique().tolist()) <= {1, IGNORED_LABEL_INDEX}
+
+        # The instance mask moves with the same draw, stays binary and keeps all the pixels of its object
+        random.seed(seed)
+        _, _, moved_masks, _ = augmenter.random_translation(image=create_rectangle_image(box=box),
+                                                            bounding_boxes=torch.tensor(data=[box]),
+                                                            mask=instance_masks)
+        assert moved_masks.dtype == torch.uint8 and set(moved_masks.unique().tolist()) <= {0, 1}
+        assert torch.equal(input=compute_mask_bounding_boxes(instance_masks=moved_masks), other=boxes)
+        assert int(moved_masks.sum()) == int(instance_masks.sum())
+
+    # The draws cover the width only, the height only and both axes
+    assert {(True, False), (False, True), (True, True)} <= observed_axes
+
+
+def test_objects_translated_out_of_the_image_are_removed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the largest translation along the width (a quarter of the side) keeps an object that stays inside
+    the image and removes, with its label, an object at the right border pushed out of it, while the left border
+    uncovered by the shift is black.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture forcing the axes and the shift of the translation.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_translation"]))
+    monkeypatch.setattr(target=random, name="choice", value=lambda sequence: "x")
+    monkeypatch.setattr(target=random, name="randint", value=lambda low, high: high)
+    maximum_shift = int(IMAGE_SIZE * MAXIMUM_TRANSLATION_FRACTION)
+
+    images, boxes, labels, _, _ = augmenter.augment_batch(
+        images=create_rectangle_image(box=[10.0, 10.0, 30.0, 30.0]).unsqueeze(dim=0),
+        bounding_boxes=[torch.tensor(data=[[10.0, 10.0, 30.0, 30.0], [80.0, 40.0, 95.0, 60.0]])],
+        labels=[torch.tensor(data=[1, 2])])
+
+    # The first object moves right by the largest shift, the second one leaves the image with its label
+    assert labels[0].tolist() == [1]
+    assert boxes[0].tolist() == [[10.0 + maximum_shift, 10.0, 30.0 + maximum_shift, 30.0]]
+    assert float(images[0][:, :, :maximum_shift].abs().sum()) == 0.0
 
 
 def test_fragments_of_objects_are_removed_with_their_labels() -> None:
