@@ -1,10 +1,10 @@
 """
 Tests of build_run_name of vision_training/configuration_processing/run_name.py on the reference configurations of every
 task: the reference run names are fixed, every changed setting (architecture, inputs, heads, temporal modules, fusions,
-segmentation decoders and losses, transfers, normalization, optimizer, weight decay) changes the run name with its
-token, and the training settings that can change between two resumptions (augmentation, batch size, learning rate,
-schedule, clipping, mixed precision, moving average of the weights, dropout rates, segmentation
-losses) keep it.
+segmentation decoders and losses, projection heads and self-supervised methods, transfers, normalization, optimizer,
+weight decay) changes the run name with its token, and the training settings that can change between two resumptions
+(augmentation, view augmentation, batch size, learning rate, schedule, clipping, mixed precision, moving average of the
+weights, dropout rates, segmentation losses) keep it.
 """
 
 import copy
@@ -1234,3 +1234,71 @@ def test_pretrained_mask_head_run_names(freeze: bool, new_class_initialisation: 
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == INSTANCE_SEGMENTATION_REFERENCE_RUN_NAME.replace(
         "-MR28_", expected_tokens)
+
+
+SELF_SUPERVISED_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
+                                      "self_supervised" / "configuration_synthetic_shapes.yaml")
+
+# Run name of the self-supervised reference settings set by get_self_supervised_reference_configurations
+SELF_SUPERVISED_REFERENCE_RUN_NAME = ("SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_"
+                                      "SIMCLR-T0.2")
+
+
+def get_self_supervised_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Reads the synthetic shapes self-supervised configuration and sets every setting used by the run name explicitly,
+    so that the expected names do not change when the configuration is edited. The label dictionary is set directly,
+    the label mapping file of the configuration only existing once the synthetic dataset is created.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: The experiment and model configurations of the reference settings.
+    """
+    model_configuration = yaml.safe_load(stream=SELF_SUPERVISED_CONFIGURATION_PATH.read_text())
+    experiment_configuration = model_configuration.pop("ExperimentConfiguration")
+
+    # Input and backbone of the run
+    model_configuration["Data"]["image_settings"].update({"size": 256, "keep_ratio": True})
+    model_configuration["Backbone"]["normalization"].update({"input_normalization": True,
+                                                             "per_sample_normalization": False,
+                                                             "feature_map_normalization": "batch"})
+    model_configuration["Backbone"]["modules"].update({"squeeze_and_excite": True, "residual_nets": True,
+                                                       "residual_nets_v2": False, "inception": False})
+    model_configuration["Backbone"]["convolutions"] = {"1": [1, 16], "2": [2, 32], "3": [2, 32], "4": [2, 64],
+                                                       "5": [2, 64], "6": [2, 128]}
+
+    # Projection head, method, optimizer and the classes of the evaluation
+    model_configuration["ProjectionHead"].update({"global_pooling": "average", "fully_connected": [512, 128],
+                                                  "fully_connected_normalization": "batch", "method": "simclr",
+                                                  "simclr": {"temperature": 0.2},
+                                                  "barlow_twins": {"off_diagonal_weight": 0.005}})
+    model_configuration["Optimization"].update({"optimizer": "adam", "weight_decay": 0.0})
+    model_configuration["Data"]["label_mode"] = "multi_class"
+    model_configuration["Data"]["label_dictionary"] = {1: 0, 2: 1, 3: 2, 4: 3}
+    return experiment_configuration, model_configuration
+
+
+@pytest.mark.parametrize(argnames=("head_settings", "label_dictionary", "expected_sections"), argvalues=[
+    ({}, {1: 0, 2: 1, 3: 2, 4: 3}, "_PAVG.512.128-PBN_SIMCLR-T0.2"),
+    ({"simclr": {"temperature": 0.07}}, {1: 0}, "_PAVG.512.128-PBN_SIMCLR-T0.07"),
+    ({"method": "barlow_twins", "global_pooling": "flatten", "fully_connected": [2048, 2048],
+      "fully_connected_normalization": "layer"}, {}, "_PFLAT.2048.2048-PLN_BT-OD0.005"),
+    ({"fully_connected": [128], "fully_connected_normalization": "none"}, {1: 0}, "_PAVG.128_SIMCLR-T0.2")])
+def test_self_supervised_run_names(head_settings: Dict[str, Any], label_dictionary: Dict[Any, int],
+                                   expected_sections: str) -> None:
+    """
+    Verifies the sections of a self-supervised run: the projection head (pooling, layers and the normalization of its
+    hidden layers), then the method with the setting changing its loss, the classes of the k-nearest neighbour
+    evaluation, a dataset without labels and the view augmentation giving no token.
+
+    Args:
+        head_settings (Dict[str, Any]): The 'ProjectionHead' settings replaced for the test.
+        label_dictionary (Dict[Any, int]): The label dictionary of the run, empty for a dataset without labels.
+        expected_sections (str): The expected sections after the backbone.
+    """
+    experiment_configuration, model_configuration = get_self_supervised_reference_configurations()
+    model_configuration["ProjectionHead"].update(head_settings)
+    model_configuration["Data"]["label_dictionary"] = label_dictionary
+    model_configuration["Data"]["view_augmentation"]["rotation"]["probability"] = 0.0
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == SELF_SUPERVISED_REFERENCE_RUN_NAME.replace(
+        "_PAVG.512.128-PBN_SIMCLR-T0.2", expected_sections)

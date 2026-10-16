@@ -65,14 +65,20 @@ def compute_effective_rank(representations: torch.Tensor) -> float:
     Measures in how many directions the representations of the test images spread, the label-free warning of a
     collapse (RankMe, Garrido et al. 2023): the exponential of the entropy of the singular values of the [N, F]
     representation matrix, normalized to sum to 1. Representations spread evenly over r orthogonal directions give r,
-    collapsed representations give about 1, the largest value being min(N, F).
+    collapsed representations give about 1, the largest value being min(N, F). The representations of a backbone ending
+    with a ReLU are not negative, so their mean direction dominates the first singular value before the training
+    spreads them, giving an effective rank close to 1 at the start of a run.
 
     Args:
         representations (torch.Tensor): The [N, F] representations of the test images.
 
     Returns:
-        float: The effective rank.
+        float: The effective rank, NaN when a representation is not finite (diverged weights), so that the evaluation
+            reports it instead of stopping the run.
     """
+    # The singular value decomposition fails on non-finite values
+    if not bool(torch.isfinite(input=representations).all()):
+        return float("nan")
     singular_values = torch.linalg.svdvals(A=representations.double())
     singular_value_distribution = singular_values / singular_values.sum().clamp(min=EFFECTIVE_RANK_EPSILON)
     entropy = -(singular_value_distribution * torch.log(input=singular_value_distribution +

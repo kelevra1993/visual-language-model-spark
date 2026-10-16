@@ -11,7 +11,7 @@ import torch
 from torch import nn
 from typing import Any, Dict, Optional
 
-from vision_training.losses.self_supervised_losses import (compute_barlow_twins_loss,
+from vision_training.losses.self_supervised_losses import (SELF_SUPERVISED_METHODS, compute_barlow_twins_loss,
                                                            compute_embedding_standard_deviation,
                                                            compute_info_nce_loss)
 from vision_training.models.backbones.backbone import build_backbone
@@ -43,12 +43,18 @@ class SelfSupervisedModel(TaskModel):
             verbose (bool): Unused, kept so that every task model is built with the same arguments.
             device (torch.device): The device of the parameters.
             dtype (torch.dtype): The precision of the parameters.
+
+        Raises:
+            ValueError: If 'ProjectionHead.method' is not a self-supervised method, instead of training another one.
         """
         super(SelfSupervisedModel, self).__init__()
         self.device = device
         self.dtype = dtype
         self.head_configuration = configuration["ProjectionHead"]
         self.method = self.head_configuration["method"]
+        if self.method not in SELF_SUPERVISED_METHODS:
+            raise ValueError(f"Unknown self-supervised method {self.method!r}, expected one of "
+                             f"{SELF_SUPERVISED_METHODS}.")
 
         # Shared feature extractor, whose final feature map gives the size of the representation: its channels for the
         # poolings, its channels times its height and width when flattened
@@ -67,6 +73,20 @@ class SelfSupervisedModel(TaskModel):
                                               batch_normalization_momentum=self.head_configuration[
                                                   "batch_normalization_momentum"], device=device, dtype=dtype)
 
+    def represent(self, images: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the representation of every image, the pooled final feature map of the backbone, without the
+        projection head: the vector compared by the evaluation and returned by the exported InferenceEncoder.
+
+        Args:
+            images (torch.Tensor): The [N, 3, H, W] float BGR images in [0, 255].
+
+        Returns:
+            torch.Tensor: The [N, F] representations.
+        """
+        final_feature_map, _ = self.backbone(input_tensor=images)
+        return self.global_pooling(input=final_feature_map)
+
     def encode(self, images: torch.Tensor) -> Dict[str, torch.Tensor]:
         """
         Computes the representation and the embedding of every image: the pooled final feature map of the backbone,
@@ -78,8 +98,7 @@ class SelfSupervisedModel(TaskModel):
         Returns:
             Dict[str, torch.Tensor]: The [N, F] 'representations' and [N, D] 'embeddings'.
         """
-        final_feature_map, _ = self.backbone(input_tensor=images)
-        representations = self.global_pooling(input=final_feature_map)
+        representations = self.represent(images=images)
         return {"representations": representations, "embeddings": self.projection_head(representations=representations)}
 
     def compute_method_loss(self, first_embeddings: torch.Tensor,

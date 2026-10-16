@@ -1,6 +1,7 @@
 """
 Tests of the classification data of vision_training/data/classification: ClassificationDataset loading multi-class and
-multi-label manifests, the label mapping without background class, and the manifests written by
+multi-label manifests, keeping the unlabelled samples for the self-supervised task, whose loaders keep full training
+and validation batches, the label mapping without background class, and the manifests written by
 create_class_folder_manifests from class folders.
 """
 
@@ -13,9 +14,11 @@ import torch
 from pathlib import Path
 from typing import Any, Dict, List
 
+from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.classification.class_folder_manifests import create_class_folder_manifests
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.label_mapping import build_label_dictionary
+from vision_training.data.loaders import get_classification_dataloaders
 
 
 def write_split(split_folder: Path, categories: List[Dict[str, Any]], samples: List[Dict[str, Any]]) -> None:
@@ -91,6 +94,71 @@ def test_multi_label_manifest_loading(tmp_path: Path) -> None:
     assert dataset[1]["labels"].tolist() == [0.0, 0.0]
     assert dataset.get_class_counts() == [1, 1]
     assert dataset.get_sample_class_indices() == {1: [0, 1], 2: []}
+
+
+def test_unlabelled_samples_are_kept_for_the_self_supervised_task(tmp_path: Path,
+                                                                 capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the self-supervised task, which trains on every image, keeps the samples without category, those of
+    unmapped categories and the multi-label samples of several mapped categories with the ignored label and no class,
+    counted in the console, while the samples of a single mapped category, given by 'category_id' or by the
+    'category_ids' of a multi-label manifest, keep their class for the k-nearest neighbour evaluation.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed count.
+    """
+    categories = [{"id": 1, "name": "circle"}, {"id": 4, "name": "star"}, {"id": 5, "name": "triangle"}]
+    samples = [{"id": 1, "file_name": "a.png", "category_id": 1}, {"id": 2, "file_name": "b.png", "category_id": 4},
+               {"id": 3, "file_name": "c.png"}, {"id": 4, "file_name": "d.png", "category_ids": [5, 4]},
+               {"id": 5, "file_name": "e.png", "category_ids": [1, 5]}]
+    write_split(split_folder=tmp_path, categories=categories, samples=samples)
+
+    dataset = ClassificationDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
+                                    image_size=32, keep_ratio=True, label_dictionary={1: 0, 5: 1},
+                                    output_mode="multi_class", shuffle=False, keep_unlabelled_samples=True)
+    assert len(dataset) == 5
+    assert "3 samples without a single mapped category kept without class" in capsys.readouterr().out
+    assert dataset.get_sample_class_indices() == {1: [0], 2: [], 3: [], 4: [1], 5: []}
+    assert [int(dataset[sample_index]["labels"]) for sample_index in range(5)] == [
+        0, IGNORED_LABEL_INDEX, IGNORED_LABEL_INDEX, 1, IGNORED_LABEL_INDEX]
+    assert dataset.categories == categories
+
+
+def test_self_supervised_loaders_keep_full_batches(tmp_path: Path) -> None:
+    """
+    Verifies the loaders of the self-supervised task: every image is kept, the training and validation loaders leave
+    out their last incomplete batch (the losses comparing the views of a batch with each other, a lone image would give
+    a loss without gradient) while the test loader encodes every image, and a training or validation split smaller
+    than a batch stops the launch instead of looping forever without batch.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    categories = [{"id": 1, "name": "circle"}]
+    split_sizes = {"train": 5, "validation": 3, "test": 3}
+    for split_name, number_samples in split_sizes.items():
+        write_split(split_folder=tmp_path / split_name, categories=categories,
+                    samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png"}
+                             for sample_identifier in range(1, number_samples + 1)])
+    experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name) for split_name in split_sizes}
+    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
+                                    "loading": {"number_workers": 0, "prefetch_batches": 2}}}
+
+    # Batches of 2 images: 2 full training batches, 1 full validation batch, and the 3 test images in 2 batches
+    training_loader, validation_loader, test_loader = get_classification_dataloaders(
+        experiment_configuration=experiment_configuration, model_configuration=model_configuration, batch_size=2,
+        self_supervised=True)
+    assert [len(loader.dataset) for loader in [training_loader, validation_loader, test_loader]] == [5, 3, 3]
+    assert [loader.drop_last for loader in [training_loader, validation_loader, test_loader]] == [True, True, False]
+    assert [batch["images"].shape[0] for batch in training_loader] == [2, 2]
+    assert [batch["images"].shape[0] for batch in test_loader] == [2, 1]
+
+    # Batches of 4 images, more than the validation split holds
+    with pytest.raises(expected_exception=ValueError, match="'validation_data_folder' split holds 3 images, fewer "
+                                                            "than the batch size 4"):
+        get_classification_dataloaders(experiment_configuration=experiment_configuration,
+                                       model_configuration=model_configuration, batch_size=4, self_supervised=True)
 
 
 def test_label_mapping_without_background_class(tmp_path: Path) -> None:

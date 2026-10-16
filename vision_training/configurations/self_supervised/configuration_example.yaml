@@ -213,7 +213,7 @@ Data:
     # Rotation by a random angle within [-maximum_degrees, maximum_degrees], the uncovered corners filled with black.
     rotation: { probability: 0.0, maximum_degrees: 0.0 }
     # Brightness, contrast and saturation scaled by a random factor within [1 - strength, 1 + strength], and the hue
-    # shifted by up to hue (0.5 being half a turn of the hue circle), in a random order.
+    # shifted by up to hue (0.5 being half a turn of the hue circle), in a random order drawn for every batch.
     colour_jitter: { probability: 0.8, brightness: 0.4, contrast: 0.4, saturation: 0.4, hue: 0.1 }
     # Grayscale conversion, kept on three channels.
     grayscale: { probability: 0.2 }

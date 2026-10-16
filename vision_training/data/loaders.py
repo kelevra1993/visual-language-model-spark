@@ -1,7 +1,7 @@
 """
 Builds the training, validation and test data loaders of every task from the experiment and model configurations:
-COCO detection, classification, self-supervised learning, semantic segmentation, and the sequence and sequence
-comparison tasks, every one with a PyTorch DataLoader over its dataset. Called by the task trainers.
+COCO detection, classification and self-supervised learning (same layout), semantic segmentation, and the sequence
+and sequence comparison tasks, every one with a PyTorch DataLoader over its dataset. Called by the task trainers.
 """
 
 import os
@@ -13,14 +13,13 @@ from torch.utils.data import DataLoader, Dataset
 
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
-from vision_training.data.self_supervised.self_supervised_dataset import SelfSupervisedDataset
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_longest_windows
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset
 
 
 def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration: Dict[str, Any],
-                        collate_function: Optional[Callable] = None) -> DataLoader:
+                        collate_function: Optional[Callable] = None, drop_last: bool = False) -> DataLoader:
     """
     Builds the DataLoader of a Native dataset with the 'Data.loading' settings, shared by the loaders of every task:
     shuffled samples, worker processes kept alive between epochs and evaluations (no restart at every pass), each
@@ -33,6 +32,8 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
         batch_size (int): The number of samples of a batch.
         loading_configuration (Dict[str, Any]): The 'Data.loading' section: 'number_workers' and 'prefetch_batches'.
         collate_function (Optional[Callable]): The function batching the samples, None for the default one.
+        drop_last (bool): Whether to leave out the last incomplete batch of every pass over the split, for the losses
+            comparing the samples of a batch with each other (self-supervised task). Defaults to False.
 
     Returns:
         DataLoader: The loader of the split.
@@ -46,7 +47,7 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
     if use_workers:
         cv2.setNumThreads(nthreads=1)
     return DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=number_workers,
-                      collate_fn=collate_function, pin_memory=True, persistent_workers=use_workers,
+                      collate_fn=collate_function, pin_memory=True, drop_last=drop_last, persistent_workers=use_workers,
                       prefetch_factor=loading_configuration["prefetch_batches"] if use_workers else None)
 
 
@@ -125,21 +126,32 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
 
 
 def get_classification_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                                   batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
+                                   batch_size: int, self_supervised: bool = False
+                                   ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Initializes the training, validation and testing loaders of the classification task, read from the
-    'labels.json' manifest of every split with the Native loader (OpenCV decoding and CPU resizing).
+    'labels.json' manifest of every split with the Native loader (OpenCV decoding and CPU resizing). The
+    self-supervised task reads the same layout: every image is kept, labelled or not, the labels of the test images
+    only serving its k-nearest neighbour evaluation, and the training and validation loaders leave out the last
+    incomplete batch of every pass, since its losses compare the views of the images of a batch with each other (a
+    batch of a single image would give a loss without gradient).
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
         model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label dictionary
             and the output mode of the classification head.
         batch_size (int): The number of samples of a batch.
+        self_supervised (bool): Whether the loaders feed the self-supervised trainer, which has no classification
+            head (multi-class labels). Defaults to False.
 
     Returns:
         Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
+
+    Raises:
+        ValueError: If a self-supervised training or validation split holds fewer images than a batch.
     """
     data_configuration = model_configuration["Data"]
+    output_mode = "multi_class" if self_supervised else model_configuration["ClassificationHead"]["output_mode"]
     loaders = []
 
     # Build the loader of every split with the same settings
@@ -150,45 +162,18 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
                                         image_size=data_configuration["image_settings"]["size"],
                                         keep_ratio=data_configuration["image_settings"]["keep_ratio"],
                                         label_dictionary=data_configuration["label_dictionary"],
-                                        output_mode=model_configuration["ClassificationHead"]["output_mode"])
+                                        output_mode=output_mode, keep_unlabelled_samples=self_supervised)
+
+        # Full batches only for the self-supervised losses, the test split being encoded image by image
+        drop_last = self_supervised and split_key != "test_data_folder"
+        if drop_last and len(dataset) < batch_size:
+            raise ValueError(f"The '{split_key}' split holds {len(dataset)} images, fewer than the batch size "
+                             f"{batch_size}: the self-supervised training and validation batches must be full.")
         loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
-                                           loading_configuration=data_configuration["loading"]))
+                                           loading_configuration=data_configuration["loading"], drop_last=drop_last))
 
     return loaders[0], loaders[1], loaders[2]
 
-
-def get_self_supervised_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                                    batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    """
-    Initializes the training, validation and testing loaders of the self-supervised task, read from the 'labels.json'
-    manifest of every split with the Native loader (OpenCV decoding and CPU resizing). Every image is kept, labelled
-    or not: the trainer draws the views of the training and validation images on the device, and the labels of the
-    test images only serve the k-nearest neighbour evaluation of the representations.
-
-    Args:
-        experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
-        model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label dictionary
-            and the loading settings.
-        batch_size (int): The number of images of a batch.
-
-    Returns:
-        Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
-    """
-    data_configuration = model_configuration["Data"]
-    loaders = []
-
-    # Build the loader of every split with the same settings
-    for split_key in ["train_data_folder", "validation_data_folder", "test_data_folder"]:
-        split_data_folder = str(experiment_configuration[split_key])
-        dataset = SelfSupervisedDataset(data_directory=os.path.join(split_data_folder, "data"),
-                                        labels_file=os.path.join(split_data_folder, "labels.json"),
-                                        image_size=data_configuration["image_settings"]["size"],
-                                        keep_ratio=data_configuration["image_settings"]["keep_ratio"],
-                                        label_dictionary=data_configuration["label_dictionary"])
-        loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
-                                           loading_configuration=data_configuration["loading"]))
-
-    return loaders[0], loaders[1], loaders[2]
 
 def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                                  batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:

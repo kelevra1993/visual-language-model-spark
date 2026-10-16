@@ -13,7 +13,7 @@ from vision_training.configuration_processing.common_checks import check_image_t
 from vision_training.configuration_processing.configuration_values import (check_batch_normalization_momentum,
                                                                            check_positive_integers,
                                                                            check_probability_value,
-                                                                           get_configuration_value)
+                                                                           get_configuration_value, is_number)
 from vision_training.losses.self_supervised_losses import SELF_SUPERVISED_METHODS
 
 # Transformations of the views drawn with a probability, under 'Data.view_augmentation.<name>.probability'
@@ -25,20 +25,6 @@ MAXIMUM_HUE_SHIFT = 0.5
 
 # Largest rotation angle of the views, in degrees
 MAXIMUM_ROTATION_DEGREES = 180.0
-
-
-def is_number(value: Any) -> bool:
-    """
-    Tells whether a configuration value is a number, the booleans being refused although Python counts them as
-    integers, so that a True or False written by mistake is reported.
-
-    Args:
-        value (Any): The configuration value.
-
-    Returns:
-        bool: True for an integer or a float that is not a boolean.
-    """
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def check_number_range(value: Any, key_path: str, minimum_value: float, maximum_value: float) -> List[str]:
@@ -65,9 +51,8 @@ def check_number_range(value: Any, key_path: str, minimum_value: float, maximum_
 def check_self_supervised_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the data settings of the self-supervised task: a multi-class label mapping whose class indices are 0 to
-    K-1 (the classes of the k-nearest neighbour evaluation, possibly none for a dataset without labels), no detection
-    block (the representation is the pooled final feature map), and the data augmentation off, the views of
-    'Data.view_augmentation' replacing it.
+    K-1 (the classes of the k-nearest neighbour evaluation, possibly none for a dataset without labels), and the
+    data augmentation off, the views of 'Data.view_augmentation' replacing it.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.

@@ -1,10 +1,10 @@
 """
 Trainer of the self-supervised task: the loaders of the 'labels.json' manifests keeping every image, the two random
-views of every training and validation image drawn on the device before the forward pass, the loss and batch metrics
-of the method (SimCLR or Barlow Twins) tracked on every batch, and the evaluation of the representations of the
-checkpoints on the test split (k-nearest neighbour classification of the labelled test images, effective rank and
-standard deviation of the representations). Registered for the "self_supervised" task; the backbone it trains then
-initialises the other tasks through 'Backbone.pretrained'.
+views of every training and validation image made before the forward pass (parameters drawn on the CPU, images
+transformed on the device), the loss and batch metrics of the method (SimCLR or Barlow Twins) tracked on every batch,
+and the evaluation of the representations of the checkpoints on the test split (k-nearest neighbour classification of
+the labelled test images, effective rank and standard deviation of the representations). Registered for the
+"self_supervised" task; the backbone it trains then initialises the other tasks through 'Backbone.pretrained'.
 """
 
 import numpy as np
@@ -16,7 +16,8 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from vision_training.core.contracts import (IGNORED_LABEL_INDEX, LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY,
                                             EvaluationResults, SelfSupervisedBatch)
-from vision_training.data.loaders import get_self_supervised_dataloaders
+from vision_training.data.label_mapping import get_class_names
+from vision_training.data.loaders import get_classification_dataloaders
 from vision_training.data.split_description import count_split_samples
 from vision_training.data.view_augmentations import ViewAugmenter
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
@@ -28,16 +29,16 @@ from vision_training.losses.self_supervised_losses import compute_embedding_stan
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
-from vision_training.utilities.visualization import add_caption_bar, view_input_data
+from vision_training.utilities.visualization import add_caption_bar, convert_image_to_array, view_input_data
 
 # Metrics tracked on every training and validation batch for each self-supervised method, with their display names
 METHOD_TRACKED_METRICS = {"simclr": {"total_loss": "Total Loss", "info_nce_loss": "InfoNCE Loss",
                                      "positive_pair_accuracy": "Positive Pair Accuracy",
-                                     "embedding_standard_deviation": "Embedding Std"},
+                                     "embedding_standard_deviation": "Embedding Standard Deviation"},
                           "barlow_twins": {"total_loss": "Total Loss", "barlow_twins_loss": "Barlow Twins Loss",
                                            "cross_correlation_diagonal": "Diagonal Correlation",
                                            "cross_correlation_off_diagonal": "Off-Diagonal Correlation",
-                                           "embedding_standard_deviation": "Embedding Std"}}
+                                           "embedding_standard_deviation": "Embedding Standard Deviation"}}
 
 # Name of the per-class table of the k-nearest neighbour classification and of its sort column, worst classes first
 NEAREST_NEIGHBOUR_TABLE_TITLE = "Per Class k-NN Metrics"
@@ -45,6 +46,10 @@ NEAREST_NEIGHBOUR_SORT_COLUMN = "F1"
 
 # Caption of an image without mapped category in the sample images and the input viewer
 UNLABELLED_CAPTION = "unlabelled"
+
+# Offset of the seed of the views of every sample image, added to its sample identifier, so that every evaluation and
+# both the trained and the averaged weights compare the same two views of an image
+SAMPLE_VIEWS_SEED = 20_000
 
 
 class SelfSupervisedTrainer(BaseTrainer):
@@ -76,7 +81,8 @@ class SelfSupervisedTrainer(BaseTrainer):
         self.method = model_configuration["ProjectionHead"]["method"]
         self.number_neighbours = experiment_configuration["evaluation"]["number_neighbours"]
 
-        # Random views of the images, drawn on the device for the training and validation batches
+        # Random views of the training and validation images, their parameters drawn on the CPU and the images
+        # transformed on the device
         self.view_augmenter = ViewAugmenter(
             view_augmentation_configuration=model_configuration["Data"]["view_augmentation"],
             image_size=model_configuration["Data"]["image_settings"]["size"])
@@ -85,17 +91,25 @@ class SelfSupervisedTrainer(BaseTrainer):
 
     def build_dataloaders(self) -> Tuple[Iterable, Iterable, Iterable]:
         """
-        Builds the self-supervised loaders of the three splits, and takes the class names of the k-nearest neighbour
-        evaluation from the categories of the test manifest, the split holding the labels of the evaluation.
+        Builds the loaders of the three splits from their classification manifests, every image being kept and the
+        training and validation batches full, and names the classes of the k-nearest neighbour evaluation after the
+        categories of the three manifests, so that a class absent from the test manifest keeps its category name.
 
         Returns:
             Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
         """
-        loaders = get_self_supervised_dataloaders(experiment_configuration=self.experiment_configuration,
-                                                  model_configuration=self.model_configuration,
-                                                  batch_size=self.batch_size)
-        test_dataset = loaders[2].dataset
-        self.class_names = [test_dataset.class_names[class_index] for class_index in range(test_dataset.number_classes)]
+        loaders = get_classification_dataloaders(experiment_configuration=self.experiment_configuration,
+                                                 model_configuration=self.model_configuration,
+                                                 batch_size=self.batch_size, self_supervised=True)
+
+        # Categories of the three manifests by identifier, the first split naming a category giving its name
+        merged_categories = {}
+        for loader in loaders:
+            for category in loader.dataset.categories:
+                merged_categories.setdefault(category["id"], category)
+        class_names = get_class_names(categories=list(merged_categories.values()),
+                                      label_dictionary=self.model_configuration["Data"]["label_dictionary"])
+        self.class_names = [class_names[class_index] for class_index in range(len(class_names))]
         return loaders
 
     def list_class_names(self) -> Optional[List[str]]:
@@ -309,7 +323,7 @@ class SelfSupervisedTrainer(BaseTrainer):
 
         # Collapse metrics of the representations of every test image, labelled or not
         representation_metrics = {"Effective Rank": compute_effective_rank(representations=representations),
-                                  "Representation Std": float(compute_embedding_standard_deviation(
+                                  "Representation Standard Deviation": float(compute_embedding_standard_deviation(
                                       embeddings=representations))}
 
         # k-nearest neighbour classification of the labelled test images, first in the report when it is computed
@@ -358,26 +372,13 @@ class SelfSupervisedTrainer(BaseTrainer):
         class_index = int(label)
         return UNLABELLED_CAPTION if class_index == IGNORED_LABEL_INDEX else self.class_names[class_index]
 
-    @staticmethod
-    def convert_image_to_array(image: torch.Tensor) -> np.ndarray:
-        """
-        Turns a network input or a view into the uint8 BGR array drawn in the sample images.
-
-        Args:
-            image (torch.Tensor): The [3, H, W] float BGR image in [0, 255].
-
-        Returns:
-            np.ndarray: The [H, W, 3] uint8 BGR image.
-        """
-        uint8_image = image.detach().cpu().clamp(min=0.0, max=255.0).to(dtype=torch.uint8)
-        return np.ascontiguousarray(uint8_image.permute(1, 2, 0).numpy())
-
     def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
         Draws a fixed test image for the sample images of the evaluation: the image next to two random views of it,
         captioned with its class and the cosine similarity of the representations of both views, which a backbone
-        invariant to the views brings close to 1. The views are drawn again at every evaluation, so the similarity of
-        one image varies from one evaluation to the next.
+        invariant to the views brings close to 1. The views are drawn from a seed of the image, in a copy of the random
+        state that leaves the one of the training unchanged, so that every evaluation and both the trained and the
+        averaged weights compare the same two views.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -388,7 +389,9 @@ class SelfSupervisedTrainer(BaseTrainer):
             np.ndarray: The [H, W, 3] uint8 BGR image of the sample.
         """
         image = batch["images"][sample_index:sample_index + 1]
-        first_view, second_view = self.view_augmenter.create_views(images=image)
+        with torch.random.fork_rng(devices=[] if self.device.type == "cpu" else [self.device]):
+            torch.manual_seed(seed=SAMPLE_VIEWS_SEED + int(batch[SAMPLE_IDENTIFIERS_KEY][sample_index]))
+            first_view, second_view = self.view_augmenter.create_views(images=image)
 
         # Similarity of the representations of both views, the model being in evaluation mode
         view_representations = self.model(input_tensor=torch.cat(tensors=[first_view, second_view],
@@ -397,9 +400,9 @@ class SelfSupervisedTrainer(BaseTrainer):
                                                                    x2=view_representations[1:2], dim=1))
 
         # The image and its two views side by side, captioned with the class and the similarity
-        sample_image = np.concatenate([self.convert_image_to_array(image=image[0]),
-                                       self.convert_image_to_array(image=first_view[0]),
-                                       self.convert_image_to_array(image=second_view[0])], axis=1)
+        sample_image = np.concatenate([convert_image_to_array(image=image[0]),
+                                       convert_image_to_array(image=first_view[0]),
+                                       convert_image_to_array(image=second_view[0])], axis=1)
         caption = (f"{self.get_label_caption(label=batch['labels'][sample_index])} | Views Similarity "
                    f"{view_similarity:.3f}")
         return add_caption_bar(image=sample_image, caption=caption)

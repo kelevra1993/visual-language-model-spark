@@ -1,8 +1,8 @@
 """
 Small model configuration dictionaries of the detection (with or without mask heads), classification, semantic
-segmentation, sequence and sequence comparison models, with their device and dtype, shared by the model, export and
-transfer tests. Every configuration keeps no moving average of the weights (the 'Optimization' setting read by the
-transfer of the components).
+segmentation, sequence, sequence comparison and self-supervised models, with their device and dtype, shared by the
+model, export and transfer tests. Every configuration keeps no moving average of the weights (the 'Optimization'
+setting read by the transfer of the components).
 """
 
 import torch
@@ -193,5 +193,30 @@ def get_sequence_comparison_model_configuration(temporal_type: str, fusion_type:
     del configuration['Data']['sequence_settings']['window_stride']
     configuration['Fusion'] = {'type': fusion_type, 'number_heads': 2, 'dropout_rate': 0.0,
                                'sequence_normalization_scope': 'member'}
+
+    return configuration, device, dtype
+
+
+def get_self_supervised_model_configuration(method: str, global_pooling: str) -> Tuple[
+        Dict[str, Any], torch.device, torch.dtype]:
+    """
+    Supplies a small self-supervised model configuration dictionary, with its device and dtype, shared by the
+    self-supervised model and export tests: the backbone of the image classifier configuration on 64 pixel images and
+    a projection head of one batch normalized hidden layer of 16 units and an embedding of 8.
+
+    Args:
+        method (str): The self-supervised method, "simclr" or "barlow_twins".
+        global_pooling (str): The reduction of the final feature map, "average", "max" or "flatten".
+
+    Returns:
+        Tuple[Dict[str, Any], torch.device, torch.dtype]: The self-supervised model configuration, compute device and
+            dtype.
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    del configuration['ClassificationHead']
+    configuration['ProjectionHead'] = {'global_pooling': global_pooling, 'fully_connected': [16, 8],
+                                       'fully_connected_normalization': 'batch', 'batch_normalization_momentum': 0.1,
+                                       'method': method, 'simclr': {'temperature': 0.2},
+                                       'barlow_twins': {'off_diagonal_weight': 0.005}}
 
     return configuration, device, dtype

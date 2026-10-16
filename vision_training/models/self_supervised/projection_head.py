@@ -41,7 +41,8 @@ def print_projection_head_summary(head_configuration: Dict[str, Any], input_feat
                     f"[bold]Normalization[/bold]        : {normalization_text}\n"
                     f"[bold]Embedding Size[/bold]       : {head_configuration['fully_connected'][-1]}\n"
                     f"[bold]Method[/bold]               : {method_text}")
-    Console(width=80).print(Panel(summary_text, title="[bold]Projection Head[/bold]", border_style="green"))
+    Console(width=80).print(Panel(renderable=summary_text, title="[bold]Projection Head[/bold]",
+                                  border_style="green"))
 
 
 class ProjectionHead(nn.Module):

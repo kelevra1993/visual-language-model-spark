@@ -98,8 +98,8 @@ def compute_barlow_twins_loss(first_embeddings: torch.Tensor, second_embeddings:
         off_diagonal = cross_correlation - torch.diag_embed(input=diagonal)
 
         # Invariance term on the diagonal, redundancy reduction term off the diagonal
-        invariance_term = (diagonal - 1.0).pow(2).sum()
-        redundancy_term = off_diagonal.pow(2).sum()
+        invariance_term = (diagonal - 1.0).pow(exponent=2).sum()
+        redundancy_term = off_diagonal.pow(exponent=2).sum()
         barlow_twins_loss = invariance_term + off_diagonal_weight * redundancy_term
 
         # Mean correlation of every feature with itself, and mean absolute correlation of two different features
@@ -116,10 +116,12 @@ def compute_embedding_standard_deviation(embeddings: torch.Tensor) -> torch.Tens
     Measures how spread the embeddings of a batch are, the warning sign of a collapse of the self-supervised training:
     the standard deviation over the batch of every feature of the L2 normalized embeddings, averaged over the features
     and multiplied by the square root of the dimension D. Embeddings spread over the whole sphere give about 1, and
-    collapsed embeddings, all equal whatever the image, give 0.
+    collapsed embeddings, all equal whatever the image, give 0. The trainer also measures the representations of the
+    test images with it, which are not negative after the ReLU and the pooling of the backbone: spread over their part
+    of the sphere, they stay well below 1 (about 0.6 to 0.8), only the trend and the fall to 0 telling a collapse.
 
     Args:
-        embeddings (torch.Tensor): The [N, D] embeddings of a batch.
+        embeddings (torch.Tensor): The [N, D] embeddings of a batch, or the [N, F] representations of the test images.
 
     Returns:
         torch.Tensor: The scalar standard deviation, without gradient.

@@ -26,8 +26,10 @@ def build_view_transformations(view_augmentation_configuration: Dict[str, Any], 
     """
     Builds the chain of random transformations producing one view of every image for the self-supervised trainer, in
     the order of SimCLR: the random resized crop, always applied, then the flips, the rotation, the colour jitter, the
-    grayscale conversion and the Gaussian blur, each with its own probability. The kornia transformations draw their
-    parameters for every image of the batch independently, on the device of the images.
+    grayscale conversion and the Gaussian blur, each with its own probability. The kornia transformations draw the
+    parameters of every image of the batch independently, on the CPU with the random generator of PyTorch (the same
+    seed giving the same views on every device), then transform the images on their device. The order of the four
+    colour jitter changes is drawn once per batch.
 
     Args:
         view_augmentation_configuration (Dict[str, Any]): The 'Data.view_augmentation' section.

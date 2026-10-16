@@ -1,8 +1,9 @@
 """
 Tests of the model exports of vision_training/deployment/export_model.py and export_specifications.py: the TorchScript
 and ONNX exports of every task (the image classifier with a pooled or flattened feature map or pre-activation residual
-shortcuts, the semantic segmenter, the frame selector) match the eager model, keep their dynamic frames, the comparison of the segmenter outputs reports
-their differences, and the inference models match the training path on full windows.
+shortcuts, the semantic segmenter, the frame selector, the encoder of the self-supervised task) match the eager model,
+keep their dynamic frames, the comparison of the segmenter outputs reports their differences, and the inference models
+match the training path on full windows.
 """
 
 import numpy as np
@@ -24,6 +25,7 @@ from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
                                                    get_segmentation_model_configuration,
+                                                   get_self_supervised_model_configuration,
                                                    get_sequence_comparison_model_configuration,
                                                    get_sequence_model_configuration)
 
@@ -40,9 +42,9 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
 
     Args:
         task (str): "classification", "semantic_segmentation", "sequence_classification", "sequence_labelling",
-            "sequence_comparison" or "frame_selection".
-        temporal_type (Optional[str]): The temporal module of the sequence models, None for the classifier and the
-            segmenter.
+            "sequence_comparison", "frame_selection" or "self_supervised".
+        temporal_type (Optional[str]): The temporal module of the sequence models, None for the classifier, the
+            segmenter and the self-supervised model.
         fusion_type (Optional[str]): The fusion of the members of the comparison model, None for the other tasks.
         global_pooling (str): The reduction of the final feature map, "average" or "max", or "flatten" for the
             classifier only.
@@ -55,6 +57,9 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
     torch.manual_seed(seed=0)
     if task == "semantic_segmentation":
         configuration, device, dtype = get_segmentation_model_configuration(upsampling="transposed")
+    elif task == "self_supervised":
+        configuration, device, dtype = get_self_supervised_model_configuration(method="simclr",
+                                                                               global_pooling=global_pooling)
     elif temporal_type is None:
         configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
         configuration["ClassificationHead"]["global_pooling"] = global_pooling
@@ -84,7 +89,8 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
                                     ("sequence_labelling", "temporal_convolution", None, "average", False),
                                     ("sequence_comparison", "gru", "cross_attention", "average", False),
                                     ("sequence_comparison", "transformer", "difference", "average", False),
-                                    ("frame_selection", "gru", None, "average", False)])
+                                    ("frame_selection", "gru", None, "average", False),
+                                    ("self_supervised", None, None, "average", False)])
 def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type: Optional[str],
                                        fusion_type: Optional[str], global_pooling: str, pre_activation: bool) -> None:
     """
@@ -126,11 +132,13 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
         assert [input_batch.shape[1] for input_batch in example_inputs.values()] == [4, 4]
         assert [input_batch.shape[1] for input_batch in check_inputs.values()] == [3, 2]
 
-    # One vector of class probabilities per sample, or per frame for the sequence labeller and the frame selector, or a
-    # class map and the class probabilities of every pixel for the segmenter
+    # One vector of class probabilities per sample, or per frame for the sequence labeller and the frame selector, a
+    # class map and the class probabilities of every pixel for the segmenter, or the representation of every image
     check_shape = specification["inputs"][0]["check_shape"]
     if task == "semantic_segmentation":
         assert [output.shape for output in reference_outputs] == [(3, 64, 64), (3, 3, 64, 64)]
+    elif task == "self_supervised":
+        assert reference_outputs[0].shape == (3, 32)
     else:
         expected_shape = (check_shape[0], check_shape[1], 3) if task in FRAME_OUTPUT_TASKS else (3, 3)
         assert reference_outputs[0].shape == expected_shape

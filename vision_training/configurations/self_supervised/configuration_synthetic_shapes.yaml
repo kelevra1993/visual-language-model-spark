@@ -1,5 +1,5 @@
 # Configuration of the self-supervised training on the synthetic shapes classification dataset (one shape per image, of
-# the 20 classes of SHAPE_CATEGORIES), created with vision_training/data/synthetic/create_synthetic_dataset.py
+# the first 9 classes of SHAPE_CATEGORIES), created with vision_training/data/synthetic/create_synthetic_dataset.py
 # and its task set to "classification": the training reads its images without their classes, which only serve
 # the k-NN evaluation of the test split. The trained backbone then initialises the classification runs of the same
 # dataset through Backbone.pretrained, to compare them with runs trained from random weights.
@@ -211,7 +211,7 @@ Data:
     # Rotation by a random angle within [-maximum_degrees, maximum_degrees], the uncovered corners filled with black.
     rotation: { probability: 0.5, maximum_degrees: 180.0 }
     # Brightness, contrast and saturation scaled by a random factor within [1 - strength, 1 + strength], and the hue
-    # shifted by up to hue (0.5 being half a turn of the hue circle), in a random order.
+    # shifted by up to hue (0.5 being half a turn of the hue circle), in a random order drawn for every batch.
     colour_jitter: { probability: 0.8, brightness: 0.4, contrast: 0.4, saturation: 0.4, hue: 0.1 }
     # Grayscale conversion, kept on three channels.
     grayscale: { probability: 0.2 }

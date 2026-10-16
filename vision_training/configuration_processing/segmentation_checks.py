@@ -14,23 +14,9 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            VALID_UPSAMPLINGS,
                                                                            check_batch_normalization_momentum,
                                                                            check_boolean_flags, check_positive_integers,
-                                                                           get_configuration_value)
+                                                                           get_configuration_value, is_number)
 from vision_training.data.segmentation.segmentation_dataset import IGNORED_MASK_VALUE
 from vision_training.models.segmentation.segmentation_decoder import compute_skip_block_numbers
-
-
-def is_number(value: Any) -> bool:
-    """
-    Tells whether a configuration value is a number, the booleans (a subclass of int in Python) being refused, for
-    the weights, scales and rates of the segmentation sections.
-
-    Args:
-        value (Any): The configuration value.
-
-    Returns:
-        bool: True for an int or a float that is not a boolean.
-    """
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
 def check_segmentation_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:

@@ -71,6 +71,21 @@ def get_configuration_value(configuration: Dict[str, Any], key_path: str) -> Any
     return current_value
 
 
+def is_number(value: Any) -> bool:
+    """
+    Tells whether a configuration value is a number, the booleans being refused although Python counts them as
+    integers, so that a True or False written by mistake is reported by the checks of the weights, scales, rates and
+    ranges of the task sections (segmentation, self-supervised views and losses).
+
+    Args:
+        value (Any): The configuration value.
+
+    Returns:
+        bool: True for an integer or a float that is not a boolean.
+    """
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def check_boolean_flags(configuration: Dict[str, Any], key_paths: List[str]) -> List[str]:
     """
     Verifies that on/off flags are real booleans. A quoted "False" in the YAML is a non-empty string, which Python

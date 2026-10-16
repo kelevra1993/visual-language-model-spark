@@ -43,4 +43,4 @@ class InferenceEncoder(nn.Module):
         Returns:
             torch.Tensor: The [B, F] L2 normalized representations.
         """
-        return torch_functional.normalize(input=self.model.encode(images=images)["representations"], dim=1)
+        return torch_functional.normalize(input=self.model.represent(images=images), dim=1)
