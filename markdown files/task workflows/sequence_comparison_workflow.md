@@ -216,7 +216,7 @@ CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64_MC2
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.5}
-6 of 14 types activated: random_left_right_flip, random_up_down_flip, random_90_rotation, brightness_contrast_saturation,
+6 of 15 types activated: random_left_right_flip, random_up_down_flip, random_90_rotation, brightness_contrast_saturation,
                          random_noise, random_colour_augmentation
 ```
 

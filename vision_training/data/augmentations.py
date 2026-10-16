@@ -28,10 +28,10 @@ with warnings.catch_warnings():
     from kornia.enhance import equalize_clahe
 
 # Geometric augmentations, applied first, in this order. They move the bounding boxes and the masks along with the
-# image. random_zoom_out is written but not listed yet: it joins the list after random_crop once the configuration
-# files hold its key
-GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_left_right_flip", "random_up_down_flip", "random_rotation",
-                                "random_90_rotation"]
+# image. random_zoom_out follows random_crop, so that a sample drawing both is cropped first and then shrunk, its two
+# draws being independent
+GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_zoom_out", "random_left_right_flip", "random_up_down_flip",
+                                "random_rotation", "random_90_rotation"]
 
 # Photometric augmentations, applied after the geometric ones, in this order. They never move the bounding boxes and
 # never change the masks

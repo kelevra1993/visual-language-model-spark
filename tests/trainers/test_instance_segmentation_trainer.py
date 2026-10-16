@@ -27,7 +27,7 @@ SMOKE_IMAGE_SIZE = 256
 SMOKE_ANCHOR_SCALES = {"5": [16, 32, 64], "6": [32, 64, 128], "7": [64, 128, 256]}
 
 # Geometric augmentations turned on, so that the instance masks are moved and their boxes recomputed
-SMOKE_GEOMETRIC_AUGMENTATIONS = ["random_crop", "random_left_right_flip", "random_rotation"]
+SMOKE_GEOMETRIC_AUGMENTATIONS = ["random_crop", "random_zoom_out", "random_left_right_flip", "random_rotation"]
 
 # Largest number of error images saved per folder by the smoke test
 SMOKE_MAXIMUM_ERROR_IMAGES = 2

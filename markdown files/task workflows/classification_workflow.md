@@ -600,7 +600,7 @@ This creates the augmentation tool of the training batches from `Data.data_augme
 **Example: the settings of `configuration_example.yaml`**
 ```text
 activated: True    probability: 0.3    independent_frames: False    shuffle_frames: {activated: False, ...}
-types:     13 of the 14 types activated, each with probability 0.5 (random_up_down_flip is off)
+types:     13 of the 15 types activated, each with probability 0.5 (random_zoom_out and random_up_down_flip are off)
 expected:  0.3 x 13 x 0.5 = 1.95 augmentations per image, on average
 attributes of the augmenter: activated, probability, independent_frames, shuffle_frames_activated,
                              shuffle_frames_probability, type_settings

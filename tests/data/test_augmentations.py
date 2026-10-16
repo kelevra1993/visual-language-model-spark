@@ -22,7 +22,7 @@ IMAGE_SIZE = 96
 # Tolerance in pixels between the bright rectangle and its transformed box: exact pixel permutations must match
 # exactly, while resampling (crop resize, small rotation) blurs the rectangle edges by a pixel or two
 BOX_TOLERANCES = {"random_left_right_flip": 0.0, "random_up_down_flip": 0.0, "random_90_rotation": 0.0,
-                  "random_crop": 2.0, "random_rotation": 2.5}
+                  "random_crop": 2.0, "random_zoom_out": 2.0, "random_rotation": 2.5}
 
 
 def build_configuration(enabled_types: List[str], probability: float = 1.0, independent_frames: bool = False,

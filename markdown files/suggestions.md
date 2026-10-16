@@ -27,7 +27,8 @@
 > - per-level settings grouped in `DetectionLevels`;
 > - ground truth boxes added to the proposals of the detection heads;
 > - instance segmentation boxes taken from the masks, without the annotation `bbox`;
-> - detector with fewer anchors than proposals or candidates than detections, in training and in the exports.
+> - detector with fewer anchors than proposals or candidates than detections, in training and in the exports;
+> - zoom-out augmentation (`random_zoom_out`), on in the DET and INS `configuration_example.yaml`.
 >
 > Dropped without being implemented:
 > - the masked proposal padding of the training;
@@ -75,7 +76,7 @@
    NMS over all levels (`model.py:287-328`). torchvision and Detectron2 (top-k per level, NMS grouped by level) are
    the reference.
 4. **Box-aware mosaic / copy-paste augmentation**: combine 4 images into one, or paste objects from one image into
-   another. Copy-paste is usually combined with a large scale jitter, which the zoom-out of item 14 provides.
+   another. Copy-paste is usually combined with a large scale jitter, which the zoom-out (`random_zoom_out`) provides.
 
 ## B. Instance segmentation
 5. **Sharper masks for small objects**: the mask heads pool every box from the backbone feature map of its level
@@ -207,17 +208,7 @@
     - **Cost and risk:** (b) is small, (a) medium. No number changes.
 
 ## D. Training data
-14. **Turn on the zoom-out augmentation (scale jitter)**: `random_crop` only zooms in (75 to 100 % of each side,
-    objects up to 1.33 times larger), so every object is seen at its dataset size or larger, and the finest levels
-    only ever train on the objects that are already small in the dataset. `DataAugmenter.random_zoom_out` is written
-    and tested: it shrinks the image to 50–100 % of its side (`MINIMUM_ZOOM_OUT_FRACTION`, drawn independently of the
-    crop) at a random place of a black canvas of the input size, moves the boxes and masks with it, marks the
-    uncovered border as ignored in a SEG mask and as background in the instance masks, and works for CLS too. It is
-    never called yet: turning it on needs its key `Data.data_augmentation.random_zoom_out` (False by default) in the
-    configuration files and the checker, and its name in `GEOMETRIC_AUGMENTATION_TYPES` right after `random_crop`. It
-    is simpler than the mosaic of item 4, and is the zoom-out and translation that Mask R-CNN gets from the Affine
-    augmenter of imgaug.
-15. **Tiles at native resolution for large images**:
+14. **Tiles at native resolution for large images**:
     - **Mask R-CNN:** the nucleus sample (`nucleus.py:127-133, 165, 173`) trains on random 512 × 512 crops
       (`IMAGE_RESIZE_MODE: crop`) of the image scaled up by 2 (`IMAGE_MIN_SCALE`), infers on the whole image padded to a
       multiple of 64 (`pad64`), with anchors from 8 to 128 pixels and up to 400 detections.
@@ -294,7 +285,7 @@ size and the recall of the anchors and of the proposals.
 | Ground truth masks in memory | Optional 56 × 56 crops in the box (`config.py:103-104`, `utils.py:517-552`). | One `[N, S, S]` uint8 mask per object at the network resolution (item 8, audit L19). |
 | Crowds | Kept with a negative class id, kept out of the negatives, ignored by pycocotools (section E, M12). | Removed from the annotations (audit M12). |
 | Objects lost by the resizing | Skipped at original resolution when under 1 pixel (`coco.py:248-250`). Masks emptied by the resize are dropped from the training targets (`model.py:1263-1265`). The evaluation keeps them, since it runs on the original images. | Dropped from every split, the test split included, so they can never count as missed (item 12). |
-| Augmentation | imgaug pipeline with a list of mask-safe augmenters (flips, crop-and-pad, Affine, PiecewiseAffine; `model.py:1232-1259`). COCO uses horizontal flips only, nucleus flips, 90° rotations, brightness and blur. | `DataAugmenter` on the GPU: crop (zoom in only), flips, ±5° and 90° rotations, nine photometric types, masks moved and boxes recomputed, fragments of objects removed; zoom-out written but not turned on (item 14). |
+| Augmentation | imgaug pipeline with a list of mask-safe augmenters (flips, crop-and-pad, Affine, PiecewiseAffine; `model.py:1232-1259`). COCO uses horizontal flips only, nucleus flips, 90° rotations, brightness and blur. | `DataAugmenter` on the GPU: crop, zoom-out, flips, ±5° and 90° rotations, nine photometric types, masks moved and boxes recomputed, fragments of objects removed. |
 | Optimisation | SGD momentum 0.9, learning rate 0.001. Each gradient tensor clipped at norm 5 (Keras `clipnorm`). L2 1e-4 except the BN scales and offsets. Weight per loss (`config.py:177-211`, `model.py:2153-2199`). | Adam / AdamW / SGD Nesterov, warm-up, cosine, optional global-norm clipping. One weight decay for every parameter (audit M10). Losses summed with weight 1 (item 6). |
 | Training schedule | Stages selected by layer regular expressions: `heads`, `3+`, `4+`, `5+`, `all` (`model.py:2313-2322`, `coco.py:498-521`). | One stage per run. A loaded component can be frozen whole or given a learning rate multiplier; a schedule needs successive runs. |
 | Batch normalization | `TRAIN_BN: False` by default: the stored statistics are used and never updated (batches of 2). | Trained, with a configurable momentum. `layer` normalization is available for small batches. |
@@ -335,12 +326,11 @@ synthetic shapes configuration uses the same values at 512 pixels):
 1. **Close the open audit items that Mask R-CNN confirms** (section E): H1 (region proposal background), M4 (NMS
    thresholds), L6 (COCO matching) and M12 (crowds, with the any-overlap rule of Mask R-CNN). They change the DET and
    INS numbers, so they share one baseline regeneration.
-2. **The zoom-out (item 14)**, which only needs its configuration key.
-3. **The scaled regression targets and loss weights (item 6)**, a small change, in the same experiment as audit L5.
-4. **The FPN with a finer level (item 1), the level by box size (item 2), the shared mask head (item 7) and the
+2. **The scaled regression targets and loss weights (item 6)**, a small change, in the same experiment as audit L5.
+3. **The FPN with a finer level (item 1), the level by box size (item 2), the shared mask head (item 7) and the
    sharper masks (item 5).** Together they close the main architectural gap for the masks, guided by the AP of the
    small objects and the proposal recall of every level, before any tuning of the anchors or of the proposal counts.
-5. **The evaluation at the original resolution (item 12)** when the network-resolution figures need confirming
+4. **The evaluation at the original resolution (item 12)** when the network-resolution figures need confirming
    against pycocotools.
-6. **The rest when the need appears:** item 13 when debugging, item 3 if one level keeps most proposals, item 11 when
-   deploying a class with its own threshold, and items 4, 8, 9, 10 and 15 depending on the datasets.
+5. **The rest when the need appears:** item 13 when debugging, item 3 if one level keeps most proposals, item 11 when
+   deploying a class with its own threshold, and items 4, 8, 9, 10 and 14 depending on the datasets.
