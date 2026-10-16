@@ -18,7 +18,6 @@ from typing import Any, Dict, Optional
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.core.task_registry import get_trainer_class
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
-from vision_training.models.model_transfer import NEW_CLASS_BIAS_OFFSET
 from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.trainers.checkpointing import EXPONENTIAL_MOVING_AVERAGE_STATE_KEY
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY
@@ -480,8 +479,8 @@ def test_averaged_run_of_9_classes_initialises_a_run_of_20_classes(tmp_path: Pat
     the synthetic shapes with a moving average of its weights records its class names in its data.json, and its
     backbone and classification head initialise a run of the 20 classes keeping a moving average too. Both components
     start from the averaged weights of the source checkpoint, the classifier keeping the rows of the 9 source classes
-    and adding 11 classes after them with zero weights and a bias NEW_CLASS_BIAS_OFFSET below the mean source bias,
-    and the run trains and saves.
+    and adding 11 classes after them that keep the random initialisation of the new run, and the run trains and
+    saves.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -520,12 +519,12 @@ def test_averaged_run_of_9_classes_initialises_a_run_of_20_classes(tmp_path: Pat
                                             task="classification", moving_average=True)
     assert source_trainer.run_name.endswith("_MC9") and target_trainer.run_name.endswith("-HPT_MC20")
     console_output = capsys.readouterr().out
-    assert ("Classification Head : 9 Classes Of The Source Run Kept, 11 New Classes Added After Them, Built From The "
-            "Source Classes.") in console_output
+    assert ("Classification Head : 9 Classes Of The Source Run Kept, 11 New Classes Added After Them, Randomly "
+            "Initialised.") in console_output
     assert "Backbone Initialised From The Averaged Weights Of" in console_output
     assert "Classification Head Initialised From The Averaged Weights Of" in console_output
 
-    # Averaged weights copied, the classifier rows of the source classes included, and new classes starting quiet
+    # Averaged weights copied, the classifier rows of the source classes included, and new classes left random
     target_state = {tensor_name: tensor_value.cpu() for tensor_name, tensor_value in
                     target_trainer.model.state_dict().items()}
     for tensor_name, tensor_value in averaged_state.items():
@@ -533,10 +532,7 @@ def test_averaged_run_of_9_classes_initialises_a_run_of_20_classes(tmp_path: Pat
             assert torch.equal(input=target_state[tensor_name][:9], other=tensor_value), tensor_name
         elif tensor_name.startswith("backbone.") or tensor_name.startswith("classification_head."):
             assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
-    source_bias = averaged_state["classification_head.classifier.bias"]
-    assert torch.count_nonzero(input=target_state["classification_head.classifier.weight"][9:]) == 0
-    assert torch.allclose(input=target_state["classification_head.classifier.bias"][9:],
-                          other=(source_bias.mean() - NEW_CLASS_BIAS_OFFSET).expand(11))
+    assert torch.count_nonzero(input=target_state["classification_head.classifier.weight"][9:]) > 0
 
     # The run of 20 classes trains and saves
     target_trainer.run_training_loop()

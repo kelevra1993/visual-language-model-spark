@@ -3,8 +3,7 @@
 # its label mapping file are created with vision_training/data/synthetic/create_synthetic_dataset.py. Launch run_44 of
 # the class extension stage (stage 14) of the hyperparameter experiment: the settings of run-37.yaml, initialised by the
 # backbone and the classification head of run_37 (iteration 2000, averaged weights), its 9 classes kept and 11 new
-# classes appended with the random initialisation of a run trained from scratch (new_class_initialisation
-# "random"), launch B.
+# classes appended with the random initialisation of a run trained from scratch, launch B.
 ExperimentConfiguration:
   # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
   # "classification" trains the image classifier, and requires the ClassificationHead section.
@@ -317,7 +316,7 @@ ClassificationHead:
   # layers and fully_connected_normalization must be identical in both runs (the dropout rate and the batch
   # normalization momentum may differ), as well as the size of the vectors it reads. The classes of the source run, read
   # from its data.json, must be the first classes of this run, in the same order: classes may be appended after them,
-  # initialised as set by new_class_initialisation below.
+  # keeping the random initialisation of this run.
   pretrained:
     # Run folder whose trained classification head initialises this run, null to start from random weights. A
     # run resuming from its own checkpoints does not load it again.
@@ -330,8 +329,3 @@ ClassificationHead:
     # Multiplies the learning rate of the loaded classification head, e.g. 0.1 to fine-tune it ten times slower
     # than the new layers.
     learning_rate_multiplier: 1.0
-    # Initialisation of the classes this run adds after those of the source run: "source" (zero weights and a
-    # bias 3 below the mean of the copied biases, the new classes starting quiet) or "random" (the random
-    # initialisation of a run trained from scratch, whose first rows are replaced by the copied classes). Gives the
-    # HRND run name token when "random".
-    new_class_initialisation: "random"

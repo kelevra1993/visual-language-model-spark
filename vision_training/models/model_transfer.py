@@ -3,7 +3,7 @@ Transfer of trained components between runs: the architecture checks of the back
 classification head, segmentation decoder, region proposal heads, detection heads and mask heads, the loading of a
 pretrained component from the checkpoint of another run (its averaged weights when it kept a moving average and the new
 run keeps one), the class layers of a run adding classes after those of its source run (the source classes keeping
-their trained rows, the new classes built from them or kept random), the class layers of the semantic segmentation
+their trained rows, the new classes the random rows of the new run), the class layers of the semantic segmentation
 loaded with its decoder, and the freezing of components, normalization parameters and batch statistics. Used by the
 base trainer and by scripts/evaluation/evaluate_checkpoint.py.
 """
@@ -90,32 +90,15 @@ DETECTION_HEAD_WEIGHT_KEYS = {"RegionProposal": ["normalization"], "Detector": [
 NORMALIZATION_LAYER_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.LayerNorm, nn.GroupNorm)
 BATCH_NORMALIZATION_LAYER_TYPES = (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)
 
-# Bias of the new classes of a run adding classes after those of its source run, below the mean bias of the source
-# classes, so that the new classes start quiet: on an image the source model has no opinion on, every new class weighs
-# about e^-3, 5 % of an average source class, in the softmax, so that the predictions of the source classes are kept at
-# the first iteration. The training raises the bias of a new class as soon as its images come
-NEW_CLASS_BIAS_OFFSET = 3.0
-
-# Sections whose class index 0 is the background class, kept first in both runs and left out of the means initialising
-# the new classes: most proposals and pixels are background, so its row stands apart from the other classes
-SECTIONS_WITH_BACKGROUND_CLASS = ["Detector", "MaskHead", "SegmentationDecoder"]
-
 # Class layers of the components, one row (or output channel) per class or 4 rows per class for the box regressor, as
-# [module name pattern, initialisation of the new classes, rows per class], the pattern matching the name of the module
-# in the component state (in the state of the segmentation head and deep supervision heads for the decoder). With the
-# "source" 'new_class_initialisation' (the "random" one keeping the random rows of the new run), the new classes are
-# initialised with:
-# - "quiet": zero weights and a bias NEW_CLASS_BIAS_OFFSET below the mean bias of the source classes, for the logits
-#   competing with the source classes in a softmax (or starting at a low probability in the sigmoid of the multi-label
-#   classification)
-# - "zero": zero weights and biases, for the box regression of the new classes, keeping their proposal boxes unchanged
-# - "average": the mean of the rows of the source classes, for the mask predictor, whose classes do not compete (every
-#   object only trains the mask of its own class), a new class starting from a generic object mask it then specialises
-CLASS_LAYERS = {"ClassificationHead": [[r"classifier", "quiet", 1]],
-                "Detector": [[r"\w+\.classifier", "quiet", 1], [r"\w+\.bounding_box_regressor", "zero", 4]],
-                "MaskHead": [[r"\w+\.mask_predictor", "average", 1]],
-                "SegmentationDecoder": [[r"segmentation_head\.\d+", "quiet", 1],
-                                        [r"deep_supervision_heads\.\w+", "quiet", 1]]}
+# [module name pattern, rows per class], the pattern matching the name of the module in the component state (in the
+# state of the segmentation head and deep supervision heads for the decoder). When a run adds classes after those of
+# its source run, the rows of the source classes are copied and those of the new classes keep the random
+# initialisation the layer of the new run was built with
+CLASS_LAYERS = {"ClassificationHead": [[r"classifier", 1]],
+                "Detector": [[r"\w+\.classifier", 1], [r"\w+\.bounding_box_regressor", 4]],
+                "MaskHead": [[r"\w+\.mask_predictor", 1]],
+                "SegmentationDecoder": [[r"segmentation_head\.\d+", 1], [r"deep_supervision_heads\.\w+", 1]]}
 
 
 def get_component_name(section_name: str) -> str:
@@ -494,7 +477,7 @@ def read_source_class_names(source_folder: Path) -> Optional[List[str]]:
     return data_record[CLASS_NAMES_RECORD_KEY]
 
 
-def find_class_layer(section_name: str, module_name: str) -> Optional[Tuple[str, int]]:
+def find_class_layer(section_name: str, module_name: str) -> Optional[int]:
     """
     Tells whether a module of a component is one of its class layers (see CLASS_LAYERS), whose rows follow the classes
     of the run and grow when a run adds classes after those of its source run.
@@ -504,12 +487,11 @@ def find_class_layer(section_name: str, module_name: str) -> Optional[Tuple[str,
         module_name (str): The name of the module in the component state, e.g. 'classifier' or '5.mask_predictor'.
 
     Returns:
-        Optional[Tuple[str, int]]: The initialisation of the new classes and the number of rows of every class, None
-            for a module that is not a class layer.
+        Optional[int]: The number of rows of every class, None for a module that is not a class layer.
     """
-    for module_pattern, initialisation, rows_per_class in CLASS_LAYERS[section_name]:
+    for module_pattern, rows_per_class in CLASS_LAYERS[section_name]:
         if re.fullmatch(pattern=module_pattern, string=module_name):
-            return initialisation, rows_per_class
+            return rows_per_class
     return None
 
 
@@ -528,9 +510,9 @@ def count_state_classes(state: Dict[str, torch.Tensor], section_name: str) -> Op
     for tensor_name, tensor_value in state.items():
         if not tensor_name.endswith(".weight"):
             continue
-        class_layer = find_class_layer(section_name=section_name, module_name=tensor_name[:-len(".weight")])
-        if class_layer is not None:
-            return tensor_value.shape[0] // class_layer[1]
+        rows_per_class = find_class_layer(section_name=section_name, module_name=tensor_name[:-len(".weight")])
+        if rows_per_class is not None:
+            return tensor_value.shape[0] // rows_per_class
     return None
 
 
@@ -574,15 +556,13 @@ def compare_class_names(source_class_names: Optional[List[str]], target_class_na
 
 
 def extend_class_layer(weight: torch.Tensor, bias: torch.Tensor, target_weight: torch.Tensor,
-                       target_bias: torch.Tensor, rows_per_class: int, initialisation: str,
-                       new_class_initialisation: str, has_background_class: bool) -> Tuple[torch.Tensor, torch.Tensor]:
+                       target_bias: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Grows a class layer of a source run to the classes of a new run that adds classes after them: the rows (output
-    channels of a convolution) of the source classes are kept, and the rows of the new classes are set by the
-    'new_class_initialisation' of the section. With "source", they are built by the initialisation of the layer (see
-    CLASS_LAYERS) from the source classes other than the background. With "random", they keep the random
-    initialisation the layer of the new run received when it was built, as in a run trained from scratch, the rows of
-    the source classes replacing the first rows of that layer.
+    channels of a convolution) of the source classes are copied, and the rows of the new classes keep the random
+    initialisation the layer of the new run received when it was built, as in a run trained from scratch. The rows of
+    a class follow each other (4 for the box regressor), so the rows of the source classes are the first rows of the
+    layer of the new run.
 
     Args:
         weight (torch.Tensor): The [source classes x rows per class, ...] weight of the source layer.
@@ -590,54 +570,21 @@ def extend_class_layer(weight: torch.Tensor, bias: torch.Tensor, target_weight: 
         target_weight (torch.Tensor): The [target classes x rows per class, ...] randomly initialised weight of the
             layer of the new run, which has more classes than the source layer.
         target_bias (torch.Tensor): The [target classes x rows per class] randomly initialised bias of that layer.
-        rows_per_class (int): The number of rows of every class (4 for the box regressor, 1 otherwise).
-        initialisation (str): "quiet", "zero" or "average", used by the "source" initialisation only.
-        new_class_initialisation (str): "source" or "random".
-        has_background_class (bool): Whether class 0 is the background, left out of the means of the new classes.
 
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: The [target classes x rows per class, ...] weight and the bias of the layer
-            of the new run.
+            of the new run, on the device and in the precision of the source layer.
     """
-    number_target_classes = target_weight.shape[0] // rows_per_class
-
     # Random initialisation of the new run kept for the new classes, its first rows replaced by the source classes
-    if new_class_initialisation == "random":
-        extended_weight = target_weight.detach().clone().to(device=weight.device, dtype=weight.dtype)
-        extended_bias = target_bias.detach().clone().to(device=bias.device, dtype=bias.dtype)
-        extended_weight[:weight.shape[0]] = weight
-        extended_bias[:bias.shape[0]] = bias
-        return extended_weight, extended_bias
-
-    # Rows grouped by class, [classes, rows per class, ...]
-    number_source_classes = weight.shape[0] // rows_per_class
-    number_new_classes = number_target_classes - number_source_classes
-    weight_rows = weight.reshape(number_source_classes, rows_per_class, *weight.shape[1:])
-    bias_rows = bias.reshape(number_source_classes, rows_per_class)
-
-    # Source classes the new ones are initialised from: the classes other than the background, in float32 for the means
-    first_reference_class = 1 if has_background_class and number_source_classes > 1 else 0
-    reference_weight_rows = weight_rows[first_reference_class:].float()
-    reference_bias_rows = bias_rows[first_reference_class:].float()
-
-    # Mean of the source classes, or zero weights with a zero bias or a bias below the mean source bias
-    if initialisation == "average":
-        new_weight_rows = reference_weight_rows.mean(dim=0, keepdim=True).expand(number_new_classes,
-                                                                                 *weight_rows.shape[1:])
-        new_bias_rows = reference_bias_rows.mean(dim=0, keepdim=True).expand(number_new_classes, rows_per_class)
-    else:
-        new_weight_rows = torch.zeros(size=(number_new_classes, *weight_rows.shape[1:]), device=weight.device)
-        new_bias = float(reference_bias_rows.mean()) - NEW_CLASS_BIAS_OFFSET if initialisation == "quiet" else 0.0
-        new_bias_rows = torch.full(size=(number_new_classes, rows_per_class), fill_value=new_bias, device=bias.device)
-
-    # Source rows first, then the new classes, in the precision of the source layer
-    extended_weight = torch.cat(tensors=[weight_rows, new_weight_rows.to(dtype=weight.dtype)], dim=0)
-    extended_bias = torch.cat(tensors=[bias_rows, new_bias_rows.to(dtype=bias.dtype)], dim=0)
-    return extended_weight.reshape(number_target_classes * rows_per_class, *weight.shape[1:]), extended_bias.reshape(-1)
+    extended_weight = target_weight.detach().clone().to(device=weight.device, dtype=weight.dtype)
+    extended_bias = target_bias.detach().clone().to(device=bias.device, dtype=bias.dtype)
+    extended_weight[:weight.shape[0]] = weight
+    extended_bias[:bias.shape[0]] = bias
+    return extended_weight, extended_bias
 
 
 def extend_class_layers(component_state: Dict[str, torch.Tensor], target_state: Dict[str, torch.Tensor],
-                        section_name: str, new_class_initialisation: str) -> Dict[str, torch.Tensor]:
+                        section_name: str) -> Dict[str, torch.Tensor]:
     """
     Grows every class layer of a source component whose layer in the new run has more classes and reads inputs of the
     same size (see extend_class_layer), the other tensors being kept as they are, so that compare_state_dictionaries
@@ -648,8 +595,6 @@ def extend_class_layers(component_state: Dict[str, torch.Tensor], target_state: 
         target_state (Dict[str, torch.Tensor]): The state dictionary of the component of the new run, holding the
             random initialisation of its layers.
         section_name (str): A key of CLASS_LAYERS.
-        new_class_initialisation (str): "source" to build the new classes from the source classes, "random" to keep
-            the random initialisation of the new run.
 
     Returns:
         Dict[str, torch.Tensor]: The tensors of the source component with its class layers grown.
@@ -660,32 +605,29 @@ def extend_class_layers(component_state: Dict[str, torch.Tensor], target_state: 
             continue
         module_name = tensor_name[:-len(".weight")]
         bias_name = f"{module_name}.bias"
-        class_layer = find_class_layer(section_name=section_name, module_name=module_name)
-        if class_layer is None or tensor_name not in target_state or bias_name not in component_state:
+        if find_class_layer(section_name=section_name, module_name=module_name) is None or \
+                tensor_name not in target_state or bias_name not in component_state:
             continue
 
         # Only a layer reading inputs of the same size with more classes in the new run grows
         target_weight = target_state[tensor_name]
         if target_weight.shape[1:] != source_weight.shape[1:] or target_weight.shape[0] <= source_weight.shape[0]:
             continue
-        initialisation, rows_per_class = class_layer
         extended_state[tensor_name], extended_state[bias_name] = extend_class_layer(
             weight=source_weight, bias=component_state[bias_name], target_weight=target_weight,
-            target_bias=target_state[bias_name], rows_per_class=rows_per_class, initialisation=initialisation,
-            new_class_initialisation=new_class_initialisation,
-            has_background_class=section_name in SECTIONS_WITH_BACKGROUND_CLASS)
+            target_bias=target_state[bias_name])
     return extended_state
 
 
 def prepare_class_layers(component_state: Dict[str, torch.Tensor], target_state: Dict[str, torch.Tensor],
-                         section_name: str, source_folder: Path, class_names: Optional[List[str]],
-                         new_class_initialisation: str) -> Dict[str, torch.Tensor]:
+                         section_name: str, source_folder: Path,
+                         class_names: Optional[List[str]]) -> Dict[str, torch.Tensor]:
     """
     Checks the classes of a source component against those of the new run (see compare_class_names) and grows its
-    class layers when the new run adds classes after them (see extend_class_layers), the new classes being built from
-    the source classes or kept random as set by 'new_class_initialisation', for the components with class layers: the
-    classification head, the detection heads, the mask heads and the class layers of the semantic segmentation. A
-    source run without class names prints that its classes are taken as the first classes of the new run.
+    class layers when the new run adds classes after them (see extend_class_layers), the new classes keeping the random
+    initialisation of the new run, for the components with class layers: the classification head, the detection
+    heads, the mask heads and the class layers of the semantic segmentation. A source run without class names prints
+    that its classes are taken as the first classes of the new run.
 
     Args:
         component_state (Dict[str, torch.Tensor]): The tensors of the source component, without prefix.
@@ -694,8 +636,6 @@ def prepare_class_layers(component_state: Dict[str, torch.Tensor], target_state:
         source_folder (Path): The run folder of the source run.
         class_names (Optional[List[str]]): The class names of the new run, in class index order, None for a task
             without them.
-        new_class_initialisation (str): "source" to build the new classes from the source classes, "random" to keep
-            the random initialisation of the new run ('<section>.pretrained.new_class_initialisation').
 
     Returns:
         Dict[str, torch.Tensor]: The tensors of the source component, its class layers grown to the classes of the new
@@ -726,13 +666,10 @@ def prepare_class_layers(component_state: Dict[str, torch.Tensor], target_state:
         print_color(color="yellow", output=f"The Source Run Has No Class Names In Its {DATA_RECORD_FILE_NAME} (Written "
                                            f"Before They Were Recorded): Its {number_source_classes} Classes Are Taken "
                                            f"As The First {number_source_classes} Classes Of This Run.")
-    new_class_description = "Built From The Source Classes" if new_class_initialisation == "source" else \
-        "Randomly Initialised"
     print_color(color="green", output=f"{component_name.title()} : {number_source_classes} Classes Of The Source Run "
                                       f"Kept, {number_target_classes - number_source_classes} New Classes Added After "
-                                      f"Them, {new_class_description}.")
-    return extend_class_layers(component_state=component_state, target_state=target_state, section_name=section_name,
-                               new_class_initialisation=new_class_initialisation)
+                                      "Them, Randomly Initialised.")
+    return extend_class_layers(component_state=component_state, target_state=target_state, section_name=section_name)
 
 
 def read_checkpoint_model_state(checkpoint_path: Path, device: torch.device,
@@ -773,8 +710,7 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     The component is read from the averaged weights of the checkpoint when it holds a moving average and the new run
     keeps one, from its trained weights otherwise (see read_checkpoint_model_state). The new run may add classes after
     those of the source run: the class layers of the classification head, detection heads and mask heads keep the rows
-    of the source classes and get rows for the new ones, built from the source classes or kept random as set by
-    '<section>.pretrained.new_class_initialisation' (see prepare_class_layers).
+    of the source classes, the rows of the new ones keeping their random initialisation (see prepare_class_layers).
 
     Args:
         component (nn.Module): The component of the new run, loaded in place.
@@ -850,10 +786,9 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     # Class layers checked against the classes of this run, and grown when it adds classes after the source ones
     target_state = component.state_dict()
     if section_name in CLASS_LAYERS:
-        component_state = prepare_class_layers(
-            component_state=component_state, target_state=target_state, section_name=section_name,
-            source_folder=source_folder, class_names=class_names,
-            new_class_initialisation=pretrained_configuration["new_class_initialisation"])
+        component_state = prepare_class_layers(component_state=component_state, target_state=target_state,
+                                               section_name=section_name, source_folder=source_folder,
+                                               class_names=class_names)
 
     # Every tensor of the component must then fit exactly
     state_differences = compare_state_dictionaries(source_state=component_state, target_state=target_state)
@@ -928,8 +863,7 @@ def load_segmentation_class_layers(segmenter: nn.Module, model_configuration: Di
     # Classes checked and grown as for the heads, then every tensor must fit exactly
     source_state = prepare_class_layers(component_state=source_state, target_state=target_state,
                                         section_name="SegmentationDecoder", source_folder=source_folder,
-                                        class_names=class_names,
-                                        new_class_initialisation=pretrained_configuration["new_class_initialisation"])
+                                        class_names=class_names)
     state_differences = compare_state_dictionaries(source_state=source_state, target_state=target_state)
     if state_differences:
         raise ValueError(f"The Segmentation Class Layer Tensors Of The Checkpoint "

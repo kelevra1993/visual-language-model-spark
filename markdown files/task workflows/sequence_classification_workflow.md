@@ -398,7 +398,7 @@ The sequence classification can transfer the backbone, the temporal module and t
 ```text
 pretrained_configurations['Backbone']           = {'experiment_folder': None, 'iteration': None, 'freeze': False, ...}
 pretrained_configurations['TemporalModel']      = {'experiment_folder': None, 'iteration': None, 'freeze': False, 'learning_rate_multiplier': 1.0}
-pretrained_configurations['ClassificationHead'] = {'experiment_folder': None, 'iteration': None, 'freeze': False, 'learning_rate_multiplier': 1.0, 'new_class_initialisation': 'source'}
+pretrained_configurations['ClassificationHead'] = {'experiment_folder': None, 'iteration': None, 'freeze': False, 'learning_rate_multiplier': 1.0}
 pretrained_checkpoint_paths                     = {'Backbone': None, 'TemporalModel': None, 'ClassificationHead': None}
 ```
 

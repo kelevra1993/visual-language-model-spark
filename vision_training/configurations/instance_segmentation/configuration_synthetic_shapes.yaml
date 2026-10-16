@@ -423,7 +423,7 @@ Detector:
   # DetectionLevels, the normalization and the modules must be identical in both runs, as well as the channels of the
   # backbone blocks feeding them, the classification and per-class box regression layers being transferred too. The
   # classes of the source run, read from its data.json, must be the first classes of this run, in the same order:
-  # classes may be appended after them, initialised as set by new_class_initialisation below.
+  # classes may be appended after them, keeping the random initialisation of this run.
   pretrained:
     # Run folder whose trained detection heads initialise this run, null to start from random weights. A run resuming
     # from its own checkpoints does not load them again.
@@ -436,11 +436,6 @@ Detector:
     # Multiplies the learning rate of the loaded heads, e.g. 0.1 to fine-tune them ten times slower than the new
     # layers.
     learning_rate_multiplier: 1.0
-    # Initialisation of the classes this run adds after those of the source run: "source" (classification rows
-    # with zero weights and a bias 3 below the mean of the copied foreground biases, box regression rows at zero)
-    # or "random" (the random initialisation of a run trained from scratch, whose first rows are replaced by the
-    # copied classes). Gives the DRND run name token when "random".
-    new_class_initialisation: "source"
 
 MaskHead:
   # Side M of the square masks predicted for every box, the same on every level since the masks of the levels are
@@ -474,8 +469,8 @@ MaskHead:
   # Mask heads of another INS run initialising this run instead of random weights. Their mask resolution, upsampling,
   # normalization, modules and mask_head of every level must be identical in both runs, as well as the levels and the
   # channels of the backbone blocks feeding them. The classes of the source run, read from its data.json, must be the
-  # first classes of this run, in the same order: classes may be appended after them, their mask channels initialised as
-  # set by new_class_initialisation below.
+  # first classes of this run, in the same order: classes may be appended after them, their mask channels keeping the
+  # random initialisation of this run.
   pretrained:
     # Run folder whose trained mask heads initialise this run, null to start from random weights. A run resuming
     # from its own checkpoints does not load them again.
@@ -488,7 +483,3 @@ MaskHead:
     # Multiplies the learning rate of the loaded heads, e.g. 0.1 to fine-tune them ten times slower than the new
     # layers.
     learning_rate_multiplier: 1.0
-    # Initialisation of the classes this run adds after those of the source run: "source" (the mean of the
-    # copied foreground channels) or "random" (the random initialisation of a run trained from scratch, whose
-    # first channels are replaced by the copied classes). Gives the MRND run name token when "random".
-    new_class_initialisation: "source"

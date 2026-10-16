@@ -8,8 +8,6 @@ error images settings of the classification-like and detection tasks).
 from typing import Any, Dict, List
 
 from vision_training.configuration_processing.configuration_values import (BACKBONE_FEATURE_MAP_NORMALIZATIONS,
-                                                                           CLASS_LAYER_SECTIONS,
-                                                                           NEW_CLASS_INITIALISATIONS,
                                                                            check_batch_normalization_momentum,
                                                                            check_boolean_flags, check_positive_integers,
                                                                            check_probability_value,
@@ -298,9 +296,6 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
     'freeze_normalization_parameters' flag keeps the scale and shift of its normalization layers fixed, which needs a
     source run that is not frozen anyway and a backbone with normalization layers. For the segmentation decoder, the
     'load_class_layers' flag also loads the segmentation head and the deep supervision heads, which needs a source run.
-    For the sections with class layers (CLASS_LAYER_SECTIONS), 'new_class_initialisation' chooses how the classes a run
-    adds after those of its source run are initialised, "source" or "random", the latter needing class layers copied
-    from a source run (a source run, and 'load_class_layers' for the segmentation decoder).
     The source run itself is only read when a new training starts, so that a trained run can still be evaluated and
     exported once its source run is gone.
 
@@ -350,26 +345,6 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
         if not class_layers_errors and experiment_folder is None and load_class_layers:
             errors.append(f"'{key_prefix}.load_class_layers' must be False when '{key_prefix}.experiment_folder' is "
                           f"null: the class layers are loaded from the source run of the decoder.")
-
-    # Initialisation of the classes added after those of the source run, for the components with class layers
-    if section_name in CLASS_LAYER_SECTIONS:
-        new_class_initialisation = get_configuration_value(configuration=model_configuration,
-                                                           key_path=f"{key_prefix}.new_class_initialisation")
-        if new_class_initialisation not in NEW_CLASS_INITIALISATIONS:
-            errors.append(f"'{key_prefix}.new_class_initialisation' must be one of {NEW_CLASS_INITIALISATIONS}, "
-                          f"got {new_class_initialisation!r}.")
-
-        # The "random" initialisation only applies to class layers copied from a source run, which the decoder only
-        # copies with 'load_class_layers'
-        elif new_class_initialisation == "random" and experiment_folder is None:
-            errors.append(f"'{key_prefix}.new_class_initialisation' must be \"source\" when '{key_prefix}."
-                          f"experiment_folder' is null: without a source run no class is copied and every class is "
-                          f"random already.")
-        elif new_class_initialisation == "random" and section_name == "SegmentationDecoder" and \
-                load_class_layers is False:
-            errors.append(f"'{key_prefix}.new_class_initialisation' must be \"source\" when '{key_prefix}."
-                          f"load_class_layers' is False: the class layers of the decoder are not copied from the "
-                          f"source run.")
     if section_name != "Backbone":
         return errors
 

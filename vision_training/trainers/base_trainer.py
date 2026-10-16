@@ -27,7 +27,6 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 from vision_training.configuration_processing.configuration_changes import (ConfigurationChanges, find_changed_settings,
                                                                             format_setting_value)
 from vision_training.configuration_processing.configuration_loader import load_configuration
-from vision_training.configuration_processing.configuration_values import CLASS_LAYER_SECTIONS
 from vision_training.configuration_processing.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
@@ -952,11 +951,6 @@ class BaseTrainer(ABC):
             if section_name == "SegmentationDecoder":
                 print_color(color="blue", output=f"    - Class Layers Loaded : "
                                                  f"{pretrained_configuration['load_class_layers']}")
-
-            # Initialisation of the classes added after those of the source run, for the components with class layers
-            if section_name in CLASS_LAYER_SECTIONS:
-                print_color(color="blue", output=f"    - New Classes Init.   : "
-                                                 f"{pretrained_configuration['new_class_initialisation']}")
 
             # Learning rate of the parameter group of a component that learns, the learning rate of the run times its
             # multiplier

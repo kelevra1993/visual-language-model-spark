@@ -17,14 +17,6 @@ BACKBONE_FEATURE_MAP_NORMALIZATIONS = VALID_FEATURE_MAP_NORMALIZATIONS + ["seque
 # learned 2x2 transposed convolution, or a bilinear upsampling followed by a convolution
 VALID_UPSAMPLINGS = ["transposed", "bilinear"]
 
-# Initialisation of the classes a run adds after those of the source run of a component with class layers
-# ('<section>.pretrained.new_class_initialisation'): "source" builds them from the source classes (quiet logits, zero
-# box regression, mean mask), "random" keeps the random initialisation of a run trained from scratch
-NEW_CLASS_INITIALISATIONS = ["source", "random"]
-
-# Sections whose component has class layers, the only ones with the 'new_class_initialisation' pretrained setting
-CLASS_LAYER_SECTIONS = ["ClassificationHead", "Detector", "MaskHead", "SegmentationDecoder"]
-
 
 class ConfigurationError(Exception):
     """

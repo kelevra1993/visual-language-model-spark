@@ -740,30 +740,26 @@ Backbone:
     learning_rate_multiplier: 0.1
 ```
 
-The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`, a source run written before `modules.residual_nets_v2` counting as False; for the classification head: `fully_connected` and `fully_connected_normalization`), which is checked before the training starts. The `batch_normalization_momentum` of every section changes no weight and may differ. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The region proposal heads need the same detection levels, the same `region_proposal` and number of anchors per position in every level and the same normalization, other anchor scales or ratios of the same counts being reported; the detection heads need the same detection levels, the same `detector` in every level, normalization and modules; the mask heads need the same detection levels, the same `mask_head` in every level, `mask_resolution`, `upsampling`, normalization and modules. An object detection run thus initialises an instance segmentation run, whose mask heads learn alone when the backbone, region proposal and detection heads are frozen. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen, prefixed by the letter of its section (e.g. `RPT` and `RFRZ` for the region proposal heads, [Run Names](#run-names)), `SegmentationDecoder.pretrained.load_class_layers` adds `DCL` after `DPT`, and `new_class_initialisation: "random"` adds `HRND`, `DRND` or `MRND` ([Adding Classes](#adding-classes)). The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
+The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`, a source run written before `modules.residual_nets_v2` counting as False; for the classification head: `fully_connected` and `fully_connected_normalization`), which is checked before the training starts. The `batch_normalization_momentum` of every section changes no weight and may differ. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The region proposal heads need the same detection levels, the same `region_proposal` and number of anchors per position in every level and the same normalization, other anchor scales or ratios of the same counts being reported; the detection heads need the same detection levels, the same `detector` in every level, normalization and modules; the mask heads need the same detection levels, the same `mask_head` in every level, `mask_resolution`, `upsampling`, normalization and modules. An object detection run thus initialises an instance segmentation run, whose mask heads learn alone when the backbone, region proposal and detection heads are frozen. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen, prefixed by the letter of its section (e.g. `RPT` and `RFRZ` for the region proposal heads, [Run Names](#run-names)), and `SegmentationDecoder.pretrained.load_class_layers` adds `DCL` after `DPT`. The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
 
 A component is loaded from the averaged weights of the source checkpoint when the source run kept a moving average of the weights ([Moving Average Of The Weights](#moving-average-of-the-weights)) and the new run has `Optimization.exponential_moving_average.activated` True, and from its trained weights otherwise. The console prints which weights initialised every component.
 
 ### Adding Classes
 A component with class layers (classification head, detection heads, mask heads, class layers of the SEG decoder) can initialise a run with more classes than its source run. The classes of the source run must be the first classes of the new run, in the same order, the background staying first for DET, INS and SEG; the new classes come after them. The class names of both runs are read from their `data.json` ([Run Folder](#run-folder)) and compared before the training starts: a renamed or reordered class, or fewer classes in the new run, stops the run. A source run written before the class names were recorded prints a warning and its classes are taken as the first classes of the new run. To add classes to a run, append them at the end of its label mapping file and give the new run the extended mapping.
 
-The rows of the source classes are copied, and the rows of the new classes are set by `pretrained.new_class_initialisation` of the section of the component, which lets both initialisations be benchmarked:
-- `"source"`: the new classes are built from the source classes, as in the table below, the background being left out of the means.
-- `"random"`: the new classes keep the random initialisation the layer of the new run received when it was built, as in a run trained from scratch (the PyTorch initialisation of its linear and convolution layers), the rows of the source classes replacing its first rows. The run name marks it with `HRND`, `DRND` or `MRND` after the transfer tokens of the component. It needs class layers copied from a source run: the check refuses it without `pretrained.experiment_folder`, and for the decoder without `load_class_layers`.
+The rows of the source classes are copied into the first rows of the class layers of the new run, and the rows of the new classes keep the random initialisation these layers received when the new run was built, as in a run trained from scratch (the PyTorch initialisation of its linear and convolution layers):
 
-| Layer | Section | New classes with `"source"` |
-|---|---|---|
-| Class layer of the classification head | `ClassificationHead` | zero weights, bias 3 below the mean bias of the source classes |
-| Classification layer of the detection heads | `Detector` | zero weights, bias 3 below the mean bias of the source foreground classes |
-| Box regression layer of the detection heads (4 rows per class) | `Detector` | zero weights and biases |
-| Mask prediction layer of the mask heads | `MaskHead` | mean of the weights and biases of the source foreground classes |
-| Final class layer and deep supervision layers of the decoder | `SegmentationDecoder` with `load_class_layers` | zero weights, bias 3 below the mean bias of the source foreground classes |
+| Layer | Section |
+|---|---|
+| Class layer of the classification head | `ClassificationHead` |
+| Classification layer of the detection heads | `Detector` |
+| Box regression layer of the detection heads (4 rows per class) | `Detector` |
+| Mask prediction layer of the mask heads | `MaskHead` |
+| Final class layer and deep supervision layers of the decoder | `SegmentationDecoder` with `load_class_layers` |
 
-With `"source"`, a new class thus starts at about 5 % of the probability of an average source class (e^-3), so that the predictions of the source classes are kept at the first iteration, and the box regression leaves its proposals unchanged. The mask classes do not compete with each other, so a new mask class starts from the mean mask of the source classes. With `"random"`, the new classes start with small random logits, box offsets and masks, which may change the predictions of the source classes during the first iterations. The console prints the number of kept and added classes of every component and their initialisation. With `load_class_layers`, a deep supervision level of the new run that the source run does not have keeps its random weights, with a warning.
+The new classes thus start with small random logits, box offsets and masks, which may change the predictions of the source classes during the first iterations. The console prints the number of kept and added classes of every component. With `load_class_layers`, a deep supervision level of the new run that the source run does not have keeps its random weights, with a warning.
 
-On the synthetic shapes, a classification run of 9 classes extended to 20 (stage 14 of `markdown files/experiment_plan.md`, two launches of each), `"random"` learns the 11 new classes as fast as a random classification head (accuracy 0.75 at iteration 250, against 0.31 with `"source"`), and keeps the 9 source classes as well (0.9986 with the averaged weights at iteration 250, 0.9997 with `"source"`). Use `"random"` to add classes, and `"source"` when the source classes must stay exact from the first iterations.
-
-A run folder trained before `new_class_initialisation` existed has no such key in its `training_configuration.yaml`: add `new_class_initialisation: "source"` (the initialisation it was trained with) to the `pretrained` block of its sections with class layers before evaluating it with `scripts/evaluation/evaluate_checkpoint.py` or exporting it.
+On the synthetic shapes, a classification run of 9 classes extended to 20 (stage 14 of `markdown files/experiment_plan.md`, two launches of each), the random new classes learn as fast as with a random classification head (accuracy of the 11 new classes 0.75 at iteration 250 with the trained weights, against 0.31 when they started with zero weights and a bias 3 below the mean of the copied biases, an initialisation since removed), and the 9 source classes are kept (0.9986 with the averaged weights at iteration 250).
 
 ## Evaluating Checkpoints
 `scripts/evaluation/evaluate_checkpoint.py` evaluates the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, without modifying the run folder. Set in its main block:
@@ -995,20 +991,20 @@ The training settings that can change between two resumptions of a run give no t
 | Detector | `DSE`, `DRES`, `DINC` | `Detector.modules` | ✓ | ✓ | | | | | | | |
 | Detector | `DBN`, `DLN`, `DNN` | `Detector.normalization.feature_map_normalization` | ✓ | ✓ | | | | | | | |
 | Detector | `D<pool>.<layers>x<filters>.<fully connected>` | `DetectionLevels.<level>.detector` | ✓ | ✓ | | | | | | | |
-| Detector | `DPT`, then `DRND` when the new classes start random, then `DFRZ` when frozen | `Detector.pretrained`, `new_class_initialisation` is random | ✓ | ✓ | | | | | | | |
+| Detector | `DPT`, then `DFRZ` when frozen | `Detector.pretrained` | ✓ | ✓ | | | | | | | |
 | Mask heads | `MSE`, `MRES`, `MINC` | `MaskHead.modules` | | ✓ | | | | | | | |
 | Mask heads | `MBN`, `MLN`, `MNN` | `MaskHead.normalization.feature_map_normalization` | | ✓ | | | | | | | |
 | Mask heads | `MUTC` or `MUBL` | `MaskHead.upsampling`: transposed, bilinear | | ✓ | | | | | | | |
 | Mask heads | `M<pool>.<layers>x<channels>` | `DetectionLevels.<level>.mask_head` | | ✓ | | | | | | | |
 | Mask heads | `MR<mask resolution>` | `MaskHead.mask_resolution` | | ✓ | | | | | | | |
-| Mask heads | `MPT`, then `MRND` when the new classes start random, then `MFRZ` when frozen | `MaskHead.pretrained`, `new_class_initialisation` is random | | ✓ | | | | | | | |
+| Mask heads | `MPT`, then `MFRZ` when frozen | `MaskHead.pretrained` | | ✓ | | | | | | | |
 | Tiling | `TL<scale>` | `Data.tiling.activated` is True, with `Data.tiling.scale` | | | | | | | ✓ | | |
 | Decoder | `UTC` or `UBL` | `SegmentationDecoder.upsampling`: transposed, bilinear | | | | | | | ✓ | | |
 | Decoder | `DSE`, `DRES` | `SegmentationDecoder.modules` | | | | | | | ✓ | | |
 | Decoder | `DBN`, `DLN`, `DNN` | `SegmentationDecoder.feature_map_normalization` | | | | | | | ✓ | | |
 | Decoder | `D<layers>x<channels>.…` | `SegmentationDecoder.convolutions`, one `<layers>x<channels>` per level from the deepest one | | | | | | | ✓ | | |
 | Decoder | `AUX<level>.…` | `SegmentationDecoder.deep_supervision_weights` is not empty, its levels from the deepest one | | | | | | | ✓ | | |
-| Decoder | `DPT`, then `DCL` with the class layers, then `DRND` when their new classes start random, then `DFRZ` when frozen | `SegmentationDecoder.pretrained`, `load_class_layers` is True, `new_class_initialisation` is random | | | | | | | ✓ | | |
+| Decoder | `DPT`, then `DCL` with the class layers, then `DFRZ` when frozen | `SegmentationDecoder.pretrained`, `load_class_layers` is True | | | | | | | ✓ | | |
 | Classes | `BIN` or `MC<classes>` | `Data.label_mapping.mode`: binary or multi_class, foreground classes of the label dictionary | ✓ | ✓ | | | | | ✓ | | |
 | Window | `T<frames>` | `Data.sequence_settings.sequence_length` (frames per member for CMP) | | | | ✓ | ✓ | ✓ | | ✓ | |
 | Temporal module | `MEAN`, `MAX`, `ATT<hidden size>` | `TemporalModel.type`: mean_pooling, max_pooling, attention_pooling | | | | ✓ | | ✓ | | | |
@@ -1026,7 +1022,7 @@ The training settings that can change between two resumptions of a run give no t
 | Head | `HBN`, `HLN` | `ClassificationHead.fully_connected_normalization` is batch or layer | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
 | Head | `LS<rate>` | `ClassificationHead.label_smoothing` is above 0 | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
 | Head | `CWB` | `ClassificationHead.class_weighting` is balanced | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| Head | `HPT`, then `HRND` when the new classes start random, then `HFRZ` when frozen | `ClassificationHead.pretrained`, `new_class_initialisation` is random | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
+| Head | `HPT`, then `HFRZ` when frozen | `ClassificationHead.pretrained` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
 | Classes | `MC<classes>` | `ClassificationHead.output_mode` multi_class, classes of the label dictionary | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
 | Classes | `ML<classes>` | `ClassificationHead.output_mode` multi_label | | | ✓ | | | | | | |
 | Selection | `FPC<frames>` | `Selection.frames_per_class` | | | | | | | | ✓ | |
@@ -1141,4 +1137,3 @@ The checkpoint evaluation and launch comparison scripts are in `scripts/`, also 
 ```
 
 ## TODO
-- Benchmark `pretrained.new_class_initialisation` on the detection heads (`DRND`) and the mask heads (`MRND`): train a DET and an INS run on part of the classes of the synthetic shapes, then runs on all of them initialised by its components, with `"source"` and with `"random"`, and compare the average precision of the source classes and of the new classes over the first evaluations, as stage 14 of `markdown files/experiment_plan.md` did for the classification head.

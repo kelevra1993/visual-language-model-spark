@@ -6,8 +6,6 @@ resume a run folder.
 
 from typing import Any, Callable, Dict, List
 
-from vision_training.configuration_processing.configuration_values import CLASS_LAYER_SECTIONS
-
 
 # Run name code of every feature map normalization strategy, also giving the HBN and HLN tokens of the normalized
 # hidden layers of the classification head
@@ -40,9 +38,8 @@ UPSAMPLING_CODES = {"transposed": "UTC", "bilinear": "UBL"}
 # Prefix of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
 # followed by '<prefix>FRZ' when it is frozen, i.e. PT and FRZ for the backbone, TPT and TFRZ for the temporal module,
 # HPT and HFRZ for the classification head, DPT and DFRZ for the segmentation decoder, RPT and RFRZ for the region
-# proposal heads, DPT and DFRZ for the detection heads, MPT and MFRZ for the mask heads, and '<prefix>RND' when the
-# classes a run adds after those of the source run start random (HRND, DRND, MRND). The learning rate multiplier of the
-# component gives no token, so that it can change between two resumptions of a run
+# proposal heads, DPT and DFRZ for the detection heads, and MPT and MFRZ for the mask heads. The learning rate
+# multiplier of the component gives no token, so that it can change between two resumptions of a run
 PRETRAINED_TOKEN_PREFIXES = {"Backbone": "", "TemporalModel": "T", "ClassificationHead": "H",
                              "SegmentationDecoder": "D", "RegionProposal": "R", "Detector": "D", "MaskHead": "M"}
 
@@ -92,13 +89,10 @@ def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: s
     """
     Builds the tokens of a component initialised by the trained one of another run, placed at the end of the section of
     the component in the run name (see PRETRAINED_TOKEN_PREFIXES): e.g. PT, then DCL when the segmentation decoder also
-    loads the class layers of the source run, then <prefix>RND when the classes added after those of the source run
-    keep the random initialisation of the new run ('new_class_initialisation' "random" of the classification head,
-    detection heads, mask heads and of the decoder loading its class layers), then FRZ when it is frozen, then FBN when
-    the scale and shift of the normalization layers of the backbone are kept fixed. A component trained from random
-    weights gives no token. The learning rate multiplier gives no token, the optimizer giving every transferred
-    component that learns its own parameter group whatever its multiplier, so that it can change between two
-    resumptions of a run.
+    loads the class layers of the source run, then FRZ when it is frozen, then FBN when the scale and shift of the
+    normalization layers of the backbone are kept fixed. A component trained from random weights gives no token. The
+    learning rate multiplier gives no token, the optimizer giving every transferred component that learns its own
+    parameter group whatever its multiplier, so that it can change between two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -116,14 +110,8 @@ def build_pretrained_tokens(model_configuration: Dict[str, Any], section_name: s
     pretrained_tokens = [f"{token_prefix}PT"]
 
     # Segmentation head and deep supervision heads loaded with the decoder, which changes what the run starts from
-    loads_class_layers = section_name != "SegmentationDecoder" or pretrained_configuration["load_class_layers"]
-    if section_name == "SegmentationDecoder" and loads_class_layers:
+    if section_name == "SegmentationDecoder" and pretrained_configuration["load_class_layers"]:
         pretrained_tokens.append("DCL")
-
-    # Classes added after those of the source run starting random, which changes what the run starts from
-    if section_name in CLASS_LAYER_SECTIONS and loads_class_layers and \
-            pretrained_configuration["new_class_initialisation"] == "random":
-        pretrained_tokens.append(f"{token_prefix}RND")
     if pretrained_configuration["freeze"]:
         pretrained_tokens.append(f"{token_prefix}FRZ")
 

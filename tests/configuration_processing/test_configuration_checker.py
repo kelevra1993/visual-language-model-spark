@@ -167,16 +167,6 @@ def set_invalid_detection_error_analysis(configuration: Dict[str, Any]) -> None:
         "target_precision": -0.1, "error_dumps": {"activated": "yes", "maximum_per_class_pair": 0}})
 
 
-def set_unknown_new_class_initialisation(configuration: Dict[str, Any]) -> None:
-    """
-    Sets an initialisation of the classes added after those of the source run that the transfer does not know.
-
-    Args:
-        configuration (Dict[str, Any]): The raw example configuration, modified in place.
-    """
-    configuration["Detector"]["pretrained"]["new_class_initialisation"] = "zeros"
-
-
 def set_unknown_task(configuration: Dict[str, Any]) -> None:
     """
     Sets a task that no trainer implements.
@@ -384,9 +374,7 @@ def set_pre_activation_without_residual_shortcuts(configuration: Dict[str, Any])
                             "'ExperimentConfiguration.tracking.tracking_uri' must be null or a non-empty string, "
                             "got ' '.",
                             "'ExperimentConfiguration.tracking.experiment_name' must be null or a non-empty string, "
-                            "got 12."]),
-    (set_unknown_new_class_initialisation, ["'Detector.pretrained.new_class_initialisation' must be one of ['source', "
-                                            "'random'], got 'zeros'."])])
+                            "got 12."])])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                 expected_messages: List[str]) -> None:
@@ -1848,113 +1836,6 @@ def test_inconsistent_instance_segmentation_configuration_is_rejected(
     printed_output = capsys.readouterr().out
     for expected_message in expected_messages:
         assert expected_message in printed_output
-    assert "Traceback" not in printed_output
-
-
-def transfer_classes_starting_random(configuration: Dict[str, Any]) -> None:
-    """
-    Initialises the classification head of a classifier, or the decoder of a semantic segmenter with its class layers,
-    with those of another run, the classes added after those of the source run keeping their random initialisation.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification or semantic segmentation configuration, modified in
-            place.
-    """
-    section_name = "ClassificationHead" if "ClassificationHead" in configuration else "SegmentationDecoder"
-    configuration[section_name]["pretrained"].update({"experiment_folder": "/runs/source",
-                                                      "new_class_initialisation": "random"})
-    if section_name == "SegmentationDecoder":
-        configuration[section_name]["pretrained"]["load_class_layers"] = True
-
-
-@pytest.mark.parametrize(argnames=("task_folder", "section_name"), argvalues=[
-    ("classification", "ClassificationHead"), ("semantic_segmentation", "SegmentationDecoder")])
-def test_random_new_classes_of_copied_class_layers_are_accepted(tmp_path: Path, task_folder: str,
-                                                                section_name: str) -> None:
-    """
-    Verifies that the "random" initialisation of the new classes passes the checks when the class layers are copied
-    from a source run: a transferred classification head, and a transferred decoder loading its class layers.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        task_folder (str): The folder of the configurations of the task.
-        section_name (str): The section of the component with class layers.
-    """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
-                                                  configuration_name="configuration_synthetic_shapes.yaml",
-                                                  modify_function=transfer_classes_starting_random)
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    assert model_configuration[section_name]["pretrained"]["new_class_initialisation"] == "random"
-
-
-def start_random_head_classes_without_source_run(configuration: Dict[str, Any]) -> None:
-    """
-    Starts the new classes of a classification head random while the head is trained from random weights.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ClassificationHead"]["pretrained"]["new_class_initialisation"] = "random"
-
-
-def start_random_mask_classes_without_source_run(configuration: Dict[str, Any]) -> None:
-    """
-    Starts the new classes of the mask heads random while the mask heads are trained from random weights.
-
-    Args:
-        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
-    """
-    configuration["MaskHead"]["pretrained"]["new_class_initialisation"] = "random"
-
-
-def start_random_decoder_classes_without_class_layers(configuration: Dict[str, Any]) -> None:
-    """
-    Starts the new classes of a transferred decoder random while its class layers are not loaded from the source run.
-
-    Args:
-        configuration (Dict[str, Any]): The raw semantic segmentation configuration, modified in place.
-    """
-    configuration["SegmentationDecoder"]["pretrained"].update({"experiment_folder": "/runs/source",
-                                                               "load_class_layers": False,
-                                                               "new_class_initialisation": "random"})
-
-
-@pytest.mark.parametrize(argnames=("task_folder", "modify_function", "expected_message"), argvalues=[
-    ("classification", start_random_head_classes_without_source_run,
-     "'ClassificationHead.pretrained.new_class_initialisation' must be \"source\" when "
-     "'ClassificationHead.pretrained.experiment_folder' is null: without a source run no class is copied and every "
-     "class is random already."),
-    ("instance_segmentation", start_random_mask_classes_without_source_run,
-     "'MaskHead.pretrained.new_class_initialisation' must be \"source\" when 'MaskHead.pretrained.experiment_folder' "
-     "is null"),
-    ("semantic_segmentation", start_random_decoder_classes_without_class_layers,
-     "'SegmentationDecoder.pretrained.new_class_initialisation' must be \"source\" when "
-     "'SegmentationDecoder.pretrained.load_class_layers' is False: the class layers of the decoder are not copied "
-     "from the source run.")])
-def test_random_new_classes_without_copied_class_layers_are_rejected(
-        tmp_path: Path, capsys: pytest.CaptureFixture, task_folder: str,
-        modify_function: Callable[[Dict[str, Any]], None], expected_message: str) -> None:
-    """
-    Verifies that the "random" initialisation of the new classes is refused when no class layer is copied from a
-    source run (no source run, or a decoder not loading its class layers), the setting then changing nothing but the
-    run name.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
-        task_folder (str): The folder of the configurations of the task.
-        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
-        expected_message (str): Message fragment that must appear in the printed output.
-    """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
-                                                  configuration_name="configuration_synthetic_shapes.yaml",
-                                                  modify_function=modify_function)
-
-    with pytest.raises(expected_exception=SystemExit):
-        load_experiment_configuration(configuration_path=configuration_path)
-
-    printed_output = capsys.readouterr().out
-    assert expected_message in printed_output
     assert "Traceback" not in printed_output
 
 

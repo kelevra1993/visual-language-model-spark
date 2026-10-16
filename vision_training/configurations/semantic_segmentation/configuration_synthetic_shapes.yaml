@@ -349,17 +349,12 @@ SegmentationDecoder:
     freeze: False
     # Also loads the segmentation head and the deep supervision heads of the levels present in both runs, which keep
     # learning when the decoder is frozen. The classes of the source run, read from its data.json, must be the first
-    # classes of this run, in the same order: classes may be appended after them, initialised as set by
-    # new_class_initialisation below. Requires an experiment_folder, gives the DCL token.
+    # classes of this run, in the same order: classes may be appended after them, keeping the random
+    # initialisation of this run. Requires an experiment_folder, gives the DCL token.
     load_class_layers: False
     # Multiplies the learning rate of the loaded decoder, e.g. 0.1 to fine-tune it ten times slower than the new
     # layers.
     learning_rate_multiplier: 1.0
-    # Initialisation of the classes this run adds after those of the source run when load_class_layers is True:
-    # "source" (zero weights and a bias 3 below the mean of the copied foreground biases) or "random" (the
-    # random initialisation of a run trained from scratch, whose first channels are replaced by the copied
-    # classes). Gives the DRND run name token when "random" with load_class_layers.
-    new_class_initialisation: "source"
 
 SegmentationLoss:
   # Weight of the pixel cross entropy, the unlabelled and padding pixels being ignored, 0 to disable.

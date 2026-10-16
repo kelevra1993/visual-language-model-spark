@@ -786,11 +786,11 @@ class with  722 images: 1271167 / (1000 x  722) = 1.7606     <- the largest weig
 ### Step 2.19 — `initialise_pretrained_components()`
 This is the transfer learning step. For each of the `Backbone` and `ClassificationHead` sections whose `pretrained.experiment_folder` is not `null`, it loads the trained weights of that other run into the component, and freezes it (or only the scale and shift of the normalization layers of the backbone) if asked. It raises an error if every parameter ends up frozen, since nothing would be learned. When a run resumes from its own checkpoint, the source run is not loaded again: the checkpoint already holds the components as they were trained.
 
-A component is read from the averaged weights of the source checkpoint when the source run kept a moving average and this run has `Optimization.exponential_moving_average.activated`, and from its trained weights otherwise (`read_checkpoint_model_state()`), the console printing which ones. The head may also have more classes than its source run: `prepare_class_layers()` compares the `class_names` of both `data.json` files (the source classes must be the first ones of this run, in the same order), then `extend_class_layers()` copies the rows of the source classes and sets those of the new ones as chosen by `ClassificationHead.pretrained.new_class_initialisation`: with `"source"`, zero weights and a bias 3 below the mean source bias (`NEW_CLASS_BIAS_OFFSET`), so that they start quiet in the softmax; with `"random"`, the random rows the head of this run was built with, the source rows replacing its first rows.
+A component is read from the averaged weights of the source checkpoint when the source run kept a moving average and this run has `Optimization.exponential_moving_average.activated`, and from its trained weights otherwise (`read_checkpoint_model_state()`), the console printing which ones. The head may also have more classes than its source run: `prepare_class_layers()` compares the `class_names` of both `data.json` files (the source classes must be the first ones of this run, in the same order), then `extend_class_layers()` copies the rows of the source classes into the first rows of the head of this run, the new classes keeping the random rows the head was built with.
 
 **Example: the head of a 9-class run initialising a run of 20 classes**
 ```text
-Classification Head : 9 Classes Of The Source Run Kept, 11 New Classes Added After Them, Built From The Source Classes.
+Classification Head : 9 Classes Of The Source Run Kept, 11 New Classes Added After Them, Randomly Initialised.
 Classification Head Initialised From The Averaged Weights Of : file:///.../run_37/CLS_IN-KAR-256_..._MC9/Weights/Iteration_2000/model_2000.pt
 ```
 
@@ -799,7 +799,7 @@ Classification Head Initialised From The Averaged Weights Of : file:///.../run_3
 pretrained_configurations['Backbone']           = {'experiment_folder': None, 'iteration': None, 'freeze': False,
                                                    'freeze_normalization_parameters': False, 'learning_rate_multiplier': 1.0}
 pretrained_configurations['ClassificationHead'] = {'experiment_folder': None, 'iteration': None, 'freeze': False,
-                                                   'learning_rate_multiplier': 1.0, 'new_class_initialisation': 'source'}
+                                                   'learning_rate_multiplier': 1.0}
 pretrained_checkpoint_paths                     = {'Backbone': None, 'ClassificationHead': None}   <- nothing loaded
 ```
 

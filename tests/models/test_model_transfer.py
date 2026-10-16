@@ -5,9 +5,9 @@ components (flattened heads, decoders and detection heads of other levels includ
 between window lengths, source runs missing a setting (the pre-activation flag of the backbone counting as off),
 frozen and fixed normalization parameters and backbones moving between batch and sequence normalization. The runs
 adding classes after those of their source run are covered too: the class layers of the classification, detection and
-mask heads and of the semantic segmentation grown to the new classes, started from the source classes or random, the
-sections of these class layers matching those the checker accepts, the classes of another order or fewer classes
-rejected, the source runs without class names, and the averaged or trained weights read from the source checkpoint.
+mask heads and of the semantic segmentation grown to the new classes, which keep the random initialisation of the new
+run, the classes of another order or fewer classes rejected, the source runs without class names, and the averaged or
+trained weights read from the source checkpoint.
 """
 
 import copy
@@ -19,16 +19,15 @@ import yaml
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from vision_training.configuration_processing.configuration_values import CLASS_LAYER_SECTIONS
 from vision_training.data.data_record import CLASS_NAMES_RECORD_KEY, DATA_RECORD_FILE_NAME
 from vision_training.models.classification.image_classifier import ImageClassifier
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
-from vision_training.models.model_transfer import (CLASS_LAYERS, NEW_CLASS_BIAS_OFFSET, NORMALIZATION_LAYER_TYPES,
-                                                   TRANSFERABLE_COMPONENTS, compare_detection_heads,
-                                                   disable_pretrained_settings, freeze_batch_normalization_statistics,
-                                                   freeze_component, freeze_normalization_parameters,
-                                                   load_pretrained_component, load_segmentation_class_layers)
+from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, TRANSFERABLE_COMPONENTS,
+                                                   compare_detection_heads, disable_pretrained_settings,
+                                                   freeze_batch_normalization_statistics, freeze_component,
+                                                   freeze_normalization_parameters, load_pretrained_component,
+                                                   load_segmentation_class_layers)
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import save_checkpoint
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY, NUMBER_UPDATES_KEY
@@ -101,8 +100,7 @@ def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: tor
         (run_folder / DATA_RECORD_FILE_NAME).write_text(data=json.dumps(obj={CLASS_NAMES_RECORD_KEY: class_names}))
 
 
-def point_to_source_run(configuration: Dict[str, Any], section_name: str, source_folder: Path,
-                        new_class_initialisation: str = "source") -> Dict[str, Any]:
+def point_to_source_run(configuration: Dict[str, Any], section_name: str, source_folder: Path) -> Dict[str, Any]:
     """
     Copies a configuration with the pretrained settings of one section pointing to a source run, the component of
     that section being then initialised by the one of the source run.
@@ -111,8 +109,6 @@ def point_to_source_run(configuration: Dict[str, Any], section_name: str, source
         configuration (Dict[str, Any]): The configuration of the run receiving the component.
         section_name (str): The section of the transferred component.
         source_folder (Path): The run folder of the source component.
-        new_class_initialisation (str): The initialisation of the classes added after those of the source run, set for
-            the sections with class layers only. Defaults to "source".
 
     Returns:
         Dict[str, Any]: The configuration with the pretrained settings of the section.
@@ -120,8 +116,6 @@ def point_to_source_run(configuration: Dict[str, Any], section_name: str, source
     target_configuration = copy.deepcopy(configuration)
     no_transfer = NO_BACKBONE_TRANSFER if section_name == "Backbone" else NO_TRANSFER
     target_configuration[section_name]["pretrained"] = {**no_transfer, "experiment_folder": str(source_folder)}
-    if section_name in CLASS_LAYER_SECTIONS:
-        target_configuration[section_name]["pretrained"]["new_class_initialisation"] = new_class_initialisation
     return target_configuration
 
 
@@ -1208,22 +1202,18 @@ def list_detection_class_names(configuration: Dict[str, Any]) -> List[str]:
     return sorted(label_dictionary, key=lambda class_name: label_dictionary[class_name])
 
 
-@pytest.mark.parametrize(argnames="new_class_initialisation", argvalues=["source", "random"])
 @pytest.mark.parametrize(argnames="task", argvalues=["classification", "sequence_labelling"])
 def test_classification_head_adds_classes_after_the_source_classes(tmp_path: Path, task: str,
-                                                                   new_class_initialisation: str,
                                                                    capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that the classification head of a run of 3 classes initialises the head of a run adding 2 classes after
     them, for an image classifier and a sequence labeller (many-to-many): the hidden layers and the classifier rows of
-    the source classes are copied exactly, and the new classes start, with the "source" initialisation, with zero
-    weights and a bias NEW_CLASS_BIAS_OFFSET below the mean bias of the source classes, or, with the "random" one, with
-    the random weights and biases the head of the new run was built with.
+    the source classes are copied exactly, and the new classes keep the random weights and biases the head of the new
+    run was built with.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         task (str): The task of both runs.
-        new_class_initialisation (str): The initialisation of the new classes, "source" or "random".
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
     """
     source_configuration = get_class_configuration(task=task, number_classes=3)
@@ -1235,10 +1225,9 @@ def test_classification_head_adds_classes_after_the_source_classes(tmp_path: Pat
     initial_target_state = {tensor_name: tensor_value.clone() for tensor_name, tensor_value in
                             target_model.classification_head.state_dict().items()}
     load_pretrained_component(component=target_model.classification_head, section_name="ClassificationHead",
-                              model_configuration=point_to_source_run(
-                                  configuration=target_configuration, section_name="ClassificationHead",
-                                  source_folder=tmp_path / "source_run",
-                                  new_class_initialisation=new_class_initialisation),
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="ClassificationHead",
+                                                                      source_folder=tmp_path / "source_run"),
                               device=torch.device("cpu"), class_names=SOURCE_CLASS_NAMES + NEW_CLASS_NAMES)
 
     # Hidden layers and source classes copied exactly
@@ -1250,19 +1239,12 @@ def test_classification_head_adds_classes_after_the_source_classes(tmp_path: Pat
     assert torch.equal(input=target_state["classifier.weight"][:3], other=source_state["classifier.weight"])
     assert torch.equal(input=target_state["classifier.bias"][:3], other=source_state["classifier.bias"])
 
-    # New classes starting quiet, or keeping the random initialisation of the new run
-    if new_class_initialisation == "source":
-        assert torch.count_nonzero(input=target_state["classifier.weight"][3:]) == 0
-        expected_bias = source_state["classifier.bias"].mean() - NEW_CLASS_BIAS_OFFSET
-        assert torch.allclose(input=target_state["classifier.bias"][3:], other=expected_bias.expand(2))
-        expected_description = "Built From The Source Classes"
-    else:
-        for tensor_name in ["classifier.weight", "classifier.bias"]:
-            assert torch.equal(input=target_state[tensor_name][3:], other=initial_target_state[tensor_name][3:])
-        assert torch.count_nonzero(input=target_state["classifier.weight"][3:]) > 0
-        expected_description = "Randomly Initialised"
-    assert (f"Classification Head : 3 Classes Of The Source Run Kept, 2 New Classes Added After Them, "
-            f"{expected_description}.") in capsys.readouterr().out
+    # New classes keeping the random initialisation of the new run
+    for tensor_name in ["classifier.weight", "classifier.bias"]:
+        assert torch.equal(input=target_state[tensor_name][3:], other=initial_target_state[tensor_name][3:])
+    assert torch.count_nonzero(input=target_state["classifier.weight"][3:]) > 0
+    assert ("Classification Head : 3 Classes Of The Source Run Kept, 2 New Classes Added After Them, Randomly "
+            "Initialised.") in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(argnames=("source_class_names", "target_class_names", "expected_message"), argvalues=[
@@ -1332,10 +1314,9 @@ def test_source_run_without_class_names_keeps_its_class_order(tmp_path: Path, ca
 def test_detection_heads_add_classes_after_the_source_classes(tmp_path: Path) -> None:
     """
     Verifies that the detection heads of a detector of 5 foreground classes initialise the heads of a detector adding
-    2 classes after them: on every level the classifier keeps the rows of the background and of the source classes,
-    the new classes starting with zero weights and a bias NEW_CLASS_BIAS_OFFSET below the mean bias of the source
-    foreground classes, and the box regressor keeps the 4 rows of every source class, those of the new classes being
-    zero, the other layers being copied exactly.
+    2 classes after them: on every level, the layers without classes are copied exactly, the classifier keeps the rows
+    of the background and of the 5 source classes and the box regressor the 4 rows of every source class, while the
+    rows of the 2 new classes keep the random weights and biases the heads of the new detector were built with.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1347,6 +1328,8 @@ def test_detection_heads_add_classes_after_the_source_classes(tmp_path: Path) ->
     target_configuration = copy.deepcopy(source_configuration)
     target_configuration["Data"]["label_dictionary"].update({"foreground_6": 6, "foreground_7": 7})
     target_detector = build_task_model(task="object_detection", configuration=target_configuration, seed=1)
+    initial_target_state = {tensor_name: tensor_value.clone() for tensor_name, tensor_value in
+                            target_detector.detector_heads_dictionary.state_dict().items()}
     load_pretrained_component(component=target_detector.detector_heads_dictionary, section_name="Detector",
                               model_configuration=point_to_source_run(configuration=target_configuration,
                                                                       section_name="Detector",
@@ -1363,51 +1346,6 @@ def test_detection_heads_add_classes_after_the_source_classes(tmp_path: Path) ->
                     "bounding_box_regressor" not in tensor_name:
                 assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
 
-        # Classifier: background and source classes copied, new classes quiet
-        source_bias = source_state[f"{level}.classifier.bias"]
-        assert torch.equal(input=target_state[f"{level}.classifier.weight"][:6],
-                           other=source_state[f"{level}.classifier.weight"])
-        assert torch.equal(input=target_state[f"{level}.classifier.bias"][:6], other=source_bias)
-        assert torch.count_nonzero(input=target_state[f"{level}.classifier.weight"][6:]) == 0
-        assert torch.allclose(input=target_state[f"{level}.classifier.bias"][6:],
-                              other=(source_bias[1:].mean() - NEW_CLASS_BIAS_OFFSET).expand(2))
-
-        # Box regressor: 4 rows per class, those of the new classes being zero
-        assert torch.equal(input=target_state[f"{level}.bounding_box_regressor.weight"][:24],
-                           other=source_state[f"{level}.bounding_box_regressor.weight"])
-        assert torch.count_nonzero(input=target_state[f"{level}.bounding_box_regressor.weight"][24:]) == 0
-        assert torch.count_nonzero(input=target_state[f"{level}.bounding_box_regressor.bias"][24:]) == 0
-
-
-def test_detection_heads_add_random_classes_after_the_source_classes(tmp_path: Path) -> None:
-    """
-    Verifies the "random" initialisation of the classes the detection heads add after those of their source run: on
-    every level, the classifier keeps the rows of the background and of the 5 source classes and the box regressor
-    the 4 rows of every source class, while the rows of the 2 new classes keep the random weights and biases the heads
-    of the new detector were built with, instead of the quiet classifier rows and zero box regression rows.
-
-    Args:
-        tmp_path (Path): The pytest temporary directory.
-    """
-    source_configuration, _, _ = get_detection_model_configuration()
-    source_configuration, source_detector = write_detector_run(
-        run_folder=tmp_path / "detection_run",
-        class_names=list_detection_class_names(configuration=source_configuration))
-    target_configuration = copy.deepcopy(source_configuration)
-    target_configuration["Data"]["label_dictionary"].update({"foreground_6": 6, "foreground_7": 7})
-    target_detector = build_task_model(task="object_detection", configuration=target_configuration, seed=1)
-    initial_target_state = {tensor_name: tensor_value.clone() for tensor_name, tensor_value in
-                            target_detector.detector_heads_dictionary.state_dict().items()}
-    load_pretrained_component(component=target_detector.detector_heads_dictionary, section_name="Detector",
-                              model_configuration=point_to_source_run(
-                                  configuration=target_configuration, section_name="Detector",
-                                  source_folder=tmp_path / "detection_run", new_class_initialisation="random"),
-                              device=torch.device("cpu"),
-                              class_names=list_detection_class_names(configuration=target_configuration))
-
-    source_state = source_detector.detector_heads_dictionary.state_dict()
-    target_state = target_detector.detector_heads_dictionary.state_dict()
-    for level in ["5", "6", "7"]:
         # Rows of the background and source classes copied, rows of the new classes left as the new run built them,
         # 1 row per class for the classifier and 4 for the box regressor
         for layer_name, number_source_rows in [("classifier", 6), ("bounding_box_regressor", 24)]:
@@ -1420,20 +1358,17 @@ def test_detection_heads_add_random_classes_after_the_source_classes(tmp_path: P
             assert torch.count_nonzero(input=target_state[f"{level}.{layer_name}.weight"][number_source_rows:]) > 0
 
 
-@pytest.mark.parametrize(argnames="new_class_initialisation", argvalues=["source", "random"])
-def test_mask_heads_initialise_an_instance_segmenter_of_more_classes(tmp_path: Path, capsys: pytest.CaptureFixture,
-                                                                     new_class_initialisation: str) -> None:
+def test_mask_heads_initialise_an_instance_segmenter_of_more_classes(tmp_path: Path,
+                                                                     capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the transfer of the mask heads between two instance segmenters, the run receiving them adding 2 classes:
     the convolutions and upsamplings of every level are copied exactly, the mask predictor keeps the channels of the
-    background and of the source classes, and the channels of the new classes start as the mean of the source
-    foreground channels with "source", or keep the random weights the mask heads of the new run were built with with
-    "random".
+    background and of the source classes, and the channels of the new classes keep the random weights the mask heads
+    of the new run were built with.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
-        new_class_initialisation (str): The initialisation of the new classes, "source" or "random".
     """
     source_configuration, _, _ = get_detection_model_configuration(mask_head=True)
     source_configuration, source_segmenter = write_detector_run(
@@ -1445,10 +1380,9 @@ def test_mask_heads_initialise_an_instance_segmenter_of_more_classes(tmp_path: P
     initial_target_state = {tensor_name: tensor_value.clone() for tensor_name, tensor_value in
                             target_segmenter.mask_heads_dictionary.state_dict().items()}
     load_pretrained_component(component=target_segmenter.mask_heads_dictionary, section_name="MaskHead",
-                              model_configuration=point_to_source_run(
-                                  configuration=target_configuration, section_name="MaskHead",
-                                  source_folder=tmp_path / "instance_run",
-                                  new_class_initialisation=new_class_initialisation),
+                              model_configuration=point_to_source_run(configuration=target_configuration,
+                                                                      section_name="MaskHead",
+                                                                      source_folder=tmp_path / "instance_run"),
                               device=torch.device("cpu"),
                               class_names=list_detection_class_names(configuration=target_configuration))
 
@@ -1460,14 +1394,9 @@ def test_mask_heads_initialise_an_instance_segmenter_of_more_classes(tmp_path: P
             assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
             continue
 
-        # Mask predictor: background and source classes copied, new classes as the mean source foreground channel or
-        # as the new run built them
+        # Mask predictor: background and source classes copied, new classes as the new run built them
         assert torch.equal(input=target_state[tensor_name][:6], other=tensor_value), tensor_name
-        if new_class_initialisation == "source":
-            assert torch.allclose(input=target_state[tensor_name][6:],
-                                  other=tensor_value[1:].mean(dim=0, keepdim=True).expand(2, *tensor_value.shape[1:]))
-        else:
-            assert torch.equal(input=target_state[tensor_name][6:], other=initial_target_state[tensor_name][6:])
+        assert torch.equal(input=target_state[tensor_name][6:], other=initial_target_state[tensor_name][6:])
     assert "Mask Heads Initialised From The Trained Weights Of" in capsys.readouterr().out
 
 
@@ -1494,21 +1423,18 @@ def test_mask_heads_of_another_mask_resolution_are_rejected(tmp_path: Path) -> N
     assert "'MaskHead.mask_resolution' is 14 in the source run and 28 in this run." in str(error_information.value)
 
 
-@pytest.mark.parametrize(argnames="new_class_initialisation", argvalues=["source", "random"])
-def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: pytest.CaptureFixture,
-                                                      new_class_initialisation: str) -> None:
+def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the loading of the class layers of a semantic segmenter with its decoder
     ('SegmentationDecoder.pretrained.load_class_layers'), the run receiving them adding 2 classes and a deep
     supervision head: the segmentation head and the deep supervision head of level 3, supervised by both runs, keep the
-    channels of the background and of the source classes, the new classes starting quiet with "source" or keeping the
-    random weights the new run was built with with "random", while the deep supervision head of level 2, supervised by
-    this run only, keeps its random weights, which is reported.
+    channels of the background and of the source classes, the new classes keeping the random weights the new run was
+    built with, while the deep supervision head of level 2, supervised by this run only, keeps its random weights,
+    which is reported.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the transfer.
-        new_class_initialisation (str): The initialisation of the new classes, "source" or "random".
     """
     source_configuration, _, _ = get_segmentation_model_configuration(upsampling="transposed")
     source_configuration["SegmentationDecoder"]["deep_supervision_weights"] = {"3": 0.2}
@@ -1521,8 +1447,7 @@ def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: py
     target_configuration["Data"]["label_dictionary"].update({3: 3, 4: 4})
     target_configuration["SegmentationDecoder"]["deep_supervision_weights"] = {"3": 0.2, "2": 0.3}
     target_configuration = point_to_source_run(configuration=target_configuration, section_name="SegmentationDecoder",
-                                               source_folder=tmp_path / "segmentation_run",
-                                               new_class_initialisation=new_class_initialisation)
+                                               source_folder=tmp_path / "segmentation_run")
     target_configuration["SegmentationDecoder"]["pretrained"]["load_class_layers"] = True
     target_segmenter = build_task_model(task="semantic_segmentation", configuration=target_configuration, seed=1)
     initial_target_state = copy.deepcopy(target_segmenter.state_dict())
@@ -1534,20 +1459,13 @@ def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: py
     load_segmentation_class_layers(segmenter=target_segmenter, model_configuration=target_configuration,
                                    device=torch.device("cpu"), class_names=target_class_names)
 
-    # Class layers of both runs: background and source classes copied, new classes quiet or as the new run built them
+    # Class layers of both runs: background and source classes copied, new classes as the new run built them
     source_state = source_segmenter.state_dict()
     target_state = target_segmenter.state_dict()
     for module_name in ["segmentation_head.1", "deep_supervision_heads.3"]:
-        source_bias = source_state[f"{module_name}.bias"]
-        assert torch.equal(input=target_state[f"{module_name}.weight"][:3], other=source_state[f"{module_name}.weight"])
-        assert torch.equal(input=target_state[f"{module_name}.bias"][:3], other=source_bias)
-        if new_class_initialisation == "source":
-            assert torch.count_nonzero(input=target_state[f"{module_name}.weight"][3:]) == 0
-            assert torch.allclose(input=target_state[f"{module_name}.bias"][3:],
-                                  other=(source_bias[1:].mean() - NEW_CLASS_BIAS_OFFSET).expand(2))
-        else:
-            for tensor_name in [f"{module_name}.weight", f"{module_name}.bias"]:
-                assert torch.equal(input=target_state[tensor_name][3:], other=initial_target_state[tensor_name][3:])
+        for tensor_name in [f"{module_name}.weight", f"{module_name}.bias"]:
+            assert torch.equal(input=target_state[tensor_name][:3], other=source_state[tensor_name])
+            assert torch.equal(input=target_state[tensor_name][3:], other=initial_target_state[tensor_name][3:])
 
     # Deep supervision head of this run only kept random
     for tensor_name, tensor_value in target_segmenter.deep_supervision_heads["2"].state_dict().items():
@@ -1555,15 +1473,6 @@ def test_segmentation_class_layers_follow_the_decoder(tmp_path: Path, capsys: py
     console_output = capsys.readouterr().out
     assert "The Source Run Has No Deep Supervision Head On The Levels ['2']" in console_output
     assert "Segmentation Class Layers Initialised From The Trained Weights Of" in console_output
-
-
-def test_class_layer_tables_name_the_same_sections() -> None:
-    """
-    Verifies that the sections the configuration checker accepts 'new_class_initialisation' for (CLASS_LAYER_SECTIONS)
-    are those whose class layers the transfer grows to the new classes (CLASS_LAYERS), so that a section added to one
-    table without the other is caught.
-    """
-    assert sorted(CLASS_LAYERS) == sorted(CLASS_LAYER_SECTIONS)
 
 
 @pytest.mark.parametrize(argnames=("source_has_average", "target_averages", "expected_weights"),
