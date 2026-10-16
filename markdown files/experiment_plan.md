@@ -2,7 +2,7 @@
 
 - **Configurations:** `vision_training/configurations/classification/run-<n>.yaml`, one per launch (`run-1.yaml` to `run-10.yaml` for stage 1), launched with `uv run python -m vision_training.main --configuration_path=vision_training/configurations/classification/run-<n>.yaml`; the files of the later stages are copies of the kept one with the changed parameter
 - **Dataset:** synthetic shapes classification, 9 classes (20 classes for stage 14, see Class Extension Stage), 500,000 train / 50,000 validation / 50,000 test images, resized to 256 pixels
-- **Launch folders:** `hyperparameter_experiments/run_1` to `run_42` at the repository root, set as `ExperimentConfiguration.experiment_folder` before every launch
+- **Launch folders:** `hyperparameter_experiments/run_1` to `run_44` at the repository root, set as `ExperimentConfiguration.experiment_folder` before every launch
 
 ## Strategy
 
@@ -311,7 +311,7 @@ In 2,000 iterations, the decay of the n-th update, min(decay, (1 + n) / (10 + n)
 | trained (EMA on) | run_37 | 0.4896 | 0.8186 | 0.9571 | 0.9757 | 0.9794 | 0.9854 | 0.9913 | 0.9906 | 0.8985 |
 | trained (EMA on) | run_38 | 0.4672 | 0.8123 | 0.9752 | 0.9083 | 0.9611 | 0.9853 | 0.9908 | 0.9908 | 0.8864 |
 | trained (EMA on) | **Mean** | 0.4784 | 0.8155 | 0.9662 | 0.9420 | 0.9702 | 0.9854 | 0.9911 | 0.9907 | 0.8924 |
-| EMA | run_37 | 0.5675 | 0.8761 | 0.9832 | 0.9899 | 0.9928 | 0.9953 | 0.9962 | 0.9968 | 0.9247 |
+| EMA | run_37, source | 0.5675 | 0.8761 | 0.9832 | 0.9899 | 0.9928 | 0.9953 | 0.9962 | 0.9968 | 0.9247 |
 | EMA | run_38 | 0.5074 | 0.9295 | 0.9841 | 0.9904 | 0.9925 | 0.9940 | 0.9955 | 0.9957 | 0.9236 |
 | EMA | **Mean** | 0.5374 | 0.9028 | 0.9836 | 0.9901 | 0.9927 | 0.9946 | 0.9959 | 0.9962 | 0.9242 |
 
@@ -321,9 +321,9 @@ In 2,000 iterations, the decay of the n-th update, min(decay, (1 + n) / (10 + n)
 
 Stage 14 tests the class extension, which lets a trained run initialise a run with more classes (`pretrained` blocks of `Backbone` and `ClassificationHead`, README section Adding Classes). Its launches train on `synthetic_shapes_20`, a dataset of 20 classes with the same split sizes (500,000 train / 50,000 validation / 50,000 test images): the 9 classes of the earlier stages keep their identifiers 1 to 9 and come first, followed by rhombus, parallelogram, trapezoid, kite, heptagon, nonagon, ellipse, semicircle, annulus, capsule and l_shape, every shape measuring at least 64 pixels. A first launch on 21 classes, with a right triangle, confused the triangles with the right triangles (triangle recall 0.12 with the trained weights at iteration 1500), so the right triangle was removed and the dataset generated again. The launches use the settings of `run-37.yaml` (moving average on) with `per_class_report: True`, and ran two at a time on the GPU, the ImageNet training being stopped: their duration is not comparable with the earlier stages.
 
-### Stage 14: Adding Classes (4 launches)
+### Stage 14: Adding Classes (6 launches)
 
-Every launch starts from iteration 2000 of run_37, read from its averaged weights since the launches keep a moving average, nothing being frozen. `run-39.yaml` and `run-40.yaml` take the backbone of run_37 and a random classification head of 20 classes (run name token `PT`); `run-41.yaml` and `run-42.yaml` take its backbone and its classification head (token `HPT`), the hidden layers `[256, 128]` and the 9 class rows of the head being copied, the 11 new rows starting at zero weights with a bias 3 below the mean of the 9 copied biases. The random head is the reference: the transfer of the head succeeds if it keeps the 9 classes without slowing the 11 new ones. The first table gives the accuracy of the 20 classes (`results.csv`), the two others the Mean rows of the 9 classes of run_37 and of the 11 new classes, computed from the recall and the number of test images of every class in the `class_metrics.csv` of every evaluation.
+Every launch starts from iteration 2000 of run_37, read from its averaged weights since the launches keep a moving average, nothing being frozen. `run-39.yaml` and `run-40.yaml` take the backbone of run_37 and a random classification head of 20 classes (run name token `PT`); `run-41.yaml` and `run-42.yaml` take its backbone and its classification head (token `HPT`), the hidden layers `[256, 128]` and the 9 class rows of the head being copied, the 11 new rows starting at zero weights with a bias 3 below the mean of the 9 copied biases (`new_class_initialisation: "source"`). `run-43.yaml` and `run-44.yaml` copy the same backbone, hidden layers and 9 class rows, the 11 new rows keeping the random initialisation of the new run (`new_class_initialisation: "random"`, token `HRND`). The random head is the reference: the transfer of the head succeeds if it keeps the 9 classes without slowing the 11 new ones. The first table gives the accuracy of the 20 classes (`results.csv`), the two others the Mean rows of the 9 classes of run_37 and of the 11 new classes, computed from the recall and the number of test images of every class in the `class_metrics.csv` of every evaluation.
 
 All 20 classes:
 
@@ -332,35 +332,47 @@ All 20 classes:
 | trained | random | run_39 | 0.8495 | 0.9091 | 0.9512 | 0.9779 | 0.9847 | 0.9844 | 0.9934 | 0.9881 | 0.9548 |
 | trained | random | run_40 | 0.8622 | 0.7718 | 0.9073 | 0.9758 | 0.9909 | 0.9655 | 0.9910 | 0.9937 | 0.9323 |
 | trained | random | **Mean** | 0.8558 | 0.8405 | 0.9292 | 0.9769 | 0.9878 | 0.9749 | 0.9922 | 0.9909 | 0.9435 |
-| trained | run_37 | run_41 | 0.6039 | 0.7743 | 0.8013 | 0.9114 | 0.9371 | 0.9656 | 0.9638 | 0.9789 | 0.8670 |
-| trained | run_37 | run_42 | 0.6101 | 0.7161 | 0.8149 | 0.9003 | 0.9240 | 0.9418 | 0.9595 | 0.9846 | 0.8564 |
-| trained | run_37 | **Mean** | 0.6070 | 0.7452 | 0.8081 | 0.9058 | 0.9305 | 0.9537 | 0.9616 | 0.9818 | 0.8617 |
+| trained | run_37, source | run_41 | 0.6039 | 0.7743 | 0.8013 | 0.9114 | 0.9371 | 0.9656 | 0.9638 | 0.9789 | 0.8670 |
+| trained | run_37, source | run_42 | 0.6101 | 0.7161 | 0.8149 | 0.9003 | 0.9240 | 0.9418 | 0.9595 | 0.9846 | 0.8564 |
+| trained | run_37, source | **Mean** | 0.6070 | 0.7452 | 0.8081 | 0.9058 | 0.9305 | 0.9537 | 0.9616 | 0.9818 | 0.8617 |
+| trained | run_37, random | run_43 | 0.8553 | 0.9470 | 0.9490 | 0.9692 | 0.9868 | 0.9824 | 0.9564 | 0.9966 | 0.9553 |
+| trained | run_37, random | run_44 | 0.8245 | 0.9168 | 0.9484 | 0.9721 | 0.9579 | 0.9907 | 0.9954 | 0.9955 | 0.9502 |
+| trained | run_37, random | **Mean** | 0.8399 | 0.9319 | 0.9487 | 0.9707 | 0.9723 | 0.9866 | 0.9759 | 0.9961 | 0.9528 |
 | EMA | random | run_39 | 0.9156 | 0.9701 | 0.9916 | 0.9971 | 0.9989 | 0.9994 | 0.9993 | 0.9996 | 0.9839 |
 | EMA | random | run_40 | 0.9034 | 0.9449 | 0.9816 | 0.9935 | 0.9984 | 0.9990 | 0.9995 | 0.9997 | 0.9775 |
 | EMA | random | **Mean** | 0.9095 | 0.9575 | 0.9866 | 0.9953 | 0.9986 | 0.9992 | 0.9994 | 0.9997 | 0.9807 |
-| EMA | run_37 | run_41 | 0.6630 | 0.7951 | 0.8630 | 0.9162 | 0.9444 | 0.9641 | 0.9889 | 0.9959 | 0.8913 |
-| EMA | run_37 | run_42 | 0.6629 | 0.7943 | 0.8778 | 0.9202 | 0.9435 | 0.9527 | 0.9706 | 0.9910 | 0.8892 |
-| EMA | run_37 | **Mean** | 0.6630 | 0.7947 | 0.8704 | 0.9182 | 0.9440 | 0.9584 | 0.9798 | 0.9935 | 0.8902 |
+| EMA | run_37, source | run_41 | 0.6630 | 0.7951 | 0.8630 | 0.9162 | 0.9444 | 0.9641 | 0.9889 | 0.9959 | 0.8913 |
+| EMA | run_37, source | run_42 | 0.6629 | 0.7943 | 0.8778 | 0.9202 | 0.9435 | 0.9527 | 0.9706 | 0.9910 | 0.8892 |
+| EMA | run_37, source | **Mean** | 0.6630 | 0.7947 | 0.8704 | 0.9182 | 0.9440 | 0.9584 | 0.9798 | 0.9935 | 0.8902 |
+| EMA | run_37, random | run_43 | 0.9093 | 0.9712 | 0.9875 | 0.9959 | 0.9986 | 0.9994 | 0.9996 | 0.9996 | 0.9826 |
+| EMA | run_37, random | run_44 | 0.8899 | 0.9491 | 0.9773 | 0.9917 | 0.9968 | 0.9990 | 0.9995 | 0.9998 | 0.9754 |
+| EMA | run_37, random | **Mean** | 0.8996 | 0.9601 | 0.9824 | 0.9938 | 0.9977 | 0.9992 | 0.9996 | 0.9997 | 0.9790 |
 
 The 9 classes of run_37:
 
 | Evaluated weights | Head | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
 |---|---|---|---|---|---|---|---|---|---|---|
 | trained | random | 0.9569 | 0.9194 | 0.9559 | 0.9903 | 0.9938 | 0.9958 | 0.9960 | 0.9902 | 0.9748 |
-| trained | run_37 | 0.9665 | 0.9596 | 0.9927 | 0.9943 | 0.9969 | 0.9958 | 0.9958 | 0.9976 | 0.9874 |
+| trained | run_37, source | 0.9665 | 0.9596 | 0.9927 | 0.9943 | 0.9969 | 0.9958 | 0.9958 | 0.9976 | 0.9874 |
+| trained | run_37, random | 0.9488 | 0.9837 | 0.9907 | 0.9736 | 0.9762 | 0.9939 | 0.9554 | 0.9985 | 0.9776 |
 | EMA | random | 0.9980 | 0.9992 | 0.9996 | 0.9997 | 0.9997 | 0.9999 | 0.9998 | 0.9999 | 0.9995 |
-| EMA | run_37 | 0.9997 | 0.9997 | 0.9995 | 0.9998 | 0.9999 | 0.9998 | 0.9998 | 0.9999 | 0.9998 |
+| EMA | run_37, source | 0.9997 | 0.9997 | 0.9995 | 0.9998 | 0.9999 | 0.9998 | 0.9998 | 0.9999 | 0.9998 |
+| EMA | run_37, random | 0.9986 | 0.9994 | 0.9996 | 0.9998 | 0.9999 | 0.9998 | 0.9999 | 0.9999 | 0.9996 |
 
 The 11 new classes:
 
 | Evaluated weights | Head | 250 | 500 | 750 | 1000 | 1250 | 1500 | 1750 | 2000 | Mean |
 |---|---|---|---|---|---|---|---|---|---|---|
 | trained | random | 0.7736 | 0.7762 | 0.9076 | 0.9660 | 0.9829 | 0.9579 | 0.9892 | 0.9915 | 0.9181 |
-| trained | run_37 | 0.3144 | 0.5707 | 0.6579 | 0.8339 | 0.8765 | 0.9194 | 0.9338 | 0.9689 | 0.7594 |
+| trained | run_37, source | 0.3144 | 0.5707 | 0.6579 | 0.8339 | 0.8765 | 0.9194 | 0.9338 | 0.9689 | 0.7594 |
+| trained | run_37, random | 0.7513 | 0.8898 | 0.9145 | 0.9683 | 0.9692 | 0.9805 | 0.9926 | 0.9941 | 0.9325 |
 | EMA | random | 0.8375 | 0.9236 | 0.9761 | 0.9916 | 0.9977 | 0.9987 | 0.9991 | 0.9994 | 0.9655 |
-| EMA | run_37 | 0.3890 | 0.6279 | 0.7654 | 0.8518 | 0.8985 | 0.9247 | 0.9634 | 0.9882 | 0.8011 |
+| EMA | run_37, source | 0.3890 | 0.6279 | 0.7654 | 0.8518 | 0.8985 | 0.9247 | 0.9634 | 0.9882 | 0.8011 |
+| EMA | run_37, random | 0.8190 | 0.9282 | 0.9684 | 0.9889 | 0.9960 | 0.9987 | 0.9993 | 0.9995 | 0.9623 |
 
-**Kept: random head.** The transferred head keeps the 9 classes of run_37: its averaged weights classify them at 0.9997 from iteration 250 (0.9980 for the random head), its trained weights at 0.9665 against 0.9569, a gap within the spread of the launches (run_42 dropping to 0.9279 at iteration 500, run_40 to 0.8544). But it slows the 11 new classes, at 0.3144 against 0.7736 with the trained weights at iteration 250 and 0.3890 against 0.8375 with the averaged weights, and still at 0.9689 against 0.9915 and 0.9882 against 0.9994 at iteration 2000. The 20 classes stay behind the random head at every evaluation, mean 0.8902 against 0.9807 with the averaged weights and 0.8617 against 0.9435 with the trained ones, the two launches of each head being within 0.007 of each other. The confusion matrices of iteration 250 show why: the hidden layers of the transferred head, trained to separate 9 classes, give close features to shapes that run_37 never had to tell apart, and the new rows can only split them along a few directions. In run_41 the ellipses (0.99), the annuli (1.00) and most semicircles (0.62) are predicted as capsules, the rhombi, parallelograms and kites as l_shapes or trapezoids, the nonagons as octagons (0.99), and the octagons lose 38 % of their images to the heptagons, while the random head of run_39, whose hidden layers start from the backbone features alone, already gives the annuli a recall of 0.998, the ellipses 0.96 and the nonagons 0.87. The new classes wait for the hidden layers to move away from the 9 classes: with the averaged weights, they reach at iteration 1500 (0.9247) the accuracy of the random head at iteration 500 (0.9236). The transfer of the head serves a run that must classify the old classes from its first iterations; to learn new classes, the backbone alone is the better start, giving 0.9095 on the 20 classes at iteration 250 (run_37, trained from random weights on the 9 classes, was at 0.5374). Whether the hidden layers are the whole cause could be tested with a source run and a target run whose head has no hidden layers, the new rows then reading the backbone features directly.
+**Kept: run_37 head, random new classes.** With the source initialisation, the transferred head keeps the 9 classes of run_37: its averaged weights classify them at 0.9997 from iteration 250 (0.9980 for the random head), its trained weights at 0.9665 against 0.9569, a gap within the spread of the launches (run_42 dropping to 0.9279 at iteration 500, run_40 to 0.8544). But it slows the 11 new classes, at 0.3144 against 0.7736 with the trained weights at iteration 250 and 0.3890 against 0.8375 with the averaged weights, and still at 0.9689 against 0.9915 and 0.9882 against 0.9994 at iteration 2000. The 20 classes stay behind the random head at every evaluation, mean 0.8902 against 0.9807 with the averaged weights and 0.8617 against 0.9435 with the trained ones, the two launches of each head being within 0.007 of each other. In run_41 at iteration 250 the ellipses (0.99), the annuli (1.00) and most semicircles (0.62) are predicted as capsules, the rhombi, parallelograms and kites as l_shapes or trapezoids, the nonagons as octagons (0.99), and the octagons lose 38 % of their images to the heptagons, while the random head of run_39 already gives the annuli a recall of 0.998, the ellipses 0.96 and the nonagons 0.87.
+
+run_43 and run_44 copy the same hidden layers and 9 class rows as run_41 and run_42, only the 11 new rows keeping the random initialisation of the new run, and their new classes learn as fast as with the random head: 0.7513 at iteration 250 with the trained weights (0.7736 for the random head, 0.3144 for the source initialisation), a mean of 0.9325 (0.9181, 0.7594), and 0.8190 at iteration 250 and a mean of 0.9623 with the averaged weights (0.8375 and 0.9655 for the random head). The hidden layers trained on 9 classes are therefore not what slowed the new classes, but the initialisation of their rows, the likely cause being that the zero rows of the source initialisation all start in the same direction with quiet biases, while random rows split the new classes along different directions of the hidden features from the first iteration. The 9 classes of run_37 stay at 0.9986 with the averaged weights at iteration 250 (0.9997 for the source initialisation, 0.9980 for the random head) and at a mean of 0.9776 with the trained weights (0.9874, 0.9748), the trained weights of run_44 starting lower (0.9141 at iteration 250) within the spread of the launches. On the 20 classes, the random new classes match the random head, a mean of 0.9528 against 0.9435 with the trained weights and 0.9790 against 0.9807 with the averaged ones, the launches of each head differing by as much (0.9553 and 0.9502, 0.9548 and 0.9323), and they beat the source initialisation at every evaluation (0.9790 against 0.8902 with the averaged weights). On this dataset, whose backbone already separates the shapes, keeping the classification head gains nothing measurable over a random head once its new classes start random; with "source", it costs the new classes 1,000 to 1,500 iterations. `new_class_initialisation: "random"` is the setting to use when adding classes, the source initialisation serving a run that must keep the old classes exact from its first iterations, e.g. with a frozen head.
 
 ## Total
 

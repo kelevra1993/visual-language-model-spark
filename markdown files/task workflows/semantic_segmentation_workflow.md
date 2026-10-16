@@ -440,7 +440,7 @@ model.class_weights = [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 ```
 
 ### Step 2.19 — `initialise_pretrained_components()`
-The segmentation can transfer the backbone and the decoder of other runs. The segmentation head and the deep supervision heads stay outside the decoder, so that a decoder serves runs of other classes; with `SegmentationDecoder.pretrained.load_class_layers` they are loaded too (`load_segmentation_class_layers()`), the classes of the source run being the first ones of this run, the new classes starting with zero weights and a bias 3 below the mean foreground bias, and the deep supervision levels the source run does not have keeping their random weights.
+The segmentation can transfer the backbone and the decoder of other runs. The segmentation head and the deep supervision heads stay outside the decoder, so that a decoder serves runs of other classes; with `SegmentationDecoder.pretrained.load_class_layers` they are loaded too (`load_segmentation_class_layers()`), the classes of the source run being the first ones of this run, the new classes starting with zero weights and a bias 3 below the mean foreground bias with `SegmentationDecoder.pretrained.new_class_initialisation: "source"`, or keeping the random rows the layers of this run were built with when it is `"random"`, and the deep supervision levels the source run does not have keeping their random weights.
 
 **Example: a run from scratch**
 ```text

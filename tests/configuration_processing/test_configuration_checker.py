@@ -1,8 +1,9 @@
 """
 Tests of the configuration checks of vision_training/configuration_processing/configuration_checker.py, run through
 load_experiment_configuration: the configurations shipped for every task are accepted, while inconsistent settings
-(detection, classification, sequence, comparison, segmentation, normalization, pretrained transfers, optimization) and
-missing keys are rejected with errors naming their path.
+(detection, classification, sequence, comparison, segmentation, self-supervised, normalization, pretrained transfers
+with the initialisation of their new classes, optimization) and missing keys are rejected with errors naming their
+path.
 """
 
 import copy
@@ -1838,6 +1839,255 @@ def test_inconsistent_instance_segmentation_configuration_is_rejected(
         expected_messages (List[str]): Message fragments that must all appear in the printed output.
     """
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="instance_segmentation",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
+    assert "Traceback" not in printed_output
+
+
+def transfer_classes_starting_random(configuration: Dict[str, Any]) -> None:
+    """
+    Initialises the classification head of a classifier, or the decoder of a semantic segmenter with its class layers,
+    with those of another run, the classes added after those of the source run keeping their random initialisation.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification or semantic segmentation configuration, modified in
+            place.
+    """
+    section_name = "ClassificationHead" if "ClassificationHead" in configuration else "SegmentationDecoder"
+    configuration[section_name]["pretrained"].update({"experiment_folder": "/runs/source",
+                                                      "new_class_initialisation": "random"})
+    if section_name == "SegmentationDecoder":
+        configuration[section_name]["pretrained"]["load_class_layers"] = True
+
+
+@pytest.mark.parametrize(argnames=("task_folder", "section_name"), argvalues=[
+    ("classification", "ClassificationHead"), ("semantic_segmentation", "SegmentationDecoder")])
+def test_random_new_classes_of_copied_class_layers_are_accepted(tmp_path: Path, task_folder: str,
+                                                                section_name: str) -> None:
+    """
+    Verifies that the "random" initialisation of the new classes passes the checks when the class layers are copied
+    from a source run: a transferred classification head, and a transferred decoder loading its class layers.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task_folder (str): The folder of the configurations of the task.
+        section_name (str): The section of the component with class layers.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=transfer_classes_starting_random)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration[section_name]["pretrained"]["new_class_initialisation"] == "random"
+
+
+def start_random_head_classes_without_source_run(configuration: Dict[str, Any]) -> None:
+    """
+    Starts the new classes of a classification head random while the head is trained from random weights.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["pretrained"]["new_class_initialisation"] = "random"
+
+
+def start_random_mask_classes_without_source_run(configuration: Dict[str, Any]) -> None:
+    """
+    Starts the new classes of the mask heads random while the mask heads are trained from random weights.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["MaskHead"]["pretrained"]["new_class_initialisation"] = "random"
+
+
+def start_random_decoder_classes_without_class_layers(configuration: Dict[str, Any]) -> None:
+    """
+    Starts the new classes of a transferred decoder random while its class layers are not loaded from the source run.
+
+    Args:
+        configuration (Dict[str, Any]): The raw semantic segmentation configuration, modified in place.
+    """
+    configuration["SegmentationDecoder"]["pretrained"].update({"experiment_folder": "/runs/source",
+                                                               "load_class_layers": False,
+                                                               "new_class_initialisation": "random"})
+
+
+@pytest.mark.parametrize(argnames=("task_folder", "modify_function", "expected_message"), argvalues=[
+    ("classification", start_random_head_classes_without_source_run,
+     "'ClassificationHead.pretrained.new_class_initialisation' must be \"source\" when "
+     "'ClassificationHead.pretrained.experiment_folder' is null: without a source run no class is copied and every "
+     "class is random already."),
+    ("instance_segmentation", start_random_mask_classes_without_source_run,
+     "'MaskHead.pretrained.new_class_initialisation' must be \"source\" when 'MaskHead.pretrained.experiment_folder' "
+     "is null"),
+    ("semantic_segmentation", start_random_decoder_classes_without_class_layers,
+     "'SegmentationDecoder.pretrained.new_class_initialisation' must be \"source\" when "
+     "'SegmentationDecoder.pretrained.load_class_layers' is False: the class layers of the decoder are not copied "
+     "from the source run.")])
+def test_random_new_classes_without_copied_class_layers_are_rejected(
+        tmp_path: Path, capsys: pytest.CaptureFixture, task_folder: str,
+        modify_function: Callable[[Dict[str, Any]], None], expected_message: str) -> None:
+    """
+    Verifies that the "random" initialisation of the new classes is refused when no class layer is copied from a
+    source run (no source run, or a decoder not loading its class layers), the setting then changing nothing but the
+    run name.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        task_folder (str): The folder of the configurations of the task.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_message (str): Message fragment that must appear in the printed output.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    assert expected_message in printed_output
+    assert "Traceback" not in printed_output
+
+
+@pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
+                                                                   "configuration_synthetic_shapes.yaml"])
+def test_self_supervised_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
+    """
+    Verifies that the self-supervised configurations shipped with the repository pass every consistency check, with
+    the classes of the label mapping file for the k-nearest neighbour evaluation.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        configuration_name (str): The file name of the self-supervised configuration.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="self_supervised",
+                                                  configuration_name=configuration_name, modify_function=None)
+    experiment_configuration, model_configuration = load_experiment_configuration(
+        configuration_path=configuration_path)
+    assert experiment_configuration["task"] == "self_supervised"
+    assert model_configuration["Data"]["label_dictionary"] == {1: 0, 2: 1, 3: 2, 4: 3}
+
+
+def set_invalid_projection_head(configuration: Dict[str, Any]) -> None:
+    """
+    Sets an unknown pooling and method, an empty list of layers, a temperature of 0 and an off-diagonal weight given
+    as a boolean in the projection head.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    configuration["ProjectionHead"].update({"global_pooling": "median", "fully_connected": [], "method": "byol",
+                                            "simclr": {"temperature": 0},
+                                            "barlow_twins": {"off_diagonal_weight": True}})
+
+
+def normalize_projection_without_hidden_layers(configuration: Dict[str, Any]) -> None:
+    """
+    Normalizes the hidden layers of a projection head holding the embedding layer only.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    configuration["ProjectionHead"].update({"fully_connected": [128], "fully_connected_normalization": "batch"})
+
+
+def activate_data_augmentation_with_views(configuration: Dict[str, Any]) -> None:
+    """
+    Turns on the data augmentation of the other tasks next to the views of the self-supervised task.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    configuration["Data"]["data_augmentation"]["activated"] = True
+
+
+def set_invalid_view_augmentation(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a crop area above the image, a decreasing aspect ratio range, a probability above 1, a rotation beyond half
+    a turn, a negative brightness, a hue shift beyond half a turn, an even blur kernel and a sigma range of one value.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    view_augmentation = configuration["Data"]["view_augmentation"]
+    view_augmentation["random_resized_crop"] = {"scale": [0.5, 1.2], "aspect_ratio": [2.0, 1.0]}
+    view_augmentation["grayscale"]["probability"] = 1.5
+    view_augmentation["rotation"]["maximum_degrees"] = 200.0
+    view_augmentation["colour_jitter"].update({"brightness": -0.1, "hue": 0.6})
+    view_augmentation["gaussian_blur"].update({"kernel_size": 4, "sigma": [0.5]})
+
+
+def set_invalid_self_supervised_evaluation(configuration: Dict[str, Any]) -> None:
+    """
+    Sets no neighbour for the k-nearest neighbour evaluation and batches of a single image, whose views the losses
+    cannot compare with those of other images.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["number_neighbours"] = 0
+    configuration["ExperimentConfiguration"]["batch_size"] = 1
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (set_invalid_projection_head, ["'ProjectionHead.global_pooling' must be one of ['average', 'max', 'flatten'], "
+                                   "got 'median'.",
+                                   "'ProjectionHead.fully_connected' must be a non-empty list of positive integers, "
+                                   "the last one being the embedding size, got [].",
+                                   "'ProjectionHead.method' must be one of ['simclr', 'barlow_twins'], got 'byol'.",
+                                   "'ProjectionHead.simclr.temperature' must be a number > 0, got 0.",
+                                   "'ProjectionHead.barlow_twins.off_diagonal_weight' must be a number > 0, got "
+                                   "True."]),
+    (normalize_projection_without_hidden_layers, ["'ProjectionHead.fully_connected_normalization' must be 'none' when "
+                                                  "'ProjectionHead.fully_connected' holds the embedding layer only: "
+                                                  "the head has no hidden layer to normalize."]),
+    (activate_data_augmentation_with_views, ["'Data.data_augmentation.activated' must be False for the "
+                                             "self-supervised task: the random views of 'Data.view_augmentation' "
+                                             "replace the data augmentation."]),
+    (set_invalid_view_augmentation, ["'Data.view_augmentation.random_resized_crop.scale' must be a list of two "
+                                     "numbers [low, high] with 0 < low <= high <= 1, got [0.5, 1.2].",
+                                     "'Data.view_augmentation.random_resized_crop.aspect_ratio' must be a list of two "
+                                     "numbers [low, high] with 0 < low <= high <= inf, got [2.0, 1.0].",
+                                     "'Data.view_augmentation.grayscale.probability' must be a probability within "
+                                     "[0, 1], got 1.5.",
+                                     "'Data.view_augmentation.rotation.maximum_degrees' must be a number within "
+                                     "[0, 180], got 200.0.",
+                                     "'Data.view_augmentation.colour_jitter.brightness' must be a number >= 0, got "
+                                     "-0.1.",
+                                     "'Data.view_augmentation.colour_jitter.hue' must be a number within [0, 0.5], "
+                                     "got 0.6.",
+                                     "'Data.view_augmentation.gaussian_blur.kernel_size' must be an odd integer >= 3, "
+                                     "got 4.",
+                                     "'Data.view_augmentation.gaussian_blur.sigma' must be a list of two numbers "
+                                     "[low, high] with 0 < low <= high <= inf, got [0.5]."]),
+    (set_invalid_self_supervised_evaluation, ["'ExperimentConfiguration.evaluation.number_neighbours' must be an "
+                                              "integer >= 1, got 0.",
+                                              "'ExperimentConfiguration.batch_size' must be at least 2 for the "
+                                              "self-supervised task: the losses compare the views of the images of a "
+                                              "batch with each other."])])
+def test_inconsistent_self_supervised_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                                modify_function: Callable[[Dict[str, Any]], None],
+                                                                expected_messages: List[str]) -> None:
+    """
+    Verifies that every inconsistency of the self-supervised sections (projection head, views, data augmentation,
+    evaluation and batch size) stops the loading with a short message naming the faulty key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="self_supervised",
                                                   configuration_name="configuration_synthetic_shapes.yaml",
                                                   modify_function=modify_function)
 

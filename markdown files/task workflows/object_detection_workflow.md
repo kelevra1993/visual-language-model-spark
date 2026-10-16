@@ -369,7 +369,7 @@ training 1000 -> 500   inference 500 -> 250   nms_iou_threshold 0.5
 ```
 
 ### Step 2.17 — `initialise_pretrained_components()` + `build_optimizer()` + `get_tracked_metrics()`
-The backbone, the region proposal heads and the detection heads can come from other runs. The detection heads may have more classes than their source run: the source classes must be the first ones of this run (`class_names` of both `data.json` files), the classification rows of the new classes start with zero weights and a bias 3 below the mean foreground bias, and their box regression rows at zero. The four losses of the detector are tracked with their sum.
+The backbone, the region proposal heads and the detection heads can come from other runs. The detection heads may have more classes than their source run: the source classes must be the first ones of this run (`class_names` of both `data.json` files), and the rows of the new classes are set by `Detector.pretrained.new_class_initialisation` (`extend_class_layers()`): with `"source"`, the classification rows start with zero weights and a bias 3 below the mean foreground bias, and the box regression rows at zero; with `"random"`, they keep the random rows the detection heads of this run were built with, the source rows replacing their first rows. The mask heads of an instance segmentation run extend their mask prediction layer the same way through `MaskHead.pretrained.new_class_initialisation`, a new mask class starting from the mean of the source foreground classes with `"source"`. The four losses of the detector are tracked with their sum.
 
 **Example output**
 ```text

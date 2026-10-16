@@ -299,7 +299,8 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
     source run that is not frozen anyway and a backbone with normalization layers. For the segmentation decoder, the
     'load_class_layers' flag also loads the segmentation head and the deep supervision heads, which needs a source run.
     For the sections with class layers (CLASS_LAYER_SECTIONS), 'new_class_initialisation' chooses how the classes a run
-    adds after those of its source run are initialised, "source" or "random".
+    adds after those of its source run are initialised, "source" or "random", the latter needing class layers copied
+    from a source run (a source run, and 'load_class_layers' for the segmentation decoder).
     The source run itself is only read when a new training starts, so that a trained run can still be evaluated and
     exported once its source run is gone.
 
@@ -357,6 +358,18 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
         if new_class_initialisation not in NEW_CLASS_INITIALISATIONS:
             errors.append(f"'{key_prefix}.new_class_initialisation' must be one of {NEW_CLASS_INITIALISATIONS}, "
                           f"got {new_class_initialisation!r}.")
+
+        # The "random" initialisation only applies to class layers copied from a source run, which the decoder only
+        # copies with 'load_class_layers'
+        elif new_class_initialisation == "random" and experiment_folder is None:
+            errors.append(f"'{key_prefix}.new_class_initialisation' must be \"source\" when '{key_prefix}."
+                          f"experiment_folder' is null: without a source run no class is copied and every class is "
+                          f"random already.")
+        elif new_class_initialisation == "random" and section_name == "SegmentationDecoder" and \
+                load_class_layers is False:
+            errors.append(f"'{key_prefix}.new_class_initialisation' must be \"source\" when '{key_prefix}."
+                          f"load_class_layers' is False: the class layers of the decoder are not copied from the "
+                          f"source run.")
     if section_name != "Backbone":
         return errors
 

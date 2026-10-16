@@ -682,31 +682,31 @@ The self-supervised task trains the backbone without labels, so that the images 
 
 The projection head only serves this training: the representation compared by the evaluation and exported is the pooled feature map before it, and the backbone initialises the other tasks through `Backbone.pretrained` ([Transfer Between Runs](#transfer-between-runs)).
 
-**Data.** The layout of CLS. Every image of the manifests is read, with or without `category_id`, and the categories only serve the evaluation: the unlabelled images and the images of categories missing from the label mapping are trained on like the others. A dataset without labels lists its samples without `category_id` and uses an empty label mapping file (`{}`).
+**Data.** The layout of CLS. Every image of the manifests is read, with its `category_id`, its `category_ids` (multi-label manifest) or neither, and the categories only serve the evaluation: the unlabelled images and the images of categories missing from the label mapping are trained on like the others. A test image is labelled for the k-NN evaluation when exactly one of its categories is in the label mapping, and an image with several mapped categories is evaluated like an unlabelled one. The classes are named after the categories of the three manifests, so that a class missing from the test manifest keeps its name. A dataset without labels lists its samples without `category_id` and uses an empty label mapping file (`{}`).
 
-**Views.** The views replace the data augmentation of the other tasks: `Data.data_augmentation.activated` must be False, and `Data.view_augmentation` sets the transformations, drawn on the GPU for every image and every view, the views of the validation batches being drawn the same way:
+**Views.** The views replace the data augmentation of the other tasks: `Data.data_augmentation.activated` must be False, and `Data.view_augmentation` sets the transformations, drawn independently for every image and every view (the random parameters on the CPU, so that a seed gives the same views on every device, the images being transformed on their device), the views of the validation batches being drawn the same way:
 - `random_resized_crop`: a crop of a random area within `scale` (fraction of the image area) and aspect ratio within `aspect_ratio`, resized back to the input size, applied to every view.
 - `left_right_flip`, `up_down_flip`: mirrors, each with its probability.
 - `rotation`: a rotation within `maximum_degrees`, with its probability.
-- `colour_jitter`: brightness, contrast and saturation scaled within [1 - strength, 1 + strength] and the hue shifted by up to `hue`, with its probability.
+- `colour_jitter`: brightness, contrast and saturation scaled within [1 - strength, 1 + strength] and the hue shifted by up to `hue`, in a random order drawn for every batch, with its probability.
 - `grayscale`: a grayscale conversion, with its probability.
 - `gaussian_blur`: a blur of `kernel_size` with a sigma within `sigma`, with its probability.
 
 The backbone learns to ignore what changes between the views, so a cue shared by both views lets it match them without learning the content: the colour of an object when the colour jitter is off, or its position when the crops are too large. A crop too small for the objects of the images leaves nothing in common between the views.
 
-**Configuration.** Copy `self_supervised/configuration_example.yaml` (Barlow Twins) or `configuration_synthetic_shapes.yaml` (SimCLR). The task keys are `ProjectionHead` (global pooling `average`, `max` or `flatten`, `fully_connected` with the embedding size last, normalization of the hidden layers and its `batch_normalization_momentum`, `method`, `simclr.temperature`, `barlow_twins.off_diagonal_weight`), `Data.view_augmentation` and the evaluation key `number_neighbours`. Every hidden layer of the head is linear, normalization, ReLU, and the last one is linear only: SimCLR uses one hidden layer and a small embedding (`[2048, 128]`), Barlow Twins wide layers (`[2048, 2048, 2048]` or more). The batch must hold at least 2 images.
+**Configuration.** Copy `self_supervised/configuration_example.yaml` (Barlow Twins) or `configuration_synthetic_shapes.yaml` (SimCLR). The task keys are `ProjectionHead` (global pooling `average`, `max` or `flatten`, `fully_connected` with the embedding size last, normalization of the hidden layers and its `batch_normalization_momentum`, `method`, `simclr.temperature`, `barlow_twins.off_diagonal_weight`), `Data.view_augmentation` and the evaluation key `number_neighbours`. Every hidden layer of the head is linear, normalization, ReLU, and the last one is linear only: SimCLR uses one hidden layer and a small embedding (`[2048, 128]`), Barlow Twins wide layers (`[2048, 2048, 2048]` or more). `batch_size` must be at least 2, and the training and validation loaders leave out their last incomplete batch, so that every batch compares `batch_size` images: a training or validation split smaller than `batch_size` stops the launch.
 
 **Training metrics.** Next to the loss (`InfoNCE Loss` or `Barlow Twins Loss`), every training and validation batch tracks:
 - `Positive Pair Accuracy` (SimCLR): the share of the views whose most similar view is their partner. Near 1 quickly while the evaluation stays poor, it shows a shortcut shared by the views.
 - `Diagonal Correlation` and `Off-Diagonal Correlation` (Barlow Twins): the mean correlation of every feature with itself across the views, towards 1, and the mean absolute correlation of two different features, towards 0.
-- `Embedding Std`: the standard deviation of the L2 normalized embeddings over the batch, times the square root of their size: about 1 when they spread over the sphere, 0 when they collapse to a constant whatever the image.
+- `Embedding Standard Deviation`: the standard deviation of the L2 normalized embeddings over the batch, times the square root of their size: about 1 when they spread over the sphere, 0 when they collapse to a constant whatever the image.
 
 **Evaluation.** Every evaluated checkpoint encodes the test images without views and scores their representations without training any classifier:
-- `k-NN Accuracy`, `k-NN Balanced Accuracy` and `k-NN Macro F1`: every labelled test image is classified by its `number_neighbours` nearest neighbours among the other labelled test images, by cosine similarity, each neighbour voting for its class with the weight exp(similarity / 0.07). The precision, recall and F1 of every class are in the per-class table and `class_metrics.csv`. `k-NN Accuracy` is the headline metric.
-- `Effective Rank`: the exponential of the entropy of the singular values of the representations of the test images, the number of directions they spread in, about 1 when they collapse. It is the headline metric of a test split without labels.
-- `Representation Std`: the standard deviation of the L2 normalized representations, as `Embedding Std`.
+- `k-NN Accuracy`, `k-NN Balanced Accuracy` and `k-NN Macro F1`: every labelled test image is classified by its `number_neighbours` nearest neighbours among the other labelled test images, by cosine similarity, each neighbour voting for its class with the weight exp(similarity / 0.07), a tie going to the class of the lowest index. An image being left out of its own neighbours, the only labelled test image of a class is always misclassified, so every class needs several labelled test images. The precision, recall and F1 of every class are in the per-class table and `class_metrics.csv`. `k-NN Accuracy` is the headline metric.
+- `Effective Rank`: the exponential of the entropy of the singular values of the representations of the test images, the number of directions they spread in, about 1 when they collapse. The representations are not negative after the ReLU and the pooling of the backbone, so it starts close to 1 and grows as the training spreads them. It is the headline metric of a test split without labels, and NaN when the weights diverged.
+- `Representation Standard Deviation`: the standard deviation of the L2 normalized representations, as `Embedding Standard Deviation`. Not being negative, representations spread over their part of the sphere stay well below 1 (about 0.6 to 0.8): its trend and a fall to 0 tell a collapse.
 
-The sample images show every fixed test image next to two random views of it, captioned with its class and the cosine similarity of the representations of both views, which a backbone invariant to the views brings close to 1. The views are drawn again at every evaluation.
+The sample images show every fixed test image next to two random views of it, captioned with its class and the cosine similarity of the representations of both views, which a backbone invariant to the views brings close to 1. The views of a sample image are drawn with a seed of its sample, so that every evaluation compares the same views.
 
 **Using the backbone.** A run of any task sets `Backbone.pretrained.experiment_folder` to the self-supervised run folder, with the same backbone settings. To measure what the self-supervised training brings, compare a classification run initialised by it with a run from random weights, on a small part of the labels (e.g. 1 % and 10 % of the training images) and on all of them: the gap is expected to be the largest with the fewest labels.
 
@@ -749,7 +749,7 @@ A component with class layers (classification head, detection heads, mask heads,
 
 The rows of the source classes are copied, and the rows of the new classes are set by `pretrained.new_class_initialisation` of the section of the component, which lets both initialisations be benchmarked:
 - `"source"`: the new classes are built from the source classes, as in the table below, the background being left out of the means.
-- `"random"`: the new classes keep the random initialisation the layer of the new run received when it was built, as in a run trained from scratch (the PyTorch initialisation of its linear and convolution layers), the rows of the source classes replacing its first rows. The run name marks it with `HRND`, `DRND` or `MRND` after the transfer tokens of the component (`DRND` only with `load_class_layers` for the decoder).
+- `"random"`: the new classes keep the random initialisation the layer of the new run received when it was built, as in a run trained from scratch (the PyTorch initialisation of its linear and convolution layers), the rows of the source classes replacing its first rows. The run name marks it with `HRND`, `DRND` or `MRND` after the transfer tokens of the component. It needs class layers copied from a source run: the check refuses it without `pretrained.experiment_folder`, and for the decoder without `load_class_layers`.
 
 | Layer | Section | New classes with `"source"` |
 |---|---|---|
@@ -760,6 +760,10 @@ The rows of the source classes are copied, and the rows of the new classes are s
 | Final class layer and deep supervision layers of the decoder | `SegmentationDecoder` with `load_class_layers` | zero weights, bias 3 below the mean bias of the source foreground classes |
 
 With `"source"`, a new class thus starts at about 5 % of the probability of an average source class (e^-3), so that the predictions of the source classes are kept at the first iteration, and the box regression leaves its proposals unchanged. The mask classes do not compete with each other, so a new mask class starts from the mean mask of the source classes. With `"random"`, the new classes start with small random logits, box offsets and masks, which may change the predictions of the source classes during the first iterations. The console prints the number of kept and added classes of every component and their initialisation. With `load_class_layers`, a deep supervision level of the new run that the source run does not have keeps its random weights, with a warning.
+
+On the synthetic shapes, a classification run of 9 classes extended to 20 (stage 14 of `markdown files/experiment_plan.md`, two launches of each), `"random"` learns the 11 new classes as fast as a random classification head (accuracy 0.75 at iteration 250, against 0.31 with `"source"`), and keeps the 9 source classes as well (0.9986 with the averaged weights at iteration 250, 0.9997 with `"source"`). Use `"random"` to add classes, and `"source"` when the source classes must stay exact from the first iterations.
+
+A run folder trained before `new_class_initialisation` existed has no such key in its `training_configuration.yaml`: add `new_class_initialisation: "source"` (the initialisation it was trained with) to the `pretrained` block of its sections with class layers before evaluating it with `scripts/evaluation/evaluate_checkpoint.py` or exporting it.
 
 ## Evaluating Checkpoints
 `scripts/evaluation/evaluate_checkpoint.py` evaluates the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, without modifying the run folder. Set in its main block:
@@ -1092,7 +1096,7 @@ What is logged:
 | `test/Sequence Exact Match`, `Edit Score`, `Segment F1@10`, `Segment F1@25`, `Segment F1@50` | M2M |
 | `test/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `<Decoding> Fully Right Sequences`, `<Decoding> Unselected Precision`, `<Decoding> Unselected Recall`, `Top-<k> Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`; `test_class/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `Mean True Frame Rank` per wanted class; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | SEL |
 | `test/Mean IoU`, `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`; `test_class/IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall` per class; `class_metrics.csv`, `confusion_matrix.png` | SEG |
-| `test/k-NN Accuracy`, `k-NN Balanced Accuracy`, `k-NN Macro F1` (with labelled test images), `Effective Rank`, `Representation Std`; `test_class/k-NN Precision`, `k-NN Recall`, `k-NN F1` per class; `class_metrics.csv` | SSL |
+| `test/k-NN Accuracy`, `k-NN Balanced Accuracy`, `k-NN Macro F1` (with labelled test images), `Effective Rank`, `Representation Standard Deviation`; `test_class/k-NN Precision`, `k-NN Recall`, `k-NN F1` per class; `class_metrics.csv` | SSL |
 
 The `test_class/` metrics and `confusion_matrix.png` need `evaluation.per_class_report: True`, and the files need `tracking.log_artifacts: True`. MLflow writes `@` as `_at_` and `[0.5:0.95]` as `0.5-0.95` in the metric names. `scripts/evaluation/evaluate_checkpoint.py` logs its evaluations in a separate run, `<run name>-evaluation`.
 
@@ -1120,10 +1124,9 @@ The checkpoint evaluation and launch comparison scripts are in `scripts/`, also 
 │   ├── configuration_processing/      # Loading, checks, run names and comparison of the configurations
 │   ├── core/                          # Task registry and contracts shared by the tasks
 │   ├── data/                          # Datasets, loaders, preprocessing, augmentation, label mapping
-│   │   ├── classification/            # Classification dataset, class folder converter, ImageNet download
+│   │   ├── classification/            # Classification dataset (every image kept for the self-supervised task), class folder converter, ImageNet download
 │   │   ├── detection/                 # COCO dataset, decoding of the COCO segmentations into instance masks
 │   │   ├── segmentation/              # Segmentation dataset
-│   │   ├── self_supervised/           # Self-supervised dataset, every image kept with or without label
 │   │   ├── sequence/                  # Sequence and pair datasets, pair list converter
 │   │   └── synthetic/                 # Synthetic shapes datasets of every task
 │   ├── models/                        # Backbone, task models, components and transfer between runs
@@ -1138,4 +1141,4 @@ The checkpoint evaluation and launch comparison scripts are in `scripts/`, also 
 ```
 
 ## TODO
-- Benchmark `pretrained.new_class_initialisation` on the GPU (not possible in the environment where it was implemented, which has no GPU): train a classification run of the 9 first synthetic shapes, then two runs of the 20 shapes initialised by its backbone and classification head, one with `"source"` and one with `"random"` (run names ending in `HPT` and `HPT-HRND`), and compare the accuracy of the source classes and of the new classes over the first evaluations. Repeat with the detection heads (`DRND`) and the mask heads (`MRND`) of the synthetic DET and INS datasets.
+- Benchmark `pretrained.new_class_initialisation` on the detection heads (`DRND`) and the mask heads (`MRND`): train a DET and an INS run on part of the classes of the synthetic shapes, then runs on all of them initialised by its components, with `"source"` and with `"random"`, and compare the average precision of the source classes and of the new classes over the first evaluations, as stage 14 of `markdown files/experiment_plan.md` did for the classification head.
