@@ -137,7 +137,7 @@ Optimization:
   # 'pretrained' settings) load its averaged weights if its checkpoint holds them, otherwise its trained weights.
   exponential_moving_average:
     # Turns the moving average of the weights on.
-    activated: False
+    activated: True
     # Fraction of the average kept at every update, strictly between 0 and 1.
     decay: 0.9998
 
