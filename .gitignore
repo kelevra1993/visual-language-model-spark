@@ -22,9 +22,9 @@ wheels/
 !implementation_comparison.md
 # Keep the plan of the evaluation outputs, sequence augmentations and sequence normalization under version control
 !implementation_evaluation_and_sequences.md
-# Keep the notes of the markdown files folder (experiment plan, audits, comparisons, task workflows) under version
-# control
-!markdown files/**/*.md
+# Keep the notes of the documentation folder (architecture benchmarking, suggestions and audit, task workflows) under
+# version control
+!documentation/**/*.md
 
 # Model data
 experiments_folder/

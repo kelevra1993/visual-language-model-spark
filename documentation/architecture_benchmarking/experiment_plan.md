@@ -36,7 +36,7 @@ Every setting is launched twice, A and B, to smooth out the noise of a single tr
 
 ## Launches
 
-Every launch gives its test accuracy at iterations 250, 500, 750, 1000, 1250, 1500, 1750 and 2000 (`Results.txt` of its run folder) and the mean of these eight values, all gathered in `hyperparameter_experiments/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results`, launches and Mean rows as in the tables below. The Mean row of a setting averages its two launches, and the setting with the highest mean of the Mean row is kept.
+Every launch gives its test accuracy at iterations 250, 500, 750, 1000, 1250, 1500, 1750 and 2000 (`Results.txt` of its run folder) and the mean of these eight values, all gathered in `hyperparameter_experiments/results.csv` by `uv run python -m scripts.evaluation.collect_experiment_results`, launches and Mean rows as in the tables below. `results.csv`, next to this plan, keeps every launch of the experiment: run_1 to run_32, gathered before their experiment folder was deleted, then run_33 to run_44 with their trained and averaged weights (`evaluated_weights`), a setting not recorded by a stage being left empty and run_41 to run_44 split by their `new_class_initialisation` (`source` or `random`, a setting removed since). The Mean row of a setting averages its two launches, and the setting with the highest mean of the Mean row is kept.
 
 ### Stage 1: Learning Rate (10 launches)
 
