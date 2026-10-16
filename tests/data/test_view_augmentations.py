@@ -3,11 +3,12 @@ Tests of the ViewAugmenter of vision_training/data/view_augmentations.py, which 
 image of the self-supervised trainer before the forward pass: the views keep the shape and the [0, 255] range of the
 BGR images, both views differ, every transformation turned off gives the image back, the BGR channels reach the RGB
 transformations of kornia in the right order, a seed gives the same views, the views stay in float32 under the
-bfloat16 autocast of mixed precision, and they describe the transformations drawn for them in the information panels
-of the input viewer.
+bfloat16 autocast of mixed precision, they describe the transformations drawn for them in the information panels
+of the input viewer, and on the GPU they stay on the device and match the views drawn on the CPU from the same seed.
 """
 
 import copy
+import pytest
 import torch
 
 from typing import Any, Dict
@@ -16,6 +17,10 @@ from vision_training.data.view_augmentations import VIEW_TRANSFORMATION_NAMES, V
 
 # Side of the square images of the tests
 IMAGE_SIZE = 32
+
+# Largest difference, in [0, 255] pixel values, between the views drawn on the GPU and the CPU from the same seed, the
+# interpolations of the crops and rotations and the blur rounding differently on the two devices (measured below 0.001)
+GPU_VIEWS_TOLERANCE = 0.01
 
 # View augmentation of the synthetic shapes configuration, every transformation being drawn
 VIEW_AUGMENTATION_CONFIGURATION = {
@@ -159,3 +164,37 @@ def test_views_describe_their_drawn_transformations() -> None:
     for image_lines in [lines for view_lines in view_descriptions for lines in view_lines]:
         assert image_lines[0].startswith("random_resized_crop : ") and "% of the area" in image_lines[0]
         assert all(line.split(" : ")[0] in VIEW_TRANSFORMATION_NAMES for line in image_lines)
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The views of the training run on the GPU.")
+def test_views_on_the_gpu_match_the_views_on_the_cpu() -> None:
+    """
+    Verifies the views drawn on the GPU, where the self-supervised trainer draws them: their parameters being drawn on
+    the CPU with the PyTorch generator, the same seed gives the same transformations on both devices, so the GPU
+    views stay on the device in float32, match the CPU views up to the rounding of the interpolations and are
+    described with the same lines, and they stay in float32 within the bfloat16 autocast of the GPU.
+    """
+    images = create_test_images(number_images=8)
+    view_augmenter = ViewAugmenter(view_augmentation_configuration=VIEW_AUGMENTATION_CONFIGURATION,
+                                   image_size=IMAGE_SIZE)
+
+    # The same seed on both devices, every transformation being drawn
+    drawn_views = {}
+    for device_name in ["cpu", "cuda"]:
+        torch.manual_seed(seed=5)
+        drawn_views[device_name] = view_augmenter.create_views(images=images.to(device=device_name),
+                                                               describe_views=True)
+
+    # Same views and same descriptions, the GPU views staying on the device
+    for view_index in range(2):
+        gpu_views = drawn_views["cuda"][view_index]
+        assert gpu_views.device.type == "cuda" and gpu_views.dtype == torch.float32
+        assert float(gpu_views.min()) >= 0.0 and float(gpu_views.max()) <= 255.0
+        assert torch.allclose(input=gpu_views.cpu(), other=drawn_views["cpu"][view_index], atol=GPU_VIEWS_TOLERANCE)
+    assert drawn_views["cuda"][2] == drawn_views["cpu"][2]
+
+    # Float32 views within the bfloat16 autocast of a mixed precision forward pass on the GPU
+    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        first_views, second_views, _ = view_augmenter.create_views(
+            images=images.to(device="cuda", dtype=torch.bfloat16))
+    assert first_views.dtype == torch.float32 and second_views.dtype == torch.float32

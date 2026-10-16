@@ -2,12 +2,14 @@
 Smoke tests of SelfSupervisedTrainer of vision_training/trainers/self_supervised_trainer.py on a synthetic dataset:
 SimCLR and Barlow Twins trainings save, evaluate and resume, with the tracked metrics of each method, the k-nearest
 neighbour report of the labelled test images, its per-class metrics file and the sample images of two views checked,
-the sample views drawn again identically without moving the random state of the training, a dataset without labels
-evaluated on the collapse metrics of its representations only, and the classes of the evaluation named after the
-categories of the three manifests.
+the sample views drawn again identically without moving the random state of the training, the moving average of the
+weights evaluated next to the trained weights on the same sample views, a dataset without labels evaluated on the
+collapse metrics of its representations only, and the classes of the evaluation named after the categories of the
+three manifests.
 """
 
 import csv
+import cv2
 import json
 import pytest
 import torch
@@ -39,7 +41,7 @@ UNLABELLED_EVALUATION_METRICS = ["Effective Rank", "Representation Standard Devi
 
 
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int,
-                              head_settings: Dict[str, Any]) -> Path:
+                              head_settings: Dict[str, Any], moving_average_activated: bool = False) -> Path:
     """
     Writes a copy of the synthetic shapes self-supervised configuration adapted to a quick training smoke test: the
     generated dataset, 64 pixel images, batches of 4 images, a small projection head and a saving schedule that
@@ -50,6 +52,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
         dataset_folder (Path): The root folder of the generated synthetic dataset.
         number_iterations (int): The number of training iterations of the run.
         head_settings (Dict[str, Any]): The 'ProjectionHead' settings replaced for the test.
+        moving_average_activated (bool): Whether the run keeps a moving average of its weights, evaluated next to the
+            trained weights. Defaults to False.
 
     Returns:
         Path: The path of the written configuration file.
@@ -71,6 +75,7 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["ProjectionHead"].update({"fully_connected": [32, 16], **head_settings})
+    configuration["Optimization"]["exponential_moving_average"]["activated"] = moving_average_activated
 
     configuration_path = temporary_directory / f"configuration_{number_iterations}_iterations.yaml"
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))
@@ -221,6 +226,69 @@ def test_sample_views_are_fixed_and_leave_the_training_random_state(tmp_path: Pa
     views_columns = slice(SMOKE_IMAGE_SIZE, 3 * SMOKE_IMAGE_SIZE)
     assert not (first_sample_image[CAPTION_BAR_HEIGHT:, views_columns] ==
                 other_sample_image[CAPTION_BAR_HEIGHT:, views_columns]).all()
+
+
+def test_averaged_weights_are_evaluated_on_the_same_views(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the evaluation of the moving average of the weights (Optimization.exponential_moving_average) of a
+    self-supervised run: the checkpoint of iteration 4 is evaluated on the trained weights, then on the averaged
+    weights with their own Results.txt block of k-NN and collapse metrics, per-class metrics file, sample images and
+    Test_EMA TensorBoard folder, and the sample images of both weights show the same two views of every test image,
+    only the similarity of their representations in the caption changing.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 6}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5,
+        head_settings={"method": "simclr"}, moving_average_activated=True))
+    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
+        trainer.run_training_loop()
+
+    # The trained model is given back to the training after the evaluation of the averaged weights
+    assert trainer.model is not trainer.exponential_moving_average.averaged_model
+    assert not trainer.evaluating_averaged_weights
+
+    # Two blocks for the checkpoint of iteration 4, the trained weights then the averaged weights, with the same metrics
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
+        (4, "6 Test Images"), (4, "6 Test Images · EMA Weights")]
+    assert "Per Class k-NN Metrics" in results_blocks[1]["text"]
+    reported_results = [report_call.kwargs["results"] for report_call in report_mock.call_args_list]
+    assert len(reported_results) == 2
+    for results in reported_results:
+        assert list(results["metrics"]) == LABELLED_EVALUATION_METRICS
+        assert all(torch.isfinite(input=torch.tensor(data=value)) for value in results["metrics"].values())
+
+    # Files of the averaged weights in the EMA subfolder, their scalars in the Test_EMA TensorBoard folder
+    evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
+    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["EMA", "Samples", "class_metrics.csv"]
+    assert sorted(path.name for path in (evaluation_folder / "EMA").iterdir()) == ["Samples", "class_metrics.csv"]
+    averaged_events = EventAccumulator(path=str(trainer.tensorboard_directory / "Test_EMA"))
+    averaged_events.Reload()
+    assert [event.step for event in averaged_events.Scalars(tag="k-NN Accuracy")] == [4]
+
+    # Both weights show the same two views of every test image below the caption bar
+    trained_sample_paths = sorted((evaluation_folder / "Samples").glob("*.png"))
+    averaged_samples_folder = evaluation_folder / "EMA" / "Samples"
+    assert len(trained_sample_paths) == 6
+    assert [path.name for path in trained_sample_paths] == sorted(path.name
+                                                                  for path in averaged_samples_folder.glob("*.png"))
+    views_columns = slice(SMOKE_IMAGE_SIZE, 3 * SMOKE_IMAGE_SIZE)
+    for trained_sample_path in trained_sample_paths:
+        trained_sample_image = cv2.imread(filename=str(trained_sample_path))
+        averaged_sample_image = cv2.imread(filename=str(averaged_samples_folder / trained_sample_path.name))
+        assert (trained_sample_image[CAPTION_BAR_HEIGHT:, views_columns] ==
+                averaged_sample_image[CAPTION_BAR_HEIGHT:, views_columns]).all()
+
+    console_output = capsys.readouterr().out
+    assert "Error encountered during iteration" not in console_output
+    assert "Critical Error" not in console_output
 
 
 def test_dataset_without_labels_is_evaluated_on_its_representations(tmp_path: Path,
