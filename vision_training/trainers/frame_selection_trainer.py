@@ -33,7 +33,7 @@ from vision_training.models.sequence.frame_selection_decoding import (NO_FRAME, 
                                                                       get_wanted_class_indices)
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.sequence_labelling_trainer import SequenceLabellingTrainer
-from vision_training.utilities.visualization import build_frame_selection_image
+from vision_training.utilities.visualization import build_frame_selection_image, convert_image_to_array
 
 # Title of the per-class table of the report
 SELECTION_TABLE_TITLE = "Per Class Selection"
@@ -188,8 +188,7 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         Returns:
             np.ndarray: The [H, W, 3] uint8 BGR image of the sequence.
         """
-        frames = batch["images"][sample_index, :len(frame_labels)].detach().cpu().clamp(min=0.0, max=255.0)
-        frames = np.ascontiguousarray(frames.to(dtype=torch.uint8).permute(0, 2, 3, 1).numpy())
+        frames = convert_image_to_array(image=batch["images"][sample_index, :len(frame_labels)])
         return build_frame_selection_image(frames=frames, probabilities=probabilities, frame_labels=frame_labels,
                                            selected_frames=selected_frames,
                                            wanted_class_indices=self.wanted_class_indices,

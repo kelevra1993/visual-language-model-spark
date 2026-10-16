@@ -42,7 +42,8 @@ from vision_training.evaluation.report_formatting import build_table_renderables
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.visualization import build_class_colours, build_detection_sample_grid, view_input_data
+from vision_training.utilities.visualization import (build_class_colours, build_detection_sample_grid,
+                                                     convert_image_to_array, view_input_data)
 
 # Files of the recalls of the anchors, in the run folder, and of the proposals, in the evaluation folder of every
 # checkpoint
@@ -662,8 +663,7 @@ class DetectionTrainer(BaseTrainer):
         Returns:
             np.ndarray: The [H, W, 3] uint8 BGR image.
         """
-        image = np.ascontiguousarray(batch["images"][sample_index].detach().cpu().clamp(min=0.0, max=255.0)
-                                     .to(dtype=torch.uint8).permute(1, 2, 0).numpy())
+        image = convert_image_to_array(image=batch["images"][sample_index])
 
         # Valid detections of the image, kept from the deployment score threshold
         number_detections = int(predictions["number_detections"][sample_index])

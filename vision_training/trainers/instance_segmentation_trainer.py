@@ -19,7 +19,7 @@ from vision_training.models.instance_segmentation.instance_segmenter import Inst
 from vision_training.models.instance_segmentation.mask_operations import (compute_mask_intersection_over_union,
                                                                           paste_instance_masks)
 from vision_training.trainers.detection_trainer import DetectionTrainer
-from vision_training.utilities.visualization import overlay_instance_masks
+from vision_training.utilities.visualization import convert_image_to_array, overlay_instance_masks
 
 # Number of detection masks pasted into the image and compared with the ground truth masks at once, bounding the
 # memory of the evaluation (a 1024 pixel float mask takes 4 MB)
@@ -293,8 +293,7 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         Returns:
             torch.Tensor: The [3, H, W] image in [0, 255] with its masks.
         """
-        image = np.ascontiguousarray(batch["images"][sample_index].detach().cpu().clamp(min=0.0, max=255.0)
-                                     .to(dtype=torch.uint8).permute(1, 2, 0).numpy())
+        image = convert_image_to_array(image=batch["images"][sample_index])
         painted_image = overlay_instance_masks(image=image,
                                                instance_masks=batch["instance_masks"][sample_index].cpu().numpy(),
                                                labels=batch["labels"][sample_index].cpu().numpy(),

@@ -17,7 +17,7 @@ from vision_training.data.split_description import count_split_sequences
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES
 from vision_training.trainers.classification_trainer import ClassificationTrainer
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.visualization import build_frame_grid, view_input_data
+from vision_training.utilities.visualization import build_frame_grid, convert_image_to_array, view_input_data
 
 # Frames per row of the frame grids of the input viewer, and longest side in pixels of their windows
 FRAME_GRID_COLUMNS = 4
@@ -255,7 +255,7 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         frame_grid = self.build_sample_frame_grid(frames=batch["images"][sample_index],
                                                   sequence_mask=batch["sequence_mask"][sample_index],
                                                   label=batch["labels"][sample_index])
-        return np.ascontiguousarray(frame_grid.permute(1, 2, 0).numpy())
+        return convert_image_to_array(image=frame_grid)
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

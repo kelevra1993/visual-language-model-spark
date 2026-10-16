@@ -37,7 +37,8 @@ from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.utilities.os_utilities import format_path_link, print_color
 from vision_training.utilities.visualization import (build_class_colours, build_segmentation_sample_grid,
-                                                     overlay_segmentation_mask, view_input_data)
+                                                     convert_image_to_array, overlay_segmentation_mask,
+                                                     view_input_data)
 
 # File of the run folder caching the pixels of every class in the training masks, read back when the run resumes
 CLASS_PIXEL_COUNTS_FILE_NAME = "class_pixel_counts.json"
@@ -409,8 +410,7 @@ class SegmentationTrainer(BaseTrainer):
         Returns:
             np.ndarray: The [H, W, 3] uint8 BGR grid of the sample.
         """
-        image = np.ascontiguousarray(batch["images"][sample_index].detach().cpu().clamp(min=0.0, max=255.0)
-                                     .to(dtype=torch.uint8).permute(1, 2, 0).numpy())
+        image = convert_image_to_array(image=batch["images"][sample_index])
         mask = batch["masks"][sample_index].cpu().numpy()
         class_map = predictions["class_probabilities"][sample_index].argmax(dim=0).cpu().numpy()
 
@@ -524,8 +524,7 @@ class SegmentationTrainer(BaseTrainer):
         """
         painted_images, captions = [], []
         for batch in [training_batch, validation_batch]:
-            image = np.ascontiguousarray(batch["images"][sample_index].detach().cpu().clamp(min=0.0, max=255.0)
-                                         .to(dtype=torch.uint8).permute(1, 2, 0).numpy())
+            image = convert_image_to_array(image=batch["images"][sample_index])
             mask = batch["masks"][sample_index].detach().cpu()
             painted_image = overlay_segmentation_mask(image=image, class_map=mask.numpy(),
                                                       class_colours=self.class_colours)

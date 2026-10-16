@@ -17,7 +17,7 @@ from vision_training.evaluation.sequence.segment_metrics import compute_segment_
 from vision_training.evaluation.sequence.sequence_metrics import compute_frame_accuracy, compute_sequence_exact_matches
 from vision_training.trainers.sequence_classification_trainer import FRAME_GRID_COLUMNS, SequenceClassificationTrainer
 from vision_training.utilities.visualization import (CORRECT_PREDICTION_COLOUR, WRONG_PREDICTION_COLOUR,
-                                                     add_caption_bar, build_frame_grid)
+                                                     add_caption_bar, build_frame_grid, convert_image_to_array)
 
 
 class SequenceLabellingTrainer(SequenceClassificationTrainer):
@@ -152,9 +152,9 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
                 if pair_folder is None:
                     continue
                 if frame_grid is None:
-                    frame_grid = np.ascontiguousarray(build_frame_grid(
+                    frame_grid = convert_image_to_array(image=build_frame_grid(
                         frames=batch["images"][sample_index], sequence_mask=sequence_mask,
-                        frame_captions=frame_captions, number_columns=FRAME_GRID_COLUMNS).permute(1, 2, 0).numpy())
+                        frame_captions=frame_captions, number_columns=FRAME_GRID_COLUMNS))
                 score = float(probabilities[sample_index, frame_index, predicted_labels[frame_index]])
                 caption = (f"frame {frame_index} : {self.class_names[frame_labels[frame_index]]} -> "
                            f"{self.class_names[predicted_labels[frame_index]]} {score:.3f}")
@@ -215,9 +215,9 @@ class SequenceLabellingTrainer(SequenceClassificationTrainer):
         frame_captions = self.build_frame_prediction_captions(frame_labels=frame_labels,
                                                               predicted_labels=predicted_labels,
                                                               number_real_frames=number_real_frames)
-        frame_grid = np.ascontiguousarray(build_frame_grid(
+        frame_grid = convert_image_to_array(image=build_frame_grid(
             frames=batch["images"][sample_index], sequence_mask=sequence_mask, frame_captions=frame_captions,
-            number_columns=FRAME_GRID_COLUMNS).permute(1, 2, 0).numpy())
+            number_columns=FRAME_GRID_COLUMNS))
         return add_caption_bar(image=frame_grid,
                                caption=f"{number_correct_frames}/{len(labelled_frames)} labelled frames right "
                                        f"(true/predicted)",

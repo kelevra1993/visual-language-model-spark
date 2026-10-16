@@ -1,6 +1,7 @@
 """
-OpenCV drawing helpers: bounding boxes of the detection sample and error images and anchors, the input viewer of the
-trainers, the frame grids of the sequence tasks, the caption bars of the evaluation error images, the class colours,
+OpenCV drawing helpers: the conversion of the network inputs into the arrays every drawing starts from, bounding boxes
+of the detection sample and error images and anchors, the input viewer of the trainers, the frame grids of the
+sequence tasks, the caption bars of the evaluation error images, the class colours,
 mask overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
 segmentation, and the selection grids with their probability heat map of the frame selection. Used by the trainers.
 """
@@ -68,6 +69,24 @@ HEAT_MAP_MINIMUM_VALUE_WIDTH = 36
 # a frame chosen for a class it does not hold, and a true frame left unchosen
 SELECTION_COLOURS = {"Chosen right": ERROR_MAP_COLOURS["Correct"], "Chosen wrong": ERROR_MAP_COLOURS["Wrong Class"],
                      "True not chosen": ERROR_MAP_COLOURS["Missed"]}
+
+
+def convert_image_to_array(image: torch.Tensor) -> np.ndarray:
+    """
+    Turns a network input into the array OpenCV draws on, the first step of the sample images, error images, frame
+    grids and input viewer of every trainer: the image is moved to the CPU, clamped to [0, 255] (the augmentations
+    and views can leave values just outside, which a plain cast would wrap around), cast to uint8 and laid out with
+    its channels last in contiguous memory, which the OpenCV drawing functions need.
+
+    Args:
+        image (torch.Tensor): The [3, H, W] BGR image in [0, 255], float or uint8, or the [T, 3, H, W] frames of a
+            sequence, on any device.
+
+    Returns:
+        np.ndarray: The [H, W, 3] uint8 BGR image, or the [T, H, W, 3] frames.
+    """
+    uint8_image = image.detach().cpu().clamp(min=0, max=255).to(dtype=torch.uint8)
+    return np.ascontiguousarray(a=uint8_image.movedim(source=-3, destination=-1).numpy())
 
 
 def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_image_size: int,
@@ -222,9 +241,8 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[to
 
     # Iterate through each image to annotate it and show it in its own window
     for window_index, (image, window_title) in enumerate(zip(images, window_titles)):
-        # Move the tensor to the CPU, transpose it from (C, H, W) to (H, W, C) and cast it to a contiguous uint8 array,
-        # since OpenCV cannot draw on the non-contiguous memory layout left by the transposition
-        image_numpy = np.ascontiguousarray(image.detach().cpu().permute(1, 2, 0).numpy().astype(np.uint8))
+        # Contiguous uint8 (H, W, C) array, since OpenCV cannot draw on the memory layout of the tensor
+        image_numpy = convert_image_to_array(image=image)
 
         # Draw each object's bounding box rectangle and its class caption, for the tasks with boxes
         if bounding_boxes is not None:
@@ -295,8 +313,8 @@ def build_frame_grid(frames: torch.Tensor, sequence_mask: torch.Tensor, frame_ca
     Returns:
         torch.Tensor: The [3, rows x H, columns x W] uint8 grid, gray between the frames.
     """
-    real_frames = frames[sequence_mask.to(device=frames.device)].detach().cpu()
-    number_frames, _, frame_height, frame_width = real_frames.shape
+    real_frames = convert_image_to_array(image=frames[sequence_mask.to(device=frames.device)])
+    number_frames, frame_height, frame_width, _ = real_frames.shape
     number_rows = (number_frames + number_columns - 1) // number_columns
 
     # Gray canvas with a 4 pixel gap around every frame
@@ -304,7 +322,7 @@ def build_frame_grid(frames: torch.Tensor, sequence_mask: torch.Tensor, frame_ca
     grid = np.full(shape=(number_rows * (frame_height + gap) + gap, number_columns * (frame_width + gap) + gap, 3),
                    fill_value=128, dtype=np.uint8)
     for frame_index in range(number_frames):
-        frame_numpy = np.ascontiguousarray(real_frames[frame_index].permute(1, 2, 0).numpy().astype(np.uint8))
+        frame_numpy = real_frames[frame_index]
 
         # Number of the frame, followed by its caption when given
         frame_text = str(frame_index) if frame_captions is None else f"{frame_index} {frame_captions[frame_index]}"

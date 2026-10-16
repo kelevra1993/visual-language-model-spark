@@ -33,7 +33,7 @@ from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
 from vision_training.utilities.visualization import (CORRECT_PREDICTION_COLOUR, WRONG_PREDICTION_COLOUR,
-                                                     add_caption_bar, view_input_data)
+                                                     add_caption_bar, convert_image_to_array, view_input_data)
 
 # Probability from which a class is predicted in multi-label mode
 MULTI_LABEL_THRESHOLD = 0.5
@@ -274,8 +274,7 @@ class ClassificationTrainer(BaseTrainer):
         Returns:
             np.ndarray: The [H, W, 3] uint8 BGR image of the sample.
         """
-        image = batch["images"][sample_index].detach().cpu().clamp(min=0.0, max=255.0).to(dtype=torch.uint8)
-        return np.ascontiguousarray(image.permute(1, 2, 0).numpy())
+        return convert_image_to_array(image=batch["images"][sample_index])
 
     def dump_errors(self, accumulator: Dict[str, Any], batch: Dict[str, Any], predictions: Dict[str, Any],
                     sample_indices: List[int]) -> None:
