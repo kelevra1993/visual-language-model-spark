@@ -314,7 +314,7 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequen
 ```
 
 ### Step 2.14 — `print_summary()` / `view_input_batches()` / `restore_last_model()`
-The summary panels are those of the sequence classification, the temporal module panel giving `Output Features : 128`. With `view_input_images`, every frame of the grids is captioned with its class (`get_frame_captions()`, `none` for an unmapped category), and the window with the order of its classes (`get_window_caption()`, e.g. `Classes : hexagon > triangle`).
+The summary panels are those of the sequence classification, the temporal module panel giving `Output Features : 128`. With `view_input_images`, every frame of the grids is captioned with its class (`get_frame_captions()`, `none` for an unmapped category), and the information panel of the window starts with the order of its classes (`get_window_caption()`, e.g. `Classes : hexagon > triangle`).
 
 **Example output: a new run**
 ```text

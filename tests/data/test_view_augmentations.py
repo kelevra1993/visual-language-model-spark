@@ -2,8 +2,9 @@
 Tests of the ViewAugmenter of vision_training/data/view_augmentations.py, which draws the two random views of every
 image of the self-supervised trainer before the forward pass: the views keep the shape and the [0, 255] range of the
 BGR images, both views differ, every transformation turned off gives the image back, the BGR channels reach the RGB
-transformations of kornia in the right order, a seed gives the same views, and the views stay in float32 under the
-bfloat16 autocast of mixed precision.
+transformations of kornia in the right order, a seed gives the same views, the views stay in float32 under the
+bfloat16 autocast of mixed precision, and they describe the transformations drawn for them in the information panels
+of the input viewer.
 """
 
 import copy
@@ -11,7 +12,7 @@ import torch
 
 from typing import Any, Dict
 
-from vision_training.data.view_augmentations import ViewAugmenter
+from vision_training.data.view_augmentations import VIEW_TRANSFORMATION_NAMES, ViewAugmenter
 
 # Side of the square images of the tests
 IMAGE_SIZE = 32
@@ -65,7 +66,7 @@ def test_views_keep_the_images_format_and_differ() -> None:
     view_augmenter = ViewAugmenter(view_augmentation_configuration=VIEW_AUGMENTATION_CONFIGURATION,
                                    image_size=IMAGE_SIZE)
     torch.manual_seed(seed=0)
-    first_views, second_views = view_augmenter.create_views(images=images)
+    first_views, second_views, _ = view_augmenter.create_views(images=images)
     for views in [first_views, second_views]:
         assert views.shape == images.shape and views.dtype == torch.float32
         assert float(views.min()) >= 0.0 and float(views.max()) <= 255.0
@@ -81,7 +82,7 @@ def test_views_without_transformation_give_the_images_back() -> None:
     images = create_test_images(number_images=3)
     view_augmenter = ViewAugmenter(view_augmentation_configuration=build_identity_configuration(),
                                    image_size=IMAGE_SIZE)
-    first_views, second_views = view_augmenter.create_views(images=images)
+    first_views, second_views, _ = view_augmenter.create_views(images=images)
     assert torch.allclose(input=first_views, other=images, atol=1e-3)
     assert torch.allclose(input=second_views, other=images, atol=1e-3)
 
@@ -97,7 +98,7 @@ def test_views_convert_the_bgr_channels_in_order() -> None:
     view_augmenter = ViewAugmenter(view_augmentation_configuration=configuration, image_size=IMAGE_SIZE)
     blue_image = torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE))
     blue_image[:, 0] = 255.0
-    first_views, _ = view_augmenter.create_views(images=blue_image)
+    first_views, _, _ = view_augmenter.create_views(images=blue_image)
     assert torch.allclose(input=first_views, other=torch.full_like(input=first_views, fill_value=0.114 * 255.0),
                           atol=0.5)
 
@@ -115,7 +116,7 @@ def test_views_follow_the_seed() -> None:
         torch.manual_seed(seed=7)
         drawn_views.append(view_augmenter.create_views(images=images))
     assert all(torch.equal(input=first_draw, other=second_draw)
-               for first_draw, second_draw in zip(drawn_views[0], drawn_views[1]))
+               for first_draw, second_draw in zip(drawn_views[0][:2], drawn_views[1][:2]))
 
 
 def test_views_stay_in_float32_under_mixed_precision() -> None:
@@ -127,5 +128,34 @@ def test_views_stay_in_float32_under_mixed_precision() -> None:
     view_augmenter = ViewAugmenter(view_augmentation_configuration=VIEW_AUGMENTATION_CONFIGURATION,
                                    image_size=IMAGE_SIZE)
     with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
-        first_views, second_views = view_augmenter.create_views(images=images)
+        first_views, second_views, _ = view_augmenter.create_views(images=images)
     assert first_views.dtype == torch.float32 and second_views.dtype == torch.float32
+
+
+def test_views_describe_their_drawn_transformations() -> None:
+    """
+    Verifies the descriptions of the views written in the information panels of the input viewer: none unless asked
+    for, the whole image cropped with every other transformation turned off, and with every transformation drawn one
+    list of lines per view and per image, each naming a transformation, the crop first with its size.
+    """
+    images = create_test_images(number_images=3)
+
+    # Nothing is described unless asked for, which keeps the training free of reads from the device
+    view_augmenter = ViewAugmenter(view_augmentation_configuration=VIEW_AUGMENTATION_CONFIGURATION,
+                                   image_size=IMAGE_SIZE)
+    assert view_augmenter.create_views(images=images)[2] is None
+
+    # The identity configuration only crops the whole image
+    identity_augmenter = ViewAugmenter(view_augmentation_configuration=build_identity_configuration(),
+                                       image_size=IMAGE_SIZE)
+    _, _, view_descriptions = identity_augmenter.create_views(images=images, describe_views=True)
+    assert view_descriptions == [[[f"random_resized_crop : {IMAGE_SIZE}x{IMAGE_SIZE} pixels at x 0, y 0 "
+                                   f"(100 % of the area)"]] * 3] * 2
+
+    # Every view of every image starts with its crop, followed by the other transformations drawn for it
+    torch.manual_seed(seed=3)
+    _, _, view_descriptions = view_augmenter.create_views(images=images, describe_views=True)
+    assert len(view_descriptions) == 2 and all(len(image_lines) == 3 for image_lines in view_descriptions)
+    for image_lines in [lines for view_lines in view_descriptions for lines in view_lines]:
+        assert image_lines[0].startswith("random_resized_crop : ") and "% of the area" in image_lines[0]
+        assert all(line.split(" : ")[0] in VIEW_TRANSFORMATION_NAMES for line in image_lines)

@@ -212,12 +212,13 @@ class DetectionTrainer(BaseTrainer):
             batch (Dict[str, Any]): The training batch.
 
         Returns:
-            Dict[str, Any]: The batch with its augmented images, boxes and labels.
+            Dict[str, Any]: The batch with its augmented images, boxes and labels, and the 'augmentation_reports' of
+                its samples for the input viewer.
         """
-        images, bounding_boxes, labels, _, _ = self.data_augmenter.augment_batch(images=batch["images"],
-                                                                                 bounding_boxes=batch["bounding_boxes"],
-                                                                                 labels=batch["labels"])
-        return {**batch, "images": images, "bounding_boxes": bounding_boxes, "labels": labels}
+        images, bounding_boxes, labels, _, _, augmentation_reports = self.data_augmenter.augment_batch(
+            images=batch["images"], bounding_boxes=batch["bounding_boxes"], labels=batch["labels"])
+        return {**batch, "images": images, "bounding_boxes": bounding_boxes, "labels": labels,
+                "augmentation_reports": augmentation_reports}
 
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -712,7 +713,8 @@ class DetectionTrainer(BaseTrainer):
                            sample_index: int) -> bool:
         """
         Displays an augmented training image next to a validation image, each with its ground truth boxes captioned
-        with their class names.
+        with their class names and an information panel holding its number of objects per class, its augmentations
+        and the objects they removed.
 
         Args:
             training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
@@ -724,6 +726,17 @@ class DetectionTrainer(BaseTrainer):
         """
         # Invert the label dictionary so that each box is captioned with its class name instead of its index
         label_names = {class_index: str(class_name) for class_name, class_index in self.label_dictionary.items()}
+
+        # The objects of every image counted per class, in the order of the label dictionary, then its augmentations
+        panel_lines = []
+        for batch in [training_batch, validation_batch]:
+            sample_labels = batch["labels"][sample_index].tolist()
+            class_counts = [f"{class_name} {sample_labels.count(class_index)}"
+                            for class_index, class_name in label_names.items() if class_index in sample_labels]
+            object_line = f"Objects : {len(sample_labels)} ({', '.join(class_counts)})" if sample_labels \
+                else "Objects : none"
+            panel_lines.append([object_line] + self.describe_input_augmentations(
+                batch=batch, sample_index=sample_index, label_names=label_names))
         return view_input_data(
             images=[self.get_input_sample_image(batch=training_batch, sample_index=sample_index),
                     self.get_input_sample_image(batch=validation_batch, sample_index=sample_index)],
@@ -731,7 +744,7 @@ class DetectionTrainer(BaseTrainer):
                             validation_batch["bounding_boxes"][sample_index]],
             labels=[training_batch["labels"][sample_index], validation_batch["labels"][sample_index]],
             window_titles=["Training", "Validation"], display_input_size=self.input_image_size,
-            label_names=label_names)
+            label_names=label_names, panel_lines=panel_lines)
 
     def get_input_sample_image(self, batch: Dict[str, Any], sample_index: int) -> torch.Tensor:
         """

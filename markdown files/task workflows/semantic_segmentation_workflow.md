@@ -504,7 +504,7 @@ The backbone and decoder panels are shown in Steps 2.14 and 2.17. The size panel
 ```
 
 ### Step 2.24 — `view_input_batches()`
-With `diagnosis_modes.view_input_images`, the training image (augmented, with its augmented mask) and the validation image are shown with their masks painted over them in the class colours, captioned with the classes they hold (`Classes : square, star`, or `background only`). It needs a display, so it has no console output to show here.
+With `diagnosis_modes.view_input_images`, the training image (augmented, with its augmented mask) and the validation image are shown with their masks painted over them in the class colours, each followed by an information panel giving the classes it holds (`Classes : square, star`, or `background only`) and, for the training image, the augmentations drawn with their values. It needs a display, so it has no console output to show here.
 
 ### Step 2.25 — `restore_last_model()` → `get_last_checkpoint_iteration()` / `load_model()`
 The same restoration as every task (see `classification_workflow.md`, Steps 2.26 to 2.28), except that `load_model()` sets the class weights of the current configuration again after loading the checkpoint.

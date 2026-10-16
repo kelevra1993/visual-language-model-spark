@@ -446,7 +446,7 @@ The summary of the detector adds a region proposal panel (the anchors of every l
 ```
 
 ### Step 2.20 — `view_input_batches()` / `restore_last_model()`
-With `view_input_images`, `show_input_samples()` shows an augmented training image next to a validation image, every box captioned with its class name. A new run starts from scratch.
+With `view_input_images`, `show_input_samples()` shows an augmented training image next to a validation image, every box captioned with its class name, each image followed by an information panel counting its objects per class (`Objects : 2 (cat 1, dog 1)`) and, for the training image, giving the augmentations drawn with their values and the objects they removed (`Removed objects : 1 (dog)`). A new run starts from scratch.
 
 **Example output: a new run**
 ```text

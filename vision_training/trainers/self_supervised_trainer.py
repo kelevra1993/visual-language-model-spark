@@ -192,7 +192,7 @@ class SelfSupervisedTrainer(BaseTrainer):
         Returns:
             Dict[str, Any]: The model outputs, with the loss and the batch metrics of the method.
         """
-        first_views, second_views = self.view_augmenter.create_views(images=batch["images"])
+        first_views, second_views, _ = self.view_augmenter.create_views(images=batch["images"])
         return self.model(input_tensor=first_views, second_view_tensor=second_views)
 
     def predict_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
@@ -391,7 +391,7 @@ class SelfSupervisedTrainer(BaseTrainer):
         image = batch["images"][sample_index:sample_index + 1]
         with torch.random.fork_rng(devices=[] if self.device.type == "cpu" else [self.device]):
             torch.manual_seed(seed=SAMPLE_VIEWS_SEED + int(batch[SAMPLE_IDENTIFIERS_KEY][sample_index]))
-            first_view, second_view = self.view_augmenter.create_views(images=image)
+            first_view, second_view, _ = self.view_augmenter.create_views(images=image)
 
         # Similarity of the representations of both views, the model being in evaluation mode
         view_representations = self.model(input_tensor=torch.cat(tensors=[first_view, second_view],
@@ -411,8 +411,8 @@ class SelfSupervisedTrainer(BaseTrainer):
                            sample_index: int) -> bool:
         """
         Displays the two random views of a training image side by side, exactly as the network receives them, each
-        captioned with the class of the image. The validation images get views drawn the same way, so only the
-        training image is shown.
+        next to an information panel holding the class of the image and the transformations drawn for the view with
+        their values. The validation images get views drawn the same way, so only the training image is shown.
 
         Args:
             training_batch (Dict[str, Any]): The training batch, on the CPU.
@@ -422,9 +422,14 @@ class SelfSupervisedTrainer(BaseTrainer):
         Returns:
             bool: True if the user asked to stop viewing.
         """
-        first_view, second_view = self.view_augmenter.create_views(
-            images=training_batch["images"][sample_index:sample_index + 1].to(dtype=torch.float32))
-        caption = f"Class : {self.get_label_caption(label=training_batch['labels'][sample_index])}"
+        first_view, second_view, view_descriptions = self.view_augmenter.create_views(
+            images=training_batch["images"][sample_index:sample_index + 1].to(dtype=torch.float32), describe_views=True)
+
+        # The class of the image, then the transformations of each view indented under their header
+        class_line = f"Class : {self.get_label_caption(label=training_batch['labels'][sample_index])}"
+        panel_lines = [[class_line, "", "View transformations"] +
+                       ([f"  {line}" for line in view_description[0]] or ["  none"])
+                       for view_description in view_descriptions]
         return view_input_data(images=[first_view[0], second_view[0]], bounding_boxes=None, labels=None,
                                window_titles=["View 1", "View 2"], display_input_size=self.input_image_size,
-                               captions=[caption, caption])
+                               panel_lines=panel_lines)

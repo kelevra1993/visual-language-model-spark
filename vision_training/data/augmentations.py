@@ -4,14 +4,15 @@ every task right before the forward pass, moving the bounding boxes of the objec
 segmentation and the instance masks of the instance segmentation with the images and handling the frame shuffling and
 per-frame draws of the sequence tasks.
 Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
-common checks.
+common checks. Every augmented batch comes with a report of the types drawn for each sample and their values, which
+the 'view_input_images' diagnosis mode writes in the information panel next to every training image.
 """
 
 import random
 import warnings
 import torch
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 from torch.nn import functional as torch_functional
 from torchvision import tv_tensors
 from torchvision.transforms.v2 import functional as vision_functional
@@ -73,6 +74,35 @@ MINIMUM_VISIBLE_AREA_FRACTION = 0.25
 BGR_CHANNEL_INDICES = {"B": [0], "G": [1], "R": [2], "BGR": [0, 1, 2]}
 
 
+class AugmentationReport(TypedDict):
+    """
+    Record of the augmentations drawn for one training sample by DataAugmenter.augment_batch, kept in the batch by the
+    trainers and written by describe_report in the information panel of the input viewer ('view_input_images'), so
+    that the user sees which augmentations every training image received and how strong they were. 'augmented' is
+    False when the global probability of the sample was not drawn (or the augmentation is off). Every applied type is a
+    (type name, drawn values) pair, the values being empty for the types without random values (e.g. a flip). The
+    photometric types hold one list for the sample, or one per frame when the frames of a sequence are drawn on their
+    own ('independent_frames'). 'removed_labels' gives the labels of the objects removed after the geometric
+    augmentations, None for the tasks without boxes.
+    """
+    augmented: bool
+    geometric_augmentations: List[Tuple[str, str]]
+    photometric_augmentations: List[List[Tuple[str, str]]]
+    removed_labels: Optional[torch.Tensor]
+
+
+def create_empty_report() -> AugmentationReport:
+    """
+    Creates the report of a sample that received no augmentation, filled by DataAugmenter.augment_sample when the
+    sample is augmented.
+
+    Returns:
+        AugmentationReport: The report without any applied type.
+    """
+    return {"augmented": False, "geometric_augmentations": [], "photometric_augmentations": [],
+            "removed_labels": None}
+
+
 class DataAugmenter:
     """
     Randomly augments training batches on their device (usually the GPU), right before the forward pass.
@@ -116,9 +146,10 @@ class DataAugmenter:
                       labels: Optional[List[torch.Tensor]] = None, masks: Optional[torch.Tensor] = None,
                       instance_masks: Optional[List[torch.Tensor]] = None) -> Tuple[
                       torch.Tensor, Optional[List[torch.Tensor]], Optional[List[torch.Tensor]], Optional[torch.Tensor],
-                      Optional[List[torch.Tensor]]]:
+                      Optional[List[torch.Tensor]], List[AugmentationReport]]:
         """
-        Augments every sample of a training batch independently, each one with probability 'probability'.
+        Augments every sample of a training batch independently, each one with probability 'probability', and reports
+        the types drawn for every sample with their values, for the information panels of the input viewer.
 
         Args:
             images (torch.Tensor): Float BGR images in [0, 255], of shape [B, C, H, W] or [B, T, C, H, W].
@@ -132,15 +163,16 @@ class DataAugmenter:
 
         Returns:
             Tuple[torch.Tensor, Optional[List[torch.Tensor]], Optional[List[torch.Tensor]], Optional[torch.Tensor],
-                Optional[List[torch.Tensor]]]: The augmented images, boxes, labels, masks and instance masks, with the
-                same structure as the inputs.
+                Optional[List[torch.Tensor]], List[AugmentationReport]]: The augmented images, boxes, labels, masks
+                and instance masks, with the same structure as the inputs, and the augmentation report of every sample.
 
         Raises:
             ValueError: If boxes or masks are given with sequences, boxes and labels are not given together, or
                 instance masks are given without boxes or with class masks.
         """
         if not self.activated:
-            return images, bounding_boxes, labels, masks, instance_masks
+            return (images, bounding_boxes, labels, masks, instance_masks,
+                    [create_empty_report() for sample_index in range(images.shape[0])])
 
         # Boxes and masks are only supported for single images, and the boxes always travel together with their labels
         if images.dim() == 5 and (bounding_boxes is not None or masks is not None or instance_masks is not None):
@@ -153,43 +185,48 @@ class DataAugmenter:
             raise ValueError("Instance masks must be given with their bounding boxes and without class masks.")
 
         augmented_images, augmented_boxes, augmented_labels, augmented_masks = [], [], [], []
-        augmented_instance_masks = []
+        augmented_instance_masks, augmentation_reports = [], []
 
-        # Decide independently for every sample whether it is augmented
+        # Decide independently for every sample whether it is augmented, an unaugmented sample keeping an empty report
         for sample_index in range(images.shape[0]):
             sample_image = images[sample_index]
             sample_boxes = bounding_boxes[sample_index] if bounding_boxes is not None else None
             sample_labels = labels[sample_index] if labels is not None else None
             sample_mask = masks[sample_index] if masks is not None else None
             sample_instance_masks = instance_masks[sample_index] if instance_masks is not None else None
+            sample_report = create_empty_report()
 
             if random.random() < self.probability:
-                sample_image, sample_boxes, sample_labels, sample_mask, sample_instance_masks = self.augment_sample(
-                    image=sample_image, bounding_boxes=sample_boxes, labels=sample_labels, mask=sample_mask,
-                    instance_masks=sample_instance_masks)
+                (sample_image, sample_boxes, sample_labels, sample_mask, sample_instance_masks,
+                 sample_report) = self.augment_sample(image=sample_image, bounding_boxes=sample_boxes,
+                                                      labels=sample_labels, mask=sample_mask,
+                                                      instance_masks=sample_instance_masks)
 
             augmented_images.append(sample_image)
             augmented_boxes.append(sample_boxes)
             augmented_labels.append(sample_labels)
             augmented_masks.append(sample_mask)
             augmented_instance_masks.append(sample_instance_masks)
+            augmentation_reports.append(sample_report)
 
         output_boxes = augmented_boxes if bounding_boxes is not None else None
         output_labels = augmented_labels if labels is not None else None
         output_masks = torch.stack(tensors=augmented_masks) if masks is not None else None
         output_instance_masks = augmented_instance_masks if instance_masks is not None else None
 
-        return torch.stack(tensors=augmented_images), output_boxes, output_labels, output_masks, output_instance_masks
+        return (torch.stack(tensors=augmented_images), output_boxes, output_labels, output_masks, output_instance_masks,
+                augmentation_reports)
 
     def augment_sample(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                        labels: Optional[torch.Tensor], mask: Optional[torch.Tensor],
                        instance_masks: Optional[torch.Tensor] = None) -> Tuple[
                        torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor],
-                       Optional[torch.Tensor]]:
+                       Optional[torch.Tensor], AugmentationReport]:
         """
-        Applies every activated augmentation type to one sample, each with its own probability. A sequence
-        [T, C, H, W] is transformed as a whole, so all its frames share the same random parameters, except the
-        photometric types with 'independent_frames', drawn for every frame.
+        Applies every activated augmentation type to one sample, each with its own probability, and reports the
+        applied types with their drawn values. A sequence [T, C, H, W] is transformed as a whole, so all its frames
+        share the same random parameters, except the photometric types with 'independent_frames', drawn for every
+        frame.
 
         Args:
             image (torch.Tensor): A float BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -201,8 +238,12 @@ class DataAugmenter:
 
         Returns:
             Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor],
-                Optional[torch.Tensor]]: The augmented image, boxes, labels, mask and instance masks.
+                Optional[torch.Tensor], AugmentationReport]: The augmented image, boxes, labels, mask and instance
+                masks, and the report of the applied types.
         """
+        report = create_empty_report()
+        report["augmented"] = True
+
         # The instance masks go through the mask argument of the geometric methods, except for an image without objects,
         # their pixels counted first to measure the share of every object left inside the image afterwards
         moves_instance_masks = instance_masks is not None and instance_masks.shape[0] > 0
@@ -211,15 +252,16 @@ class DataAugmenter:
             original_mask_pixels = instance_masks.flatten(start_dim=1).sum(dim=1, dtype=torch.float32)
 
         # Apply the geometric augmentations, which move the boxes and the mask together with the image, the area scale
-        # of the objects (the zoom of a crop or a zoom-out) multiplying along the way
+        # of the objects (the zoom of a crop or a zoom-out) multiplying along the way, every applied type being
+        # reported with its drawn values
         geometry_changed = False
         area_scale = 1.0
         for augmentation_type in GEOMETRIC_AUGMENTATION_TYPES:
             if self.should_apply(augmentation_type=augmentation_type):
                 augmentation_method = getattr(self, augmentation_type)
-                image, bounding_boxes, mask, type_area_scale = augmentation_method(image=image,
-                                                                                   bounding_boxes=bounding_boxes,
-                                                                                   mask=mask)
+                image, bounding_boxes, mask, type_area_scale, drawn_values = augmentation_method(
+                    image=image, bounding_boxes=bounding_boxes, mask=mask)
+                report["geometric_augmentations"].append((augmentation_type, drawn_values))
                 area_scale *= type_area_scale
                 geometry_changed = True
 
@@ -238,22 +280,25 @@ class DataAugmenter:
                                                 torch.ones_like(input=visible_mask_pixels))
 
         # Clip the boxes to the image and remove the ones that left it or kept too small a share of their area inside
-        # it, together with their labels and masks
+        # it, together with their labels and masks, the labels of the removed objects being reported
         if bounding_boxes is not None:
-            bounding_boxes, labels, instance_masks = self.clean_bounding_boxes(
+            bounding_boxes, labels, instance_masks, report["removed_labels"] = self.clean_bounding_boxes(
                 bounding_boxes=bounding_boxes, labels=labels, image_height=image.shape[-2],
                 image_width=image.shape[-1], instance_masks=instance_masks, visible_fractions=visible_fractions)
 
         # Apply the photometric augmentations, which never move the boxes nor change the mask, once for the sample or
-        # frame by frame
+        # frame by frame, the report keeping one list of applied types per draw
         if image.dim() == 4 and self.independent_frames:
-            image = torch.stack(tensors=[self.apply_photometric_augmentations(image=frame) for frame in image])
+            augmented_frames = [self.apply_photometric_augmentations(image=frame) for frame in image]
+            image = torch.stack(tensors=[augmented_frame for augmented_frame, frame_types in augmented_frames])
+            report["photometric_augmentations"] = [frame_types for augmented_frame, frame_types in augmented_frames]
         else:
-            image = self.apply_photometric_augmentations(image=image)
+            image, applied_types = self.apply_photometric_augmentations(image=image)
+            report["photometric_augmentations"] = [applied_types]
 
-        return image.clamp(min=0.0, max=255.0), bounding_boxes, labels, mask, instance_masks
+        return image.clamp(min=0.0, max=255.0), bounding_boxes, labels, mask, instance_masks, report
 
-    def apply_photometric_augmentations(self, image: torch.Tensor) -> torch.Tensor:
+    def apply_photometric_augmentations(self, image: torch.Tensor) -> Tuple[torch.Tensor, List[Tuple[str, str]]]:
         """
         Applies every activated photometric augmentation type to an image, a sequence or one frame of a sequence, each
         with its own probability and random parameters.
@@ -262,12 +307,15 @@ class DataAugmenter:
             image (torch.Tensor): A float BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            torch.Tensor: The augmented image or sequence.
+            Tuple[torch.Tensor, List[Tuple[str, str]]]: The augmented image or sequence, and the applied types with
+                their drawn values, in order.
         """
+        applied_types = []
         for augmentation_type in PHOTOMETRIC_AUGMENTATION_TYPES:
             if self.should_apply(augmentation_type=augmentation_type):
-                image = getattr(self, augmentation_type)(image=image)
-        return image
+                image, drawn_values = getattr(self, augmentation_type)(image=image)
+                applied_types.append((augmentation_type, drawn_values))
+        return image, applied_types
 
     def shuffle_frames(self, images: torch.Tensor, sequence_mask: torch.Tensor,
                        frame_block_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -320,17 +368,69 @@ class DataAugmenter:
         is_activated, probability = self.type_settings[augmentation_type]
         return is_activated and random.random() < probability
 
+    def describe_report(self, report: AugmentationReport, label_names: Optional[Dict[int, str]] = None,
+                        real_frames: Optional[List[int]] = None) -> List[str]:
+        """
+        Writes the augmentation report of a training sample as the lines of its information panel in the input viewer
+        ('view_input_images'): the applied geometric types, then the photometric ones (one line per frame when they are
+        drawn frame by frame), each with its drawn values, and the objects removed by the geometric augmentations.
+
+        Args:
+            report (AugmentationReport): The report of the sample, given by augment_batch.
+            label_names (Optional[Dict[int, str]]): The class name of every label index, to name the removed objects.
+                Defaults to None, in which case the label indices are written.
+            real_frames (Optional[List[int]]): The indices of the frames written in the frame by frame lines of a
+                sequence, its real frames, so that its padding frames are left out. Defaults to None, in which case
+                every frame is written.
+
+        Returns:
+            List[str]: The lines of the panel, the types indented under their group.
+        """
+        if not self.activated:
+            return ["Augmentation off (data_augmentation.activated False)"]
+        if not report["augmented"]:
+            return [f"Not augmented (global probability {self.probability} not drawn)"]
+
+        # Geometric types, shared by every frame of a sequence
+        lines = ["Geometric :"]
+        lines += [f"  {augmentation_type} : {drawn_values}" if drawn_values else f"  {augmentation_type}"
+                  for augmentation_type, drawn_values in report["geometric_augmentations"]] or ["  none"]
+
+        # Photometric types, drawn once for the sample or frame by frame
+        photometric_augmentations = report["photometric_augmentations"]
+        if len(photometric_augmentations) == 1:
+            lines.append("Photometric :")
+            lines += [f"  {augmentation_type} : {drawn_values}" if drawn_values else f"  {augmentation_type}"
+                      for augmentation_type, drawn_values in photometric_augmentations[0]] or ["  none"]
+        else:
+            lines.append("Photometric, drawn frame by frame :")
+            written_frames = real_frames if real_frames is not None else range(len(photometric_augmentations))
+            for frame_index in written_frames:
+                frame_descriptions = [f"{augmentation_type} ({drawn_values})" if drawn_values else augmentation_type
+                                      for augmentation_type, drawn_values in photometric_augmentations[frame_index]]
+                lines.append(f"  Frame {frame_index} : {', '.join(frame_descriptions) or 'none'}")
+
+        # Objects removed after the geometric augmentations, for the tasks with boxes
+        if report["removed_labels"] is not None:
+            removed_labels = report["removed_labels"].tolist()
+            removed_names = [label_names.get(label, str(label)) if label_names else str(label)
+                             for label in removed_labels]
+            lines.append(f"Removed objects : {len(removed_labels)} ({', '.join(removed_names)})" if removed_labels
+                         else "Removed objects : none")
+        return lines
+
     @staticmethod
     def clean_bounding_boxes(bounding_boxes: torch.Tensor, labels: torch.Tensor, image_height: int, image_width: int,
                              instance_masks: Optional[torch.Tensor] = None,
                              visible_fractions: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor,
-                                                                                       Optional[torch.Tensor]]:
+                                                                                       Optional[torch.Tensor],
+                                                                                       torch.Tensor]:
         """
         Clips the boxes to the image borders after the geometric augmentations and removes the boxes that became
         too small (mostly cropped or rotated out of the image) or that kept less than MINIMUM_VISIBLE_AREA_FRACTION of
         their area inside the image (a sliver of an object at the border of a crop, which would teach the detector to
         fire on fragments), so the detector only receives valid targets. The instance masks of the removed boxes are
-        removed with them.
+        removed with them, and their labels are returned for the augmentation report.
 
         Args:
             bounding_boxes (torch.Tensor): The [N, 4] absolute [x1, y1, x2, y2] boxes, moved without clipping so that
@@ -345,8 +445,8 @@ class DataAugmenter:
                 over the area of the moved box. Defaults to None.
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]: The kept boxes, their labels and their instance
-                masks (None without instance masks).
+            Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], torch.Tensor]: The kept boxes, their labels and
+                their instance masks (None without instance masks), and the labels of the removed boxes.
         """
         clipped_boxes = bounding_boxes.clone()
         clipped_boxes[:, 0::2] = clipped_boxes[:, 0::2].clamp(min=0.0, max=float(image_width))
@@ -365,7 +465,7 @@ class DataAugmenter:
         kept_mask &= visible_fractions >= MINIMUM_VISIBLE_AREA_FRACTION
 
         kept_instance_masks = instance_masks[kept_mask] if instance_masks is not None else None
-        return clipped_boxes[kept_mask], labels[kept_mask], kept_instance_masks
+        return clipped_boxes[kept_mask], labels[kept_mask], kept_instance_masks, labels[~kept_mask]
 
     @staticmethod
     def wrap_bounding_boxes(bounding_boxes: torch.Tensor, image: torch.Tensor) -> tv_tensors.BoundingBoxes:
@@ -386,7 +486,7 @@ class DataAugmenter:
 
     def random_crop(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                     mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                           Optional[torch.Tensor], float]:
+                                                           Optional[torch.Tensor], float, str]:
         """
         Crops a random region covering 75 to 100% of each side and resizes it back to the original size, which
         zooms slightly into the image. Boxes are shifted and scaled accordingly; boxes leaving the crop, or keeping
@@ -399,8 +499,9 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The cropped image, boxes and
-                mask, and the area scale of the objects (the squared zoom, above 1).
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float, str]: The cropped image, boxes
+                and mask, the area scale of the objects (the squared zoom, above 1) and the drawn crop for the
+                augmentation report.
         """
         image_height, image_width = image.shape[-2], image.shape[-1]
 
@@ -423,11 +524,13 @@ class DataAugmenter:
             cropped_mask = vision_functional.resized_crop(tv_tensors.Mask(mask), top=top, left=left,
                                                           height=crop_height, width=crop_width,
                                                           size=[image_height, image_width]).as_subclass(torch.Tensor)
-        return cropped_image, cropped_boxes, cropped_mask, (image_height * image_width) / (crop_height * crop_width)
+        drawn_values = f"{crop_fraction * 100:.0f} % of each side, at top {top} and left {left} pixels"
+        return (cropped_image, cropped_boxes, cropped_mask, (image_height * image_width) / (crop_height * crop_width),
+                drawn_values)
 
     def random_zoom_out(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                         mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                               Optional[torch.Tensor], float]:
+                                                               Optional[torch.Tensor], float, str]:
         """
         Shrinks the image to 50 to 100% of each side and places it at a random position of a black canvas of the
         original size, the padding of the data loaders, which shows the objects smaller than in the dataset, the
@@ -442,8 +545,9 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The zoomed out image, boxes and
-                mask, and the area scale of the objects (the squared shrink factor, below 1).
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float, str]: The zoomed out image,
+                boxes and mask, the area scale of the objects (the squared shrink factor, below 1) and the drawn
+                shrink for the augmentation report.
         """
         image_height, image_width = image.shape[-2], image.shape[-1]
 
@@ -472,7 +576,9 @@ class DataAugmenter:
             zoomed_mask = torch.full_like(input=mask, fill_value=mask_fill)
             zoomed_mask[..., top:top + shrunk_height, left:left + shrunk_width] = vision_functional.resize(
                 tv_tensors.Mask(mask), size=[shrunk_height, shrunk_width]).as_subclass(torch.Tensor)
-        return zoomed_image, zoomed_boxes, zoomed_mask, (shrunk_height * shrunk_width) / (image_height * image_width)
+        drawn_values = f"{zoom_fraction * 100:.0f} % of each side, at top {top} and left {left} pixels"
+        return (zoomed_image, zoomed_boxes, zoomed_mask, (shrunk_height * shrunk_width) / (image_height * image_width),
+                drawn_values)
 
     @staticmethod
     def shift_tensor(tensor: torch.Tensor, shift_x: int, shift_y: int, fill_value: float) -> torch.Tensor:
@@ -511,7 +617,7 @@ class DataAugmenter:
 
     def random_translation(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                            mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                                  Optional[torch.Tensor], float]:
+                                                                  Optional[torch.Tensor], float, str]:
         """
         Shifts the image along its width, its height or both (TRANSLATION_AXES, drawn with equal chances) by whole
         pixels, each shift being drawn up to MAXIMUM_TRANSLATION_FRACTION (25 %) of its side in either direction, so
@@ -527,8 +633,9 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The shifted image, boxes and
-                mask, and the area scale of the objects (1, the sizes are kept).
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float, str]: The shifted image, boxes
+                and mask, the area scale of the objects (1, the sizes are kept) and the drawn shifts for the
+                augmentation report.
         """
         image_height, image_width = image.shape[-2], image.shape[-1]
 
@@ -550,11 +657,15 @@ class DataAugmenter:
         if mask is not None:
             mask_fill = IGNORED_LABEL_INDEX if mask.dtype == torch.int64 else 0
             translated_mask = self.shift_tensor(tensor=mask, shift_x=shift_x, shift_y=shift_y, fill_value=mask_fill)
-        return translated_image, translated_boxes, translated_mask, 1.0
+
+        # Report the shift along every drawn axis, positive towards the right and downwards
+        axis_shifts = {"x": shift_x, "y": shift_y}
+        drawn_values = ", ".join(f"{axis} {axis_shifts[axis]:+d} pixels" for axis in translation_axes)
+        return translated_image, translated_boxes, translated_mask, 1.0, drawn_values
 
     def random_left_right_flip(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                                mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                                      Optional[torch.Tensor], float]:
+                                                                      Optional[torch.Tensor], float, str]:
         """
         Mirrors the image from left to right, together with its boxes and its mask.
 
@@ -564,8 +675,8 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The flipped image, boxes and
-                mask, and the area scale of the objects (1, the sizes are kept).
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float, str]: The flipped image, boxes
+                and mask, the area scale of the objects (1, the sizes are kept) and no drawn value (empty).
         """
         flipped_image = vision_functional.horizontal_flip(image)
         flipped_boxes = None
@@ -573,11 +684,11 @@ class DataAugmenter:
             flipped_boxes = vision_functional.horizontal_flip(
                 self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image)).as_subclass(torch.Tensor)
         flipped_mask = mask.flip(dims=(-1,)) if mask is not None else None
-        return flipped_image, flipped_boxes, flipped_mask, 1.0
+        return flipped_image, flipped_boxes, flipped_mask, 1.0, ""
 
     def random_up_down_flip(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                             mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                                   Optional[torch.Tensor], float]:
+                                                                   Optional[torch.Tensor], float, str]:
         """
         Mirrors the image from top to bottom, together with its boxes and its mask.
 
@@ -587,8 +698,8 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The flipped image, boxes and
-                mask, and the area scale of the objects (1, the sizes are kept).
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float, str]: The flipped image, boxes
+                and mask, the area scale of the objects (1, the sizes are kept) and no drawn value (empty).
         """
         flipped_image = vision_functional.vertical_flip(image)
         flipped_boxes = None
@@ -596,11 +707,11 @@ class DataAugmenter:
             flipped_boxes = vision_functional.vertical_flip(
                 self.wrap_bounding_boxes(bounding_boxes=bounding_boxes, image=image)).as_subclass(torch.Tensor)
         flipped_mask = mask.flip(dims=(-2,)) if mask is not None else None
-        return flipped_image, flipped_boxes, flipped_mask, 1.0
+        return flipped_image, flipped_boxes, flipped_mask, 1.0, ""
 
     def random_rotation(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                         mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                               Optional[torch.Tensor], float]:
+                                                               Optional[torch.Tensor], float, str]:
         """
         Rotates the image by a random angle between -5 and 5 degrees around its centre, filling the uncovered
         corners with black like the padding of the data loaders. A rotated box is no longer axis aligned, so it is
@@ -614,8 +725,9 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The rotated image, boxes and
-                mask, and the area scale of the objects (1, the sizes are kept).
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float, str]: The rotated image, boxes
+                and mask, the area scale of the objects (1, the sizes are kept) and the drawn angle for the
+                augmentation report.
         """
         angle = random.uniform(-MAXIMUM_ROTATION_DEGREES, MAXIMUM_ROTATION_DEGREES)
 
@@ -633,12 +745,12 @@ class DataAugmenter:
             mask_fill = IGNORED_LABEL_INDEX if mask.dtype == torch.int64 else 0
             rotated_mask = vision_functional.rotate(tv_tensors.Mask(mask), angle=angle,
                                                     fill=mask_fill).as_subclass(torch.Tensor)
-        return rotated_image, rotated_boxes, rotated_mask, 1.0
+        return rotated_image, rotated_boxes, rotated_mask, 1.0, f"{angle:+.1f} degrees"
 
     @staticmethod
     def random_90_rotation(image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                            mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
-                                                                  Optional[torch.Tensor], float]:
+                                                                  Optional[torch.Tensor], float, str]:
         """
         Rotates a square image by 90 degrees clockwise or counter-clockwise, chosen at random. The rotation is an
         exact pixel permutation, so the boxes and the mask are transformed exactly.
@@ -649,8 +761,9 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
 
         Returns:
-            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float]: The rotated image, boxes and
-                mask, and the area scale of the objects (1, the sizes are kept).
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float, str]: The rotated image, boxes
+                and mask, the area scale of the objects (1, the sizes are kept) and the drawn direction for the
+                augmentation report.
 
         Raises:
             ValueError: If the image is not square, since the batch could then no longer be stacked.
@@ -663,40 +776,45 @@ class DataAugmenter:
         counter_clockwise = random.random() < 0.5
         rotated_image = torch.rot90(image, k=1 if counter_clockwise else -1, dims=(-2, -1))
         rotated_mask = torch.rot90(mask, k=1 if counter_clockwise else -1, dims=(-2, -1)) if mask is not None else None
+        drawn_values = "counter-clockwise" if counter_clockwise else "clockwise"
         if bounding_boxes is None:
-            return rotated_image, None, rotated_mask, 1.0
+            return rotated_image, None, rotated_mask, 1.0, drawn_values
 
         x_1, y_1, x_2, y_2 = bounding_boxes.unbind(dim=-1)
         if counter_clockwise:
             rotated_boxes = torch.stack(tensors=[y_1, image_width - x_2, y_2, image_width - x_1], dim=-1)
         else:
             rotated_boxes = torch.stack(tensors=[image_height - y_2, x_1, image_height - y_1, x_2], dim=-1)
-        return rotated_image, rotated_boxes, rotated_mask, 1.0
+        return rotated_image, rotated_boxes, rotated_mask, 1.0, drawn_values
 
     @staticmethod
-    def brightness_contrast_saturation(image: torch.Tensor) -> torch.Tensor:
+    def brightness_contrast_saturation(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
-        Slightly changes the brightness (+-20 intensity levels), contrast and saturation (both scaled by 0.8 to 1.0)
+        Slightly changes the brightness (+-40 intensity levels), contrast and saturation (both scaled by 0.7 to 1.0)
         to make the network robust to lighting and camera differences.
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            torch.Tensor: The adjusted BGR image in [0, 255].
+            Tuple[torch.Tensor, str]: The adjusted BGR image in [0, 255] and the drawn shift and factors for the
+                augmentation report.
         """
-        brightened_image = (image + random.uniform(-BRIGHTNESS_MAXIMUM_DELTA, BRIGHTNESS_MAXIMUM_DELTA)).clamp(
-            min=0.0, max=255.0)
+        brightness_delta = random.uniform(-BRIGHTNESS_MAXIMUM_DELTA, BRIGHTNESS_MAXIMUM_DELTA)
+        brightened_image = (image + brightness_delta).clamp(min=0.0, max=255.0)
 
         # Contrast and saturation weight the channels as RGB, so the BGR image is reversed before and after
+        contrast_factor = random.uniform(*CONTRAST_FACTOR_RANGE)
+        saturation_factor = random.uniform(*SATURATION_FACTOR_RANGE)
         rgb_image = brightened_image.flip(dims=(-3,)) / 255.0
-        rgb_image = vision_functional.adjust_contrast(rgb_image, contrast_factor=random.uniform(*CONTRAST_FACTOR_RANGE))
-        rgb_image = vision_functional.adjust_saturation(rgb_image,
-                                                        saturation_factor=random.uniform(*SATURATION_FACTOR_RANGE))
-        return rgb_image.flip(dims=(-3,)) * 255.0
+        rgb_image = vision_functional.adjust_contrast(rgb_image, contrast_factor=contrast_factor)
+        rgb_image = vision_functional.adjust_saturation(rgb_image, saturation_factor=saturation_factor)
+        drawn_values = (f"brightness {brightness_delta:+.1f} levels, contrast x{contrast_factor:.2f}, "
+                        f"saturation x{saturation_factor:.2f}")
+        return rgb_image.flip(dims=(-3,)) * 255.0, drawn_values
 
     @staticmethod
-    def clahe_augment(image: torch.Tensor) -> torch.Tensor:
+    def clahe_augment(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Applies contrast-limited adaptive histogram equalization (clip limit 2.0 on a 4x4 grid of tiles) to every
         channel, enhancing local contrast in dark or washed-out regions.
@@ -705,13 +823,16 @@ class DataAugmenter:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            torch.Tensor: The equalized BGR image in [0, 255].
+            Tuple[torch.Tensor, str]: The equalized BGR image in [0, 255] and its fixed settings for the augmentation
+                report.
         """
         normalized_image = (image / 255.0).clamp(min=0.0, max=1.0)
-        return equalize_clahe(normalized_image, clip_limit=CLAHE_CLIP_LIMIT, grid_size=CLAHE_GRID_SIZE) * 255.0
+        drawn_values = f"clip limit {CLAHE_CLIP_LIMIT}, {CLAHE_GRID_SIZE[0]}x{CLAHE_GRID_SIZE[1]} tiles"
+        return (equalize_clahe(normalized_image, clip_limit=CLAHE_CLIP_LIMIT, grid_size=CLAHE_GRID_SIZE) * 255.0,
+                drawn_values)
 
     @staticmethod
-    def sharp_augment(image: torch.Tensor) -> torch.Tensor:
+    def sharp_augment(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Sharpens the image with a Laplacian of Gaussian unsharp mask: the Laplacian of the blurred grayscale image
         highlights edges, and subtracting it (strength 3) makes them crisper.
@@ -720,7 +841,8 @@ class DataAugmenter:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            torch.Tensor: The sharpened BGR image in [0, 255].
+            Tuple[torch.Tensor, str]: The sharpened BGR image in [0, 255] and its fixed settings for the augmentation
+                report.
         """
         image_height, image_width = image.shape[-2], image.shape[-1]
 
@@ -737,10 +859,13 @@ class DataAugmenter:
                                             pad=(1, 1, 1, 1), mode="reflect")
         laplacian = torch_functional.conv2d(input=padded_image, weight=laplacian_kernel)
 
-        return (image - SHARPENING_STRENGTH * laplacian.reshape(grayscale_image.shape)).clamp(min=0.0, max=255.0)
+        # Subtract the scaled Laplacian to sharpen the edges and report the fixed strength and blur
+        sharpened_image = (image - SHARPENING_STRENGTH * laplacian.reshape(grayscale_image.shape)).clamp(min=0.0,
+                                                                                                         max=255.0)
+        return sharpened_image, f"strength {SHARPENING_STRENGTH}, sigma {SHARPENING_SIGMA}"
 
     @staticmethod
-    def equalize_histogram_augment(image: torch.Tensor) -> torch.Tensor:
+    def equalize_histogram_augment(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Equalizes the histogram of the luminance (Y channel of YUV) only, which spreads the intensities over the
         full range while keeping the colours.
@@ -749,7 +874,8 @@ class DataAugmenter:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            torch.Tensor: The equalized BGR image in [0, 255].
+            Tuple[torch.Tensor, str]: The equalized BGR image in [0, 255] and the equalized channel for the
+                augmentation report.
         """
         yuv_image = rgb_to_yuv((image.flip(dims=(-3,)) / 255.0).clamp(min=0.0, max=1.0))
 
@@ -757,10 +883,10 @@ class DataAugmenter:
         equalized_luminance = vision_functional.equalize(yuv_image[..., 0:1, :, :].clamp(min=0.0, max=1.0))
         yuv_image = torch.cat(tensors=[equalized_luminance, yuv_image[..., 1:, :, :]], dim=-3)
 
-        return (yuv_to_rgb(yuv_image).clamp(min=0.0, max=1.0) * 255.0).flip(dims=(-3,))
+        return (yuv_to_rgb(yuv_image).clamp(min=0.0, max=1.0) * 255.0).flip(dims=(-3,)), "luminance"
 
     @staticmethod
-    def equalize_bgr_histogram_augment(image: torch.Tensor) -> torch.Tensor:
+    def equalize_bgr_histogram_augment(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Equalizes the histogram of one randomly chosen channel (B, G or R) or of all three channels, which changes
         the colour balance of the image.
@@ -769,17 +895,20 @@ class DataAugmenter:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            torch.Tensor: The equalized BGR image in [0, 255].
+            Tuple[torch.Tensor, str]: The equalized BGR image in [0, 255] and the drawn channels for the augmentation
+                report.
         """
-        channel_indices = BGR_CHANNEL_INDICES[random.choice(seq=list(BGR_CHANNEL_INDICES))]
+        channel_name = random.choice(seq=list(BGR_CHANNEL_INDICES))
+        channel_indices = BGR_CHANNEL_INDICES[channel_name]
 
+        # Equalize the drawn channels only, the other channels keeping their values
         equalized_image = image.clone()
         normalized_channels = (image[..., channel_indices, :, :] / 255.0).clamp(min=0.0, max=1.0)
         equalized_image[..., channel_indices, :, :] = vision_functional.equalize(normalized_channels) * 255.0
-        return equalized_image
+        return equalized_image, f"channels {channel_name}"
 
     @staticmethod
-    def random_noise(image: torch.Tensor) -> torch.Tensor:
+    def random_noise(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Adds Gaussian noise with a standard deviation of 40 intensity levels, simulating sensor noise. For a
         sequence every frame receives its own noise sample, with the same strength, as a real camera would.
@@ -788,12 +917,13 @@ class DataAugmenter:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            torch.Tensor: The noisy image.
+            Tuple[torch.Tensor, str]: The noisy image and its strength for the augmentation report.
         """
-        return image + torch.randn_like(input=image) * NOISE_STANDARD_DEVIATION
+        return (image + torch.randn_like(input=image) * NOISE_STANDARD_DEVIATION,
+                f"standard deviation {NOISE_STANDARD_DEVIATION:.0f} levels")
 
     @staticmethod
-    def gray_scale_augment(image: torch.Tensor) -> torch.Tensor:
+    def gray_scale_augment(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Converts the image to grayscale while keeping three channels, so the network does not rely on colour only.
 
@@ -801,12 +931,12 @@ class DataAugmenter:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            torch.Tensor: The grayscale image replicated on three channels.
+            Tuple[torch.Tensor, str]: The grayscale image replicated on three channels and no drawn value (empty).
         """
-        return vision_functional.rgb_to_grayscale(image.flip(dims=(-3,)), num_output_channels=3)
+        return vision_functional.rgb_to_grayscale(image.flip(dims=(-3,)), num_output_channels=3), ""
 
     @staticmethod
-    def random_colour_augmentation(image: torch.Tensor) -> torch.Tensor:
+    def random_colour_augmentation(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Swaps the blue and red channels (BGR to RGB), a strong colour change that keeps every structure intact.
 
@@ -814,12 +944,13 @@ class DataAugmenter:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            torch.Tensor: The image with its channel order reversed.
+            Tuple[torch.Tensor, str]: The image with its channel order reversed and the swap for the augmentation
+                report.
         """
-        return image.flip(dims=(-3,))
+        return image.flip(dims=(-3,)), "blue and red swapped"
 
     @staticmethod
-    def random_blur(image: torch.Tensor) -> torch.Tensor:
+    def random_blur(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Blurs the image with a 9x9 Gaussian kernel (sigma 2.5), simulating defocus and motion softness.
 
@@ -827,7 +958,8 @@ class DataAugmenter:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            torch.Tensor: The blurred image.
+            Tuple[torch.Tensor, str]: The blurred image and the kernel for the augmentation report.
         """
-        return vision_functional.gaussian_blur(image, kernel_size=[BLUR_KERNEL_SIZE, BLUR_KERNEL_SIZE],
-                                               sigma=[BLUR_SIGMA, BLUR_SIGMA])
+        blurred_image = vision_functional.gaussian_blur(image, kernel_size=[BLUR_KERNEL_SIZE, BLUR_KERNEL_SIZE],
+                                                        sigma=[BLUR_SIGMA, BLUR_SIGMA])
+        return blurred_image, f"{BLUR_KERNEL_SIZE}x{BLUR_KERNEL_SIZE} kernel, sigma {BLUR_SIGMA}"

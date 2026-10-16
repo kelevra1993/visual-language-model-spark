@@ -477,7 +477,7 @@ The backbone panel is shown in Step 2.14 and the receptive field panel is the on
 ```
 
 ### Step 2.22 — `view_input_batches()` → `show_input_samples()`
-With `diagnosis_modes.view_input_images`, the real frames of an augmented training window and of a validation window are laid out on grids of 4 columns (`build_sample_frame_grid()` → `build_frame_grid()`), every frame numbered, and captioned with the class of the window (`Class : moving_up`). It needs a display, so it has no console output to show here.
+With `diagnosis_modes.view_input_images`, the real frames of an augmented training window and of a validation window are laid out on grids of 4 columns (`build_sample_frame_grid()` → `build_frame_grid()`), every frame numbered, each grid followed by an information panel giving the class of the window (`Class : moving_up`), its real frames (`Real frames : 7`) and, for the training window, the augmentations drawn with their values (one line per real frame when `independent_frames` is on) and the order of its frames (`describe_frame_order()`, `Frame order : shuffled, showing frames 2, 0, 1, ...` or `kept`). It needs a display, so it has no console output to show here.
 
 ### Step 2.23 — `restore_last_model()` → `get_last_checkpoint_iteration()` / `load_model()`
 The same restoration as every task (see `classification_workflow.md`, Steps 2.26 to 2.28).

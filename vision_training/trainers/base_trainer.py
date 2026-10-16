@@ -409,8 +409,8 @@ class BaseTrainer(ABC):
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
         """
-        Displays one training sample (augmented) next to one validation sample, with their targets, for the
-        'view_input_images' diagnosis mode.
+        Displays one training sample (augmented) next to one validation sample for the 'view_input_images' diagnosis
+        mode, each next to an information panel with its targets and its augmentations (describe_input_augmentations).
 
         Args:
             training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
@@ -542,16 +542,17 @@ class BaseTrainer(ABC):
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
         Randomly augments the images of a training batch. Tasks whose targets move with the images (e.g. bounding
-        boxes, segmentation masks) override it to transform them too.
+        boxes, segmentation masks) override it to transform them too. The augmentation report of every sample is kept
+        in the batch for the information panels of the input viewer.
 
         Args:
             batch (Dict[str, Any]): The training batch.
 
         Returns:
-            Dict[str, Any]: The batch with its augmented images.
+            Dict[str, Any]: The batch with its augmented images and their 'augmentation_reports'.
         """
-        augmented_images, _, _, _, _ = self.data_augmenter.augment_batch(images=batch["images"])
-        return {**batch, "images": augmented_images}
+        augmented_images, _, _, _, _, augmentation_reports = self.data_augmenter.augment_batch(images=batch["images"])
+        return {**batch, "images": augmented_images, "augmentation_reports": augmentation_reports}
 
     def compute_batch_metrics(self, batch: Dict[str, Any], model_outputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         """
@@ -979,9 +980,11 @@ class BaseTrainer(ABC):
     def view_input_batches(self) -> None:
         """
         Shows the training and validation samples exactly as the data loaders feed them to the network, the training
-        ones augmented as during training, each with its targets, in two windows side by side. Enabled by the
-        'view_input_images' diagnosis mode, it lets the user check the preprocessing, the label mapping and the data
-        augmentation. Pressing ENTER closes the viewer, after which the program exits without training.
+        ones augmented as during training, in two windows centred side by side on the screen, each image next to a
+        black information panel with its targets and, for the training sample, the augmentations drawn for it with
+        their values. Enabled by the 'view_input_images' diagnosis mode, it lets the user check the preprocessing, the
+        label mapping and the data augmentation. Pressing ENTER closes the viewer, after which the program exits
+        without training.
         """
         print_color(color="red", output="View Of The Training And Validation Images That Are Fed To The Neural Network",
                     add_separators=True)
@@ -1000,6 +1003,32 @@ class BaseTrainer(ABC):
                 if self.show_input_samples(training_batch=training_batch, validation_batch=validation_batch,
                                            sample_index=sample_index):
                     return
+
+    def describe_input_augmentations(self, batch: Dict[str, Any], sample_index: int,
+                                     label_names: Optional[Dict[int, str]] = None,
+                                     real_frames: Optional[List[int]] = None) -> List[str]:
+        """
+        Writes the augmentation section of the information panel of a sample in the input viewer ('view_input_images'),
+        placed by every show_input_samples under the target of the sample: the augmentations drawn for a training
+        sample with their values, read from the 'augmentation_reports' stored in the batch by augment_batch, or a note
+        for a validation sample, which is never augmented.
+
+        Args:
+            batch (Dict[str, Any]): The augmented training batch, or the validation batch.
+            sample_index (int): The index of the displayed sample in its batch.
+            label_names (Optional[Dict[int, str]]): The class name of every label index, to name the objects removed
+                by the geometric augmentations. Defaults to None, in which case the label indices are written.
+            real_frames (Optional[List[int]]): The indices of the real frames of a sequence, the only ones written in
+                its frame by frame lines. Defaults to None, in which case every frame is written.
+
+        Returns:
+            List[str]: The lines of the section, starting with an empty line that separates it from the target.
+        """
+        # Validation batches never go through augment_batch, so they carry no augmentation report
+        if "augmentation_reports" not in batch:
+            return ["", "Augmentations : none (validation sample)"]
+        return ["", "Augmentations"] + self.data_augmenter.describe_report(
+            report=batch["augmentation_reports"][sample_index], label_names=label_names, real_frames=real_frames)
 
     @staticmethod
     def get_next_batch(dataloader_iterator: _BaseDataLoaderIter, dataloader: DataLoader,

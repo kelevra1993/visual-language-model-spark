@@ -238,13 +238,13 @@ The data is compared the same way: a split changed when its data folder or the S
 Unchanged data prints `- Changed Data Splits     : None Since Iteration <n>` and keeps `data.json` as it is, with its date.
 
 ### Viewing The Input Images
-`ExperimentConfiguration.diagnosis_modes.view_input_images: True` opens a Training and a Validation window showing the samples exactly as the network receives them, the training ones augmented, each captioned with its targets. It checks the preprocessing, the label mapping and the augmentation before a training. SPACE shows the next samples, ENTER closes the windows and exits without training. It needs a display, and creates no run folder.
+`ExperimentConfiguration.diagnosis_modes.view_input_images: True` opens a Training and a Validation window showing the samples exactly as the network receives them, the training ones augmented. Each window holds the image and, on its right, a black information panel listing its targets (the class, the objects counted per class, the classes of the mask, the real frames of a sequence) and, for the training sample, the augmentations drawn for it with their values (the crop size and position, the rotation angle, the brightness change, ...), frame by frame for the sequences drawn per frame, the objects the augmentations removed and the shuffled frame order. The self-supervised runs show the two views of a training image instead, each panel listing the view transformations drawn for it. The two windows are centred on the screen, side by side, or stacked and scaled down when they do not fit. It checks the preprocessing, the label mapping and the augmentation before a training. SPACE shows the next samples, ENTER closes the windows and exits without training. Nothing is printed in the terminal. It needs a display, and creates no run folder.
 
 <p align="center">
   <img src="README/input_viewer.png" width="100%" />
 </p>
 
-> **Screenshot placeholder** (`README/input_viewer.png`): the Training and Validation windows of the input viewer side by side, with an augmented training sample and its caption.
+> **Screenshot placeholder** (`README/input_viewer.png`): the Training and Validation windows of the input viewer side by side, each image followed by its black information panel listing its targets and, for the training sample, the augmentations drawn with their values.
 
 ### TensorBoard Monitoring
 To follow the training and validation curves and the test evaluations of a run, start TensorBoard on its folder and open http://localhost:6006:

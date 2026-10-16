@@ -1,17 +1,20 @@
 """
 OpenCV drawing helpers: the conversion of the network inputs into the arrays every drawing starts from, bounding boxes
-of the detection sample and error images and anchors, the input viewer of the trainers, the frame grids of the
+of the detection sample and error images and anchors, the input viewer of the trainers (every image next to a black
+information panel listing its target and its augmentations, the windows centred on the screen), the frame grids of the
 sequence tasks, the caption bars of the evaluation error images, the class colours,
 mask overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
 segmentation, and the selection grids with their probability heat map of the frame selection. Used by the trainers.
 """
 
+import importlib
 import os
 import sys
 import cv2
 import numpy as np
 import torch
 
+from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
@@ -20,6 +23,27 @@ from vision_training.utilities.os_utilities import print_color
 
 # Height in pixels of the caption bar written above the error images of the evaluation
 CAPTION_BAR_HEIGHT = 24
+
+# Information panel of the input viewer: its width and text margin in pixels, the font scale and height of its title
+# and of its lines, and the BGR colours of the title, of the group lines, of the indented lines and of the hint
+INFORMATION_PANEL_WIDTH = 760
+PANEL_MARGIN = 16
+PANEL_TITLE_FONT_SCALE = 0.9
+PANEL_TITLE_HEIGHT = 44
+PANEL_LINE_FONT_SCALE = 0.55
+PANEL_LINE_HEIGHT = 24
+PANEL_TITLE_COLOUR = (255, 255, 255)
+PANEL_GROUP_COLOUR = (0, 255, 0)
+PANEL_LINE_COLOUR = (220, 220, 220)
+PANEL_HINT_COLOUR = (150, 150, 150)
+NAVIGATION_HINT = "Press SPACE For Next Image, Or ENTER To Quit"
+
+# Placement of the input viewer windows: the space in pixels between two windows, the height kept for the title bar of
+# the window manager and the toolbar of the OpenCV window above every window, and the share of the screen the windows
+# may cover before their content is scaled down
+VIEWER_WINDOW_SPACING = 20
+VIEWER_TITLE_BAR_HEIGHT = 80
+VIEWER_SCREEN_FRACTION = 0.92
 
 # BGR colours of the captions of the evaluation sample images, by whether the prediction of the sample is right
 CORRECT_PREDICTION_COLOUR = (0, 200, 0)
@@ -204,17 +228,226 @@ def visualise_anchors(input_image_size: int, anchors: torch.Tensor, delayed: boo
     cv2.destroyAllWindows()
 
 
+@lru_cache(maxsize=1)
+def get_screen_size() -> Optional[Tuple[int, int]]:
+    """
+    Reads the size of the screen, for the input viewer ('view_input_images') to centre its windows on it. tkinter is
+    loaded here only, the viewer being the only part of the project using it, and the size is read once per run.
+
+    Returns:
+        Optional[Tuple[int, int]]: The width and height of the screen in pixels, or None when tkinter is missing or
+            cannot reach the display, the viewer then placing its windows from the top left of the screen.
+    """
+    try:
+        tkinter_module = importlib.import_module(name="tkinter")
+    except ImportError:
+        return None
+
+    # A hidden root window gives the size of the screen it opens on, and is closed right away
+    try:
+        root_window = tkinter_module.Tk()
+    except tkinter_module.TclError:
+        return None
+    root_window.withdraw()
+    screen_size = (root_window.winfo_screenwidth(), root_window.winfo_screenheight())
+    root_window.destroy()
+    return screen_size
+
+
+def wrap_panel_line(line: str, maximum_width: int) -> List[str]:
+    """
+    Splits a line of the information panel of the input viewer into the lines fitting the panel, word by word, e.g.
+    the line of a frame of a sequence listing every photometric augmentation drawn for it. The continuation lines keep
+    the indentation of the line, four spaces deeper.
+
+    Args:
+        line (str): The line, its leading spaces giving its indentation.
+        maximum_width (int): The width in pixels the text must fit in.
+
+    Returns:
+        List[str]: The wrapped lines, the line itself when it fits.
+    """
+    indentation = line[:len(line) - len(line.lstrip(" "))]
+    wrapped_lines, current_line = [], indentation
+
+    # Add the words one by one, starting a new line when a word does not fit, unless the line holds no word yet
+    for word in line.split():
+        candidate_line = f"{current_line} {word}" if current_line.strip() else f"{current_line}{word}"
+        (text_width, _), _ = cv2.getTextSize(text=candidate_line, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                                             fontScale=PANEL_LINE_FONT_SCALE, thickness=1)
+        if text_width > maximum_width and current_line.strip():
+            wrapped_lines.append(current_line)
+            current_line = f"{indentation}    {word}"
+        else:
+            current_line = candidate_line
+    wrapped_lines.append(current_line)
+    return wrapped_lines
+
+
+def build_information_panel(title: str, lines: List[str], minimum_height: int) -> np.ndarray:
+    """
+    Draws the black information panel the input viewer ('view_input_images') shows next to an image: its title
+    (Training, Validation, View 1...), the lines written by the trainer (the target of the sample, the augmentations
+    drawn for it with their values, the objects they removed...) and the navigation hint at the bottom, so that no text
+    covers the image. The panel grows downwards when its lines need more room than the image height.
+
+    Args:
+        title (str): The title written at the top of the panel.
+        lines (List[str]): The lines of the panel, the indented ones written in a lighter colour under their group.
+        minimum_height (int): The height of the displayed image, which the panel matches at least.
+
+    Returns:
+        np.ndarray: The [H, INFORMATION_PANEL_WIDTH, 3] uint8 BGR panel.
+    """
+    wrapped_lines = [wrapped_line for line in lines
+                     for wrapped_line in wrap_panel_line(line=line, maximum_width=INFORMATION_PANEL_WIDTH -
+                                                         2 * PANEL_MARGIN)]
+
+    # Room for the title, the lines, an empty line and the navigation hint, at least the height of the image
+    panel_height = max(minimum_height, 2 * PANEL_MARGIN + PANEL_TITLE_HEIGHT + (len(wrapped_lines) + 2) *
+                       PANEL_LINE_HEIGHT)
+    panel = np.zeros(shape=(panel_height, INFORMATION_PANEL_WIDTH, 3), dtype=np.uint8)
+    cv2.putText(img=panel, text=title, org=(PANEL_MARGIN, PANEL_MARGIN + PANEL_TITLE_HEIGHT - 14),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=PANEL_TITLE_FONT_SCALE, color=PANEL_TITLE_COLOUR,
+                thickness=2)
+
+    # Write the lines under the title, the group lines in green and the indented ones in light gray
+    for line_index, line in enumerate(wrapped_lines):
+        line_colour = PANEL_LINE_COLOUR if line.startswith(" ") else PANEL_GROUP_COLOUR
+        line_bottom = PANEL_MARGIN + PANEL_TITLE_HEIGHT + (line_index + 1) * PANEL_LINE_HEIGHT
+        cv2.putText(img=panel, text=line, org=(PANEL_MARGIN, line_bottom), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=PANEL_LINE_FONT_SCALE, color=line_colour, thickness=1)
+
+    # Write the navigation hint at the bottom of the panel
+    cv2.putText(img=panel, text=NAVIGATION_HINT, org=(PANEL_MARGIN, panel_height - PANEL_MARGIN),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=PANEL_LINE_FONT_SCALE, color=PANEL_HINT_COLOUR,
+                thickness=1)
+    return panel
+
+
+def build_viewer_window(image: torch.Tensor, bounding_boxes: Optional[torch.Tensor], labels: Optional[torch.Tensor],
+                        label_names: Optional[Dict[int, str]], title: str, lines: List[str],
+                        display_input_size: int) -> np.ndarray:
+    """
+    Builds the content of one window of the input viewer ('view_input_images'): the image fed to the network with its
+    ground truth boxes captioned with their classes, resized so that its longest side is the display size, next to
+    its black information panel.
+
+    Args:
+        image (torch.Tensor): The [3, H, W] BGR image in [0, 255], on any device.
+        bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes of the image, or None for the tasks without boxes.
+        labels (Optional[torch.Tensor]): The [N] labels of the boxes, or None.
+        label_names (Optional[Dict[int, str]]): The class name of every label index for the box captions, or None to
+            write the indices.
+        title (str): The title of the window, written at the top of the panel.
+        lines (List[str]): The lines of the information panel.
+        display_input_size (int): The size in pixels of the longest side of the displayed image.
+
+    Returns:
+        np.ndarray: The [H, W, 3] uint8 BGR window content, the image on the left and the panel on the right.
+    """
+    image_numpy = convert_image_to_array(image=image)
+
+    # Draw each object's bounding box rectangle and its class caption, for the tasks with boxes
+    if bounding_boxes is not None:
+        for box, label in zip(bounding_boxes.detach().cpu().numpy(), labels.detach().cpu().numpy()):
+            box_x1, box_y1, box_x2, box_y2 = map(int, box)
+            caption = label_names.get(int(label), str(int(label))) if label_names else str(int(label))
+            cv2.rectangle(img=image_numpy, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0),
+                          thickness=2)
+            cv2.putText(img=image_numpy, text=caption, org=(box_x1, max(box_y1 - 10, 0)),
+                        fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
+
+    # Resize the image so that its longest side is the display size, with sharp pixels when it is enlarged
+    image_height, image_width, _ = image_numpy.shape
+    display_scale = display_input_size / max(image_height, image_width)
+    display_width = max(1, round(image_width * display_scale))
+    display_height = max(1, round(image_height * display_scale))
+    interpolation = cv2.INTER_NEAREST if display_scale >= 1.0 else cv2.INTER_AREA
+    display_image = cv2.resize(src=image_numpy, dsize=(display_width, display_height), interpolation=interpolation)
+
+    # Place the image at the top left of a black window and the panel on its right, behind a gray gap
+    panel = build_information_panel(title=title, lines=lines, minimum_height=display_height)
+    window_image = np.zeros(shape=(panel.shape[0], display_width + GRID_GAP + INFORMATION_PANEL_WIDTH, 3),
+                            dtype=np.uint8)
+    window_image[:display_height, :display_width] = display_image
+    window_image[:, display_width:display_width + GRID_GAP] = 128
+    window_image[:, display_width + GRID_GAP:] = panel
+    return window_image
+
+
+def compute_window_positions(window_sizes: List[Tuple[int, int]],
+                             screen_size: Optional[Tuple[int, int]]) -> Tuple[List[Tuple[int, int]], float]:
+    """
+    Places the windows of the input viewer ('view_input_images') at the centre of the screen, so that the user never
+    has to move them: side by side (the training window next to the validation one) when they fit the width of the
+    screen, else stacked, and scaled down when they would not fit the screen.
+
+    Args:
+        window_sizes (List[Tuple[int, int]]): The width and height in pixels of the content of every window.
+        screen_size (Optional[Tuple[int, int]]): The width and height of the screen, or None when it is unknown, the
+            windows then being placed side by side from the top left of the screen, unscaled.
+
+    Returns:
+        Tuple[List[Tuple[int, int]], float]: The top left position of every window, and the scale of their content.
+    """
+    window_widths = [window_width for window_width, window_height in window_sizes]
+    window_heights = [window_height for window_width, window_height in window_sizes]
+    number_windows = len(window_sizes)
+
+    # Without the screen size, the windows are placed side by side from the top left of the screen
+    if screen_size is None:
+        window_lefts = [sum(window_widths[:window_index]) + window_index * VIEWER_WINDOW_SPACING
+                        for window_index in range(number_windows)]
+        return [(window_left, VIEWER_TITLE_BAR_HEIGHT) for window_left in window_lefts], 1.0
+
+    # Side by side when the windows fit the width of the screen, else stacked, the spacing and the title bars added by
+    # the window manager keeping their size whatever the scale of the content
+    screen_width, screen_height = screen_size
+    side_by_side = (sum(window_widths) + (number_windows - 1) * VIEWER_WINDOW_SPACING <=
+                    VIEWER_SCREEN_FRACTION * screen_width)
+    if side_by_side:
+        content_width, fixed_width = sum(window_widths), (number_windows - 1) * VIEWER_WINDOW_SPACING
+        content_height, fixed_height = max(window_heights), VIEWER_TITLE_BAR_HEIGHT
+    else:
+        content_width, fixed_width = max(window_widths), 0
+        content_height = sum(window_heights)
+        fixed_height = number_windows * VIEWER_TITLE_BAR_HEIGHT + (number_windows - 1) * VIEWER_WINDOW_SPACING
+
+    # Scale the content down when the block of windows would not fit the screen, then centre the block
+    display_scale = min(1.0, (VIEWER_SCREEN_FRACTION * screen_width - fixed_width) / content_width,
+                        (VIEWER_SCREEN_FRACTION * screen_height - fixed_height) / content_height)
+    block_left = (screen_width - (content_width * display_scale + fixed_width)) / 2
+    block_top = (screen_height - (content_height * display_scale + fixed_height)) / 2
+
+    # Lay the windows out from the top left of the block, every stacked window centred horizontally
+    window_positions = []
+    for window_index in range(number_windows):
+        if side_by_side:
+            window_left = (block_left + sum(window_widths[:window_index]) * display_scale +
+                           window_index * VIEWER_WINDOW_SPACING)
+            window_top = block_top
+        else:
+            window_left = (screen_width - window_widths[window_index] * display_scale) / 2
+            window_top = (block_top + sum(window_heights[:window_index]) * display_scale +
+                          window_index * (VIEWER_TITLE_BAR_HEIGHT + VIEWER_WINDOW_SPACING))
+        window_positions.append((max(0, round(window_left)), max(0, round(window_top))))
+    return window_positions, display_scale
+
+
 def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[torch.Tensor]],
                     labels: Optional[List[torch.Tensor]], window_titles: List[str], display_input_size: int,
-                    label_names: Optional[Dict[int, str]] = None, captions: Optional[List[str]] = None) -> bool:
+                    label_names: Optional[Dict[int, str]] = None,
+                    panel_lines: Optional[List[List[str]]] = None) -> bool:
     """
-    Displays preprocessed input images with their ground truth boxes and labels, or with a caption describing their
-    target, one window per image, so the user can check exactly what is fed to the neural network.
+    Displays preprocessed input images with their ground truth boxes, one window per image, each next to a black
+    information panel, so the user can check exactly what is fed to the neural network and how it was augmented.
 
-    It is shared by the dataloader benchmarker (a single window per image) and by the trainers' 'view_input_images'
-    diagnosis mode (a Training and a Validation window side by side): the object detection trainer draws the boxes,
-    the classification trainer writes the class of every image as its caption. Execution halts until the user
-    presses SPACE (next image) or ENTER (stop viewing).
+    It is the 'view_input_images' diagnosis mode of the trainers (a Training and a Validation window, or the two views
+    of the self-supervised task): the object detection trainer draws the boxes, and every trainer writes in the panels
+    the target of the sample (its class, its objects...) and, for the training sample, the augmentations drawn for it
+    with their values. The windows are centred on the screen. Execution halts until the user presses SPACE (next
+    image) or ENTER (stop viewing).
 
     Args:
         images (List[torch.Tensor]): The preprocessed image tensors of shape [Channels, Height, Width], on CPU or GPU.
@@ -222,13 +455,13 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[to
             for the tasks without boxes.
         labels (Optional[List[torch.Tensor]]): The [N] class labels associated with each image's bounding boxes, or
             None for the tasks without boxes.
-        window_titles (List[str]): The title of the window displaying each image, also written on the image.
-        display_input_size (int): The size in pixels of the longest side of each displayed window, typically the
+        window_titles (List[str]): The title of the window displaying each image, also written at the top of its panel.
+        display_input_size (int): The size in pixels of the longest side of each displayed image, typically the
             network input image size so that images are shown exactly as the network receives them.
         label_names (Optional[Dict[int, str]]): Mapping from class index to class name used for the box captions.
             Defaults to None, in which case the numeric class index is written.
-        captions (Optional[List[str]]): A text written below the title of each image (e.g. its class). Defaults to
-            None, in which case no caption is written.
+        panel_lines (Optional[List[List[str]]]): The lines of the information panel of each image. Defaults to None,
+            in which case the panels only hold their title and the navigation hint.
 
     Returns:
         bool: True if the user pressed ENTER to stop the visualization (or no display is available), False otherwise.
@@ -239,52 +472,26 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[to
                     output="No display available (DISPLAY is not set). Skipping the input image viewer.")
         return True
 
-    # Iterate through each image to annotate it and show it in its own window
-    for window_index, (image, window_title) in enumerate(zip(images, window_titles)):
-        # Contiguous uint8 (H, W, C) array, since OpenCV cannot draw on the memory layout of the tensor
-        image_numpy = convert_image_to_array(image=image)
+    # Build every window: the image with its boxes next to its information panel
+    window_images = [build_viewer_window(image=image,
+                                         bounding_boxes=bounding_boxes[window_index] if bounding_boxes is not None
+                                         else None,
+                                         labels=labels[window_index] if labels is not None else None,
+                                         label_names=label_names, title=window_title,
+                                         lines=panel_lines[window_index] if panel_lines is not None else [],
+                                         display_input_size=display_input_size)
+                     for window_index, (image, window_title) in enumerate(zip(images, window_titles))]
 
-        # Draw each object's bounding box rectangle and its class caption, for the tasks with boxes
-        if bounding_boxes is not None:
-            boxes_numpy = bounding_boxes[window_index].detach().cpu().numpy()
-            labels_numpy = labels[window_index].detach().cpu().numpy()
-            for box, label in zip(boxes_numpy, labels_numpy):
-                box_x1, box_y1, box_x2, box_y2 = map(int, box)
-                caption = label_names.get(int(label), str(int(label))) if label_names else str(int(label))
-                cv2.rectangle(img=image_numpy, pt1=(box_x1, box_y1), pt2=(box_x2, box_y2), color=(0, 255, 0),
-                              thickness=2)
-                cv2.putText(img=image_numpy, text=caption, org=(box_x1, max(box_y1 - 10, 0)),
-                            fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.5, color=(0, 255, 0), thickness=2)
-
-        # Write the window title at the top left
-        # Draw solid black background blocks first to guarantee the text is visible against any image background
-        image_height, image_width, _ = image_numpy.shape
-        cv2.rectangle(img=image_numpy, pt1=(5, 5), pt2=(300, 45), color=(0, 0, 0), thickness=-1)
-        cv2.putText(img=image_numpy, text=window_title, org=(10, 35), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=0.9, color=(255, 255, 255), thickness=2)
-
-        # Write the caption of the image below its title, sized to the caption length
-        if captions is not None:
-            caption_width = cv2.getTextSize(text=captions[window_index], fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                                            fontScale=0.7, thickness=2)[0][0]
-            cv2.rectangle(img=image_numpy, pt1=(5, 50), pt2=(caption_width + 15, 85), color=(0, 0, 0), thickness=-1)
-            cv2.putText(img=image_numpy, text=captions[window_index], org=(10, 77), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                        fontScale=0.7, color=(0, 255, 0), thickness=2)
-
-        # Write the navigation instructions at the bottom left
-        cv2.rectangle(img=image_numpy, pt1=(5, image_height - 45), pt2=(550, image_height - 5), color=(0, 0, 0),
-                      thickness=-1)
-        cv2.putText(img=image_numpy, text="Press SPACE For Next Image, Or ENTER To Quit",
-                    org=(10, image_height - 20), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=0.7, color=(150, 150, 150), thickness=2)
-
-        # Scale the window so that its longest side matches the display size and place the windows side by side
-        display_scale = display_input_size / max(image_height, image_width)
-        display_width, display_height = int(image_width * display_scale), int(image_height * display_scale)
+    # Centre the windows on the screen, scaled down when they would not fit it
+    window_positions, display_scale = compute_window_positions(
+        window_sizes=[(window_image.shape[1], window_image.shape[0]) for window_image in window_images],
+        screen_size=get_screen_size())
+    for window_image, window_title, (window_left, window_top) in zip(window_images, window_titles, window_positions):
         cv2.namedWindow(winname=window_title, flags=cv2.WINDOW_NORMAL)
-        cv2.resizeWindow(winname=window_title, width=display_width, height=display_height)
-        cv2.moveWindow(winname=window_title, x=window_index * (display_width + 20), y=50)
-        cv2.imshow(winname=window_title, mat=image_numpy)
+        cv2.resizeWindow(winname=window_title, width=round(window_image.shape[1] * display_scale),
+                         height=round(window_image.shape[0] * display_scale))
+        cv2.moveWindow(winname=window_title, x=window_left, y=window_top)
+        cv2.imshow(winname=window_title, mat=window_image)
 
     # Enter a polling loop to restrict progression exclusively to the Spacebar or Enter keys
     while True:

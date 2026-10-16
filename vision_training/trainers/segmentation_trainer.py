@@ -250,11 +250,13 @@ class SegmentationTrainer(BaseTrainer):
             batch (Dict[str, Any]): The training batch.
 
         Returns:
-            Dict[str, Any]: The batch with its augmented images and masks.
+            Dict[str, Any]: The batch with its augmented images and masks, and the 'augmentation_reports' of its
+                samples for the input viewer.
         """
-        augmented_images, _, _, augmented_masks, _ = self.data_augmenter.augment_batch(images=batch["images"],
-                                                                                       masks=batch["masks"])
-        return {**batch, "images": augmented_images, "masks": augmented_masks}
+        augmented_images, _, _, augmented_masks, _, augmentation_reports = self.data_augmenter.augment_batch(
+            images=batch["images"], masks=batch["masks"])
+        return {**batch, "images": augmented_images, "masks": augmented_masks,
+                "augmentation_reports": augmentation_reports}
 
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -511,8 +513,8 @@ class SegmentationTrainer(BaseTrainer):
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
         """
-        Displays an augmented training image next to a validation image, each with its mask painted over it and
-        captioned with the classes it holds.
+        Displays an augmented training image next to a validation image, each with its mask painted over it and an
+        information panel holding the classes of the mask and the augmentations of the image.
 
         Args:
             training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
@@ -522,14 +524,18 @@ class SegmentationTrainer(BaseTrainer):
         Returns:
             bool: True if the user asked to stop viewing.
         """
-        painted_images, captions = [], []
+        painted_images, panel_lines = [], []
         for batch in [training_batch, validation_batch]:
+            # Paint the mask over the image so that the classes can be checked against the pixels
             image = convert_image_to_array(image=batch["images"][sample_index])
             mask = batch["masks"][sample_index].detach().cpu()
             painted_image = overlay_segmentation_mask(image=image, class_map=mask.numpy(),
                                                       class_colours=self.class_colours)
             painted_images.append(torch.from_numpy(painted_image).permute(2, 0, 1))
-            captions.append(f"Classes : {self.describe_mask_classes(mask=mask)}")
+
+            # The classes of the mask, followed by the augmentations drawn for the image
+            panel_lines.append([f"Classes : {self.describe_mask_classes(mask=mask)}"] +
+                               self.describe_input_augmentations(batch=batch, sample_index=sample_index))
         return view_input_data(images=painted_images, bounding_boxes=None, labels=None,
                                window_titles=["Training", "Validation"], display_input_size=self.input_image_size,
-                               captions=captions)
+                               panel_lines=panel_lines)

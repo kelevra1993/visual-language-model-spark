@@ -595,7 +595,8 @@ class ClassificationTrainer(BaseTrainer):
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
         """
-        Displays an augmented training image next to a validation image, each captioned with its class.
+        Displays an augmented training image next to a validation image, each with an information panel holding its
+        class and its augmentations.
 
         Args:
             training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
@@ -605,9 +606,11 @@ class ClassificationTrainer(BaseTrainer):
         Returns:
             bool: True if the user asked to stop viewing.
         """
+        # The class of every image, followed by the augmentations drawn for it
+        panel_lines = [[f"Class : {self.get_label_caption(label=batch['labels'][sample_index])}"] +
+                       self.describe_input_augmentations(batch=batch, sample_index=sample_index)
+                       for batch in [training_batch, validation_batch]]
         return view_input_data(
             images=[training_batch["images"][sample_index], validation_batch["images"][sample_index]],
             bounding_boxes=None, labels=None, window_titles=["Training", "Validation"],
-            display_input_size=self.input_image_size,
-            captions=[f"Class : {self.get_label_caption(label=training_batch['labels'][sample_index])}",
-                      f"Class : {self.get_label_caption(label=validation_batch['labels'][sample_index])}"])
+            display_input_size=self.input_image_size, panel_lines=panel_lines)

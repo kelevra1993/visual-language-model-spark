@@ -3,22 +3,32 @@ Tests of the evaluation drawings of vision_training/utilities/visualization.py: 
 an unpainted background, the mask overlay paints the classes and grays the ignored pixels only, the error map gives
 every kind of pixel its colour, the segmentation sample grid lays out its four panels and the detection sample grid its
 two panels between their caption and legend bars, outlining the boxes in error of the error images, the caption bar
-is written in the given colour, and the frame selection image draws the borders of the selection over its grid of
-thumbnails above the probability heat map.
+is written in the given colour, the frame selection image draws the borders of the selection over its grid of
+thumbnails above the probability heat map, and the input viewer wraps the lines of its information panels, places each
+image next to its panel, centres its windows on the screen and is skipped without a display.
 """
 
+import cv2
 import numpy as np
+import pytest
+import torch
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, CORRECT_PREDICTION_COLOUR,
                                                      ERROR_OUTLINE_MARGIN, GRID_GAP,
-                                                     HEAT_MAP_ROW_HEIGHT, IGNORED_PIXEL_COLOUR, LEGEND_BAR_HEIGHT,
+                                                     HEAT_MAP_ROW_HEIGHT, IGNORED_PIXEL_COLOUR,
+                                                     INFORMATION_PANEL_WIDTH, LEGEND_BAR_HEIGHT, PANEL_GROUP_COLOUR,
+                                                     PANEL_LINE_COLOUR, PANEL_LINE_FONT_SCALE, PANEL_LINE_HEIGHT,
+                                                     PANEL_MARGIN, PANEL_TITLE_COLOUR, PANEL_TITLE_HEIGHT,
                                                      SELECTION_COLOURS, SELECTION_THUMBNAIL_SIZE,
-                                                     UNSELECTED_FRAME_BRIGHTNESS, WRONG_PREDICTION_COLOUR,
+                                                     UNSELECTED_FRAME_BRIGHTNESS, VIEWER_TITLE_BAR_HEIGHT,
+                                                     VIEWER_WINDOW_SPACING, WRONG_PREDICTION_COLOUR,
                                                      add_caption_bar, build_class_colours,
                                                      build_detection_sample_grid, build_frame_selection_image,
-                                                     build_segmentation_error_map, build_segmentation_sample_grid,
-                                                     overlay_segmentation_mask)
+                                                     build_information_panel, build_segmentation_error_map,
+                                                     build_segmentation_sample_grid, build_viewer_window,
+                                                     compute_window_positions, overlay_segmentation_mask,
+                                                     view_input_data, wrap_panel_line)
 
 
 def build_image_and_masks() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -209,3 +219,98 @@ def test_frame_selection_image_draws_the_selection() -> None:
     assert image[thumbnail_centre, GRID_GAP + SELECTION_THUMBNAIL_SIZE // 2].tolist() == [100, 100, 100]
     assert image[thumbnail_centre, GRID_GAP + 2 * cell_size + SELECTION_THUMBNAIL_SIZE // 2].tolist() == [
         int(100 * UNSELECTED_FRAME_BRIGHTNESS)] * 3
+
+
+def test_panel_lines_wrap_within_the_panel() -> None:
+    """
+    Verifies the wrapping of the lines of the information panels of the input viewer: a short line is kept as it is,
+    and a long indented line is split word by word into lines fitting the width, the continuation lines four spaces
+    deeper, without losing any word.
+    """
+    assert wrap_panel_line(line="  random_left_right_flip", maximum_width=300) == ["  random_left_right_flip"]
+
+    long_line = "  Frame 0 : " + ", ".join(["brightness_contrast_saturation (brightness +12.0 levels)"] * 4)
+    wrapped_lines = wrap_panel_line(line=long_line, maximum_width=400)
+    assert len(wrapped_lines) > 1 and wrapped_lines[0].startswith("  Frame 0")
+    assert all(wrapped_line.startswith("      ") for wrapped_line in wrapped_lines[1:])
+    assert " ".join(word for wrapped_line in wrapped_lines for word in wrapped_line.split()) == " ".join(
+        long_line.split())
+    for wrapped_line in wrapped_lines:
+        (text_width, _), _ = cv2.getTextSize(text=wrapped_line, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                                             fontScale=PANEL_LINE_FONT_SCALE, thickness=1)
+        assert text_width <= 400
+
+
+def test_information_panel_matches_the_image_and_grows_with_its_lines() -> None:
+    """
+    Verifies the black information panel of the input viewer: it keeps the height of the image for a few lines and
+    grows for many, writes its title in white, its group lines in green and its indented lines in light gray.
+    """
+    panel = build_information_panel(title="Training", lines=["Class : cat", "  random_left_right_flip"],
+                                    minimum_height=300)
+    assert panel.shape == (300, INFORMATION_PANEL_WIDTH, 3)
+    for colour in [PANEL_TITLE_COLOUR, PANEL_GROUP_COLOUR, PANEL_LINE_COLOUR]:
+        assert bool((panel == np.array(colour, dtype=np.uint8)).all(axis=2).any())
+
+    # Fifty lines need more room than the image, the panel growing downwards
+    tall_panel = build_information_panel(title="Training", lines=[f"Line {line_index}" for line_index in range(50)],
+                                         minimum_height=100)
+    assert tall_panel.shape[0] == 2 * PANEL_MARGIN + PANEL_TITLE_HEIGHT + 52 * PANEL_LINE_HEIGHT
+
+
+def test_viewer_window_places_the_resized_image_next_to_its_panel() -> None:
+    """
+    Verifies the content of a window of the input viewer: the image enlarged with sharp pixels until its longest side
+    is the display size, at the top left, then the gray gap and the information panel, the window taking the height
+    of the panel when it is taller than the image.
+    """
+    image = torch.zeros(size=(3, 10, 20))
+    image[:, :, :10] = 200.0
+    window_image = build_viewer_window(image=image, bounding_boxes=None, labels=None, label_names=None,
+                                       title="Validation", lines=["Class : dog"], display_input_size=80)
+    assert window_image.shape[1] == 80 + GRID_GAP + INFORMATION_PANEL_WIDTH
+    assert window_image.shape[0] == build_information_panel(title="Validation", lines=["Class : dog"],
+                                                            minimum_height=40).shape[0]
+    assert bool((window_image[:40, :40] == 200).all()) and bool((window_image[:40, 40:80] == 0).all())
+    assert bool((window_image[:, 80:80 + GRID_GAP] == 128).all())
+
+
+def test_windows_are_centred_on_the_screen() -> None:
+    """
+    Verifies the placement of the windows of the input viewer: side by side and centred on a large screen at their
+    own size, stacked and scaled down to stay inside a small screen, and side by side from the top left of the screen
+    when its size is unknown.
+    """
+    window_sizes = [(1276, 410), (1276, 410)]
+
+    # Side by side on a 4K screen, the block centred horizontally and vertically
+    window_positions, display_scale = compute_window_positions(window_sizes=window_sizes, screen_size=(3840, 2160))
+    assert display_scale == 1.0 and window_positions[0][1] == window_positions[1][1]
+    block_width = 2 * 1276 + VIEWER_WINDOW_SPACING
+    assert abs(window_positions[0][0] - (3840 - block_width) / 2) <= 1
+    assert window_positions[1][0] == window_positions[0][0] + 1276 + VIEWER_WINDOW_SPACING
+    assert abs(window_positions[0][1] - (2160 - 410 - VIEWER_TITLE_BAR_HEIGHT) / 2) <= 1
+
+    # Stacked on a small screen, scaled down so that both windows stay inside it
+    window_positions, display_scale = compute_window_positions(window_sizes=[(1300, 900), (1300, 900)],
+                                                               screen_size=(1920, 1080))
+    assert display_scale < 1.0 and window_positions[0][0] == window_positions[1][0]
+    assert window_positions[1][1] + 900 * display_scale + VIEWER_TITLE_BAR_HEIGHT <= 1080
+    assert window_positions[0][0] + 1300 * display_scale <= 1920
+
+    # Unknown screen size: side by side from the top left, at their own size
+    assert compute_window_positions(window_sizes=window_sizes, screen_size=None) == (
+        [(0, VIEWER_TITLE_BAR_HEIGHT), (1276 + VIEWER_WINDOW_SPACING, VIEWER_TITLE_BAR_HEIGHT)], 1.0)
+
+
+def test_viewer_is_skipped_without_a_display(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the input viewer stops at once, without opening any window, when no graphical display is reachable.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture removing the display variables.
+    """
+    monkeypatch.delenv(name="DISPLAY", raising=False)
+    monkeypatch.delenv(name="WAYLAND_DISPLAY", raising=False)
+    assert view_input_data(images=[torch.zeros(size=(3, 8, 8))], bounding_boxes=None, labels=None,
+                           window_titles=["Training"], display_input_size=8, panel_lines=[["Class : cat"]])

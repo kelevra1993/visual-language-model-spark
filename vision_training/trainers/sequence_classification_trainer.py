@@ -226,13 +226,15 @@ class SequenceClassificationTrainer(ClassificationTrainer):
             batch (Dict[str, Any]): The training batch, with its sequence mask.
 
         Returns:
-            Dict[str, Any]: The batch with its augmented and possibly shuffled frames and frame labels.
+            Dict[str, Any]: The batch with its augmented and possibly shuffled frames and frame labels, the
+                'augmentation_reports' of its windows and their [B, T] 'frame_orders' for the input viewer.
         """
         augmented_batch = super().augment_batch(batch=batch)
         shuffled_images, frame_orders = self.data_augmenter.shuffle_frames(
             images=augmented_batch["images"], sequence_mask=augmented_batch["sequence_mask"],
             frame_block_length=self.get_window_length(batch=augmented_batch))
         augmented_batch["images"] = shuffled_images
+        augmented_batch["frame_orders"] = frame_orders
 
         # One class per frame follows its frame, the sequence mask being unchanged since the real frames stay first
         if augmented_batch["labels"].dim() == 2:
@@ -257,11 +259,43 @@ class SequenceClassificationTrainer(ClassificationTrainer):
                                                   label=batch["labels"][sample_index])
         return convert_image_to_array(image=frame_grid)
 
+    def describe_frame_order(self, batch: Dict[str, Any], sample_index: int) -> List[str]:
+        """
+        Writes the frame order of a window in its information panel of the input viewer, when the training
+        augmentation shuffles the frames ('Data.data_augmentation.shuffle_frames'): the original frame shown at every
+        position of the grid, so that the frame by frame augmentation lines, numbered before the shuffle, can be
+        matched with the frames on the grid. The validation windows are never shuffled.
+
+        Args:
+            batch (Dict[str, Any]): The augmented training batch, with its 'frame_orders', or the validation batch.
+            sample_index (int): The index of the displayed window (or pair) in its batch.
+
+        Returns:
+            List[str]: The frame order line, or no line when the frames are not shuffled.
+        """
+        if "frame_orders" not in batch or not (self.data_augmenter.activated and
+                                               self.data_augmenter.shuffle_frames_activated):
+            return []
+
+        # The original index of the real frames of every member window, the members of a pair separated by a bar
+        frame_order = batch["frame_orders"][sample_index]
+        sequence_mask = batch["sequence_mask"][sample_index].to(dtype=torch.bool)
+        window_length = self.get_window_length(batch=batch)
+        member_orders = []
+        for block_start in range(0, sequence_mask.shape[0], window_length):
+            block_order = frame_order[block_start:block_start + window_length]
+            member_orders.append(block_order[sequence_mask[block_start:block_start + window_length]].tolist())
+        if all(order == sorted(order) for order in member_orders):
+            return ["Frame order : kept"]
+        return ["Frame order : shuffled, showing frames " +
+                " | ".join(", ".join(str(frame_index) for frame_index in order) for order in member_orders)]
+
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
         """
         Displays the frames of an augmented training window next to those of a validation window, each laid out on a
-        grid and captioned with its classes.
+        grid next to an information panel holding its classes, its number of real frames, the augmentations drawn for
+        every real frame and the order of its frames.
 
         Args:
             training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
@@ -271,12 +305,24 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         Returns:
             bool: True if the user asked to stop viewing.
         """
-        frame_grids, captions = [], []
+        frame_grids, panel_lines = [], []
         for batch in [training_batch, validation_batch]:
             label, sequence_mask = batch["labels"][sample_index], batch["sequence_mask"][sample_index]
             frame_grids.append(self.build_sample_frame_grid(frames=batch["images"][sample_index],
                                                             sequence_mask=sequence_mask, label=label))
-            captions.append(self.get_window_caption(label=label))
+
+            # The real frames of every member window, which stay first in their window after a shuffle
+            window_length = self.get_window_length(batch=batch)
+            member_frame_counts = [str(int(sequence_mask[block_start:block_start + window_length].sum()))
+                                   for block_start in range(0, sequence_mask.shape[0], window_length)]
+            real_frames = torch.nonzero(input=sequence_mask).flatten().tolist()
+
+            # The classes and the real frames of the window, then its augmentations and its frame order
+            panel_lines.append([self.get_window_caption(label=label),
+                                f"Real frames : {' + '.join(member_frame_counts)}"] +
+                               self.describe_input_augmentations(batch=batch, sample_index=sample_index,
+                                                                 real_frames=real_frames) +
+                               self.describe_frame_order(batch=batch, sample_index=sample_index))
         return view_input_data(images=frame_grids, bounding_boxes=None, labels=None,
                                window_titles=["Training", "Validation"], display_input_size=FRAME_GRID_DISPLAY_SIZE,
-                               captions=captions)
+                               panel_lines=panel_lines)

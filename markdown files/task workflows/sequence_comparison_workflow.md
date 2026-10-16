@@ -411,7 +411,7 @@ The comparator adds the Member Fusion panel between the temporal module and the 
 ```
 
 ### Step 2.22 — `view_input_batches()` → `show_input_samples()`
-With `diagnosis_modes.view_input_images`, the overridden `build_sample_frame_grid()` lays out the real frames of the before member above those of the after member, every frame captioned with its member (`0 before`, `0 after`), and the window is captioned with the class of the pair. It needs a display, so it has no console output to show here.
+With `diagnosis_modes.view_input_images`, the overridden `build_sample_frame_grid()` lays out the real frames of the before member above those of the after member, every frame captioned with its member (`0 before`, `0 after`), and the information panel gives the class of the pair, the real frames of both members (`Real frames : 3 + 2`) and, for the training pair, the augmentations and the order of the frames of each member (`Frame order : shuffled, showing frames 2, 0, 1 | 5, 4`). It needs a display, so it has no console output to show here.
 
 ### Step 2.23 — `restore_last_model()`
 **Example output: a new run**

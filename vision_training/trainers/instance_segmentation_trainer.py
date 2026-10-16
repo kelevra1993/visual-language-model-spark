@@ -103,13 +103,14 @@ class InstanceSegmentationTrainer(DetectionTrainer):
             batch (Dict[str, Any]): The training batch.
 
         Returns:
-            Dict[str, Any]: The batch with its augmented images, boxes, labels and instance masks.
+            Dict[str, Any]: The batch with its augmented images, boxes, labels and instance masks, and the
+                'augmentation_reports' of its samples for the input viewer.
         """
-        images, bounding_boxes, labels, _, instance_masks = self.data_augmenter.augment_batch(
+        images, bounding_boxes, labels, _, instance_masks, augmentation_reports = self.data_augmenter.augment_batch(
             images=batch["images"], bounding_boxes=batch["bounding_boxes"], labels=batch["labels"],
             instance_masks=batch["instance_masks"])
         return {**batch, "images": images, "bounding_boxes": bounding_boxes, "labels": labels,
-                "instance_masks": instance_masks}
+                "instance_masks": instance_masks, "augmentation_reports": augmentation_reports}
 
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
