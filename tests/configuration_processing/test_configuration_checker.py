@@ -2047,7 +2047,7 @@ def write_keypoint_configuration(temporary_directory: Path, configuration_name: 
     Writes a copy of a keypoint detection configuration with the two files the configuration loader reads before the
     checks, both written in the temporary directory since the shipped ones only exist once the datasets are created:
     the 'labels.json' of the training split, whose categories give the keypoint definitions injected into
-    'Data.keypoint_categories' (the 22 synthetic shapes, or the COCO person of the example configuration), and the
+    'Data.keypoint_categories' (the 37 synthetic categories, or the COCO person of the example configuration), and the
     label mapping file (every category to its own class unless a mapping is given), then alters it by the given
     function.
 
@@ -2114,7 +2114,7 @@ def test_keypoint_configurations_are_consistent_with_their_injected_categories(t
     assert sorted(person["flip_pairs"]) == sorted([f"left_{part}", f"right_{part}"] for part in [
         "eye", "ear", "shoulder", "elbow", "wrist", "hip", "knee", "ankle"])
 
-    # Synthetic configuration: the 22 shapes, the triangle keeping the rotation limit of its category
+    # Synthetic configuration: the 37 categories, the triangle keeping the rotation limit of its category
     synthetic_path = write_keypoint_configuration(temporary_directory=tmp_path,
                                                   configuration_name="configuration_synthetic_shapes.yaml",
                                                   modify_function=None)

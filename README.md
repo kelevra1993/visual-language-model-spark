@@ -115,24 +115,25 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 
 | Task | Synthetic dataset | Classes | Configuration |
 |---|---|---|---|
-| CLS | one shape per 512 pixel image | 20 shapes: square, circle, triangle, rectangle, pentagon, hexagon, plus sign, star, octagon, rhombus, parallelogram, trapezoid, kite, heptagon, nonagon, ellipse, semicircle, annulus, capsule, L-shape | `classification/configuration_synthetic_shapes.yaml` |
-| DET | the INS dataset (`task = "instance_segmentation"`), whose boxes are those of the visible part of every shape | the 20 shapes | `object_detection/configuration_synthetic_shapes.yaml` |
-| INS | up to 6 shapes per 512 pixel image, with the run length encoding of the visible part of every shape, a shape left with fewer than 64 visible pixels being left out | the 20 shapes | `instance_segmentation/configuration_synthetic_shapes.yaml` |
-| KPT | 2 to 4 objects per 512 pixel image, the 20 shapes drawn upright, a stick figure and a house, each category with its own keypoints (the corners of the polygons, the tips of the star, the centre of the circle, the 11 joints of the stick figure...), some hidden by another object (v = 1) or outside the image | the 20 shapes, `stick_figure`, `house` | `keypoint_detection/configuration_synthetic_shapes.yaml` |
-| SEG | up to 6 shapes per 512 pixel image, with the class mask of every image | the 20 shapes and the background | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
+| CLS | one shape per 512 pixel image | 35 shapes: square, circle, triangle, rectangle, pentagon, hexagon, plus sign, star, octagon, rhombus, parallelogram, trapezoid, kite, heptagon, nonagon, ellipse, semicircle, annulus, capsule, L-shape, and the hollow `hollow_square`, `hollow_triangle`, `hollow_rectangle`, `hollow_pentagon`, `hollow_hexagon`, `hollow_octagon`, `hollow_rhombus`, `hollow_parallelogram`, `hollow_trapezoid`, `hollow_kite`, `hollow_heptagon`, `hollow_nonagon`, `hollow_ellipse`, `hollow_semicircle`, `hollow_capsule` | `classification/configuration_synthetic_shapes.yaml` |
+| DET | the INS dataset (`task = "instance_segmentation"`), whose boxes are those of the visible part of every shape | the 35 shapes | `object_detection/configuration_synthetic_shapes.yaml` |
+| INS | up to 6 shapes per 512 pixel image, with the run length encoding of the visible part of every shape, a shape left with fewer than 64 visible pixels being left out | the 35 shapes | `instance_segmentation/configuration_synthetic_shapes.yaml` |
+| KPT | 2 to 4 objects per 512 pixel image, the 35 shapes drawn upright, a stick figure and a house, each category with its own keypoints (the corners of the polygons, the tips of the star, the centre of the circle, the 11 joints of the stick figure, the hollow shapes keeping those of their filled shape...), some hidden by another object (v = 1) or outside the image | the 35 shapes, `stick_figure`, `house` | `keypoint_detection/configuration_synthetic_shapes.yaml` |
+| SEG | up to 6 shapes per 512 pixel image, with the class mask of every image | the 35 shapes and the background | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
 | M2O | one shape crossing 2 to 12 frames | `moving_left`, `moving_right`, `moving_up`, `moving_down` | `sequence_classification/configuration_synthetic_sequences.yaml` |
-| M2M | one shape changing class 1 to 3 times over 2 to 12 frames, labelled per frame | the 20 shapes | `sequence_labelling/configuration_synthetic_sequences.yaml` |
+| M2M | one shape changing class 1 to 3 times over 2 to 12 frames, labelled per frame | the 35 shapes | `sequence_labelling/configuration_synthetic_sequences.yaml` |
 | CMP | a before and an after member of 2 to 12 frames, the before member showing 2 to 6 shapes | `loss_of_object` (the after member lost one shape), `same_number_of_objects` | `sequence_comparison/configuration_synthetic_pairs.yaml` |
 | SEL | one shape per frame over 4 to 12 frames, the largest circle, triangle and star of the sequence being the frames to select, the other frames showing smaller copies of them or other shapes | `unselected`, `circle`, `triangle`, `star` | `frame_selection/configuration_synthetic_sequences.yaml` |
-| SSL | the CLS dataset (`task = "classification"`), its classes only used by the k-NN evaluation | the 20 shapes | `self_supervised/configuration_synthetic_shapes.yaml` |
+| SSL | the CLS dataset (`task = "classification"`), its classes only used by the k-NN evaluation | the 35 shapes | `self_supervised/configuration_synthetic_shapes.yaml` |
 
 The shapes of the CLS, DET, INS and SEG images measure from 64 pixels (`MINIMUM_SHAPE_SIZE`) to a third of the image side, and the changing shape of M2M at least 64 pixels, so that the nonagon, the roundest polygon, stays distinct from the octagon and the circle. Every class keeps apart from its neighbours:
 - the rhombuses have acute angles of 44° to 70°;
 - the parallelograms have sides of different lengths (ratio 1.5 to 2.5);
 - the trapezoids have one pair of parallel sides of different lengths;
 - the ellipses and capsules are 1.5 to 3 times as long as they are wide.
+- the hollow shapes are their filled shape with one hole, the filled shape scaled down by 0.4 to 0.6 about its centre (`HOLLOW_INNER_SIZE_RATIO_RANGE`), inside walls of at least 2 pixels (`HOLLOW_MINIMUM_WALL_PIXELS`), the hole showing the background like that of the annulus, the hollow circle.
 
-The first nine shapes keep their category identifiers. A dataset generated before the eleven others were added keeps its nine classes, which its `labels.json` and `label_mapping.json` give to the training.
+The first nine shapes keep their category identifiers. A dataset generated before the eleven others were added keeps its nine classes, which its `labels.json` and `label_mapping.json` give to the training. The 15 hollow shapes come after the first 20 shapes (identifiers 21 to 35), `stick_figure` and `house` of the KPT dataset moving to 36 and 37, and a dataset generated before them keeps its classes in the same way.
 
 ## Training
 

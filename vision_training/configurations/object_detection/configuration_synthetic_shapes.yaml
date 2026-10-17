@@ -1,7 +1,8 @@
-# Configuration of the synthetic shapes dataset (the 20 shape classes of SHAPE_CATEGORIES: squares, circles,
+# Configuration of the synthetic shapes dataset (the 35 shape classes of SHAPE_CATEGORIES: squares, circles,
 # triangles, rectangles, pentagons, hexagons, plus signs, stars, octagons, rhombuses, parallelograms, trapezoids,
-# kites, heptagons, nonagons, ellipses, semicircles, annuluses, capsules, L-shapes, from 64 pixels
-# to a third of the image side, a dataset created before the last eleven were added keeping the first nine),
+# kites, heptagons, nonagons, ellipses, semicircles, annuluses, capsules, L-shapes and the hollow counterparts of
+# fifteen of them, hollow_square to hollow_capsule, from 64 pixels to a third of the image side, a dataset created
+# before the last twenty-six were added keeping the first nine),
 # created with vision_training/data/synthetic/create_synthetic_dataset.py with the "instance_segmentation" task: the
 # detector reads the boxes of the instance segmentation dataset (the boxes of the visible part of every shape), so
 # that the detection and instance segmentation runs train on the same images. It is a trivial detection task, used to

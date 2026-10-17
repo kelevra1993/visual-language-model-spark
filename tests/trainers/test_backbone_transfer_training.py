@@ -2,7 +2,7 @@
 Tests of the model transfers through the trainers of vision_training/trainers on synthetic datasets: a frozen backbone,
 the backbone, temporal module and head of a sequence classifier, the classification backbone and segmentation decoder
 of the semantic segmentation runs, the backbone, region proposal and detection heads of an object detection run, the
-averaged backbone and head of a classifier of 9 classes initialising a run of 20 classes, and the backbone of a
+averaged backbone and head of a classifier of 9 classes initialising a run of 35 classes, and the backbone of a
 self-supervised run initialising a classifier, initialise a new run that trains, saves and resumes correctly.
 """
 
@@ -472,14 +472,14 @@ def test_detection_run_initialises_a_frozen_instance_segmentation_run(tmp_path: 
     assert "Error encountered during iteration" not in console_output and "Critical Error" not in console_output
 
 
-def test_averaged_run_of_9_classes_initialises_a_run_of_20_classes(tmp_path: Path,
+def test_averaged_run_of_9_classes_initialises_a_run_of_35_classes(tmp_path: Path,
                                                                    capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the transfer to a run adding classes through the trainers: a source run trained on the first 9 classes of
     the synthetic shapes with a moving average of its weights records its class names in its data.json, and its
-    backbone and classification head initialise a run of the 20 classes keeping a moving average too. Both components
+    backbone and classification head initialise a run of the 35 classes keeping a moving average too. Both components
     start from the averaged weights of the source checkpoint, the classifier keeping the rows of the 9 source classes
-    and adding 11 classes after them that keep the random initialisation of the new run, and the run trains and
+    and adding 26 classes after them that keep the random initialisation of the new run, and the run trains and
     saves.
 
     Args:
@@ -510,16 +510,16 @@ def test_averaged_run_of_9_classes_initialises_a_run_of_20_classes(tmp_path: Pat
                                 weights_only=True)[EXPONENTIAL_MOVING_AVERAGE_STATE_KEY][AVERAGED_MODEL_STATE_KEY]
     capsys.readouterr()
 
-    # Run of the 20 classes initialised by the averaged backbone and head of the source run
+    # Run of the 35 classes initialised by the averaged backbone and head of the source run
     transfer_settings = {**no_transfer, "experiment_folder": str(source_trainer.experiment_folder)}
     target_trainer = build_transfer_trainer(temporary_directory=tmp_path, dataset_folder=dataset_folder,
                                             number_iterations=2, configuration_name="target.yaml",
                                             pretrained_settings={"Backbone": transfer_settings,
                                                                  "ClassificationHead": transfer_settings},
                                             task="classification", moving_average=True)
-    assert source_trainer.run_name.endswith("_MC9") and target_trainer.run_name.endswith("-HPT_MC20")
+    assert source_trainer.run_name.endswith("_MC9") and target_trainer.run_name.endswith("-HPT_MC35")
     console_output = capsys.readouterr().out
-    assert ("Classification Head : 9 Classes Of The Source Run Kept, 11 New Classes Added After Them, Randomly "
+    assert ("Classification Head : 9 Classes Of The Source Run Kept, 26 New Classes Added After Them, Randomly "
             "Initialised.") in console_output
     assert "Backbone Initialised From The Averaged Weights Of" in console_output
     assert "Classification Head Initialised From The Averaged Weights Of" in console_output
@@ -534,7 +534,7 @@ def test_averaged_run_of_9_classes_initialises_a_run_of_20_classes(tmp_path: Pat
             assert torch.equal(input=target_state[tensor_name], other=tensor_value), tensor_name
     assert torch.count_nonzero(input=target_state["classification_head.classifier.weight"][9:]) > 0
 
-    # The run of 20 classes trains and saves
+    # The run of 35 classes trains and saves
     target_trainer.run_training_loop()
     assert (target_trainer.weights_directory / "Iteration_2" / "model_000002.pt").is_file()
 

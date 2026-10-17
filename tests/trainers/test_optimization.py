@@ -116,7 +116,7 @@ def test_mixed_precision_training(tmp_path: Path, capsys: pytest.CaptureFixture)
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))
 
     trainer = build_trainer(configuration_path=configuration_path)
-    assert "BF16" not in trainer.run_name and trainer.run_name.endswith("_MC20")
+    assert "BF16" not in trainer.run_name and trainer.run_name.endswith("_MC35")
     trainer.run_training_loop()
 
     results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")

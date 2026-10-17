@@ -10,19 +10,27 @@ import os
 import cv2
 import numpy as np
 
+from functools import partial
 from multiprocessing import Pool
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from vision_training.data.detection.coco_masks import encode_run_length_encoding
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
+# Filled shapes that have a hollow class of their own, the same outline with a hole of the same outline cut out of it
+# (the annulus being the hollow circle). The plus sign, the star and the L-shape have arms too thin for a hole
+HOLLOW_SHAPE_NAMES = ["square", "triangle", "rectangle", "pentagon", "hexagon", "octagon", "rhombus", "parallelogram",
+                      "trapezoid", "kite", "heptagon", "nonagon", "ellipse", "semicircle", "capsule"]
+
 # Shape classes of the synthetic dataset and their COCO category identifiers, the first nine keeping the identifiers
-# of the datasets created before the other eleven were added
+# of the datasets created before the other eleven were added, and the first twenty those of the datasets created
+# before the fifteen hollow shapes were added
 SHAPE_CATEGORIES = {"square": 1, "circle": 2, "triangle": 3, "rectangle": 4, "pentagon": 5, "hexagon": 6,
                     "plus_sign": 7, "star": 8, "octagon": 9, "rhombus": 10, "parallelogram": 11, "trapezoid": 12,
                     "kite": 13, "heptagon": 14, "nonagon": 15, "ellipse": 16, "semicircle": 17, "annulus": 18,
-                    "capsule": 19, "l_shape": 20}
+                    "capsule": 19, "l_shape": 20,
+                    **{f"hollow_{shape_name}": 21 + index for index, shape_name in enumerate(HOLLOW_SHAPE_NAMES)}}
 
 # Smallest size of the shapes whose class is the label (objects of the detection, segmentation and classification
 # images, changing shape of the sequence labelling): the sides of a nonagon, the roundest polygon, then bend 2 pixels
@@ -72,6 +80,13 @@ CAPSULE_END_VERTICES = 16
 # Radius of the hole of the annuluses relative to their outer radius
 ANNULUS_INNER_RADIUS_RATIO_RANGE = (0.4, 0.6)
 
+# Size of the hole of the hollow shapes relative to their outline, the hole being the outline scaled down around its
+# centroid, the thinnest wall in pixels kept at the acute corners of the flattest shapes, and the number of shapes
+# drawn before failing when none leaves a hole inside that wall (flat triangles at small sizes)
+HOLLOW_INNER_SIZE_RATIO_RANGE = (0.4, 0.6)
+HOLLOW_MINIMUM_WALL_PIXELS = 2
+HOLLOW_MAXIMUM_ATTEMPTS = 20
+
 # L-shapes: length of the foot relative to the long arm, and width of both arms relative to the long arm, the foot
 # sticking out of the long arm by at least a quarter of its length
 L_SHAPE_FOOT_RATIO_RANGE = (0.6, 1.0)
@@ -80,7 +95,8 @@ L_SHAPE_ARM_WIDTH_RATIO_RANGE = (0.25, 0.35)
 # Keypoint detection: categories of the shapes with keypoints, the shape classes followed by a stick figure and a
 # house. Their keypoints are named after their place on the upright shape, the keypoint images drawing every shape
 # without rotation nor mirror
-KEYPOINT_CATEGORIES = {**SHAPE_CATEGORIES, "stick_figure": 21, "house": 22}
+KEYPOINT_CATEGORIES = {**SHAPE_CATEGORIES, "stick_figure": len(SHAPE_CATEGORIES) + 1,
+                       "house": len(SHAPE_CATEGORIES) + 2}
 
 # Keypoints of every category, in the order the drawing functions return them. The vertices of the regular polygons
 # and the tips of the star go clockwise from the top one, the vertices of each side numbered from the top. The left and
@@ -144,6 +160,17 @@ KEYPOINT_MAXIMUM_ROTATION_DEGREES = {"square": 45.0, "circle": 180.0, "triangle"
                                      "kite": 180.0, "heptagon": 25.7, "nonagon": 20.0, "ellipse": 90.0,
                                      "semicircle": 180.0, "annulus": 180.0, "capsule": 90.0, "l_shape": 180.0,
                                      "stick_figure": 180.0, "house": 180.0}
+
+# Hollow shapes keep the keypoints, the skeleton and the rotation limit of their filled shape, their outer vertices
+# being those of the filled shape, so that only the hole tells them apart
+for hollow_source_name in HOLLOW_SHAPE_NAMES:
+    KEYPOINT_NAMES[f"hollow_{hollow_source_name}"] = KEYPOINT_NAMES[hollow_source_name]
+    KEYPOINT_MAXIMUM_ROTATION_DEGREES[f"hollow_{hollow_source_name}"] = KEYPOINT_MAXIMUM_ROTATION_DEGREES[
+        hollow_source_name]
+    if hollow_source_name in KEYPOINT_OUTLINES:
+        KEYPOINT_OUTLINES[f"hollow_{hollow_source_name}"] = KEYPOINT_OUTLINES[hollow_source_name]
+    if hollow_source_name in KEYPOINT_LINKS:
+        KEYPOINT_LINKS[f"hollow_{hollow_source_name}"] = KEYPOINT_LINKS[hollow_source_name]
 
 # Stick figures, in torso lengths: radius of the head disc, which touches the neck, and for the arms and the legs the
 # joint they hang from, the names of their middle and end joints, the lengths of their two segments, the angle of the
@@ -905,8 +932,9 @@ def draw_annulus_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
                       random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled ring of outer diameter 'size' whose hole has 0.4 to 0.6 of its radius, on a binary mask. One of
-    the synthetic shape classes, the only one with a hole, which shows the background (or the objects below it) and is
-    left out of its instance mask. The hole is cleared on the mask, which must hold this shape only.
+    the synthetic shape classes, the hollow circle, whose hole, like those of the hollow shapes (draw_hollow_mask),
+    shows the background (or the objects below it) and is left out of its instance mask. The hole is cleared on the
+    mask, which must hold this shape only.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -1021,6 +1049,64 @@ def draw_l_shape_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
     return fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
                                 vertices=build_l_shape_vertices(random_generator=random_generator),
                                 random_generator=random_generator, upright=upright)
+
+
+def draw_hollow_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
+                     filled_drawing_function: Callable[..., np.ndarray], upright: bool = False) -> np.ndarray:
+    """
+    Draws the hollow version of a filled shape class on a binary mask: the filled shape, out of which the same outline
+    scaled down to 0.4 to 0.6 of its size around its centroid is cut, a hole showing the background (or the objects
+    below it) that is left out of its instance mask. Shared by the fifteen hollow classes of HOLLOW_SHAPE_NAMES, which
+    differ from their filled class by the hole only, so that a model must look inside the outline to tell them apart.
+    Every filled shape of HOLLOW_SHAPE_NAMES being convex, the scaled outline stays inside it; the hole is further
+    kept HOLLOW_MINIMUM_WALL_PIXELS away from the outside, and only its largest piece is cut, so that the shape is one
+    ring around one hole. A shape leaving no hole is drawn again, up to HOLLOW_MAXIMUM_ATTEMPTS times.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The size of the filled shape, as its drawing function reads it.
+        random_generator (np.random.Generator): The random generator of the filled shape and of the size of the hole.
+        filled_drawing_function (Callable[..., np.ndarray]): The drawing function of the filled shape, e.g.
+            draw_square_mask.
+        upright (bool): True for the upright filled shape of the keypoint images. Defaults to False.
+
+    Returns:
+        np.ndarray: The [K, 2] float keypoints of the filled shape, its outer vertices, in the order of KEYPOINT_NAMES.
+
+    Raises:
+        ValueError: If no drawn shape leaves a hole inside its walls, the size being too small for the shape.
+    """
+    wall_kernel = cv2.getStructuringElement(shape=cv2.MORPH_ELLIPSE, ksize=(2 * HOLLOW_MINIMUM_WALL_PIXELS + 1,
+                                                                             2 * HOLLOW_MINIMUM_WALL_PIXELS + 1))
+    for _ in range(HOLLOW_MAXIMUM_ATTEMPTS):
+        # Filled shape on a canvas of its own, so that the hole only cuts this shape
+        filled_mask = np.zeros_like(mask)
+        keypoints = filled_drawing_function(mask=filled_mask, center_x=center_x, center_y=center_y, size=size,
+                                            random_generator=random_generator, upright=upright)
+
+        # Same outline scaled down around the centroid of its pixels, kept inside the minimum wall of the filled shape
+        inner_size_ratio = random_generator.uniform(low=HOLLOW_INNER_SIZE_RATIO_RANGE[0],
+                                                    high=HOLLOW_INNER_SIZE_RATIO_RANGE[1])
+        row_indices, column_indices = np.nonzero(filled_mask)
+        centroid_x, centroid_y = column_indices.mean(), row_indices.mean()
+        scaling_matrix = np.array([[inner_size_ratio, 0.0, centroid_x * (1.0 - inner_size_ratio)],
+                                   [0.0, inner_size_ratio, centroid_y * (1.0 - inner_size_ratio)]])
+        hole_mask = cv2.warpAffine(src=filled_mask, M=scaling_matrix, dsize=(mask.shape[1], mask.shape[0]),
+                                   flags=cv2.INTER_NEAREST)
+        hole_mask = (hole_mask > 0) & (cv2.erode(src=filled_mask, kernel=wall_kernel) > 0)
+
+        # Largest 4-connected piece of the hole only, the pieces cut off at the acute corners being left filled
+        number_hole_groups, hole_groups, hole_statistics, _ = cv2.connectedComponentsWithStats(
+            image=hole_mask.astype(np.uint8), connectivity=4)
+        if number_hole_groups < 2:
+            continue
+        largest_hole_group = 1 + int(np.argmax(hole_statistics[1:, cv2.CC_STAT_AREA]))
+        mask[(filled_mask > 0) & (hole_groups != largest_hole_group)] = 255
+        return keypoints
+    raise ValueError(f"Expected a hollow shape of size {size} to leave a hole inside walls of "
+                     f"{HOLLOW_MINIMUM_WALL_PIXELS} pixels, but {HOLLOW_MAXIMUM_ATTEMPTS} drawn shapes left none.")
 
 
 def build_house_vertices(random_generator: np.random.Generator) -> np.ndarray:
@@ -1177,6 +1263,11 @@ SHAPE_DRAWING_FUNCTIONS = {"square": draw_square_mask, "circle": draw_circle_mas
                            "kite": draw_kite_mask, "heptagon": draw_heptagon_mask, "nonagon": draw_nonagon_mask,
                            "ellipse": draw_ellipse_mask, "semicircle": draw_semicircle_mask,
                            "annulus": draw_annulus_mask, "capsule": draw_capsule_mask, "l_shape": draw_l_shape_mask}
+
+# Hollow shapes, drawn by draw_hollow_mask around the drawing function of their filled shape
+SHAPE_DRAWING_FUNCTIONS.update({
+    f"hollow_{shape_name}": partial(draw_hollow_mask, filled_drawing_function=SHAPE_DRAWING_FUNCTIONS[shape_name])
+    for shape_name in HOLLOW_SHAPE_NAMES})
 
 # Drawing function of every keypoint category, the shape classes followed by the stick figure and the house
 KEYPOINT_DRAWING_FUNCTIONS = {**SHAPE_DRAWING_FUNCTIONS, "stick_figure": draw_stick_figure_mask,

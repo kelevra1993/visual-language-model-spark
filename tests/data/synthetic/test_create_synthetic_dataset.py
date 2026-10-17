@@ -4,8 +4,8 @@ classification, semantic segmentation, sequence classification, sequence labelli
 selection datasets are valid, load with the datasets of the framework and follow their labels, the objects hidden by
 later ones being left out of the detection and instance segmentation labels. The shapes stay inside their square, keep
 the geometry that tells their class apart from the neighbouring classes (rhombus and square, parallelogram and
-rectangle, trapezoid and triangle, kite and rhombus, annulus and circle), and the shapes whose class is the label
-get the minimum size.
+rectangle, trapezoid and triangle, kite and rhombus, annulus and circle), every hollow shape is its filled shape
+with one hole cut inside it, and the shapes whose class is the label get the minimum size.
 """
 
 import json
@@ -22,7 +22,8 @@ from vision_training.data.detection.coco_masks import decode_run_length_encoding
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset
 from vision_training.data.synthetic import create_synthetic_dataset as synthetic_dataset_module
-from vision_training.data.synthetic.create_synthetic_dataset import (KITE_UPPER_RATIO_RANGE, KITE_WIDTH_RATIO_RANGE,
+from vision_training.data.synthetic.create_synthetic_dataset import (HOLLOW_SHAPE_NAMES, KITE_UPPER_RATIO_RANGE,
+                                                                     KITE_WIDTH_RATIO_RANGE,
                                                                      MINIMUM_SHAPE_SIZE,
                                                                      MINIMUM_VISIBLE_OBJECT_PIXELS,
                                                                      MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS,
@@ -38,6 +39,7 @@ from vision_training.data.synthetic.create_synthetic_dataset import (KITE_UPPER_
                                                                      build_rhombus_vertices,
                                                                      build_trapezoid_vertices,
                                                                      create_synthetic_dataset, draw_annulus_mask,
+                                                                     draw_hollow_mask,
                                                                      draw_shapes_frame,
                                                                      generate_changing_shape_sequence,
                                                                      generate_image, get_mask_bounding_box,
@@ -235,6 +237,58 @@ def test_annulus_is_a_closed_ring_around_a_hole() -> None:
         assert number_ring_groups - 1 == 1 and number_background_groups - 1 == 2
 
 
+@pytest.mark.parametrize(argnames="shape_name", argvalues=HOLLOW_SHAPE_NAMES)
+@pytest.mark.parametrize(argnames="size", argvalues=[33, MINIMUM_SHAPE_SIZE, 101])
+@pytest.mark.parametrize(argnames="upright", argvalues=[False, True])
+def test_hollow_shapes_are_closed_rings_inside_their_filled_shape(shape_name: str, size: int, upright: bool) -> None:
+    """
+    Verifies that every hollow shape is its filled shape with one hole cut inside it, like the annulus is the hollow
+    circle: drawn with the same random generator state, its pixels are a strict part of the filled shape and keep its
+    keypoints, they form one group, and the hole is a background region of its own, apart from the background around
+    the walls.
+
+    Args:
+        shape_name (str): The name of the filled shape of HOLLOW_SHAPE_NAMES.
+        size (int): The side of the square the shape is drawn in.
+        upright (bool): Whether the shape is drawn upright or rotated.
+    """
+    random_generator = np.random.default_rng(seed=0)
+
+    for _ in range(20):
+        # Draw the filled shape and the hollow shape from the same random generator state
+        filled_mask = np.zeros(shape=(128, 128), dtype=np.uint8)
+        hollow_mask = np.zeros(shape=(128, 128), dtype=np.uint8)
+        generator_state = random_generator.bit_generator.state
+        filled_keypoints = SHAPE_DRAWING_FUNCTIONS[shape_name](mask=filled_mask, center_x=64, center_y=64, size=size,
+                                                               random_generator=random_generator, upright=upright)
+        random_generator.bit_generator.state = generator_state
+        hollow_keypoints = SHAPE_DRAWING_FUNCTIONS[f"hollow_{shape_name}"](
+            mask=hollow_mask, center_x=64, center_y=64, size=size, random_generator=random_generator, upright=upright)
+
+        # The walls lie inside the filled shape, cover less of it and keep its keypoints
+        assert np.all(filled_mask[hollow_mask > 0] > 0) and np.count_nonzero(hollow_mask) < np.count_nonzero(filled_mask)
+        np.testing.assert_array_equal(hollow_keypoints, filled_keypoints)
+
+        # The walls form one group closed around a single hole
+        number_ring_groups, _ = cv2.connectedComponents(image=(hollow_mask > 0).astype(np.uint8), connectivity=8)
+        number_background_groups, _ = cv2.connectedComponents(image=(hollow_mask == 0).astype(np.uint8),
+                                                              connectivity=4)
+        assert number_ring_groups - 1 == 1 and number_background_groups - 1 == 2
+
+
+def test_hollow_shape_too_small_for_a_hole_raises() -> None:
+    """
+    Verifies that draw_hollow_mask raises instead of returning a filled shape under a hollow class when the shape is too
+    small to leave a hole inside its minimum walls.
+    """
+    mask = np.zeros(shape=(32, 32), dtype=np.uint8)
+
+    with pytest.raises(expected_exception=ValueError, match="left none"):
+        draw_hollow_mask(mask=mask, center_x=16, center_y=16, size=3, random_generator=np.random.default_rng(seed=0),
+                         filled_drawing_function=SHAPE_DRAWING_FUNCTIONS["square"])
+    assert not np.any(mask)
+
+
 @pytest.mark.parametrize(argnames=("image_size", "expected_size_range"), argvalues=[
     (512, (MINIMUM_SHAPE_SIZE, 170)), (IMAGE_SIZE, (MINIMUM_SHAPE_SIZE, 85)), (64, (33, 33))])
 def test_image_shapes_get_the_minimum_size(monkeypatch: pytest.MonkeyPatch, image_size: int,
@@ -346,7 +400,7 @@ def test_created_classification_dataset_has_one_shape_per_image(tmp_path: Path) 
     assert all(sample["category_id"] in SHAPE_CATEGORIES.values() for sample in labels["samples"])
     assert all((tmp_path / "train" / "data" / sample["file_name"]).is_file() for sample in labels["samples"])
 
-    # The classifier predicts no background class: the 20 categories become the classes 0 to 19
+    # The classifier predicts no background class: the 35 categories become the classes 0 to 34
     label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
     assert label_mapping == {str(category_identifier): category_identifier - 1
                              for category_identifier in SHAPE_CATEGORIES.values()}
@@ -389,7 +443,7 @@ def test_created_segmentation_dataset_masks_match_the_shapes(tmp_path: Path) -> 
         assert np.array_equal(mask > 0, shape_pixels)
         assert set(np.unique(mask[mask > 0]).tolist()) <= set(SHAPE_CATEGORIES.values())
 
-    # The segmenter predicts the background as class 0: the 20 categories keep their identifiers as classes
+    # The segmenter predicts the background as class 0: the 35 categories keep their identifiers as classes
     label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
     assert label_mapping == {str(category_identifier): category_identifier
                              for category_identifier in SHAPE_CATEGORIES.values()}
@@ -554,8 +608,8 @@ def test_created_sequence_labelling_dataset_labels_every_frame(tmp_path: Path) -
     """
     Verifies the sequence labelling mode of the generator: every sequence lists the shape category of every frame,
     2 to 6 frames whose number varies from sequence to sequence, the shape changes class at least once, the frames of
-    the same class segment are identical and two consecutive segments differ, and the label mapping gives the 20
-    shapes the classes 0 to 19.
+    the same class segment are identical and two consecutive segments differ, and the label mapping gives the 35
+    shapes the classes 0 to 34.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
