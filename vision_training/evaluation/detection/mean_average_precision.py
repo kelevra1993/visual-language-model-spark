@@ -167,9 +167,16 @@ def compute_average_precision(precisions: torch.Tensor, recalls: torch.Tensor, m
     recall_levels = torch.arange(end=number_points, dtype=torch.float64) / (number_points - 1)
 
     # The interpolated precision of a level is the maximum precision at a recall greater than or equal to it, and 0
-    # beyond the maximum recall reached
-    interpolated_precisions = [float(precisions[recalls >= recall_level].max()) if bool(
-        (recalls >= recall_level).any()) else 0.0 for recall_level in recall_levels]
+    # beyond the maximum recall reached. The recalls being non-decreasing, these recalls are the ones from the first
+    # point reaching the level onwards, whose maximum precision is the envelope of the curve at that point
+    envelope_precisions = torch.flip(input=torch.cummax(input=torch.flip(input=precisions, dims=[0]), dim=0).values,
+                                     dims=[0])
+    first_point_indices = torch.searchsorted(sorted_sequence=recalls.to(dtype=torch.float64), input=recall_levels,
+                                             side="left")
+
+    # A level beyond the maximum recall gets the index after the last point, which reads an appended precision of 0
+    envelope_precisions = torch.cat(tensors=[envelope_precisions, torch.zeros(size=(1,), dtype=precisions.dtype)])
+    interpolated_precisions = envelope_precisions[first_point_indices].tolist()
     return sum(interpolated_precisions) / number_points
 
 

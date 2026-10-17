@@ -14,15 +14,18 @@ from vision_training.models.detection.box_operations import clamp_boxes_to_image
 
 def postprocess_detections(classification_scores: torch.Tensor, detection_boxes: torch.Tensor,
                            valid_proposal_mask: torch.Tensor, score_threshold: float, nms_iou_threshold: float,
-                           maximum_detections: int, input_image_size: int) -> Dict[str, torch.Tensor]:
+                           maximum_detections: int, input_image_size: int,
+                           suppress_candidates_only: bool) -> Dict[str, torch.Tensor]:
     """
     Turns the raw detection head outputs into the final detections returned at inference and by the deployed
     models: class probabilities, removal of the background class, a score threshold, per-class non-maximum
     suppression, and a fixed number of detections per image.
 
     Every step is vectorised over the whole batch (a single batched NMS call grouped by image and class, then a fixed
-    top-k), without data-dependent Python control flow, so that the same code can be exported to TorchScript and
-    ONNX. The outputs have a fixed size; padded entries have a score of 0, a label of 0 and an empty box.
+    top-k). The eager training and evaluation give the NMS the pairs reaching the score threshold only, while the
+    deployed detector gives it every pair, without data-dependent Python control flow nor data-dependent sizes, so
+    that the same code can be exported to TorchScript and ONNX. Both keep the same detections. The outputs have a
+    fixed size; padded entries have a score of 0, a label of 0 and an empty box.
 
     Args:
         classification_scores (torch.Tensor): The class logits of every proposal, shape [B, P, C] (C includes the
@@ -35,6 +38,8 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
         maximum_detections (int): The fixed number K of detections returned per image, padded when the image has
             fewer (proposal, foreground class) pairs, as in the validation, which classifies the sampled proposals only.
         input_image_size (int): The size of the square network input, used to clip the boxes to the image.
+        suppress_candidates_only (bool): True for the NMS on the pairs reaching the score threshold (eager), False for
+            the NMS on every pair (export).
 
     Returns:
         Dict[str, torch.Tensor]: The final detections:
@@ -57,18 +62,31 @@ def postprocess_detections(classification_scores: torch.Tensor, detection_boxes:
     labels = torch.arange(start=1, end=number_classes, device=classification_scores.device)
     labels = labels.repeat(number_proposals).unsqueeze(dim=0).expand(batch_size, -1)
 
-    # Suppress overlapping boxes of the same class and image with a single NMS call over the whole batch
+    # Candidates that can become detections: the pairs of valid proposals reaching the score threshold
     batch_indices = torch.arange(end=batch_size, device=classification_scores.device).unsqueeze(dim=1).expand_as(labels)
     group_indices = batch_indices * number_classes + labels
-    kept_indices = batched_nms(boxes=boxes.reshape(-1, 4), scores=probabilities.reshape(-1),
-                               idxs=group_indices.reshape(-1), iou_threshold=nms_iou_threshold)
+    valid_candidate_mask = valid_proposal_mask.unsqueeze(dim=-1).expand(-1, -1, number_classes - 1)
+    candidate_mask = (probabilities >= score_threshold) & valid_candidate_mask.reshape(batch_size, -1)
 
-    # Keep the NMS survivors above the score threshold, the other candidates get a score below any valid one
+    # Suppress overlapping boxes of the same class and image with a single NMS call over the whole batch. The eager
+    # path only gives it the candidates: a box below the threshold never suppresses a higher scoring one, so the
+    # detections are the same, without the per-group NMS loop torchvision runs on the hundreds of thousands of pairs
+    # of a whole batch. The exports give it every pair, the dynamo ONNX export refusing a data-dependent number of
+    # boxes
+    if suppress_candidates_only:
+        candidate_indices = torch.nonzero(input=candidate_mask.reshape(-1)).flatten()
+        kept_indices = candidate_indices[batched_nms(boxes=boxes.reshape(-1, 4)[candidate_indices],
+                                                     scores=probabilities.reshape(-1)[candidate_indices],
+                                                     idxs=group_indices.reshape(-1)[candidate_indices],
+                                                     iou_threshold=nms_iou_threshold)]
+    else:
+        kept_indices = batched_nms(boxes=boxes.reshape(-1, 4), scores=probabilities.reshape(-1),
+                                   idxs=group_indices.reshape(-1), iou_threshold=nms_iou_threshold)
+
+    # Keep the NMS survivors among the candidates, the other pairs get a score below any valid one
     kept_mask = torch.zeros_like(input=probabilities.reshape(-1), dtype=torch.bool)
     kept_mask[kept_indices] = True
-    valid_candidate_mask = valid_proposal_mask.unsqueeze(dim=-1).expand(-1, -1, number_classes - 1)
-    kept_mask = kept_mask.reshape(batch_size, -1) & (probabilities >= score_threshold) & \
-        valid_candidate_mask.reshape(batch_size, -1)
+    kept_mask = kept_mask.reshape(batch_size, -1) & candidate_mask
     candidate_scores = torch.where(kept_mask, probabilities, torch.full_like(input=probabilities, fill_value=-1.0))
 
     # Append maximum_detections invalid candidates (empty box, background label), so that an image with fewer

@@ -2,8 +2,9 @@
 Tests of vision_training/evaluation/detection/mean_average_precision.py on a worked example and edge cases: true
 positives, precision recall curve, average precision, duplicate, missing and wrong-class detections, the COCO-style
 mean over overlap thresholds, the score threshold of every class, the mask average precision of the instance
-segmentation, the average precision of the small, medium and large objects with the COCO ignore rule, and the mean
-average recall of all the objects and of every size.
+segmentation, the average precision of the small, medium and large objects with the COCO ignore rule, the mean
+average recall of all the objects and of every size, and the vectorised 11 and 101-point average precision against
+its level by level definition.
 """
 
 import pytest
@@ -278,6 +279,54 @@ def test_unknown_method_is_rejected() -> None:
     with pytest.raises(expected_exception=ValueError):
         compute_average_precision(precisions=torch.tensor(data=[1.0]), recalls=torch.tensor(data=[1.0]),
                                   method="trapezoid")
+
+
+def interpolate_average_precision_by_definition(precisions: torch.Tensor, recalls: torch.Tensor,
+                                                number_points: int) -> float:
+    """
+    Reference of the 11 and 101-point average precision written as its definition, one recall level at a time: the
+    maximum precision at a recall greater than or equal to the level, 0 beyond the maximum recall. The vectorised
+    compute_average_precision of the evaluation must return exactly the same value.
+
+    Args:
+        precisions (torch.Tensor): The [D] precisions, from compute_precision_recall.
+        recalls (torch.Tensor): The [D] non-decreasing recalls, from compute_precision_recall.
+        number_points (int): The number of equally spaced recall levels, 11 or 101.
+
+    Returns:
+        float: The average precision.
+    """
+    recall_levels = torch.arange(end=number_points, dtype=torch.float64) / (number_points - 1)
+    interpolated_precisions = [float(precisions[recalls >= recall_level].max()) if bool(
+        (recalls >= recall_level).any()) else 0.0 for recall_level in recall_levels]
+    return sum(interpolated_precisions) / number_points
+
+
+@pytest.mark.parametrize(argnames=("method", "number_points"), argvalues=[("11_point", 11), ("101_point", 101)])
+def test_point_average_precision_matches_its_definition(method: str, number_points: int) -> None:
+    """
+    Verifies that the vectorised 11 and 101-point average precision equals, exactly, the level by level definition on
+    random curves: a single detection, no true positive, recalls reaching 1 or stopping below it, and ground truth
+    counts such as 5 or 20 whose recalls fall exactly on recall levels.
+
+    Args:
+        method (str): The average precision method.
+        number_points (int): Its number of recall levels.
+    """
+    generator = torch.Generator().manual_seed(0)
+    for number_detections in [1, 2, 7, 50, 300]:
+        for true_positive_rate in [0.0, 0.3, 0.8, 1.0]:
+            for number_missed in [0, 1, 4]:
+                # Random true positive flags, the ground truths being the true positives plus the missed objects
+                true_positive_flags = torch.rand(size=(number_detections,), generator=generator) < true_positive_rate
+                number_ground_truth = max(int(true_positive_flags.sum()) + number_missed, 1)
+                precisions, recalls = compute_precision_recall(true_positive_flags=true_positive_flags,
+                                                               number_ground_truth=number_ground_truth)
+
+                # The vectorised envelope lookup and the definition must agree to the last bit
+                assert compute_average_precision(precisions=precisions, recalls=recalls, method=method) == \
+                    interpolate_average_precision_by_definition(precisions=precisions, recalls=recalls,
+                                                                number_points=number_points)
 
 
 def test_average_precision_by_object_size() -> None:

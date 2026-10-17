@@ -102,12 +102,13 @@ class InferenceDetector(nn.Module):
         classification_scores, detection_boxes = self.detect(feature_maps=feature_maps, proposal_boxes=filtered_boxes,
                                                              proposal_levels=filtered_levels)
 
+        # Final detections with the NMS on every pair, the form the TorchScript and ONNX exports keep
         detections = postprocess_detections(classification_scores=classification_scores,
                                             detection_boxes=detection_boxes, valid_proposal_mask=valid_proposal_mask,
                                             score_threshold=self.score_threshold,
                                             nms_iou_threshold=self.detection_nms_iou_threshold,
                                             maximum_detections=self.maximum_detections,
-                                            input_image_size=self.input_image_size)
+                                            input_image_size=self.input_image_size, suppress_candidates_only=False)
         return {"feature_maps": feature_maps, "proposal_levels": filtered_levels, "detections": detections}
 
     def filter_proposals(self, proposal_scores: torch.Tensor, proposal_boxes: torch.Tensor,

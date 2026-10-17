@@ -735,7 +735,8 @@ class TwoStageDetector(TaskModel):
                 valid_proposal_mask=torch.ones_like(input=model_output_dictionary["classification_scores"][..., 0],
                                                     dtype=torch.bool),
                 score_threshold=self.detection_score_threshold, nms_iou_threshold=self.detection_nms_iou_threshold,
-                maximum_detections=self.maximum_detections, input_image_size=self.input_image_size))
+                maximum_detections=self.maximum_detections, input_image_size=self.input_image_size,
+                suppress_candidates_only=True))
 
             # Filtered proposals of every image with their level, the padding copies masked out, for the proposal
             # recall of the evaluation
