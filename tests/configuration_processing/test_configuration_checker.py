@@ -2058,7 +2058,7 @@ def write_keypoint_configuration(temporary_directory: Path, configuration_name: 
         modify_function (Callable[[Dict[str, Any]], None] | None): Function altering the raw configuration in place,
             or None to keep it.
         label_mapping (Dict[str, int] | None): The class of every raw category identifier. Defaults to None, in which
-            case the synthetic categories with keypoints get the classes 1 to 35 and the COCO person the class 1.
+            case the synthetic categories with keypoints get the classes 1 to 34 and the COCO person the class 1.
 
     Returns:
         Path: The path of the written configuration file.
@@ -2117,15 +2117,15 @@ def test_keypoint_configurations_are_consistent_with_their_injected_categories(t
     assert sorted(person["flip_pairs"]) == sorted([f"left_{part}", f"right_{part}"] for part in [
         "eye", "ear", "shoulder", "elbow", "wrist", "hip", "knee", "ankle"])
 
-    # Synthetic configuration: the 35 classes with keypoints, the triangle keeping the rotation limit of its category
+    # Synthetic configuration: the 34 classes with keypoints, the triangle keeping the rotation limit of its category
     synthetic_path = write_keypoint_configuration(temporary_directory=tmp_path,
                                                   configuration_name="configuration_synthetic_shapes.yaml",
                                                   modify_function=None)
     _, model_configuration = load_experiment_configuration(configuration_path=synthetic_path)
     keypoint_categories = model_configuration["Data"]["keypoint_categories"]
     label_dictionary = model_configuration["Data"]["label_dictionary"]
-    assert sorted(keypoint_categories) == list(range(1, 36))
-    assert KEYPOINT_CATEGORIES["hollow_ellipse"] not in label_dictionary
+    assert sorted(keypoint_categories) == list(range(1, 35))
+    assert all(KEYPOINT_CATEGORIES[name] not in label_dictionary for name in ["circle", "annulus", "hollow_ellipse"])
     triangle = keypoint_categories[label_dictionary[KEYPOINT_CATEGORIES["triangle"]]]
     assert triangle == {"name": "triangle", "keypoints": ["top", "bottom_left", "bottom_right"],
                         "skeleton": [[0, 2], [2, 1], [1, 0]], "maximum_rotation_degrees": 20.0,
@@ -2296,21 +2296,21 @@ def test_inconsistent_keypoint_configuration_is_rejected(tmp_path: Path, capsys:
 
 def give_merged_categories_different_sigmas(configuration: Dict[str, Any]) -> None:
     """
-    Gives two different sigmas to the centre of the circle and of the annulus, merged into one class by the label
-    mapping of the test.
+    Gives two different sigmas to the top left corner of the square and of the rectangle, merged into one class by the
+    label mapping of the test.
 
     Args:
         configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
     """
-    configuration["ExperimentConfiguration"]["evaluation"]["keypoint_sigmas"] = {"circle": {"centre": 0.03},
-                                                                                 "annulus": {"centre": 0.05}}
+    configuration["ExperimentConfiguration"]["evaluation"]["keypoint_sigmas"] = {"square": {"top_left": 0.03},
+                                                                                 "rectangle": {"top_left": 0.05}}
 
 
 def test_merged_keypoint_categories_cannot_give_different_sigmas(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that the categories merged into one class, which share its heatmap channels and its sigmas, cannot give
-    different sigmas to one keypoint: the circle and the annulus, both made of a centre keypoint, are learnt as the
-    class 'circle+annulus', so their conflicting centre sigmas stop the loading.
+    different sigmas to one keypoint: the square and the rectangle, both made of the same four corners, are learnt as
+    the class 'square+rectangle', so their conflicting top left sigmas stop the loading.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -2319,12 +2319,12 @@ def test_merged_keypoint_categories_cannot_give_different_sigmas(tmp_path: Path,
     configuration_path = write_keypoint_configuration(
         temporary_directory=tmp_path, configuration_name="configuration_synthetic_shapes.yaml",
         modify_function=give_merged_categories_different_sigmas,
-        label_mapping={str(KEYPOINT_CATEGORIES["circle"]): 1, str(KEYPOINT_CATEGORIES["annulus"]): 1})
+        label_mapping={str(KEYPOINT_CATEGORIES["square"]): 1, str(KEYPOINT_CATEGORIES["rectangle"]): 1})
 
     with pytest.raises(expected_exception=SystemExit):
         load_experiment_configuration(configuration_path=configuration_path)
 
     printed_output = capsys.readouterr().out
-    assert ("The categories merged into the class 'circle+annulus' give different sigmas [0.03, 0.05] to the keypoint "
-            "'centre' in 'evaluation.keypoint_sigmas'.") in printed_output
+    assert ("The categories merged into the class 'square+rectangle' give different sigmas [0.03, 0.05] to the "
+            "keypoint 'top_left' in 'evaluation.keypoint_sigmas'.") in printed_output
     assert "Traceback" not in printed_output

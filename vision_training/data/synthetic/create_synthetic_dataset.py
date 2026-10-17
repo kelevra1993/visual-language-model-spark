@@ -87,13 +87,13 @@ HOLLOW_INNER_SIZE_RATIO_RANGE = (0.4, 0.6)
 HOLLOW_MINIMUM_WALL_PIXELS = 2
 HOLLOW_MAXIMUM_ATTEMPTS = 20
 
-# Keypoints of the hollow shapes: the hollow polygons also have a keypoint at every corner of their hole, and the
-# hollow ellipse and capsule have none, distractors drawn among the objects of the keypoint images that are left out
-# of the keypoint label mapping, so that the keypoint detector must tell them apart from the shapes it learns. The
-# other hollow shapes keep the keypoints of their filled shape
+# Keypoints of the hollow shapes: the hollow polygons and the hollow capsule also have a keypoint at every corner of
+# their hole, and the hollow ellipse has none, a distractor drawn among the objects of the keypoint images that is left
+# out of the keypoint label mapping, like the circle and the annulus, so that the keypoint detector must tell them
+# apart from the shapes it learns. The other hollow shapes keep the keypoints of their filled shape
 HOLLOW_INNER_KEYPOINT_SHAPE_NAMES = ["square", "triangle", "rectangle", "pentagon", "hexagon", "octagon", "rhombus",
-                                     "parallelogram", "trapezoid", "kite", "heptagon", "nonagon"]
-HOLLOW_DISTRACTOR_SHAPE_NAMES = ["ellipse", "capsule"]
+                                     "parallelogram", "trapezoid", "kite", "heptagon", "nonagon", "capsule"]
+HOLLOW_DISTRACTOR_SHAPE_NAMES = ["ellipse"]
 
 # L-shapes: length of the foot relative to the long arm, and width of both arms relative to the long arm, the foot
 # sticking out of the long arm by at least a quarter of its length
@@ -109,14 +109,15 @@ KEYPOINT_CATEGORIES = {**SHAPE_CATEGORIES, "stick_figure": len(SHAPE_CATEGORIES)
 # Keypoints of every category, in the order the drawing functions return them. The vertices of the regular polygons
 # and the tips of the star go clockwise from the top one, the vertices of each side numbered from the top. The left and
 # right of the shapes are those of the image, those of the stick figure its own: it faces the viewer, its left limbs on
-# the right of the image as in COCO. A horizontal flip swaps the keypoints whose names differ by left and right
+# the right of the image as in COCO. A horizontal flip swaps the keypoints whose names differ by left and right. The
+# circle and the annulus have no keypoints, distractors left out of the keypoint label mapping
 KEYPOINT_NAMES = {"square": ["top_left", "top_right", "bottom_right", "bottom_left"],
-                  "circle": ["centre"],
+                  "circle": [],
                   "triangle": ["top", "bottom_left", "bottom_right"],
                   "rectangle": ["top_left", "top_right", "bottom_right", "bottom_left"],
                   "pentagon": ["top", "upper_right", "lower_right", "lower_left", "upper_left"],
                   "hexagon": ["top", "upper_right", "lower_right", "bottom", "lower_left", "upper_left"],
-                  "plus_sign": ["top", "right", "bottom", "left", "centre"],
+                  "plus_sign": ["top", "right", "bottom", "left"],
                   "star": ["top", "upper_right", "lower_right", "lower_left", "upper_left"],
                   "octagon": ["top", "right_1", "right_2", "right_3", "bottom", "left_3", "left_2", "left_1"],
                   "rhombus": ["top", "right", "bottom", "left"],
@@ -128,8 +129,8 @@ KEYPOINT_NAMES = {"square": ["top_left", "top_right", "bottom_right", "bottom_le
                               "left_1"],
                   "ellipse": ["left_end", "centre", "right_end"],
                   "semicircle": ["arc_top", "base_centre", "base_left", "base_right"],
-                  "annulus": ["centre"],
-                  "capsule": ["left_end", "centre", "right_end"],
+                  "annulus": [],
+                  "capsule": ["left_end", "top_left", "top_right", "right_end", "bottom_right", "bottom_left"],
                   "l_shape": ["arm_top_outer", "arm_top_inner", "inner_corner", "foot_end_top", "foot_end_bottom",
                               "outer_corner"],
                   "stick_figure": ["head", "neck", "left_elbow", "right_elbow", "left_hand", "right_hand", "pelvis",
@@ -147,11 +148,11 @@ KEYPOINT_OUTLINES = {"square": KEYPOINT_NAMES["square"],
                      "trapezoid": KEYPOINT_NAMES["trapezoid"], "kite": KEYPOINT_NAMES["kite"],
                      "heptagon": KEYPOINT_NAMES["heptagon"], "nonagon": KEYPOINT_NAMES["nonagon"],
                      "semicircle": ["base_left", "arc_top", "base_right", "base_centre"],
+                     "capsule": KEYPOINT_NAMES["capsule"],
                      "l_shape": KEYPOINT_NAMES["l_shape"],
                      "house": ["roof_apex", "roof_right", "base_right", "base_left", "roof_left"]}
-KEYPOINT_LINKS = {"plus_sign": [["centre", "top"], ["centre", "right"], ["centre", "bottom"], ["centre", "left"]],
+KEYPOINT_LINKS = {"plus_sign": [["top", "bottom"], ["left", "right"]],
                   "ellipse": [["left_end", "centre"], ["centre", "right_end"]],
-                  "capsule": [["left_end", "centre"], ["centre", "right_end"]],
                   "stick_figure": [["head", "neck"], ["neck", "pelvis"], ["neck", "left_elbow"],
                                    ["left_elbow", "left_hand"], ["neck", "right_elbow"], ["right_elbow", "right_hand"],
                                    ["pelvis", "left_knee"], ["left_knee", "left_foot"], ["pelvis", "right_knee"],
@@ -351,8 +352,8 @@ def draw_square_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, 
 def draw_circle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
                      upright: bool = False) -> np.ndarray:
     """
-    Draws a filled circle of diameter 'size' on a binary mask, one of the synthetic shape classes, and returns its
-    centre, its keypoint in the keypoint images.
+    Draws a filled circle of diameter 'size' on a binary mask, one of the synthetic shape classes, a distractor
+    without keypoints in the keypoint images.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -363,11 +364,10 @@ def draw_circle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, 
         upright (bool): Unused, kept so that every shape shares the same signature. Defaults to False.
 
     Returns:
-        np.ndarray: The [1, 2] float centre of the circle, the centre of its centre pixel in the continuous
-            coordinates of the mask.
+        np.ndarray: The empty [0, 2] float keypoints of the circle.
     """
     cv2.circle(img=mask, center=(center_x, center_y), radius=size // 2, color=255, thickness=-1)
-    return np.array([[center_x + 0.5, center_y + 0.5]])
+    return np.zeros(shape=(0, 2), dtype=np.float64)
 
 
 def draw_triangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
@@ -475,7 +475,7 @@ def fill_rotated_polygon(mask: np.ndarray, center_x: int, center_y: int, size: i
         random_generator (np.random.Generator): The random generator drawing the mirror and the rotation.
         upright (bool): True to draw the vertices without mirror nor rotation (keypoint images). Defaults to False.
         keypoint_vertices (Optional[np.ndarray]): The [K, 2] keypoints of a shape whose keypoints are not its vertices
-            (the ends of a capsule), in the frame of 'vertices', or None for the vertices. Defaults to None.
+            (the ends and corners of a capsule), in the frame of 'vertices', or None for the vertices. Defaults to None.
 
     Returns:
         np.ndarray: The [N, 2] float vertices drawn, the centres of their pixels, or the [K, 2] float keypoint
@@ -638,8 +638,8 @@ def draw_plus_sign_mask(mask: np.ndarray, center_x: int, center_y: int, size: in
             signature. Defaults to False.
 
     Returns:
-        np.ndarray: The [5, 2] float middles of the top, right, bottom and left ends of the arms, then the centre of
-            their crossing, in the continuous coordinates of the mask.
+        np.ndarray: The [4, 2] float middles of the top, right, bottom and left ends of the arms, in the continuous
+            coordinates of the mask.
     """
     half_size = size // 2
     arm_width = max(2, int(round(size * PLUS_SIGN_ARM_WIDTH_RATIO)))
@@ -656,7 +656,7 @@ def draw_plus_sign_mask(mask: np.ndarray, center_x: int, center_y: int, size: in
     left_edge, right_edge = center_x - half_size, center_x - half_size + size
     top_edge, bottom_edge = center_y - half_size, center_y - half_size + size
     return np.array([[vertical_arm_x, top_edge], [right_edge, horizontal_arm_y], [vertical_arm_x, bottom_edge],
-                     [left_edge, horizontal_arm_y], [vertical_arm_x, horizontal_arm_y]])
+                     [left_edge, horizontal_arm_y]])
 
 
 def build_rhombus_vertices(random_generator: np.random.Generator) -> np.ndarray:
@@ -955,7 +955,7 @@ def draw_annulus_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
     Draws a filled ring of outer diameter 'size' whose hole has 0.4 to 0.6 of its radius, on a binary mask. One of
     the synthetic shape classes, the hollow circle, whose hole, like those of the hollow shapes (draw_hollow_mask),
     shows the background (or the objects below it) and is left out of its instance mask. The hole is cleared on the
-    mask, which must hold this shape only.
+    mask, which must hold this shape only. Like the circle, it is a distractor without keypoints in the keypoint images.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -966,8 +966,7 @@ def draw_annulus_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         upright (bool): Unused, kept so that every shape shares the same signature. Defaults to False.
 
     Returns:
-        np.ndarray: The [1, 2] float centre of the ring, the centre of its centre pixel in the continuous coordinates
-            of the mask.
+        np.ndarray: The empty [0, 2] float keypoints of the ring.
     """
     outer_radius = size // 2
     inner_radius_ratio = random_generator.uniform(low=ANNULUS_INNER_RADIUS_RATIO_RANGE[0],
@@ -977,7 +976,7 @@ def draw_annulus_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
     cv2.circle(img=mask, center=(center_x, center_y), radius=outer_radius, color=255, thickness=-1)
     cv2.circle(img=mask, center=(center_x, center_y), radius=max(1, int(round(outer_radius * inner_radius_ratio))),
                color=0, thickness=-1)
-    return np.array([[center_x + 0.5, center_y + 0.5]])
+    return np.zeros(shape=(0, 2), dtype=np.float64)
 
 
 def build_capsule_vertices(random_generator: np.random.Generator) -> np.ndarray:
@@ -1020,13 +1019,19 @@ def draw_capsule_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
             False.
 
     Returns:
-        np.ndarray: The [3, 2] float keypoints, the two ends of the long axis around the centre, the left end first
-            when upright, in the continuous coordinates of the mask.
+        np.ndarray: The [6, 2] float keypoints in the order of KEYPOINT_NAMES, clockwise from the left end of the long
+            axis when upright: the two ends of the long axis and the four corners where the straight sides meet the
+            round ends, in the continuous coordinates of the mask.
     """
-    return fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
-                                vertices=build_capsule_vertices(random_generator=random_generator),
+    vertices = build_capsule_vertices(random_generator=random_generator)
+
+    # Corners at the ends of the straight sides, the first vertex being the bottom end of the right half disc
+    end_centre, half_width = vertices[0, 0], vertices[:, 1].max()
+    keypoint_vertices = np.array([[-1.0, 0.0], [-end_centre, -half_width], [end_centre, -half_width], [1.0, 0.0],
+                                  [end_centre, half_width], [-end_centre, half_width]])
+    return fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertices=vertices,
                                 random_generator=random_generator, upright=upright,
-                                keypoint_vertices=np.array([[-1.0, 0.0], [0.0, 0.0], [1.0, 0.0]]))
+                                keypoint_vertices=keypoint_vertices)
 
 
 def build_l_shape_vertices(random_generator: np.random.Generator) -> np.ndarray:
@@ -1828,9 +1833,9 @@ def build_keypoint_label_mapping() -> Dict[str, int]:
     """
     Builds the 'label_mapping.json' of the synthetic keypoint dataset, read by the 'multi_class' label mapping of
     keypoint_detection/configuration_synthetic_shapes.yaml: the categories with keypoints are numbered from 1 in the
-    order of KEYPOINT_CATEGORIES, and the distractors without keypoints (HOLLOW_DISTRACTOR_SHAPE_NAMES) are left out, so
-    that the keypoint dataset maps them to the background and never crops them, while they still appear in the crops
-    of the other objects.
+    order of KEYPOINT_CATEGORIES, and the distractors without keypoints (the circle, the annulus and the hollow
+    ellipse) are left out, so that the keypoint dataset maps them to the background and never crops them, while they
+    still appear in the crops of the other objects.
 
     Returns:
         Dict[str, int]: The class index of every category identifier with keypoints, as a string key.

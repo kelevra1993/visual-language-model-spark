@@ -4,7 +4,7 @@ synthetic shapes keypoint dataset of configuration_synthetic_shapes.yaml: the CO
 category with its keypoint names, its 1-based skeleton and the rotation limit of its crops, every annotation holds
 3 x K keypoint values with its number of labelled keypoints, the labelled keypoints lying in the image and in the box
 of their object and the unlabelled ones at 0, the label mapping numbers the categories with keypoints from 1 and leaves
-out the hollow distractors, and the keypoint categories and the KeypointDataset of the training pipeline read the
+out the distractors without keypoints, and the keypoint categories and the KeypointDataset of the training pipeline read the
 split.
 """
 
@@ -15,7 +15,6 @@ from pathlib import Path
 from vision_training.data.keypoints.keypoint_categories import read_keypoint_categories
 from vision_training.data.keypoints.keypoint_dataset import KeypointDataset
 from vision_training.data.synthetic.create_synthetic_dataset import (KEYPOINT_CATEGORIES,
-                                                                     HOLLOW_DISTRACTOR_SHAPE_NAMES,
                                                                      KEYPOINT_MAXIMUM_ROTATION_DEGREES, KEYPOINT_NAMES,
                                                                      build_keypoint_label_mapping,
                                                                      create_synthetic_dataset)
@@ -33,7 +32,7 @@ def test_created_keypoint_dataset_is_valid_coco_and_loads(tmp_path: Path) -> Non
     numbered from 1 within its keypoints and its rotation limit, that every annotation holds 3 values per keypoint of
     its category and counts its labelled keypoints, the labelled keypoints lying inside the image and the box of their
     object and the unlabelled ones at 0, that the label mapping gives the categories with keypoints the classes 1 to N
-    and leaves out the hollow distractors, and that the keypoint categories and the keypoint dataset read the split.
+    and leaves out the distractors without keypoints, and that the keypoint categories and the keypoint dataset read the split.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -70,9 +69,12 @@ def test_created_keypoint_dataset_is_valid_coco_and_loads(tmp_path: Path) -> Non
             assert x - BOX_TOLERANCE <= keypoint_x <= x + width + BOX_TOLERANCE
             assert y - BOX_TOLERANCE <= keypoint_y <= y + height + BOX_TOLERANCE
 
-    # The categories with keypoints get the classes 1 to N in their order, the hollow distractors none
+    # The categories with keypoints get the classes 1 to N in their order, the distractors without keypoints none
     label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
-    distractor_identifiers = {str(KEYPOINT_CATEGORIES[f"hollow_{name}"]) for name in HOLLOW_DISTRACTOR_SHAPE_NAMES}
+    distractor_identifiers = {str(identifier) for name, identifier in KEYPOINT_CATEGORIES.items()
+                              if not KEYPOINT_NAMES[name]}
+    assert distractor_identifiers == {str(KEYPOINT_CATEGORIES[name]) for name in ["circle", "annulus",
+                                                                                   "hollow_ellipse"]}
     assert label_mapping == build_keypoint_label_mapping() and not distractor_identifiers & set(label_mapping)
     assert list(label_mapping.values()) == list(range(1, len(KEYPOINT_CATEGORIES) - len(distractor_identifiers) + 1))
     label_dictionary = {int(category): class_index for category, class_index in label_mapping.items()}

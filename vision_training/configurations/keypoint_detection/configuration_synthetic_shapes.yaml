@@ -1,7 +1,8 @@
 # Configuration of the synthetic keypoint dataset (the 35 shape classes of SHAPE_CATEGORIES drawn upright, a stick
 # figure and a house, 2 to 4 objects per image, each category with its own keypoints: the corners of the polygons, the
-# tips of the star and of the plus sign, the centre of the circle, the joints of the stick figure, the hollow polygons
-# adding the corners of their hole to those of their filled shape...), created with
+# tips of the star and of the plus sign, the ends and corners of the capsule, the joints of the stick figure, the hollow
+# polygons and capsule adding the corners of their hole to those of their filled shape..., the circle, the annulus and
+# the hollow ellipse being distractors without keypoints), created with
 # vision_training/data/synthetic/create_synthetic_dataset.py with the "keypoint_detection" task. Every object of an
 # image is one training sample, cut out of the image around its ground truth box. It is a trivial keypoint detection
 # task, used to check that the keypoint detector learns.
@@ -14,8 +15,8 @@ ExperimentConfiguration:
   # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
   # backbone modules, normalization and blocks, crop size, high resolution network, heatmap channels, classes,
   # optimizer and weight decay unless plain Adam), so that the same settings resume in the same folder and changed
-  # settings start a new one, e.g. KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_C192x192_HRSE-HRRES-HRBN-HR16.1.2.2x2_K234_
-  # MC35 (without the line break). The augmentation, crop augmentation, heatmap sigma, batch size, learning rate and its
+  # settings start a new one, e.g. KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_C192x192_HRSE-HRRES-HRBN-HR16.1.2.2x2_K246_
+  # MC34 (without the line break). The augmentation, crop augmentation, heatmap sigma, batch size, learning rate and its
   # schedule, gradient clipping and mixed precision give no token, so that a run can be resumed in its folder with
   # changed values. The format is described in vision_training/configuration_processing/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
@@ -58,9 +59,9 @@ ExperimentConfiguration:
     # Number of test objects drawn once and shown at every evaluation, each as its crop with the ground truth keypoints
     # next to the same crop with the predicted keypoints and the skeleton of its category, the caption giving its OKS,
     # its correct keypoints and its score, saved in Evaluation/Iteration_<n>/Samples/ and sent to TensorBoard. The
-    # classes receive one object each in turn, in class order, so 35 shows one object of every synthetic class.
+    # classes receive one object each in turn, in class order, so 34 shows one object of every synthetic class.
     # 0 to disable.
-    number_sample_images: 35
+    number_sample_images: 34
     # Standard deviation of every keypoint of the object keypoint similarity, as a fraction of the square root of the
     # box area of the object (the COCO sigma, the constant of the keypoint being twice this value): a keypoint at a
     # distance of 2 x sigma x sqrt(box area) from the ground truth has a similarity of exp(-0.5) = 0.61. Used for the
@@ -165,8 +166,8 @@ Data:
     # keypoints.
     mode: "multi_class"
     # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs (class 0 being the background).
-    # The synthetic dataset numbers the categories with keypoints from 1 and leaves out the hollow ellipse and capsule,
-    # distractors without keypoints whose objects are never cut into crops. Categories merged into one class must have
+    # The synthetic dataset numbers the categories with keypoints from 1 and leaves out the circle, the annulus and the
+    # hollow ellipse, distractors without keypoints whose objects are never cut into crops. Categories merged into one class must have
     # the same keypoint names.
     mapping_file_path: "/home/robert_kelevra/Data/keypoint_data/synthetic_shapes/label_mapping.json"
   # Crops every object is cut to before the keypoint detector, the input of the network: the ground truth box centred,
@@ -383,7 +384,7 @@ HRNet:
     learning_rate_multiplier: 1.0
 
 # Keypoint head: a 1x1 convolution of the highest resolution branch giving one heatmap per keypoint of every class
-# (234 channels for the 35 synthetic classes), only the channels of the class of the crop being trained and decoded.
+# (246 channels for the 34 synthetic classes), only the channels of the class of the crop being trained and decoded.
 # The targets are Gaussians centred on the keypoints, the loss the mean squared error of the trained keypoints, and the
 # keypoint of a heatmap its highest cell moved by a quarter of a cell towards its higher neighbour, its score the value
 # of that cell.

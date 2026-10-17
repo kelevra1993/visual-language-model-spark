@@ -24,7 +24,9 @@ from vision_training.data.sequence.sequence_dataset import SequenceDataset
 from vision_training.data.synthetic import create_synthetic_dataset as synthetic_dataset_module
 from vision_training.data.synthetic.create_synthetic_dataset import (HOLLOW_DISTRACTOR_SHAPE_NAMES,
                                                                      HOLLOW_INNER_KEYPOINT_SHAPE_NAMES,
-                                                                     HOLLOW_SHAPE_NAMES, KITE_UPPER_RATIO_RANGE,
+                                                                     HOLLOW_SHAPE_NAMES, KEYPOINT_CATEGORIES,
+                                                                     KEYPOINT_DRAWING_FUNCTIONS, KEYPOINT_NAMES,
+                                                                     KITE_UPPER_RATIO_RANGE,
                                                                      KITE_WIDTH_RATIO_RANGE,
                                                                      MINIMUM_SHAPE_SIZE,
                                                                      MINIMUM_VISIBLE_OBJECT_PIXELS,
@@ -307,6 +309,58 @@ def test_hollow_shape_too_small_for_a_hole_raises() -> None:
         draw_hollow_mask(mask=mask, center_x=16, center_y=16, size=3, random_generator=np.random.default_rng(seed=0),
                          filled_drawing_function=SHAPE_DRAWING_FUNCTIONS["square"])
     assert not np.any(mask)
+
+
+@pytest.mark.parametrize(argnames="category_name", argvalues=list(KEYPOINT_CATEGORIES))
+@pytest.mark.parametrize(argnames="upright", argvalues=[False, True])
+def test_keypoint_drawing_functions_give_one_point_per_keypoint_name(category_name: str, upright: bool) -> None:
+    """
+    Verifies that every keypoint category draws one keypoint per name of KEYPOINT_NAMES, at any size and rotation, so
+    that the annotations of build_keypoint_labels hold 3 values per keypoint of their category: none for the circle,
+    the annulus and the hollow ellipse, the distractors of the keypoint images, and four tips without centre for the
+    plus sign.
+
+    Args:
+        category_name (str): The name of the keypoint category of KEYPOINT_CATEGORIES.
+        upright (bool): Whether the shape is drawn upright or rotated.
+    """
+    random_generator = np.random.default_rng(seed=0)
+    for size in [33, MINIMUM_SHAPE_SIZE, 101]:
+        mask = np.zeros(shape=(128, 128), dtype=np.uint8)
+        keypoints = KEYPOINT_DRAWING_FUNCTIONS[category_name](mask=mask, center_x=64, center_y=64, size=size,
+                                                              random_generator=random_generator, upright=upright)
+        assert keypoints.shape == (len(KEYPOINT_NAMES[category_name]), 2) and np.any(mask)
+    assert not KEYPOINT_NAMES["circle"] and not KEYPOINT_NAMES["annulus"] and not KEYPOINT_NAMES["hollow_ellipse"]
+    assert "centre" not in KEYPOINT_NAMES["plus_sign"] and "centre" not in KEYPOINT_NAMES["capsule"]
+
+
+def test_upright_capsule_keypoints_lie_on_its_outline() -> None:
+    """
+    Verifies that the 6 keypoints of an upright capsule lie on its outline, without centre: the left and right ends of
+    the long axis on the leftmost and rightmost columns of its pixels, at the middle of its height, and the four
+    corners where the straight sides meet the round ends on its top and bottom rows, symmetric about its centre.
+    """
+    random_generator = np.random.default_rng(seed=0)
+    for _ in range(20):
+        mask = np.zeros(shape=(128, 128), dtype=np.uint8)
+        keypoints = KEYPOINT_DRAWING_FUNCTIONS["capsule"](mask=mask, center_x=64, center_y=64, size=101,
+                                                          random_generator=random_generator, upright=True)
+        named_keypoints = dict(zip(KEYPOINT_NAMES["capsule"], keypoints, strict=True))
+        rows, columns = np.nonzero(mask)
+
+        # The ends of the long axis on the left and right edges of the pixels, at the middle of the height
+        assert abs(named_keypoints["left_end"][0] - columns.min()) <= 1.0
+        assert abs(named_keypoints["right_end"][0] - (columns.max() + 1)) <= 1.0
+        assert abs(named_keypoints["left_end"][1] - (rows.min() + rows.max() + 1) / 2) <= 1.0
+
+        # The corners on the top and bottom edges, the top ones above the bottom ones and the left ones on the left
+        for corner_name in ["top_left", "top_right"]:
+            assert abs(named_keypoints[corner_name][1] - rows.min()) <= 1.0
+        for corner_name in ["bottom_left", "bottom_right"]:
+            assert abs(named_keypoints[corner_name][1] - (rows.max() + 1)) <= 1.0
+        np.testing.assert_allclose(named_keypoints["top_left"][0], named_keypoints["bottom_left"][0])
+        assert (named_keypoints["left_end"][0] < named_keypoints["top_left"][0] < named_keypoints["top_right"][0]
+                < named_keypoints["right_end"][0])
 
 
 def test_hollow_inner_keypoints_without_outer_keypoints_raise() -> None:
