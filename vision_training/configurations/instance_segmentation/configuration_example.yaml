@@ -38,8 +38,8 @@ ExperimentConfiguration:
   # precisions (mAP) on the whole test split, the mask mAP@0.5 of the area method comparing the checkpoints, at the
   # network input resolution or at the original resolution of the test images (see original_resolution).
   evaluation:
-    # Reports every class at every evaluation: the mask and box tables of the classes (ground truth objects and
-    # average precision at IoU 0.5, 0.75 and 0.5:0.95 with the area method, worst AP@0.5 first, and in the mask table
+    # Reports every class at every evaluation: the mask and box tables of the classes (ground truth objects and average
+    # precision at IoU 0.5, 0.75, 0.95 and 0.5:0.95 with the area method, worst AP@0.5 first, and in the mask table
     # the threshold reaching target_precision with the recall it keeps) in the console and Results.txt, their Mask
     # AP@0.5 and AP@0.5 Test scalars in TensorBoard, and the confusion matrix image (confusion_matrix.png and
     # TensorBoard). False keeps the mean average precisions only: class_metrics.csv, class_thresholds.json and

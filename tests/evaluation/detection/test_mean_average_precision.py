@@ -153,6 +153,7 @@ def test_perfect_detections_give_one() -> None:
     for method_results in results.values():
         assert method_results["mAP@0.5"] == pytest.approx(expected=1.0)
         assert method_results["mAP@0.75"] == pytest.approx(expected=1.0)
+        assert method_results["mAP@0.95"] == pytest.approx(expected=1.0)
         assert method_results["mAP@[0.5:0.95]"] == pytest.approx(expected=1.0)
 
 
@@ -369,10 +370,11 @@ def test_mean_average_recall_of_all_the_objects_and_of_every_size() -> None:
                                     scores=[0.95, 0.85, 0.80, 0.5], labels=[1, 1, 1, 2])
     results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=4)
 
-    # Means over the classes with ground truth, at 0.5, 0.75 and over the ten thresholds, the same for every method
+    # Means over the classes with ground truth, at 0.5, 0.75, 0.95 and over the ten thresholds, the same for all methods
     for method in ["area", "11_point", "101_point"]:
         assert results[method]["mAR@0.5"] == pytest.approx(expected=0.9)
         assert results[method]["mAR@0.75"] == pytest.approx(expected=0.4)
+        assert results[method]["mAR@0.95"] == pytest.approx(expected=0.4)
         assert results[method]["mAR@[0.5:0.95]"] == pytest.approx(expected=0.6)
     assert results["area"]["class_AR@0.5"] == pytest.approx(expected={1: 0.8, 2: 1.0})
     assert results["area"]["class_AR@[0.5:0.95]"] == pytest.approx(expected={1: 0.8, 2: 0.4})
@@ -455,7 +457,7 @@ def test_mask_average_precision_equals_box_average_precision_for_box_masks() -> 
     mask_results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=3,
                                        overlap_type="masks")
     for method, method_results in box_results.items():
-        for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"]:
+        for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@0.95", "mAP@[0.5:0.95]"]:
             assert mask_results[method][metric_name] == pytest.approx(expected=method_results[metric_name])
         assert mask_results[method]["class_AP@0.5"] == pytest.approx(expected=method_results["class_AP@0.5"])
         for object_size, size_results in method_results["sizes"].items():

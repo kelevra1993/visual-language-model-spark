@@ -46,7 +46,7 @@ ExperimentConfiguration:
   # Test evaluation run at every weight_saving_iterations checkpoint on the ground truth boxes of the whole test split
   # (no detector in the loop): the predicted keypoints of every crop are brought back to the network input image, and
   # every object is scored against the ground truth objects of its image with the object keypoint similarity (OKS),
-  # which replaces the intersection over union of the detection average precisions (OKS mAP@0.5, @0.75 and
+  # which replaces the intersection over union of the detection average precisions (OKS mAP@0.5, @0.75, @0.95 and
   # @0.5:0.95, the score of an object being the mean score of its keypoints). The percentage of correct keypoints
   # (PCK@0.05: a keypoint within 0.05 of the longest box side), the mean OKS and the mean pixel error are computed too.
   evaluation:

@@ -37,12 +37,12 @@ def get_two_class_results() -> Dict[str, Dict[str, Any]]:
 
 def test_mean_average_precision_table() -> None:
     """
-    Verifies the table of the methods, always shown: one row per method with its three mean average precisions.
+    Verifies the table of the methods, always shown: one row per method with its four mean average precisions.
     """
     table = build_mean_average_precision_table(results=get_two_class_results())
     assert [row[0] for row in table["rows"]] == ["Area", "11 Point", "101 Point"]
-    assert table["columns"] == ["Method", "mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"]
-    assert table["rows"][0][1:] == pytest.approx(expected=[0.5, 0.5, 0.5])
+    assert table["columns"] == ["Method", "mAP@0.5", "mAP@0.75", "mAP@0.95", "mAP@[0.5:0.95]"]
+    assert table["rows"][0][1:] == pytest.approx(expected=[0.5, 0.5, 0.5, 0.5])
     assert table["per_class"] is False and table["sort_column"] is None
 
 
@@ -53,9 +53,9 @@ def test_object_size_table() -> None:
     average precisions of the instance segmentation.
     """
     table = build_object_size_table(results=get_two_class_results())
-    assert table["columns"] == ["Object Size", "Objects", "mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"]
-    assert table["rows"][0] == ["Small (< 32²)", 2, 0.5, 0.5, 0.5]
-    assert table["rows"][1][1:] == [0, None, None, None] and table["rows"][2][1:] == [0, None, None, None]
+    assert table["columns"] == ["Object Size", "Objects", "mAP@0.5", "mAP@0.75", "mAP@0.95", "mAP@[0.5:0.95]"]
+    assert table["rows"][0] == ["Small (< 32²)", 2, 0.5, 0.5, 0.5, 0.5]
+    assert table["rows"][1][1:] == [0, None, None, None, None] and table["rows"][2][1:] == [0, None, None, None, None]
     assert table["per_class"] is False and "by box area" in table["legend"]
 
     mask_table = build_object_size_table(results=get_two_class_results(), title_prefix="Mask", area_name="mask")
@@ -72,9 +72,10 @@ def test_average_recall_table_and_resolution_of_the_sizes() -> None:
     """
     table = build_average_recall_table(results=get_two_class_results())
     assert table["title"] == "Mean Average Recall"
-    assert table["columns"] == ["Objects Of", "Objects", "mAR@0.5", "mAR@0.75", "mAR@[0.5:0.95]"]
-    assert table["rows"][0] == ["All", 2, 0.5, 0.5, 0.5] and table["rows"][1] == ["Small (< 32²)", 2, 0.5, 0.5, 0.5]
-    assert table["rows"][2][1:] == [0, None, None, None] and table["rows"][3][1:] == [0, None, None, None]
+    assert table["columns"] == ["Objects Of", "Objects", "mAR@0.5", "mAR@0.75", "mAR@0.95", "mAR@[0.5:0.95]"]
+    assert table["rows"][0] == ["All", 2, 0.5, 0.5, 0.5, 0.5]
+    assert table["rows"][1] == ["Small (< 32²)", 2, 0.5, 0.5, 0.5, 0.5]
+    assert table["rows"][2][1:] == [0, None, None, None, None] and table["rows"][3][1:] == [0, None, None, None, None]
     assert table["per_class"] is False and "by box area in network input pixels" in table["legend"]
 
     # Mask recalls and object sizes measured at the original resolution of the test images
@@ -89,7 +90,7 @@ def test_average_recall_table_and_resolution_of_the_sizes() -> None:
 
 def test_class_average_precision_rows_and_table() -> None:
     """
-    Verifies the per-class rows in class index order (the ground truth boxes and the three average precisions of the
+    Verifies the per-class rows in class index order (the ground truth boxes and the four average precisions of the
     area method, None for the class without ground truth) and the per-class table sorted by AP@0.5.
     """
     class_names = {0: "background", 1: "square", 2: "circle", 3: "star"}
@@ -100,20 +101,23 @@ def test_class_average_precision_rows_and_table() -> None:
                           "average_precision_50_large": None, "average_precision_50_95_large": None}
     expected_rows: List[Dict[str, Any]] = [
         {"class_index": 1, "class": "square", "ground_truths": 1, "average_precision_50": 1.0,
-         "average_precision_75": 1.0, "average_precision_50_95": 1.0, "average_precision_50_small": 1.0,
+         "average_precision_75": 1.0, "average_precision_95": 1.0, "average_precision_50_95": 1.0,
+         "average_precision_50_small": 1.0,
          "average_precision_50_95_small": 1.0, **empty_size_columns},
         {"class_index": 2, "class": "circle", "ground_truths": 1, "average_precision_50": 0.0,
-         "average_precision_75": 0.0, "average_precision_50_95": 0.0, "average_precision_50_small": 0.0,
+         "average_precision_75": 0.0, "average_precision_95": 0.0, "average_precision_50_95": 0.0,
+         "average_precision_50_small": 0.0,
          "average_precision_50_95_small": 0.0, **empty_size_columns},
         {"class_index": 3, "class": "star", "ground_truths": 0, "average_precision_50": None,
-         "average_precision_75": None, "average_precision_50_95": None, "average_precision_50_small": None,
+         "average_precision_75": None, "average_precision_95": None, "average_precision_50_95": None,
+         "average_precision_50_small": None,
          "average_precision_50_95_small": None, **empty_size_columns}]
     assert class_rows == expected_rows
 
     table = build_class_average_precision_table(class_rows=class_rows)
-    assert table["columns"] == ["Class", "Ground\nTruths", "AP@0.5", "AP@0.75", "AP@[0.5:0.95]"]
+    assert table["columns"] == ["Class", "Ground\nTruths", "AP@0.5", "AP@0.75", "AP@0.95", "AP@[0.5:0.95]"]
     assert table["sort_column"] == "AP@0.5" and table["per_class"] is True
-    assert table["rows"][2] == ["star", 0, None, None, None]
+    assert table["rows"][2] == ["star", 0, None, None, None, None]
 
 
 def test_class_thresholds_join_the_rows_and_the_table() -> None:
@@ -161,7 +165,8 @@ def test_box_and_mask_tables_are_told_apart_by_their_prefixes() -> None:
     box_rows = build_class_average_precision_rows(results=results, class_names=class_names)
     mask_rows = build_class_average_precision_rows(results=results, class_names=class_names, column_prefix="mask_")
     merged_rows = [{**box_row, **mask_row} for box_row, mask_row in zip(box_rows, mask_rows)]
-    average_precision_columns = ["average_precision_50", "average_precision_75", "average_precision_50_95"] + [
+    average_precision_columns = ["average_precision_50", "average_precision_75", "average_precision_95",
+                                 "average_precision_50_95"] + [
         f"average_precision_{threshold}_{object_size}" for object_size in ["small", "medium", "large"]
         for threshold in ["50", "50_95"]]
     assert list(merged_rows[0]) == ["class_index", "class", "ground_truths"] + average_precision_columns + [
@@ -170,4 +175,4 @@ def test_box_and_mask_tables_are_told_apart_by_their_prefixes() -> None:
     mask_class_table = build_class_average_precision_table(class_rows=merged_rows, title_prefix="Mask",
                                                            column_prefix="mask_")
     assert mask_class_table["title"] == "Mask Per Class Average Precision (Area)"
-    assert mask_class_table["rows"][0] == ["square", 1, 1.0, 1.0, 1.0]
+    assert mask_class_table["rows"][0] == ["square", 1, 1.0, 1.0, 1.0, 1.0]

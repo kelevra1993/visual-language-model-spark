@@ -44,7 +44,7 @@ ExperimentConfiguration:
   # on the whole test split.
   evaluation:
     # Reports every class at every evaluation: the table of the classes (ground truth boxes, average precision at IoU
-    # 0.5, 0.75 and 0.5:0.95 with the area method, worst AP@0.5 first, and the threshold reaching target_precision
+    # 0.5, 0.75, 0.95 and 0.5:0.95 with the area method, worst AP@0.5 first, and the threshold reaching target_precision
     # with the recall it keeps) in the console and Results.txt, their AP@0.5 Test scalars in TensorBoard, and the
     # confusion matrix image (confusion_matrix.png and TensorBoard). False keeps the mean average precisions only:
     # class_metrics.csv, class_thresholds.json and confusion_matrix.csv are saved either way.

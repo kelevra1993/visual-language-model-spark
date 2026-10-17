@@ -401,30 +401,32 @@ def find_class_score_thresholds(class_detections: Dict[int, Dict[str, Any]],
 def summarise_thresholds(threshold_results: Dict[float, Dict[str, Any]]) -> Dict[str, Any]:
     """
     Summarises the average precisions of one method and the recalls of all the detections at the ten intersection
-    over union thresholds, for all the objects or for the objects of one size: the mAP and the mAR at 0.5, at 0.75 and
-    their COCO-style mean over the ten thresholds, and the same three values for every class with ground truth (the
-    same classes have ground truth at every threshold). The recalls do not depend on the method.
+    over union thresholds, for all the objects or for the objects of one size: the mAP and the mAR at 0.5, at 0.75, at
+    0.95 and their COCO-style mean over the ten thresholds, and the same four values for every class with ground truth
+    (the same classes have ground truth at every threshold). The recalls do not depend on the method.
 
     Args:
         threshold_results (Dict[float, Dict[str, Any]]): The results of compute_mean_average_precision at every
             threshold of INTERSECTION_OVER_UNION_THRESHOLDS.
 
     Returns:
-        Dict[str, Any]: The 'mAP@0.5', 'mAP@0.75', 'mAP@[0.5:0.95]', 'class_AP@0.5', 'class_AP@0.75',
-            'class_AP@[0.5:0.95]', the same six recalls ('mAR@0.5' to 'class_AR@[0.5:0.95]') and the
-            'class_ground_truths' of every class.
+        Dict[str, Any]: The 'mAP@0.5', 'mAP@0.75', 'mAP@0.95', 'mAP@[0.5:0.95]', 'class_AP@0.5', 'class_AP@0.75',
+            'class_AP@0.95', 'class_AP@[0.5:0.95]', the same eight recalls ('mAR@0.5' to 'class_AR@[0.5:0.95]') and
+            the 'class_ground_truths' of every class.
     """
     summary = {}
     for mean_key, class_key, metric_name in SUMMARISED_METRICS:
-        # Mean over the classes at 0.5, 0.75 and averaged over the thresholds, then the same values of every class
+        # Mean over the classes at 0.5, 0.75, 0.95 and averaged over the thresholds, then the same values of every class
         class_labels = list(threshold_results[0.5][class_key])
         summary.update({
             f"m{metric_name}@0.5": threshold_results[0.5][mean_key],
             f"m{metric_name}@0.75": threshold_results[0.75][mean_key],
+            f"m{metric_name}@0.95": threshold_results[0.95][mean_key],
             f"m{metric_name}@[0.5:0.95]": sum(result[mean_key] for result in threshold_results.values())
             / len(threshold_results),
             f"class_{metric_name}@0.5": threshold_results[0.5][class_key],
             f"class_{metric_name}@0.75": threshold_results[0.75][class_key],
+            f"class_{metric_name}@0.95": threshold_results[0.95][class_key],
             f"class_{metric_name}@[0.5:0.95]": {class_label: sum(
                 result[class_key][class_label] for result in threshold_results.values()) / len(threshold_results)
                 for class_label in class_labels}})
@@ -437,15 +439,15 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
                         target_precision: Optional[float] = None) -> Dict[str, Dict[Any, Any]]:
     """
     Evaluates the detections of a whole test split, as reported by the Trainer at every evaluated checkpoint: with
-    every average precision method, the mAP at an intersection over union of 0.5 (PASCAL VOC), at 0.75, and averaged
-    over the thresholds 0.5 to 0.95 (COCO), plus the average precision of every class at the same thresholds and the
-    number of ground truth boxes of every class, for the per-class report, and the same values for the small, medium
-    and large objects (COCO sizes, see select_object_size_detections), each with the recall of all the detections at
-    the same thresholds, the mean average recall (the same for every method). The detections are compared with the
-    ground truths by their boxes, by their masks for the mask AP of the instance segmentation, or by the object
-    keypoint similarity of their keypoints for the keypoint detection, in place of the intersection over union. With a
-    precision, the score threshold of every class reaching it is added (find_class_score_thresholds), from the same
-    gathered detections.
+    every average precision method, the mAP at an intersection over union of 0.5 (PASCAL VOC), at 0.75, at 0.95, and
+    averaged over the thresholds 0.5 to 0.95 (COCO), plus the average precision of every class at the same thresholds
+    and the number of ground truth boxes of every class, for the per-class report, and the same values for the small,
+    medium and large objects (COCO sizes, see select_object_size_detections), each with the recall of all the
+    detections at the same thresholds, the mean average recall (the same for every method). The detections are
+    compared with the ground truths by their boxes, by their masks for the mask AP of the instance segmentation, or by
+    the object keypoint similarity of their keypoints for the keypoint detection, in place of the intersection over
+    union. With a precision, the score threshold of every class reaching it is added (find_class_score_thresholds),
+    from the same gathered detections.
 
     Args:
         detections (List[Dict[str, torch.Tensor]]): For every image, its detection 'boxes' [N, 4], 'scores' [N] and
@@ -459,12 +461,12 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
             thresholds. Defaults to None.
 
     Returns:
-        Dict[str, Dict[Any, Any]]: For every method, its 'mAP@0.5', 'mAP@0.75' and 'mAP@[0.5:0.95]', the average
-            precision of every class with ground truth at 0.5, at 0.75 and averaged over 0.5 to 0.95 ('class_AP@0.5',
-            'class_AP@0.75', 'class_AP@[0.5:0.95]'), the same values for the recall ('mAR@0.5' to
-            'class_AR@[0.5:0.95]'), the 'class_ground_truths' boxes of every foreground class, and the same values for
-            every object size under 'sizes' (their mAPs and mARs None when no object has the size); with a target
-            precision, the 'class_score_thresholds' of every foreground class.
+        Dict[str, Dict[Any, Any]]: For every method, its 'mAP@0.5', 'mAP@0.75', 'mAP@0.95' and 'mAP@[0.5:0.95]', the
+            average precision of every class with ground truth at 0.5, at 0.75, at 0.95 and averaged over 0.5 to 0.95
+            ('class_AP@0.5', 'class_AP@0.75', 'class_AP@0.95', 'class_AP@[0.5:0.95]'), the same values for the recall
+            ('mAR@0.5' to 'class_AR@[0.5:0.95]'), the 'class_ground_truths' boxes of every foreground class, and the
+            same values for every object size under 'sizes' (their mAPs and mARs None when no object has the size);
+            with a target precision, the 'class_score_thresholds' of every foreground class.
     """
     # Gather the detections and best matches of every foreground class once, for all thresholds and methods
     class_detections = {class_label: gather_class_detections(detections=detections, ground_truths=ground_truths,
@@ -491,7 +493,7 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
                 for threshold in INTERSECTION_OVER_UNION_THRESHOLDS})
             if not size_results["class_AP@0.5"]:
                 size_results.update({f"m{metric_name}@{threshold_name}": None for _, _, metric_name in
-                                     SUMMARISED_METRICS for threshold_name in ["0.5", "0.75", "[0.5:0.95]"]})
+                                     SUMMARISED_METRICS for threshold_name in ["0.5", "0.75", "0.95", "[0.5:0.95]"]})
             results[method]["sizes"][object_size] = size_results
 
     # Score threshold of every class reaching the target precision, for the deployment

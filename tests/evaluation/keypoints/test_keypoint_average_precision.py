@@ -90,7 +90,8 @@ def test_perfect_keypoints_give_an_average_precision_of_one_at_every_threshold()
                                                       (1, 1, 0.0, 20.0, 0.0, 0.7), (1, 1, 300.0, 100.0, 0.0, 0.2)])
     results = evaluate_keypoint_objects(objects=objects)
     for method in AVERAGE_PRECISION_METHODS:
-        for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]", "mAR@0.5", "mAR@0.75", "mAR@[0.5:0.95]"]:
+        for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@0.95", "mAP@[0.5:0.95]", "mAR@0.5", "mAR@0.75", "mAR@0.95",
+                            "mAR@[0.5:0.95]"]:
             assert results[method][metric_name] == pytest.approx(1.0), f"{method} {metric_name}"
     assert results["area"]["class_ground_truths"] == {1: 3, 2: 1}
 
@@ -99,17 +100,17 @@ def test_partially_correct_keypoints_lower_the_strict_thresholds_first() -> None
     """
     Verifies that an object whose keypoints reach a similarity of about 0.61 counts as found up to the threshold 0.6
     and missed from 0.65 on: with a perfect object of higher score in the same image, the AP and the recall stay 1 at
-    0.5 and fall to 0.5 at 0.75, and their mean over the ten thresholds is (3 · 1 + 7 · 0.5) / 10.
+    0.5 and fall to 0.5 at 0.75 and 0.95, and their mean over the ten thresholds is (3 · 1 + 7 · 0.5) / 10.
     """
     objects = make_square_objects(object_definitions=[(0, 1, 0.0, 100.0, 0.0, 0.9),
                                                       (0, 1, 300.0, 100.0, PARTIAL_SHIFT_PIXELS, 0.8)])
     results = evaluate_keypoint_objects(objects=objects)
     area_results = results["area"]
     assert area_results["mAP@0.5"] == pytest.approx(1.0) and area_results["mAP@0.75"] == pytest.approx(0.5)
-    assert area_results["mAP@[0.5:0.95]"] == pytest.approx(0.65)
+    assert area_results["mAP@0.95"] == pytest.approx(0.5) and area_results["mAP@[0.5:0.95]"] == pytest.approx(0.65)
     assert area_results["class_AP@0.5"] == {1: pytest.approx(1.0)}
     assert area_results["mAR@0.5"] == pytest.approx(1.0) and area_results["mAR@0.75"] == pytest.approx(0.5)
-    assert area_results["mAR@[0.5:0.95]"] == pytest.approx(0.65)
+    assert area_results["mAR@0.95"] == pytest.approx(0.5) and area_results["mAR@[0.5:0.95]"] == pytest.approx(0.65)
     assert INTERSECTION_OVER_UNION_THRESHOLDS[2:4] == [0.6, 0.65]
 
     # The same keypoints ranked first make a false positive come before the true positive at 0.75

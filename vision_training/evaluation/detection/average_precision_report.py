@@ -2,13 +2,13 @@
 Tables and per-class rows of the evaluation reports of the object detection, instance segmentation and keypoint
 detection tasks: the mean average precisions of the three average precision methods, those of the small, medium and
 large objects (area method) and the mean average recalls of all the objects and of every size, always shown, and the
-average precisions of every class (area method, at an intersection over union of 0.5, 0.75 and 0.5 to 0.95, with its
-ground truth boxes, those of every object size, and the score threshold reaching the target precision with the recall
-it keeps), as the rows of class_metrics.csv and as the per-class table of the report. summarise_average_precisions
-evaluates the detections of the test split and gathers all of them with their TensorBoard scalars. The instance
-segmentation reports the box and the mask average precisions and recalls with the same builders, told apart by a title
-prefix and a column prefix, and the keypoint detection its average precisions on the object keypoint similarity. Used
-by the detection, instance segmentation and keypoint trainers.
+average precisions of every class (area method, at an intersection over union of 0.5, 0.75, 0.95 and 0.5 to 0.95,
+with its ground truth boxes, those of every object size, and the score threshold reaching the target precision with
+the recall it keeps), as the rows of class_metrics.csv and as the per-class table of the report.
+summarise_average_precisions evaluates the detections of the test split and gathers all of them with their TensorBoard
+scalars. The instance segmentation reports the box and the mask average precisions and recalls with the same
+builders, told apart by a title prefix and a column prefix, and the keypoint detection its average precisions on the
+object keypoint similarity. Used by the detection, instance segmentation and keypoint trainers.
 """
 
 import torch
@@ -49,8 +49,8 @@ def build_mean_average_precision_table(results: Dict[str, Dict[Any, Any]], title
                                        legend: Optional[str] = None) -> EvaluationTable:
     """
     Builds the table of the mean average precisions of an evaluated checkpoint, shown whatever the per-class report:
-    one row per average precision method, with its mAP at an intersection over union of 0.5 (PASCAL VOC), 0.75 and
-    averaged over 0.5 to 0.95 (COCO).
+    one row per average precision method, with its mAP at an intersection over union of 0.5 (PASCAL VOC), 0.75, 0.95
+    and averaged over 0.5 to 0.95 (COCO).
 
     Args:
         results (Dict[str, Dict[Any, Any]]): The results of evaluate_detections, keyed by method.
@@ -62,10 +62,10 @@ def build_mean_average_precision_table(results: Dict[str, Dict[Any, Any]], title
         EvaluationTable: The table of the methods.
     """
     rows = [[AVERAGE_PRECISION_METHOD_NAMES[method], results[method]["mAP@0.5"], results[method]["mAP@0.75"],
-             results[method]["mAP@[0.5:0.95]"]] for method in AVERAGE_PRECISION_METHODS]
+             results[method]["mAP@0.95"], results[method]["mAP@[0.5:0.95]"]] for method in AVERAGE_PRECISION_METHODS]
     return {"title": add_title_prefix(title="Mean Average Precision", title_prefix=title_prefix),
-            "columns": ["Method", "mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"], "rows": rows, "sort_column": None,
-            "per_class": False, "legend": HEADLINE_LEGEND if legend is None else legend}
+            "columns": ["Method", "mAP@0.5", "mAP@0.75", "mAP@0.95", "mAP@[0.5:0.95]"], "rows": rows,
+            "sort_column": None, "per_class": False, "legend": HEADLINE_LEGEND if legend is None else legend}
 
 
 def build_object_size_table(results: Dict[str, Dict[Any, Any]], title_prefix: str = "", area_name: str = "box",
@@ -73,8 +73,8 @@ def build_object_size_table(results: Dict[str, Dict[Any, Any]], title_prefix: st
     """
     Builds the table of the mean average precisions of the small, medium and large objects of an evaluated checkpoint
     with the area method, shown whatever the per-class report, telling whether the detector misses the objects of one
-    size: one row per size, with its objects and its mAP at an intersection over union of 0.5, 0.75 and averaged over
-    0.5 to 0.95.
+    size: one row per size, with its objects and its mAP at an intersection over union of 0.5, 0.75, 0.95 and averaged
+    over 0.5 to 0.95.
 
     Args:
         results (Dict[str, Dict[Any, Any]]): The results of evaluate_detections, keyed by method.
@@ -90,9 +90,10 @@ def build_object_size_table(results: Dict[str, Dict[Any, Any]], title_prefix: st
     size_results = results["area"]["sizes"]
     rows = [[size_name, sum(size_results[object_size]["class_ground_truths"].values()),
              size_results[object_size]["mAP@0.5"], size_results[object_size]["mAP@0.75"],
-             size_results[object_size]["mAP@[0.5:0.95]"]] for object_size, size_name in OBJECT_SIZE_NAMES.items()]
+             size_results[object_size]["mAP@0.95"], size_results[object_size]["mAP@[0.5:0.95]"]]
+            for object_size, size_name in OBJECT_SIZE_NAMES.items()]
     return {"title": add_title_prefix(title="Mean Average Precision By Object Size (Area)", title_prefix=title_prefix),
-            "columns": ["Object Size", "Objects", "mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"], "rows": rows,
+            "columns": ["Object Size", "Objects", "mAP@0.5", "mAP@0.75", "mAP@0.95", "mAP@[0.5:0.95]"], "rows": rows,
             "sort_column": None, "per_class": False,
             "legend": f"COCO sizes by {area_name} area in {resolution_name} pixels, the objects of the other sizes and "
                       f"the detections finding them being ignored. — : no object of the size."}
@@ -104,7 +105,7 @@ def build_average_recall_table(results: Dict[str, Dict[Any, Any]], title_prefix:
     Builds the table of the mean average recalls of an evaluated checkpoint, shown whatever the per-class report,
     telling how many objects the detector finds at all, whatever the score of the detections: one row for all the
     objects then one per size, with its objects and the recall of all the detections at an intersection over union of
-    0.5, 0.75 and averaged over 0.5 to 0.95, averaged over the classes (the recalls do not depend on the method).
+    0.5, 0.75, 0.95 and averaged over 0.5 to 0.95, averaged over the classes (the recalls do not depend on the method).
 
     Args:
         results (Dict[str, Dict[Any, Any]]): The results of evaluate_detections, keyed by method.
@@ -121,9 +122,10 @@ def build_average_recall_table(results: Dict[str, Dict[Any, Any]], title_prefix:
     group_results = [("All", area_results)] + [(size_name, area_results["sizes"][object_size])
                                                for object_size, size_name in OBJECT_SIZE_NAMES.items()]
     rows = [[group_name, sum(group_result["class_ground_truths"].values()), group_result["mAR@0.5"],
-             group_result["mAR@0.75"], group_result["mAR@[0.5:0.95]"]] for group_name, group_result in group_results]
+             group_result["mAR@0.75"], group_result["mAR@0.95"], group_result["mAR@[0.5:0.95]"]]
+            for group_name, group_result in group_results]
     return {"title": add_title_prefix(title="Mean Average Recall", title_prefix=title_prefix),
-            "columns": ["Objects Of", "Objects", "mAR@0.5", "mAR@0.75", "mAR@[0.5:0.95]"], "rows": rows,
+            "columns": ["Objects Of", "Objects", "mAR@0.5", "mAR@0.75", "mAR@0.95", "mAR@[0.5:0.95]"], "rows": rows,
             "sort_column": None, "per_class": False,
             "legend": f"Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes "
                       f"by {area_name} area in {resolution_name} pixels. — : no object of the size."}
@@ -134,11 +136,11 @@ def build_class_average_precision_rows(results: Dict[str, Dict[Any, Any]], class
     """
     Gathers the average precisions of every foreground class of an evaluated checkpoint with the area method, in class
     index order, for the per-class metrics file and the per-class table: its ground truth boxes and its average
-    precision at 0.5, 0.75 and averaged over 0.5 to 0.95 (None for a class without ground truth, which has no recall),
-    its average precision at 0.5 and averaged over 0.5 to 0.95 for the objects of every size (None without object of
-    the size), then, for results evaluated with a target precision, the score threshold reaching it and the recall it
-    keeps (None when no threshold reaches it). The threshold columns are not prefixed: the instance segmentation
-    computes them on the masks only.
+    precision at 0.5, 0.75, 0.95 and averaged over 0.5 to 0.95 (None for a class without ground truth, which has no
+    recall), its average precision at 0.5 and averaged over 0.5 to 0.95 for the objects of every size (None without
+    object of the size), then, for results evaluated with a target precision, the score threshold reaching it and the
+    recall it keeps (None when no threshold reaches it). The threshold columns are not prefixed: the instance
+    segmentation computes them on the masks only.
 
     Args:
         results (Dict[str, Dict[Any, Any]]): The results of evaluate_detections, keyed by method, with the
@@ -149,10 +151,10 @@ def build_class_average_precision_rows(results: Dict[str, Dict[Any, Any]], class
 
     Returns:
         List[Dict[str, Any]]: One row per foreground class, keyed by the columns of class_metrics.csv: 'class_index',
-            'class', 'ground_truths', the prefixed 'average_precision_50', 'average_precision_75' and
-            'average_precision_50_95', the prefixed 'average_precision_50_<size>' and 'average_precision_50_95_<size>'
-            of every object size, and with the thresholds 'threshold_at_target_precision' and
-            'recall_at_target_precision'.
+            'class', 'ground_truths', the prefixed 'average_precision_50', 'average_precision_75',
+            'average_precision_95' and 'average_precision_50_95', the prefixed 'average_precision_50_<size>' and
+            'average_precision_50_95_<size>' of every object size, and with the thresholds
+            'threshold_at_target_precision' and 'recall_at_target_precision'.
     """
     area_results = results["area"]
     class_rows = []
@@ -164,6 +166,7 @@ def build_class_average_precision_rows(results: Dict[str, Dict[Any, Any]], class
         # without object of the size
         column_sources = [("average_precision_50", "class_AP@0.5", area_results),
                           ("average_precision_75", "class_AP@0.75", area_results),
+                          ("average_precision_95", "class_AP@0.95", area_results),
                           ("average_precision_50_95", "class_AP@[0.5:0.95]", area_results)]
         for object_size in OBJECT_SIZE_NAMES:
             size_results = area_results["sizes"][object_size]
@@ -201,10 +204,10 @@ def build_class_average_precision_table(class_rows: List[Dict[str, Any]], title_
     Returns:
         EvaluationTable: The per-class table.
     """
-    columns = ["Class", "Ground\nTruths", CLASS_TABLE_SORT_COLUMN, "AP@0.75", "AP@[0.5:0.95]"]
+    columns = ["Class", "Ground\nTruths", CLASS_TABLE_SORT_COLUMN, "AP@0.75", "AP@0.95", "AP@[0.5:0.95]"]
     rows = [[class_row["class"], class_row["ground_truths"], class_row[f"{column_prefix}average_precision_50"],
-             class_row[f"{column_prefix}average_precision_75"], class_row[f"{column_prefix}average_precision_50_95"]]
-            for class_row in class_rows]
+             class_row[f"{column_prefix}average_precision_75"], class_row[f"{column_prefix}average_precision_95"],
+             class_row[f"{column_prefix}average_precision_50_95"]] for class_row in class_rows]
     legend = "Worst AP@0.5 first, ties in class order. — : no ground truth box of the class."
 
     # Threshold of every class reaching the target precision, with the recall it keeps
@@ -266,7 +269,7 @@ def summarise_average_precisions(detections: List[Dict[str, torch.Tensor]],
     # The mean average precisions of every method, and the AP@0.5 of every class for the per-class report
     scalars = {}
     for method in AVERAGE_PRECISION_METHODS:
-        for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"]:
+        for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@0.95", "mAP@[0.5:0.95]"]:
             scalars[f"{name_prefix}{metric_name}/{method}"] = results[method][metric_name]
     class_scalars = {f"{name_prefix}AP@0.5/{class_names[class_index]}": average_precision
                      for class_index, average_precision in results["area"]["class_AP@0.5"].items()}
@@ -280,7 +283,7 @@ def summarise_average_precisions(detections: List[Dict[str, torch.Tensor]],
 
     # The mean average recalls of all the objects and of every object size, the same for every method
     for group_name, group_results in [("all", results["area"]), *results["area"]["sizes"].items()]:
-        for metric_name in ["mAR@0.5", "mAR@0.75", "mAR@[0.5:0.95]"]:
+        for metric_name in ["mAR@0.5", "mAR@0.75", "mAR@0.95", "mAR@[0.5:0.95]"]:
             if group_results[metric_name] is not None:
                 scalars[f"{name_prefix}{metric_name}/{group_name}"] = group_results[metric_name]
 

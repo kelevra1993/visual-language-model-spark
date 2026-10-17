@@ -158,7 +158,7 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
               newline="") as class_metrics_file:
         class_rows = list(csv.DictReader(f=class_metrics_file))
     assert list(class_rows[0]) == ["class_index", "class", "ground_truths", "average_precision_50",
-                                   "average_precision_75", "average_precision_50_95"] + [
+                                   "average_precision_75", "average_precision_95", "average_precision_50_95"] + [
         f"average_precision_{threshold}_{object_size}" for object_size in ["small", "medium", "large"]
         for threshold in ["50", "50_95"]] + ["threshold_at_target_precision", "recall_at_target_precision"]
     assert sum(int(class_row["ground_truths"]) for class_row in class_rows) == number_boxes
