@@ -91,6 +91,10 @@ class BaseTrainer(ABC):
     # sequence comparison task
     SAMPLE_NAME = "Images"
 
+    # Whether the training loader leaves out the last incomplete batch of every epoch, True for the self-supervised
+    # task whose losses compare the samples of a full batch, so that an epoch has one iteration less
+    DROPS_LAST_TRAINING_BATCH = False
+
     # Whether the real frames of the training batches are counted for a frame throughput, True for the sequence tasks
     COUNTS_FRAMES = False
 
@@ -836,8 +840,11 @@ class BaseTrainer(ABC):
                                              f"{format_path_link(path=self.experiment_configuration[split_key])} "
                                              f"({description})")
 
-        # One epoch is a full pass over the training samples
+        # One epoch is a full pass over the training samples, without the last incomplete batch when the training
+        # loader leaves it out
         self.iterations_per_epoch = math.ceil(self.number_samples_per_split["train_data_folder"] / self.batch_size)
+        if self.DROPS_LAST_TRAINING_BATCH:
+            self.iterations_per_epoch = self.number_samples_per_split["train_data_folder"] // self.batch_size
         print_color(color="blue", output=f"- Iterations Per Epoch    : {self.iterations_per_epoch}")
         print_color(color="blue", output=f"- Batch Size              : {self.batch_size}")
         print_color(color="blue", output=f"- Total Iterations        : {self.training_iterations}")
@@ -866,7 +873,7 @@ class BaseTrainer(ABC):
         if self.tracking_configuration["activated"]:
             tracking_description, _ = resolve_tracking_uri(
                 tracking_configuration=self.tracking_configuration,
-                tracking_root=self.experiment_configuration["experiment_folder"])
+                tracking_root=self.experiment_configuration["tracking_root"])
         print_color(color="blue", output=f"- MLflow Tracking         : {tracking_description}")
 
     def print_configuration_changes(self) -> None:
@@ -1372,7 +1379,7 @@ class BaseTrainer(ABC):
         # MLflow tracker of the run, a DisabledTracker when the tracking is off or unavailable
         self.experiment_tracker = create_experiment_tracker(
             tracking_configuration=self.tracking_configuration,
-            tracking_root=self.experiment_configuration["experiment_folder"], run_name=self.run_name,
+            tracking_root=self.experiment_configuration["tracking_root"], run_name=self.run_name,
             task=self.TASK_NAME, run_record_path=self.experiment_folder / RUN_RECORD_FILE_NAME)
 
         # A run resumed from its checkpoint of iteration n starts at n + 1

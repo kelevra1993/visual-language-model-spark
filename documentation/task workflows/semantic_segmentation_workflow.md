@@ -21,8 +21,8 @@ The examples come from real runs on CPU, so that the GPU stayed free for another
 
 ```text
 main()
-│   Entry point of every task: loads the YAML file whose path it hard-codes, looks up the trainer of its task, builds
-│   it and starts the training loop. Point the path to a semantic_segmentation configuration to run this workflow.
+│   Entry point of every task: reads the path of the YAML file from --configuration_path, loads it, looks up the
+│   trainer of its task, builds it and starts the training loop. Give a semantic_segmentation configuration to run this workflow.
 │
 ├── load_experiment_configuration(configuration_path)
 │   │   Splits the YAML into experiment_configuration ('ExperimentConfiguration') and model_configuration (Optimization,
@@ -176,7 +176,7 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 > The examples below are real outputs from running the loader on `configurations/semantic_segmentation/configuration_synthetic_shapes.yaml`.
 
 ### Step 1.1 — `main()`
-The entry point is the same for every task (see `classification_workflow.md`, Step 1.1): it loads the YAML file whose path it hard-codes, looks up the trainer of `ExperimentConfiguration.task` and starts its training loop. Nothing in it is specific to the segmentation.
+The entry point is the same for every task (see `classification_workflow.md`, Step 1.1): `parse_configuration_path()` reads the path of the YAML file from the command line (`--configuration_path`), then it loads the file, looks up the trainer of `ExperimentConfiguration.task` and starts its training loop. Nothing in it is specific to the segmentation.
 
 ### Step 1.2 — `load_experiment_configuration()`
 It splits the YAML into the two dictionaries read by every later stage, converts the values YAML reads with the wrong type, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4) and runs the checks (Step 1.5). The segmentation has two sections of its own, `SegmentationDecoder` (the upsampling path of the U-Net) and `SegmentationLoss`, its `Data` section has a `tiling` subsection, and its `evaluation` settings differ from the classification ones (no top-k, no thresholds, no error images).

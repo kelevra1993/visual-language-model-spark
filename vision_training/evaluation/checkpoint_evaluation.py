@@ -99,7 +99,8 @@ def evaluate_checkpoints(trainer: BaseTrainer, experiment_folder: Path, iteratio
 def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Path, iterations: List[int]) -> Path:
     """
     Evaluates the checkpoints one after the other through the trainer, writes the evaluation summary of their scalars
-    and prints the best iteration, for evaluate_checkpoints.
+    and prints the best iteration, or every tied iteration when several checkpoints share the best value, for
+    evaluate_checkpoints.
 
     Args:
         trainer (BaseTrainer): The trainer of the run.
@@ -111,7 +112,7 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
     """
     summary_rows: List[Dict[str, Any]] = []
     headline_metric = None
-    best_checkpoints: Dict[str, Tuple[int, float]] = {}
+    best_checkpoints: Dict[str, Tuple[List[int], float]] = {}
     for iteration in iterations:
         checkpoint_path = get_checkpoint_file(weights_directory=experiment_folder / "Weights", iteration=iteration)
         if not checkpoint_path.exists():
@@ -136,12 +137,15 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
             evaluated_weights[AVERAGED_WEIGHTS_LABEL] = averaged_weights_results
         summary_rows.append(summary_row)
 
-        # Best iteration of the headline metric for every kind of weights, the higher the better
+        # Best iterations of the headline metric for every kind of weights, the higher the better, the iterations
+        # sharing the best value being all kept so that a tie is reported instead of one of them being picked
         headline_metric = results["headline_metric"]
         for weights_label, weights_results in evaluated_weights.items():
             value = weights_results["scalars"][headline_metric]
             if weights_label not in best_checkpoints or value > best_checkpoints[weights_label][1]:
-                best_checkpoints[weights_label] = (iteration, value)
+                best_checkpoints[weights_label] = ([iteration], value)
+            elif value == best_checkpoints[weights_label][1]:
+                best_checkpoints[weights_label][0].append(iteration)
 
     # One row per evaluated iteration, one column per scalar in the order they first appear
     column_names = ["iteration"]
@@ -156,9 +160,14 @@ def summarise_checkpoint_evaluations(trainer: BaseTrainer, experiment_folder: Pa
 
     print_color(color="green", output=f"Evaluation Summary Of {len(summary_rows)} Checkpoints : "
                                       f"{format_path_link(path=summary_path)}", add_separators=True)
-    for weights_label, (best_iteration, best_value) in best_checkpoints.items():
+    for weights_label, (best_iterations, best_value) in best_checkpoints.items():
+        # One best iteration, or the tied iterations in their evaluation order
         weights_description = f" ({weights_label})" if weights_label else ""
-        print_color(color="green", output=f"Best Checkpoint{weights_description} : iteration {best_iteration} "
+        iterations_description = f"iteration {best_iterations[0]}"
+        if len(best_iterations) > 1:
+            tied_iterations = ", ".join(str(best_iteration) for best_iteration in best_iterations)
+            iterations_description = f"iterations {tied_iterations} tie"
+        print_color(color="green", output=f"Best Checkpoint{weights_description} : {iterations_description} "
                                           f"({headline_metric} {best_value:.4f})", indent=1)
     return summary_path
 

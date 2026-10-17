@@ -21,7 +21,7 @@ The examples come from real runs on CPU, so that the GPU stayed free for another
 
 ```text
 main()
-│   Entry point of every task. Point the path to a sequence_labelling configuration to run this workflow.
+│   Entry point of every task. Give a sequence_labelling configuration with --configuration_path to run this workflow.
 │
 ├── load_experiment_configuration(configuration_path)
 │   ├── load_configuration(configuration_path)
@@ -704,10 +704,10 @@ MLflow Run Created In The Experiment 'sequence_labelling' : f6ccac8284bf428aa5a9
 ```
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-**Example output** (iterations 12 and 9 tie on the accuracy, so the first one evaluated, 12, is kept)
+**Example output** (iterations 12 and 9 tie on the accuracy, so both are listed in their evaluation order)
 ```text
 Evaluation Summary Of 4 Checkpoints : file:///.../runs/evaluations/M2M_IN-KAR-64_..._MC9/Evaluation/evaluation_summary.csv
-  - Best Checkpoint : iteration 12 (Accuracy 0.1514)
+  - Best Checkpoint : iterations 12, 9 tie (Accuracy 0.1514)
 
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Sequence Exact Match,Edit Score,Segment F1@10,Segment F1@25,Segment F1@50, ...
 12,0.15135135135135136,0.1111111111111111,0.02921231090245175,0.17297297297297298,0.0,0.10833333333333335,0.16470588235294117,0.1411764705882353,0.09411764705882354, ...

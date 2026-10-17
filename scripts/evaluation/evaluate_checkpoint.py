@@ -34,7 +34,8 @@ if __name__ == "__main__":
     # run settings
     output_folder = experiment_folder.parent / "evaluations"
 
-    # Point the copied configuration to the output folder and to the evaluated split
+    # Point the copied configuration to the output folder and to the evaluated split, its 'tracking_root' keeping the
+    # experiments root folder of the run so that the panel names the MLflow backend the evaluation is tracked in
     configuration_path = experiment_folder / "training_configuration.yaml"
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=configuration_path)

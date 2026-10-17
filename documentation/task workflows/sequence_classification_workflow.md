@@ -21,8 +21,8 @@ The examples come from real runs on CPU, so that the GPU stayed free for another
 
 ```text
 main()
-│   Entry point of every task: loads the YAML file whose path it hard-codes, looks up the trainer of its task, builds
-│   it and starts the training loop. Point the path to a sequence_classification configuration to run this workflow.
+│   Entry point of every task: reads the path of the YAML file from --configuration_path, loads it, looks up the
+│   trainer of its task, builds it and starts the training loop. Give a sequence_classification configuration to run this workflow.
 │
 ├── load_experiment_configuration(configuration_path)
 │   │   Splits the YAML into experiment_configuration ('ExperimentConfiguration') and model_configuration (Optimization,
@@ -144,7 +144,7 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 > The examples below are real outputs from running the loader on `configurations/sequence_classification/configuration_synthetic_sequences.yaml`.
 
 ### Step 1.1 — `main()`
-The entry point is the same for every task (see `classification_workflow.md`, Step 1.1): it loads the YAML file whose path it hard-codes, looks up the trainer of `ExperimentConfiguration.task` and starts its training loop. Nothing in it is specific to the sequences.
+The entry point is the same for every task (see `classification_workflow.md`, Step 1.1): `parse_configuration_path()` reads the path of the YAML file from the command line (`--configuration_path`), then it loads the file, looks up the trainer of `ExperimentConfiguration.task` and starts its training loop. Nothing in it is specific to the sequences.
 
 ### Step 1.2 — `load_experiment_configuration()`
 It splits the YAML into the two dictionaries read by every later stage, converts the values YAML reads with the wrong type, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4) and runs the checks (Step 1.5). The sequence classification has the `TemporalModel` section on top of the sections of the classification, its `Data` section has a `sequence_settings` subsection (the windows), and its evaluation settings are those of the classification.
@@ -929,12 +929,12 @@ MLflow Run Created In The Experiment 'sequence_classification' : 841723d3fc1a4c6
 ```
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-The best checkpoint is the one with the highest headline metric; on a tie the first one evaluated is kept, the last checkpoint here, since the checkpoints are evaluated from the last one.
+The best checkpoint is the one with the highest headline metric; on a tie every tied iteration is listed, in the evaluation order, from the last checkpoint.
 
 **Example output** (every checkpoint predicts `moving_left` for the 40 windows, so they all have the same accuracy)
 ```text
 Evaluation Summary Of 4 Checkpoints : file:///.../runs/evaluations/M2O_IN-KAR-64_..._MC4/Evaluation/evaluation_summary.csv
-  - Best Checkpoint : iteration 12 (Accuracy 0.2750)
+  - Best Checkpoint : iterations 12, 9, 6, 3 tie (Accuracy 0.2750)
 
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Precision/moving_left,Recall/moving_left,F1/moving_left, ...
 12,0.275,0.25,0.10784313725490198,0.55,0.275,1.0,0.4313725490196079, ...

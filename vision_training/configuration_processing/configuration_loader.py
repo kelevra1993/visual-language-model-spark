@@ -78,6 +78,12 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
         if key in experiment_configuration:
             experiment_configuration[key] = Path(experiment_configuration[key])
 
+    # Root folder of the MLflow backend of the run, the experiments root folder, kept apart from 'experiment_folder'
+    # so that a standalone evaluation writing its files in another folder is still tracked in, and reports, the
+    # backend of the evaluated experiment
+    if "experiment_folder" in experiment_configuration:
+        experiment_configuration["tracking_root"] = experiment_configuration["experiment_folder"]
+
     # Convert numerics
     int_keys = ["information_dump", "weight_saving_iterations", "intermediate_weight_saving_iterations",
                 "number_iterations"]

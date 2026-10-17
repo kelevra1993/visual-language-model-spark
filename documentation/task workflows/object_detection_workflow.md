@@ -22,7 +22,7 @@ The examples come from real runs on CPU, so that the GPU stayed free for another
 
 ```text
 main()
-│   Entry point of every task. Point the path to an object_detection configuration to run this workflow.
+│   Entry point of every task. Give an object_detection configuration with --configuration_path to run this workflow.
 │
 ├── load_experiment_configuration(configuration_path)
 │   │   Splits the YAML into experiment_configuration ('ExperimentConfiguration') and model_configuration (Optimization,
@@ -1067,10 +1067,10 @@ MLflow Run Created In The Experiment 'object_detection' : fcc494bfb83d4bc78638fa
 ```
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-**Example output** (the four checkpoints tie at 0, so the first one evaluated, 12, is kept)
+**Example output** (the four checkpoints tie at 0, so the four iterations are listed in their evaluation order)
 ```text
 Evaluation Summary Of 4 Checkpoints : file:///.../runs/evaluations/DET_IN-KAR-512_..._MC9/Evaluation/evaluation_summary.csv
-  - Best Checkpoint : iteration 12 (mAP@0.5/area 0.0000)
+  - Best Checkpoint : iterations 12, 9, 6, 3 tie (mAP@0.5/area 0.0000)
 
 iteration,mAP@0.5/area,mAP@0.75/area,mAP@[0.5:0.95]/area,mAP@0.5/11_point,mAP@0.75/11_point,mAP@[0.5:0.95]/11_point,mAP@0.5/101_point,
 mAP@0.75/101_point,mAP@[0.5:0.95]/101_point,AP@0.5/circle,AP@0.5/triangle,AP@0.5/rectangle,AP@0.5/pentagon,AP@0.5/hexagon,AP@0.5/plus_sign,

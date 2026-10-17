@@ -348,9 +348,15 @@ def test_classification_training_and_evaluation_are_tracked(tmp_path: Path, trac
         configuration_path=trainer.configuration_path)
     experiment_configuration["experiment_folder"] = tracking_root / "evaluations"
     disable_pretrained_settings(model_configuration=model_configuration)
+    training_console_output = capsys.readouterr().out
     evaluation_trainer = ClassificationTrainer(experiment_configuration=experiment_configuration,
                                                model_configuration=model_configuration,
                                                configuration_path=trainer.configuration_path)
+
+    # Its experiment information names the database of the evaluated experiment, not one in the evaluations folder
+    evaluation_panel = capsys.readouterr().out
+    assert f"sqlite:///{tracking_root / 'mlflow.db'}" in evaluation_panel
+    assert "evaluations/mlflow.db" not in evaluation_panel
     evaluate_checkpoints(trainer=evaluation_trainer, experiment_folder=trainer.experiment_folder, iterations=[4, 7])
 
     # Its own run in the experiment of the training, linked to the training run
@@ -368,7 +374,7 @@ def test_classification_training_and_evaluation_are_tracked(tmp_path: Path, trac
 
     # The training run is only read by the evaluation
     assert read_metric_steps(client=client, run_id=training_run_id, metric_key="test/Accuracy") == [4]
-    console_output = capsys.readouterr().out
+    console_output = training_console_output + evaluation_panel + capsys.readouterr().out
     for unexpected_message in ["Error encountered during iteration", "Critical Error", "MLflow Unavailable",
                                "MLflow Rejected", "MLflow Did Not Finish"]:
         assert unexpected_message not in console_output

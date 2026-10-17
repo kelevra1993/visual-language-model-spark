@@ -66,6 +66,10 @@ class SelfSupervisedTrainer(BaseTrainer):
 
     TASK_NAME = "self_supervised"
 
+    # The training loader leaves out the last incomplete batch (see get_classification_dataloaders), the losses
+    # comparing the samples of a full batch
+    DROPS_LAST_TRAINING_BATCH = True
+
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
         """

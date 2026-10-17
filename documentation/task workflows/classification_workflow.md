@@ -6,7 +6,7 @@ The examples come from two real runs, both on CPU so that the GPU stayed free fo
 - **Stages 1 and 2**: `configurations/classification/configuration_example.yaml` (ImageNet-1k, 1000 classes, 256 pixel images, batch size 256, flattened head), with the run folder redirected to a temporary folder.
 - **Stages 3, 4 and 5**: `configurations/classification/configuration_synthetic_shapes.yaml` (9 shape classes), shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network is still close to chance (9 classes: 1/9 = 11.1% accuracy, a loss near ln 9 = 2.197), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
-The other tasks have their own document, written the same way: `object_detection_workflow.md`, `semantic_segmentation_workflow.md`, `sequence_classification_workflow.md`, `sequence_labelling_workflow.md`, `sequence_comparison_workflow.md` and `frame_selection_workflow.md`. The steps shared by every task (the training loop, the checkpoints, the MLflow tracking, the standalone evaluation) are explained in most detail here.
+The other tasks have their own document, written the same way: `object_detection_workflow.md`, `semantic_segmentation_workflow.md`, `self_supervised_workflow.md`, `sequence_classification_workflow.md`, `sequence_labelling_workflow.md`, `sequence_comparison_workflow.md` and `frame_selection_workflow.md`. The steps shared by every task (the training loop, the checkpoints, the MLflow tracking, the standalone evaluation) are explained in most detail here.
 
 ## Table of Contents
 - [Call Tree Overview](#call-tree-overview)
@@ -23,11 +23,14 @@ The other tasks have their own document, written the same way: `object_detection
 
 ```text
 main()
-│   Entry point of the whole project, the same for every task. It hard-codes the path to one YAML file: to train
-│   another configuration, of any task, change that path. It then does four things in order: load and validate the
-│   YAML, look up the trainer of the task, build that trainer, start the training loop. (A commented-out
-│   run_benchmarking_loop() is the alternative to training, for speed measurements.)
+│   Entry point of the whole project, the same for every task. It reads the path of the YAML file from the command
+│   line (--configuration_path), so any configuration of any task is trained without editing the code. It then does
+│   four things in order: load and validate the YAML, look up the trainer of the task, build that trainer, start the
+│   training loop. (A commented-out run_benchmarking_loop() is the alternative to training, for speed measurements.)
 │
+├── parse_configuration_path()
+│       argparse reader of --configuration_path (absolute or relative to the current folder), which stops with
+│       "No configuration file at ..." when the path is not a file.
 ├── load_experiment_configuration(configuration_path)
 │   │   Prepares the configuration that every later stage reads. The YAML has 5 top-level sections:
 │   │   ExperimentConfiguration, Optimization, Data, Backbone, ClassificationHead. They are split in two:
@@ -447,10 +450,14 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 > The examples below are real outputs from running the loader on `configurations/classification/configuration_example.yaml` (ImageNet-1k, 1000 classes).
 
 ### Step 1.1 — `main()`
-This is the entry point of the whole project, the same for every task. It builds the path to the YAML file of the experiment (`configuration_large_model.yaml` in the repository at the moment): to train another configuration, of this task or of another one, change that path. It loads and validates that file (Step 1.2), asks the registry which trainer fits `experiment_configuration["task"]` (Step 1.6), builds that trainer with both dictionaries and the YAML path (Stage 2) and starts training (Stage 3). It returns nothing. Everything after this point happens inside the trainer.
+This is the entry point of the whole project, the same for every task. `parse_configuration_path()` reads the path to the YAML file of the experiment from the command line (`--configuration_path`, absolute or relative to the current folder; `parser.error()` stops with "No configuration file at ..." when it is not a file), so any configuration, of this task or of another one, is trained without editing the code. It loads and validates that file (Step 1.2), asks the registry which trainer fits `experiment_configuration["task"]` (Step 1.6), builds that trainer with both dictionaries and the YAML path (Stage 2) and starts training (Stage 3). It returns nothing. Everything after this point happens inside the trainer.
+
+```bash
+python -m vision_training.main --configuration_path vision_training/configurations/classification/configuration_example.yaml
+```
 
 ```python
-experiment_configuration_path = Path(__file__).parent / "configurations" / "classification" / "configuration_example.yaml"
+experiment_configuration_path = parse_configuration_path()  # absolute path of --configuration_path
 experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=...)
 trainer_class = get_trainer_class(task=experiment_configuration["task"])  # -> ClassificationTrainer
 trainer = trainer_class(experiment_configuration=..., model_configuration=..., configuration_path=...)
@@ -458,14 +465,14 @@ trainer.run_training_loop()
 ```
 
 ### Step 1.2 — `load_experiment_configuration()`
-This function produces the two dictionaries that every later stage reads. It removes the `ExperimentConfiguration` section from the raw YAML and keeps it as `experiment_configuration`, which holds the run settings. Whatever is left becomes `model_configuration`, which holds the data, network and optimization settings. It then converts the values YAML reads with the wrong type, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4), and runs the checks (Step 1.5).
+This function produces the two dictionaries that every later stage reads. It removes the `ExperimentConfiguration` section from the raw YAML and keeps it as `experiment_configuration`, which holds the run settings. Whatever is left becomes `model_configuration`, which holds the data, network and optimization settings. It then converts the values YAML reads with the wrong type, adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration) to `experiment_configuration`, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4), and runs the checks (Step 1.5).
 
 **Example: how the dictionaries are split**
 ```text
 experiment_configuration keys: task, experiment_folder, train_data_folder, validation_data_folder, test_data_folder,
                                batch_size, information_dump, weight_saving_iterations,
                                intermediate_weight_saving_iterations, number_iterations, validation_iteration_ratio,
-                               evaluation, tracking, learning_rate, dtype, resume_training, diagnosis_modes
+                               evaluation, tracking, learning_rate, resume_training, diagnosis_modes, tracking_root
 model_configuration keys:      Optimization, Data, Backbone, ClassificationHead
 Data keys after loading:       DALI, loading, image_settings, label_mapping, data_augmentation, label_mode, label_dictionary
 ```
@@ -1568,13 +1575,13 @@ tracking in the saved configuration: {'activated': True, 'tracking_uri': None, '
 - Iterations Per Epoch    : 782
 - Batch Size              : 128
 ...
-- MLflow Tracking         : sqlite:///.../runs/evaluations/mlflow.db
+- MLflow Tracking         : sqlite:///.../runs/mlflow.db
 -----------------------------------------------------------
 No Initiation Model Weights Will Be Used...
 We Generate A New Model That Will Be Trained From Scratch.
 -----------------------------------------------------------
 ```
-The `MLflow Tracking` line of the panel names the database of the output folder, but the MLflow run of the evaluation is written to the database of the trained run (Step 5.4).
+The `MLflow Tracking` line of the panel names the database of the trained run, where the MLflow run of the evaluation is written (Step 5.4): the script moves `experiment_folder` to the output folder, but `tracking_root` keeps the experiments root folder of the run.
 
 ### Step 5.3 — `get_checkpoint_iterations()` / `get_last_checkpoint_iteration()`
 They read the registry `Weights/full-checkpoint` of the trained run (Step 2.27) to decide which iterations are evaluated: `get_checkpoint_iterations()` lists every recorded iteration, intermediate checkpoints included, and the script reverses the list (`iteration = "all"`), so that the most trained weights are evaluated first; `get_last_checkpoint_iteration()` gives the last one (`iteration = None`). An integer iteration is used as given.
@@ -1604,7 +1611,7 @@ artifacts: evaluation/iteration_12/, iteration_9/, iteration_6/, iteration_3/ (3
 `test/best_Accuracy` is the best value of the checkpoints evaluated so far, in the order of the evaluation: 0.1000 at step 12, then 0.1133 at steps 9, 6 and 3.
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_00000N.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the scalars of the results. After the last checkpoint, it writes `Evaluation/evaluation_summary.csv`, one row per iteration with one column per scalar, and prints the iteration with the best headline metric (the accuracy for the classification, the higher the better). The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
+For each iteration, in order, this function loads the weights of `Weights/Iteration_N/model_00000N.pt` of the trained run into the model of the trainer (a missing file is skipped with a warning), evaluates it (Step 5.6) and keeps the scalars of the results. After the last checkpoint, it writes `Evaluation/evaluation_summary.csv`, one row per iteration with one column per scalar, and prints the iteration with the best headline metric (the accuracy for the classification, the higher the better), or every tied iteration in the evaluation order, as `Best Checkpoint : iterations 12, 9 tie (Accuracy <value>)`, when several checkpoints share the best value. The per-class columns are only in the summary when `per_class_report` is on. With the moving average of the weights on, `run_test_evaluation()` also returns the results of the averaged weights: their scalars follow as `ema_<scalar>` columns, and a second line `Best Checkpoint (EMA Weights) : iteration <n> (Accuracy <value>)` is printed.
 
 **Example output** (after the four evaluations)
 ```text

@@ -362,3 +362,28 @@ def test_class_names_come_from_the_categories_of_every_split(tmp_path: Path) -> 
                                       "loading": {"number_workers": 0, "prefetch_batches": 2}}}, batch_size=2)
     SelfSupervisedTrainer.build_dataloaders(self=trainer)
     assert trainer.class_names == ["circle", "triangle"]
+
+
+def test_iterations_per_epoch_leave_out_the_last_incomplete_batch(tmp_path: Path,
+                                                                  capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the iterations per epoch printed in the experiment information and sent to MLflow are the batches
+    of the training loader, which leaves out the last incomplete batch: 10 training images in batches of 4 give 2
+    iterations, not 3.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 10, "validation": 4, "test": 6}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5, head_settings={}))
+
+    # The printed and the tracked value both match the number of training batches
+    assert trainer.batch_size == 4 and len(trainer.train_dataloader) == 2
+    assert trainer.iterations_per_epoch == 2
+    assert "- Iterations Per Epoch    : 2\x1b" in capsys.readouterr().out
+    assert trainer.build_tracking_parameters()["Derived"]["iterations_per_epoch"] == 2

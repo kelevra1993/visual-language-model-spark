@@ -21,7 +21,7 @@ The examples come from real runs on CPU, so that the GPU stayed free for another
 
 ```text
 main()
-│   Entry point of every task. Point the path to a frame_selection configuration to run this workflow.
+│   Entry point of every task. Give a frame_selection configuration with --configuration_path to run this workflow.
 │
 ├── load_experiment_configuration(configuration_path)
 │   ├── load_configuration(configuration_path)
@@ -784,10 +784,10 @@ MLflow Run Created In The Experiment 'frame_selection' : 5cfdfa9ad0e84bd0a36cd3e
 ```
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-**Example output** (the four checkpoints tie on the Hungarian selection accuracy, so the first one evaluated, 12, is kept)
+**Example output** (the four checkpoints tie on the Hungarian selection accuracy, so the four iterations are listed in their evaluation order)
 ```text
 Evaluation Summary Of 4 Checkpoints : file:///.../runs/evaluations/SEL_IN-KAR-64_..._MC4_FPC1-SLW1/Evaluation/evaluation_summary.csv
-  - Best Checkpoint : iteration 12 (Hungarian Selection Accuracy 0.1500)
+  - Best Checkpoint : iterations 12, 9, 6, 3 tie (Hungarian Selection Accuracy 0.1500)
 
 iteration,Hungarian Selection Accuracy,Hungarian Fully Right Sequences,Hungarian Unselected Precision,Hungarian Unselected Recall,
 Greedy Selection Accuracy,Greedy Fully Right Sequences,Greedy Unselected Precision,Greedy Unselected Recall,Top-2 Selection Accuracy,

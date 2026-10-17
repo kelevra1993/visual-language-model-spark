@@ -21,8 +21,8 @@ The examples come from real runs on CPU, so that the GPU stayed free for another
 
 ```text
 main()
-│   Entry point of every task: loads the YAML file whose path it hard-codes, looks up the trainer of its task, builds
-│   it and starts the training loop. Point the path to a sequence_comparison configuration to run this workflow.
+│   Entry point of every task: reads the path of the YAML file from --configuration_path, loads it, looks up the
+│   trainer of its task, builds it and starts the training loop. Give a sequence_comparison configuration to run this workflow.
 │
 ├── load_experiment_configuration(configuration_path)
 │   │   Splits the YAML into experiment_configuration ('ExperimentConfiguration') and model_configuration (Optimization,
@@ -772,10 +772,10 @@ MLflow Run Created In The Experiment 'sequence_comparison' : 7f5220908af54c13aaf
 ```
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-**Example output** (every checkpoint predicts `same_number_of_objects` for the 40 pairs, so the first one evaluated, the last checkpoint, is kept)
+**Example output** (every checkpoint predicts `same_number_of_objects` for the 40 pairs, so the four iterations tie and are listed in their evaluation order)
 ```text
 Evaluation Summary Of 4 Checkpoints : file:///.../runs/evaluations/CMP_IN-KAR-64_..._MC2/Evaluation/evaluation_summary.csv
-  - Best Checkpoint : iteration 12 (Accuracy 0.5250)
+  - Best Checkpoint : iterations 12, 9, 6, 3 tie (Accuracy 0.5250)
 
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-1 Accuracy,Precision/loss_of_object,Recall/loss_of_object,F1/loss_of_object, ...
 12,0.525,0.5,0.34426229508196726,0.525,0.0,0.0,0.0,0.525,1.0,0.6885245901639345
