@@ -52,11 +52,13 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
 
 
 def get_detection_dataloader(split_name: str, split_data_folder: str, model_configuration: Dict[str, Any],
-                             batch_size: int, load_instance_masks: bool = False) -> DataLoader:
+                             batch_size: int, load_instance_masks: bool = False,
+                             load_original_instances: bool = False) -> DataLoader:
     """
     Instantiates the DataLoader feeding one COCO split (Train, Validation or Test) to the object detection or instance
     segmentation trainer: the CocoDetectionDataset decodes the images with OpenCV and resizes them on the CPU workers,
-    with the instance masks rasterised there too for the instance segmentation.
+    with the instance masks rasterised there too for the instance segmentation, also at the original image resolution
+    for the test split evaluated at that resolution.
 
     Args:
         split_name (str): The name of the split (e.g., 'Train', 'Validation', 'Test').
@@ -64,6 +66,9 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
         model_configuration (Dict[str, Any]): The model-specific configuration detailing data loading preferences.
         batch_size (int): The number of samples to include in each batch.
         load_instance_masks (bool): Whether the samples carry the mask of every object (instance segmentation).
+            Defaults to False.
+        load_original_instances (bool): Whether the samples also carry the masks and boxes of the objects at the
+            original image resolution (test split of the instance segmentation evaluated at that resolution).
             Defaults to False.
 
     Returns:
@@ -81,18 +86,20 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
                                    image_size=image_settings["size"], keep_ratio=image_settings["keep_ratio"],
                                    label_mode=data_configuration["label_mode"],
                                    label_dictionary=data_configuration["label_dictionary"],
-                                   load_instance_masks=load_instance_masks)
+                                   load_instance_masks=load_instance_masks,
+                                   load_original_instances=load_original_instances)
     return build_native_loader(dataset=dataset, batch_size=batch_size,
                                loading_configuration=data_configuration["loading"], collate_function=collate_function)
 
 
 def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                              batch_size: int, load_instance_masks: bool = False) -> Tuple[DataLoader, DataLoader,
-                                                                                           DataLoader]:
+                              batch_size: int, load_instance_masks: bool = False,
+                              load_original_instances: bool = False) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Initializes the training, validation and testing loaders of the object detection and instance segmentation tasks,
     consumed by the detection trainer and its subclass: it resolves each split folder from the experiment configuration
-    and builds the matching COCO loader for it.
+    and builds the matching COCO loader for it, the test loader alone giving the objects at the original image
+    resolution when they are asked, since only the evaluation reads them.
 
     Args:
         experiment_configuration (Dict[str, Any]): The overall experiment configuration including data paths.
@@ -100,6 +107,8 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
         batch_size (int): The number of samples to include in each batch.
         load_instance_masks (bool): Whether the samples carry the mask of every object (instance segmentation).
             Defaults to False.
+        load_original_instances (bool): Whether the test samples also carry the masks and boxes of the objects at
+            the original image resolution (instance segmentation evaluated at that resolution). Defaults to False.
 
     Returns:
         Tuple[DataLoader, DataLoader, DataLoader]: The loaders for the training, validation and testing splits
@@ -120,7 +129,8 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
                                                  load_instance_masks=load_instance_masks)
     test_loader = get_detection_dataloader(split_name="Test", split_data_folder=split_folder_mapping["Test"],
                                            model_configuration=model_configuration, batch_size=batch_size,
-                                           load_instance_masks=load_instance_masks)
+                                           load_instance_masks=load_instance_masks,
+                                           load_original_instances=load_original_instances)
 
     return train_loader, validation_loader, test_loader
 

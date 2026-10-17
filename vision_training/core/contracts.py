@@ -12,6 +12,9 @@ Batch dictionary, produced by the loaders and moved to the device by the 'prepar
   segmentation only.
 - "instance_masks": one [N_i, H, W] uint8 tensor of binary masks per image, in the order of its boxes, instance
   segmentation only.
+- "original_instance_masks" and "original_bounding_boxes": one [N_i, H0, W0] uint8 tensor of binary masks and one
+  [N_i, 4] tensor of boxes per image at its original resolution, in the order of its boxes, test split of the instance
+  segmentation evaluated at the original resolution only.
 - "masks": [B, H, W] int64 class index of every pixel, semantic segmentation only (padding and unlabelled pixels at
   IGNORED_LABEL_INDEX).
 - "sequence_mask": [B, T] booleans, True for the real frames of padded sequences, sequence tasks only ([B, 2T] for the
@@ -26,7 +29,7 @@ import numpy as np
 import torch
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, NotRequired, Optional, TypedDict
 
 # Key suffix of the losses returned by the models, all summed into the total loss by the trainer
 LOSS_KEY_SUFFIX = "_loss"
@@ -153,6 +156,10 @@ class DetectionBatch(TypedDict):
 class InstanceSegmentationBatch(DetectionBatch):
     """
     Batch of the instance segmentation task, on the device: the detection batch with the binary mask of every object,
-    one [N_i, H, W] uint8 tensor per image in the order of its boxes and labels.
+    one [N_i, H, W] uint8 tensor per image in the order of its boxes and labels, and, for the test split evaluated at
+    the original resolution only, the masks ([N_i, H0, W0] uint8) and boxes ([N_i, 4]) of the same objects at the
+    original resolution of every image.
     """
     instance_masks: List[torch.Tensor]
+    original_instance_masks: NotRequired[List[torch.Tensor]]
+    original_bounding_boxes: NotRequired[List[torch.Tensor]]

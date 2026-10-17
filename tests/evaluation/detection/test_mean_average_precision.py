@@ -2,7 +2,8 @@
 Tests of vision_training/evaluation/detection/mean_average_precision.py on a worked example and edge cases: true
 positives, precision recall curve, average precision, duplicate, missing and wrong-class detections, the COCO-style
 mean over overlap thresholds, the score threshold of every class, the mask average precision of the instance
-segmentation, and the average precision of the small, medium and large objects with the COCO ignore rule.
+segmentation, the average precision of the small, medium and large objects with the COCO ignore rule, and the mean
+average recall of all the objects and of every size.
 """
 
 import pytest
@@ -303,6 +304,35 @@ def test_average_precision_by_object_size() -> None:
     assert large_only_sizes["small"]["mAP@0.5"] is None and large_only_sizes["medium"]["mAP@0.75"] is None
     assert large_only_sizes["small"]["class_AP@0.5"] == {}
     assert large_only_sizes["small"]["class_ground_truths"] == {1: 0}
+
+
+def test_mean_average_recall_of_all_the_objects_and_of_every_size() -> None:
+    """
+    Verifies the mean average recall on two classes: class 1 is the worked example (4 of its 5 objects found exactly,
+    whatever the score and the false positive, recall 0.8 at every threshold) and the only class 2 object is found
+    with an overlap of 0.68 (recall 1 at the thresholds 0.5 to 0.65, 0 above). The recall is the same for every method,
+    class 3 without ground truth is left out, and the 10 x 10 objects are all small, the other sizes having no recall.
+    """
+    detections, ground_truths = get_worked_example()
+    ground_truths[0] = make_ground_truth(boxes=[[0, 0, 10, 10], [20, 20, 30, 30], [40, 40, 50, 50], [60, 60, 70, 70]],
+                                         labels=[1, 1, 1, 2])
+    detections[0] = make_detections(boxes=[[0, 0, 10, 10], [20, 20, 30, 30], [40, 40, 50, 50], [60, 60, 70, 66.8]],
+                                    scores=[0.95, 0.85, 0.80, 0.5], labels=[1, 1, 1, 2])
+    results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=4)
+
+    # Means over the classes with ground truth, at 0.5, 0.75 and over the ten thresholds, the same for every method
+    for method in ["area", "11_point", "101_point"]:
+        assert results[method]["mAR@0.5"] == pytest.approx(expected=0.9)
+        assert results[method]["mAR@0.75"] == pytest.approx(expected=0.4)
+        assert results[method]["mAR@[0.5:0.95]"] == pytest.approx(expected=0.6)
+    assert results["area"]["class_AR@0.5"] == pytest.approx(expected={1: 0.8, 2: 1.0})
+    assert results["area"]["class_AR@[0.5:0.95]"] == pytest.approx(expected={1: 0.8, 2: 0.4})
+
+    # Every object is small, the medium and large objects have no recall
+    sizes = results["area"]["sizes"]
+    assert sizes["small"]["mAR@[0.5:0.95]"] == pytest.approx(expected=0.6)
+    assert sizes["medium"]["mAR@0.5"] is None and sizes["large"]["mAR@[0.5:0.95]"] is None
+    assert sizes["large"]["class_AR@0.5"] == {}
 
 
 def test_detection_matched_to_an_object_of_another_size_is_ignored() -> None:

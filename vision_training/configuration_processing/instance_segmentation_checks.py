@@ -1,7 +1,8 @@
 """
 Checks of the configuration sections specific to the instance segmentation task: every check of the object detection
-task, whose two-stage detector the instance segmenter extends, and its mask heads (the 'MaskHead' section and the mask
-head of every detection level). Run by configuration_checker.py for the instance_segmentation task.
+task, whose two-stage detector the instance segmenter extends, its mask heads (the 'MaskHead' section and the mask
+head of every detection level) and the evaluation at the original resolution. Run by configuration_checker.py for the
+instance_segmentation task.
 """
 
 from typing import Any, Dict, List
@@ -91,7 +92,8 @@ def check_instance_segmentation_configuration(experiment_configuration: Dict[str
                                               model_configuration: Dict[str, Any]) -> List[str]:
     """
     Runs every check specific to the instance segmentation task: those of the object detection task, every detection
-    level having to hold a mask head there, then the mask heads.
+    level having to hold a mask head there, then the mask heads and the evaluation at the original resolution of the
+    test images.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -103,4 +105,9 @@ def check_instance_segmentation_configuration(experiment_configuration: Dict[str
     errors = check_detection_configuration(experiment_configuration=experiment_configuration,
                                            model_configuration=model_configuration)
     errors += check_mask_head_configuration(model_configuration=model_configuration)
+
+    # Scoring of the boxes and masks at the original resolution of the test images, nested under the section name so
+    # that the reported key path matches its location in the YAML file
+    errors += check_boolean_flags(configuration={"ExperimentConfiguration": experiment_configuration},
+                                  key_paths=["ExperimentConfiguration.evaluation.original_resolution"])
     return errors

@@ -2,7 +2,8 @@
 CocoDetectionDataset, the dataset of the object detection and instance segmentation tasks reading a COCO 'labels.json'
 split with OpenCV on the CPU workers, the selection of the objects of an image from its annotations (also used by the
 anchor recall of the detection trainer), and the collate function batching its images and per-image boxes, labels and
-instance masks. Used by get_detection_dataloader of data/loaders.py.
+instance masks, with the masks and boxes of the objects at the original image resolution for the evaluation of the
+instance segmentation at that resolution. Used by get_detection_dataloader of data/loaders.py.
 """
 
 import random
@@ -12,7 +13,7 @@ import cv2
 import numpy as np
 import torch
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from torch.utils.data import Dataset
 
 from vision_training.data.detection.coco_masks import (build_instance_mask, compute_mask_bounding_boxes,
@@ -35,8 +36,8 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
 
     Returns:
         Dict[str, Any]: A dictionary containing the batched images, list of bounding boxes, list of labels, the
-            tensor of COCO image identifiers ('sample_identifiers'), and the list of instance masks when the samples
-            have them.
+            tensor of COCO image identifiers ('sample_identifiers'), the list of instance masks when the samples
+            have them, and the lists of the original instance masks and boxes when the samples have them.
     """
     images = [item["images"] for item in batch]
     bounding_boxes = [item["bounding_boxes"] for item in batch]
@@ -48,9 +49,11 @@ def collate_function(batch: List[Dict[str, torch.Tensor]]) -> Dict[str, Any]:
     batched_samples = {"images": torch.stack(tensors=images), "bounding_boxes": bounding_boxes, "labels": labels,
                        "sample_identifiers": sample_identifiers}
 
-    # Keep the [N_i, S, S] instance masks of the instance segmentation task as a list, like the boxes
-    if "instance_masks" in batch[0]:
-        batched_samples["instance_masks"] = [item["instance_masks"] for item in batch]
+    # Keep the [N_i, S, S] instance masks of the instance segmentation task as a list, like the boxes, and the masks
+    # and boxes at the original resolution of every image, whose sizes differ
+    for key in ["instance_masks", "original_instance_masks", "original_bounding_boxes"]:
+        if key in batch[0]:
+            batched_samples[key] = [item[key] for item in batch]
     return batched_samples
 
 
@@ -60,11 +63,12 @@ def select_image_objects(annotations: List[Dict[str, Any]], label_mode: str, lab
     """
     Selects the objects of one image the object detection and instance segmentation networks learn from its COCO
     annotations, shared by CocoDetectionDataset, which loads them with the image, and by the anchor recall of the
-    detection trainer at launch, which measures how well the anchors fit them without loading any image. The crowd
-    annotations are left out, and every category is mapped to its class, a category mapped to the background (0) being
-    left out too. The object detection reads the 'bbox' of every object; the instance segmentation reads its box from
-    its 'segmentation' instead (compute_segmentation_bounding_box), so that its annotations need no 'bbox' and its
-    boxes always follow its masks, an object whose segmentation has no usable part being left out.
+    detection trainer at launch, which measures how well the anchors fit them without loading any image. Every
+    category is mapped to its class, a category mapped to the background (0) being left out, and the crowd annotations
+    (iscrowd 1) are objects like the others. The object detection reads the 'bbox' of every object; the instance
+    segmentation reads its box from its 'segmentation' instead (compute_segmentation_bounding_box), so that its
+    annotations need no 'bbox' and its boxes always follow its masks, an object whose segmentation has no usable part
+    being left out.
 
     Args:
         annotations (List[Dict[str, Any]]): The COCO annotations of the image.
@@ -82,10 +86,6 @@ def select_image_objects(annotations: List[Dict[str, Any]], label_mode: str, lab
     """
     bounding_boxes, labels, kept_annotations = [], [], []
     for annotation in annotations:
-        # The crowd annotations cover several objects with one box and one mask, left out of the object detection and
-        # the instance segmentation, whose objects are single ones
-        if annotation.get('iscrowd', 0) == 1:
-            continue
         raw_id = annotation['category_id']
         if label_mode == "binary":
             mapped_label = 1 if raw_id > 0 else 0
@@ -126,7 +126,7 @@ class CocoDetectionDataset(Dataset):
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
                  label_mode: str, label_dictionary: Dict[str, Any], load_instance_masks: bool = False,
-                 shuffle: bool = True) -> None:
+                 load_original_instances: bool = False, shuffle: bool = True) -> None:
         """
         Initializes the COCO detection dataset and parses the JSON file.
 
@@ -138,15 +138,27 @@ class CocoDetectionDataset(Dataset):
             label_mode (str): Mode for class assignment ("binary" or "multi_class").
             label_dictionary (Dict[str, Any]): Dictionary to map raw classes.
             load_instance_masks (bool): Whether to return the binary mask of every object (instance segmentation).
-                Defaults to False (object detection). The crowd annotations are left out of both tasks.
+                Defaults to False (object detection). The crowd annotations are objects like the others in both
+                tasks.
+            load_original_instances (bool): Whether to also return the masks and boxes of the objects at the original
+                image resolution, for the evaluation of the instance segmentation at that resolution (test split of
+                'evaluation.original_resolution'), every object being then kept at the network resolution. Needs
+                load_instance_masks. Defaults to False.
             shuffle (bool): Whether to randomly shuffle the dataset internally. Defaults to True.
+
+        Raises:
+            ValueError: If the original instances are asked without the instance masks.
         """
+        if load_original_instances and not load_instance_masks:
+            raise ValueError("The objects at the original resolution (load_original_instances) are those of the "
+                             "instance segmentation, which needs load_instance_masks.")
         self.data_directory = data_directory
         self.image_size = image_size
         self.keep_ratio = keep_ratio
         self.label_mode = label_mode
         self.label_dictionary = label_dictionary
         self.load_instance_masks = load_instance_masks
+        self.load_original_instances = load_original_instances
 
         # Parse the JSON annotation file into memory for rapid preprocessing
         with open(file=labels_file, mode='r') as file_handler:
@@ -189,8 +201,9 @@ class CocoDetectionDataset(Dataset):
 
         Returns:
             dict: A dictionary containing the preprocessed image tensor, bounding boxes tensor, labels tensor, the
-                COCO identifier of the image ('sample_identifiers'), and with load_instance_masks the [N, S, S] uint8
-                instance masks ('instance_masks').
+                COCO identifier of the image ('sample_identifiers'), with load_instance_masks the [N, S, S] uint8
+                instance masks ('instance_masks'), and with load_original_instances the [N, H, W] uint8 masks
+                ('original_instance_masks') and [N, 4] boxes ('original_bounding_boxes') at the original resolution.
 
         Raises:
             ValueError: If an annotation has no 'segmentation' while the instance masks are loaded.
@@ -232,7 +245,10 @@ class CocoDetectionDataset(Dataset):
 
         sample = {"images": image_tensor, "bounding_boxes": bounding_boxes_tensor,
                   "labels": torch.tensor(data=labels, dtype=torch.int64), "sample_identifiers": image_identifier}
-        if self.load_instance_masks:
+        if self.load_original_instances:
+            sample = self.add_original_instances(sample=sample, annotations=kept_annotations,
+                                                 image_height=image.shape[0], image_width=image.shape[1])
+        elif self.load_instance_masks:
             sample = self.add_instance_masks(sample=sample, annotations=kept_annotations, image_height=image.shape[0],
                                              image_width=image.shape[1])
         return sample
@@ -255,18 +271,8 @@ class CocoDetectionDataset(Dataset):
             Dict[str, Any]: The sample with its 'instance_masks' [N, S, S] uint8, the boxes of its masks and the objects
                 of empty mask removed.
         """
-        # Mask of every object, select_image_objects having checked that every object has a 'segmentation'
-        masks = []
-        for annotation in annotations:
-            masks.append(build_instance_mask(segmentation=annotation['segmentation'], image_width=image_width,
-                                             image_height=image_height, image_size=self.image_size,
-                                             keep_ratio=self.keep_ratio))
-
-        # Stack the masks, keeping the [0, S, S] layout for an image without objects
-        if len(masks) == 0:
-            instance_masks = torch.zeros(size=(0, self.image_size, self.image_size), dtype=torch.uint8)
-        else:
-            instance_masks = torch.from_numpy(np.stack(arrays=masks))
+        instance_masks = self.build_instance_masks(annotations=annotations, image_height=image_height,
+                                                   image_width=image_width, image_size=self.image_size)
 
         # Remove the objects whose mask vanished at the network resolution, with their box and label
         non_empty = (instance_masks.flatten(start_dim=1) > 0).any(dim=1)
@@ -276,3 +282,71 @@ class CocoDetectionDataset(Dataset):
         # Box of every object from its mask at the network resolution
         sample["bounding_boxes"] = compute_mask_bounding_boxes(instance_masks=sample["instance_masks"])
         return sample
+
+    def add_original_instances(self, sample: Dict[str, Any], annotations: List[Dict[str, Any]], image_height: int,
+                               image_width: int) -> Dict[str, Any]:
+        """
+        Adds the objects of a test sample at the original image resolution, for the evaluation of the instance
+        segmentation at that resolution (as COCO evaluates it), along with their masks at the network resolution for
+        the proposal recall and the sample and error images. Only the objects without any pixel in the original image
+        are removed: an object whose mask vanishes once resized stays in the evaluation, with its empty mask and its
+        scaled segmentation box at the network resolution, so that both resolutions list the same objects in the same
+        order. The other objects take the tight boxes of their masks at both resolutions.
+
+        Args:
+            sample (Dict[str, Any]): The sample built by __getitem__, whose boxes (the scaled segmentation boxes) and
+                labels follow the annotations.
+            annotations (List[Dict[str, Any]]): The annotations of the kept objects, in the order of the boxes.
+            image_height (int): The height of the original image.
+            image_width (int): The width of the original image.
+
+        Returns:
+            Dict[str, Any]: The sample with its 'instance_masks' [N, S, S] uint8 and boxes at the network resolution,
+                its 'original_instance_masks' [N, H, W] uint8 and 'original_bounding_boxes' [N, 4] at the original
+                resolution, the objects without any pixel in the original image removed.
+        """
+        original_instance_masks = self.build_instance_masks(annotations=annotations, image_height=image_height,
+                                                            image_width=image_width, image_size=None)
+        instance_masks = self.build_instance_masks(annotations=annotations, image_height=image_height,
+                                                   image_width=image_width, image_size=self.image_size)
+
+        # Remove the objects without any pixel in the original image, at both resolutions
+        has_pixels = (original_instance_masks.flatten(start_dim=1) > 0).any(dim=1)
+        sample["original_instance_masks"] = original_instance_masks[has_pixels]
+        sample["original_bounding_boxes"] = compute_mask_bounding_boxes(
+            instance_masks=sample["original_instance_masks"])
+        sample["instance_masks"], sample["labels"] = instance_masks[has_pixels], sample["labels"][has_pixels]
+
+        # Box of every object from its mask at the network resolution, the scaled segmentation box for a vanished mask
+        mask_boxes = compute_mask_bounding_boxes(instance_masks=sample["instance_masks"])
+        vanished = ~(sample["instance_masks"].flatten(start_dim=1) > 0).any(dim=1)
+        sample["bounding_boxes"] = torch.where(vanished[:, None], sample["bounding_boxes"][has_pixels], mask_boxes)
+        return sample
+
+    def build_instance_masks(self, annotations: List[Dict[str, Any]], image_height: int, image_width: int,
+                             image_size: Optional[int]) -> torch.Tensor:
+        """
+        Builds the binary masks of the objects of an image, at the network resolution for the training and evaluation
+        of the instance segmentation, or at the original resolution for the evaluation at that resolution, stacked in
+        the order of the annotations.
+
+        Args:
+            annotations (List[Dict[str, Any]]): The annotations of the kept objects, select_image_objects having checked
+                that every one has a 'segmentation'.
+            image_height (int): The height of the original image.
+            image_width (int): The width of the original image.
+            image_size (Optional[int]): The size of the square network input, None for the original resolution.
+
+        Returns:
+            torch.Tensor: The [N, S, S], or [N, H, W] at the original resolution, uint8 masks, [0, S, S] or [0, H, W]
+                for an image without objects.
+        """
+        masks = [build_instance_mask(segmentation=annotation['segmentation'], image_width=image_width,
+                                     image_height=image_height, image_size=image_size, keep_ratio=self.keep_ratio)
+                 for annotation in annotations]
+
+        # Stack the masks, keeping the [0, S, S] or [0, H, W] layout for an image without objects
+        if len(masks) == 0:
+            mask_shape = (image_height, image_width) if image_size is None else (image_size, image_size)
+            return torch.zeros(size=(0, *mask_shape), dtype=torch.uint8)
+        return torch.from_numpy(np.stack(arrays=masks))

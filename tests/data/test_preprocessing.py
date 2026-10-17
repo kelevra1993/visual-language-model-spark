@@ -1,6 +1,7 @@
 """
 Tests of vision_training/data/preprocessing.py: restore_boxes_to_original_image inverts preprocess_boxes, bringing the
-detected boxes back to the original image coordinates, preprocess_boxes moves polygons like boxes, and
+detected boxes back to the original image coordinates, clipped to the image or kept whole for the pasting of the
+instance masks, preprocess_boxes moves polygons like boxes, and
 restore_prediction_to_original_image brings segmentation class maps and probabilities back to their original images.
 """
 
@@ -35,6 +36,23 @@ def test_restored_boxes_invert_the_preprocessing(image_width: int, image_height:
                                                      image_size=1024, keep_ratio=keep_ratio)
 
     assert np.allclose(restored_boxes, np.array(boxes))
+
+
+def test_restored_boxes_are_clipped_unless_kept_whole() -> None:
+    """
+    Verifies that a box predicted partly on the padding of a letterboxed image is clipped to the original image by
+    default, and kept whole without clipping, as the instance segmentation evaluated at the original resolution needs
+    to paste the mask of a detection into the whole box it was predicted in.
+    """
+    # A 200 x 100 image letterboxed into 400 pixels is scaled twice and moved down by 100 rows of padding
+    network_box = np.array(object=[[-20.0, 60.0, 120.0, 140.0]])
+    clipped_box = restore_boxes_to_original_image(bounding_boxes=network_box, image_width=200, image_height=100,
+                                                  image_size=400, keep_ratio=True)
+    whole_box = restore_boxes_to_original_image(bounding_boxes=network_box, image_width=200, image_height=100,
+                                                image_size=400, keep_ratio=True, clip=False)
+
+    assert np.allclose(clipped_box, [[0.0, 0.0, 60.0, 20.0]])
+    assert np.allclose(whole_box, [[-10.0, -20.0, 60.0, 20.0]])
 
 
 @pytest.mark.parametrize(argnames="keep_ratio", argvalues=[True, False])

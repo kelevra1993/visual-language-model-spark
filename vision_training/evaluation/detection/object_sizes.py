@@ -1,15 +1,16 @@
 """
 Object sizes of the object detection and instance segmentation evaluations, the COCO breakdown: small objects under
 32 x 32 pixels, medium ones up to 96 x 96 pixels and large ones above, measured in network input pixels (the size the
-detection levels see), by box area or, for the masks of the instance segmentation, by mask area. Used by the average
-precision by size (mean_average_precision.py) and by the recalls of the anchors and of the proposals
-(region_recall.py).
+detection levels see), or in original image pixels for the instance segmentation evaluated at the original resolution,
+by box area or, for the masks of the instance segmentation, by mask area. Used by the average precision and recall by
+size (mean_average_precision.py) and by the recalls of the anchors and of the proposals (region_recall.py).
 """
 
 import math
 import torch
 
-# Area range of every object size, in squared network input pixels, the lower bound included and the upper excluded
+# Area range of every object size, in squared pixels of the evaluated resolution, the lower bound included and the
+# upper excluded
 OBJECT_SIZE_RANGES = {"small": (0.0, 32.0 ** 2), "medium": (32.0 ** 2, 96.0 ** 2), "large": (96.0 ** 2, math.inf)}
 
 # Displayed name of every object size, with its range
@@ -36,7 +37,7 @@ def is_in_object_size(areas: torch.Tensor, object_size: str) -> torch.Tensor:
     being ignored) and for the recalls by size.
 
     Args:
-        areas (torch.Tensor): The areas, in squared network input pixels.
+        areas (torch.Tensor): The areas, in squared pixels of the evaluated resolution.
         object_size (str): "small", "medium" or "large".
 
     Returns:

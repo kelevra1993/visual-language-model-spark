@@ -11,7 +11,7 @@ import torch
 
 from typing import Dict, List, Optional, Tuple
 
-from vision_training.models.detection.box_operations import (get_box_dimensions_and_centers,
+from vision_training.models.detection.box_operations import (BOX_REGRESSION_WEIGHTS, get_box_dimensions_and_centers,
                                                              get_intersection_over_union)
 from vision_training.utilities.os_utilities import print_color
 
@@ -242,6 +242,7 @@ def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
     Instead, they predict parameterized offsets relative to a base box (like an anchor or a previous proposal).
     This function calculates those continuous targets by computing the scale-invariant center shifts (dx, dy)
     and the log-space dimension adjustments (dw, dh) so the network can safely regress them using Smooth L1 Loss.
+    The offsets are multiplied by BOX_REGRESSION_WEIGHTS, which apply_regression_predictions divides out when decoding.
 
     Args:
         ground_truth_boxes (torch.Tensor): A tensor of shape (..., N, 4)
@@ -275,9 +276,10 @@ def turn_boxes_to_transformation_targets(ground_truth_boxes: torch.Tensor,
     target_dw = torch.log(input=(ground_truth_boxes_widths / (predicted_boxes_widths + 1e-6)).clamp(min=1e-6))
     target_dh = torch.log(input=(ground_truth_boxes_heights / (predicted_boxes_heights + 1e-6)).clamp(min=1e-6))
 
-    # Stack the individual parameterized targets into the final format [dx, dy, dw, dh]
+    # Stack the individual parameterized targets into the final format [dx, dy, dw, dh], each scaled by its weight
     # Shape: (..., N, 4)
     regression_targets = torch.stack(tensors=[target_dx, target_dy, target_dw, target_dh], dim=-1)
+    regression_targets = regression_targets * regression_targets.new_tensor(data=BOX_REGRESSION_WEIGHTS)
 
     return regression_targets
 

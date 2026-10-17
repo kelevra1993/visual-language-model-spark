@@ -1,6 +1,7 @@
 """
 Tests of vision_training/evaluation/detection/average_precision_report.py on the results of evaluate_detections: the
-table of the average precision methods, the table of the object sizes, the per-class rows of class_metrics.csv (a class
+table of the average precision methods, the table of the object sizes, the table of the mean average recalls with the
+resolution of the object sizes, the per-class rows of class_metrics.csv (a class
 without ground truth or without object of a size having no average precision), the per-class table sorted by AP@0.5,
 the class thresholds of both, and the title and column prefixes of the box and mask tables of the instance
 segmentation.
@@ -11,7 +12,8 @@ import torch
 
 from typing import Any, Dict, List
 
-from vision_training.evaluation.detection.average_precision_report import (build_class_average_precision_rows,
+from vision_training.evaluation.detection.average_precision_report import (build_average_recall_table,
+                                                                           build_class_average_precision_rows,
                                                                            build_class_average_precision_table,
                                                                            build_mean_average_precision_table,
                                                                            build_object_size_table)
@@ -59,6 +61,30 @@ def test_object_size_table() -> None:
     mask_table = build_object_size_table(results=get_two_class_results(), title_prefix="Mask", area_name="mask")
     assert mask_table["title"] == "Mask Mean Average Precision By Object Size (Area)"
     assert "by mask area" in mask_table["legend"]
+
+
+def test_average_recall_table_and_resolution_of_the_sizes() -> None:
+    """
+    Verifies the table of the mean average recalls, always shown: all the objects then every size, the found class 1
+    object and the missed class 2 object giving a recall of 0.5 at every threshold, the medium and large rows having no
+    object and no recall, and the prefix, area and resolution of the mask recalls evaluated at the original resolution,
+    also named by the legend of the object size table.
+    """
+    table = build_average_recall_table(results=get_two_class_results())
+    assert table["title"] == "Mean Average Recall"
+    assert table["columns"] == ["Objects Of", "Objects", "mAR@0.5", "mAR@0.75", "mAR@[0.5:0.95]"]
+    assert table["rows"][0] == ["All", 2, 0.5, 0.5, 0.5] and table["rows"][1] == ["Small (< 32²)", 2, 0.5, 0.5, 0.5]
+    assert table["rows"][2][1:] == [0, None, None, None] and table["rows"][3][1:] == [0, None, None, None]
+    assert table["per_class"] is False and "by box area in network input pixels" in table["legend"]
+
+    # Mask recalls and object sizes measured at the original resolution of the test images
+    mask_table = build_average_recall_table(results=get_two_class_results(), title_prefix="Mask", area_name="mask",
+                                            resolution_name="original image")
+    assert mask_table["title"] == "Mask Mean Average Recall"
+    assert "by mask area in original image pixels" in mask_table["legend"]
+    size_table = build_object_size_table(results=get_two_class_results(), title_prefix="Mask", area_name="mask",
+                                         resolution_name="original image")
+    assert "by mask area in original image pixels" in size_table["legend"]
 
 
 def test_class_average_precision_rows_and_table() -> None:

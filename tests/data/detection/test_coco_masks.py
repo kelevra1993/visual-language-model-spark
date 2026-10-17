@@ -2,8 +2,8 @@
 Tests of vision_training/data/detection/coco_masks.py, the decoding of the COCO segmentations into the instance masks
 of the instance segmentation task: exact pixels of the rasterised polygons with and without letterbox padding, union of
 overlapping polygon parts, uncompressed and compressed run length encodings, polygons and encodings of the same
-object giving the same mask and boxes at the network resolution, also once shrunk, and the boxes read from the
-segmentations without decoding.
+object giving the same mask and boxes at the network resolution, also once shrunk, and at the original resolution of a
+non-square image (the mask evaluation at that resolution), and the boxes read from the segmentations without decoding.
 """
 
 import numpy as np
@@ -175,6 +175,33 @@ def test_polygon_and_encoding_of_one_object_give_the_same_mask() -> None:
         box_differences.append((mask_boxes[0] - mask_boxes[1]).numpy())
     assert np.abs(np.stack(arrays=box_differences)).max() <= 1
     assert np.abs(np.mean(a=np.stack(arrays=box_differences), axis=0)).max() < 0.2
+
+
+def test_masks_at_the_original_resolution_of_a_non_square_image() -> None:
+    """
+    Verifies that without image size the masks stay at the original resolution of a non-square image, for the mask
+    evaluation at that resolution: a polygon covers exactly its pixels, also beyond the first rows and columns of a
+    square of the image height, the encoding of the same pixels gives the same mask, and an encoding of another size
+    than its image is refused instead of giving a misaligned mask.
+    """
+    # A polygon reaching the right part of a 7 x 12 image covers exactly the pixels inside it
+    polygon = [[3.0, 1.0, 11.0, 1.0, 11.0, 6.0, 3.0, 6.0]]
+    expected = np.zeros(shape=(7, 12), dtype=np.uint8)
+    expected[1:6, 3:11] = 1
+    polygon_mask = build_instance_mask(segmentation=polygon, image_width=12, image_height=7, image_size=None,
+                                       keep_ratio=True)
+    assert polygon_mask.dtype == np.uint8 and np.array_equal(polygon_mask, expected)
+
+    # The encoding of the same pixels is returned as decoded, whatever the aspect ratio setting
+    for keep_ratio in [True, False]:
+        encoded_mask = build_instance_mask(segmentation=encode_run_length_encoding(mask=expected), image_width=12,
+                                           image_height=7, image_size=None, keep_ratio=keep_ratio)
+        assert np.array_equal(encoded_mask, expected)
+
+    # An encoding whose size is not the one of its image is refused
+    with pytest.raises(expected_exception=ValueError, match="instead of the 12 x 7"):
+        build_instance_mask(segmentation=encode_run_length_encoding(mask=expected), image_width=7, image_height=12,
+                            image_size=None, keep_ratio=True)
 
 
 @pytest.mark.parametrize(argnames="compressed", argvalues=[False, True])

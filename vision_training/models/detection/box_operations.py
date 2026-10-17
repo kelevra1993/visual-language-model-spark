@@ -17,6 +17,13 @@ from vision_training.utilities.tensor_utilities import print_tensor_shape
 # It caps a box at 1000/16 = 62.5 times its reference size and prevents exp() from overflowing to inf.
 MAXIMUM_LOG_SCALE_OFFSET = math.log(1000.0 / 16)
 
+# Weights of the regression offsets (dx, dy, dw, dh) of both stages, those of the second stage of torchvision and
+# Detectron2 (whose region proposal networks keep (1, 1, 1, 1)) applied here to both stages: the targets are
+# multiplied by them (turn_boxes_to_transformation_targets) and the predictions divided by them before decoding
+# (apply_regression_predictions), so that the small centre and log-scale offsets of well placed boxes are regressed
+# in a range where the smooth L1 loss keeps a useful gradient. Fixed in the code, without configuration option.
+BOX_REGRESSION_WEIGHTS = (10.0, 10.0, 5.0, 5.0)
+
 
 def get_area(boxes: torch.Tensor) -> torch.Tensor:
     """
@@ -129,7 +136,8 @@ def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: to
     boxes (or proposed region boxes) to yield the final predicted spatial bounding boxes.
     The regression predictions must always be of shape (..., N, k, 4), where k=1 for region proposals 
     and k=number of classes for final detections. This supports both unbatched (N, k, 4) 
-    and batched (B, N, k, 4) inputs seamlessly.
+    and batched (B, N, k, 4) inputs seamlessly. The predictions are the weighted offsets the heads are trained on,
+    divided by BOX_REGRESSION_WEIGHTS before being applied.
     
     Args:
         regression_predictions (torch.Tensor): A tensor of shape (..., N, k, 4) containing the predicted 
@@ -152,12 +160,12 @@ def apply_regression_predictions(regression_predictions: torch.Tensor, boxes: to
     boxes_center_x = boxes_center_x.unsqueeze(dim=-1)
     boxes_center_y = boxes_center_y.unsqueeze(dim=-1)
 
-    # Get the predictions from regression predictions using ellipsis to support arbitrary batch dims
-    dx = regression_predictions[..., 0]
-    dy = regression_predictions[..., 1]
-    # Clamp the log-scale offsets so that exp() stays finite, even for extreme early-training predictions
-    dw = regression_predictions[..., 2].clamp(max=MAXIMUM_LOG_SCALE_OFFSET)
-    dh = regression_predictions[..., 3].clamp(max=MAXIMUM_LOG_SCALE_OFFSET)
+    # Get the offsets from the weighted regression predictions, using ellipsis to support arbitrary batch dims
+    dx = regression_predictions[..., 0] / BOX_REGRESSION_WEIGHTS[0]
+    dy = regression_predictions[..., 1] / BOX_REGRESSION_WEIGHTS[1]
+    # Clamp the unweighted log-scale offsets so that exp() stays finite, even for extreme early-training predictions
+    dw = (regression_predictions[..., 2] / BOX_REGRESSION_WEIGHTS[2]).clamp(max=MAXIMUM_LOG_SCALE_OFFSET)
+    dh = (regression_predictions[..., 3] / BOX_REGRESSION_WEIGHTS[3]).clamp(max=MAXIMUM_LOG_SCALE_OFFSET)
 
     # Apply regressions to calculate the predicted centers
     predicted_center_x = boxes_widths * dx + boxes_center_x

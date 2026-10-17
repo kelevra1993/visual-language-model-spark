@@ -19,6 +19,7 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            check_positive_integers,
                                                                            check_probability_value,
                                                                            get_configuration_value)
+from vision_training.utilities.os_utilities import print_color
 
 
 # Settings of every detection level of the object detection, the instance segmentation adding the mask head of the
@@ -168,7 +169,9 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
     Verifies the 'RegionProposal' section, the settings shared by the region proposal heads of every level (their
     convolutions being checked with the levels): the normalization, the IoU thresholds used to label anchors, the
     proposal counts kept around non-maximum suppression, the anchor sampling budget of the proposal losses, and the
-    'pretrained' settings initialising the heads with those of another run.
+    'pretrained' settings initialising the heads with those of another run. A background range starting above 0.0 is
+    allowed but printed as a yellow warning, since the anchors overlapping no object are then never sampled as
+    background, only the hard negatives touching an object.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'RegionProposal' section.
@@ -212,6 +215,14 @@ def check_region_proposal_configuration(model_configuration: Dict[str, Any]) -> 
             errors.append(f"'RegionProposal.background_iou_threshold.max' ({background_threshold['max']}) must be <= "
                           f"'RegionProposal.foreground_iou_threshold.min' ({foreground_threshold['min']}), otherwise "
                           f"anchors can be labelled both background and foreground.")
+
+        # A background range starting above 0.0 ignores the anchors overlapping no object, the region proposal
+        # network then only learning from the hard negatives: allowed, but announced
+        if background_threshold["min"] > 0.0:
+            print_color(color="yellow",
+                        output=f"Warning: 'RegionProposal.background_iou_threshold.min' is "
+                               f"{background_threshold['min']}, above 0.0: the anchors whose best IoU is below it "
+                               f"are ignored, only the hard negatives being sampled as background.")
 
     # Proposal counts kept before and after non-maximum suppression
     errors += check_boolean_flags(configuration=model_configuration,

@@ -33,8 +33,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     """
     Writes a copy of the synthetic shapes configuration adapted to a quick training smoke test: the generated
     dataset, 256 pixel images, the Native loader, batches of 2 images, a saving schedule that triggers an
-    intermediate save, a save with test evaluation and a validation pass within a handful of iterations, and the error
-    images of the evaluation, at most 2 per folder.
+    intermediate save, a save with test evaluation and a validation pass within a handful of iterations, the error
+    images of the evaluation, at most 2 per folder, and no moving average of the weights.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
@@ -57,6 +57,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
                                      "validation_iteration_ratio": 2, "resume_training": True})
     experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": False,
                                                         "compute_model_size": False, "view_input_images": False})
+    # Trained weights only, the evaluation of the moving average of the weights being tested by the base trainer tests
+    configuration["Optimization"]["exponential_moving_average"]["activated"] = False
 
     # Error images of the evaluation, a few per folder, with the deployment threshold lowered to the evaluation one so
     # that the barely trained detector gives false positives and confusions next to its missed objects
@@ -99,7 +101,8 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     Verifies the whole training pipeline on a generated synthetic dataset: the launch prints the anchor recall of the
     training objects and writes anchor_recall.csv to the run folder, 5 iterations save the intermediate and evaluated
     checkpoints and the final one, evaluate the test split into Results.txt (the tables of the average precision
-    methods, of the object sizes and of the proposal recall, and the per-class table with the class thresholds),
+    methods, of the object sizes, of the mean average recall and of the proposal recall, and the per-class table with
+    the class thresholds),
     class_metrics.csv (the ground truth boxes of every class summing to those of the test images, the average
     precisions of every object size), proposal_recall.csv, the confusion matrix, class thresholds and error images of
     the detections (check_detection_error_analysis) and the sample images of the test images, and write the three
@@ -136,13 +139,15 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
         (4, "4 Test Images"), (5, "4 Test Images")]
     assert [table["title"] for table in results["tables"]] == ["Mean Average Precision",
                                                               "Mean Average Precision By Object Size (Area)",
-                                                              "Proposal Recall", "Per Class Average Precision (Area)"]
+                                                              "Mean Average Recall", "Proposal Recall",
+                                                              "Per Class Average Precision (Area)"]
     assert "Per Class Average Precision (Area)" in results_blocks[1]["text"]
     assert "Proposal Recall" in results_blocks[1]["text"]
     assert all(scalar_name.startswith("AP@0.5/") for scalar_name in results["class_scalars"])
     assert {"Proposal Recall@0.5/all", "Proposal Recall@0.7/block_5", "Proposals Per Image/all"} <= set(
         results["scalars"])
     assert any(scalar_name.startswith("mAP@0.5 By Size/") for scalar_name in results["scalars"])
+    assert {"mAR@0.5/all", "mAR@[0.5:0.95]/all"} <= set(results["scalars"])
 
     # The ground truth boxes of every class sum to the boxes of the test images, with the average precisions of every
     # object size before the thresholds

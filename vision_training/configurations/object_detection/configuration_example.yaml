@@ -1,7 +1,7 @@
 ExperimentConfiguration:
   # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
   # "object_detection" trains the two-stage detector, and requires the RegionProposal, DetectionLevels and Detector
-  # sections. The labels are COCO annotations, the crowd annotations (iscrowd 1) being left out.
+  # sections. The labels are COCO annotations, the crowd annotations (iscrowd 1) being objects like the others.
   task: "object_detection"
   # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
   # backbone modules, normalization and blocks, levels, anchors, heads, classes, optimizer and weight decay unless plain
@@ -337,12 +337,14 @@ RegionProposal:
     # Maximum IoU limit for matching (capped at 1.0).
     max: 1.0
   background_iou_threshold:
-    # Minimum IoU required for an anchor to be a strict background sample.
-    min: 0.1
+    # Minimum IoU required for an anchor to be a strict background sample. At 0.0 every anchor overlapping no object
+    # can be sampled as background; above 0.0 those anchors are ignored and only the hard negatives (anchors touching
+    # an object) are sampled, which the configuration checks allow with a yellow warning.
+    min: 0.0
     # Maximum IoU allowed for an anchor to be a strict background sample.
     max: 0.3
   # IoU threshold for Non-Maximum Suppression to eliminate redundant overlapping proposals.
-  nms_iou_threshold: 0.5
+  nms_iou_threshold: 0.7
   # Force assign best-overlapping anchors as foreground even if below the min threshold.
   strict_fallback_assignment: False
   # Exact number of strictly positive foreground anchors sampled for loss calculation per image.
@@ -397,7 +399,7 @@ Detector:
   # Minimum IoU required for a filtered proposal to be classified as a positive target.
   foreground_iou_threshold: 0.5
   # IoU overlap tolerance for the final per-class Non-Maximum Suppression pass on predictions.
-  nms_iou_threshold: 0.8
+  nms_iou_threshold: 0.5
   # Upper limit of positive (foreground) region proposals sampled per image. The ground truth boxes of the image are
   # written into its last proposal slots first, so every object has a positive proposal to sample from.
   number_training_positives: 64

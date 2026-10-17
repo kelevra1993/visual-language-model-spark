@@ -22,8 +22,8 @@ from vision_training.evaluation.detection.region_recall import (
 def test_training_object_boxes_follow_the_preprocessing(tmp_path: Path) -> None:
     """
     Verifies that the boxes of the training objects are read from the annotations in image order, scaled and shifted
-    into network input pixels like the letterboxed images, the crowd annotation, the category mapped to the background
-    and the image without objects left out, without any image file being read.
+    into network input pixels like the letterboxed images, the crowd annotation kept like the other objects, the
+    category mapped to the background and the image without objects left out, without any image file being read.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -45,7 +45,8 @@ def test_training_object_boxes_follow_the_preprocessing(tmp_path: Path) -> None:
     # The 40 x 20 image is scaled twice with 20 rows of padding above it, the 80 x 80 one is kept as it is
     object_boxes = gather_training_object_boxes(dataset=dataset)
     assert object_boxes.dtype == torch.float32
-    assert torch.equal(object_boxes, torch.tensor(data=[[4.0, 24.0, 12.0, 32.0], [10.0, 10.0, 30.0, 40.0]]))
+    expected_boxes = [[4.0, 24.0, 12.0, 32.0], [0.0, 20.0, 80.0, 60.0], [10.0, 10.0, 30.0, 40.0]]
+    assert torch.equal(object_boxes, torch.tensor(data=expected_boxes))
 
     # A split without any learnt object gives an empty [0, 4] tensor
     dataset.images = [dataset.images[2]]

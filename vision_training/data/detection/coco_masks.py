@@ -1,17 +1,19 @@
 """
-Decoding of the COCO 'segmentation' field of an annotation into a binary instance mask at the network resolution,
-read by CocoDetectionDataset for the instance segmentation task: polygons are rasterised directly in the network input,
-run length encodings (uncompressed or compressed) are decoded at the original resolution then resized and padded like
-their image. The masks feed the mask targets of the instance segmenter and the mask evaluation. The boxes of the
-instance segmentation come from the masks too: from the segmentation field without decoding it (selection of the
-objects, anchor recall) and from the masks at the network resolution (loader, geometric augmentations).
+Decoding of the COCO 'segmentation' field of an annotation into a binary instance mask at the network resolution or
+at the original image resolution, read by CocoDetectionDataset for the instance segmentation task: polygons are
+rasterised directly in the network input, run length encodings (uncompressed or compressed) are decoded at the
+original resolution then resized and padded like their image. The masks feed the mask targets of the instance
+segmenter and the mask evaluation, which can also read the masks at the original image resolution
+(evaluation.original_resolution). The boxes of the instance segmentation come from the masks too: from the
+segmentation field without decoding it (selection of the objects, anchor recall) and from the masks at the network
+resolution (loader, geometric augmentations).
 """
 
 import cv2
 import numpy as np
 import torch
 
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 from vision_training.data.preprocessing import preprocess_boxes, preprocess_image
 
@@ -25,15 +27,15 @@ def fill_polygon_part(mask: np.ndarray, vertices: np.ndarray) -> None:
     (even-odd rule), all rows at once through a difference array.
 
     Args:
-        mask (np.ndarray): The [S, S] uint8 mask, modified in place.
+        mask (np.ndarray): The [H, W] uint8 mask, modified in place.
         vertices (np.ndarray): The [V, 2] x, y vertices of the part in mask pixels, whose integer coordinates are pixel
             edges.
     """
-    mask_size = mask.shape[0]
+    mask_height, mask_width = mask.shape
 
     # Only the rows within the vertical span of the part can hold its pixels
-    first_row = int(np.clip(np.floor(vertices[:, 1].min()), 0, mask_size))
-    end_row = int(np.clip(np.ceil(vertices[:, 1].max()), 0, mask_size))
+    first_row = int(np.clip(np.floor(vertices[:, 1].min()), 0, mask_height))
+    end_row = int(np.clip(np.ceil(vertices[:, 1].max()), 0, mask_height))
     if end_row <= first_row:
         return
     number_rows = end_row - first_row
@@ -56,43 +58,52 @@ def fill_polygon_part(mask: np.ndarray, vertices: np.ndarray) -> None:
 
     # Pixel columns whose centre lies within [start, end) of every span, clipped to the mask
     valid_spans = np.isfinite(span_ends)
-    first_columns = np.clip(np.ceil(span_starts - 0.5), 0, mask_size).astype(np.int64)
-    end_columns = np.clip(np.ceil(np.where(valid_spans, span_ends, 0.0) - 0.5), 0, mask_size).astype(np.int64)
+    first_columns = np.clip(np.ceil(span_starts - 0.5), 0, mask_width).astype(np.int64)
+    end_columns = np.clip(np.ceil(np.where(valid_spans, span_ends, 0.0) - 0.5), 0, mask_width).astype(np.int64)
     row_indices = np.broadcast_to(np.arange(number_rows)[:, None], shape=span_starts.shape)
     keep = valid_spans & (end_columns > first_columns)
 
     # Mark the start and end of every span in a difference array, whose running sum along the row covers the spans
-    differences = np.zeros(shape=(number_rows, mask_size + 1), dtype=np.int32)
+    differences = np.zeros(shape=(number_rows, mask_width + 1), dtype=np.int32)
     np.add.at(differences, (row_indices[keep], first_columns[keep]), 1)
     np.add.at(differences, (row_indices[keep], end_columns[keep]), -1)
-    mask[first_row:end_row][np.cumsum(a=differences, axis=1)[:, :mask_size] > 0] = 1
+    mask[first_row:end_row][np.cumsum(a=differences, axis=1)[:, :mask_width] > 0] = 1
 
 
-def rasterize_polygons(polygons: List[List[float]], image_width: int, image_height: int, image_size: int,
+def rasterize_polygons(polygons: List[List[float]], image_width: int, image_height: int, image_size: Optional[int],
                        keep_ratio: bool) -> np.ndarray:
     """
     Rasterises the polygon parts of one COCO object into its binary mask in the network input, the vertices being
-    placed by preprocess_boxes exactly like the boxes of the image. Every part is filled on its own so that the mask is
-    the union of the parts, as in COCO, a single even-odd fill over several parts cutting holes where they overlap. A
-    pixel belongs to a part when its centre lies inside it.
+    placed by preprocess_boxes exactly like the boxes of the image, or at the original image resolution for the mask
+    evaluation at that resolution, the vertices then being kept as they are. Every part is filled on its own so that
+    the mask is the union of the parts, as in COCO, a single even-odd fill over several parts cutting holes where they
+    overlap. A pixel belongs to a part when its centre lies inside it.
 
     Args:
         polygons (List[List[float]]): The parts of the object, each a flat [x1, y1, x2, y2, ...] list of vertices in
             original image pixels, whose integer coordinates are pixel edges.
         image_width (int): The width of the original image.
         image_height (int): The height of the original image.
-        image_size (int): The size of the square network input.
-        keep_ratio (bool): Whether the image is letterboxed (aspect ratio kept) or stretched.
+        image_size (Optional[int]): The size of the square network input, None for the original image resolution.
+        keep_ratio (bool): Whether the image is letterboxed (aspect ratio kept) or stretched, unused at the original
+            resolution.
 
     Returns:
-        np.ndarray: The [image_size, image_size] uint8 mask, 1 on the object.
+        np.ndarray: The [image_size, image_size] uint8 mask, or [image_height, image_width] at the original
+            resolution, 1 on the object.
     """
-    mask = np.zeros(shape=(image_size, image_size), dtype=np.uint8)
-
     # A part needs 3 vertices to enclose any area, the shorter ones are skipped
     valid_polygons = [polygon for polygon in polygons if len(polygon) >= 6 and len(polygon) % 2 == 0]
-    transformed_polygons = preprocess_boxes(bounding_boxes=valid_polygons, image_width=image_width,
-                                            image_height=image_height, image_size=image_size, keep_ratio=keep_ratio)
+
+    # Vertices kept in original pixels at the original resolution, else placed in the network input like the boxes
+    if image_size is None:
+        mask = np.zeros(shape=(image_height, image_width), dtype=np.uint8)
+        transformed_polygons = valid_polygons
+    else:
+        mask = np.zeros(shape=(image_size, image_size), dtype=np.uint8)
+        transformed_polygons = preprocess_boxes(bounding_boxes=valid_polygons, image_width=image_width,
+                                                image_height=image_height, image_size=image_size,
+                                                keep_ratio=keep_ratio)
 
     # Fill every part on its own into the same mask, giving the union of the parts
     for polygon in transformed_polygons:
@@ -139,7 +150,7 @@ def decode_compressed_counts(compressed_counts: str) -> List[int]:
 def decode_run_length_encoding(segmentation: Dict[str, Any]) -> np.ndarray:
     """
     Decodes a COCO run length encoding into its binary mask at the original image resolution, for the RLE annotations
-    of COCO (crowds) and the visible parts of the synthetic instance segmentation objects.
+    of COCO (mostly its crowd annotations) and the visible parts of the synthetic instance segmentation objects.
 
     Args:
         segmentation (Dict[str, Any]): The encoding, with 'size' [height, width] and 'counts', a list of run lengths
@@ -244,11 +255,12 @@ def compute_segmentation_bounding_box(segmentation: Union[List[List[float]], Dic
 
 def compute_mask_bounding_boxes(instance_masks: torch.Tensor) -> torch.Tensor:
     """
-    Gives the tight box of every instance mask at the network resolution, the box the instance segmentation learns
-    and is evaluated on: CocoDetectionDataset takes the box of every object from its mask once resized, and the data
-    augmenter replaces the moved box of every object by the box of its moved mask after a geometric augmentation (a
-    rotated box would become the larger enclosing box of its corners). An empty mask, whose object left the image,
-    gives an empty box, removed by clean_bounding_boxes.
+    Gives the tight box of every instance mask, the box the instance segmentation learns and is evaluated on, at the
+    network resolution or, for the evaluation at the original resolution, at that resolution: CocoDetectionDataset
+    takes the box of every object from its mask once resized, and the data augmenter replaces the moved box of every
+    object by the box of its moved mask after a geometric augmentation (a rotated box would become the larger
+    enclosing box of its corners). An empty mask, whose object left the image, gives an empty box, removed by
+    clean_bounding_boxes.
 
     Args:
         instance_masks (torch.Tensor): The [N, H, W] binary masks.
@@ -272,30 +284,44 @@ def compute_mask_bounding_boxes(instance_masks: torch.Tensor) -> torch.Tensor:
 
 
 def build_instance_mask(segmentation: Union[List[List[float]], Dict[str, Any]], image_width: int, image_height: int,
-                        image_size: int, keep_ratio: bool) -> np.ndarray:
+                        image_size: Optional[int], keep_ratio: bool) -> np.ndarray:
     """
     Builds the binary mask of one COCO object at the network resolution, aligned with its preprocessed image, for the
     instance masks returned by CocoDetectionDataset: polygons are rasterised directly in the network input, run length
     encodings are decoded at the original resolution then resized with the nearest interpolation and padded with 0.
+    Without image size, the mask stays at the original image resolution, for the mask evaluation at that resolution
+    (evaluation.original_resolution of the instance segmentation).
 
     Args:
         segmentation (Union[List[List[float]], Dict[str, Any]]): The 'segmentation' field of the annotation, a list of
             polygon parts or a run length encoding.
         image_width (int): The width of the original image.
         image_height (int): The height of the original image.
-        image_size (int): The size of the square network input.
-        keep_ratio (bool): Whether the image is letterboxed (aspect ratio kept) or stretched.
+        image_size (Optional[int]): The size of the square network input, None for the original image resolution.
+        keep_ratio (bool): Whether the image is letterboxed (aspect ratio kept) or stretched, unused at the original
+            resolution.
 
     Returns:
-        np.ndarray: The [image_size, image_size] uint8 mask, 1 on the object.
+        np.ndarray: The [image_size, image_size] uint8 mask, or [image_height, image_width] at the original
+            resolution, 1 on the object.
+
+    Raises:
+        ValueError: If a run length encoding at the original resolution does not have the size of its image.
     """
-    # Polygon parts, placed like the boxes then filled at the network resolution
+    # Polygon parts, placed like the boxes then filled at the network resolution, or filled at the original one
     if isinstance(segmentation, list):
         return rasterize_polygons(polygons=segmentation, image_width=image_width, image_height=image_height,
                                   image_size=image_size, keep_ratio=keep_ratio)
 
-    # Run length encoding, decoded at the original resolution then resized on the pixel centres like the image, the
-    # plain nearest neighbour shifting the mask, and the box taken from it, by half a pixel when the image shrinks
+    # Run length encoding at the original resolution, which must cover its image exactly to stay aligned with it
     original_mask = decode_run_length_encoding(segmentation=segmentation)
+    if image_size is None:
+        if original_mask.shape != (image_height, image_width):
+            raise ValueError(f"The run length encoding has the size {original_mask.shape[0]} x "
+                             f"{original_mask.shape[1]} instead of the {image_height} x {image_width} of its image.")
+        return original_mask
+
+    # Resized on the pixel centres like the image, the plain nearest neighbour shifting the mask, and the box taken
+    # from it, by half a pixel when the image shrinks
     return preprocess_image(image=original_mask, image_size=image_size, keep_ratio=keep_ratio,
                             interpolation=cv2.INTER_NEAREST_EXACT, padding_value=0)

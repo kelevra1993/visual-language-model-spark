@@ -1700,7 +1700,8 @@ if __name__ == "__main__":
     # "frame_selection" (one shape per frame, the largest circle, triangle and star being the frames to select)
     task = "classification"
     # Root folder of the created dataset of every task, the ones expected by the synthetic configurations of
-    # vision_training/configurations/. Existing images and labels of the same splits are overwritten
+    # vision_training/configurations/, the object detection configuration reading the instance segmentation dataset
+    # (the boxes of the visible part of every shape). Existing images and labels of the same splits are overwritten
     output_folders = {"object_detection": "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes",
                       "instance_segmentation": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes",
                       "classification": "/home/robert_kelevra/Data/classifier_data/synthetic_shapes",
@@ -1714,9 +1715,11 @@ if __name__ == "__main__":
                    "semantic_segmentation": 512,
                    "sequence_classification": 512, "sequence_labelling": 512, "sequence_comparison": 512,
                    "frame_selection": 256}
-    # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task
+    # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task. The 128000
+    # training images of the instance segmentation are the 2000 iterations of 64 images of the synthetic object
+    # detection and instance segmentation configurations, every image being seen once
     split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
-                   "instance_segmentation": {"train": 2000, "validation": 200, "test": 200},
+                   "instance_segmentation": {"train": 128000, "validation": 20000, "test": 20000},
                    "classification": {"train": 500000, "validation": 50000, "test": 50000},
                    "semantic_segmentation": {"train": 2000, "validation": 200, "test": 200},
                    "sequence_classification": {"train": 2000, "validation": 200, "test": 200},

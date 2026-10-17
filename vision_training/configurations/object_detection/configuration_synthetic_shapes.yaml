@@ -2,12 +2,14 @@
 # triangles, rectangles, pentagons, hexagons, plus signs, stars, octagons, rhombuses, parallelograms, trapezoids,
 # kites, heptagons, nonagons, ellipses, semicircles, annuluses, capsules, L-shapes, from 64 pixels
 # to a third of the image side, a dataset created before the last eleven were added keeping the first nine),
-# created with vision_training/data/synthetic/create_synthetic_dataset.py. It is a trivial
-# detection task, used to check that the detector learns.
+# created with vision_training/data/synthetic/create_synthetic_dataset.py with the "instance_segmentation" task: the
+# detector reads the boxes of the instance segmentation dataset (the boxes of the visible part of every shape), so
+# that the detection and instance segmentation runs train on the same images. It is a trivial detection task, used to
+# check that the detector learns.
 ExperimentConfiguration:
   # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
   # "object_detection" trains the two-stage detector, and requires the RegionProposal, DetectionLevels and Detector
-  # sections. The labels are COCO annotations, the crowd annotations (iscrowd 1) being left out.
+  # sections. The labels are COCO annotations, the crowd annotations (iscrowd 1) being objects like the others.
   task: "object_detection"
   # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
   # backbone modules, normalization and blocks, levels, anchors, heads, classes, optimizer and weight decay unless plain
@@ -18,25 +20,25 @@ ExperimentConfiguration:
   # changed values. The format is described in vision_training/configuration_processing/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Root directory containing the training dataset images and labels.json annotation file.
-  train_data_folder: "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes/train"
+  train_data_folder: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/train"
   # Root directory containing the validation dataset images and labels.json annotation file.
-  validation_data_folder: "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes/validation"
+  validation_data_folder: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/validation"
   # Root directory containing the test dataset images and labels.json annotation file.
-  test_data_folder: "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes/test"
+  test_data_folder: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/test"
   # Number of images processed in a single forward/backward pass.
-  batch_size: 40
+  batch_size: 64
   # Frequency (in iterations) to log performance metrics.
   information_dump: 1000
   # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
-  weight_saving_iterations: 10000
+  weight_saving_iterations: 250
   # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
   # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
-  intermediate_weight_saving_iterations: 2000
+  intermediate_weight_saving_iterations: 125
   # Total number of training iterations before stopping.
-  number_iterations: 1e10
+  number_iterations: 2000
   # Ratio controlling how often validation is run during training.
   # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
-  validation_iteration_ratio: 25
+  validation_iteration_ratio: 0
   # Test evaluation run at every weight_saving_iterations checkpoint, computing the mean average precision (mAP)
   # on the whole test split.
   evaluation:
@@ -140,7 +142,7 @@ Optimization:
   # 'pretrained' settings) load its averaged weights if its checkpoint holds them, otherwise its trained weights.
   exponential_moving_average:
     # Turns the moving average of the weights on.
-    activated: False
+    activated: True
     # Fraction of the average kept at every update, strictly between 0 and 1.
     decay: 0.9998
 
@@ -153,15 +155,15 @@ Data:
     # Number of batches prepared in advance by every worker.
     prefetch_batches: 2
   image_settings:
-    # Target resolution to resize all input images.
-    size: 1024
+    # Target resolution to resize all input images, the size of the synthetic instance segmentation images.
+    size: 512
     # Flag to maintain the original aspect ratio when resizing.
     keep_ratio: True
   label_mapping:
     # "binary" maps all foreground objects to 1. "multi_class" uses a specific mapping file.
     mode: "multi_class"
     # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs.
-    mapping_file_path: "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes/label_mapping.json"
+    mapping_file_path: "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes/label_mapping.json"
   data_augmentation:
     # Global switch to enable or disable all data augmentation (applied on the GPU to training batches only).
     activated: True
@@ -224,12 +226,12 @@ Backbone:
   convolutions:
     {
       "1": [ 1, 16 ],
-      "2": [ 2, 32 ],
-      "3": [ 2, 32 ],
-      "4": [ 4, 64 ],
-      "5": [ 4, 64 ],
-      "6": [ 6, 128 ],
-      "7": [ 6, 128 ],
+      "2": [ 2, 16 ],
+      "3": [ 2, 16 ],
+      "4": [ 3, 32 ],
+      "5": [ 3, 32 ],
+      "6": [ 5, 32 ],
+      "7": [ 5, 32 ],
     }
 
   # Choice to add last max pooling layer on last* convolution layer
@@ -302,22 +304,22 @@ DetectionLevels:
     # Anchors of every position of the feature map, one per scale and aspect ratio: a scale is the side in input
     # pixels of a square anchor, and an aspect ratio the height / width of the anchor at the same area. The anchors
     # per position (scales x aspect_ratios) give the outputs of the region proposal head of the level.
-    anchors: { scales: [32, 64, 128], aspect_ratios: [0.5, 1.0, 2.0] }
+    anchors: { scales: [32, 64], aspect_ratios: [0.5, 1.0, 2.0] }
     # Region proposal head: [number_layers, output_channels] of its convolutions, followed by its objectness and
     # box regression layers.
-    region_proposal: { convolutions: [2, 64] }
+    region_proposal: { convolutions: [2, 32] }
     # Detection head: side of the RoIAlign grid pooled from the feature map for every proposal, [number_layers,
     # output_channels] of its convolutions (multiples of 8 with Detector.modules.inception) and sizes of its fully
     # connected layers before the classifier and the box regressor.
-    detector: { roi_align_pool_size: 7, convolutions: [2, 64], fully_connected: [256, 128] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
   "6":
-    anchors: { scales: [64, 128, 256], aspect_ratios: [0.5, 1.0, 2.0] }
-    region_proposal: { convolutions: [2, 64] }
-    detector: { roi_align_pool_size: 7, convolutions: [2, 64], fully_connected: [256, 128] }
+    anchors: { scales: [64, 128], aspect_ratios: [0.5, 1.0, 2.0] }
+    region_proposal: { convolutions: [2, 32] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
   "7":
-    anchors: { scales: [128, 256, 512], aspect_ratios: [0.5, 1.0, 2.0] }
-    region_proposal: { convolutions: [2, 64] }
-    detector: { roi_align_pool_size: 7, convolutions: [2, 64], fully_connected: [256, 128] }
+    anchors: { scales: [128, 256], aspect_ratios: [0.5, 1.0, 2.0] }
+    region_proposal: { convolutions: [2, 32] }
+    detector: { roi_align_pool_size: 7, convolutions: [2, 32], fully_connected: [64, 32] }
 
 RegionProposal:
   normalization:
@@ -343,12 +345,14 @@ RegionProposal:
     # Maximum IoU limit for matching (capped at 1.0).
     max: 1.0
   background_iou_threshold:
-    # Minimum IoU required for an anchor to be a strict background sample.
-    min: 0.1
+    # Minimum IoU required for an anchor to be a strict background sample. At 0.0 every anchor overlapping no object
+    # can be sampled as background; above 0.0 those anchors are ignored and only the hard negatives (anchors touching
+    # an object) are sampled, which the configuration checks allow with a yellow warning.
+    min: 0.0
     # Maximum IoU allowed for an anchor to be a strict background sample.
     max: 0.3
   # IoU threshold for Non-Maximum Suppression to eliminate redundant overlapping proposals.
-  nms_iou_threshold: 0.5
+  nms_iou_threshold: 0.7
   # Force assign best-overlapping anchors as foreground even if below the min threshold.
   strict_fallback_assignment: False
   # Exact number of strictly positive foreground anchors sampled for loss calculation per image.
@@ -403,7 +407,7 @@ Detector:
   # Minimum IoU required for a filtered proposal to be classified as a positive target.
   foreground_iou_threshold: 0.5
   # IoU overlap tolerance for the final per-class Non-Maximum Suppression pass on predictions.
-  nms_iou_threshold: 0.8
+  nms_iou_threshold: 0.5
   # Upper limit of positive (foreground) region proposals sampled per image. The ground truth boxes of the image are
   # written into its last proposal slots first, so every object has a positive proposal to sample from.
   number_training_positives: 64

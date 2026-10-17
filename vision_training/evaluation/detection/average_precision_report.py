@@ -1,11 +1,12 @@
 """
 Tables and per-class rows of the evaluation reports of the object detection and instance segmentation tasks: the mean
-average precisions of the three average precision methods and those of the small, medium and large objects (area
-method), always shown, and the average precisions of every class (area method, at an intersection over union of 0.5,
-0.75 and 0.5 to 0.95, with its ground truth boxes, those of every object size, and the score threshold reaching the
-target precision with the recall it keeps), as the rows of class_metrics.csv and as the per-class table of the report.
-The instance segmentation reports the box and the mask average precisions with the same builders, told apart by a title
-prefix and a column prefix. Used by the detection and instance segmentation trainers.
+average precisions of the three average precision methods, those of the small, medium and large objects (area method)
+and the mean average recalls of all the objects and of every size, always shown, and the average precisions of every
+class (area method, at an intersection over union of 0.5, 0.75 and 0.5 to 0.95, with its ground truth boxes, those of
+every object size, and the score threshold reaching the target precision with the recall it keeps), as the rows of
+class_metrics.csv and as the per-class table of the report. The instance segmentation reports the box and the mask
+average precisions and recalls with the same builders, told apart by a title prefix and a column prefix. Used by the
+detection and instance segmentation trainers.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -63,8 +64,8 @@ def build_mean_average_precision_table(results: Dict[str, Dict[Any, Any]], title
             "per_class": False, "legend": HEADLINE_LEGEND if legend is None else legend}
 
 
-def build_object_size_table(results: Dict[str, Dict[Any, Any]], title_prefix: str = "",
-                            area_name: str = "box") -> EvaluationTable:
+def build_object_size_table(results: Dict[str, Dict[Any, Any]], title_prefix: str = "", area_name: str = "box",
+                            resolution_name: str = "network input") -> EvaluationTable:
     """
     Builds the table of the mean average precisions of the small, medium and large objects of an evaluated checkpoint
     with the area method, shown whatever the per-class report, telling whether the detector misses the objects of one
@@ -76,6 +77,8 @@ def build_object_size_table(results: Dict[str, Dict[Any, Any]], title_prefix: st
         title_prefix (str): The prefix of the title ("Box", "Mask"), empty for the object detection. Defaults to "".
         area_name (str): The area measuring the objects, "box", or "mask" for the mask average precisions. Defaults
             to "box".
+        resolution_name (str): The resolution of the pixels measuring the objects, "network input", or "original
+            image" for the instance segmentation evaluated at the original resolution. Defaults to "network input".
 
     Returns:
         EvaluationTable: The table of the object sizes.
@@ -87,8 +90,39 @@ def build_object_size_table(results: Dict[str, Dict[Any, Any]], title_prefix: st
     return {"title": add_title_prefix(title="Mean Average Precision By Object Size (Area)", title_prefix=title_prefix),
             "columns": ["Object Size", "Objects", "mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"], "rows": rows,
             "sort_column": None, "per_class": False,
-            "legend": f"COCO sizes by {area_name} area in network input pixels, the objects of the other sizes and the "
-                      f"detections finding them being ignored. — : no object of the size."}
+            "legend": f"COCO sizes by {area_name} area in {resolution_name} pixels, the objects of the other sizes and "
+                      f"the detections finding them being ignored. — : no object of the size."}
+
+
+def build_average_recall_table(results: Dict[str, Dict[Any, Any]], title_prefix: str = "", area_name: str = "box",
+                               resolution_name: str = "network input") -> EvaluationTable:
+    """
+    Builds the table of the mean average recalls of an evaluated checkpoint, shown whatever the per-class report,
+    telling how many objects the detector finds at all, whatever the score of the detections: one row for all the
+    objects then one per size, with its objects and the recall of all the detections at an intersection over union of
+    0.5, 0.75 and averaged over 0.5 to 0.95, averaged over the classes (the recalls do not depend on the method).
+
+    Args:
+        results (Dict[str, Dict[Any, Any]]): The results of evaluate_detections, keyed by method.
+        title_prefix (str): The prefix of the title ("Box", "Mask"), empty for the object detection. Defaults to "".
+        area_name (str): The area measuring the objects, "box", or "mask" for the mask recalls. Defaults to "box".
+        resolution_name (str): The resolution of the pixels measuring the objects, "network input", or "original
+            image" for the instance segmentation evaluated at the original resolution. Defaults to "network input".
+
+    Returns:
+        EvaluationTable: The table of the mean average recalls.
+    """
+    # All the objects, then every object size, a size without object having no recall
+    area_results = results["area"]
+    group_results = [("All", area_results)] + [(size_name, area_results["sizes"][object_size])
+                                               for object_size, size_name in OBJECT_SIZE_NAMES.items()]
+    rows = [[group_name, sum(group_result["class_ground_truths"].values()), group_result["mAR@0.5"],
+             group_result["mAR@0.75"], group_result["mAR@[0.5:0.95]"]] for group_name, group_result in group_results]
+    return {"title": add_title_prefix(title="Mean Average Recall", title_prefix=title_prefix),
+            "columns": ["Objects Of", "Objects", "mAR@0.5", "mAR@0.75", "mAR@[0.5:0.95]"], "rows": rows,
+            "sort_column": None, "per_class": False,
+            "legend": f"Objects found by any detection kept for the evaluation, averaged over the classes. COCO sizes "
+                      f"by {area_name} area in {resolution_name} pixels. — : no object of the size."}
 
 
 def build_class_average_precision_rows(results: Dict[str, Dict[Any, Any]], class_names: Dict[int, str],

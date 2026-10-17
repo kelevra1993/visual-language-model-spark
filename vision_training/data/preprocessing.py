@@ -118,11 +118,13 @@ def preprocess_boxes(bounding_boxes: list[list[float]], image_width: int, image_
 
 
 def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int, image_height: int,
-                                    image_size: int, keep_ratio: bool) -> np.ndarray:
+                                    image_size: int, keep_ratio: bool, clip: bool = True) -> np.ndarray:
     """
     Maps boxes predicted on the preprocessed network input back to the original image, the exact inverse of
     'preprocess_boxes'. Used by the inference clients, which preprocess the images before sending them to the model
-    and must report the detections in the coordinates of the images they were given.
+    and must report the detections in the coordinates of the images they were given, and by the evaluation of the
+    instance segmentation at the original resolution, which pastes the masks of the detections into their unclipped
+    boxes, a mask covering the whole box it was predicted in.
 
     Args:
         bounding_boxes (np.ndarray): The [N, 4] [x1, y1, x2, y2] boxes in network input pixels.
@@ -130,9 +132,11 @@ def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int
         image_height (int): The height of the original image.
         image_size (int): The size of the square network input.
         keep_ratio (bool): Whether the image was resized keeping its aspect ratio and padded to a square.
+        clip (bool): Whether to clip the boxes to the original image, a box predicted partly on the padding then
+            stopping at the image border. Defaults to True.
 
     Returns:
-        np.ndarray: The [N, 4] boxes in original image pixels, clipped to the image.
+        np.ndarray: The [N, 4] boxes in original image pixels, clipped to the image with clip.
     """
     restored_boxes = np.array(bounding_boxes, dtype=np.float64).reshape(-1, 4)
 
@@ -148,9 +152,10 @@ def restore_boxes_to_original_image(bounding_boxes: np.ndarray, image_width: int
         restored_boxes[:, 0::2] = restored_boxes[:, 0::2] / (image_size / image_width)
         restored_boxes[:, 1::2] = restored_boxes[:, 1::2] / (image_size / image_height)
 
-    # Boxes predicted partly on the padding are clipped to the original image
-    restored_boxes[:, 0::2] = restored_boxes[:, 0::2].clip(min=0.0, max=image_width)
-    restored_boxes[:, 1::2] = restored_boxes[:, 1::2].clip(min=0.0, max=image_height)
+    # Boxes predicted partly on the padding are clipped to the original image, unless they are kept whole
+    if clip:
+        restored_boxes[:, 0::2] = restored_boxes[:, 0::2].clip(min=0.0, max=image_width)
+        restored_boxes[:, 1::2] = restored_boxes[:, 1::2].clip(min=0.0, max=image_height)
     return restored_boxes
 
 

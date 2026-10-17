@@ -1,11 +1,12 @@
 """
 Trainer of the object detection task: the COCO-format loaders, the two-stage detector with its four
 losses, the geometric augmentations moving the bounding boxes, the anchor recall of the training objects printed at
-every launch, and the evaluation of the checkpoints on the test split with the mean average precision (all the objects
-and every object size) and the average precision of every class, the proposal recall, the score threshold of every
-class reaching the target precision, the confusion matrix and the error images of the detections the deployed detector
-returns, and the sample images of fixed test images with their true and detected boxes. Registered for the object
-detection task in the task registry, and extended by the instance segmentation trainer.
+every launch, and the evaluation of the checkpoints on the test split with the mean average precision and the mean
+average recall (all the objects and every object size) and the average precision of every class, the proposal recall,
+the score threshold of every class reaching the target precision, the confusion matrix and the error images of the
+detections the deployed detector returns, and the sample images of fixed test images with their true and detected
+boxes. Registered for the object detection task in the task registry, and extended by the instance segmentation
+trainer.
 """
 
 import json
@@ -23,7 +24,8 @@ from vision_training.data.loaders import get_detection_dataloaders
 from vision_training.data.split_description import count_split_images_and_annotations
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
-from vision_training.evaluation.detection.average_precision_report import (build_class_average_precision_rows,
+from vision_training.evaluation.detection.average_precision_report import (build_average_recall_table,
+                                                                           build_class_average_precision_rows,
                                                                            build_class_average_precision_table,
                                                                            build_mean_average_precision_table,
                                                                            build_object_size_table)
@@ -63,6 +65,10 @@ class DetectionTrainer(BaseTrainer):
     # Whether the loaders give the binary mask of every object, for the instance segmentation subclass
     LOAD_INSTANCE_MASKS = False
 
+    # Whether the test loader also gives the objects at the original resolution of the images, set by the instance
+    # segmentation subclass from 'evaluation.original_resolution' to score its boxes and masks at that resolution
+    original_resolution = False
+
     # Overlap matching the detections to the objects for the class thresholds, the confusion matrix and the error
     # images, the one of the headline metric: the boxes, or the masks for the instance segmentation subclass
     MATCHING_OVERLAP_TYPE = "boxes"
@@ -97,7 +103,8 @@ class DetectionTrainer(BaseTrainer):
         """
         Builds the COCO detection loaders of the three splits, names the classes after the categories of the test
         split for the per-class report, with a colour per class for the sample images, and keeps the file name of
-        every test image, which names the sample images.
+        every test image, which names the sample images. The test loader also gives the objects at the original
+        resolution of the images when the evaluation is made at that resolution (instance segmentation only).
 
         Returns:
             Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
@@ -110,7 +117,8 @@ class DetectionTrainer(BaseTrainer):
         self.test_image_file_names = {image["id"]: image["file_name"] for image in test_labels["images"]}
         return get_detection_dataloaders(experiment_configuration=self.experiment_configuration,
                                          model_configuration=self.model_configuration, batch_size=self.batch_size,
-                                         load_instance_masks=self.LOAD_INSTANCE_MASKS)
+                                         load_instance_masks=self.LOAD_INSTANCE_MASKS,
+                                         load_original_instances=self.original_resolution)
 
     def list_class_names(self) -> Optional[List[str]]:
         """
@@ -417,9 +425,10 @@ class DetectionTrainer(BaseTrainer):
         """
         Computes the mean average precision of the test split with the three average precision methods (the area
         method being the headline one, its mAP@0.5 comparing the checkpoints), the mean average precision of every
-        object size, the average precisions of every class, the score threshold of every class reaching the target
-        precision and the proposal recall, and organises them for the report: the tables of the methods, of the object
-        sizes and of the proposal recall, always shown, and the per-class table (shown with the per-class report, worst
+        object size, the mean average recall of all the objects and of every size, the average precisions of every
+        class, the score threshold of every class reaching the target precision and the proposal recall, and organises
+        them for the report: the tables of the methods, of the object sizes, of the mean average recall and of the
+        proposal recall, always shown, and the per-class table (shown with the per-class report, worst
         AP@0.5 first), with the same values as TensorBoard scalars (the AP@0.5 of every class only with the per-class
         report). The average precisions and thresholds of every class are saved to class_metrics.csv, the proposal
         recall to proposal_recall.csv, the thresholds to class_thresholds.json and the confusion matrix to
@@ -450,8 +459,8 @@ class DetectionTrainer(BaseTrainer):
         files.update(error_analysis["files"])
 
         # Tables always shown first, the per-class table last
-        tables = [summary["tables"]["methods"], summary["tables"]["sizes"], proposal_recall["table"],
-                  summary["tables"]["classes"]]
+        tables = [summary["tables"]["methods"], summary["tables"]["sizes"], summary["tables"]["recalls"],
+                  proposal_recall["table"], summary["tables"]["classes"]]
         return {"evaluated_samples": f"{len(accumulator['detections'])} Test Images", "metrics": {},
                 "notes": error_analysis["notes"], "tables": tables,
                 "scalars": {**summary["scalars"], **proposal_recall["scalars"]},
@@ -546,12 +555,15 @@ class DetectionTrainer(BaseTrainer):
                                      target_precision: Optional[float] = None) -> Dict[str, Any]:
         """
         Computes the average precisions of the test split with one overlap (the boxes, or the masks of the instance
-        segmentation) and organises them for the report: the tables of the methods and of the object sizes and the
-        per-class table, the rows of class_metrics.csv, the mean average precisions of every method and those of every
-        object size (area method) as TensorBoard scalars, to follow them over the training, and the AP@0.5 of every
-        class for the per-class report. With a target precision, the score threshold of every class reaching it joins
-        the class rows and the per-class table. The object detection uses no prefix, the instance segmentation prefixes
-        the titles of both its box and mask tables, and the names of its mask scalars and columns.
+        segmentation) and organises them for the report: the tables of the methods, of the object sizes and of the mean
+        average recall and the per-class table, the rows of class_metrics.csv, the mean average precisions of every
+        method, those of every object size (area method) and the mean average recalls of all the objects and of every
+        size as TensorBoard scalars, to follow them over the training, and the AP@0.5 of every class for the per-class
+        report. The object sizes are measured at the resolution of the evaluated objects, the network input, or the
+        original images for the instance segmentation evaluated at the original resolution. With a target precision,
+        the score threshold of every class reaching it joins the class rows and the per-class table. The object
+        detection uses no prefix, the instance segmentation prefixes the titles of both its box and mask tables, and the
+        names of its mask scalars and columns.
 
         Args:
             accumulator (Dict[str, Any]): The detections and ground truths of the test split.
@@ -566,9 +578,9 @@ class DetectionTrainer(BaseTrainer):
                 average precisions of the instance segmentation). Defaults to None.
 
         Returns:
-            Dict[str, Any]: The 'class_rows', the 'tables' ('methods', 'sizes' and 'classes'), the 'scalars', the
-                'class_scalars' and the 'class_score_thresholds' of every foreground class (None without target
-                precision).
+            Dict[str, Any]: The 'class_rows', the 'tables' ('methods', 'sizes', 'recalls' and 'classes'), the
+                'scalars', the 'class_scalars' and the 'class_score_thresholds' of every foreground class (None without
+                target precision).
         """
         results = evaluate_detections(detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
                                       number_classes=len(self.label_dictionary), overlap_type=overlap_type,
@@ -591,10 +603,21 @@ class DetectionTrainer(BaseTrainer):
                 if size_mean_average_precision is not None:
                     scalars[f"{name_prefix}{metric_name} By Size/{object_size}"] = size_mean_average_precision
 
+        # The mean average recalls of all the objects and of every object size, the same for every method
+        for group_name, group_results in [("all", results["area"]), *results["area"]["sizes"].items()]:
+            for metric_name in ["mAR@0.5", "mAR@0.75", "mAR@[0.5:0.95]"]:
+                if group_results[metric_name] is not None:
+                    scalars[f"{name_prefix}{metric_name}/{group_name}"] = group_results[metric_name]
+
+        # Objects measured by their box or mask area, in the pixels of the resolution they are evaluated at
+        area_name = "mask" if overlap_type == "masks" else "box"
+        resolution_name = "original image" if self.original_resolution else "network input"
         tables = {"methods": build_mean_average_precision_table(results=results, title_prefix=title_prefix,
                                                                 legend=legend),
-                  "sizes": build_object_size_table(results=results, title_prefix=title_prefix,
-                                                   area_name="mask" if overlap_type == "masks" else "box"),
+                  "sizes": build_object_size_table(results=results, title_prefix=title_prefix, area_name=area_name,
+                                                   resolution_name=resolution_name),
+                  "recalls": build_average_recall_table(results=results, title_prefix=title_prefix,
+                                                        area_name=area_name, resolution_name=resolution_name),
                   "classes": build_class_average_precision_table(class_rows=class_rows, title_prefix=title_prefix,
                                                                  column_prefix=column_prefix,
                                                                  target_precision=target_precision)}

@@ -1,11 +1,12 @@
 """
 Tests of the instance masks of CocoDetectionDataset (vision_training/data/detection/coco_dataset.py), read by the
-instance segmentation task: the crowd annotations are left out (of the object detection samples too), every other
-object gets its mask at the network resolution in the order of its box, the objects whose mask vanishes are removed
-with their box and label, an annotation without segmentation is refused, the collate function keeps the masks as a
-list, the object detection samples stay without masks, the instance segmentation boxes come from the masks without
-any 'bbox', and the selection of the objects of an image maps the categories and leaves out the crowd and the
-background.
+instance segmentation task: every object, the crowd annotations included, gets its mask at the network resolution in
+the order of its box, the objects whose mask vanishes are removed with their box and label, an annotation without
+segmentation is refused, the collate function keeps the masks as a list, the object detection samples stay without
+masks, the instance segmentation boxes come from the masks without any 'bbox', the selection of the objects of an
+image maps the categories, keeps the crowd annotations and leaves out the background, and the test samples of the
+evaluation at the original resolution carry the masks and boxes of their objects at that resolution, every object with
+a pixel in the original image kept at both resolutions.
 """
 
 import json
@@ -65,10 +66,10 @@ def build_dataset(folder: Path, labels_file: Path, load_instance_masks: bool) ->
 
 def test_instance_masks_follow_the_objects(tmp_path: Path) -> None:
     """
-    Verifies that a polygon and an encoded object get their masks in the order of their boxes, that the crowd
-    annotation and the object too small to cover a pixel centre are removed with their box and label, and that the
-    collate function keeps the masks as a list. Without instance masks, the crowd is left out too and the tiny object
-    stays.
+    Verifies that a polygon, an encoded crowd annotation and an encoded object get their masks in the order of their
+    boxes, the crowd being an object like the others, that the object too small to cover a pixel centre is removed
+    with its box and label, and that the collate function keeps the masks as a list. Without instance masks, the crowd
+    and the tiny object stay.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -87,11 +88,11 @@ def test_instance_masks_follow_the_objects(tmp_path: Path) -> None:
     labels_file = write_split(folder=tmp_path, annotations=annotations)
 
     sample = build_dataset(folder=tmp_path, labels_file=labels_file, load_instance_masks=True)[0]
-    assert sample["labels"].tolist() == [1, 2]
-    assert sample["instance_masks"].shape == (2, 80, 80) and sample["instance_masks"].dtype == torch.uint8
+    assert sample["labels"].tolist() == [1, 2, 2]
+    assert sample["instance_masks"].shape == (3, 80, 80) and sample["instance_masks"].dtype == torch.uint8
 
-    # Every mask lies in its box, scaled twice and moved down by the 20 rows of padding
-    expected_regions = [(24, 32, 4, 12), (40, 50, 40, 60)]
+    # Every mask lies in its box, scaled twice and moved down by the 20 rows of padding, the crowd covering the image
+    expected_regions = [(24, 32, 4, 12), (20, 60, 0, 80), (40, 50, 40, 60)]
     for mask, box, (first_row, end_row, first_column, end_column) in zip(sample["instance_masks"],
                                                                          sample["bounding_boxes"], expected_regions):
         assert int(mask.sum()) == (end_row - first_row) * (end_column - first_column)
@@ -102,23 +103,23 @@ def test_instance_masks_follow_the_objects(tmp_path: Path) -> None:
     batch = collate_function(batch=[sample, sample])
     assert isinstance(batch["instance_masks"], list) and len(batch["instance_masks"]) == 2
 
-    # The object detection samples leave the crowd out, keep the tiny object and carry no masks
+    # The object detection samples keep the crowd and the tiny object and carry no masks
     detection_sample = build_dataset(folder=tmp_path, labels_file=labels_file, load_instance_masks=False)[0]
-    assert detection_sample["labels"].tolist() == [1, 1, 2] and "instance_masks" not in detection_sample
+    assert detection_sample["labels"].tolist() == [1, 2, 1, 2] and "instance_masks" not in detection_sample
     assert "instance_masks" not in collate_function(batch=[detection_sample])
 
 
 def test_image_without_objects_gets_empty_masks(tmp_path: Path) -> None:
     """
-    Verifies that an image whose only annotation is a crowd keeps the [0, S, S] layout of its masks, with no box and no
-    label.
+    Verifies that an image whose only object is too small to cover a pixel centre keeps the [0, S, S] layout of its
+    masks, with no box and no label.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
     labels_file = write_split(folder=tmp_path, annotations=[
-        {"id": 1, "image_id": 1, "category_id": 1, "bbox": [0, 0, 40, 20], "iscrowd": 1,
-         "segmentation": encode_run_length_encoding(mask=np.ones(shape=(IMAGE_HEIGHT, IMAGE_WIDTH)))}])
+        {"id": 1, "image_id": 1, "category_id": 1, "bbox": [10, 10, 0.1, 0.1], "iscrowd": 0,
+         "segmentation": [[10.0, 10.0, 10.1, 10.0, 10.1, 10.1, 10.0, 10.1]]}])
 
     sample = build_dataset(folder=tmp_path, labels_file=labels_file, load_instance_masks=True)[0]
     assert sample["instance_masks"].shape == (0, 80, 80)
@@ -140,26 +141,26 @@ def test_annotation_without_segmentation_is_refused(tmp_path: Path) -> None:
         _ = build_dataset(folder=tmp_path, labels_file=labels_file, load_instance_masks=True)[0]
 
 
-def test_object_selection_leaves_out_the_crowd_and_the_background() -> None:
+def test_object_selection_keeps_the_crowd_and_leaves_out_the_background() -> None:
     """
-    Verifies that select_image_objects, shared by the dataset and the anchor recall, leaves out the crowd annotations
-    and the categories mapped to the background, maps every other category to its class (integer or string key) and
-    gives its [x1, y1, x2, y2] box, and that the binary mode gives class 1 to every category.
+    Verifies that select_image_objects, shared by the dataset and the anchor recall, leaves out the categories mapped
+    to the background, maps every other category to its class (integer or string key), the crowd annotations included,
+    and gives its [x1, y1, x2, y2] box, and that the binary mode gives class 1 to every category.
     """
     annotations = [{"category_id": 3, "bbox": [1.0, 2.0, 10.0, 5.0]},
                    {"category_id": 3, "bbox": [0.0, 0.0, 4.0, 4.0], "iscrowd": 1},
                    {"category_id": 7, "bbox": [5.0, 5.0, 2.0, 2.0]},
                    {"category_id": 9, "bbox": [6.0, 1.0, 3.0, 8.0]}]
 
-    # Multi-class: the crowd and the unmapped category 7 are left out
+    # Multi-class: the unmapped category 7 is left out and the crowd is kept
     boxes, labels, kept_annotations = select_image_objects(annotations=annotations, label_mode="multi_class",
                                                            label_dictionary={3: 1, "9": 2})
-    assert boxes == [[1.0, 2.0, 11.0, 7.0], [6.0, 1.0, 9.0, 9.0]] and labels == [1, 2]
-    assert kept_annotations == [annotations[0], annotations[3]]
+    assert boxes == [[1.0, 2.0, 11.0, 7.0], [0.0, 0.0, 4.0, 4.0], [6.0, 1.0, 9.0, 9.0]] and labels == [1, 1, 2]
+    assert kept_annotations == [annotations[0], annotations[1], annotations[3]]
 
-    # Binary: every category except the crowd becomes class 1
+    # Binary: every category, the crowd included, becomes class 1
     _, binary_labels, _ = select_image_objects(annotations=annotations, label_mode="binary", label_dictionary={})
-    assert binary_labels == [1, 1, 1]
+    assert binary_labels == [1, 1, 1, 1]
 
 
 def test_instance_boxes_come_from_the_masks_without_bbox(tmp_path: Path) -> None:
@@ -195,3 +196,71 @@ def test_instance_boxes_come_from_the_masks_without_bbox(tmp_path: Path) -> None
                                             label_mode="multi_class", label_dictionary={1: 1, 2: 2},
                                             boxes_from_segmentation=True)
     assert boxes == [[4.0, 5.0, 14.0, 10.0], [30.0, 3.0, 36.0, 9.0], [16.5, 11.0, 23.5, 18.0]] and labels == [1, 2, 2]
+
+
+def test_original_instances_keep_every_object_at_both_resolutions(tmp_path: Path) -> None:
+    """
+    Verifies that the test samples of the evaluation at the original resolution carry the masks and boxes of their
+    objects at the original resolution, in the order of the network ones: an object whose mask vanishes once shrunk
+    is kept with its empty mask and its scaled segmentation box, an object without any pixel in the original image is
+    removed at both resolutions, the collate function keeps the original masks and boxes as lists, the training samples
+    still remove the vanished object, and the original objects are refused without the instance masks.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    encoded_mask = np.zeros(shape=(IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8)
+    encoded_mask[10:18, 24:36] = 1
+    labels_file = write_split(folder=tmp_path, annotations=[
+        {"id": 1, "image_id": 1, "category_id": 1, "iscrowd": 0,
+         "segmentation": [[4.0, 4.0, 12.0, 4.0, 12.0, 12.0, 4.0, 12.0]]},
+        {"id": 2, "image_id": 1, "category_id": 2, "iscrowd": 0,
+         "segmentation": [[21.0, 9.0, 22.0, 9.0, 22.0, 10.0, 21.0, 10.0]]},
+        {"id": 3, "image_id": 1, "category_id": 1, "iscrowd": 0,
+         "segmentation": [[10.6, 10.6, 10.7, 10.6, 10.7, 10.7, 10.6, 10.7]]},
+        {"id": 4, "image_id": 1, "category_id": 2, "iscrowd": 0,
+         "segmentation": encode_run_length_encoding(mask=encoded_mask)}])
+
+    # The 40 x 20 image is shrunk four times into 10 pixels, with 2 rows of padding above it
+    dataset = CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file), image_size=10,
+                                   keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1, 2: 2},
+                                   load_instance_masks=True, load_original_instances=True)
+    sample = dataset[0]
+    assert sample["labels"].tolist() == [1, 2, 2]
+
+    # The objects at the original resolution, the one without any pixel removed
+    expected_original_masks = np.zeros(shape=(3, IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8)
+    expected_original_masks[0, 4:12, 4:12] = 1
+    expected_original_masks[1, 9, 21] = 1
+    expected_original_masks[2] = encoded_mask
+    assert sample["original_instance_masks"].dtype == torch.uint8
+    assert np.array_equal(sample["original_instance_masks"].numpy(), expected_original_masks)
+    assert sample["original_bounding_boxes"].tolist() == [[4.0, 4.0, 12.0, 12.0], [21.0, 9.0, 22.0, 10.0],
+                                                          [24.0, 10.0, 36.0, 18.0]]
+
+    # The same objects at the network resolution, the one-pixel object with its empty mask and its scaled box
+    network_mask_areas = sample["instance_masks"].flatten(start_dim=1).sum(dim=1).tolist()
+    assert sample["instance_masks"].shape == (3, 10, 10) and network_mask_areas[0] == 4
+    assert network_mask_areas[1] == 0 and network_mask_areas[2] > 0
+    assert sample["bounding_boxes"][1].tolist() == [5.25, 4.25, 5.5, 4.5]
+    mask_boxes = compute_mask_bounding_boxes(instance_masks=sample["instance_masks"])
+    assert sample["bounding_boxes"][0].tolist() == [1.0, 3.0, 3.0, 5.0]
+    assert torch.equal(sample["bounding_boxes"][2], mask_boxes[2])
+
+    # The collate function keeps the original masks and boxes of every image as lists
+    batch = collate_function(batch=[sample, sample])
+    assert isinstance(batch["original_instance_masks"], list) and len(batch["original_instance_masks"]) == 2
+    assert isinstance(batch["original_bounding_boxes"], list) and len(batch["original_bounding_boxes"]) == 2
+
+    # The training samples remove the object whose mask vanished and carry no original objects
+    training_dataset = CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file),
+                                            image_size=10, keep_ratio=True, label_mode="multi_class",
+                                            label_dictionary={1: 1, 2: 2}, load_instance_masks=True)
+    training_sample = training_dataset[0]
+    assert training_sample["labels"].tolist() == [1, 2] and "original_instance_masks" not in training_sample
+
+    # The original objects are those of the instance segmentation
+    with pytest.raises(expected_exception=ValueError, match="needs load_instance_masks"):
+        CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file), image_size=10,
+                             keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1, 2: 2},
+                             load_instance_masks=False, load_original_instances=True)

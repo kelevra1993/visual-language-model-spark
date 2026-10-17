@@ -37,9 +37,9 @@ ALL_OBJECTS_NAME = "All Objects"
 def gather_training_object_boxes(dataset: CocoDetectionDataset) -> torch.Tensor:
     """
     Gathers the boxes of every object of the training split in network input pixels, the objects the network learns
-    (select_image_objects, without the crowd and the background) placed like the dataset places them, for the anchor
-    recall measured at launch. Read from the annotations and the image sizes of the labels file, without loading any
-    image; the augmentations, random, are left out.
+    (select_image_objects, without the background) placed like the dataset places them, for the anchor recall measured
+    at launch. Read from the annotations and the image sizes of the labels file, without loading any image; the
+    augmentations, random, are left out.
 
     Args:
         dataset (CocoDetectionDataset): The dataset of the training split.

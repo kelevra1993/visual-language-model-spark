@@ -448,7 +448,7 @@ def test_detection_run_initialises_a_frozen_instance_segmentation_run(tmp_path: 
         pretrained_settings={section_name: frozen_settings for section_name in DETECTION_COMPONENTS},
         configuration_name="instance_segmentation.yaml", task="instance_segmentation")
     assert "-PT-FRZ_L567_" in segmentation_trainer.run_name
-    assert "-R2x64-RPT-RFRZ_" in segmentation_trainer.run_name and "-DPT-DFRZ_M" in segmentation_trainer.run_name
+    assert "-R2x32-RPT-RFRZ_" in segmentation_trainer.run_name and "-DPT-DFRZ_M" in segmentation_trainer.run_name
     assert len(segmentation_trainer.optimizer.param_groups) == 1
     model = segmentation_trainer.model
     mask_heads_before = copy.deepcopy(model.mask_heads_dictionary.state_dict())
