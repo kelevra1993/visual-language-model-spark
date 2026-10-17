@@ -17,6 +17,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationResults, InstanceSegmentationBatch
 from vision_training.data.preprocessing import restore_boxes_to_original_image
+from vision_training.evaluation.detection.average_precision_report import summarise_average_precisions
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.models.instance_segmentation.instance_segmenter import InstanceSegmenter
 from vision_training.models.instance_segmentation.mask_operations import (compute_mask_intersection_over_union,
@@ -25,8 +26,8 @@ from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.utilities.visualization import convert_image_to_array, overlay_instance_masks
 
 # Number of detection masks of a 1024 x 1024 image pasted and compared with the ground truth masks at once, scaled
-# inversely to the number of pixels of the evaluated image, bounding the memory of the evaluation at any resolution (a
-# 1024 x 1024 float mask takes 4 MB)
+# inversely to the number of pixels of the evaluated image, bounding the memory of the pasted detection masks at any
+# resolution (a 1024 x 1024 float mask takes 4 MB); the ground truth masks of the image are compared all at once
 MASK_OVERLAP_CHUNK_SIZE = 16
 MASK_OVERLAP_REFERENCE_PIXELS = 1024 * 1024
 
@@ -297,12 +298,17 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         Returns:
             EvaluationResults: The results of the evaluation.
         """
-        mask_summary = self.summarise_average_precisions(accumulator=accumulator, overlap_type="masks",
-                                                         title_prefix="Mask", name_prefix="Mask ",
-                                                         column_prefix="mask_", legend=MASK_TABLE_LEGEND,
-                                                         target_precision=self.target_precision)
-        box_summary = self.summarise_average_precisions(accumulator=accumulator, overlap_type="boxes",
-                                                        title_prefix="Box", legend=BOX_TABLE_LEGEND)
+        # Mask average precisions with the class thresholds, then the box ones, at the resolution of the evaluation
+        resolution_name = "original image" if self.original_resolution else "network input"
+        mask_summary = summarise_average_precisions(
+            detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
+            number_classes=len(self.label_dictionary), class_names=self.class_names, overlap_type="masks",
+            title_prefix="Mask", name_prefix="Mask ", column_prefix="mask_", legend=MASK_TABLE_LEGEND,
+            target_precision=self.target_precision, resolution_name=resolution_name)
+        box_summary = summarise_average_precisions(
+            detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
+            number_classes=len(self.label_dictionary), class_names=self.class_names, overlap_type="boxes",
+            title_prefix="Box", legend=BOX_TABLE_LEGEND, resolution_name=resolution_name)
         proposal_recall = self.save_proposal_recall(accumulator=accumulator, iteration=iteration)
 
         # Box and mask average precisions of every class in one row per class, saved whatever the per-class report,

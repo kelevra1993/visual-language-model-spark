@@ -1,19 +1,21 @@
 """
 Tests of write_triton_configuration of vision_training/deployment/triton_configuration.py: the detection configuration
-is unchanged, the sequence configuration has dynamic frames and the comparison configuration has one input line per
-member.
+is unchanged, the sequence configuration has dynamic frames, the comparison configuration has one input line per
+member and the keypoint configuration has one input of rectangular object crops and three outputs.
 """
 
 import pytest
 
 from pathlib import Path
+from typing import List
 
 from vision_training.deployment.export_specifications import build_inference_model, get_export_specification
 from vision_training.deployment.triton_configuration import write_triton_configuration
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
+from vision_training.models.keypoints.keypoint_detector import KeypointDetector
 from vision_training.models.sequence.sequence_comparator import SequenceComparator
 from vision_training.models.sequence.sequence_labeller import SequenceLabeller
-from tests.fixtures.configuration_fixtures import (get_detection_model_configuration,
+from tests.fixtures.configuration_fixtures import (get_detection_model_configuration, get_keypoint_model_configuration,
                                                    get_sequence_comparison_model_configuration,
                                                    get_sequence_model_configuration)
 
@@ -136,3 +138,41 @@ def test_comparison_triton_configuration_has_one_line_per_member(tmp_path: Path)
             '  { name: "after_images" data_type: TYPE_FP32 dims: [ -1, 3, 64, 64 ] }\n'
             ']\n') in triton_configuration
     assert '{ name: "class_probabilities__0" data_type: TYPE_FP32 dims: [ 3 ] }' in triton_configuration
+
+
+@pytest.mark.parametrize(argnames=("export_format", "output_suffixes"), argvalues=[
+    ("torchscript", ["__0", "__1", "__2"]), ("onnx", ["", "", ""])])
+def test_keypoint_triton_configuration_has_rectangular_crops(tmp_path: Path, export_format: str,
+                                                             output_suffixes: List[str]) -> None:
+    """
+    Verifies the Triton configuration of a keypoint detector: one input of object crops of the crop height and width
+    of the configuration (64 x 48, not square), and the decoded keypoints, their scores and the heatmaps at a quarter
+    of the crop size of the 7 heatmap channels of the triangle and the rectangle, suffixed with their index in the
+    TorchScript export only.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        export_format (str): The export format.
+        output_suffixes (List[str]): The suffixes of the keypoint, keypoint score and heatmap output names.
+    """
+    configuration, device, dtype = get_keypoint_model_configuration()
+    inference_model = build_inference_model(task="keypoint_detection", model=KeypointDetector(
+        configuration=configuration, verbose=False, device=device, dtype=dtype))
+    specification = get_export_specification(task="keypoint_detection", inference_model=inference_model)
+    assert specification["model_name"] == "keypoint_detector"
+
+    write_triton_configuration(model_directory=tmp_path, model_name=f"keypoint_detector_{export_format}",
+                               model_version=1, export_format=export_format, specification=specification,
+                               maximum_batch_size=32, tensorrt_precision=None)
+    triton_configuration = (tmp_path / "config.pbtxt").read_text()
+    keypoint_suffix, score_suffix, heatmap_suffix = output_suffixes
+    assert ('input [\n'
+            '  { name: "crops" data_type: TYPE_FP32 dims: [ 3, 64, 48 ] }\n'
+            ']\n') in triton_configuration
+    assert ('output [\n'
+            f'  {{ name: "keypoints{keypoint_suffix}" data_type: TYPE_FP32 dims: [ 7, 2 ] }},\n'
+            f'  {{ name: "keypoint_scores{score_suffix}" data_type: TYPE_FP32 dims: [ 7 ] }},\n'
+            f'  {{ name: "heatmaps{heatmap_suffix}" data_type: TYPE_FP32 dims: [ 7, 16, 12 ] }}\n'
+            ']\n') in triton_configuration
+    assert f'name: "keypoint_detector_{export_format}"' in triton_configuration
+    assert "max_batch_size: 32" in triton_configuration

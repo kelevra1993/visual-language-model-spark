@@ -30,7 +30,8 @@ VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
 PRETRAINED_COMPONENT_NAMES = {"Backbone": "backbone", "TemporalModel": "temporal module",
                               "ClassificationHead": "classification head",
                               "SegmentationDecoder": "segmentation decoder", "RegionProposal": "region proposal heads",
-                              "Detector": "detection heads", "MaskHead": "mask heads"}
+                              "Detector": "detection heads", "MaskHead": "mask heads",
+                              "HRNet": "high resolution network", "KeypointHead": "keypoint head"}
 
 
 def check_experiment_configuration(experiment_configuration: Dict[str, Any], valid_tasks: List[str]) -> List[str]:
@@ -290,11 +291,11 @@ def check_backbone_configuration(model_configuration: Dict[str, Any]) -> List[st
 def check_pretrained_configuration(model_configuration: Dict[str, Any], section_name: str) -> List[str]:
     """
     Verifies the 'pretrained' settings of a section (Backbone, TemporalModel, ClassificationHead, SegmentationDecoder,
-    RegionProposal, Detector or MaskHead), which initialise its component with the trained one of another run: the
-    source run folder or null, the checkpoint iteration or null for the last one, the freeze flag, only meaningful with
-    a source run, and the learning rate multiplier of the transferred component. For the backbone, the
-    'freeze_normalization_parameters' flag keeps the scale and shift of its normalization layers fixed, which needs a
-    source run that is not frozen anyway and a backbone with normalization layers. For the segmentation decoder, the
+    RegionProposal, Detector, MaskHead, HRNet or KeypointHead), which initialise its component with the trained one of
+    another run: the source run folder or null, the checkpoint iteration or null for the last one, the freeze flag,
+    only meaningful with a source run, and the learning rate multiplier of the transferred component. For the backbone,
+    the 'freeze_normalization_parameters' flag keeps the scale and shift of its normalization layers fixed, which needs
+    a source run that is not frozen anyway and a backbone with normalization layers. For the segmentation decoder, the
     'load_class_layers' flag also loads the segmentation head and the deep supervision heads, which needs a source run.
     The source run itself is only read when a new training starts, so that a trained run can still be evaluated and
     exported once its source run is gone.

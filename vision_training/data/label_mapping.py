@@ -14,8 +14,10 @@ from typing import Any, Dict, List, Optional
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Tasks whose model predicts a background class at index 0 (the object detector, the instance segmenter, the semantic
-# segmenter); the models of the other tasks only predict the dataset classes, indexed from 0
-TASKS_WITH_BACKGROUND_CLASS = ["object_detection", "instance_segmentation", "semantic_segmentation"]
+# segmenter), and the keypoint detection, which keeps the class indices of the detector giving its boxes; the models
+# of the other tasks only predict the dataset classes, indexed from 0
+TASKS_WITH_BACKGROUND_CLASS = ["object_detection", "instance_segmentation", "semantic_segmentation",
+                               "keypoint_detection"]
 
 
 def build_label_dictionary(label_mapping_configuration: Dict[str, Any], task: str) -> Optional[Dict[Any, int]]:

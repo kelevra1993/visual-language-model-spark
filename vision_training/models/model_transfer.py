@@ -1,11 +1,12 @@
 """
 Transfer of trained components between runs: the architecture checks of the backbone, temporal module,
-classification head, segmentation decoder, region proposal heads, detection heads and mask heads, the loading of a
-pretrained component from the checkpoint of another run (its averaged weights when it kept a moving average and the new
-run keeps one), the class layers of a run adding classes after those of its source run (the source classes keeping
-their trained rows, the new classes the random rows of the new run), the class layers of the semantic segmentation
-loaded with its decoder, and the freezing of components, normalization parameters and batch statistics. Used by the
-base trainer and by scripts/evaluation/evaluate_checkpoint.py.
+classification head, segmentation decoder, region proposal heads, detection heads, mask heads, high resolution network
+and keypoint head, the loading of a pretrained component from the checkpoint of another run (its averaged weights when
+it kept a moving average and the new run keeps one), the first blocks of a deeper backbone initialising a shorter one
+(the stem of the keypoint detector from an ImageNet backbone), the class layers of a run adding classes after those
+of its source run (the source classes keeping their trained rows, the new classes the random rows of the new run), the
+class layers of the semantic segmentation loaded with its decoder, and the freezing of components, normalization
+parameters and batch statistics. Used by the base trainer and by scripts/evaluation/evaluate_checkpoint.py.
 """
 
 import re
@@ -24,12 +25,13 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 # Configuration sections whose component can be initialised by the trained component of another run, with the
 # attribute holding the component in every task model, which is also the prefix of its weights in the state
 # dictionaries. Their order is the order of the optimizer parameter groups of the components learning at their own
-# speed, the heads of the detection tasks, then the mask heads of the instance segmentation, coming last so that the
-# runs written before them keep their groups
+# speed, the heads of the detection tasks, then the mask heads of the instance segmentation and the high resolution
+# network and heatmap head of the keypoint detection, coming last so that the runs written before them keep their groups
 TRANSFERABLE_COMPONENTS = {"Backbone": "backbone", "TemporalModel": "temporal_module",
                            "ClassificationHead": "classification_head", "SegmentationDecoder": "segmentation_decoder",
                            "RegionProposal": "region_proposer_dictionary", "Detector": "detector_heads_dictionary",
-                           "MaskHead": "mask_heads_dictionary"}
+                           "MaskHead": "mask_heads_dictionary", "HRNet": "high_resolution_network",
+                           "KeypointHead": "keypoint_head"}
 
 # Names of the components whose attribute does not read as a name in the messages of the transfer
 COMPONENT_NAMES = {"RegionProposal": "region proposal heads", "Detector": "detection heads",
@@ -72,6 +74,11 @@ CAUSAL_TEMPORAL_TYPES = ["transformer", "temporal_convolution"]
 # Segmentation decoder settings defining its weights. The dropout only acts in the segmentation head, which is not
 # part of the decoder, so that a decoder serves runs of other classes
 SEGMENTATION_DECODER_WEIGHT_KEYS = ["upsampling", "convolutions", "modules", "feature_map_normalization"]
+
+# High resolution network settings defining its weights, the normalization compared without its batch normalization
+# momentum. The width of the stem feature map it reads is compared on the weights themselves
+HIGH_RESOLUTION_NETWORK_WEIGHT_KEYS = ["base_width", "modules_per_stage", "blocks_per_branch", "modules",
+                                       "normalization"]
 
 # Component of every detection level ('DetectionLevels.<level>.<component>') holding the layers of the region
 # proposal, detection or mask head of that level, compared level by level. The RoIAlign pool size of the detection
@@ -139,13 +146,34 @@ def get_weight_normalization(normalization_configuration: Dict[str, Any]) -> Dic
     return {**weight_settings, "feature_map_normalization": feature_map_normalization}
 
 
+def is_backbone_prefix(source_backbone_configuration: Dict[str, Any],
+                       target_backbone_configuration: Dict[str, Any]) -> bool:
+    """
+    Tells whether the backbone of a run is made of the first blocks of the backbone of a source run, the same layers
+    with fewer blocks, so that the first blocks of the source backbone initialise it: the stem of the keypoint detector
+    taken from a backbone trained on ImageNet, for instance. The pooling after the last block has no weights, so it may
+    differ.
+
+    Args:
+        source_backbone_configuration (Dict[str, Any]): The 'Backbone' section of the source run.
+        target_backbone_configuration (Dict[str, Any]): The 'Backbone' section of the run receiving the backbone.
+
+    Returns:
+        bool: True when the target blocks are the first blocks of the source, in the same order and fewer of them.
+    """
+    source_blocks = list(source_backbone_configuration["convolutions"].items())
+    target_blocks = list(target_backbone_configuration["convolutions"].items())
+    return len(target_blocks) < len(source_blocks) and source_blocks[:len(target_blocks)] == target_blocks
+
+
 def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any],
                                    target_backbone_configuration: Dict[str, Any]) -> List[str]:
     """
     Lists the differences between the architecture-defining settings of two backbones, so that a backbone is only
-    transferred between runs whose backbones have exactly the same layers. Batch and sequence normalization count as
-    the same layers, holding the same tensors, and the batch normalization momentum may differ. A source run written
-    before a module setting of BACKBONE_MODULE_DEFAULTS counts as having its default value.
+    transferred between runs whose backbones have exactly the same layers, or whose backbone is made of the first
+    blocks of the source backbone (see is_backbone_prefix). Batch and sequence normalization count as the same layers,
+    holding the same tensors, and the batch normalization momentum may differ. A source run written before a module
+    setting of BACKBONE_MODULE_DEFAULTS counts as having its default value.
 
     Args:
         source_backbone_configuration (Dict[str, Any]): The 'Backbone' section of the source run.
@@ -154,8 +182,15 @@ def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any]
     Returns:
         List[str]: The description of every difference, empty when the architectures match.
     """
+    # The blocks of a shorter backbone made of the first source blocks are compared by is_backbone_prefix, the pooling
+    # after its last block having no weights
+    compared_keys = ARCHITECTURE_BACKBONE_KEYS
+    if is_backbone_prefix(source_backbone_configuration=source_backbone_configuration,
+                          target_backbone_configuration=target_backbone_configuration):
+        compared_keys = [key_name for key_name in ARCHITECTURE_BACKBONE_KEYS
+                         if key_name not in ["convolutions", "last_max_pooling"]]
     differences = []
-    for key_name in ARCHITECTURE_BACKBONE_KEYS:
+    for key_name in compared_keys:
         source_value = source_backbone_configuration[key_name] if key_name in source_backbone_configuration else None
         target_value = target_backbone_configuration[key_name]
 
@@ -393,6 +428,56 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     return differences
 
 
+def compare_high_resolution_networks(source_configuration: Dict[str, Any],
+                                     target_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Lists the differences between the settings defining the weights of the high resolution networks of two keypoint
+    detection runs: the width of its highest resolution branch, its stages, the convolutions of its branches, their
+    modules and their normalization (without the batch normalization momentum, which changes no tensor). The width of
+    the stem feature map it reads is compared on the weights themselves.
+
+    Args:
+        source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
+        target_configuration (Dict[str, Any]): The model configuration of the run receiving the network.
+
+    Returns:
+        List[str]: The description of every difference, empty when the weights of the networks match.
+    """
+    differences = []
+    for key_name in HIGH_RESOLUTION_NETWORK_WEIGHT_KEYS:
+        source_value = source_configuration["HRNet"][key_name]
+        target_value = target_configuration["HRNet"][key_name]
+        compared_source_value, compared_target_value = source_value, target_value
+        if key_name == "normalization":
+            compared_source_value = get_weight_normalization(normalization_configuration=source_value)
+            compared_target_value = get_weight_normalization(normalization_configuration=target_value)
+        if compared_source_value != compared_target_value:
+            differences.append(f"'HRNet.{key_name}' is {source_value!r} in the source run and {target_value!r} in "
+                               f"this run.")
+    return differences
+
+
+def compare_keypoint_heads(source_configuration: Dict[str, Any], target_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Lists the differences between the settings defining the weights of the heatmap heads of two keypoint detection
+    runs: the width of the high resolution network they read. Their heatmap channels follow the keypoints of the
+    classes, which load_pretrained_component checks on the class names of the runs and on the weights themselves.
+
+    Args:
+        source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
+        target_configuration (Dict[str, Any]): The model configuration of the run receiving the head.
+
+    Returns:
+        List[str]: The description of every difference, empty when the weights of the heads match.
+    """
+    source_width = source_configuration["HRNet"]["base_width"]
+    target_width = target_configuration["HRNet"]["base_width"]
+    if source_width != target_width:
+        return [f"'HRNet.base_width' is {source_width!r} in the source run and {target_width!r} in this run, the "
+                f"channels read by the keypoint head."]
+    return []
+
+
 def compare_component_configurations(section_name: str, source_configuration: Dict[str, Any],
                                      target_configuration: Dict[str, Any]) -> List[str]:
     """
@@ -420,6 +505,12 @@ def compare_component_configurations(section_name: str, source_configuration: Di
     if section_name in DETECTION_HEAD_WEIGHT_KEYS:
         return compare_detection_heads(section_name=section_name, source_configuration=source_configuration,
                                        target_configuration=target_configuration)
+    if section_name == "HRNet":
+        return compare_high_resolution_networks(source_configuration=source_configuration,
+                                                target_configuration=target_configuration)
+    if section_name == "KeypointHead":
+        return compare_keypoint_heads(source_configuration=source_configuration,
+                                      target_configuration=target_configuration)
     return compare_classification_heads(source_configuration=source_configuration,
                                         target_configuration=target_configuration)
 
@@ -694,23 +785,64 @@ def read_checkpoint_model_state(checkpoint_path: Path, device: torch.device,
     return checkpoint["model_state"], False
 
 
+def describe_backbone_input(configuration: Dict[str, Any]) -> str:
+    """
+    Describes the images the backbone of a run sees, for the message of the transfer of a backbone between runs of
+    other input sizes: the object crops of the keypoint detection, the network input images of the other tasks.
+
+    Args:
+        configuration (Dict[str, Any]): The configuration of the run, whose 'Data' section gives its input size.
+
+    Returns:
+        str: The input size, e.g. '256 Pixel Images' or '256x192 Pixel Crops'.
+    """
+    if "crop_settings" in configuration["Data"]:
+        crop_settings = configuration["Data"]["crop_settings"]
+        return f"{crop_settings['height']}x{crop_settings['width']} Pixel Crops"
+    return f"{configuration['Data']['image_settings']['size']} Pixel Images"
+
+
+def select_backbone_prefix_state(component_state: Dict[str, torch.Tensor],
+                                 number_target_blocks: int) -> Dict[str, torch.Tensor]:
+    """
+    Keeps the tensors of the first blocks of a source backbone, and its input normalization, for a backbone made of
+    its first blocks (see is_backbone_prefix), the stem of the keypoint detector for instance.
+
+    Args:
+        component_state (Dict[str, torch.Tensor]): The tensors of the source backbone, without prefix.
+        number_target_blocks (int): The number of blocks of the backbone receiving the tensors.
+
+    Returns:
+        Dict[str, torch.Tensor]: The tensors of the blocks below number_target_blocks and those outside the blocks.
+    """
+    prefix_state = {}
+    for tensor_name, tensor_value in component_state.items():
+        block_match = re.match(pattern=r"convolution_blocks\.(\d+)\.", string=tensor_name)
+        if block_match is None or int(block_match.group(1)) < number_target_blocks:
+            prefix_state[tensor_name] = tensor_value
+    return prefix_state
+
+
 def load_pretrained_component(component: nn.Module, section_name: str, model_configuration: Dict[str, Any],
                               device: torch.device, class_names: Optional[List[str]] = None) -> Path:
     """
     Initialises a component of a new run (backbone, temporal module, classification head, segmentation decoder,
-    region proposal heads, detection heads or mask heads) with the trained component of another run, as set by
+    region proposal heads, detection heads, mask heads, high resolution network or keypoint head) with the trained
+    component of another run, as set by
     '<section>.pretrained': every task model stores the shared components under the same attributes, so a backbone
     trained for classification can initialise a detector or a segmenter, the temporal module of a sequence classifier
     a sequence labeller or comparator, the heads of an object detector an instance segmenter, and so on. The settings
     defining the component must be identical in both runs (see compare_component_configurations), then its tensors
     must fit exactly (see compare_state_dictionaries). A backbone may come from a run of another input image size,
-    the convolutions not depending on it, which is reported since the features were learned at another scale, a
+    the convolutions not depending on it, which is reported since the features were learned at another scale, and a
+    shorter backbone from the first blocks of a deeper one (see is_backbone_prefix), which is reported too, a
     temporal module from a causal or non-causal run alike, and region proposal heads from a run of other anchor scales
     or ratios with the same number of anchors per position, which are reported too.
     The component is read from the averaged weights of the checkpoint when it holds a moving average and the new run
     keeps one, from its trained weights otherwise (see read_checkpoint_model_state). The new run may add classes after
     those of the source run: the class layers of the classification head, detection heads and mask heads keep the rows
     of the source classes, the rows of the new ones keeping their random initialisation (see prepare_class_layers).
+    The keypoint head needs the classes of its source run, its heatmap channels following their keypoints.
 
     Args:
         component (nn.Module): The component of the new run, loaded in place.
@@ -726,7 +858,8 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
 
     Raises:
         ValueError: If the source run has no such component, if its settings differ, listing every difference, if its
-            classes are not the first classes of the new run, or if its tensors do not fit the component, listing every
+            classes are not the first classes of the new run (the classes of the new run for the keypoint head), or if
+            its tensors do not fit the component, listing every
             mismatching tensor.
     """
     component_name = get_component_name(section_name=section_name)
@@ -747,11 +880,11 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
 
     # Settings that change what the component learned without changing its weights, reported only
     if section_name == "Backbone":
-        source_image_size = source_configuration["Data"]["image_settings"]["size"]
-        target_image_size = model_configuration["Data"]["image_settings"]["size"]
-        if source_image_size != target_image_size:
-            print_color(color="yellow", output=f"The Pretrained Backbone Was Trained On {source_image_size} Pixel "
-                                               f"Images, This Run Uses {target_image_size} Pixel Images.")
+        source_input = describe_backbone_input(configuration=source_configuration)
+        target_input = describe_backbone_input(configuration=model_configuration)
+        if source_input != target_input:
+            print_color(color="yellow", output=f"The Pretrained Backbone Was Trained On {source_input}, This Run Uses "
+                                               f"{target_input}.")
         source_normalization = source_configuration["Backbone"]["normalization"]["feature_map_normalization"]
         target_normalization = model_configuration["Backbone"]["normalization"]["feature_map_normalization"]
         if source_normalization != target_normalization:
@@ -772,6 +905,14 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
             print_color(color="yellow", output=f"The Pretrained Region Proposal Heads Were Trained With The Anchors "
                                                f"{source_anchors}, This Run Uses The Anchors {target_anchors}.")
 
+    # The heatmap channels of the keypoint head follow the keypoints of the classes, which must be the same
+    if section_name == "KeypointHead":
+        source_class_names = read_source_class_names(source_folder=source_folder)
+        if source_class_names is not None and class_names is not None and source_class_names != class_names:
+            raise ValueError(f"The Keypoint Head Of The Source Run {format_path_link(path=source_folder)} Cannot "
+                             f"Initialise This Run, Its Heatmap Channels Following The Keypoints Of Other Classes: "
+                             f"{source_class_names} In The Source Run And {class_names} In This Run.")
+
     # Keep the tensors of the component in the source model, its averaged weights when both runs keep a moving
     # average, without their prefix
     checkpoint_path = get_checkpoint_path(experiment_folder=source_folder,
@@ -782,6 +923,17 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
     state_prefix = f"{TRANSFERABLE_COMPONENTS[section_name]}."
     component_state = {tensor_name[len(state_prefix):]: tensor_value
                        for tensor_name, tensor_value in model_state.items() if tensor_name.startswith(state_prefix)}
+
+    # A shorter backbone keeps the tensors of the first blocks of the source backbone only
+    if section_name == "Backbone" and is_backbone_prefix(
+            source_backbone_configuration=source_configuration["Backbone"],
+            target_backbone_configuration=model_configuration["Backbone"]):
+        number_target_blocks = len(model_configuration["Backbone"]["convolutions"])
+        component_state = select_backbone_prefix_state(component_state=component_state,
+                                                       number_target_blocks=number_target_blocks)
+        print_color(color="yellow", output=f"The Backbone Of This Run Takes The First {number_target_blocks} Of The "
+                                           f"{len(source_configuration['Backbone']['convolutions'])} Blocks Of The "
+                                           f"Pretrained Backbone.")
 
     # Class layers checked against the classes of this run, and grown when it adds classes after the source ones
     target_state = component.state_dict()

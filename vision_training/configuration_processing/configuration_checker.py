@@ -15,6 +15,7 @@ from vision_training.configuration_processing.configuration_values import Config
 from vision_training.configuration_processing.detection_checks import check_detection_configuration
 from vision_training.configuration_processing.instance_segmentation_checks import (
     check_instance_segmentation_configuration)
+from vision_training.configuration_processing.keypoint_checks import check_keypoint_configuration
 from vision_training.configuration_processing.segmentation_checks import check_segmentation_configuration
 from vision_training.configuration_processing.self_supervised_checks import check_self_supervised_configuration
 from vision_training.configuration_processing.sequence_checks import (check_frame_selection_configuration,
@@ -33,7 +34,8 @@ TASK_CONFIGURATION_CHECKS: Dict[str, Callable[[Dict[str, Any], Dict[str, Any]], 
     "sequence_labelling": check_sequence_labelling_configuration,
     "sequence_comparison": check_sequence_comparison_configuration,
     "frame_selection": check_frame_selection_configuration,
-    "self_supervised": check_self_supervised_configuration}
+    "self_supervised": check_self_supervised_configuration,
+    "keypoint_detection": check_keypoint_configuration}
 
 
 def check_configuration(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:

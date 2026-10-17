@@ -1,10 +1,11 @@
 """
-Mean average precision of the object detection and instance segmentation tasks: matching of the detections to the
-ground truths by their boxes or masks, precision-recall curves and average precision (area, 11 or 101 points) over the
-IoU thresholds, for all the objects and for the small, medium and large ones (object_sizes.py), the recall of all the
-detections at the same thresholds (mean average recall), and the score threshold of every class reaching a target
-precision at IoU 0.5. Used by the detection and instance segmentation trainers to
-evaluate a checkpoint on the test split, whose report is built by average_precision_report.py.
+Mean average precision of the object detection, instance segmentation and keypoint detection tasks: matching of the
+detections to the ground truths by their boxes, their masks or their object keypoint similarity, precision-recall
+curves and average precision (area, 11 or 101 points) over the overlap thresholds, for all the objects and for the
+small, medium and large ones (object_sizes.py), the recall of all the detections at the same thresholds (mean average
+recall), and the score threshold of every class reaching a target precision at an overlap of 0.5. Used by the
+detection, instance segmentation and keypoint trainers to evaluate a checkpoint on the test split, whose report is
+built by average_precision_report.py.
 """
 
 import torch
@@ -21,8 +22,9 @@ AVERAGE_PRECISION_METHODS = ["area", "11_point", "101_point"]
 # Intersection over union thresholds of the COCO-style mAP@[0.5:0.95], from 0.50 to 0.95 in steps of 0.05
 INTERSECTION_OVER_UNION_THRESHOLDS = [round(0.5 + 0.05 * index, 2) for index in range(10)]
 
-# Overlaps comparing a detection with a ground truth: their boxes, or their masks (instance segmentation)
-OVERLAP_TYPES = ["boxes", "masks"]
+# Overlaps comparing a detection with a ground truth: their boxes, their masks (instance segmentation), or the object
+# keypoint similarity of their keypoints (keypoint detection), the last two computed beforehand by the trainer
+OVERLAP_TYPES = ["boxes", "masks", "keypoints"]
 
 # Intersection over union threshold of the score threshold of every class, the one of the headline mAP@0.5
 CLASS_THRESHOLD_INTERSECTION_OVER_UNION = 0.5
@@ -186,19 +188,21 @@ def gather_class_detections(detections: List[Dict[str, torch.Tensor]], ground_tr
     Gathers the detections of one class over all images, sorted by decreasing score, with their best matching ground
     truth, and counts the ground truths of that class: everything the average precision of the class needs,
     independently of the intersection over union threshold. The detections and ground truths are compared by their
-    boxes (object detection, and the box AP of the instance segmentation) or by their masks (mask AP of the instance
-    segmentation), whose overlaps are computed beforehand by the trainer. The areas of the detections, of their best
-    ground truth and of every ground truth (box areas, or mask areas for the masks) are kept for the average precision
-    by object size.
+    boxes (object detection, and the box AP of the instance segmentation), by their masks (mask AP of the instance
+    segmentation) or by the object keypoint similarity of their keypoints (keypoint detection), the last two overlaps
+    being computed beforehand by the trainer. The areas of the detections, of their best ground truth and of every
+    ground truth (mask areas for the masks, box areas otherwise) are kept for the average precision by object size.
 
     Args:
         detections (List[Dict[str, torch.Tensor]]): For every image, its detection 'boxes' [N, 4], 'scores' [N] and
-            'labels' [N], and for the masks the 'mask_overlaps' [N, M], the mask intersection over union of every
-            detection with every ground truth of the image, and the 'mask_areas' [N] of the detection masks.
+            'labels' [N], for the masks the 'mask_overlaps' [N, M], the mask intersection over union of every
+            detection with every ground truth of the image, and the 'mask_areas' [N] of the detection masks, and for
+            the keypoints the 'keypoint_overlaps' [N, M], the object keypoint similarity of every detection with every
+            ground truth of the image.
         ground_truths (List[Dict[str, torch.Tensor]]): For every image, its ground truth 'boxes' [M, 4] and
             'labels' [M], and for the masks the 'mask_areas' [M] of the ground truth masks.
         class_label (int): The class index.
-        overlap_type (str): "boxes" or "masks". Defaults to "boxes".
+        overlap_type (str): "boxes", "masks" or "keypoints". Defaults to "boxes".
 
     Returns:
         Dict[str, Any]: The sorted 'scores', 'image_indices', 'best_intersection_over_union',
@@ -225,10 +229,17 @@ def gather_class_detections(detections: List[Dict[str, torch.Tensor]], ground_tr
             detection_areas.append(compute_box_areas(boxes=detection["boxes"][class_mask].to(dtype=torch.float64)))
             ground_truth_areas.append(compute_box_areas(
                 boxes=ground_truth["boxes"][ground_truth_mask].to(dtype=torch.float64)))
-        else:
+        elif overlap_type == "masks":
             overlap_matrices.append(detection["mask_overlaps"][class_mask][:, ground_truth_mask])
             detection_areas.append(detection["mask_areas"][class_mask].to(dtype=torch.float64))
             ground_truth_areas.append(ground_truth["mask_areas"][ground_truth_mask].to(dtype=torch.float64))
+        else:
+            # Object keypoint similarity of the keypoints, the objects being sized by their boxes
+            overlap_matrices.append(detection["keypoint_overlaps"][class_mask][:, ground_truth_mask].to(
+                dtype=torch.float64))
+            detection_areas.append(compute_box_areas(boxes=detection["boxes"][class_mask].to(dtype=torch.float64)))
+            ground_truth_areas.append(compute_box_areas(
+                boxes=ground_truth["boxes"][ground_truth_mask].to(dtype=torch.float64)))
         scores.append(detection["scores"][class_mask].to(dtype=torch.float64))
         image_indices.append(torch.full(size=(int(class_mask.sum()),), fill_value=image_index, dtype=torch.int64))
 
@@ -431,18 +442,19 @@ def evaluate_detections(detections: List[Dict[str, torch.Tensor]], ground_truths
     number of ground truth boxes of every class, for the per-class report, and the same values for the small, medium
     and large objects (COCO sizes, see select_object_size_detections), each with the recall of all the detections at
     the same thresholds, the mean average recall (the same for every method). The detections are compared with the
-    ground truths by their boxes, or by their masks for the mask AP of the instance segmentation. With a target
+    ground truths by their boxes, by their masks for the mask AP of the instance segmentation, or by the object
+    keypoint similarity of their keypoints for the keypoint detection, in place of the intersection over union. With a
     precision, the score threshold of every class reaching it is added (find_class_score_thresholds), from the same
     gathered detections.
 
     Args:
         detections (List[Dict[str, torch.Tensor]]): For every image, its detection 'boxes' [N, 4], 'scores' [N] and
-            'labels' [N], without padding, and for the masks the 'mask_overlaps' [N, M] with the ground truths and the
-            'mask_areas' [N].
+            'labels' [N], without padding, for the masks the 'mask_overlaps' [N, M] with the ground truths and the
+            'mask_areas' [N], and for the keypoints the 'keypoint_overlaps' [N, M] with the ground truths.
         ground_truths (List[Dict[str, torch.Tensor]]): For every image, its ground truth 'boxes' [M, 4] and
             'labels' [M], in the same coordinates as the detections, and for the masks the 'mask_areas' [M].
         number_classes (int): The number of classes, background (index 0) included.
-        overlap_type (str): "boxes" or "masks". Defaults to "boxes".
+        overlap_type (str): "boxes", "masks" or "keypoints". Defaults to "boxes".
         target_precision (Optional[float]): The precision of the score threshold of every class, None to skip the
             thresholds. Defaults to None.
 

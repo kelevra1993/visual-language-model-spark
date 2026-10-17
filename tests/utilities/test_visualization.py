@@ -4,8 +4,11 @@ an unpainted background, the mask overlay paints the classes and grays the ignor
 every kind of pixel its colour, the segmentation sample grid lays out its four panels and the detection sample grid its
 two panels between their caption and legend bars, outlining the boxes in error of the error images, the caption bar
 is written in the given colour, the frame selection image draws the borders of the selection over its grid of
-thumbnails above the probability heat map, and the input viewer wraps the lines of its information panels, places each
-image next to its panel, centres its windows on the screen and is skipped without a display.
+thumbnails above the probability heat map, the keypoint drawings colour every keypoint by the side its name gives, join
+the drawn keypoints by the skeleton, leave the unlabelled ones out and draw the occluded ones as rings, the keypoint
+sample grid lays out its ground truth and prediction panels between their caption and legend bars, and the input viewer
+wraps the lines of its information panels, places each image next to its panel, centres its windows on the screen and
+is skipped without a display.
 """
 
 import cv2
@@ -17,7 +20,8 @@ from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, CORRECT_PREDICTION_COLOUR,
                                                      ERROR_OUTLINE_MARGIN, GRID_GAP,
                                                      HEAT_MAP_ROW_HEIGHT, IGNORED_PIXEL_COLOUR,
-                                                     INFORMATION_PANEL_WIDTH, LEGEND_BAR_HEIGHT, PANEL_GROUP_COLOUR,
+                                                     INFORMATION_PANEL_WIDTH, KEYPOINT_SIDE_COLOURS,
+                                                     LEGEND_BAR_HEIGHT, PANEL_GROUP_COLOUR, SKELETON_COLOUR,
                                                      PANEL_LINE_COLOUR, PANEL_LINE_FONT_SCALE, PANEL_LINE_HEIGHT,
                                                      PANEL_MARGIN, PANEL_TITLE_COLOUR, PANEL_TITLE_HEIGHT,
                                                      SELECTION_COLOURS, SELECTION_THUMBNAIL_SIZE,
@@ -25,10 +29,19 @@ from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, CORRECT
                                                      VIEWER_WINDOW_SPACING, WRONG_PREDICTION_COLOUR,
                                                      add_caption_bar, build_class_colours,
                                                      build_detection_sample_grid, build_frame_selection_image,
-                                                     build_information_panel, build_segmentation_error_map,
-                                                     build_segmentation_sample_grid, build_viewer_window,
-                                                     compute_window_positions, overlay_segmentation_mask,
-                                                     view_input_data, wrap_panel_line)
+                                                     build_information_panel, build_keypoint_sample_grid,
+                                                     build_segmentation_error_map, build_segmentation_sample_grid,
+                                                     build_viewer_window, compute_window_positions,
+                                                     draw_keypoint_crop, find_keypoint_side,
+                                                     overlay_segmentation_mask, view_input_data, wrap_panel_line)
+
+# Keypoints of the keypoint drawing tests on a 64 x 32 crop shown at twice its size, placed so that their display
+# pixels round(2 x coordinate - 0.5) are whole: the left hand at (16, 32), the right hand at (48, 32), the top at
+# (32, 48) and the bottom at (32, 112), the top being unlabelled and the bottom occluded
+KEYPOINT_NAMES = ["left_hand", "right_hand", "top", "bottom"]
+KEYPOINT_COORDINATES = np.array(object=[[8.25, 16.25], [24.25, 16.25], [16.25, 24.25], [16.25, 56.25]])
+KEYPOINT_VISIBILITIES = np.array(object=[2, 2, 0, 1])
+KEYPOINT_SKELETON = [[0, 1], [1, 2], [0, 3]]
 
 
 def build_image_and_masks() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -219,6 +232,81 @@ def test_frame_selection_image_draws_the_selection() -> None:
     assert image[thumbnail_centre, GRID_GAP + SELECTION_THUMBNAIL_SIZE // 2].tolist() == [100, 100, 100]
     assert image[thumbnail_centre, GRID_GAP + 2 * cell_size + SELECTION_THUMBNAIL_SIZE // 2].tolist() == [
         int(100 * UNSELECTED_FRAME_BRIGHTNESS)] * 3
+
+
+@pytest.mark.parametrize(argnames=("keypoint_name", "expected_side"), argvalues=[
+    ("left_elbow", "Left"), ("bottom_left", "Left"), ("right_1", "Right"), ("top_right", "Right"), ("nose", "Centre"),
+    ("leftover", "Centre"), ("centre", "Centre")])
+def test_keypoint_side_is_read_from_the_whole_words_of_its_name(keypoint_name: str, expected_side: str) -> None:
+    """
+    Verifies that the side of a keypoint comes from 'left' or 'right' as a whole word of its name, wherever it stands,
+    any other keypoint being in the centre.
+
+    Args:
+        keypoint_name (str): The name of the keypoint.
+        expected_side (str): The expected side.
+    """
+    assert find_keypoint_side(keypoint_name=keypoint_name) == expected_side
+
+
+def test_keypoint_crop_draws_the_labelled_keypoints_by_side() -> None:
+    """
+    Verifies the drawing of the true keypoints of a crop: the crop enlarged to the display size, the visible left and
+    right keypoints as filled discs of their side colours, the occluded keypoint as a ring of the centre colour whose
+    hole shows the end of its skeleton line, the skeleton line between two drawn keypoints, and neither the unlabelled
+    keypoint nor its skeleton line. The predicted keypoints, without visibilities, are all drawn as filled discs.
+    """
+    crop = np.full(shape=(64, 32, 3), fill_value=100, dtype=np.uint8)
+    drawing = draw_keypoint_crop(crop=crop, keypoints=KEYPOINT_COORDINATES, visibilities=KEYPOINT_VISIBILITIES,
+                                 keypoint_names=KEYPOINT_NAMES, skeleton=KEYPOINT_SKELETON, display_size=128)
+    assert drawing.shape == (128, 64, 3)
+
+    # Filled discs of the left and right sides, and the ring of the occluded centre keypoint, its hole showing the
+    # skeleton line drawn under it
+    assert np.all(drawing[32, 16] == KEYPOINT_SIDE_COLOURS["Left"])
+    assert np.all(drawing[32, 48] == KEYPOINT_SIDE_COLOURS["Right"])
+    assert np.all(drawing[112, 32] == SKELETON_COLOUR) and np.all(drawing[112, 36] == KEYPOINT_SIDE_COLOURS["Centre"])
+
+    # Skeleton between the two hands and from the left hand to the occluded bottom, none to the unlabelled top
+    assert np.all(drawing[32, 32] == SKELETON_COLOUR) and np.all(drawing[72, 24] == SKELETON_COLOUR)
+    assert np.all(drawing[40:57, 28:37] == 100) and np.all(drawing[40, 40] == 100)
+
+    # Every predicted keypoint drawn as a filled disc, the top and the bottom included
+    predicted_drawing = draw_keypoint_crop(crop=crop, keypoints=KEYPOINT_COORDINATES, visibilities=None,
+                                           keypoint_names=KEYPOINT_NAMES, skeleton=KEYPOINT_SKELETON,
+                                           display_size=128)
+    assert np.all(predicted_drawing[48, 32] == KEYPOINT_SIDE_COLOURS["Centre"])
+    assert np.all(predicted_drawing[112, 32] == KEYPOINT_SIDE_COLOURS["Centre"])
+    assert np.all(predicted_drawing[40, 40] == SKELETON_COLOUR)
+
+
+def test_keypoint_grid_lays_out_the_true_and_predicted_keypoints() -> None:
+    """
+    Verifies the keypoint sample grid: the ground truth and prediction panels side by side between the caption and
+    legend bars, the unlabelled true keypoint drawn on the prediction panel only, and the legend naming the drawn
+    sides in the order left, right, centre, a class without left nor right keypoints starting with the centre.
+    """
+    crop = np.full(shape=(64, 32, 3), fill_value=100, dtype=np.uint8)
+    grid = build_keypoint_sample_grid(crop=crop, ground_truth_keypoints=KEYPOINT_COORDINATES,
+                                      visibilities=KEYPOINT_VISIBILITIES, predicted_keypoints=KEYPOINT_COORDINATES,
+                                      keypoint_names=KEYPOINT_NAMES, skeleton=KEYPOINT_SKELETON, caption="test",
+                                      display_size=128)
+    assert grid.shape == (CAPTION_BAR_HEIGHT + 128 + LEGEND_BAR_HEIGHT, 2 * 64 + GRID_GAP, 3)
+    panels = grid[CAPTION_BAR_HEIGHT:CAPTION_BAR_HEIGHT + 128]
+    ground_truth_panel, prediction_panel = panels[:, :64], panels[:, 64 + GRID_GAP:]
+
+    # The unlabelled top keypoint on the prediction panel only
+    assert np.all(ground_truth_panel[48, 32] == 100)
+    assert np.all(prediction_panel[48, 32] == KEYPOINT_SIDE_COLOURS["Centre"])
+
+    # The legend starts with the colour square of the left side, or of the centre for a class without sides
+    assert np.all(grid[-LEGEND_BAR_HEIGHT:][12, 10] == KEYPOINT_SIDE_COLOURS["Left"])
+    centre_grid = build_keypoint_sample_grid(crop=crop, ground_truth_keypoints=KEYPOINT_COORDINATES[2:],
+                                             visibilities=np.array(object=[2, 2]),
+                                             predicted_keypoints=KEYPOINT_COORDINATES[2:],
+                                             keypoint_names=["top", "bottom"], skeleton=[], caption="test",
+                                             display_size=128)
+    assert np.all(centre_grid[-LEGEND_BAR_HEIGHT:][12, 10] == KEYPOINT_SIDE_COLOURS["Centre"])
 
 
 def test_panel_lines_wrap_within_the_panel() -> None:

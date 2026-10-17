@@ -4,7 +4,7 @@
   <img src="README/tasks_overview.png" width="100%" />
 </p>
 
-> **Screenshot placeholder** (`README/tasks_overview.png`): one evaluation sample image of each of the eight tasks side by side, taken from `<run>/Evaluation/Iteration_<n>/Samples/` of the synthetic runs: a classified shape, the detected boxes, the detected boxes with their masks, a segmentation (input, true mask, predicted mask, error map), a sequence classification frame grid, a sequence labelling frame grid, a before / after pair and a frame selection grid with its heat map.
+> **Screenshot placeholder** (`README/tasks_overview.png`): one evaluation sample image of each of the nine supervised tasks side by side, taken from `<run>/Evaluation/Iteration_<n>/Samples/` of the synthetic runs: a classified shape, the detected boxes, the detected boxes with their masks, an object crop with its keypoints, a segmentation (input, true mask, predicted mask, error map), a sequence classification frame grid, a sequence labelling frame grid, a before / after pair and a frame selection grid with its heat map.
 
 ## Table Of Content
 - [Description](#description)
@@ -25,6 +25,7 @@
   - [Classification (CLS)](#classification-cls)
   - [Object Detection (DET)](#object-detection-det)
   - [Instance Segmentation (INS)](#instance-segmentation-ins)
+  - [Keypoint Detection (KPT)](#keypoint-detection-kpt)
   - [Semantic Segmentation (SEG)](#semantic-segmentation-seg)
   - [Sequence Windows (M2O, M2M, CMP, SEL)](#sequence-windows-m2o-m2m-cmp-sel)
   - [Sequence Classification (M2O)](#sequence-classification-m2o)
@@ -48,13 +49,14 @@
 - [TODO](#todo)
 
 ## Description
-This repository trains, evaluates and exports PyTorch models for eight vision tasks, and pre-trains their shared backbone without labels with a ninth, self-supervised task. The tasks share the same backbone (convolution blocks with optional residual, squeeze-and-excitation and inception modules), the same training loop, the same configuration format, the same evaluation report and the same export to Triton. Each task adds its own dataset, model head, losses and metrics.
+This repository trains, evaluates and exports PyTorch models for nine vision tasks, and pre-trains their shared backbone without labels with a tenth, self-supervised task. The tasks share the same backbone (convolution blocks with optional residual, squeeze-and-excitation and inception modules), the same training loop, the same configuration format, the same evaluation report and the same export to Triton. Each task adds its own dataset, model head, losses and metrics.
 
 | Code | Task | Input | Output | Model |
 |---|---|---|---|---|
 | CLS | `classification` | one image | one class (multi-class) or several classes (multi-label) | backbone, global pooling, fully connected head |
 | DET | `object_detection` | one image | boxes with their class and score | backbone, region proposal heads on several backbone levels, RoI Align detection heads |
 | INS | `instance_segmentation` | one image | boxes with their class and score, and the mask of every object | the detector of DET with a RoI Align mask head on every detection level |
+| KPT | `keypoint_detection` | one object crop, cut out of its image around its box | the keypoints of the object (one heatmap per keypoint of its class) and their scores | stem of the backbone, high resolution network (HRNet), 1x1 heatmap head |
 | SEG | `semantic_segmentation` | one image | one class per pixel | backbone as the encoder of a U-Net decoder with skip connections |
 | M2O | `sequence_classification` | a sequence of frames | one class per sequence (many to one) | backbone on every frame, temporal module, fully connected head |
 | M2M | `sequence_labelling` | a sequence of frames | one class per frame (many to many) | backbone on every frame, temporal module, head on every frame |
@@ -66,7 +68,7 @@ This repository trains, evaluates and exports PyTorch models for eight vision ta
   <img src="README/architectures.png" width="100%" />
 </p>
 
-> **Image placeholder** (`README/architectures.png`): a diagram of the shared backbone feeding the task heads: the classification head, the region proposal and detection heads (with the mask heads for INS), the U-Net decoder, and the temporal module (with the fusion of the two members for CMP) followed by the classification head (and the decoding of the selection for SEL).
+> **Image placeholder** (`README/architectures.png`): a diagram of the shared backbone feeding the task heads: the classification head, the region proposal and detection heads (with the mask heads for INS), the high resolution network and heatmap head of KPT on the backbone stem, the U-Net decoder, and the temporal module (with the fusion of the two members for CMP) followed by the classification head (and the decoding of the selection for SEL).
 
 ## Prerequisites
 
@@ -116,6 +118,7 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 | CLS | one shape per 512 pixel image | 20 shapes: square, circle, triangle, rectangle, pentagon, hexagon, plus sign, star, octagon, rhombus, parallelogram, trapezoid, kite, heptagon, nonagon, ellipse, semicircle, annulus, capsule, L-shape | `classification/configuration_synthetic_shapes.yaml` |
 | DET | the INS dataset (`task = "instance_segmentation"`), whose boxes are those of the visible part of every shape | the 20 shapes | `object_detection/configuration_synthetic_shapes.yaml` |
 | INS | up to 6 shapes per 512 pixel image, with the run length encoding of the visible part of every shape, a shape left with fewer than 64 visible pixels being left out | the 20 shapes | `instance_segmentation/configuration_synthetic_shapes.yaml` |
+| KPT | 2 to 4 objects per 512 pixel image, the 20 shapes drawn upright, a stick figure and a house, each category with its own keypoints (the corners of the polygons, the tips of the star, the centre of the circle, the 11 joints of the stick figure...), some hidden by another object (v = 1) or outside the image | the 20 shapes, `stick_figure`, `house` | `keypoint_detection/configuration_synthetic_shapes.yaml` |
 | SEG | up to 6 shapes per 512 pixel image, with the class mask of every image | the 20 shapes and the background | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
 | M2O | one shape crossing 2 to 12 frames | `moving_left`, `moving_right`, `moving_up`, `moving_down` | `sequence_classification/configuration_synthetic_sequences.yaml` |
 | M2M | one shape changing class 1 to 3 times over 2 to 12 frames, labelled per frame | the 20 shapes | `sequence_labelling/configuration_synthetic_sequences.yaml` |
@@ -313,9 +316,9 @@ The categories of a manifest have integer identifiers. `label_mapping.json` maps
 }
 ```
 
-- CLS, M2O, M2M, CMP and SEL predict the classes 0 to K-1. DET, INS and SEG predict the classes 1 to K, class 0 being their background.
+- CLS, M2O, M2M, CMP and SEL predict the classes 0 to K-1. DET, INS, KPT and SEG predict the classes 1 to K, class 0 being their background (for KPT, the background of the detector giving its boxes).
 - Several categories mapped to the same class are merged into it, the class being named after both (`name_2+name_3`).
-- A category missing from the mapping is left out: its samples are skipped (CLS multi-class, M2O, CMP), it is dropped from the classes of its samples (CLS multi-label), its frames are ignored (M2M), its frames become unselected (SEL), its objects are ignored (DET, INS), or its pixels become background (SEG).
+- A category missing from the mapping is left out: its samples are skipped (CLS multi-class, M2O, CMP), it is dropped from the classes of its samples (CLS multi-label), its frames are ignored (M2M), its frames become unselected (SEL), its objects are ignored (DET, INS, KPT), or its pixels become background (SEG).
 - DET, INS and SEG also accept `mode: "binary"`, which maps every category to the foreground class 1 without a mapping file.
 
 The dataset scripts below and the synthetic dataset generator write `label_mapping.json` next to the splits.
@@ -460,6 +463,70 @@ The COCO 2017 splits downloaded by `vision_training/data/data_retriever.py` alre
 </p>
 
 > **Screenshot placeholder** (`README/instance_segmentation_sample.png`): a sample image of an instance segmentation evaluation, the ground truth boxes and masks on the left next to the detections above `Detector.inference.score_threshold` with their masks on the right, every box and mask in the colour of its class.
+
+### Keypoint Detection (KPT)
+The keypoint detector is top-down, as in HRNet ([Sun et al., 2019](https://arxiv.org/abs/1902.09212)): every object box is cut out of its image to a fixed-size crop, and the network predicts one heatmap per keypoint on the crop. The boxes come from the ground truth in training and evaluation, and from a detector (DET or INS) in deployment. Every sample is one object, so a batch of 64 holds 64 crops whatever the number of objects per image.
+
+The network is made of three parts:
+- A stem: the first blocks of the backbone of the other tasks, bringing the crop down to a quarter of its resolution. Every block but the last is followed by a 2x2 max pooling, so the stem has 3 blocks with `Backbone.last_max_pooling: False`, or 2 blocks with it True.
+- The high resolution network (`HRNet`): it keeps a branch at 1/4 of the crop through the whole network and adds a branch at half the resolution and twice the width at every stage (`base_width`, 2 x `base_width`...). The branches exchange their features at the end of every module, every branch receiving the sum of all the branches brought to its resolution and width. `modules_per_stage: [1, 4, 3]` with `base_width: 32` and `blocks_per_branch: 4` is HRNet-W32.
+- The keypoint head (`KeypointHead`): a 1x1 convolution of the highest resolution branch giving one heatmap per keypoint of every class, at 1/4 of the crop.
+
+Several classes can have different keypoints (a person with 17 keypoints, a car with 12). The heatmap channels are the keypoints of every class, the classes in increasing order and the keypoints of a class in the order of its category: only the channels of the class of a crop are trained and decoded. The targets are Gaussians of `KeypointHead.heatmap_sigma` heatmap cells centred on the keypoints, and the loss is the mean squared error of the labelled keypoints inside the crop. The keypoint of a heatmap is its highest cell moved by a quarter of a cell towards its higher neighbour, its score the value of that cell, and the score of an object the mean score of its keypoints.
+
+**Data.** The COCO `labels.json` of DET, every object having its `keypoints`, a flat `[x1, y1, v1, x2, y2, v2, ...]` list in pixels of the original image with the visibility v (0 not labelled, 1 labelled but hidden, 2 labelled and visible), and every category its keypoint `keypoints` names and its `skeleton`, pairs of 1-based keypoint numbers linked in the drawings. A category may give `maximum_rotation_degrees`, the largest rotation of its crops (180 without it). The objects without any labelled keypoint are left out of every split, having nothing to learn from nor to evaluate.
+
+```json
+{
+  "images": [{"id": 1, "file_name": "000001.png", "width": 640, "height": 480}],
+  "annotations": [
+    {"id": 1, "image_id": 1, "category_id": 1, "iscrowd": 0, "bbox": [120, 40, 80, 200],
+     "keypoints": [160, 60, 2, 140, 120, 2, 180, 120, 1], "num_keypoints": 3}
+  ],
+  "categories": [{"id": 1, "name": "person", "keypoints": ["head", "left_hand", "right_hand"],
+                  "skeleton": [[1, 2], [1, 3]]}]
+}
+```
+
+The label mapping keeps the class indices of the detector that will give the boxes, class 0 being its background, and the categories merged into one class must have the same keypoint names. The COCO 2017 person keypoints use the images of the COCO detection splits and the `person_keypoints_<split>2017.json` annotations of the COCO download as their `labels.json`.
+
+**Crops.** The ground truth box is centred, widened along its short side to the aspect ratio of `Data.crop_settings` (no distortion), enlarged by `box_enlargement` (1.25 keeps some context), then warped to `height` x `width` pixels in one affine warp on the GPU, the keypoints being moved by the same affine. Both sides must be multiples of the stride of the lowest resolution branch, 4 x 2 to the power of the number of stages (32 for 3 stages). The keypoints leaving the crop are not trained.
+
+**Augmentation.** `Data.crop_augmentation` draws the geometry of every training crop inside its warp: a scale of the region within `scale_range`, a rotation up to `maximum_rotation_degrees` (or the smaller limit of the category, half the angle of its rotational symmetry, beyond which its keypoints would change names), a left to right flip, and a shift of the centre up to `maximum_shift_fraction` of the region. It is always applied to the training crops, the validation and test crops being cut without it. A flipped crop swaps the names of its left and right keypoints: the pairs are deduced from the `left_` and `right_` prefixes of the keypoint names, or given by category in `flip_pairs` (`[]` for a category whose keypoints keep their names). The geometric types of `Data.data_augmentation` would move the crops without their keypoints, so they must be off; its photometric types are applied to the crops after the warp.
+
+**Converting a dataset.** The COCO 2017 keypoint annotations are part of the COCO download (`annotations_trainval2017.zip`). Every split folder links the images of the COCO split as its `data/` and its `person_keypoints_<split>2017.json` as its `labels.json`. The keypoint annotations of the COCO test split are withheld, so `configuration_example.yaml` uses the validation split as its validation and test splits.
+
+**Configuration.** Copy `keypoint_detection/configuration_example.yaml` (COCO persons, HRNet-W32 on 256x192 crops). The task keys are `Data.crop_settings`, `Data.crop_augmentation`, `HRNet`, `KeypointHead`, `evaluation.default_keypoint_sigma` and `evaluation.keypoint_sigmas`. `Backbone` is the stem, and `Backbone.pretrained` loads the first blocks of the backbone of any run (e.g. an ImageNet classification run), as many as the stem has. `HRNet.pretrained` and `KeypointHead.pretrained` load the network and the head of another KPT run.
+
+```yaml
+HRNet:
+  base_width: 32
+  modules_per_stage: [1, 4, 3]
+  blocks_per_branch: 4
+  modules: { squeeze_and_excite: True, residual_nets: True }
+  normalization: { feature_map_normalization: "batch", batch_normalization_momentum: 0.1 }
+```
+
+**Evaluation.** Every evaluated checkpoint predicts the keypoints of the ground truth boxes of the test split, without a detector in the loop, and brings them back to the network input image. Every object is scored against the ground truth objects of its image with the object keypoint similarity (OKS) of COCO, which replaces the IoU of the detection average precisions:
+
+OKS = Σ exp(-d² / (2 s² k²)) δ(v > 0) / Σ δ(v > 0)
+
+where d is the distance between a predicted keypoint and its ground truth, s² the area of the ground truth box, k = 2 x sigma the constant of the keypoint and the sums run over the labelled keypoints. A keypoint at 2 x sigma x sqrt(box area) from its ground truth scores exp(-0.5) = 0.61. The sigma of every keypoint is `evaluation.keypoint_sigmas.<category>.<keypoint>`, or `default_keypoint_sigma` (0.05) for the keypoints it leaves out; a loosely defined keypoint (a hip under the clothes) gets a larger value than a sharp corner.
+
+- The OKS mAP at 0.5, 0.75 and 0.5:0.95 with the area, 11-point and 101-point methods, by object size and per class, and the OKS mean average recall, as the box tables of DET. `OKS mAP@0.5/area` compares the checkpoints.
+- PCK@0.05, the percentage of correct keypoints: the share of the labelled keypoints within 0.05 of the longest box side of their object.
+- The mean OKS of the objects and the mean keypoint error in network input pixels.
+- The table `Keypoint Accuracy Per Class` (objects, labelled keypoints, PCK, mean OKS, mean error) and the table `Keypoint Accuracy Per Keypoint` (labelled keypoints, PCK and mean error of every keypoint of every class), saved in `class_metrics.csv` and `keypoint_metrics.csv`. A class or keypoint without labelled keypoint shows `—`.
+
+The OKS metrics are written to TensorBoard with the names of the box metrics of DET prefixed by `OKS ` (`OKS mAP@0.5/area`, `OKS mAP@0.5 By Size/<size>`, `OKS mAR@0.5/<all or size>`, `OKS AP@0.5/<class>`), and the keypoint accuracy as `Keypoint Accuracy/PCK@0.05`, `Keypoint Accuracy/Mean OKS` and `Keypoint Accuracy/Mean Keypoint Error (pixels)`.
+
+The sample images show every fixed test object as its crop with the ground truth keypoints next to the same crop with the predicted keypoints, the skeleton of its category drawn between them, captioned with its OKS, its correct keypoints and its score. The left keypoints are blue, the right ones orange and the others yellow, the hidden ones (v = 1) are drawn as rings and the unlabelled ones are left out. The input viewer (`view_input_images`) draws the training and validation crops the same way, next to a panel giving the class, the labelled keypoints and the drawn crop and photometric augmentations.
+
+<p align="center">
+  <img src="README/keypoint_sample.png" width="80%" />
+</p>
+
+> **Screenshot placeholder** (`README/keypoint_sample.png`): a sample image of a keypoint detection evaluation, the crop of one test object with its ground truth keypoints and skeleton on the left next to its predicted keypoints on the right.
 
 ### Semantic Segmentation (SEG)
 The segmenter predicts the class of every pixel. The backbone is the encoder of a U-Net: the decoder upsamples its last feature map level by level, each level merging the skip connection of a backbone block.
@@ -761,7 +828,7 @@ The rows of the source classes are copied into the first rows of the class layer
 
 The new classes thus start with small random logits, box offsets and masks, which may change the predictions of the source classes during the first iterations. The console prints the number of kept and added classes of every component. With `load_class_layers`, a deep supervision level of the new run that the source run does not have keeps its random weights, with a warning.
 
-On the synthetic shapes, a classification run of 9 classes extended to 20 (stage 14 of `markdown files/experiment_plan.md`, two launches of each), the random new classes learn as fast as with a random classification head (accuracy of the 11 new classes 0.75 at iteration 250 with the trained weights, against 0.31 when they started with zero weights and a bias 3 below the mean of the copied biases, an initialisation since removed), and the 9 source classes are kept (0.9986 with the averaged weights at iteration 250).
+On the synthetic shapes, a classification run of 9 classes extended to 20 (stage 14 of `documentation/architecture_benchmarking/experiment_plan.md`, two launches of each), the random new classes learn as fast as with a random classification head (accuracy of the 11 new classes 0.75 at iteration 250 with the trained weights, against 0.31 when they started with zero weights and a bias 3 below the mean of the copied biases, an initialisation since removed), and the 9 source classes are kept (0.9986 with the averaged weights at iteration 250).
 
 ## Evaluating Checkpoints
 `scripts/evaluation/evaluate_checkpoint.py` evaluates the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, without modifying the run folder. Set in its main block:
@@ -806,17 +873,24 @@ The models are written to `vision_training/deployment/triton/served_models/<mode
 | CLS | `image_classifier` | `images` [B, 3, S, S] | `class_probabilities` [B, K] |
 | DET | `object_detector` | `images` [B, 3, S, S] | `detection_boxes` [B, D, 4], `detection_scores` [B, D], `detection_labels` [B, D], `number_detections` [B] |
 | INS | `instance_segmenter` | `images` [B, 3, S, S] | the outputs of DET, then `detection_masks` [B, D, M, M] |
+| KPT | `keypoint_detector` | `crops` [B, 3, H, W] | `keypoints` [B, C, 2], `keypoint_scores` [B, C], `heatmaps` [B, C, H/4, W/4] |
 | SEG | `semantic_segmenter` | `images` [B, 3, S, S] | `class_map` [B, S, S], `class_probabilities` [B, K, S, S] |
 | M2O | `sequence_classifier` | `images` [B, T, 3, S, S] | `class_probabilities` [B, K] |
 | M2M | `sequence_labeller` | `images` [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
 | CMP | `sequence_comparator` | `before_images`, `after_images` [B, T, 3, S, S] | `class_probabilities` [B, K] |
 | SEL | `frame_selector` | `images` [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
 
-S is `Data.image_settings.size`, K the number of classes, D the largest number of detections per image, M `MaskHead.mask_resolution`, and T any number of frames from 1 to `sequence_length`. The inputs are float32 BGR images in [0, 255], resized and padded like the data loaders do (`keep_ratio`); the input normalization is part of the exported model.
+S is `Data.image_settings.size`, K the number of classes, D the largest number of detections per image, M `MaskHead.mask_resolution`, T any number of frames from 1 to `sequence_length`, H and W `Data.crop_settings.height` and `width`, and C the number of heatmap channels. The inputs are float32 BGR images in [0, 255], resized and padded like the data loaders do (`keep_ratio`); the input normalization is part of the exported model.
 
 The outputs of SEG are at the network resolution: `restore_prediction_to_original_image` of `vision_training/data/preprocessing.py` brings a class map or the class probabilities back to the original image. A SEG run trained on tiles (`Data.tiling`) is exported the same way, its input being one tile: the client scales the image by `Data.tiling.scale`, then segments it with `segment_image_by_tiles` of `vision_training/models/segmentation/sliding_window.py`, given a function sending a batch of tiles to Triton and returning their `class_probabilities`.
 
 The masks of INS are the probabilities of the detected class inside the box of every detection, 0 for the padding detections. The client pastes every mask into the image inside its box with `paste_instance_masks` of `vision_training/models/instance_segmentation/mask_operations.py`, the boxes being first brought back to the original image by `restore_boxes_to_original_image` of `vision_training/data/preprocessing.py`, then keeps the pixels above `MaskHead.inference.mask_threshold`.
+
+The keypoint detector of KPT takes object crops and decodes every heatmap channel, the client knowing the class of the box it cut each crop from:
+1. Resize and pad the image like the data loaders (`preprocess_image` of `vision_training/data/preprocessing.py`) and detect its objects with a DET or INS model, whose boxes are in the pixels of that image.
+2. Cut every box to a crop with `cut_inference_crop` of `vision_training/deployment/deployment_utilities.py`, given the `Data.crop_settings` of the run: the crops of the evaluation, without augmentation.
+3. Keep the channels of the class of every box: `build_keypoint_channel_table` of `vision_training/models/keypoints/keypoint_detector.py` gives the channel of every keypoint of every class, from the `Data.keypoint_categories` of the run configuration (`load_experiment_configuration` of `vision_training/configuration_processing/configuration_loader.py` reads them from the training `labels.json`).
+4. Bring the keypoints from the crop pixels back to the image with the crop to image matrix of `build_crop_affines` and `transform_points` of `vision_training/data/keypoints/crop_transform.py`.
 
 For SEL, the export also writes the decoder `frame_selector_decoder`, a Triton Python backend model run on the CPU, and one ensemble per format, `frame_selector_<format>_ensemble`, chaining the exported network and the decoder. The decoder runs the decoding of `Selection.decoding` with the thresholds of `Evaluation/Iteration_<n>/class_thresholds.json` of the exported checkpoint, every threshold being 0 when that checkpoint was not evaluated. Its folder holds a copy of `vision_training/models/sequence/frame_selection_decoding.py`, the decoding of the evaluation, and `decoding_settings.json`, giving the names of the wanted classes in output order. It uses the numpy and scipy of the Triton image. The ensemble takes the `images` of the network and gives:
 
@@ -871,35 +945,42 @@ The tables below list only the keys that are not in every task. Every other key 
 | SEG | semantic_segmentation |
 | SEL | frame_selection |
 | SSL | self_supervised |
+| KPT | keypoint_detection |
 
 ### Keys Per Task
-| Key | DET | INS | CLS | M2O | M2M | CMP | SEG | SEL | SSL |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| `DetectionLevels` | ✓ | ✓ | | | | | | | |
-| `RegionProposal` | ✓ | ✓ | | | | | | | |
-| `Detector` | ✓ | ✓ | | | | | | | |
-| `ExperimentConfiguration.evaluation.score_threshold` | ✓ | ✓ | | | | | | | |
-| `MaskHead` | | ✓ | | | | | | | |
-| `ExperimentConfiguration.evaluation.top_k` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| `ExperimentConfiguration.evaluation.target_precision` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| `ExperimentConfiguration.evaluation.save_predictions` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| `ExperimentConfiguration.evaluation.error_dumps` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| `ClassificationHead` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| `TemporalModel` | | | | ✓ | ✓ | ✓ | | ✓ | |
-| `Data.sequence_settings` | | | | ✓ | ✓ | ✓ | | ✓ | |
-| `Data.sequence_settings.short_sequences` | | | | ✓ | ✓ | ✓ | | | |
-| `Data.sequence_settings.window_stride` | | | | ✓ | ✓ | | | | |
-| `Fusion` | | | | | | ✓ | | | |
-| `SegmentationDecoder` | | | | | | | ✓ | | |
-| `SegmentationLoss` | | | | | | | ✓ | | |
-| `Data.tiling` | | | | | | | ✓ | | |
-| `ExperimentConfiguration.evaluation.save_predicted_masks` | | | | | | | ✓ | | |
-| `ExperimentConfiguration.evaluation.original_resolution` | | ✓ | | | | | ✓ | | |
-| `ExperimentConfiguration.evaluation.boundary_tolerance` | | | | | | | ✓ | | |
-| `Selection` | | | | | | | | ✓ | |
-| `ProjectionHead` | | | | | | | | | ✓ |
-| `Data.view_augmentation` | | | | | | | | | ✓ |
-| `ExperimentConfiguration.evaluation.number_neighbours` | | | | | | | | | ✓ |
+| Key | DET | INS | CLS | M2O | M2M | CMP | SEG | SEL | SSL | KPT |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| `DetectionLevels` | ✓ | ✓ | | | | | | | | |
+| `RegionProposal` | ✓ | ✓ | | | | | | | | |
+| `Detector` | ✓ | ✓ | | | | | | | | |
+| `ExperimentConfiguration.evaluation.score_threshold` | ✓ | ✓ | | | | | | | | |
+| `MaskHead` | | ✓ | | | | | | | | |
+| `ExperimentConfiguration.evaluation.top_k` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
+| `ExperimentConfiguration.evaluation.target_precision` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
+| `ExperimentConfiguration.evaluation.save_predictions` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
+| `ExperimentConfiguration.evaluation.error_dumps` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
+| `ClassificationHead` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
+| `TemporalModel` | | | | ✓ | ✓ | ✓ | | ✓ | | |
+| `Data.sequence_settings` | | | | ✓ | ✓ | ✓ | | ✓ | | |
+| `Data.sequence_settings.short_sequences` | | | | ✓ | ✓ | ✓ | | | | |
+| `Data.sequence_settings.window_stride` | | | | ✓ | ✓ | | | | | |
+| `Fusion` | | | | | | ✓ | | | | |
+| `SegmentationDecoder` | | | | | | | ✓ | | | |
+| `SegmentationLoss` | | | | | | | ✓ | | | |
+| `Data.tiling` | | | | | | | ✓ | | | |
+| `ExperimentConfiguration.evaluation.save_predicted_masks` | | | | | | | ✓ | | | |
+| `ExperimentConfiguration.evaluation.original_resolution` | | ✓ | | | | | ✓ | | | |
+| `ExperimentConfiguration.evaluation.boundary_tolerance` | | | | | | | ✓ | | | |
+| `Selection` | | | | | | | | ✓ | | |
+| `ProjectionHead` | | | | | | | | | ✓ | |
+| `Data.view_augmentation` | | | | | | | | | ✓ | |
+| `ExperimentConfiguration.evaluation.number_neighbours` | | | | | | | | | ✓ | |
+| `Data.crop_settings` | | | | | | | | | | ✓ |
+| `Data.crop_augmentation` | | | | | | | | | | ✓ |
+| `HRNet` | | | | | | | | | | ✓ |
+| `KeypointHead` | | | | | | | | | | ✓ |
+| `ExperimentConfiguration.evaluation.default_keypoint_sigma` | | | | | | | | | | ✓ |
+| `ExperimentConfiguration.evaluation.keypoint_sigmas` | | | | | | | | | | ✓ |
 
 ### Keys Per Group Of Tasks
 | Tasks | Keys they share that the other tasks do not have |
@@ -916,29 +997,33 @@ The tables below list only the keys that are not in every task. Every other key 
 | SEG | `SegmentationDecoder`, `SegmentationLoss`, `Data.tiling`, `ExperimentConfiguration.evaluation.save_predicted_masks`, `boundary_tolerance` |
 | SEL | `Selection` |
 | SSL | `ProjectionHead`, `Data.view_augmentation`, `ExperimentConfiguration.evaluation.number_neighbours` |
+| KPT | `Data.crop_settings`, `Data.crop_augmentation`, `HRNet`, `KeypointHead`, `ExperimentConfiguration.evaluation.default_keypoint_sigma`, `keypoint_sigmas` |
 
 ### Values Per Task
 Some keys are in several tasks but do not accept the same values in each. The check of the task refuses a value that its task cannot use. Everything not listed here accepts the same values in every task that has the key.
 
-| Key | DET | INS | CLS | M2O | M2M | CMP | SEG | SEL | SSL |
-|---|---|---|---|---|---|---|---|---|---|
-| `Data.label_mapping.mode` | `binary` or `multi_class` | `binary` or `multi_class` | `multi_class` | `multi_class` | `multi_class` | `multi_class` | `binary` or `multi_class` | `multi_class` | `multi_class` |
-| `Data.data_augmentation.activated` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` |
-| `Data.data_augmentation.independent_frames` | `False` | `False` | `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` | `True` or `False` | `False` |
-| `Data.data_augmentation.shuffle_frames.activated` | `False` | `False` | `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` | `True` or `False` | `False` |
-| `Backbone.normalization.feature_map_normalization` | any except `sequence` | any except `sequence` | any except `sequence` | any | any | any | any except `sequence` | any | any except `sequence` |
-| `ClassificationHead.global_pooling` | | | `average`, `max` or `flatten` | `average` or `max` | `average` or `max` | `average` or `max` | | `average` or `max` | |
-| `ClassificationHead.output_mode` | | | `multi_class` or `multi_label` | `multi_class` | `multi_class` | `multi_class` | | `multi_class` | |
-| `TemporalModel.type` | | | | all 7 types | `gru`, `lstm`, `transformer`, `temporal_convolution` | all 7 types | | `gru`, `lstm`, `transformer`, `temporal_convolution` | |
-| `TemporalModel.causal` | | | | `False` | `True` or `False` | `False` | | `True` or `False` | |
+| Key | DET | INS | CLS | M2O | M2M | CMP | SEG | SEL | SSL | KPT |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `Data.label_mapping.mode` | `binary` or `multi_class` | `binary` or `multi_class` | `multi_class` | `multi_class` | `multi_class` | `multi_class` | `binary` or `multi_class` | `multi_class` | `multi_class` | `multi_class` |
+| `Data.data_augmentation.activated` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` | `True` or `False` |
+| `Data.data_augmentation.independent_frames` | `False` | `False` | `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` | `True` or `False` | `False` | `False` |
+| `Data.data_augmentation.shuffle_frames.activated` | `False` | `False` | `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` | `True` or `False` | `False` | `False` |
+| `Backbone.normalization.feature_map_normalization` | any except `sequence` | any except `sequence` | any except `sequence` | any | any | any | any except `sequence` | any | any except `sequence` | any except `sequence` |
+| `ClassificationHead.global_pooling` | | | `average`, `max` or `flatten` | `average` or `max` | `average` or `max` | `average` or `max` | | `average` or `max` | | |
+| `ClassificationHead.output_mode` | | | `multi_class` or `multi_label` | `multi_class` | `multi_class` | `multi_class` | | `multi_class` | | |
+| `TemporalModel.type` | | | | all 7 types | `gru`, `lstm`, `transformer`, `temporal_convolution` | all 7 types | | `gru`, `lstm`, `transformer`, `temporal_convolution` | | |
+| `TemporalModel.causal` | | | | `False` | `True` or `False` | `False` | | `True` or `False` | | |
+| `Data.data_augmentation.types.<geometric type>.activated` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` |
 
-An empty cell means that the task does not have the key. The 7 temporal types are `mean_pooling`, `max_pooling`, `attention_pooling`, `gru`, `lstm`, `transformer` and `temporal_convolution`. M2M and SEL need one output per frame, which the three poolings do not give.
+An empty cell means that the task does not have the key. The geometric types of KPT are `random_crop`, `random_zoom_out`, `random_translation`, `random_left_right_flip`, `random_up_down_flip`, `random_rotation` and `random_90_rotation`, its crops being moved by `Data.crop_augmentation`. The 7 temporal types are `mean_pooling`, `max_pooling`, `attention_pooling`, `gru`, `lstm`, `transformer` and `temporal_convolution`. M2M and SEL need one output per frame, which the three poolings do not give.
+
+For KPT, `Backbone` is the stem of the network and must end at 1/4 of the crop: 3 blocks with `last_max_pooling: False`, or 2 blocks with it True. `Data.crop_settings.height` and `width` must be multiples of 4 x 2 to the power of the length of `HRNet.modules_per_stage`. The categories of `Evaluation.keypoint_sigmas` and `Data.crop_augmentation.flip_pairs` must be categories of the training split with keypoints, and their keypoint names those of the category.
 
 For SEG, the keys of `SegmentationDecoder.convolutions` must be the backbone blocks whose output before pooling is a skip connection: blocks 1 to N-1 of a backbone of N blocks, and block N too with `Backbone.last_max_pooling: True`. The keys of `SegmentationDecoder.deep_supervision_weights` must be keys of `convolutions` other than the finest level, which gives the final logits. The categories of a `multi_class` mapping file are the pixel values of the masks (1 to 254, 0 being the background and 255 the unlabelled pixels).
 
 For DET, every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`; for INS, it also holds `mask_head`, whose `roi_align_pool_size` must not exceed `MaskHead.mask_resolution`.
 
-INS has the keys of DET and `MaskHead`. M2O and M2M have exactly the same keys. SEL has the keys of M2M without `window_stride` and `short_sequences`, and `Selection`. SSL has the keys of CLS without `ClassificationHead`, `top_k`, `target_precision`, `save_predictions` and `error_dumps`, and `ProjectionHead`, `Data.view_augmentation` and `number_neighbours`. The number of blocks in `Backbone.convolutions` changes from one example to another, but this is a value, not a different key.
+INS has the keys of DET and `MaskHead`. M2O and M2M have exactly the same keys. SEL has the keys of M2M without `window_stride` and `short_sequences`, and `Selection`. SSL has the keys of CLS without `ClassificationHead`, `top_k`, `target_precision`, `save_predictions` and `error_dumps`, and `ProjectionHead`, `Data.view_augmentation` and `number_neighbours`. KPT has the keys of SSL without `Data.view_augmentation`, `ProjectionHead` and `number_neighbours`, and `Data.crop_settings`, `Data.crop_augmentation`, `HRNet`, `KeypointHead`, `default_keypoint_sigma` and `keypoint_sigmas`. The number of blocks in `Backbone.convolutions` changes from one example to another, but this is a value, not a different key.
 
 ### Evaluation Outputs
 Every evaluated checkpoint is reported in the console and in a block of `<run>/Results.txt` with the same layout: a header `Iteration <n> · <evaluated samples> · <date and time>`, the global metrics, the notes (e.g. the error images) and the tables of the task, the per-class table being sorted worst first. Its files are written in `<run>/Evaluation/Iteration_<n>/`, those of the moving average of the weights in `<run>/Evaluation/Iteration_<n>/EMA/`. `ExperimentConfiguration.evaluation.per_class_report` set to `False` keeps the global metrics only, for runs with many classes: the files written in every case keep the details.
@@ -947,7 +1032,9 @@ Every evaluated checkpoint is reported in the console and in a block of `<run>/R
 |---|---|---|
 | Global metrics and notes (console, `Results.txt`), global Test scalars (TensorBoard) | all | every evaluation |
 | Per-class table (console, `Results.txt`), per-class Test scalars (TensorBoard) | all | with `per_class_report` |
-| `class_metrics.csv`: one row per class (samples, precision, recall, F1, threshold and recall at the target precision; detection: ground truths and average precisions, of all the objects and of every object size, with the mask average precisions for INS, and the threshold and recall at the target precision; segmentation: pixels, IoU, Dice, boundary IoU, boundary F1, precision, recall; self-supervised: labelled test images, k-NN precision, recall, F1) | all, SSL with labelled test images | every evaluation |
+| `class_metrics.csv`: one row per class (samples, precision, recall, F1, threshold and recall at the target precision; detection: ground truths and average precisions, of all the objects and of every object size, with the mask average precisions for INS, and the threshold and recall at the target precision; segmentation: pixels, IoU, Dice, boundary IoU, boundary F1, precision, recall; self-supervised: labelled test images, k-NN precision, recall, F1; keypoints: objects and OKS average precisions as for DET, labelled keypoints, PCK, mean OKS, mean error) | all, SSL with labelled test images | every evaluation |
+| `keypoint_metrics.csv`: one row per keypoint of every class (labelled keypoints, PCK, mean error in pixels) | KPT | every evaluation |
+| `Mean Average Precision By Object Size (Area)` and `Mean Average Recall` tables on the object keypoint similarity, `Keypoint Accuracy Per Keypoint` table (console, `Results.txt`) | KPT | every evaluation, the per keypoint table with `per_class_report` |
 | `Mean Average Precision By Object Size (Area)`, `Mean Average Recall` and `Proposal Recall` tables (console, `Results.txt`), their Test scalars (TensorBoard), `proposal_recall.csv` | DET, INS | every evaluation |
 | `class_thresholds.json` | DET, INS, CLS, M2O, M2M, CMP, SEL | every evaluation |
 | `confusion_matrix.csv` (pixels for SEG, decoded frames for SEL, detections of the deployed detector with a `background` row and column for DET and INS) | DET, INS, CLS (multi-class), M2O, M2M, CMP, SEG, SEL | every evaluation |
@@ -957,11 +1044,11 @@ Every evaluated checkpoint is reported in the console and in a block of `<run>/R
 | `Errors/<TRUE>-TO-<PREDICTED>/` | CLS (multi-class), M2O, M2M, CMP | with `error_dumps.activated` |
 | `Errors/<CLASS>/<sequence>.png` | SEL | with `error_dumps.activated` |
 | `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/`, `Errors/<TRUE>-TO-<PREDICTED>/`: the test images with errors, the boxes in error outlined with red dashes | DET, INS | with `error_dumps.activated` |
-| `Samples/<sample>.png` and its Test image `Samples/<sample>` (TensorBoard): the same test samples at every evaluation with their targets and predictions. CLS, M2O, CMP: the input (frame grid of the window, before member above after member for CMP) captioned `true -> predicted probability`, green when right and red when wrong. M2M: the frame grid, every frame captioned `true/predicted` with `X` on the wrong ones. SEL: the thumbnail grid of the whole sequence with the borders of the selection, and the probability heat map of the wanted classes. DET: ground truth boxes next to the detections above `Detector.inference.score_threshold`. INS: the same, with the masks of the objects painted under their boxes. SEG: input, true mask, predicted mask and error map. SSL: the image next to two random views of it, captioned with its class and the cosine similarity of the representations of both views | all | with `number_sample_images` above 0, whatever `per_class_report` |
+| `Samples/<sample>.png` and its Test image `Samples/<sample>` (TensorBoard): the same test samples at every evaluation with their targets and predictions. CLS, M2O, CMP: the input (frame grid of the window, before member above after member for CMP) captioned `true -> predicted probability`, green when right and red when wrong. M2M: the frame grid, every frame captioned `true/predicted` with `X` on the wrong ones. SEL: the thumbnail grid of the whole sequence with the borders of the selection, and the probability heat map of the wanted classes. DET: ground truth boxes next to the detections above `Detector.inference.score_threshold`. INS: the same, with the masks of the objects painted under their boxes. SEG: input, true mask, predicted mask and error map. SSL: the image next to two random views of it, captioned with its class and the cosine similarity of the representations of both views. KPT: the crop of the object with its ground truth keypoints next to its predicted keypoints, with the skeleton of its class, captioned with its OKS, correct keypoints and score | all | with `number_sample_images` above 0, whatever `per_class_report` |
 | `Predicted_Masks/<image>.png`: class index of every pixel at the resolution of the metrics (network input, scaled image with `Data.tiling`, original image with `original_resolution`) | SEG | with `save_predicted_masks` |
 | `Evaluation/evaluation_summary.csv` (`scripts/evaluation/evaluate_checkpoint.py` with `iteration = "all"`) | all | per-class columns with `per_class_report` |
 
-The `number_sample_images` test samples are chosen once from the test split, so that the same samples are shown at every evaluation and after a resume. For CLS, M2O, M2M, CMP and SSL they are spread over the classes first, one per class in turn (a window of M2M counts for the class of most of its frames), then evenly over the samples of each class. For DET, INS and SEG they are evenly spread over the test images, and for SEL, whose sequences all hold the same wanted classes, over the test sequences. A test split smaller than `number_sample_images` shows all its samples.
+The `number_sample_images` test samples are chosen once from the test split, so that the same samples are shown at every evaluation and after a resume. For CLS, M2O, M2M, CMP and SSL they are spread over the classes first, one per class in turn (a window of M2M counts for the class of most of its frames), then evenly over the samples of each class. For KPT they are spread over the classes the same way, one test object per class in turn. For DET, INS and SEG they are evenly spread over the test images, and for SEL, whose sequences all hold the same wanted classes, over the test sequences. A test split smaller than `number_sample_images` shows all its samples.
 
 ## Run Names
 A training run is saved in `<ExperimentConfiguration.experiment_folder>/<run name>`. The run name is built from the configuration by `vision_training/configuration_processing/run_name.py`: the same settings resume in the same folder, changed settings start a new folder.
@@ -970,74 +1057,82 @@ The name is made of sections joined with `_`, the tokens of a section being join
 
 The training settings that can change between two resumptions of a run give no token: augmentation (including `shuffle_frames` and `independent_frames`), batch size, learning rate, warm-up, cosine schedule, the `pretrained.learning_rate_multiplier` of the transferred components, gradient clipping, mixed precision, the moving average of the weights (`Optimization.exponential_moving_average`), the `batch_normalization_momentum` of every section, the dropout rates (`ClassificationHead.dropout_rate`, `TemporalModel.dropout_rate`, `Fusion.dropout_rate`, `SegmentationDecoder.dropout_rate`) and the losses of SEG (`SegmentationLoss`, Lovász and boundary losses included, whose class weights are set again from the configuration when a run resumes) and the decoding of SEL (`Selection.decoding`, both decodings being scored at every evaluation), and the views of SSL (`Data.view_augmentation`). A run can be resumed in its folder with changed values, and two runs differing only by these settings share a folder. The optimizer keeps its token, because the state of one optimizer cannot be resumed by another.
 
-| Section | Token | Meaning (configuration key) | DET | INS | CLS | M2O | M2M | CMP | SEG | SEL | SSL |
-|---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Task | `DET`, `INS`, `CLS`, `M2O`, `M2M`, `CMP`, `SEG`, `SEL`, `SSL` | `ExperimentConfiguration.task` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Input | `IN` | `Backbone.normalization.input_normalization` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Input | `PSN` | `Backbone.normalization.per_sample_normalization` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Input | `KAR` | `Data.image_settings.keep_ratio` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Input | `<size>` | `Data.image_settings.size` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Backbone | `SE`, `RES` | `Backbone.modules.squeeze_and_excite`, `residual_nets` are True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Backbone | `RES2` instead of `RES` | `Backbone.modules.residual_nets_v2` is True (pre-activation shortcuts) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Backbone | `INC<block>` | `Backbone.modules.inception` is True, from `inception_starting_block` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Backbone | `BN`, `LN`, `NN` | `Backbone.normalization.feature_map_normalization`: batch, layer, none | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Backbone | `SN` | `Backbone.normalization.feature_map_normalization`: sequence | | | | ✓ | ✓ | ✓ | | ✓ | |
-| Backbone | `B<layers>x<filters>.…` | `Backbone.convolutions`, one `<layers>x<filters>` per block | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Backbone | `PT` | `Backbone.pretrained.experiment_folder` is set | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Backbone | `FRZ` | `Backbone.pretrained.freeze` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Backbone | `FBN` | `Backbone.pretrained.freeze_normalization_parameters` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Levels | `L<blocks>` | The keys of `DetectionLevels` | ✓ | ✓ | | | | | | | |
-| Anchors | `A<anchors>.<smallest>-<largest>` | `DetectionLevels.<level>.anchors`: anchors per position, range of the scales | ✓ | ✓ | | | | | | | |
-| Region proposal | `RBN`, `RLN`, `RNN` | `RegionProposal.normalization.feature_map_normalization` | ✓ | ✓ | | | | | | | |
-| Region proposal | `R<layers>x<filters>` | `DetectionLevels.<level>.region_proposal.convolutions` | ✓ | ✓ | | | | | | | |
-| Region proposal | `RPT`, then `RFRZ` when frozen | `RegionProposal.pretrained` | ✓ | ✓ | | | | | | | |
-| Detector | `DSE`, `DRES`, `DINC` | `Detector.modules` | ✓ | ✓ | | | | | | | |
-| Detector | `DBN`, `DLN`, `DNN` | `Detector.normalization.feature_map_normalization` | ✓ | ✓ | | | | | | | |
-| Detector | `D<pool>.<layers>x<filters>.<fully connected>` | `DetectionLevels.<level>.detector` | ✓ | ✓ | | | | | | | |
-| Detector | `DPT`, then `DFRZ` when frozen | `Detector.pretrained` | ✓ | ✓ | | | | | | | |
-| Mask heads | `MSE`, `MRES`, `MINC` | `MaskHead.modules` | | ✓ | | | | | | | |
-| Mask heads | `MBN`, `MLN`, `MNN` | `MaskHead.normalization.feature_map_normalization` | | ✓ | | | | | | | |
-| Mask heads | `MUTC` or `MUBL` | `MaskHead.upsampling`: transposed, bilinear | | ✓ | | | | | | | |
-| Mask heads | `M<pool>.<layers>x<channels>` | `DetectionLevels.<level>.mask_head` | | ✓ | | | | | | | |
-| Mask heads | `MR<mask resolution>` | `MaskHead.mask_resolution` | | ✓ | | | | | | | |
-| Mask heads | `MPT`, then `MFRZ` when frozen | `MaskHead.pretrained` | | ✓ | | | | | | | |
-| Tiling | `TL<scale>` | `Data.tiling.activated` is True, with `Data.tiling.scale` | | | | | | | ✓ | | |
-| Decoder | `UTC` or `UBL` | `SegmentationDecoder.upsampling`: transposed, bilinear | | | | | | | ✓ | | |
-| Decoder | `DSE`, `DRES` | `SegmentationDecoder.modules` | | | | | | | ✓ | | |
-| Decoder | `DBN`, `DLN`, `DNN` | `SegmentationDecoder.feature_map_normalization` | | | | | | | ✓ | | |
-| Decoder | `D<layers>x<channels>.…` | `SegmentationDecoder.convolutions`, one `<layers>x<channels>` per level from the deepest one | | | | | | | ✓ | | |
-| Decoder | `AUX<level>.…` | `SegmentationDecoder.deep_supervision_weights` is not empty, its levels from the deepest one | | | | | | | ✓ | | |
-| Decoder | `DPT`, then `DCL` with the class layers, then `DFRZ` when frozen | `SegmentationDecoder.pretrained`, `load_class_layers` is True | | | | | | | ✓ | | |
-| Classes | `BIN` or `MC<classes>` | `Data.label_mapping.mode`: binary or multi_class, foreground classes of the label dictionary | ✓ | ✓ | | | | | ✓ | | |
-| Window | `T<frames>` | `Data.sequence_settings.sequence_length` (frames per member for CMP) | | | | ✓ | ✓ | ✓ | | ✓ | |
-| Temporal module | `MEAN`, `MAX`, `ATT<hidden size>` | `TemporalModel.type`: mean_pooling, max_pooling, attention_pooling | | | | ✓ | | ✓ | | | |
-| Temporal module | `GRU<layers>x<hidden size>`, `LSTM<layers>x<hidden size>` | `TemporalModel.type`: gru, lstm | | | | ✓ | ✓ | ✓ | | ✓ | |
-| Temporal module | `TRF<layers>x<hidden size>.<heads>` | `TemporalModel.type`: transformer | | | | ✓ | ✓ | ✓ | | ✓ | |
-| Temporal module | `TCN<layers>x<hidden size>.<kernel size>` | `TemporalModel.type`: temporal_convolution | | | | ✓ | ✓ | ✓ | | ✓ | |
-| Temporal module | `BI` | `TemporalModel.bidirectional` is True (gru, lstm) | | | | ✓ | ✓ | ✓ | | ✓ | |
-| Temporal module | `CAU` | `TemporalModel.causal` is True (transformer, temporal_convolution) | | | | | ✓ | | | ✓ | |
-| Temporal module | `NPE` | `TemporalModel.positional_embedding` is False (transformer) | | | | ✓ | ✓ | ✓ | | ✓ | |
-| Temporal module | `TPT`, then `TFRZ` when frozen | `TemporalModel.pretrained` (not for mean or max pooling) | | | | ✓ | ✓ | ✓ | | ✓ | |
-| Fusion | `FCAT`, `FDIF`, `FXA<heads>` | `Fusion.type`: concatenation, difference, cross_attention | | | | | | ✓ | | | |
-| Fusion | `SNP` | `Fusion.sequence_normalization_scope` is pair, with the `SN` backbone | | | | | | ✓ | | | |
-| Head | `HAVG.<fully connected>` or `HMAX.<fully connected>` | `ClassificationHead.global_pooling` average or max, `fully_connected` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| Head | `HFLAT.<fully connected>` | `ClassificationHead.global_pooling` flatten, `fully_connected` | | | ✓ | | | | | | |
-| Head | `HBN`, `HLN` | `ClassificationHead.fully_connected_normalization` is batch or layer | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| Head | `LS<rate>` | `ClassificationHead.label_smoothing` is above 0 | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| Head | `CWB` | `ClassificationHead.class_weighting` is balanced | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| Head | `HPT`, then `HFRZ` when frozen | `ClassificationHead.pretrained` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| Classes | `MC<classes>` | `ClassificationHead.output_mode` multi_class, classes of the label dictionary | | | ✓ | ✓ | ✓ | ✓ | | ✓ | |
-| Classes | `ML<classes>` | `ClassificationHead.output_mode` multi_label | | | ✓ | | | | | | |
-| Selection | `FPC<frames>` | `Selection.frames_per_class` | | | | | | | | ✓ | |
-| Selection | `SLW<weight>` | `Selection.selection_loss_weight` is above 0 | | | | | | | | ✓ | |
-| Projection head | `PAVG.<layers>`, `PMAX.<layers>` or `PFLAT.<layers>` | `ProjectionHead.global_pooling` average, max or flatten, `fully_connected` (embedding size last) | | | | | | | | | ✓ |
-| Projection head | `PBN`, `PLN` | `ProjectionHead.fully_connected_normalization` is batch or layer | | | | | | | | | ✓ |
-| Method | `SIMCLR-T<temperature>` | `ProjectionHead.method` simclr, `simclr.temperature` | | | | | | | | | ✓ |
-| Method | `BT-OD<weight>` | `ProjectionHead.method` barlow_twins, `barlow_twins.off_diagonal_weight` | | | | | | | | | ✓ |
-| Optimizer | `ADAMW` or `SGD` | `Optimization.optimizer` is not adam | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Optimizer | `WD<decay>` | `Optimization.weight_decay` is above 0 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Section | Token | Meaning (configuration key) | DET | INS | CLS | M2O | M2M | CMP | SEG | SEL | SSL | KPT |
+|---|---|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| Task | `DET`, `INS`, `CLS`, `M2O`, `M2M`, `CMP`, `SEG`, `SEL`, `SSL`, `KPT` | `ExperimentConfiguration.task` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Input | `IN` | `Backbone.normalization.input_normalization` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Input | `PSN` | `Backbone.normalization.per_sample_normalization` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Input | `KAR` | `Data.image_settings.keep_ratio` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Input | `<size>` | `Data.image_settings.size` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Backbone | `SE`, `RES` | `Backbone.modules.squeeze_and_excite`, `residual_nets` are True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Backbone | `RES2` instead of `RES` | `Backbone.modules.residual_nets_v2` is True (pre-activation shortcuts) | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Backbone | `INC<block>` | `Backbone.modules.inception` is True, from `inception_starting_block` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Backbone | `BN`, `LN`, `NN` | `Backbone.normalization.feature_map_normalization`: batch, layer, none | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Backbone | `SN` | `Backbone.normalization.feature_map_normalization`: sequence | | | | ✓ | ✓ | ✓ | | ✓ | | |
+| Backbone | `B<layers>x<filters>.…` | `Backbone.convolutions`, one `<layers>x<filters>` per block | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Backbone | `PT` | `Backbone.pretrained.experiment_folder` is set | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Backbone | `FRZ` | `Backbone.pretrained.freeze` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Backbone | `FBN` | `Backbone.pretrained.freeze_normalization_parameters` is True | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Levels | `L<blocks>` | The keys of `DetectionLevels` | ✓ | ✓ | | | | | | | | |
+| Anchors | `A<anchors>.<smallest>-<largest>` | `DetectionLevels.<level>.anchors`: anchors per position, range of the scales | ✓ | ✓ | | | | | | | | |
+| Region proposal | `RBN`, `RLN`, `RNN` | `RegionProposal.normalization.feature_map_normalization` | ✓ | ✓ | | | | | | | | |
+| Region proposal | `R<layers>x<filters>` | `DetectionLevels.<level>.region_proposal.convolutions` | ✓ | ✓ | | | | | | | | |
+| Region proposal | `RPT`, then `RFRZ` when frozen | `RegionProposal.pretrained` | ✓ | ✓ | | | | | | | | |
+| Detector | `DSE`, `DRES`, `DINC` | `Detector.modules` | ✓ | ✓ | | | | | | | | |
+| Detector | `DBN`, `DLN`, `DNN` | `Detector.normalization.feature_map_normalization` | ✓ | ✓ | | | | | | | | |
+| Detector | `D<pool>.<layers>x<filters>.<fully connected>` | `DetectionLevels.<level>.detector` | ✓ | ✓ | | | | | | | | |
+| Detector | `DPT`, then `DFRZ` when frozen | `Detector.pretrained` | ✓ | ✓ | | | | | | | | |
+| Mask heads | `MSE`, `MRES`, `MINC` | `MaskHead.modules` | | ✓ | | | | | | | | |
+| Mask heads | `MBN`, `MLN`, `MNN` | `MaskHead.normalization.feature_map_normalization` | | ✓ | | | | | | | | |
+| Mask heads | `MUTC` or `MUBL` | `MaskHead.upsampling`: transposed, bilinear | | ✓ | | | | | | | | |
+| Mask heads | `M<pool>.<layers>x<channels>` | `DetectionLevels.<level>.mask_head` | | ✓ | | | | | | | | |
+| Mask heads | `MR<mask resolution>` | `MaskHead.mask_resolution` | | ✓ | | | | | | | | |
+| Mask heads | `MPT`, then `MFRZ` when frozen | `MaskHead.pretrained` | | ✓ | | | | | | | | |
+| Tiling | `TL<scale>` | `Data.tiling.activated` is True, with `Data.tiling.scale` | | | | | | | ✓ | | | |
+| Decoder | `UTC` or `UBL` | `SegmentationDecoder.upsampling`: transposed, bilinear | | | | | | | ✓ | | | |
+| Decoder | `DSE`, `DRES` | `SegmentationDecoder.modules` | | | | | | | ✓ | | | |
+| Decoder | `DBN`, `DLN`, `DNN` | `SegmentationDecoder.feature_map_normalization` | | | | | | | ✓ | | | |
+| Decoder | `D<layers>x<channels>.…` | `SegmentationDecoder.convolutions`, one `<layers>x<channels>` per level from the deepest one | | | | | | | ✓ | | | |
+| Decoder | `AUX<level>.…` | `SegmentationDecoder.deep_supervision_weights` is not empty, its levels from the deepest one | | | | | | | ✓ | | | |
+| Decoder | `DPT`, then `DCL` with the class layers, then `DFRZ` when frozen | `SegmentationDecoder.pretrained`, `load_class_layers` is True | | | | | | | ✓ | | | |
+| Classes | `BIN` or `MC<classes>` | `Data.label_mapping.mode`: binary or multi_class, foreground classes of the label dictionary | ✓ | ✓ | | | | | ✓ | | | |
+| Window | `T<frames>` | `Data.sequence_settings.sequence_length` (frames per member for CMP) | | | | ✓ | ✓ | ✓ | | ✓ | | |
+| Temporal module | `MEAN`, `MAX`, `ATT<hidden size>` | `TemporalModel.type`: mean_pooling, max_pooling, attention_pooling | | | | ✓ | | ✓ | | | | |
+| Temporal module | `GRU<layers>x<hidden size>`, `LSTM<layers>x<hidden size>` | `TemporalModel.type`: gru, lstm | | | | ✓ | ✓ | ✓ | | ✓ | | |
+| Temporal module | `TRF<layers>x<hidden size>.<heads>` | `TemporalModel.type`: transformer | | | | ✓ | ✓ | ✓ | | ✓ | | |
+| Temporal module | `TCN<layers>x<hidden size>.<kernel size>` | `TemporalModel.type`: temporal_convolution | | | | ✓ | ✓ | ✓ | | ✓ | | |
+| Temporal module | `BI` | `TemporalModel.bidirectional` is True (gru, lstm) | | | | ✓ | ✓ | ✓ | | ✓ | | |
+| Temporal module | `CAU` | `TemporalModel.causal` is True (transformer, temporal_convolution) | | | | | ✓ | | | ✓ | | |
+| Temporal module | `NPE` | `TemporalModel.positional_embedding` is False (transformer) | | | | ✓ | ✓ | ✓ | | ✓ | | |
+| Temporal module | `TPT`, then `TFRZ` when frozen | `TemporalModel.pretrained` (not for mean or max pooling) | | | | ✓ | ✓ | ✓ | | ✓ | | |
+| Fusion | `FCAT`, `FDIF`, `FXA<heads>` | `Fusion.type`: concatenation, difference, cross_attention | | | | | | ✓ | | | | |
+| Fusion | `SNP` | `Fusion.sequence_normalization_scope` is pair, with the `SN` backbone | | | | | | ✓ | | | | |
+| Head | `HAVG.<fully connected>` or `HMAX.<fully connected>` | `ClassificationHead.global_pooling` average or max, `fully_connected` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
+| Head | `HFLAT.<fully connected>` | `ClassificationHead.global_pooling` flatten, `fully_connected` | | | ✓ | | | | | | | |
+| Head | `HBN`, `HLN` | `ClassificationHead.fully_connected_normalization` is batch or layer | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
+| Head | `LS<rate>` | `ClassificationHead.label_smoothing` is above 0 | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
+| Head | `CWB` | `ClassificationHead.class_weighting` is balanced | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
+| Head | `HPT`, then `HFRZ` when frozen | `ClassificationHead.pretrained` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
+| Classes | `MC<classes>` | `ClassificationHead.output_mode` multi_class, classes of the label dictionary | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
+| Classes | `ML<classes>` | `ClassificationHead.output_mode` multi_label | | | ✓ | | | | | | | |
+| Selection | `FPC<frames>` | `Selection.frames_per_class` | | | | | | | | ✓ | | |
+| Selection | `SLW<weight>` | `Selection.selection_loss_weight` is above 0 | | | | | | | | ✓ | | |
+| Projection head | `PAVG.<layers>`, `PMAX.<layers>` or `PFLAT.<layers>` | `ProjectionHead.global_pooling` average, max or flatten, `fully_connected` (embedding size last) | | | | | | | | | ✓ | |
+| Projection head | `PBN`, `PLN` | `ProjectionHead.fully_connected_normalization` is batch or layer | | | | | | | | | ✓ | |
+| Method | `SIMCLR-T<temperature>` | `ProjectionHead.method` simclr, `simclr.temperature` | | | | | | | | | ✓ | |
+| Method | `BT-OD<weight>` | `ProjectionHead.method` barlow_twins, `barlow_twins.off_diagonal_weight` | | | | | | | | | ✓ | |
+| Crop | `C<height>x<width>` | `Data.crop_settings.height`, `width` | | | | | | | | | | ✓ |
+| High resolution network | `HRSE`, `HRRES` | `HRNet.modules.squeeze_and_excite`, `residual_nets` are True | | | | | | | | | | ✓ |
+| High resolution network | `HRBN`, `HRLN`, `HRNN` | `HRNet.normalization.feature_map_normalization` | | | | | | | | | | ✓ |
+| High resolution network | `HR<width>.<modules of every stage>x<blocks>` | `HRNet.base_width`, `modules_per_stage`, `blocks_per_branch` | | | | | | | | | | ✓ |
+| High resolution network | `HRPT`, then `HRFRZ` when frozen | `HRNet.pretrained` | | | | | | | | | | ✓ |
+| Keypoint head | `K<channels>` | the heatmap channels, the keypoints of every class | | | | | | | | | | ✓ |
+| Keypoint head | `KHPT`, then `KHFRZ` when frozen | `KeypointHead.pretrained` | | | | | | | | | | ✓ |
+| Classes | `MC<classes>` | foreground classes of the label dictionary | | | | | | | | | | ✓ |
+| Optimizer | `ADAMW` or `SGD` | `Optimization.optimizer` is not adam | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Optimizer | `WD<decay>` | `Optimization.weight_decay` is above 0 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-For the detection heads, the mask heads and the anchors, a setting identical on every detection level is written once, otherwise the levels are joined with `+` in level order. The classes of SEG count the foreground classes. The weights of the deep supervision levels of SEG give no token, only their levels: the heads exist whatever their weights. The `Data.tiling.overlap` of SEG gives no token, being only used by the evaluation. The `MaskHead.inference.mask_threshold` of INS gives no token. The loading settings (`Data.loading`) and the evaluation settings add no token either.
+For the detection heads, the mask heads and the anchors, a setting identical on every detection level is written once, otherwise the levels are joined with `+` in level order. The classes of SEG count the foreground classes. The weights of the deep supervision levels of SEG give no token, only their levels: the heads exist whatever their weights. The `Data.tiling.overlap` of SEG gives no token, being only used by the evaluation. The `MaskHead.inference.mask_threshold` of INS gives no token, nor do `Data.crop_settings.box_enlargement`, `Data.crop_augmentation` and `KeypointHead.heatmap_sigma` of KPT. The loading settings (`Data.loading`) and the evaluation settings add no token either.
 
 Examples, built from the configurations of the repository:
 
@@ -1051,6 +1146,7 @@ Examples, built from the configurations of the repository:
 | SEG | `SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9` |
 | SEL | `SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T12_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1` |
 | SSL | `SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2` |
+| KPT | `KPT_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64_C256x192_HRSE-HRRES-HRBN-HR32.1.4.3x4_K17_MC1` |
 
 M2M names have the same layout as M2O names. SEL names have it too, followed by the selection section.
 
@@ -1096,6 +1192,7 @@ What is logged:
 | `test/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `<Decoding> Fully Right Sequences`, `<Decoding> Unselected Precision`, `<Decoding> Unselected Recall`, `Top-<k> Selection Accuracy`, `Mean True Frame Rank`, `Frame Accuracy`, `Frame Balanced Accuracy`, `Frame Macro F1`; `test_class/Hungarian Selection Accuracy`, `Greedy Selection Accuracy`, `Mean True Frame Rank` per wanted class; `class_metrics.csv`, `class_thresholds.json`, `confusion_matrix.png` | SEL |
 | `test/Mean IoU`, `Mean Dice`, `Mean Boundary IoU`, `Mean Boundary F1`, `Pixel Accuracy`, `Frequency Weighted IoU`; `test_class/IoU`, `Dice`, `Boundary IoU`, `Boundary F1`, `Precision`, `Recall` per class; `class_metrics.csv`, `confusion_matrix.png` | SEG |
 | `test/k-NN Accuracy`, `k-NN Balanced Accuracy`, `k-NN Macro F1` (with labelled test images), `Effective Rank`, `Representation Standard Deviation`; `test_class/k-NN Precision`, `k-NN Recall`, `k-NN F1` per class; `class_metrics.csv` | SSL |
+| `test/OKS mAP@0.5`, `OKS mAP@0.75`, `OKS mAP@[0.5:0.95]` per method, by size and the OKS mean average recalls, `Keypoint Accuracy/PCK@0.05`, `Keypoint Accuracy/Mean OKS`, `Keypoint Accuracy/Mean Keypoint Error (pixels)`; `test_class/OKS AP@0.5/<class>`; `class_metrics.csv`, `keypoint_metrics.csv` | KPT |
 
 The `test_class/` metrics and `confusion_matrix.png` need `evaluation.per_class_report: True`, and the files need `tracking.log_artifacts: True`. MLflow writes `@` as `_at_` and `[0.5:0.95]` as `0.5-0.95` in the metric names. `scripts/evaluation/evaluate_checkpoint.py` logs its evaluations in a separate run, `<run name>-evaluation`.
 
@@ -1116,7 +1213,11 @@ The checkpoint evaluation and launch comparison scripts are in `scripts/`, also 
 ├── README/                            # Images used in the documentation
 ├── pyproject.toml                     # Project package and dependency configuration
 ├── uv.lock                            # Locked dependencies for reproducible environments
-├── markdown files/                    # Proposed improvements
+├── documentation/                     # Notes kept next to the code
+│   ├── architecture_benchmarking/     # Classification experiment plan and results of all its launches
+│   ├── task workflows/                # One run of every task followed function by function
+│   ├── self_supervised.md             # State of the self-supervised task: tests, export checks, trainings to run
+│   └── suggestions.md                 # Proposed improvements, repository audit, foundation model data downloader
 ├── vision_training/                   # Training framework
 │   ├── main.py                        # Entry point of the trainings
 │   ├── configurations/                # Example and synthetic configuration of every task
@@ -1125,6 +1226,7 @@ The checkpoint evaluation and launch comparison scripts are in `scripts/`, also 
 │   ├── data/                          # Datasets, loaders, preprocessing, augmentation, label mapping
 │   │   ├── classification/            # Classification dataset (every image kept for the self-supervised task), class folder converter, ImageNet download
 │   │   ├── detection/                 # COCO dataset, decoding of the COCO segmentations into instance masks
+│   │   ├── keypoints/                 # Keypoint dataset (one sample per object), keypoint categories and flip pairs, crops and heatmap targets
 │   │   ├── segmentation/              # Segmentation dataset
 │   │   ├── sequence/                  # Sequence and pair datasets, pair list converter
 │   │   └── synthetic/                 # Synthetic shapes datasets of every task

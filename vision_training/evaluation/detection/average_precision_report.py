@@ -1,18 +1,22 @@
 """
-Tables and per-class rows of the evaluation reports of the object detection and instance segmentation tasks: the mean
-average precisions of the three average precision methods, those of the small, medium and large objects (area method)
-and the mean average recalls of all the objects and of every size, always shown, and the average precisions of every
-class (area method, at an intersection over union of 0.5, 0.75 and 0.5 to 0.95, with its ground truth boxes, those of
-every object size, and the score threshold reaching the target precision with the recall it keeps), as the rows of
-class_metrics.csv and as the per-class table of the report. The instance segmentation reports the box and the mask
-average precisions and recalls with the same builders, told apart by a title prefix and a column prefix. Used by the
-detection and instance segmentation trainers.
+Tables and per-class rows of the evaluation reports of the object detection, instance segmentation and keypoint
+detection tasks: the mean average precisions of the three average precision methods, those of the small, medium and
+large objects (area method) and the mean average recalls of all the objects and of every size, always shown, and the
+average precisions of every class (area method, at an intersection over union of 0.5, 0.75 and 0.5 to 0.95, with its
+ground truth boxes, those of every object size, and the score threshold reaching the target precision with the recall
+it keeps), as the rows of class_metrics.csv and as the per-class table of the report. summarise_average_precisions
+evaluates the detections of the test split and gathers all of them with their TensorBoard scalars. The instance
+segmentation reports the box and the mask average precisions and recalls with the same builders, told apart by a title
+prefix and a column prefix, and the keypoint detection its average precisions on the object keypoint similarity. Used
+by the detection, instance segmentation and keypoint trainers.
 """
+
+import torch
 
 from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationTable
-from vision_training.evaluation.detection.mean_average_precision import AVERAGE_PRECISION_METHODS
+from vision_training.evaluation.detection.mean_average_precision import AVERAGE_PRECISION_METHODS, evaluate_detections
 from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES
 
 # Displayed name of every average precision method, the area method being the headline one
@@ -212,3 +216,83 @@ def build_class_average_precision_table(class_rows: List[Dict[str, Any]], title_
                   f"{target_precision:g} is never reached.")
     return {"title": add_title_prefix(title=CLASS_TABLE_TITLE, title_prefix=title_prefix), "columns": columns,
             "rows": rows, "sort_column": CLASS_TABLE_SORT_COLUMN, "per_class": True, "legend": legend}
+
+
+def summarise_average_precisions(detections: List[Dict[str, torch.Tensor]],
+                                 ground_truths: List[Dict[str, torch.Tensor]], number_classes: int,
+                                 class_names: Dict[int, str], overlap_type: str = "boxes", title_prefix: str = "",
+                                 name_prefix: str = "", column_prefix: str = "", legend: Optional[str] = None,
+                                 target_precision: Optional[float] = None,
+                                 resolution_name: str = "network input") -> Dict[str, Any]:
+    """
+    Computes the average precisions of the test split with one overlap (the boxes, the masks of the instance
+    segmentation or the object keypoint similarity of the keypoint detection) and organises them for the report: the
+    tables of the methods, of the object sizes and of the mean average recall and the per-class table, the rows of
+    class_metrics.csv, the mean average precisions of every method, those of every object size (area method) and the
+    mean average recalls of all the objects and of every size as TensorBoard scalars, to follow them over the training,
+    and the AP@0.5 of every class for the per-class report. The objects are sized by their mask area for the masks and
+    by their box area otherwise, at the resolution of the evaluated objects. With a target precision, the score
+    threshold of every class reaching it joins the class rows and the per-class table. The object detection uses no
+    prefix, the instance segmentation prefixes the titles of both its box and mask tables and the names of its mask
+    scalars and columns, and the keypoint detection those of its keypoint similarity tables, scalars and columns.
+
+    Args:
+        detections (List[Dict[str, torch.Tensor]]): The detections of every evaluated image (evaluate_detections).
+        ground_truths (List[Dict[str, torch.Tensor]]): The ground truths of every evaluated image.
+        number_classes (int): The number of classes, background (index 0) included.
+        class_names (Dict[int, str]): The name of every class index.
+        overlap_type (str): "boxes", "masks" or "keypoints". Defaults to "boxes".
+        title_prefix (str): The prefix of the table titles ("Box", "Mask", "OKS"). Defaults to "".
+        name_prefix (str): The prefix of the scalar names ("Mask ", "OKS "). Defaults to "".
+        column_prefix (str): The prefix of the average precision columns of the class rows ("mask_", "oks_").
+            Defaults to "".
+        legend (Optional[str]): The legend of the table of the methods, None for the one naming its mAP@0.5 as the
+            metric comparing the checkpoints. Defaults to None.
+        target_precision (Optional[float]): The precision of the class thresholds, None for no thresholds (the box
+            average precisions of the instance segmentation, the keypoint detection). Defaults to None.
+        resolution_name (str): The resolution of the pixels measuring the objects, "network input", or "original
+            image" for the instance segmentation evaluated at the original resolution. Defaults to "network input".
+
+    Returns:
+        Dict[str, Any]: The 'class_rows', the 'tables' ('methods', 'sizes', 'recalls' and 'classes'), the 'scalars',
+            the 'class_scalars' and the 'class_score_thresholds' of every foreground class (None without target
+            precision).
+    """
+    results = evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=number_classes,
+                                  overlap_type=overlap_type, target_precision=target_precision)
+    class_rows = build_class_average_precision_rows(results=results, class_names=class_names,
+                                                    column_prefix=column_prefix)
+
+    # The mean average precisions of every method, and the AP@0.5 of every class for the per-class report
+    scalars = {}
+    for method in AVERAGE_PRECISION_METHODS:
+        for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"]:
+            scalars[f"{name_prefix}{metric_name}/{method}"] = results[method][metric_name]
+    class_scalars = {f"{name_prefix}AP@0.5/{class_names[class_index]}": average_precision
+                     for class_index, average_precision in results["area"]["class_AP@0.5"].items()}
+
+    # The mean average precisions of every object size with the area method, a size without objects having none
+    for object_size in OBJECT_SIZE_NAMES:
+        for metric_name in ["mAP@0.5", "mAP@[0.5:0.95]"]:
+            size_mean_average_precision = results["area"]["sizes"][object_size][metric_name]
+            if size_mean_average_precision is not None:
+                scalars[f"{name_prefix}{metric_name} By Size/{object_size}"] = size_mean_average_precision
+
+    # The mean average recalls of all the objects and of every object size, the same for every method
+    for group_name, group_results in [("all", results["area"]), *results["area"]["sizes"].items()]:
+        for metric_name in ["mAR@0.5", "mAR@0.75", "mAR@[0.5:0.95]"]:
+            if group_results[metric_name] is not None:
+                scalars[f"{name_prefix}{metric_name}/{group_name}"] = group_results[metric_name]
+
+    # Objects measured by their mask area, or their box area for the boxes and the keypoints
+    area_name = "mask" if overlap_type == "masks" else "box"
+    tables = {"methods": build_mean_average_precision_table(results=results, title_prefix=title_prefix, legend=legend),
+              "sizes": build_object_size_table(results=results, title_prefix=title_prefix, area_name=area_name,
+                                               resolution_name=resolution_name),
+              "recalls": build_average_recall_table(results=results, title_prefix=title_prefix, area_name=area_name,
+                                                    resolution_name=resolution_name),
+              "classes": build_class_average_precision_table(class_rows=class_rows, title_prefix=title_prefix,
+                                                             column_prefix=column_prefix,
+                                                             target_precision=target_precision)}
+    return {"class_rows": class_rows, "tables": tables, "scalars": scalars, "class_scalars": class_scalars,
+            "class_score_thresholds": results["class_score_thresholds"] if target_precision is not None else None}

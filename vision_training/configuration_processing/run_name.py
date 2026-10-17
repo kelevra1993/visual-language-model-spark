@@ -14,7 +14,8 @@ NORMALIZATION_CODES = {"batch": "BN", "layer": "LN", "none": "NN", "sequence": "
 # Run name code of every task, first section of the run names, so that runs of different tasks never share a folder
 TASK_CODES = {"object_detection": "DET", "instance_segmentation": "INS", "classification": "CLS",
               "sequence_classification": "M2O", "sequence_labelling": "M2M", "sequence_comparison": "CMP",
-              "semantic_segmentation": "SEG", "frame_selection": "SEL", "self_supervised": "SSL"}
+              "semantic_segmentation": "SEG", "frame_selection": "SEL", "self_supervised": "SSL",
+              "keypoint_detection": "KPT"}
 
 # Run name code of every temporal module type of the sequence tasks
 TEMPORAL_TYPE_CODES = {"mean_pooling": "MEAN", "max_pooling": "MAX", "attention_pooling": "ATT", "gru": "GRU",
@@ -38,10 +39,12 @@ UPSAMPLING_CODES = {"transposed": "UTC", "bilinear": "UBL"}
 # Prefix of the tokens of a component initialised by the one of another run: '<prefix>PT' when it is transferred,
 # followed by '<prefix>FRZ' when it is frozen, i.e. PT and FRZ for the backbone, TPT and TFRZ for the temporal module,
 # HPT and HFRZ for the classification head, DPT and DFRZ for the segmentation decoder, RPT and RFRZ for the region
-# proposal heads, DPT and DFRZ for the detection heads, and MPT and MFRZ for the mask heads. The learning rate
-# multiplier of the component gives no token, so that it can change between two resumptions of a run
+# proposal heads, DPT and DFRZ for the detection heads, MPT and MFRZ for the mask heads, HRPT and HRFRZ for the high
+# resolution network of the keypoint detector, and KHPT and KHFRZ for its keypoint head. The learning rate multiplier
+# of the component gives no token, so that it can change between two resumptions of a run
 PRETRAINED_TOKEN_PREFIXES = {"Backbone": "", "TemporalModel": "T", "ClassificationHead": "H",
-                             "SegmentationDecoder": "D", "RegionProposal": "R", "Detector": "D", "MaskHead": "M"}
+                             "SegmentationDecoder": "D", "RegionProposal": "R", "Detector": "D", "MaskHead": "M",
+                             "HRNet": "HR", "KeypointHead": "KH"}
 
 
 def join_level_tokens(level_tokens: List[str]) -> str:
@@ -571,13 +574,63 @@ def build_self_supervised_sections(model_configuration: Dict[str, Any]) -> List[
     return [head_tokens, method_tokens]
 
 
+def build_keypoint_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
+    """
+    Builds the sections of the run name specific to the keypoint detection: the crop size C<height>x<width> the objects
+    are cut to, the high resolution network (modules HRSE and HRRES, HR<normalization>, then
+    HR<base width>.<modules of every stage>x<blocks per branch>, then HRPT and HRFRZ when it is transferred and
+    frozen), the keypoint head K<heatmap channels> (the keypoints of every class, then KHPT and KHFRZ when it is
+    transferred and frozen) and the classes MC<foreground classes>, e.g. 'C256x192_HRSE-HRRES-HRBN-HR32.1.4.3x4_K107_
+    MC22' (without the line break). The crop augmentation and the heatmap sigma give no token, so that they can change
+    between two resumptions of a run.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary and the
+            keypoint categories read from the training split.
+
+    Returns:
+        List[List[str]]: The tokens of every section.
+    """
+    data_configuration = model_configuration["Data"]
+    network_configuration = model_configuration["HRNet"]
+    network_modules = network_configuration["modules"]
+
+    # Crop size the objects are cut to, the input of the network
+    crop_settings = data_configuration["crop_settings"]
+    crop_tokens = [f"C{crop_settings['height']}x{crop_settings['width']}"]
+
+    # High resolution network: modules, normalization, then the base width, modules of every stage and blocks per branch
+    network_tokens = []
+    if network_modules["squeeze_and_excite"]:
+        network_tokens.append("HRSE")
+    if network_modules["residual_nets"]:
+        network_tokens.append("HRRES")
+    network_tokens.append("HR" + NORMALIZATION_CODES[
+        str(network_configuration["normalization"]["feature_map_normalization"]).lower().strip()])
+    network_tokens.append(f"HR{network_configuration['base_width']}." +
+                          ".".join(str(modules) for modules in network_configuration["modules_per_stage"]) +
+                          f"x{network_configuration['blocks_per_branch']}")
+    network_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="HRNet")
+
+    # Keypoint head: one heatmap channel per keypoint of every class
+    keypoint_categories = data_configuration["keypoint_categories"]
+    heatmap_channels = sum(len(category["keypoints"]) for category in keypoint_categories.values())
+    head_tokens = [f"K{heatmap_channels}"]
+    head_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="KeypointHead")
+
+    # Classes, the label dictionary including the background class
+    classes_token = f"MC{len(data_configuration['label_dictionary']) - 1}"
+    return [crop_tokens, network_tokens, head_tokens, [classes_token]]
+
+
 # Builder of the task-specific sections of the run name, placed between the backbone and training sections
 TASK_RUN_NAME_SECTIONS: Dict[str, Callable[[Dict[str, Any]], List[List[str]]]] = {
     "object_detection": build_detection_sections, "instance_segmentation": build_instance_segmentation_sections,
     "classification": build_classification_sections,
     "sequence_classification": build_sequence_sections, "sequence_labelling": build_sequence_sections,
     "sequence_comparison": build_sequence_comparison_sections, "semantic_segmentation": build_segmentation_sections,
-    "frame_selection": build_frame_selection_sections, "self_supervised": build_self_supervised_sections}
+    "frame_selection": build_frame_selection_sections, "self_supervised": build_self_supervised_sections,
+    "keypoint_detection": build_keypoint_sections}
 
 
 def build_run_name(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> str:
@@ -592,9 +645,9 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
     The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
     is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
     DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, INS, CLS, M2O, M2M, CMP, SEG,
-    SEL or SSL), the input and backbone sections shared by every task (build_input_tokens, build_backbone_tokens), the
-    sections of the task (e.g. build_detection_sections), then the optimizer section (build_optimizer_tokens), left out
-    when empty.
+    SEL, SSL or KPT), the input and backbone sections shared by every task (build_input_tokens,
+    build_backbone_tokens), the sections of the task (e.g. build_detection_sections), then the optimizer section
+    (build_optimizer_tokens), left out when empty.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration, with its task.

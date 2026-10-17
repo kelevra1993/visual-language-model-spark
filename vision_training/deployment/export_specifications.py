@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional, Sequence
 from vision_training.models.classification.inference_classifier import InferenceClassifier
 from vision_training.models.detection.inference_detector import InferenceDetector
 from vision_training.models.instance_segmentation.inference_instance_segmenter import InferenceInstanceSegmenter
+from vision_training.models.keypoints.inference_keypoint_detector import InferenceKeypointDetector
+from vision_training.models.keypoints.keypoint_detector import HEATMAP_STRIDE
 from vision_training.models.segmentation.inference_segmenter import InferenceSegmenter
 from vision_training.models.self_supervised.inference_encoder import InferenceEncoder
 from vision_training.models.sequence.inference_sequence_comparator import InferenceSequenceComparator
@@ -26,7 +28,8 @@ INFERENCE_MODEL_CLASSES = {"object_detection": InferenceDetector, "instance_segm
                            "sequence_classification": InferenceSequenceModel,
                            "sequence_labelling": InferenceSequenceModel,
                            "sequence_comparison": InferenceSequenceComparator,
-                           "frame_selection": InferenceSequenceModel, "self_supervised": InferenceEncoder}
+                           "frame_selection": InferenceSequenceModel, "self_supervised": InferenceEncoder,
+                           "keypoint_detection": InferenceKeypointDetector}
 
 # Triton model name of every task, followed by '_<export format>' in the model repository (and by '_decoder' and
 # '_<export format>_ensemble' for the decoder and the ensembles of the frame selector)
@@ -34,7 +37,8 @@ TASK_MODEL_NAMES = {"object_detection": "object_detector", "instance_segmentatio
                     "classification": "image_classifier",
                     "semantic_segmentation": "semantic_segmenter", "sequence_classification": "sequence_classifier",
                     "sequence_labelling": "sequence_labeller", "sequence_comparison": "sequence_comparator",
-                    "frame_selection": "frame_selector", "self_supervised": "image_encoder"}
+                    "frame_selection": "frame_selector", "self_supervised": "image_encoder",
+                    "keypoint_detection": "keypoint_detector"}
 
 # Tasks whose inputs are windows of frames [B, T, 3, H, W] instead of images [B, 3, H, W]
 SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison", "frame_selection"]
@@ -49,7 +53,7 @@ TASK_INPUT_NAMES = {"object_detection": ["images"], "instance_segmentation": ["i
                     "semantic_segmentation": ["images"], "sequence_classification": ["images"],
                     "sequence_labelling": ["images"],
                     "sequence_comparison": ["before_images", "after_images"], "frame_selection": ["images"],
-                    "self_supervised": ["images"]}
+                    "self_supervised": ["images"], "keypoint_detection": ["crops"]}
 
 
 def build_inference_model(task: str, model: TaskModel) -> nn.Module:
@@ -263,28 +267,74 @@ def compare_segmentations(reference: Sequence[np.ndarray], candidate: Sequence[n
     return mismatches
 
 
+def compare_keypoints(reference: Sequence[np.ndarray], candidate: Sequence[np.ndarray], keypoint_tolerance: float,
+                      score_tolerance: float, heatmap_tolerance: float, minimum_equal_share: float) -> List[str]:
+    """
+    Compares the outputs of an exported keypoint detector with those of the eager inference keypoint detector: the
+    heatmaps and the keypoint scores within their tolerances, and the decoded keypoints on almost every channel, a
+    heatmap maximum tied with another cell, or with the opposite neighbour of its quarter cell shift, up to the rounding
+    of the export possibly moving its keypoint.
+
+    Args:
+        reference (Sequence[np.ndarray]): The eager [B, C, 2] keypoints, [B, C] keypoint scores and [B, C, h, w]
+            heatmaps.
+        candidate (Sequence[np.ndarray]): The exported model outputs, in the same order.
+        keypoint_tolerance (float): The largest distance in crop pixels of a keypoint counted as equal.
+        score_tolerance (float): The largest accepted keypoint score difference.
+        heatmap_tolerance (float): The largest accepted heatmap value difference.
+        minimum_equal_share (float): The smallest accepted share of keypoints equal in both outputs.
+
+    Returns:
+        List[str]: A description of every mismatch, empty when the outputs agree.
+    """
+    # Every output must keep its shape before its values are compared
+    output_names = ["keypoint", "keypoint score", "heatmap"]
+    mismatches = [f"{output_name} shapes differ: {reference_output.shape} vs {candidate_output.shape}"
+                  for output_name, reference_output, candidate_output in zip(output_names, reference, candidate)
+                  if reference_output.shape != candidate_output.shape]
+    if mismatches:
+        return mismatches
+
+    # Heatmaps and scores are continuous outputs compared value by value
+    for output_name, output_index, tolerance in [("heatmaps", 2, heatmap_tolerance),
+                                                 ("keypoint scores", 1, score_tolerance)]:
+        output_difference = np.abs(reference[output_index] - candidate[output_index]).max()
+        if output_difference > tolerance:
+            mismatches.append(f"{output_name} differ by up to {output_difference:.2e}")
+
+    # Keypoints decoded from the maxima may move on a tie, so only most of them must agree
+    keypoint_distances = np.linalg.norm(reference[0] - candidate[0], axis=-1)
+    equal_share = float(np.mean(a=keypoint_distances <= keypoint_tolerance))
+    if equal_share < minimum_equal_share:
+        mismatches.append(f"keypoints agree on {100.0 * equal_share:.1f}% of the channels only")
+    return mismatches
+
+
 def build_input_specification(input_name: str, image_size: int, sequence_length: Optional[int],
-                              input_index: int) -> Dict[str, Any]:
+                              input_index: int, image_width: Optional[int] = None) -> Dict[str, Any]:
     """
     Describes one input of an exported model, read by the export (names and dynamic dimensions), the Triton
     configuration (one input line) and the checks of the exports (random batches): one image per sample for the image
-    tasks, or one window of up to sequence length frames per sample for the sequence tasks. The batches the exports
+    tasks, one crop per sample for the keypoint detection, or one window of up to sequence length frames per sample
+    for the sequence tasks. The batches the exports
     are checked on hold one frame less than the traced ones for the first input, and one more frame less for every
     following input, so that the inputs of the comparison model are checked with different numbers of frames.
 
     Args:
         input_name (str): The name of the input, from TASK_INPUT_NAMES.
-        image_size (int): The side of the square network input in pixels.
+        image_size (int): The side of the square network input in pixels, or its height for a rectangular input.
         sequence_length (Optional[int]): The largest number of frames of a window, the sequence length of the
             training, or None for the image tasks.
         input_index (int): The position of the input among the inputs of the model.
+        image_width (Optional[int]): The width of a rectangular network input in pixels (the crops of the keypoint
+            detection), or None for a square input of side image_size. Defaults to None.
 
     Returns:
         Dict[str, Any]: The 'name', 'dimensions' (without the batch one, -1 for the number of frames, which may change
             from one request to the next), Triton 'data_type', 'dynamic_frames' flag, 'maximum_frames' (1 for the
             image tasks), and the 'example_shape' and 'check_shape' of the batches traced at export and checked after.
     """
-    image_dimensions = [3, image_size, image_size]
+    image_dimensions = [3, image_size, image_width if image_width is not None else image_size]
 
     # Images: traced on batches of 2 images and checked on batches of 3
     if sequence_length is None:
@@ -330,9 +380,9 @@ def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str,
     """
     Describes how the inference model of a task is exported and served, so that the export, the Triton configuration
     and the throughput measurement are written once for every task: the inputs in the order of the forward arguments
-    of the inference model ('images', or 'before_images' and 'after_images' for the comparison), the outputs in the
-    order the inference model returns them, the batches used to trace and check the exports, and how the exported
-    outputs are compared with the eager ones.
+    of the inference model ('images', 'crops' for the keypoint detection, or 'before_images' and 'after_images' for
+    the comparison), the outputs in the order the inference model returns them, the batches used to trace and check
+    the exports, and how the exported outputs are compared with the eager ones.
 
     Args:
         task (str): The task of the inference model.
@@ -347,6 +397,25 @@ def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str,
             - 'compare_outputs' (Callable) and 'comparison_tolerances' (Dict[str, float]): the comparison of the
               exported outputs with the eager ones, and its tolerances.
     """
+    # Keypoint detection: the decoded keypoints, their scores and the heatmaps of every channel of every object crop,
+    # the client keeping the channels of the class of the box it cut the crop from
+    if task == "keypoint_detection":
+        crop_height, crop_width = inference_model.crop_height, inference_model.crop_width
+        number_channels = inference_model.number_channels
+        inputs = [build_input_specification(input_name="crops", image_size=crop_height, sequence_length=None,
+                                            input_index=0, image_width=crop_width)]
+        return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs,
+                "outputs": [{"name": "keypoints", "dimensions": [number_channels, 2], "data_type": "TYPE_FP32",
+                             "reshape_to_scalar": False},
+                            {"name": "keypoint_scores", "dimensions": [number_channels], "data_type": "TYPE_FP32",
+                             "reshape_to_scalar": False},
+                            {"name": "heatmaps", "data_type": "TYPE_FP32", "reshape_to_scalar": False,
+                             "dimensions": [number_channels, crop_height // HEATMAP_STRIDE,
+                                            crop_width // HEATMAP_STRIDE]}],
+                "compare_outputs": compare_keypoints,
+                "comparison_tolerances": {"keypoint_tolerance": 1e-2, "score_tolerance": 1e-4,
+                                          "heatmap_tolerance": 1e-4, "minimum_equal_share": 0.95}}
+
     # Inputs of the task, windows of frames for the sequence tasks and images otherwise
     sequence_length = inference_model.sequence_length if task in SEQUENCE_TASKS else None
     inputs = [build_input_specification(input_name=input_name, image_size=inference_model.input_image_size,

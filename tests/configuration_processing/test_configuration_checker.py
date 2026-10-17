@@ -1,9 +1,9 @@
 """
 Tests of the configuration checks of vision_training/configuration_processing/configuration_checker.py, run through
 load_experiment_configuration: the configurations shipped for every task are accepted, while inconsistent settings
-(detection, classification, sequence, comparison, segmentation, self-supervised, normalization, pretrained transfers
-with the initialisation of their new classes, optimization) and missing keys are rejected with errors naming their
-path.
+(detection, classification, sequence, comparison, segmentation, self-supervised, keypoint detection, normalization,
+pretrained transfers with the initialisation of their new classes, optimization) and missing keys are rejected with
+errors naming their path. The keypoint definitions injected by the loader from the training labels are checked too.
 """
 
 import copy
@@ -16,6 +16,9 @@ from typing import Any, Callable, Dict, List
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_detection_levels
+from vision_training.data.keypoints.keypoint_categories import DEFAULT_MAXIMUM_ROTATION_DEGREES
+from vision_training.data.synthetic.create_synthetic_dataset import KEYPOINT_CATEGORIES, build_keypoint_labels
+from vision_training.utilities.os_utilities import color_text
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
                               "configuration_example.yaml")
@@ -28,6 +31,14 @@ CONFIGURATIONS_FOLDER = Path(__file__).parents[2] / "vision_training" / "configu
 # sequence tasks, or the classes 1 to 4 of the semantic segmentation, next to its background class 0
 CLASSIFICATION_LABEL_MAPPING = {"1": 0, "2": 1, "3": 2, "4": 3}
 SEGMENTATION_LABEL_MAPPING = {"1": 1, "2": 2, "3": 3, "4": 4}
+
+# COCO person category written in the training labels of the keypoint example configuration: its 17 keypoint names and
+# its 1-based skeleton, as in the COCO keypoint annotation files
+COCO_PERSON_KEYPOINTS = ["nose", "left_eye", "right_eye", "left_ear", "right_ear", "left_shoulder", "right_shoulder",
+                         "left_elbow", "right_elbow", "left_wrist", "right_wrist", "left_hip", "right_hip", "left_knee",
+                         "right_knee", "left_ankle", "right_ankle"]
+COCO_PERSON_SKELETON = [[16, 14], [14, 12], [17, 15], [15, 13], [12, 13], [6, 12], [7, 13], [6, 7], [6, 8], [7, 9],
+                        [8, 10], [9, 11], [2, 3], [1, 2], [1, 3], [2, 4], [3, 5], [4, 6], [5, 7]]
 
 
 def write_modified_configuration(temporary_directory: Path,
@@ -226,6 +237,41 @@ def test_example_configuration_is_consistent() -> None:
     load_experiment_configuration(configuration_path=EXAMPLE_CONFIGURATION_PATH)
 
 
+def raise_background_minimum(configuration: Dict[str, Any]) -> None:
+    """
+    Starts the background IoU range of the region proposals above 0.0, keeping only the hard negatives.
+
+    Args:
+        configuration (Dict[str, Any]): The raw example configuration, modified in place.
+    """
+    configuration["RegionProposal"]["background_iou_threshold"]["min"] = 0.1
+
+
+def test_background_minimum_above_zero_only_warns(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a background IoU range starting above 0.0 loads with a yellow warning instead of an error, the hard
+    negatives being a choice, and that the shipped value 0.0 prints no warning.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    # The shipped configuration samples every anchor overlapping no object as background, silently
+    _, model_configuration = load_experiment_configuration(configuration_path=EXAMPLE_CONFIGURATION_PATH)
+    assert model_configuration["RegionProposal"]["background_iou_threshold"]["min"] == 0.0
+    assert "background_iou_threshold.min" not in capsys.readouterr().out
+
+    # A minimum above 0.0 is accepted, and announced in yellow
+    configuration_path = write_modified_configuration(temporary_directory=tmp_path,
+                                                      modify_function=raise_background_minimum)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["RegionProposal"]["background_iou_threshold"]["min"] == 0.1
+    printed_output = capsys.readouterr().out
+    expected_warning = ("Warning: 'RegionProposal.background_iou_threshold.min' is 0.1, above 0.0: the anchors whose "
+                        "best IoU is below it are ignored, only the hard negatives being sampled as background.")
+    assert color_text(color="yellow", text=expected_warning) in printed_output
+
+
 def use_sequence_normalization(configuration: Dict[str, Any]) -> None:
     """
     Uses the sequence normalization in the backbone, refused for the detector, which has no sequences.
@@ -354,7 +400,8 @@ def set_pre_activation_without_residual_shortcuts(configuration: Dict[str, Any])
                                       "must be smaller than"]),
     (set_unknown_task, ["'ExperimentConfiguration.task' must be one of ['object_detection', 'instance_segmentation', "
                         "'classification', 'semantic_segmentation', 'sequence_classification', 'sequence_labelling', "
-                        "'sequence_comparison', 'frame_selection', 'self_supervised'], got 'segmentation'."]),
+                        "'sequence_comparison', 'frame_selection', 'self_supervised', 'keypoint_detection'], got "
+                        "'segmentation'."]),
     (set_evaluation_score_threshold, ["'ExperimentConfiguration.evaluation.score_threshold' must be a probability "
                                       "within [0, 1], got 1.5."]),
     (set_invalid_detection_error_analysis, ["'ExperimentConfiguration.evaluation.target_precision' must be a "
@@ -1781,6 +1828,16 @@ def set_pool_size_above_the_mask_resolution(configuration: Dict[str, Any]) -> No
     configuration["DetectionLevels"]["7"]["mask_head"]["roi_align_pool_size"] = 32
 
 
+def write_original_resolution_as_number(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the evaluation at the original resolution of the instance segmentation as a number instead of a boolean.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["original_resolution"] = 1
+
+
 def freeze_random_mask_heads(configuration: Dict[str, Any]) -> None:
     """
     Freezes the mask heads without loading them from another run, and multiplies their learning rate by zero.
@@ -1812,13 +1869,15 @@ def freeze_random_mask_heads(configuration: Dict[str, Any]) -> None:
                              "'MaskHead.normalization.batch_normalization_momentum' must be a number within (0, 1], "
                              "got -0.1.",
                              "'MaskHead.modules.residual_nets' must be True or False, got 'yes'.",
-                             "'MaskHead.inference.mask_threshold' must be a probability within [0, 1], got 1.5."])])
+                             "'MaskHead.inference.mask_threshold' must be a probability within [0, 1], got 1.5."]),
+    (write_original_resolution_as_number, ["'ExperimentConfiguration.evaluation.original_resolution' must be True or "
+                                           "False, got 1."])])
 def test_inconsistent_instance_segmentation_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:
     """
-    Verifies that every inconsistency of the mask head section stops the loading with a short message naming the
-    faulty key, the mask head of every detection level included.
+    Verifies that every inconsistency of the mask head section and of the evaluation at the original resolution stops
+    the loading with a short message naming the faulty key, the mask head of every detection level included.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1978,4 +2037,289 @@ def test_inconsistent_self_supervised_configuration_is_rejected(tmp_path: Path, 
     printed_output = capsys.readouterr().out
     for expected_message in expected_messages:
         assert expected_message in printed_output
+    assert "Traceback" not in printed_output
+
+
+def write_keypoint_configuration(temporary_directory: Path, configuration_name: str,
+                                 modify_function: Callable[[Dict[str, Any]], None] | None,
+                                 label_mapping: Dict[str, int] | None = None) -> Path:
+    """
+    Writes a copy of a keypoint detection configuration with the two files the configuration loader reads before the
+    checks, both written in the temporary directory since the shipped ones only exist once the datasets are created:
+    the 'labels.json' of the training split, whose categories give the keypoint definitions injected into
+    'Data.keypoint_categories' (the 22 synthetic shapes, or the COCO person of the example configuration), and the
+    label mapping file (every category to its own class unless a mapping is given), then alters it by the given
+    function.
+
+    Args:
+        temporary_directory (Path): The pytest temporary directory receiving the configuration and its files.
+        configuration_name (str): The file name of the keypoint detection configuration.
+        modify_function (Callable[[Dict[str, Any]], None] | None): Function altering the raw configuration in place,
+            or None to keep it.
+        label_mapping (Dict[str, int] | None): The class of every raw category identifier. Defaults to None, in which
+            case every category of the labels gets its own class.
+
+    Returns:
+        Path: The path of the written configuration file.
+    """
+    configuration = yaml.safe_load(stream=(CONFIGURATIONS_FOLDER / "keypoint_detection" /
+                                           configuration_name).read_text())
+
+    # Categories of the training split: the synthetic shapes, or the COCO person with its 1-based skeleton
+    if configuration_name == "configuration_synthetic_shapes.yaml":
+        categories = build_keypoint_labels(image_records=[], image_size=512, split_name="train")[0]["categories"]
+    else:
+        categories = [{"id": 1, "name": "person", "supercategory": "person", "keypoints": COCO_PERSON_KEYPOINTS,
+                       "skeleton": COCO_PERSON_SKELETON}]
+    train_folder = temporary_directory / "train"
+    train_folder.mkdir(exist_ok=True)
+    (train_folder / "labels.json").write_text(data=json.dumps(obj={"images": [], "annotations": [],
+                                                                   "categories": categories}))
+    configuration["ExperimentConfiguration"]["train_data_folder"] = str(train_folder)
+
+    # Label mapping of the categories, each one to its own class by default
+    if label_mapping is None:
+        label_mapping = {str(category["id"]): category["id"] for category in categories}
+    mapping_path = temporary_directory / "label_mapping.json"
+    mapping_path.write_text(data=json.dumps(obj=label_mapping))
+    configuration["Data"]["label_mapping"]["mapping_file_path"] = str(mapping_path)
+    if modify_function is not None:
+        modify_function(configuration=configuration)
+
+    configuration_path = temporary_directory / "keypoint_detection_configuration.yaml"
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+    return configuration_path
+
+
+def test_keypoint_configurations_are_consistent_with_their_injected_categories(tmp_path: Path) -> None:
+    """
+    Verifies that both keypoint detection configurations shipped with the repository pass every consistency check, and
+    that the configuration loader injects the keypoint definition of every class from the training labels: the
+    keypoint names, the skeleton turned 0-based, the flip pairs deduced from the left and right names, and the largest
+    rotation of the crops, given by the category or the default one.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    # Example configuration: the COCO person, without rotation limit in its category
+    example_path = write_keypoint_configuration(temporary_directory=tmp_path,
+                                                configuration_name="configuration_example.yaml", modify_function=None)
+    experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=example_path)
+    assert experiment_configuration["task"] == "keypoint_detection"
+    assert model_configuration["Data"]["label_dictionary"] == {"background": 0, 1: 1}
+    person = model_configuration["Data"]["keypoint_categories"][1]
+    assert person["name"] == "person" and person["keypoints"] == COCO_PERSON_KEYPOINTS
+    assert person["skeleton"] == [[start - 1, end - 1] for start, end in COCO_PERSON_SKELETON]
+    assert person["maximum_rotation_degrees"] == DEFAULT_MAXIMUM_ROTATION_DEGREES
+    assert sorted(person["flip_pairs"]) == sorted([f"left_{part}", f"right_{part}"] for part in [
+        "eye", "ear", "shoulder", "elbow", "wrist", "hip", "knee", "ankle"])
+
+    # Synthetic configuration: the 22 shapes, the triangle keeping the rotation limit of its category
+    synthetic_path = write_keypoint_configuration(temporary_directory=tmp_path,
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=None)
+    _, model_configuration = load_experiment_configuration(configuration_path=synthetic_path)
+    keypoint_categories = model_configuration["Data"]["keypoint_categories"]
+    assert sorted(keypoint_categories) == sorted(KEYPOINT_CATEGORIES.values())
+    triangle = keypoint_categories[KEYPOINT_CATEGORIES["triangle"]]
+    assert triangle == {"name": "triangle", "keypoints": ["top", "bottom_left", "bottom_right"],
+                        "skeleton": [[0, 2], [2, 1], [1, 0]], "maximum_rotation_degrees": 20.0,
+                        "flip_pairs": [["bottom_left", "bottom_right"]]}
+    stick_figure = keypoint_categories[KEYPOINT_CATEGORIES["stick_figure"]]
+    assert stick_figure["skeleton"][0] == [0, 1]
+    assert stick_figure["flip_pairs"] == [["left_elbow", "right_elbow"], ["left_hand", "right_hand"],
+                                          ["left_knee", "right_knee"], ["left_foot", "right_foot"]]
+
+
+def set_crop_not_matching_the_branches(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a crop width that is not a multiple of the stride of the lowest resolution branch of the high resolution
+    network, and a box enlargement shrinking the boxes.
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    configuration["Data"]["crop_settings"]["width"] = 200
+    configuration["Data"]["crop_settings"]["box_enlargement"] = 0.5
+
+
+def activate_geometric_augmentation(configuration: Dict[str, Any]) -> None:
+    """
+    Turns on a geometric type of the DataAugmenter, which would move the crops without their keypoints.
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    configuration["Data"]["data_augmentation"]["types"]["random_left_right_flip"]["activated"] = True
+
+
+def set_invalid_crop_augmentation(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a reversed scale range, a rotation above half a turn, a shift beyond half the region and flip pairs of a
+    category the training split does not hold.
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    configuration["Data"]["crop_augmentation"].update({"scale_range": [1.5, 0.5], "maximum_rotation_degrees": 200.0,
+                                                       "maximum_shift_fraction": 0.6,
+                                                       "flip_pairs": {"dragon": [["left_wing", "right_wing"]]}})
+
+
+def set_unknown_keypoint_sigmas(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a zero default keypoint sigma, and keypoint sigmas naming an unknown keypoint of a learnt category and an
+    unknown category.
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["default_keypoint_sigma"] = 0
+    configuration["ExperimentConfiguration"]["evaluation"]["keypoint_sigmas"] = {"stick_figure": {"left_wing": 0.05},
+                                                                                 "dragon": {"tail": 0.1}}
+
+
+def end_stem_at_an_eighth(configuration: Dict[str, Any]) -> None:
+    """
+    Adds the last max pooling to the 3 stem blocks, so that the stem ends at 1/8 of the crop instead of 1/4.
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    configuration["Backbone"]["last_max_pooling"] = True
+
+
+def set_invalid_high_resolution_network(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a zero base width, a stage without exchange module, a module flag written as text, an unknown normalization
+    and a zero heatmap sigma.
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    configuration["HRNet"].update({"base_width": 0, "modules_per_stage": [1, 0]})
+    configuration["HRNet"]["modules"]["residual_nets"] = "yes"
+    configuration["HRNet"]["normalization"]["feature_map_normalization"] = "group"
+    configuration["KeypointHead"]["heatmap_sigma"] = 0
+
+
+def use_binary_keypoint_labels(configuration: Dict[str, Any]) -> None:
+    """
+    Uses the binary label mapping, which would merge categories with different keypoints into one class.
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    configuration["Data"]["label_mapping"]["mode"] = "binary"
+
+
+def remove_training_labels(configuration: Dict[str, Any]) -> None:
+    """
+    Points the training split to a folder without 'labels.json', so that no keypoint definition can be injected.
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["train_data_folder"] += "_missing"
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
+    (set_crop_not_matching_the_branches, ["'Data.crop_settings.width' (200) must be a multiple of 32, the stride of "
+                                          "the lowest resolution branch of the 3 stages of 'HRNet.modules_per_stage'.",
+                                          "'Data.crop_settings.box_enlargement' must be a number >= 1, got 0.5."]),
+    (activate_geometric_augmentation, ["'Data.data_augmentation.types.random_left_right_flip.activated' must be False "
+                                       "for the keypoint detection: the geometry of the crops is drawn by "
+                                       "'Data.crop_augmentation', which moves their keypoints with them."]),
+    (set_invalid_crop_augmentation, ["'Data.crop_augmentation.scale_range' must be [minimum, maximum] with positive "
+                                     "numbers and minimum <= maximum, got [1.5, 0.5].",
+                                     "'Data.crop_augmentation.maximum_rotation_degrees' must be a number within "
+                                     "[0, 180], got 200.0.",
+                                     "'Data.crop_augmentation.maximum_shift_fraction' must be a number within "
+                                     "[0, 0.5], got 0.6.",
+                                     "'Data.crop_augmentation.flip_pairs' names the category 'dragon', which is not a "
+                                     "learnt category of the training split"]),
+    (set_unknown_keypoint_sigmas, ["'ExperimentConfiguration.evaluation.default_keypoint_sigma' must be a positive "
+                                   "number, got 0.",
+                                   "'ExperimentConfiguration.evaluation.keypoint_sigmas.dragon' names a category that "
+                                   "is not learnt from the training split",
+                                   "'ExperimentConfiguration.evaluation.keypoint_sigmas.stick_figure' names unknown "
+                                   "keypoints ['left_wing'], the keypoints of the category being ['head', 'neck', "
+                                   "'left_elbow', 'right_elbow', 'left_hand', 'right_hand', 'pelvis', 'left_knee', "
+                                   "'right_knee', 'left_foot', 'right_foot']."]),
+    (end_stem_at_an_eighth, ["The Backbone stem of the keypoint detector must end at 1/4 of the crop, got 1/8 from its "
+                             "3 blocks with 'Backbone.last_max_pooling' True: use 3 blocks without the last max "
+                             "pooling, or 2 blocks with it."]),
+    (set_invalid_high_resolution_network, ["'HRNet.base_width' must be an integer >= 1, got 0.",
+                                           "'HRNet.modules_per_stage' must be a non-empty list of positive integers, "
+                                           "the exchange modules of every stage, got [1, 0].",
+                                           "'HRNet.modules.residual_nets' must be True or False, got 'yes'.",
+                                           "'HRNet.normalization.feature_map_normalization' must be one of ['batch', "
+                                           "'layer', 'none'], got 'group'.",
+                                           "'KeypointHead.heatmap_sigma' must be a positive number of heatmap cells, "
+                                           "got 0."]),
+    (use_binary_keypoint_labels, ["'Data.label_mapping.mode' must be 'multi_class' for the keypoint detection, every "
+                                  "class having its own keypoints, got 'binary'."]),
+    (remove_training_labels, ["The keypoint definitions of the classes could not be read: the 'labels.json' of "
+                              "'ExperimentConfiguration.train_data_folder' must exist"])])
+def test_inconsistent_keypoint_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                         modify_function: Callable[[Dict[str, Any]], None],
+                                                         expected_messages: List[str]) -> None:
+    """
+    Verifies that every inconsistency of the keypoint detection sections (crop size against the branches of the high
+    resolution network, geometric augmentations of the DataAugmenter, crop augmentation, keypoint sigmas of the
+    evaluation, stem, high resolution network and heatmap head, label mode and training labels) stops the loading with
+    a short message naming the faulty key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        modify_function (Callable[[Dict[str, Any]], None]): Function introducing the inconsistency.
+        expected_messages (List[str]): Message fragments that must all appear in the printed output.
+    """
+    configuration_path = write_keypoint_configuration(temporary_directory=tmp_path,
+                                                      configuration_name="configuration_synthetic_shapes.yaml",
+                                                      modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    for expected_message in expected_messages:
+        assert expected_message in printed_output
+    assert "Traceback" not in printed_output
+
+
+def give_merged_categories_different_sigmas(configuration: Dict[str, Any]) -> None:
+    """
+    Gives two different sigmas to the centre of the circle and of the annulus, merged into one class by the label
+    mapping of the test.
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["evaluation"]["keypoint_sigmas"] = {"circle": {"centre": 0.03},
+                                                                                 "annulus": {"centre": 0.05}}
+
+
+def test_merged_keypoint_categories_cannot_give_different_sigmas(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the categories merged into one class, which share its heatmap channels and its sigmas, cannot give
+    different sigmas to one keypoint: the circle and the annulus, both made of a centre keypoint, are learnt as the
+    class 'circle+annulus', so their conflicting centre sigmas stop the loading.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration_path = write_keypoint_configuration(
+        temporary_directory=tmp_path, configuration_name="configuration_synthetic_shapes.yaml",
+        modify_function=give_merged_categories_different_sigmas,
+        label_mapping={str(KEYPOINT_CATEGORIES["circle"]): 1, str(KEYPOINT_CATEGORIES["annulus"]): 1})
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    assert ("The categories merged into the class 'circle+annulus' give different sigmas [0.03, 0.05] to the keypoint "
+            "'centre' in 'evaluation.keypoint_sigmas'.") in printed_output
     assert "Traceback" not in printed_output

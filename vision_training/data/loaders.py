@@ -1,7 +1,8 @@
 """
 Builds the training, validation and test data loaders of every task from the experiment and model configurations:
-COCO detection, classification and self-supervised learning (same layout), semantic segmentation, and the sequence
-and sequence comparison tasks, every one with a PyTorch DataLoader over its dataset. Called by the task trainers.
+COCO detection, keypoint detection (one sample per object), classification and self-supervised learning (same
+layout), semantic segmentation, and the sequence and sequence comparison tasks, every one with a PyTorch DataLoader over
+its dataset. Called by the task trainers.
 """
 
 import os
@@ -13,6 +14,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
+from vision_training.data.keypoints.keypoint_dataset import KeypointDataset
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_longest_windows
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset
@@ -133,6 +135,44 @@ def get_detection_dataloaders(experiment_configuration: Dict[str, Any], model_co
                                            load_original_instances=load_original_instances)
 
     return train_loader, validation_loader, test_loader
+
+
+def get_keypoint_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
+                             batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """
+    Initializes the training, validation and testing loaders of the keypoint detection task, read from the COCO
+    'labels.json' of every split with the Native loader: every sample is one object, given with its whole image resized
+    on the CPU workers, its box, class, keypoints and visibilities padded to the most keypoints of a class, so that the
+    default collate stacks them. The keypoint trainer cuts the crops out of the images on the GPU. Every split leaves
+    out the objects without any labelled keypoint, which give no heatmap loss and cannot be scored.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
+        model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label dictionary,
+            the keypoint categories injected by the configuration loader and the loading settings.
+        batch_size (int): The number of objects of a batch.
+
+    Returns:
+        Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
+    """
+    data_configuration = model_configuration["Data"]
+    maximum_keypoints = max(len(definition["keypoints"])
+                            for definition in data_configuration["keypoint_categories"].values())
+    loaders = []
+
+    # Build the loader of every split with the same settings
+    for split_key in ["train_data_folder", "validation_data_folder", "test_data_folder"]:
+        split_data_folder = str(experiment_configuration[split_key])
+        dataset = KeypointDataset(data_directory=os.path.join(split_data_folder, "data"),
+                                  labels_file=os.path.join(split_data_folder, "labels.json"),
+                                  image_size=data_configuration["image_settings"]["size"],
+                                  keep_ratio=data_configuration["image_settings"]["keep_ratio"],
+                                  label_dictionary=data_configuration["label_dictionary"],
+                                  maximum_keypoints=maximum_keypoints)
+        loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
+                                           loading_configuration=data_configuration["loading"]))
+
+    return loaders[0], loaders[1], loaders[2]
 
 
 def get_classification_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],

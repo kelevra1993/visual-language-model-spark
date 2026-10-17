@@ -1,8 +1,8 @@
 """
-Creates the synthetic shapes datasets of every task (object detection, instance segmentation, classification, semantic
-segmentation, sequence classification, sequence labelling, sequence comparison, frame selection) with their labels and
-'label_mapping.json': trivial datasets used by the synthetic configurations and the trainer tests to check that a model
-learns. Run as a script with the task set in its main block.
+Creates the synthetic shapes datasets of every task (object detection, instance segmentation, keypoint detection,
+classification, semantic segmentation, sequence classification, sequence labelling, sequence comparison, frame
+selection) with their labels and 'label_mapping.json': trivial datasets used by the synthetic configurations and the
+trainer tests to check that a model learns. Run as a script with the task set in its main block.
 """
 
 import json
@@ -77,6 +77,101 @@ ANNULUS_INNER_RADIUS_RATIO_RANGE = (0.4, 0.6)
 L_SHAPE_FOOT_RATIO_RANGE = (0.6, 1.0)
 L_SHAPE_ARM_WIDTH_RATIO_RANGE = (0.25, 0.35)
 
+# Keypoint detection: categories of the shapes with keypoints, the shape classes followed by a stick figure and a
+# house. Their keypoints are named after their place on the upright shape, the keypoint images drawing every shape
+# without rotation nor mirror
+KEYPOINT_CATEGORIES = {**SHAPE_CATEGORIES, "stick_figure": 21, "house": 22}
+
+# Keypoints of every category, in the order the drawing functions return them. The vertices of the regular polygons
+# and the tips of the star go clockwise from the top one, the vertices of each side numbered from the top. The left and
+# right of the shapes are those of the image, those of the stick figure its own: it faces the viewer, its left limbs on
+# the right of the image as in COCO. A horizontal flip swaps the keypoints whose names differ by left and right
+KEYPOINT_NAMES = {"square": ["top_left", "top_right", "bottom_right", "bottom_left", "centre"],
+                  "circle": ["centre"],
+                  "triangle": ["top", "bottom_left", "bottom_right"],
+                  "rectangle": ["top_left", "top_right", "bottom_right", "bottom_left"],
+                  "pentagon": ["top", "upper_right", "lower_right", "lower_left", "upper_left"],
+                  "hexagon": ["top", "upper_right", "lower_right", "bottom", "lower_left", "upper_left"],
+                  "plus_sign": ["top", "right", "bottom", "left", "centre"],
+                  "star": ["top", "upper_right", "lower_right", "lower_left", "upper_left"],
+                  "octagon": ["top", "right_1", "right_2", "right_3", "bottom", "left_3", "left_2", "left_1"],
+                  "rhombus": ["top", "right", "bottom", "left"],
+                  "parallelogram": ["top_left", "top_right", "bottom_right", "bottom_left"],
+                  "trapezoid": ["top_left", "top_right", "bottom_right", "bottom_left"],
+                  "kite": ["top", "right", "bottom", "left"],
+                  "heptagon": ["top", "right_1", "right_2", "right_3", "left_3", "left_2", "left_1"],
+                  "nonagon": ["top", "right_1", "right_2", "right_3", "right_4", "left_4", "left_3", "left_2",
+                              "left_1"],
+                  "ellipse": ["left_end", "centre", "right_end"],
+                  "semicircle": ["arc_top", "base_centre", "base_left", "base_right"],
+                  "annulus": ["centre"],
+                  "capsule": ["left_end", "centre", "right_end"],
+                  "l_shape": ["arm_top_outer", "arm_top_inner", "inner_corner", "foot_end_top", "foot_end_bottom",
+                              "outer_corner"],
+                  "stick_figure": ["head", "neck", "left_elbow", "right_elbow", "left_hand", "right_hand", "pelvis",
+                                   "left_knee", "right_knee", "left_foot", "right_foot"],
+                  "house": ["roof_apex", "roof_left", "roof_right", "base_left", "base_right"]}
+
+# Skeleton of every category, drawn by the viewers: the keypoints of an outline linked in a closed loop, in its order,
+# and the other links between two keypoints
+KEYPOINT_OUTLINES = {"square": ["top_left", "top_right", "bottom_right", "bottom_left"],
+                     "triangle": ["top", "bottom_right", "bottom_left"],
+                     "rectangle": ["top_left", "top_right", "bottom_right", "bottom_left"],
+                     "pentagon": KEYPOINT_NAMES["pentagon"], "hexagon": KEYPOINT_NAMES["hexagon"],
+                     "star": KEYPOINT_NAMES["star"], "octagon": KEYPOINT_NAMES["octagon"],
+                     "rhombus": KEYPOINT_NAMES["rhombus"], "parallelogram": KEYPOINT_NAMES["parallelogram"],
+                     "trapezoid": KEYPOINT_NAMES["trapezoid"], "kite": KEYPOINT_NAMES["kite"],
+                     "heptagon": KEYPOINT_NAMES["heptagon"], "nonagon": KEYPOINT_NAMES["nonagon"],
+                     "semicircle": ["base_left", "arc_top", "base_right", "base_centre"],
+                     "l_shape": KEYPOINT_NAMES["l_shape"],
+                     "house": ["roof_apex", "roof_right", "base_right", "base_left", "roof_left"]}
+KEYPOINT_LINKS = {"plus_sign": [["centre", "top"], ["centre", "right"], ["centre", "bottom"], ["centre", "left"]],
+                  "ellipse": [["left_end", "centre"], ["centre", "right_end"]],
+                  "capsule": [["left_end", "centre"], ["centre", "right_end"]],
+                  "stick_figure": [["head", "neck"], ["neck", "pelvis"], ["neck", "left_elbow"],
+                                   ["left_elbow", "left_hand"], ["neck", "right_elbow"], ["right_elbow", "right_hand"],
+                                   ["pelvis", "left_knee"], ["left_knee", "left_foot"], ["pelvis", "right_knee"],
+                                   ["right_knee", "right_foot"]]}
+
+# Largest rotation in degrees of the crops of every category by the keypoint augmentation: half the angle of its
+# rotational symmetry, beyond which the rotated shape looks like the shape with its keypoints renamed (the top left
+# corner of a square turned by more than 45 degrees is where its top right corner was), and 180 for the shapes without
+# rotational symmetry. The random vertices of a triangle are only told apart by their height, so its crops turn by 20
+# degrees at most
+KEYPOINT_MAXIMUM_ROTATION_DEGREES = {"square": 45.0, "circle": 180.0, "triangle": 20.0, "rectangle": 90.0,
+                                     "pentagon": 36.0, "hexagon": 30.0, "plus_sign": 45.0, "star": 36.0,
+                                     "octagon": 22.5, "rhombus": 90.0, "parallelogram": 90.0, "trapezoid": 180.0,
+                                     "kite": 180.0, "heptagon": 25.7, "nonagon": 20.0, "ellipse": 90.0,
+                                     "semicircle": 180.0, "annulus": 180.0, "capsule": 90.0, "l_shape": 180.0,
+                                     "stick_figure": 180.0, "house": 180.0}
+
+# Stick figures, in torso lengths: radius of the head disc, which touches the neck, and for the arms and the legs the
+# joint they hang from, the names of their middle and end joints, the lengths of their two segments, the angle of the
+# first segment in degrees from straight down towards the side of the limb, the bend of the second segment, and the
+# limits of the angle of the second segment, which keep every limb on its own side of the torso
+STICK_FIGURE_HEAD_RADIUS = 0.3
+STICK_FIGURE_LIMBS = {"arm": {"root": "neck", "joints": ["elbow", "hand"], "lengths": [0.6, 0.55],
+                              "first_angle_range": [20.0, 120.0], "bend_range": [-60.0, 60.0],
+                              "second_angle_limits": [5.0, 170.0]},
+                      "leg": {"root": "pelvis", "joints": ["knee", "foot"], "lengths": [0.65, 0.6],
+                              "first_angle_range": [10.0, 45.0], "bend_range": [-25.0, 25.0],
+                              "second_angle_limits": [0.0, 60.0]}}
+
+# Width of the lines of a stick figure relative to its size, and mask values of the limbs of each side, which
+# draw_shape_descriptor gives colours of their own, the head and the torso having the value 255 of every shape
+STICK_FIGURE_THICKNESS_RATIO = 0.06
+STICK_FIGURE_SIDE_VALUES = {"left": 1, "right": 2}
+
+# Houses: half width of the walls relative to half the height of the house, and height of the roof relative to the
+# height of the house
+HOUSE_HALF_WIDTH_RATIO_RANGE = (0.6, 0.9)
+HOUSE_ROOF_HEIGHT_RATIO_RANGE = (0.3, 0.5)
+
+# Keypoint images: smallest number of objects drawn, and largest part of the canvas of a shape that may stick out of
+# the image, so that some keypoints fall outside it
+KEYPOINT_MINIMUM_OBJECTS = 2
+KEYPOINT_MAXIMUM_OUTSIDE_FRACTION = 0.3
+
 # Maximum overlap allowed between two objects of the same image, and number of placement attempts per object
 MAXIMUM_OBJECT_INTERSECTION_OVER_UNION = 0.3
 MAXIMUM_PLACEMENT_ATTEMPTS = 50
@@ -129,37 +224,59 @@ MINIMUM_SEQUENCE_FRAMES = 2
 MINIMUM_OBJECT_GAP = 2
 MAXIMUM_FRAME_ATTEMPTS = 20
 
-# Detection and instance segmentation: an object with fewer visible pixels than this, mostly covered by later objects,
-# is left out of the labels
+# Detection, instance segmentation and keypoint detection: an object with fewer visible pixels than this, mostly
+# covered by later objects or outside the image, is left out of the labels
 MINIMUM_VISIBLE_OBJECT_PIXELS = 64
-TASKS_REMOVING_COVERED_OBJECTS = ["object_detection", "instance_segmentation"]
+TASKS_REMOVING_COVERED_OBJECTS = ["object_detection", "instance_segmentation", "keypoint_detection"]
 
 # Categories of the synthetic dataset of every task, and the tasks whose samples are sequences of frames (one sequence,
 # or a pair of sequences)
 TASK_CATEGORIES = {"object_detection": SHAPE_CATEGORIES, "instance_segmentation": SHAPE_CATEGORIES,
-                   "classification": SHAPE_CATEGORIES,
+                   "keypoint_detection": KEYPOINT_CATEGORIES, "classification": SHAPE_CATEGORIES,
                    "semantic_segmentation": SHAPE_CATEGORIES, "sequence_classification": MOVEMENT_CATEGORIES,
                    "sequence_labelling": SHAPE_CATEGORIES, "sequence_comparison": PAIR_CATEGORIES,
                    "frame_selection": SELECTION_CATEGORIES}
 
 # Tasks whose model predicts a background class at index 0, so that the category identifiers numbered from 1 are their
-# class indices; the other tasks predict their categories from class index 0
-TASKS_WITH_BACKGROUND_CLASS = ["object_detection", "instance_segmentation", "semantic_segmentation"]
+# class indices, the keypoint detection keeping the class indices of the detector that will give its boxes; the other
+# tasks predict their categories from class index 0
+TASKS_WITH_BACKGROUND_CLASS = ["object_detection", "instance_segmentation", "semantic_segmentation",
+                               "keypoint_detection"]
 SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison", "frame_selection"]
 
 # Key of the samples in the manifest of every sequence task, and name of the samples of every task in the console
 TASK_MANIFEST_KEYS = {"sequence_classification": "sequences", "sequence_labelling": "sequences",
                       "sequence_comparison": "pairs", "frame_selection": "sequences"}
-TASK_SAMPLE_NAMES = {"object_detection": "images", "instance_segmentation": "images", "classification": "images",
-                     "semantic_segmentation": "images",
+TASK_SAMPLE_NAMES = {"object_detection": "images", "instance_segmentation": "images", "keypoint_detection": "images",
+                     "classification": "images", "semantic_segmentation": "images",
                      "sequence_classification": "sequences", "sequence_labelling": "sequences",
                      "sequence_comparison": "pairs", "frame_selection": "sequences"}
 
 
-def draw_square_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
-                     ) -> None:
+def get_rectangle_corners(left: int, top: int, width: int, height: int) -> np.ndarray:
     """
-    Draws a filled axis-aligned square of side 'size' on a binary mask, one of the synthetic shape classes.
+    Computes the keypoints of the four corners of a filled axis-aligned rectangle of pixels, the outer corners of its
+    corner pixels, shared by the squares and rectangles of the keypoint images.
+
+    Args:
+        left (int): The column of the leftmost pixels of the rectangle.
+        top (int): The row of the topmost pixels of the rectangle.
+        width (int): The number of columns of the rectangle.
+        height (int): The number of rows of the rectangle.
+
+    Returns:
+        np.ndarray: The [4, 2] float top left, top right, bottom right and bottom left corners, in the continuous
+            coordinates of the mask (pixel (x, y) covering [x, x + 1] x [y, y + 1]).
+    """
+    return np.array([[left, top], [left + width, top], [left + width, top + height], [left, top + height]],
+                    dtype=np.float64)
+
+
+def draw_square_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
+                     upright: bool = False) -> np.ndarray:
+    """
+    Draws a filled axis-aligned square of side 'size' on a binary mask, one of the synthetic shape classes, and returns
+    its keypoints for the keypoint images.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -167,16 +284,27 @@ def draw_square_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, 
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The side length of the square in pixels.
         random_generator (np.random.Generator): Unused, kept so that every shape shares the same signature.
+        upright (bool): Unused, every square being axis-aligned, kept so that every shape shares the same signature.
+            Defaults to False.
+
+    Returns:
+        np.ndarray: The [5, 2] float keypoints in the order of KEYPOINT_NAMES, in the continuous coordinates of the
+            mask (pixel (x, y) covering [x, x + 1] x [y, y + 1]).
     """
     half_size = size // 2
-    cv2.rectangle(img=mask, pt1=(center_x - half_size, center_y - half_size),
-                  pt2=(center_x - half_size + size - 1, center_y - half_size + size - 1), color=255, thickness=-1)
+    left, top = center_x - half_size, center_y - half_size
+    cv2.rectangle(img=mask, pt1=(left, top), pt2=(left + size - 1, top + size - 1), color=255, thickness=-1)
+
+    # Four outer corners, then the centre of the square
+    corners = get_rectangle_corners(left=left, top=top, width=size, height=size)
+    return np.concatenate([corners, corners.mean(axis=0, keepdims=True)], axis=0)
 
 
 def draw_circle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
-                     ) -> None:
+                     upright: bool = False) -> np.ndarray:
     """
-    Draws a filled circle of diameter 'size' on a binary mask, one of the synthetic shape classes.
+    Draws a filled circle of diameter 'size' on a binary mask, one of the synthetic shape classes, and returns its
+    centre, its keypoint in the keypoint images.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -184,15 +312,23 @@ def draw_circle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, 
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle in pixels.
         random_generator (np.random.Generator): Unused, kept so that every shape shares the same signature.
+        upright (bool): Unused, kept so that every shape shares the same signature. Defaults to False.
+
+    Returns:
+        np.ndarray: The [1, 2] float centre of the circle, the centre of its centre pixel in the continuous
+            coordinates of the mask.
     """
     cv2.circle(img=mask, center=(center_x, center_y), radius=size // 2, color=255, thickness=-1)
+    return np.array([[center_x + 0.5, center_y + 0.5]])
 
 
 def draw_triangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                       random_generator: np.random.Generator) -> None:
+                       random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled triangle with three random vertices inside a 'size' x 'size' square on a binary mask, one of the
-    synthetic shape classes. Vertices are redrawn until the triangle is not too flat to be recognisable.
+    synthetic shape classes. Vertices are redrawn until the triangle is not too flat to be recognisable. The upright
+    triangles of the keypoint images have their apex on the top side of the square and their base on its bottom side,
+    so that their vertices are named by their height.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -200,10 +336,22 @@ def draw_triangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int
         center_y (int): The vertical centre of the shape region in pixels.
         size (int): The side length of the square region containing the vertices.
         random_generator (np.random.Generator): The random generator drawing the vertices.
+        upright (bool): True for an apex above a horizontal base (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [3, 2] float vertices, the top, bottom left and bottom right ones for an upright triangle, the
+            centres of their pixels in the continuous coordinates of the mask.
     """
     half_size = size // 2
     while True:
-        vertices = random_generator.integers(low=-half_size, high=half_size + 1, size=(3, 2))
+        # Upright triangles: the apex anywhere on the top side, the two ends of the base on the bottom side
+        if upright:
+            base_abscissas = np.sort(random_generator.integers(low=-half_size, high=half_size + 1, size=2))
+            apex_abscissa = int(random_generator.integers(low=-half_size, high=half_size + 1))
+            vertices = np.array([[apex_abscissa, -half_size], [base_abscissas[0], half_size],
+                                 [base_abscissas[1], half_size]])
+        else:
+            vertices = random_generator.integers(low=-half_size, high=half_size + 1, size=(3, 2))
 
         # Twice the triangle area, from the cross product of two of its edges
         first_edge, second_edge = vertices[1] - vertices[0], vertices[2] - vertices[0]
@@ -213,13 +361,15 @@ def draw_triangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int
 
     points = (vertices + np.array([center_x, center_y])).astype(np.int32).reshape(-1, 1, 2)
     cv2.fillPoly(img=mask, pts=[points], color=255)
+    return points.reshape(-1, 2) + 0.5
 
 
 def draw_rectangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                        random_generator: np.random.Generator) -> None:
+                        random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled axis-aligned rectangle whose long side is 'size' and whose aspect ratio is between 1.5 and 3,
-    either horizontal or vertical, on a binary mask. One of the synthetic shape classes.
+    either horizontal or vertical, on a binary mask. One of the synthetic shape classes. The upright rectangles of the
+    keypoint images are horizontal, so that their corners keep their names under a rotation of up to 90 degrees.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -227,13 +377,19 @@ def draw_rectangle_mask(mask: np.ndarray, center_x: int, center_y: int, size: in
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The length of the long side in pixels.
         random_generator (np.random.Generator): The random generator drawing the aspect ratio and orientation.
+        upright (bool): True for a horizontal rectangle (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [4, 2] float outer corners from the top left one clockwise, in the continuous coordinates of
+            the mask.
     """
     short_side = max(2, int(round(size / random_generator.uniform(*RECTANGLE_ASPECT_RATIO_RANGE))))
-    width, height = (size, short_side) if random_generator.random() < 0.5 else (short_side, size)
+    width, height = (size, short_side) if upright or random_generator.random() < 0.5 else (short_side, size)
 
     top_left_x, top_left_y = center_x - width // 2, center_y - height // 2
     cv2.rectangle(img=mask, pt1=(top_left_x, top_left_y), pt2=(top_left_x + width - 1, top_left_y + height - 1),
                   color=255, thickness=-1)
+    return get_rectangle_corners(left=top_left_x, top=top_left_y, width=width, height=height)
 
 
 def centre_vertices(vertices: np.ndarray) -> np.ndarray:
@@ -251,13 +407,15 @@ def centre_vertices(vertices: np.ndarray) -> np.ndarray:
 
 
 def fill_rotated_polygon(mask: np.ndarray, center_x: int, center_y: int, size: int, vertices: np.ndarray,
-                         random_generator: np.random.Generator) -> None:
+                         random_generator: np.random.Generator, upright: bool = False,
+                         keypoint_vertices: Optional[np.ndarray] = None) -> np.ndarray:
     """
     Fills on a binary mask a polygon given by its vertices around its centre, mirrored for half of the shapes and
     turned by a random angle, then scaled so that its farthest vertex lies on the circle of diameter 'size' and kept
     inside the 'size' x 'size' square of the shape. Shared by the regular polygons and the stars (fill_radial_polygon)
-    and by the rhombuses, parallelograms, trapezoids, kites, capsules and L-shapes, whose mirror images (a
-    parallelogram leaning the other way, an L turned into a J) belong to the same class.
+    and by the rhombuses, parallelograms, trapezoids, kites, capsules, L-shapes and houses, whose mirror images (a
+    parallelogram leaning the other way, an L turned into a J) belong to the same class. The upright shapes of the
+    keypoint images keep the orientation of their vertices, so that their keypoints are named by their position.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -267,28 +425,44 @@ def fill_rotated_polygon(mask: np.ndarray, center_x: int, center_y: int, size: i
         vertices (np.ndarray): The [N, 2] vertices of the polygon in order around its outline, centred on the origin,
             at any scale.
         random_generator (np.random.Generator): The random generator drawing the mirror and the rotation.
+        upright (bool): True to draw the vertices without mirror nor rotation (keypoint images). Defaults to False.
+        keypoint_vertices (Optional[np.ndarray]): The [K, 2] keypoints of a shape whose keypoints are not its vertices
+            (the ends of a capsule), in the frame of 'vertices', or None for the vertices. Defaults to None.
+
+    Returns:
+        np.ndarray: The [N, 2] float vertices drawn, the centres of their pixels, or the [K, 2] float keypoint
+            vertices moved with them, in the continuous coordinates of the mask.
     """
-    # Mirror half of the shapes, then turn them by a random angle around their centre
-    if random_generator.random() < 0.5:
-        vertices = vertices * np.array([-1.0, 1.0])
-    rotation_angle = random_generator.uniform(low=0.0, high=2 * np.pi)
-    rotation_matrix = np.array([[np.cos(rotation_angle), -np.sin(rotation_angle)],
-                                [np.sin(rotation_angle), np.cos(rotation_angle)]])
-    vertices = vertices @ rotation_matrix.T
+    # Mirror half of the shapes, then turn them by a random angle around their centre, with their keypoint vertices
+    if not upright:
+        mirror = np.array([-1.0, 1.0]) if random_generator.random() < 0.5 else np.array([1.0, 1.0])
+        rotation_angle = random_generator.uniform(low=0.0, high=2 * np.pi)
+        rotation_matrix = np.array([[np.cos(rotation_angle), -np.sin(rotation_angle)],
+                                    [np.sin(rotation_angle), np.cos(rotation_angle)]])
+        vertices = (vertices * mirror) @ rotation_matrix.T
+        if keypoint_vertices is not None:
+            keypoint_vertices = (keypoint_vertices * mirror) @ rotation_matrix.T
 
     # Scale the farthest vertex to the outer radius, then keep the vertices inside the 'size' x 'size' square
-    vertices = vertices * (size / 2) / np.linalg.norm(vertices, axis=1).max() + np.array([center_x, center_y])
+    farthest_norm = np.linalg.norm(vertices, axis=1).max()
+    vertices = vertices * (size / 2) / farthest_norm + np.array([center_x, center_y])
     points = np.clip(np.round(vertices), a_min=[center_x - size // 2, center_y - size // 2],
                      a_max=[center_x + size // 2, center_y + size // 2]).astype(np.int32).reshape(-1, 1, 2)
     cv2.fillPoly(img=mask, pts=[points], color=255)
 
+    # Keypoints at the centres of the vertex pixels, or the keypoint vertices scaled and moved like the vertices
+    if keypoint_vertices is None:
+        return points.reshape(-1, 2) + 0.5
+    return keypoint_vertices * (size / 2) / farthest_norm + np.array([center_x, center_y]) + 0.5
+
 
 def fill_radial_polygon(mask: np.ndarray, center_x: int, center_y: int, size: int, vertex_radii: List[float],
-                        random_generator: np.random.Generator) -> None:
+                        random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Fills on a binary mask a polygon whose vertices are evenly spaced around its centre, at the given fractions of the
     outer radius 'size' / 2, at a random rotation: a regular polygon when every radius is 1, a star when the radii
     alternate between 1 and a smaller one. Shared by the pentagons, hexagons, heptagons, octagons, nonagons and stars.
+    The upright shapes of the keypoint images have their first vertex at the top and the next ones clockwise.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -298,17 +472,24 @@ def fill_radial_polygon(mask: np.ndarray, center_x: int, center_y: int, size: in
         vertex_radii (List[float]): The radius of every vertex in turn, as a fraction of the outer radius, the
             largest being 1.
         random_generator (np.random.Generator): The random generator drawing the rotation of the shape.
+        upright (bool): True for the first vertex at the top, without rotation (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [N, 2] float vertices in order, the centres of their pixels in the continuous coordinates of
+            the mask.
     """
-    # Vertices evenly spaced around the centre at their radius, turned by fill_rotated_polygon
-    angles = 2 * np.pi * np.arange(len(vertex_radii)) / len(vertex_radii)
+    # Vertices evenly spaced around the centre at their radius, from the top clockwise when upright (the y axis
+    # pointing down), turned by fill_rotated_polygon otherwise
+    start_angle = -np.pi / 2 if upright else 0.0
+    angles = start_angle + 2 * np.pi * np.arange(len(vertex_radii)) / len(vertex_radii)
     radii = np.array(vertex_radii)
     vertices = np.stack([radii * np.cos(angles), radii * np.sin(angles)], axis=-1)
-    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertices=vertices,
-                         random_generator=random_generator)
+    return fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertices=vertices,
+                                random_generator=random_generator, upright=upright)
 
 
 def draw_pentagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                       random_generator: np.random.Generator) -> None:
+                       random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled regular pentagon inscribed in a circle of diameter 'size', at a random rotation, on a binary mask.
     One of the synthetic shape classes.
@@ -319,13 +500,17 @@ def draw_pentagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle the vertices lie on, in pixels.
         random_generator (np.random.Generator): The random generator drawing the rotation.
+        upright (bool): True for a vertex at the top, without rotation (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [5, 2] float vertices, from the top one clockwise when upright.
     """
-    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 5,
-                        random_generator=random_generator)
+    return fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 5,
+                               random_generator=random_generator, upright=upright)
 
 
 def draw_hexagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                      random_generator: np.random.Generator) -> None:
+                      random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled regular hexagon inscribed in a circle of diameter 'size', at a random rotation, on a binary mask.
     One of the synthetic shape classes.
@@ -336,13 +521,17 @@ def draw_hexagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle the vertices lie on, in pixels.
         random_generator (np.random.Generator): The random generator drawing the rotation.
+        upright (bool): True for a vertex at the top, without rotation (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [6, 2] float vertices, from the top one clockwise when upright.
     """
-    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 6,
-                        random_generator=random_generator)
+    return fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 6,
+                               random_generator=random_generator, upright=upright)
 
 
 def draw_octagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                      random_generator: np.random.Generator) -> None:
+                      random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled regular octagon inscribed in a circle of diameter 'size', at a random rotation, on a binary mask.
     One of the synthetic shape classes, close to the circle at small sizes.
@@ -353,13 +542,17 @@ def draw_octagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle the vertices lie on, in pixels.
         random_generator (np.random.Generator): The random generator drawing the rotation.
+        upright (bool): True for a vertex at the top, without rotation (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [8, 2] float vertices, from the top one clockwise when upright.
     """
-    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 8,
-                        random_generator=random_generator)
+    return fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 8,
+                               random_generator=random_generator, upright=upright)
 
 
 def draw_star_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                   random_generator: np.random.Generator) -> None:
+                   random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled five-pointed star whose points lie on a circle of diameter 'size' and whose inner vertices lie at
     0.45 of that radius, at a random rotation, on a binary mask. One of the synthetic shape classes.
@@ -370,13 +563,19 @@ def draw_star_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle the points lie on, in pixels.
         random_generator (np.random.Generator): The random generator drawing the rotation.
+        upright (bool): True for a point at the top, without rotation (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [5, 2] float tips of the points, from the top one clockwise when upright.
     """
-    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
-                        vertex_radii=[1.0, STAR_INNER_RADIUS_RATIO] * 5, random_generator=random_generator)
+    vertices = fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                                   vertex_radii=[1.0, STAR_INNER_RADIUS_RATIO] * 5, random_generator=random_generator,
+                                   upright=upright)
+    return vertices[0::2]
 
 
 def draw_plus_sign_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                        random_generator: np.random.Generator) -> None:
+                        random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled axis-aligned plus sign whose two arms are 'size' long and 0.35 of that wide, on a binary mask. One
     of the synthetic shape classes.
@@ -387,6 +586,12 @@ def draw_plus_sign_mask(mask: np.ndarray, center_x: int, center_y: int, size: in
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The length of the arms in pixels.
         random_generator (np.random.Generator): Unused, kept so that every shape shares the same signature.
+        upright (bool): Unused, every plus sign being axis-aligned, kept so that every shape shares the same
+            signature. Defaults to False.
+
+    Returns:
+        np.ndarray: The [5, 2] float middles of the top, right, bottom and left ends of the arms, then the centre of
+            their crossing, in the continuous coordinates of the mask.
     """
     half_size = size // 2
     arm_width = max(2, int(round(size * PLUS_SIGN_ARM_WIDTH_RATIO)))
@@ -397,6 +602,13 @@ def draw_plus_sign_mask(mask: np.ndarray, center_x: int, center_y: int, size: in
                   pt2=(center_x - half_size + size - 1, center_y - half_width + arm_width - 1), color=255, thickness=-1)
     cv2.rectangle(img=mask, pt1=(center_x - half_width, center_y - half_size),
                   pt2=(center_x - half_width + arm_width - 1, center_y - half_size + size - 1), color=255, thickness=-1)
+
+    # Middle lines of the vertical and horizontal arms, and the outer edges of their ends
+    vertical_arm_x, horizontal_arm_y = center_x - half_width + arm_width / 2, center_y - half_width + arm_width / 2
+    left_edge, right_edge = center_x - half_size, center_x - half_size + size
+    top_edge, bottom_edge = center_y - half_size, center_y - half_size + size
+    return np.array([[vertical_arm_x, top_edge], [right_edge, horizontal_arm_y], [vertical_arm_x, bottom_edge],
+                     [left_edge, horizontal_arm_y], [vertical_arm_x, horizontal_arm_y]])
 
 
 def build_rhombus_vertices(random_generator: np.random.Generator) -> np.ndarray:
@@ -415,7 +627,7 @@ def build_rhombus_vertices(random_generator: np.random.Generator) -> np.ndarray:
 
 
 def draw_rhombus_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                      random_generator: np.random.Generator) -> None:
+                      random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled rhombus whose long diagonal is 'size' long, at a random rotation, on a binary mask. One of the
     synthetic shape classes.
@@ -426,10 +638,16 @@ def draw_rhombus_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The length of the long diagonal in pixels.
         random_generator (np.random.Generator): The random generator drawing the diagonals and the rotation.
+        upright (bool): True for a horizontal long diagonal, without mirror nor rotation (keypoint images). Defaults
+            to False.
+
+    Returns:
+        np.ndarray: The [4, 2] float vertices, the top, right, bottom and left ones when upright.
     """
-    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
-                         vertices=build_rhombus_vertices(random_generator=random_generator),
-                         random_generator=random_generator)
+    vertices = fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                                    vertices=build_rhombus_vertices(random_generator=random_generator),
+                                    random_generator=random_generator, upright=upright)
+    return vertices[[3, 0, 1, 2]]
 
 
 def build_parallelogram_vertices(random_generator: np.random.Generator) -> np.ndarray:
@@ -455,7 +673,7 @@ def build_parallelogram_vertices(random_generator: np.random.Generator) -> np.nd
 
 
 def draw_parallelogram_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                            random_generator: np.random.Generator) -> None:
+                            random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled parallelogram inscribed in a circle of diameter 'size', at a random rotation and mirrored for half
     of them, on a binary mask. One of the synthetic shape classes.
@@ -466,10 +684,15 @@ def draw_parallelogram_mask(mask: np.ndarray, center_x: int, center_y: int, size
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle its farthest vertices lie on, in pixels.
         random_generator (np.random.Generator): The random generator drawing the sides, the angle and the rotation.
+        upright (bool): True for horizontal long sides, the bottom one shifted to the right, without mirror nor
+            rotation (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [4, 2] float vertices, from the top left one clockwise when upright.
     """
-    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
-                         vertices=build_parallelogram_vertices(random_generator=random_generator),
-                         random_generator=random_generator)
+    return fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                                vertices=build_parallelogram_vertices(random_generator=random_generator),
+                                random_generator=random_generator, upright=upright)
 
 
 def build_trapezoid_vertices(random_generator: np.random.Generator) -> np.ndarray:
@@ -496,10 +719,11 @@ def build_trapezoid_vertices(random_generator: np.random.Generator) -> np.ndarra
 
 
 def draw_trapezoid_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                        random_generator: np.random.Generator) -> None:
+                        random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled trapezoid inscribed in a circle of diameter 'size', at a random rotation and mirrored for half of
-    them, on a binary mask. One of the synthetic shape classes.
+    them, on a binary mask. One of the synthetic shape classes. The upright trapezoids of the keypoint images stand on
+    their long side.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -507,10 +731,23 @@ def draw_trapezoid_mask(mask: np.ndarray, center_x: int, center_y: int, size: in
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle its farthest vertices lie on, in pixels.
         random_generator (np.random.Generator): The random generator drawing the sides, the height and the rotation.
+        upright (bool): True for a trapezoid standing on its long side, without mirror nor rotation (keypoint images).
+            Defaults to False.
+
+    Returns:
+        np.ndarray: The [4, 2] float vertices, from the top left one clockwise when upright.
     """
-    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
-                         vertices=build_trapezoid_vertices(random_generator=random_generator),
-                         random_generator=random_generator)
+    vertices = build_trapezoid_vertices(random_generator=random_generator)
+
+    # Upright trapezoids: the long side, built at the top (the y axis pointing down), turned to the bottom, which
+    # reverses the order of the vertices
+    if upright:
+        keypoints = fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                                         vertices=centre_vertices(vertices=vertices * np.array([1.0, -1.0])),
+                                         random_generator=random_generator, upright=True)
+        return keypoints[[3, 2, 1, 0]]
+    return fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertices=vertices,
+                                random_generator=random_generator)
 
 
 def build_kite_vertices(random_generator: np.random.Generator) -> np.ndarray:
@@ -535,7 +772,7 @@ def build_kite_vertices(random_generator: np.random.Generator) -> np.ndarray:
 
 
 def draw_kite_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                   random_generator: np.random.Generator) -> None:
+                   random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled kite inscribed in a circle of diameter 'size', at a random rotation, on a binary mask. One of the
     synthetic shape classes.
@@ -546,14 +783,19 @@ def draw_kite_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle its farthest vertices lie on, in pixels.
         random_generator (np.random.Generator): The random generator drawing the diagonals and the rotation.
+        upright (bool): True for a vertical long diagonal, the short corner at the top, without rotation (keypoint
+            images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [4, 2] float vertices, the top, right, bottom and left ones when upright.
     """
-    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
-                         vertices=build_kite_vertices(random_generator=random_generator),
-                         random_generator=random_generator)
+    return fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                                vertices=build_kite_vertices(random_generator=random_generator),
+                                random_generator=random_generator, upright=upright)
 
 
 def draw_heptagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                       random_generator: np.random.Generator) -> None:
+                       random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled regular heptagon inscribed in a circle of diameter 'size', at a random rotation, on a binary mask.
     One of the synthetic shape classes.
@@ -564,13 +806,17 @@ def draw_heptagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle the vertices lie on, in pixels.
         random_generator (np.random.Generator): The random generator drawing the rotation.
+        upright (bool): True for a vertex at the top, without rotation (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [7, 2] float vertices, from the top one clockwise when upright.
     """
-    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 7,
-                        random_generator=random_generator)
+    return fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 7,
+                               random_generator=random_generator, upright=upright)
 
 
 def draw_nonagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                      random_generator: np.random.Generator) -> None:
+                      random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled regular nonagon inscribed in a circle of diameter 'size', at a random rotation, on a binary mask.
     One of the synthetic shape classes, the closest to the circle, which sets MINIMUM_SHAPE_SIZE.
@@ -581,13 +827,17 @@ def draw_nonagon_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle the vertices lie on, in pixels.
         random_generator (np.random.Generator): The random generator drawing the rotation.
+        upright (bool): True for a vertex at the top, without rotation (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [9, 2] float vertices, from the top one clockwise when upright.
     """
-    fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 9,
-                        random_generator=random_generator)
+    return fill_radial_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size, vertex_radii=[1.0] * 9,
+                               random_generator=random_generator, upright=upright)
 
 
 def draw_ellipse_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                      random_generator: np.random.Generator) -> None:
+                      random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled ellipse whose long axis is 'size' long and 1.5 to 3 times its short axis, far from the circles, at
     a random rotation, on a binary mask. One of the synthetic shape classes.
@@ -598,16 +848,27 @@ def draw_ellipse_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The length of the long axis in pixels.
         random_generator (np.random.Generator): The random generator drawing the elongation and the rotation.
+        upright (bool): True for a horizontal long axis, without rotation (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [3, 2] float keypoints, the two ends of the long axis around the centre, the left end first
+            when upright, in the continuous coordinates of the mask.
     """
     aspect_ratio = random_generator.uniform(low=ELLIPSE_ASPECT_RATIO_RANGE[0], high=ELLIPSE_ASPECT_RATIO_RANGE[1])
     half_short_axis = max(1, int(round(size / 2 / aspect_ratio)))
-    cv2.ellipse(img=mask, center=(center_x, center_y), axes=(size // 2, half_short_axis),
-                angle=random_generator.uniform(low=0.0, high=180.0), startAngle=0.0, endAngle=360.0, color=255,
-                thickness=-1)
+    angle = 0.0 if upright else random_generator.uniform(low=0.0, high=180.0)
+    cv2.ellipse(img=mask, center=(center_x, center_y), axes=(size // 2, half_short_axis), angle=angle, startAngle=0.0,
+                endAngle=360.0, color=255, thickness=-1)
+
+    # Ends of the long axis, along the x axis of cv2.ellipse turned clockwise on the image (the y axis pointing down),
+    # on the outer edges of their pixels
+    centre = np.array([center_x + 0.5, center_y + 0.5])
+    half_axis = (size // 2 + 0.5) * np.array([np.cos(np.radians(angle)), np.sin(np.radians(angle))])
+    return np.stack([centre - half_axis, centre, centre + half_axis])
 
 
 def draw_semicircle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                         random_generator: np.random.Generator) -> None:
+                         random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled half disc of diameter 'size', its straight side through the centre of the shape, at a random
     rotation, on a binary mask. One of the synthetic shape classes, filling half of its square.
@@ -618,14 +879,30 @@ def draw_semicircle_mask(mask: np.ndarray, center_x: int, center_y: int, size: i
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the half disc in pixels.
         random_generator (np.random.Generator): The random generator drawing the rotation.
+        upright (bool): True for a half disc lying on its straight side, the arc at the top (keypoint images).
+            Defaults to False.
+
+    Returns:
+        np.ndarray: The [4, 2] float keypoints, the middle of the arc, the centre of the straight side and its two
+            ends (left then right when upright), in the continuous coordinates of the mask.
     """
-    cv2.ellipse(img=mask, center=(center_x, center_y), axes=(size // 2, size // 2),
-                angle=random_generator.uniform(low=0.0, high=360.0), startAngle=0.0, endAngle=180.0, color=255,
-                thickness=-1)
+    angle = 180.0 if upright else random_generator.uniform(low=0.0, high=360.0)
+    cv2.ellipse(img=mask, center=(center_x, center_y), axes=(size // 2, size // 2), angle=angle, startAngle=0.0,
+                endAngle=180.0, color=255, thickness=-1)
+
+    # Directions of the middle and of the start of the arc, which cv2.ellipse draws clockwise on the image from its
+    # turned x axis. The straight side runs along the centre row of pixels, on its edge away from the arc
+    radians = np.radians(angle)
+    arc_direction, side_direction = np.array([-np.sin(radians), np.cos(radians)]), np.array([np.cos(radians),
+                                                                                             np.sin(radians)])
+    centre, radius = np.array([center_x + 0.5, center_y + 0.5]), size // 2 + 0.5
+    side_centre = centre - 0.5 * arc_direction
+    return np.stack([centre + radius * arc_direction, side_centre, side_centre + radius * side_direction,
+                     side_centre - radius * side_direction])
 
 
 def draw_annulus_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                      random_generator: np.random.Generator) -> None:
+                      random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled ring of outer diameter 'size' whose hole has 0.4 to 0.6 of its radius, on a binary mask. One of
     the synthetic shape classes, the only one with a hole, which shows the background (or the objects below it) and is
@@ -637,6 +914,11 @@ def draw_annulus_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The outer diameter of the ring in pixels.
         random_generator (np.random.Generator): The random generator drawing the size of the hole.
+        upright (bool): Unused, kept so that every shape shares the same signature. Defaults to False.
+
+    Returns:
+        np.ndarray: The [1, 2] float centre of the ring, the centre of its centre pixel in the continuous coordinates
+            of the mask.
     """
     outer_radius = size // 2
     inner_radius_ratio = random_generator.uniform(low=ANNULUS_INNER_RADIUS_RATIO_RANGE[0],
@@ -646,6 +928,7 @@ def draw_annulus_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
     cv2.circle(img=mask, center=(center_x, center_y), radius=outer_radius, color=255, thickness=-1)
     cv2.circle(img=mask, center=(center_x, center_y), radius=max(1, int(round(outer_radius * inner_radius_ratio))),
                color=0, thickness=-1)
+    return np.array([[center_x + 0.5, center_y + 0.5]])
 
 
 def build_capsule_vertices(random_generator: np.random.Generator) -> np.ndarray:
@@ -673,7 +956,7 @@ def build_capsule_vertices(random_generator: np.random.Generator) -> np.ndarray:
 
 
 def draw_capsule_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                      random_generator: np.random.Generator) -> None:
+                      random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled capsule (pill shape) 'size' long, at a random rotation, on a binary mask. One of the synthetic shape
     classes.
@@ -684,10 +967,17 @@ def draw_capsule_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The length of the capsule in pixels.
         random_generator (np.random.Generator): The random generator drawing the elongation and the rotation.
+        upright (bool): True for a horizontal capsule, without mirror nor rotation (keypoint images). Defaults to
+            False.
+
+    Returns:
+        np.ndarray: The [3, 2] float keypoints, the two ends of the long axis around the centre, the left end first
+            when upright, in the continuous coordinates of the mask.
     """
-    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
-                         vertices=build_capsule_vertices(random_generator=random_generator),
-                         random_generator=random_generator)
+    return fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                                vertices=build_capsule_vertices(random_generator=random_generator),
+                                random_generator=random_generator, upright=upright,
+                                keypoint_vertices=np.array([[-1.0, 0.0], [0.0, 0.0], [1.0, 0.0]]))
 
 
 def build_l_shape_vertices(random_generator: np.random.Generator) -> np.ndarray:
@@ -710,7 +1000,7 @@ def build_l_shape_vertices(random_generator: np.random.Generator) -> np.ndarray:
 
 
 def draw_l_shape_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
-                      random_generator: np.random.Generator) -> None:
+                      random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled L-shape inscribed in a circle of diameter 'size', at a random rotation and mirrored for half of
     them (a J), on a binary mask. One of the synthetic shape classes.
@@ -721,10 +1011,161 @@ def draw_l_shape_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         center_y (int): The vertical centre of the shape in pixels.
         size (int): The diameter of the circle its farthest vertices lie on, in pixels.
         random_generator (np.random.Generator): The random generator drawing the arms and the rotation.
+        upright (bool): True for a vertical long arm whose foot points to the right, without mirror nor rotation
+            (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [6, 2] float vertices, from the outer top of the long arm along the outline, in the order of
+            KEYPOINT_NAMES.
     """
-    fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
-                         vertices=build_l_shape_vertices(random_generator=random_generator),
-                         random_generator=random_generator)
+    return fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                                vertices=build_l_shape_vertices(random_generator=random_generator),
+                                random_generator=random_generator, upright=upright)
+
+
+def build_house_vertices(random_generator: np.random.Generator) -> np.ndarray:
+    """
+    Builds the vertices of a house for draw_house_mask, a keypoint category drawn with the shapes of the keypoint
+    images: walls under a triangular roof as wide as them, drawn as one pentagon whose walls, unlike those of the
+    regular pentagons, are vertical.
+
+    Args:
+        random_generator (np.random.Generator): The random generator drawing the width of the walls and the height of
+            the roof.
+
+    Returns:
+        np.ndarray: The [5, 2] vertices, centred, from the apex of the roof clockwise, the house going from -1 at the
+            apex to 1 at its base along the y axis.
+    """
+    half_width = random_generator.uniform(low=HOUSE_HALF_WIDTH_RATIO_RANGE[0], high=HOUSE_HALF_WIDTH_RATIO_RANGE[1])
+    roof_height = random_generator.uniform(low=HOUSE_ROOF_HEIGHT_RATIO_RANGE[0], high=HOUSE_ROOF_HEIGHT_RATIO_RANGE[1])
+
+    # Height of the eaves, where the roof meets the walls
+    eave_height = -1.0 + 2.0 * roof_height
+    return np.array([[0.0, -1.0], [half_width, eave_height], [half_width, 1.0], [-half_width, 1.0],
+                     [-half_width, eave_height]])
+
+
+def draw_house_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                    random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
+    """
+    Draws a filled house inscribed in a circle of diameter 'size' on a binary mask, a keypoint category drawn with the
+    shapes of the keypoint images, at a random rotation and mirrored for half of them when not upright.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The diameter of the circle its farthest vertices lie on, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the walls, the roof and the rotation.
+        upright (bool): True for a standing house, without mirror nor rotation (keypoint images). Defaults to False.
+
+    Returns:
+        np.ndarray: The [5, 2] float vertices in the order of KEYPOINT_NAMES: the apex, the left and right ends of
+            the roof, then the left and right ends of the base when upright.
+    """
+    vertices = fill_rotated_polygon(mask=mask, center_x=center_x, center_y=center_y, size=size,
+                                    vertices=build_house_vertices(random_generator=random_generator),
+                                    random_generator=random_generator, upright=upright)
+    return vertices[[0, 4, 1, 3, 2]]
+
+
+def get_limb_direction(angle_degrees: float, side_sign: float) -> np.ndarray:
+    """
+    Computes the unit direction of a segment of a stick figure limb for build_stick_figure_joints, from its angle
+    measured from straight down towards the side of the limb.
+
+    Args:
+        angle_degrees (float): The angle of the segment in degrees, 0 pointing down and 90 pointing to the side.
+        side_sign (float): 1 for the limbs on the right of the image (the left limbs of the figure facing the viewer),
+            -1 for those on its left.
+
+    Returns:
+        np.ndarray: The [2] unit direction, the y axis pointing down.
+    """
+    return np.array([side_sign * np.sin(np.radians(angle_degrees)), np.cos(np.radians(angle_degrees))])
+
+
+def build_stick_figure_joints(random_generator: np.random.Generator) -> np.ndarray:
+    """
+    Builds the joints of a stick figure for draw_stick_figure_mask, the keypoint category with the most keypoints and
+    the only one whose keypoints are inside its outline: a torso one unit long under the head, and two arms and two
+    legs of two segments each, posed at random angles that keep every limb on its own side of the torso.
+
+    Args:
+        random_generator (np.random.Generator): The random generator drawing the angles of the limbs.
+
+    Returns:
+        np.ndarray: The [11, 2] joints in the order of KEYPOINT_NAMES["stick_figure"], in torso lengths, the neck at
+            the origin and the y axis pointing down.
+    """
+    joints = {"head": np.array([0.0, -STICK_FIGURE_HEAD_RADIUS]), "neck": np.array([0.0, 0.0]),
+              "pelvis": np.array([0.0, 1.0])}
+
+    # Two segments per limb and side, the first turned from straight down towards the side of the limb, the second
+    # bent from it within limits that keep it on the same side. The left limbs of the figure, which faces the viewer,
+    # are on the right of the image
+    for limb in STICK_FIGURE_LIMBS.values():
+        for side_name, side_sign in (("left", 1.0), ("right", -1.0)):
+            first_angle = random_generator.uniform(low=limb["first_angle_range"][0], high=limb["first_angle_range"][1])
+            bend = random_generator.uniform(low=limb["bend_range"][0], high=limb["bend_range"][1])
+            second_angle = float(np.clip(first_angle + bend, limb["second_angle_limits"][0],
+                                         limb["second_angle_limits"][1]))
+            middle_joint = joints[limb["root"]] + limb["lengths"][0] * get_limb_direction(angle_degrees=first_angle,
+                                                                                          side_sign=side_sign)
+            joints[f"{side_name}_{limb['joints'][0]}"] = middle_joint
+            joints[f"{side_name}_{limb['joints'][1]}"] = middle_joint + limb["lengths"][1] * get_limb_direction(
+                angle_degrees=second_angle, side_sign=side_sign)
+    return np.stack([joints[name] for name in KEYPOINT_NAMES["stick_figure"]])
+
+
+def draw_stick_figure_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
+                           random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
+    """
+    Draws a standing stick figure fitting a 'size' x 'size' square on a mask, a keypoint category drawn with the
+    shapes of the keypoint images: a head disc, a torso, and two arms and two legs in a random pose. The limbs of each
+    side get the mask value of STICK_FIGURE_SIDE_VALUES, which draw_shape_descriptor paints in a colour of its own so
+    that the left and right of the figure can be told apart, the head and the torso the value 255 of every shape.
+
+    Args:
+        mask (np.ndarray): The [H, W] uint8 mask drawn in place.
+        center_x (int): The horizontal centre of the shape in pixels.
+        center_y (int): The vertical centre of the shape in pixels.
+        size (int): The side of the square the figure fits in, in pixels.
+        random_generator (np.random.Generator): The random generator drawing the pose.
+        upright (bool): Unused, every stick figure standing, kept so that every shape shares the same signature.
+            Defaults to False.
+
+    Returns:
+        np.ndarray: The [11, 2] float joints in the order of KEYPOINT_NAMES["stick_figure"], the centres of their
+            pixels in the continuous coordinates of the mask.
+    """
+    names = KEYPOINT_NAMES["stick_figure"]
+    joints = build_stick_figure_joints(random_generator=random_generator)
+    thickness = max(2, int(round(STICK_FIGURE_THICKNESS_RATIO * size)))
+
+    # Scale and centre the figure so that its joints and its head disc, widened by the lines, fit the square
+    head = joints[names.index("head")]
+    extent_points = np.concatenate([joints, np.stack([head - STICK_FIGURE_HEAD_RADIUS,
+                                                      head + STICK_FIGURE_HEAD_RADIUS])])
+    minimum_corner, maximum_corner = extent_points.min(axis=0), extent_points.max(axis=0)
+    scale = (size - thickness) / (maximum_corner - minimum_corner).max()
+    points = np.round((joints - (minimum_corner + maximum_corner) / 2) * scale + np.array([center_x, center_y]))
+    points = points.astype(np.int32)
+
+    # Limbs of each side in the mask value of the side, then the torso and the head over them
+    for limb in STICK_FIGURE_LIMBS.values():
+        for side_name, side_value in STICK_FIGURE_SIDE_VALUES.items():
+            limb_points = points[[names.index(limb["root"]), names.index(f"{side_name}_{limb['joints'][0]}"),
+                                  names.index(f"{side_name}_{limb['joints'][1]}")]]
+            cv2.polylines(img=mask, pts=[limb_points.reshape(-1, 1, 2)], isClosed=False, color=side_value,
+                          thickness=thickness)
+    neck, pelvis, head = points[names.index("neck")], points[names.index("pelvis")], points[names.index("head")]
+    cv2.line(img=mask, pt1=(int(neck[0]), int(neck[1])), pt2=(int(pelvis[0]), int(pelvis[1])), color=255,
+             thickness=thickness)
+    cv2.circle(img=mask, center=(int(head[0]), int(head[1])),
+               radius=max(1, int(round(STICK_FIGURE_HEAD_RADIUS * scale))), color=255, thickness=-1)
+    return points + 0.5
 
 
 # Drawing function of every shape class
@@ -736,6 +1177,10 @@ SHAPE_DRAWING_FUNCTIONS = {"square": draw_square_mask, "circle": draw_circle_mas
                            "kite": draw_kite_mask, "heptagon": draw_heptagon_mask, "nonagon": draw_nonagon_mask,
                            "ellipse": draw_ellipse_mask, "semicircle": draw_semicircle_mask,
                            "annulus": draw_annulus_mask, "capsule": draw_capsule_mask, "l_shape": draw_l_shape_mask}
+
+# Drawing function of every keypoint category, the shape classes followed by the stick figure and the house
+KEYPOINT_DRAWING_FUNCTIONS = {**SHAPE_DRAWING_FUNCTIONS, "stick_figure": draw_stick_figure_mask,
+                              "house": draw_house_mask}
 
 
 def get_mask_bounding_box(mask: np.ndarray) -> List[int]:
@@ -775,21 +1220,26 @@ def get_intersection_over_union(first_box: List[int], second_box: List[int]) -> 
     return intersection / (first_area + second_area - intersection)
 
 
-def draw_contrasting_colour(background_colour: np.ndarray, random_generator: np.random.Generator) -> np.ndarray:
+def draw_contrasting_colour(background_colour: np.ndarray, random_generator: np.random.Generator,
+                            avoided_colours: Tuple[np.ndarray, ...] = ()) -> np.ndarray:
     """
     Draws a random BGR colour that differs from the background by at least 60 levels on one channel, so that every
-    synthetic object stays clearly visible.
+    synthetic object stays clearly visible, and as much from every avoided colour, so that the parts of a stick figure
+    drawn in colours of their own are told apart from its body and from each other.
 
     Args:
         background_colour (np.ndarray): The [3] uint8 BGR background colour.
         random_generator (np.random.Generator): The random generator drawing the colour.
+        avoided_colours (Tuple[np.ndarray, ...]): The [3] uint8 BGR colours the drawn colour must differ from as well.
+            Defaults to none.
 
     Returns:
         np.ndarray: The [3] uint8 BGR object colour.
     """
     while True:
         colour = random_generator.integers(low=0, high=256, size=3, dtype=np.int64)
-        if np.abs(colour - background_colour.astype(np.int64)).max() >= MINIMUM_COLOUR_DIFFERENCE:
+        if all(np.abs(colour - reference_colour.astype(np.int64)).max() >= MINIMUM_COLOUR_DIFFERENCE
+               for reference_colour in (background_colour, *avoided_colours)):
             return colour.astype(np.uint8)
 
 
@@ -814,52 +1264,79 @@ def draw_background(image_size: int, random_generator: np.random.Generator) -> T
 
 
 def draw_shape_descriptor(minimum_size: int, maximum_size: int, background_colour: np.ndarray,
-                          random_generator: np.random.Generator) -> Dict[str, Any]:
+                          random_generator: np.random.Generator, keypoints: bool = False) -> Dict[str, Any]:
     """
     Draws one synthetic object of random class, size and colour, its pixels drawn once on a canvas of their own so
     that the same object can be pasted at any position of an image or of the frames of a sequence. Shared by the
-    images of the detection and classification datasets, the moving shape of the sequence classification dataset and
-    the objects of the comparison pairs.
+    images of the detection, keypoint detection and classification datasets, the moving shape of the sequence
+    classification dataset and the objects of the comparison pairs. The objects of the keypoint images are drawn
+    upright from the keypoint categories, with their keypoints, the limbs of each side of a stick figure getting a
+    colour of their own.
 
     Args:
         minimum_size (int): The minimum size of the shape in pixels.
         maximum_size (int): The maximum size of the shape in pixels.
         background_colour (np.ndarray): The [3] uint8 BGR background colour the object must contrast with.
         random_generator (np.random.Generator): The random generator of the object.
+        keypoints (bool): True for the objects of the keypoint images, drawn from KEYPOINT_CATEGORIES. Defaults to
+            False.
 
     Returns:
-        Dict[str, Any]: The 'shape_name' of the object, the [size + 1, size + 1] uint8 'mask' of its pixels and its
-            [3] uint8 BGR 'colour'.
+        Dict[str, Any]: The 'shape_name' of the object, the [size + 1, size + 1] uint8 'mask' of its pixels (255, or
+            a value of STICK_FIGURE_SIDE_VALUES for the limbs of a stick figure), its [3] uint8 BGR 'colour', the
+            'part_colours' of the mask values other than 255 when it has some, and for the keypoint images its [K, 2]
+            float 'keypoints' in the continuous coordinates of the canvas (pixel (x, y) covering [x, x + 1] x
+            [y, y + 1]).
     """
-    shape_names = list(SHAPE_CATEGORIES)
+    categories, drawing_functions = ((KEYPOINT_CATEGORIES, KEYPOINT_DRAWING_FUNCTIONS) if keypoints else
+                                     (SHAPE_CATEGORIES, SHAPE_DRAWING_FUNCTIONS))
+    shape_names = list(categories)
     shape_name = shape_names[int(random_generator.integers(low=0, high=len(shape_names)))]
     size = int(random_generator.integers(low=minimum_size, high=maximum_size + 1))
 
     # Pixels of the shape centred on its own canvas, then a colour visible on the background
     mask = np.zeros(shape=(size + 1, size + 1), dtype=np.uint8)
-    SHAPE_DRAWING_FUNCTIONS[shape_name](mask=mask, center_x=size // 2, center_y=size // 2, size=size,
-                                        random_generator=random_generator)
+    shape_keypoints = drawing_functions[shape_name](mask=mask, center_x=size // 2, center_y=size // 2, size=size,
+                                                    random_generator=random_generator, upright=keypoints)
     colour = draw_contrasting_colour(background_colour=background_colour, random_generator=random_generator)
-    return {"shape_name": shape_name, "mask": mask, "colour": colour}
+    shape_descriptor = {"shape_name": shape_name, "mask": mask, "colour": colour}
+
+    # Parts of the mask drawn with values of their own (the limbs of each side of a stick figure) get colours that
+    # differ from the background, from the shape and from each other
+    part_values = [int(value) for value in np.unique(mask) if 0 < value < 255]
+    if len(part_values) > 0:
+        part_colours = {}
+        for part_value in part_values:
+            part_colours[part_value] = draw_contrasting_colour(background_colour=background_colour,
+                                                               random_generator=random_generator,
+                                                               avoided_colours=(colour, *part_colours.values()))
+        shape_descriptor["part_colours"] = part_colours
+    if keypoints:
+        shape_descriptor["keypoints"] = shape_keypoints
+    return shape_descriptor
 
 
 def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxes: List[List[int]],
                 maximum_intersection_over_union: float, minimum_gap: int, random_generator: np.random.Generator,
-                class_map: Optional[np.ndarray], instance_map: Optional[np.ndarray] = None) -> Optional[List[int]]:
+                class_map: Optional[np.ndarray], instance_map: Optional[np.ndarray] = None,
+                maximum_outside_fraction: float = 0.0) -> Optional[List[int]]:
     """
     Pastes a synthetic object at a random position of an image where it overlaps every object already placed by at
     most 'maximum_intersection_over_union', its box being grown by 'minimum_gap' pixels on every side for that test,
-    trying up to 50 positions. Shared by the detection and segmentation images, which tolerate some overlap between
-    objects, and the frames of the comparison pairs, whose objects must not touch so that every object stays
-    countable. For the segmentation images, the category of the object is painted at the same pixels of the class map,
-    so that a later object covering an earlier one covers it in the class map too, and for the instance segmentation
-    images its index (one more than the number of placed boxes) at the same pixels of the instance map, which then
-    gives the visible part of every object.
+    trying up to 50 positions. Shared by the detection, keypoint detection and segmentation images, which tolerate
+    some overlap between objects, and the frames of the comparison pairs, whose objects must not touch so that every
+    object stays countable. For the segmentation images, the category of the object is painted at the same pixels of
+    the class map, so that a later object covering an earlier one covers it in the class map too, and for the instance
+    segmentation and keypoint images its index (one more than the number of placed boxes) at the same pixels of the
+    instance map, which then gives the visible part of every object. The canvas of a keypoint image object may stick
+    out of the image, so that some of its keypoints fall outside it.
 
     Args:
         image (np.ndarray): The [H, W, 3] uint8 BGR image drawn in place.
-        shape_descriptor (Dict[str, Any]): The 'shape_name', 'mask' and 'colour' of the object (draw_shape_descriptor).
-        placed_boxes (List[List[int]]): The tight [x1, y1, x2, y2] boxes of the objects already in the image.
+        shape_descriptor (Dict[str, Any]): The 'shape_name', 'mask', 'colour' and optional 'part_colours' of the
+            object (draw_shape_descriptor).
+        placed_boxes (List[List[int]]): The tight [x1, y1, x2, y2] boxes, inside the image, of the objects already in
+            the image.
         maximum_intersection_over_union (float): The largest overlap allowed with every placed box.
         minimum_gap (int): The number of pixels the box of the object is grown by on every side for the overlap test.
         random_generator (np.random.Generator): The random generator of the positions.
@@ -867,58 +1344,83 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
             None for the tasks without masks.
         instance_map (Optional[np.ndarray]): The [H, W] uint16 object index of every pixel (0 for the background),
             painted in place, or None for the tasks without instance masks. Defaults to None.
+        maximum_outside_fraction (float): The largest part of the canvas width and height that may stick out of the
+            image on each side, 0 keeping the whole canvas inside it. Defaults to 0.
 
     Returns:
-        Optional[List[int]]: The tight [x1, y1, x2, y2] box of the pasted object, or None when no position fits.
+        Optional[List[int]]: The tight [x1, y1, x2, y2] box of the pasted object, which sticks out of the image with
+            its canvas, or None when no position fits.
     """
     mask = shape_descriptor["mask"]
     canvas_height, canvas_width = mask.shape
     image_height, image_width = image.shape[:2]
     shape_box = get_mask_bounding_box(mask=mask)
 
-    # Try random positions of the shape canvas until the grown box of the shape is far enough from every placed box
+    # Columns and rows of the canvas that may stick out of the image on every side
+    margin_x = int(round(maximum_outside_fraction * canvas_width))
+    margin_y = int(round(maximum_outside_fraction * canvas_height))
+
+    # Try random positions of the shape canvas until the grown box of the part of the shape inside the image is far
+    # enough from every placed box
     for _ in range(MAXIMUM_PLACEMENT_ATTEMPTS):
-        left = int(random_generator.integers(low=0, high=image_width - canvas_width + 1))
-        top = int(random_generator.integers(low=0, high=image_height - canvas_height + 1))
+        left = int(random_generator.integers(low=-margin_x, high=image_width - canvas_width + margin_x + 1))
+        top = int(random_generator.integers(low=-margin_y, high=image_height - canvas_height + margin_y + 1))
         box = [left + shape_box[0], top + shape_box[1], left + shape_box[2], top + shape_box[3]]
-        grown_box = [box[0] - minimum_gap, box[1] - minimum_gap, box[2] + minimum_gap, box[3] + minimum_gap]
+        clipped_box = [max(0, box[0]), max(0, box[1]), min(image_width, box[2]), min(image_height, box[3])]
+        if clipped_box[2] <= clipped_box[0] or clipped_box[3] <= clipped_box[1]:
+            continue
+        grown_box = [clipped_box[0] - minimum_gap, clipped_box[1] - minimum_gap, clipped_box[2] + minimum_gap,
+                     clipped_box[3] + minimum_gap]
         if all(get_intersection_over_union(first_box=grown_box, second_box=placed_box) <=
                maximum_intersection_over_union for placed_box in placed_boxes):
-            image[top:top + canvas_height, left:left + canvas_width][mask > 0] = shape_descriptor["colour"]
+            # Window of the canvas inside the image, and the same window of the image
+            canvas_left, canvas_top = max(0, -left), max(0, -top)
+            canvas_right, canvas_bottom = min(canvas_width, image_width - left), min(canvas_height, image_height - top)
+            image_window = (slice(top + canvas_top, top + canvas_bottom), slice(left + canvas_left, left + canvas_right))
+            mask_window = mask[canvas_top:canvas_bottom, canvas_left:canvas_right]
+
+            # Colour of the shape, then the colours of its parts
+            image[image_window][mask_window > 0] = shape_descriptor["colour"]
+            if "part_colours" in shape_descriptor:
+                for part_value, part_colour in shape_descriptor["part_colours"].items():
+                    image[image_window][mask_window == part_value] = part_colour
             if class_map is not None:
-                class_map[top:top + canvas_height, left:left + canvas_width][mask > 0] = SHAPE_CATEGORIES[
-                    shape_descriptor["shape_name"]]
+                class_map[image_window][mask_window > 0] = KEYPOINT_CATEGORIES[shape_descriptor["shape_name"]]
             if instance_map is not None:
-                instance_map[top:top + canvas_height, left:left + canvas_width][mask > 0] = len(placed_boxes) + 1
+                instance_map[image_window][mask_window > 0] = len(placed_boxes) + 1
             return box
     return None
 
 
-def generate_image(image_size: int, maximum_objects: int, random_generator: np.random.Generator) -> Tuple[
-        np.ndarray, List[Tuple[int, List[int]]], np.ndarray, np.ndarray]:
+def generate_image(image_size: int, maximum_objects: int, random_generator: np.random.Generator,
+                   keypoints: bool = False) -> Tuple[np.ndarray, List[Tuple[Any, ...]], np.ndarray, np.ndarray]:
     """
-    Generates one synthetic detection, segmentation or classification image: a random-colour or black background with
-    1 to 'maximum_objects' shapes of the SHAPE_CATEGORIES classes, of random colours and sizes from MINIMUM_SHAPE_SIZE
-    (64) pixels to a third of the image side, overlapping each other by at most an intersection over union of 0.3,
-    with the class map and the instance map of its pixels. On images too small for the minimum size (the 64 pixel
-    images of the tests), every shape gets the largest size.
+    Generates one synthetic detection, segmentation, keypoint detection or classification image: a random-colour or
+    black background with 1 to 'maximum_objects' shapes of the SHAPE_CATEGORIES classes, of random colours and sizes
+    from MINIMUM_SHAPE_SIZE (64) pixels to a third of the image side, overlapping each other by at most an intersection
+    over union of 0.3, with the class map and the instance map of its pixels. On images too small for the minimum size
+    (the 64 pixel images of the tests), every shape gets the largest size. The keypoint images draw at least
+    KEYPOINT_MINIMUM_OBJECTS upright shapes of the KEYPOINT_CATEGORIES, which may stick out of the image, with their
+    keypoints.
 
     Args:
         image_size (int): The height and width of the square image in pixels.
         maximum_objects (int): The maximum number of objects in the image.
         random_generator (np.random.Generator): The random generator of the image.
+        keypoints (bool): True for a keypoint detection image. Defaults to False.
 
     Returns:
-        Tuple[np.ndarray, List[Tuple[int, List[int]]], np.ndarray, np.ndarray]: The [H, W, 3] uint8 BGR image, for
-            every object its category identifier and tight [x1, y1, x2, y2] box, the [H, W] uint8 category identifier
-            of every pixel (0 for the background), and the [H, W] uint16 index of the object of every pixel (object i
-            of the list at i + 1, 0 for the background).
+        Tuple[np.ndarray, List[Tuple[Any, ...]], np.ndarray, np.ndarray]: The [H, W, 3] uint8 BGR image, for every
+            object its category identifier, its tight [x1, y1, x2, y2] box clipped to the image and, for the keypoint
+            images, its [K, 3] float keypoints as the COCO [x, y, visibility] (compute_keypoint_visibilities), the
+            [H, W] uint8 category identifier of every pixel (0 for the background), and the [H, W] uint16 index of the
+            object of every pixel (object i of the list at i + 1, 0 for the background).
     """
     # Half of the images have a black background, the other half a random colour, every pixel being background
     image, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
     class_map = np.zeros(shape=(image_size, image_size), dtype=np.uint8)
     instance_map = np.zeros(shape=(image_size, image_size), dtype=np.uint16)
-    objects = []
+    objects, box_centres = [], []
 
     # Shapes up to a third of the image side, at least MINIMUM_SHAPE_SIZE pixels when the image is large enough
     maximum_size = max(33, image_size // 3)
@@ -926,44 +1428,101 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
 
     # Place every object at a random position, an object overlapping the placed ones too much at every attempt being
     # left out
-    for _ in range(int(random_generator.integers(low=1, high=maximum_objects + 1))):
+    minimum_objects = min(KEYPOINT_MINIMUM_OBJECTS, maximum_objects) if keypoints else 1
+    for _ in range(int(random_generator.integers(low=minimum_objects, high=maximum_objects + 1))):
         shape_descriptor = draw_shape_descriptor(minimum_size=minimum_size, maximum_size=maximum_size,
                                                  background_colour=background_colour,
-                                                 random_generator=random_generator)
+                                                 random_generator=random_generator, keypoints=keypoints)
         box = place_shape(image=image, shape_descriptor=shape_descriptor,
-                          placed_boxes=[existing_box for _, existing_box in objects],
+                          placed_boxes=[placed_object[1] for placed_object in objects],
                           maximum_intersection_over_union=MAXIMUM_OBJECT_INTERSECTION_OVER_UNION, minimum_gap=0,
-                          random_generator=random_generator, class_map=class_map, instance_map=instance_map)
-        if box is not None:
-            objects.append((SHAPE_CATEGORIES[shape_descriptor["shape_name"]], box))
+                          random_generator=random_generator, class_map=class_map, instance_map=instance_map,
+                          maximum_outside_fraction=KEYPOINT_MAXIMUM_OUTSIDE_FRACTION if keypoints else 0.0)
+        if box is None:
+            continue
 
+        # Box of the part of the shape inside the image, and keypoints moved from the canvas to the image
+        category_identifier = KEYPOINT_CATEGORIES[shape_descriptor["shape_name"]]
+        clipped_box = [max(0, box[0]), max(0, box[1]), min(image_size, box[2]), min(image_size, box[3])]
+        if keypoints:
+            shape_box = get_mask_bounding_box(mask=shape_descriptor["mask"])
+            image_keypoints = shape_descriptor["keypoints"] + np.array([box[0] - shape_box[0], box[1] - shape_box[1]])
+            objects.append((category_identifier, clipped_box, image_keypoints))
+            box_centres.append(np.array([(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]))
+        else:
+            objects.append((category_identifier, clipped_box))
+
+    # Visibility of the keypoints once every object is drawn, a keypoint being hidden by the objects drawn after it
+    if keypoints:
+        objects = [(category_identifier, box, compute_keypoint_visibilities(
+            keypoints=object_keypoints, box_centre=box_centre, instance_map=instance_map, object_index=object_index))
+                   for object_index, ((category_identifier, box, object_keypoints), box_centre)
+                   in enumerate(zip(objects, box_centres, strict=True))]
     return image, objects, class_map, instance_map
 
 
-def keep_visible_objects(objects: List[Tuple[int, List[int]]], instance_map: np.ndarray, keep_visible_parts: bool
-                         ) -> Tuple[List[Tuple[int, List[int]]], List[Dict[str, Any]]]:
+def compute_keypoint_visibilities(keypoints: np.ndarray, box_centre: np.ndarray, instance_map: np.ndarray,
+                                  object_index: int) -> np.ndarray:
     """
-    Leaves out of the labels of a synthetic detection or instance segmentation image the objects mostly covered by the
-    objects drawn after them, those with fewer than MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels in the instance map:
-    place_shape only limits the box overlap of the shapes, so a shape can be hidden while its box stays in the image.
-    For the instance segmentation, every kept object gets the box and the run length encoding of its visible part; the
-    detection keeps the box of the whole shape.
+    Gives the keypoints of an object of a synthetic keypoint image their COCO visibility flag once every object of the
+    image is drawn: 0 (not labelled, the coordinates set to 0) outside the image, 1 (labelled but hidden) when an
+    object drawn after it covers it, and 2 (visible) otherwise. A keypoint on the outline of a shape lies on the edge
+    of its pixels, so the pixel tested is the one a quarter of a pixel from the keypoint towards the centre of the box
+    of the shape, the pixel of the shape for both the outer pixel corners and the pixel centres the drawing functions
+    return.
 
     Args:
-        objects (List[Tuple[int, List[int]]]): The category identifier and tight [x1, y1, x2, y2] box of every object,
-            in drawing order (generate_image).
+        keypoints (np.ndarray): The [K, 2] float keypoints in the continuous coordinates of the image.
+        box_centre (np.ndarray): The [2] centre of the box of the whole shape, which may stick out of the image.
+        instance_map (np.ndarray): The [H, W] uint16 index of the object of every pixel (object i at i + 1, 0 for the
+            background).
+        object_index (int): The index of the object in drawing order.
+
+    Returns:
+        np.ndarray: The [K, 3] float keypoints with their visibility, as the COCO [x, y, visibility].
+    """
+    image_height, image_width = instance_map.shape
+
+    # Keypoints outside the image are not labelled, as in COCO
+    inside_mask = ((keypoints[:, 0] >= 0) & (keypoints[:, 0] <= image_width) & (keypoints[:, 1] >= 0) &
+                   (keypoints[:, 1] <= image_height))
+
+    # Pixel of every keypoint a quarter of a pixel towards the centre of the shape, inside the image
+    pixels = np.floor(keypoints + 0.25 * np.sign(box_centre - keypoints)).astype(np.int64)
+    pixel_columns = np.clip(pixels[:, 0], a_min=0, a_max=image_width - 1)
+    pixel_rows = np.clip(pixels[:, 1], a_min=0, a_max=image_height - 1)
+    covered_mask = instance_map[pixel_rows, pixel_columns] > object_index + 1
+
+    # Hidden keypoints keep their position, the keypoints outside the image are zeroed
+    visibilities = np.where(inside_mask, np.where(covered_mask, 1.0, 2.0), 0.0)
+    return np.concatenate([np.where(inside_mask[:, np.newaxis], keypoints, 0.0), visibilities[:, np.newaxis]], axis=1)
+
+
+def keep_visible_objects(objects: List[Tuple[Any, ...]], instance_map: np.ndarray, keep_visible_parts: bool
+                         ) -> Tuple[List[Tuple[Any, ...]], List[Dict[str, Any]]]:
+    """
+    Leaves out of the labels of a synthetic detection, instance segmentation or keypoint detection image the objects
+    mostly covered by the objects drawn after them or outside the image, those with fewer than
+    MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels in the instance map: place_shape only limits the box overlap of the
+    shapes, so a shape can be hidden while its box stays in the image. For the instance segmentation, every kept object
+    gets the box and the run length encoding of its visible part; the detection and the keypoint detection keep the
+    box of the whole shape, and the keypoints follow their object.
+
+    Args:
+        objects (List[Tuple[Any, ...]]): The category identifier, tight [x1, y1, x2, y2] box and, for the keypoint
+            images, keypoints of every object, in drawing order (generate_image).
         instance_map (np.ndarray): The [H, W] uint16 index of the object of every pixel (object i of the list at
             i + 1, 0 for the background).
         keep_visible_parts (bool): True for the instance segmentation (boxes and encodings of the visible parts), False
-            for the detection (boxes of the whole shapes).
+            for the detection and the keypoint detection (boxes of the whole shapes).
 
     Returns:
-        Tuple[List[Tuple[int, List[int]]], List[Dict[str, Any]]]: The category identifier and box of every kept
-            object, and the uncompressed run length encoding of the visible part of every kept object (empty for the
-            detection).
+        Tuple[List[Tuple[Any, ...]], List[Dict[str, Any]]]: The objects kept with their category identifier, box and
+            keypoints, and the uncompressed run length encoding of the visible part of every kept object (empty for
+            the detection and the keypoint detection).
     """
     kept_objects, segmentations = [], []
-    for object_index, (category_identifier, box) in enumerate(objects):
+    for object_index, (category_identifier, box, *extra_fields) in enumerate(objects):
         # Pixels of the object left visible by the objects drawn after it
         visible_mask = instance_map == object_index + 1
         if int(visible_mask.sum()) < MINIMUM_VISIBLE_OBJECT_PIXELS:
@@ -971,31 +1530,33 @@ def keep_visible_objects(objects: List[Tuple[int, List[int]]], instance_map: np.
 
         # Box and encoding of the visible part for the instance segmentation, box of the whole shape for the detection
         if keep_visible_parts:
-            kept_objects.append((category_identifier, get_mask_bounding_box(mask=visible_mask)))
+            kept_objects.append((category_identifier, get_mask_bounding_box(mask=visible_mask), *extra_fields))
             segmentations.append(encode_run_length_encoding(mask=visible_mask))
         else:
-            kept_objects.append((category_identifier, box))
+            kept_objects.append((category_identifier, box, *extra_fields))
     return kept_objects, segmentations
 
 
 def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
     Generates and saves one chunk of images of a split, run by a worker process, with the class mask of every image
-    for the semantic segmentation task, the objects mostly covered by later objects left out for the detection and
-    instance segmentation tasks, and the visible part of every object for the instance segmentation task. Each chunk
-    draws its images with its own random generator, seeded from the operating system, so every generation creates a
-    different dataset.
+    for the semantic segmentation task, the objects mostly covered by later objects left out for the detection,
+    instance segmentation and keypoint detection tasks, the visible part of every object for the instance segmentation
+    task and the keypoints of every object for the keypoint detection task. Each chunk draws its images with its own
+    random generator, seeded from the operating system, so every generation creates a different dataset.
 
     Args:
         chunk (Dict[str, Any]): The chunk description: 'data_folder', 'masks_folder' (None without masks),
             'split_name', 'first_index', 'number_images', 'image_size', 'maximum_objects', 'remove_covered_objects'
-            (whether the objects with fewer than MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels are left out) and
-            'instance_segmentation' (whether the visible parts of the objects are kept).
+            (whether the objects with fewer than MINIMUM_VISIBLE_OBJECT_PIXELS visible pixels are left out),
+            'instance_segmentation' (whether the visible parts of the objects are kept) and 'keypoints' (whether the
+            images are keypoint detection images).
 
     Returns:
-        List[Dict[str, Any]]: For every image, its 'index', 'file_name' and list of (category, box) 'objects', and for
-            the instance segmentation its 'segmentations', the uncompressed run length encoding of the visible part of
-            every object, the box of every object being the box of that part (see keep_visible_objects).
+        List[Dict[str, Any]]: For every image, its 'index', 'file_name' and list of (category, box) 'objects', the
+            keypoint detection objects being (category, box, keypoints), and for the instance segmentation its
+            'segmentations', the uncompressed run length encoding of the visible part of every object, the box of every
+            object being the box of that part (see keep_visible_objects).
     """
     random_generator = np.random.default_rng()
     image_records = []
@@ -1003,7 +1564,8 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     for image_index in range(chunk["first_index"], chunk["first_index"] + chunk["number_images"]):
         image, objects, class_map, instance_map = generate_image(image_size=chunk["image_size"],
                                                                  maximum_objects=chunk["maximum_objects"],
-                                                                 random_generator=random_generator)
+                                                                 random_generator=random_generator,
+                                                                 keypoints=chunk["keypoints"])
         file_name = f"{chunk['split_name']}_{image_index:06d}.png"
         cv2.imwrite(filename=os.path.join(chunk["data_folder"], file_name), img=image)
 
@@ -1012,8 +1574,8 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
             cv2.imwrite(filename=os.path.join(chunk["masks_folder"], file_name), img=class_map)
         image_record = {"index": image_index, "file_name": file_name, "objects": objects}
 
-        # Detection and instance segmentation: the objects hidden by the later objects are left out, the instance
-        # segmentation keeping the visible part of every other object
+        # Detection, instance segmentation and keypoint detection: the objects hidden by the later objects are left
+        # out, the instance segmentation keeping the visible part of every other object
         if chunk["remove_covered_objects"]:
             image_record["objects"], segmentations = keep_visible_objects(
                 objects=objects, instance_map=instance_map, keep_visible_parts=chunk["instance_segmentation"])
@@ -1024,29 +1586,33 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
     return image_records
 
 
-def build_detection_labels(image_records: List[Dict[str, Any]], image_size: int, split_name: str) -> Tuple[
-        Dict[str, Any], Dict[str, int]]:
+def build_detection_labels(image_records: List[Dict[str, Any]], image_size: int, split_name: str,
+                           categories: Dict[str, int]) -> Tuple[Dict[str, Any], Dict[str, int]]:
     """
-    Assembles the COCO annotation file of a synthetic object detection split, read by both detection loaders.
+    Assembles the COCO annotation file of a synthetic object detection split, read by both detection loaders, and the
+    boxes of the instance segmentation and keypoint detection labels.
 
     Args:
-        image_records (List[Dict[str, Any]]): The 'index', 'file_name' and (category, box) 'objects' of every image.
+        image_records (List[Dict[str, Any]]): The 'index', 'file_name' and (category, box, ...) 'objects' of every
+            image.
         image_size (int): The height and width of the images in pixels.
         split_name (str): The name of the split, written in the description.
+        categories (Dict[str, int]): The category identifier of every shape name of the task (SHAPE_CATEGORIES, or
+            KEYPOINT_CATEGORIES for the keypoint detection).
 
     Returns:
         Tuple[Dict[str, Any], Dict[str, int]]: The COCO labels and the number of objects of every shape class.
     """
     images, annotations = [], []
-    class_counts = {shape_name: 0 for shape_name in SHAPE_CATEGORIES}
-    category_names = {category_identifier: name for name, category_identifier in SHAPE_CATEGORIES.items()}
+    class_counts = {shape_name: 0 for shape_name in categories}
+    category_names = {category_identifier: name for name, category_identifier in categories.items()}
 
     # One image entry per image, one annotation per object with its [x, y, width, height] box
     for record in image_records:
         image_identifier = record["index"] + 1
         images.append({"id": image_identifier, "file_name": record["file_name"], "width": image_size,
                        "height": image_size})
-        for category_identifier, (x_1, y_1, x_2, y_2) in record["objects"]:
+        for category_identifier, (x_1, y_1, x_2, y_2), *_ in record["objects"]:
             annotations.append({"id": len(annotations) + 1, "image_id": image_identifier,
                                 "category_id": category_identifier, "bbox": [x_1, y_1, x_2 - x_1, y_2 - y_1],
                                 "area": (x_2 - x_1) * (y_2 - y_1), "iscrowd": 0})
@@ -1055,7 +1621,7 @@ def build_detection_labels(image_records: List[Dict[str, Any]], image_size: int,
     labels = {"info": {"description": f"Synthetic shapes detection dataset, {split_name} split"},
               "images": images, "annotations": annotations,
               "categories": [{"id": category_identifier, "name": name, "supercategory": "shape"}
-                             for name, category_identifier in SHAPE_CATEGORIES.items()]}
+                             for name, category_identifier in categories.items()]}
     return labels, class_counts
 
 
@@ -1076,7 +1642,7 @@ def build_instance_segmentation_labels(image_records: List[Dict[str, Any]], imag
         Tuple[Dict[str, Any], Dict[str, int]]: The COCO labels and the number of objects of every shape class.
     """
     labels, class_counts = build_detection_labels(image_records=image_records, image_size=image_size,
-                                                  split_name=split_name)
+                                                  split_name=split_name, categories=SHAPE_CATEGORIES)
     labels["info"]["description"] = f"Synthetic shapes instance segmentation dataset, {split_name} split"
 
     # The annotations follow the objects of the records in order, each one getting the encoding of its object
@@ -1084,6 +1650,68 @@ def build_instance_segmentation_labels(image_records: List[Dict[str, Any]], imag
     for annotation, segmentation in zip(labels["annotations"], segmentations, strict=True):
         annotation["segmentation"] = segmentation
         annotation["area"] = int(sum(segmentation["counts"][1::2]))
+    return labels, class_counts
+
+
+def build_keypoint_skeleton(shape_name: str) -> List[List[int]]:
+    """
+    Builds the COCO 'skeleton' of a keypoint category, the pairs of keypoints the viewers link with a line: every
+    keypoint of its outline to the next one, the last one closing the loop, then its other links.
+
+    Args:
+        shape_name (str): The name of the category, a key of KEYPOINT_NAMES.
+
+    Returns:
+        List[List[int]]: The pairs of keypoints, numbered from 1 in the order of KEYPOINT_NAMES as in COCO.
+    """
+    names = KEYPOINT_NAMES[shape_name]
+    skeleton = []
+
+    # Outline closed in a loop, then the links between the other keypoints
+    if shape_name in KEYPOINT_OUTLINES:
+        outline = KEYPOINT_OUTLINES[shape_name]
+        skeleton += [[names.index(outline[index]) + 1, names.index(outline[(index + 1) % len(outline)]) + 1]
+                     for index in range(len(outline))]
+    if shape_name in KEYPOINT_LINKS:
+        skeleton += [[names.index(first_name) + 1, names.index(second_name) + 1]
+                     for first_name, second_name in KEYPOINT_LINKS[shape_name]]
+    return skeleton
+
+
+def build_keypoint_labels(image_records: List[Dict[str, Any]], image_size: int, split_name: str) -> Tuple[
+        Dict[str, Any], Dict[str, int]]:
+    """
+    Assembles the COCO annotation file of a synthetic keypoint detection split, read by the keypoint dataset: the
+    detection labels of the KEYPOINT_CATEGORIES with the 'keypoints' of every object, flattened as the COCO
+    [x1, y1, v1, x2, y2, v2, ...] in the continuous coordinates of the image, and their 'num_keypoints' labelled, and
+    for every category the names of its keypoints, its skeleton and the largest rotation of its crops by the keypoint
+    augmentation.
+
+    Args:
+        image_records (List[Dict[str, Any]]): The 'index', 'file_name' and (category, box, keypoints) 'objects' of
+            every image.
+        image_size (int): The height and width of the images in pixels.
+        split_name (str): The name of the split, written in the description.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, int]]: The COCO labels and the number of objects of every category.
+    """
+    labels, class_counts = build_detection_labels(image_records=image_records, image_size=image_size,
+                                                  split_name=split_name, categories=KEYPOINT_CATEGORIES)
+    labels["info"]["description"] = f"Synthetic shapes keypoint detection dataset, {split_name} split"
+
+    # The annotations follow the objects of the records in order, each one getting the keypoints of its object
+    object_keypoints = [keypoints for record in image_records for _, _, keypoints in record["objects"]]
+    for annotation, keypoints in zip(labels["annotations"], object_keypoints, strict=True):
+        annotation["keypoints"] = [value for x, y, visibility in keypoints
+                                   for value in (round(float(x), 2), round(float(y), 2), int(visibility))]
+        annotation["num_keypoints"] = int((keypoints[:, 2] > 0).sum())
+
+    # Every category lists the names of its keypoints, its skeleton and the largest rotation of its crops
+    for category in labels["categories"]:
+        category["keypoints"] = KEYPOINT_NAMES[category["name"]]
+        category["skeleton"] = build_keypoint_skeleton(shape_name=category["name"])
+        category["maximum_rotation_degrees"] = KEYPOINT_MAXIMUM_ROTATION_DEGREES[category["name"]]
     return labels, class_counts
 
 
@@ -1554,8 +2182,9 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
     Generates one split of the synthetic dataset in the folder layout the loaders of the task read: the images (or
     the frame folders of the sequences) in '<split_folder>/data', the class masks of the segmentation images in
     '<split_folder>/masks', and their labels in '<split_folder>/labels.json' (COCO annotations for object detection,
-    COCO annotations with the run length encoding of every object for instance segmentation, a samples manifest with
-    one shape per image for classification, a samples manifest with the mask of every image for semantic
+    COCO annotations with the run length encoding of every object for instance segmentation, COCO annotations with the
+    keypoints of every object and the keypoint names and skeleton of every category for keypoint detection, a samples
+    manifest with one shape per image for classification, a samples manifest with the mask of every image for semantic
     segmentation, a sequences manifest for the sequence tasks and the frame selection, a pairs manifest for the
     sequence comparison).
 
@@ -1565,15 +2194,16 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         number_samples (int): The number of images, of sequences or of pairs of the split.
         image_size (int): The height and width of the images in pixels.
         maximum_objects (int): The maximum number of objects per image (object detection, instance segmentation,
-            semantic segmentation, the classification images holding a single shape) or per before member of a pair
-            (sequence comparison).
+            keypoint detection, semantic segmentation, the classification images holding a single shape) or per before
+            member of a pair (sequence comparison).
         minimum_frames (int): The minimum number of frames of a sequence or of a member of a pair (sequence tasks
             only).
         maximum_frames (int): The maximum number of frames of a sequence or of a member of a pair (sequence tasks
             only).
         number_workers (int): The number of worker processes generating the images.
-        task (str): "object_detection", "instance_segmentation", "classification", "semantic_segmentation",
-            "sequence_classification", "sequence_labelling", "sequence_comparison" or "frame_selection".
+        task (str): "object_detection", "instance_segmentation", "keypoint_detection", "classification",
+            "semantic_segmentation", "sequence_classification", "sequence_labelling", "sequence_comparison" or
+            "frame_selection".
 
     Returns:
         Dict[str, int]: The number of labels (objects, images, sequences, frames or pairs) of every class in the split.
@@ -1606,7 +2236,8 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
                    "image_size": image_size,
                    "maximum_objects": maximum_objects if task in TASKS_WITH_BACKGROUND_CLASS else 1,
                    "remove_covered_objects": task in TASKS_REMOVING_COVERED_OBJECTS,
-                   "instance_segmentation": task == "instance_segmentation"}
+                   "instance_segmentation": task == "instance_segmentation",
+                   "keypoints": task == "keypoint_detection"}
                   for first_index in range(0, number_samples, IMAGES_PER_TASK)]
         with Pool(processes=number_workers) as pool:
             image_records = [record for chunk_records in pool.map(generate_image_chunk, chunks)
@@ -1615,7 +2246,10 @@ def generate_split(split_folder: str, split_name: str, number_samples: int, imag
         # Assemble the labels of the split in the format of the task
         if task == "object_detection":
             labels, class_counts = build_detection_labels(image_records=image_records, image_size=image_size,
-                                                          split_name=split_name)
+                                                          split_name=split_name, categories=SHAPE_CATEGORIES)
+        elif task == "keypoint_detection":
+            labels, class_counts = build_keypoint_labels(image_records=image_records, image_size=image_size,
+                                                         split_name=split_name)
         elif task == "instance_segmentation":
             labels, class_counts = build_instance_segmentation_labels(image_records=image_records,
                                                                       image_size=image_size, split_name=split_name)
@@ -1635,11 +2269,12 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
     Creates the whole synthetic shapes dataset of a task: the train, validation and test splits, all labelled, and the
     'label_mapping.json' file used by the 'multi_class' label mapping mode of the configuration. The dataset is a
     trivial task used to check that a model learns (it should overfit it within minutes): several shapes per image
-    to detect, to segment object by object or to segment, a single shape per image to classify, a shape crossing the
-    frames of a sequence whose movement direction is classified, a shape changing class during a sequence whose every
-    frame is classified, a pair of sequences of the same objects whose after member may have lost one of them, or
-    shapes of several sizes whose largest circle, triangle and star are the frames to select. Every sequence, and
-    every member of a pair, has its own number of frames between minimum_frames and maximum_frames.
+    to detect, to segment object by object, to locate the keypoints of or to segment, a single shape per image to
+    classify, a shape crossing the frames of a sequence whose movement direction is classified, a shape changing class
+    during a sequence whose every frame is classified, a pair of sequences of the same objects whose after member may
+    have lost one of them, or shapes of several sizes whose largest circle, triangle and star are the frames to select.
+    Every sequence, and every member of a pair, has its own number of frames between minimum_frames and
+    maximum_frames.
 
     Args:
         output_folder (str): The root folder of the dataset.
@@ -1647,14 +2282,15 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         split_sizes (Dict[str, int]): The number of images, of sequences or of pairs of every split, keyed by split
             name.
         maximum_objects (int): The maximum number of objects per image (object detection, instance segmentation,
-            semantic segmentation) or per before member of a pair (sequence comparison).
+            keypoint detection, semantic segmentation) or per before member of a pair (sequence comparison).
         minimum_frames (int): The minimum number of frames of a sequence or of a member of a pair, at least 2, and at
             least the 3 wanted shapes for the frame selection (sequence tasks only).
         maximum_frames (int): The maximum number of frames of a sequence or of a member of a pair, at least
             minimum_frames (sequence tasks only).
         number_workers (int): The number of worker processes generating the images.
-        task (str): "object_detection", "instance_segmentation", "classification", "semantic_segmentation",
-            "sequence_classification", "sequence_labelling", "sequence_comparison" or "frame_selection".
+        task (str): "object_detection", "instance_segmentation", "keypoint_detection", "classification",
+            "semantic_segmentation", "sequence_classification", "sequence_labelling", "sequence_comparison" or
+            "frame_selection".
 
     Raises:
         ValueError: If the frame range of a sequence task starts below 2 (below the number of wanted shapes for the
@@ -1692,7 +2328,8 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
 
 if __name__ == "__main__":
     # Task of the dataset: "object_detection" (several shapes per image), "instance_segmentation" (several shapes per
-    # image, with the visible part of every shape), "classification" (one shape per image),
+    # image, with the visible part of every shape), "keypoint_detection" (several upright shapes per image, with the
+    # keypoints of every shape), "classification" (one shape per image),
     # "semantic_segmentation" (several shapes per image, with the class mask of every image),
     # "sequence_classification" (one shape crossing the frames, labelled with its movement direction),
     # "sequence_labelling" (one shape changing class during the sequence, labelled per frame), "sequence_comparison"
@@ -1704,6 +2341,7 @@ if __name__ == "__main__":
     # (the boxes of the visible part of every shape). Existing images and labels of the same splits are overwritten
     output_folders = {"object_detection": "/home/robert_kelevra/Data/object_detection_data/synthetic_shapes",
                       "instance_segmentation": "/home/robert_kelevra/Data/instance_segmentation_data/synthetic_shapes",
+                      "keypoint_detection": "/home/robert_kelevra/Data/keypoint_data/synthetic_shapes",
                       "classification": "/home/robert_kelevra/Data/classifier_data/synthetic_shapes",
                       "semantic_segmentation": "/home/robert_kelevra/Data/segmentation_data/synthetic_shapes",
                       "sequence_classification": "/home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes",
@@ -1711,8 +2349,8 @@ if __name__ == "__main__":
                       "sequence_comparison": "/home/robert_kelevra/Data/sequence_data/synthetic_object_loss_pairs",
                       "frame_selection": "/home/robert_kelevra/Data/sequence_data/synthetic_selected_shapes"}
     # Height and width of the square images in pixels, for every task
-    image_sizes = {"object_detection": 1024, "instance_segmentation": 512, "classification": 512,
-                   "semantic_segmentation": 512,
+    image_sizes = {"object_detection": 1024, "instance_segmentation": 512, "keypoint_detection": 512,
+                   "classification": 512, "semantic_segmentation": 512,
                    "sequence_classification": 512, "sequence_labelling": 512, "sequence_comparison": 512,
                    "frame_selection": 256}
     # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task. The 128000
@@ -1720,6 +2358,7 @@ if __name__ == "__main__":
     # detection and instance segmentation configurations, every image being seen once
     split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
                    "instance_segmentation": {"train": 128000, "validation": 20000, "test": 20000},
+                   "keypoint_detection": {"train": 40000, "validation": 4000, "test": 4000},
                    "classification": {"train": 500000, "validation": 50000, "test": 50000},
                    "semantic_segmentation": {"train": 2000, "validation": 200, "test": 200},
                    "sequence_classification": {"train": 2000, "validation": 200, "test": 200},
@@ -1727,18 +2366,18 @@ if __name__ == "__main__":
                    "sequence_comparison": {"train": 2000, "validation": 200, "test": 200},
                    "frame_selection": {"train": 2000, "validation": 200, "test": 200}}
     # Maximum number of shapes drawn in one image (at least one is always drawn, object detection, instance
-    # segmentation and semantic segmentation) or in the before member of a pair (at least two, sequence comparison),
-    # for every task (unused by the other tasks)
-    maximum_objects = {"object_detection": 6, "instance_segmentation": 6, "classification": 1,
+    # segmentation and semantic segmentation, at least two for the keypoint detection) or in the before member of a
+    # pair (at least two, sequence comparison), for every task (unused by the other tasks)
+    maximum_objects = {"object_detection": 6, "instance_segmentation": 6, "keypoint_detection": 4, "classification": 1,
                        "semantic_segmentation": 6, "sequence_classification": 1, "sequence_labelling": 1,
                        "sequence_comparison": 6, "frame_selection": 1}
     # Minimum and maximum number of frames of a sequence or of a member of a pair, every sequence and every member
     # drawing its own number of frames in that range (at least two, at least three for the frame selection, unused by
     # the image tasks)
-    minimum_frames = {"object_detection": 1, "instance_segmentation": 1, "classification": 1,
+    minimum_frames = {"object_detection": 1, "instance_segmentation": 1, "keypoint_detection": 1, "classification": 1,
                       "semantic_segmentation": 1, "sequence_classification": 2, "sequence_labelling": 2,
                       "sequence_comparison": 2, "frame_selection": 4}
-    maximum_frames = {"object_detection": 1, "instance_segmentation": 1, "classification": 1,
+    maximum_frames = {"object_detection": 1, "instance_segmentation": 1, "keypoint_detection": 1, "classification": 1,
                       "semantic_segmentation": 1, "sequence_classification": 12, "sequence_labelling": 12,
                       "sequence_comparison": 12, "frame_selection": 12}
     # Number of worker processes generating the images

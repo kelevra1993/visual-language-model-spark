@@ -1,10 +1,11 @@
 """
 Tests of build_run_name of vision_training/configuration_processing/run_name.py on the reference configurations of every
 task: the reference run names are fixed, every changed setting (architecture, inputs, heads, temporal modules, fusions,
-segmentation decoders and losses, projection heads and self-supervised methods, transfers, normalization, optimizer,
-weight decay) changes the run name with its token, and the training settings that can change between two resumptions
-(augmentation, view augmentation, batch size, learning rate, schedule, clipping, mixed precision, moving average of the
-weights, dropout rates, segmentation losses) keep it.
+segmentation decoders and losses, projection heads and self-supervised methods, keypoint crops, high resolution networks
+and keypoint heads, transfers, normalization, optimizer, weight decay) changes the run name with its token, and the
+training settings that can change between two resumptions (augmentation, view augmentation, crop augmentation, batch
+size, learning rate, schedule, clipping, mixed precision, moving average of the weights, dropout rates, segmentation
+losses, heatmap and keypoint sigmas) keep it.
 """
 
 import copy
@@ -1275,3 +1276,150 @@ def test_self_supervised_run_names(head_settings: Dict[str, Any], label_dictiona
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == SELF_SUPERVISED_REFERENCE_RUN_NAME.replace(
         "_PAVG.512.128-PBN_SIMCLR-T0.2", expected_sections)
+
+
+KEYPOINT_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
+                               "keypoint_detection" / "configuration_example.yaml")
+
+# Run name of the keypoint example configuration: the COCO person of 17 keypoints cut to 256 x 192 crops, with the high
+# resolution network of base width 32, its 1, 4 and 3 modules per stage of 4 blocks per branch
+KEYPOINT_REFERENCE_RUN_NAME = "KPT_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64_C256x192_HRSE-HRRES-HRBN-HR32.1.4.3x4_K17_MC1"
+
+# Keypoint names of the COCO person, the only class of the keypoint example configuration
+COCO_PERSON_KEYPOINTS = ["nose", "left_eye", "right_eye", "left_ear", "right_ear", "left_shoulder", "right_shoulder",
+                         "left_elbow", "right_elbow", "left_wrist", "right_wrist", "left_hip", "right_hip", "left_knee",
+                         "right_knee", "left_ankle", "right_ankle"]
+
+
+def get_keypoint_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Reads the keypoint detection example configuration as shipped, whose run name is the one documented for it, and
+    sets the label dictionary and the keypoint categories directly, both being written by the configuration loader
+    from the label mapping file and the training labels, which only exist once the COCO dataset is downloaded.
+
+    Returns:
+        Tuple[Dict[str, Any], Dict[str, Any]]: The experiment and model configurations of the reference settings.
+    """
+    model_configuration = yaml.safe_load(stream=KEYPOINT_CONFIGURATION_PATH.read_text())
+    experiment_configuration = model_configuration.pop("ExperimentConfiguration")
+
+    # The COCO person as the only foreground class, next to the background
+    model_configuration["Data"]["label_mode"] = "multi_class"
+    model_configuration["Data"]["label_dictionary"] = {"background": 0, 1: 1}
+    model_configuration["Data"]["keypoint_categories"] = {1: {"name": "person", "keypoints": COCO_PERSON_KEYPOINTS,
+                                                              "skeleton": [], "maximum_rotation_degrees": 180.0,
+                                                              "flip_pairs": []}}
+    return experiment_configuration, model_configuration
+
+
+def transfer_keypoint_backbone(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Initialises the backbone stem with the one of another run, without freezing it.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration (unused).
+        model_configuration (Dict[str, Any]): The processed model configuration, modified in place.
+    """
+    model_configuration["Backbone"]["pretrained"].update({"experiment_folder": "/runs/source", "freeze": False})
+
+
+def transfer_and_freeze_high_resolution_network(experiment_configuration: Dict[str, Any],
+                                                model_configuration: Dict[str, Any]) -> None:
+    """
+    Initialises the high resolution network with the one of another run and freezes it.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration (unused).
+        model_configuration (Dict[str, Any]): The processed model configuration, modified in place.
+    """
+    model_configuration["HRNet"]["pretrained"].update({"experiment_folder": "/runs/source", "freeze": True})
+
+
+def transfer_keypoint_head(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Initialises the keypoint head with the one of another run, without freezing it.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration (unused).
+        model_configuration (Dict[str, Any]): The processed model configuration, modified in place.
+    """
+    model_configuration["KeypointHead"]["pretrained"].update({"experiment_folder": "/runs/source", "freeze": False})
+
+
+def change_high_resolution_network(experiment_configuration: Dict[str, Any],
+                                   model_configuration: Dict[str, Any]) -> None:
+    """
+    Turns off both modules of the high resolution network, normalizes it with the layer normalization, and changes
+    its widths, stages and blocks.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration (unused).
+        model_configuration (Dict[str, Any]): The processed model configuration, modified in place.
+    """
+    model_configuration["HRNet"].update({"base_width": 16, "modules_per_stage": [1, 2], "blocks_per_branch": 2})
+    model_configuration["HRNet"]["modules"].update({"squeeze_and_excite": False, "residual_nets": False})
+    model_configuration["HRNet"]["normalization"]["feature_map_normalization"] = "layer"
+
+
+def add_keypoint_class(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Adds a second class of 4 keypoints and changes the crop size, so that the classes, the heatmap channels and the
+    crop tokens change.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration (unused).
+        model_configuration (Dict[str, Any]): The processed model configuration, modified in place.
+    """
+    model_configuration["Data"]["label_dictionary"][2] = 2
+    model_configuration["Data"]["keypoint_categories"][2] = {
+        "name": "rectangle", "keypoints": ["top_left", "top_right", "bottom_right", "bottom_left"], "skeleton": [],
+        "maximum_rotation_degrees": 180.0, "flip_pairs": []}
+    model_configuration["Data"]["crop_settings"].update({"height": 192, "width": 192})
+
+
+def change_keypoint_training_settings(experiment_configuration: Dict[str, Any],
+                                      model_configuration: Dict[str, Any]) -> None:
+    """
+    Changes the settings of the keypoint detection that can change between two resumptions of a run: the crop
+    augmentation, the box enlargement, the heatmap sigma and the keypoint sigmas of the evaluation.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The processed model configuration, modified in place.
+    """
+    model_configuration["Data"]["crop_augmentation"].update({"scale_range": [0.9, 1.1], "flip_probability": 0.0})
+    model_configuration["Data"]["crop_settings"]["box_enlargement"] = 1.5
+    model_configuration["KeypointHead"]["heatmap_sigma"] = 3.0
+    experiment_configuration["evaluation"]["keypoint_sigmas"] = {}
+
+
+@pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
+    (None, KEYPOINT_REFERENCE_RUN_NAME),
+    (transfer_keypoint_backbone, KEYPOINT_REFERENCE_RUN_NAME.replace("B1x64.2x64.2x64_", "B1x64.2x64.2x64-PT_")),
+    (transfer_and_freeze_high_resolution_network, KEYPOINT_REFERENCE_RUN_NAME.replace(
+        "HR32.1.4.3x4_", "HR32.1.4.3x4-HRPT-HRFRZ_")),
+    (transfer_keypoint_head, KEYPOINT_REFERENCE_RUN_NAME.replace("_K17_", "_K17-KHPT_")),
+    (change_high_resolution_network, KEYPOINT_REFERENCE_RUN_NAME.replace("HRSE-HRRES-HRBN-HR32.1.4.3x4",
+                                                                         "HRLN-HR16.1.2x2")),
+    (add_keypoint_class, KEYPOINT_REFERENCE_RUN_NAME.replace("C256x192", "C192x192").replace("_K17_MC1",
+                                                                                             "_K21_MC2")),
+    (change_keypoint_training_settings, KEYPOINT_REFERENCE_RUN_NAME)])
+def test_keypoint_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
+                            expected_run_name: str) -> None:
+    """
+    Verifies the run names of the keypoint detection: the KPT task code, then after the backbone the crop size, the
+    high resolution network (modules, normalization, widths, stages and blocks), the heatmap channels of the keypoint
+    head and the foreground classes. A transferred backbone, high resolution network or keypoint head adds PT, HRPT
+    (with HRFRZ when frozen) or KHPT at the end of its section, while the crop augmentation, the box enlargement, the
+    heatmap sigma and the keypoint sigmas keep the name.
+
+    Args:
+        modify_function (Callable[[Dict[str, Any], Dict[str, Any]], None] | None): Function changing the reference
+            settings, or None for the reference itself.
+        expected_run_name (str): The expected run name.
+    """
+    experiment_configuration, model_configuration = get_keypoint_reference_configurations()
+    if modify_function is not None:
+        modify_function(experiment_configuration=experiment_configuration, model_configuration=model_configuration)
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == expected_run_name

@@ -1,7 +1,8 @@
 """
 Tests of the Triton deployment client of vision_training/deployment/deployment_utilities.py, with a recording stand-in
-for the gRPC client: the requests built for every task, the frame windows cycling through the inference folder, and the
-inputs written in shared memory at their offsets.
+for the gRPC client: the requests built for every task, the object crops of the keypoint detection (the box centred,
+widened to the crop aspect ratio, enlarged and black outside the image), the frame windows cycling through the inference
+folder, and the inputs written in shared memory at their offsets.
 """
 
 import json
@@ -14,10 +15,11 @@ import tritonclient.utils.shared_memory as shared_memory
 import yaml
 
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
-from vision_training.deployment.deployment_utilities import (build_frame_window, load_inference_inputs,
-                                                             run_triton_inference)
+from vision_training.data.synthetic.create_synthetic_dataset import build_keypoint_labels
+from vision_training.deployment.deployment_utilities import (build_frame_window, cut_inference_crop,
+                                                             load_inference_inputs, run_triton_inference)
 
 CONFIGURATIONS_FOLDER = Path(__file__).parents[2] / "vision_training" / "configurations"
 
@@ -26,13 +28,19 @@ TASK_CONFIGURATION_FILES = {"classification": "classification/configuration_synt
                             "semantic_segmentation": "semantic_segmentation/configuration_synthetic_shapes.yaml",
                             "sequence_classification": "sequence_classification/configuration_synthetic_sequences.yaml",
                             "sequence_comparison": "sequence_comparison/configuration_synthetic_pairs.yaml",
-                            "frame_selection": "frame_selection/configuration_synthetic_sequences.yaml"}
+                            "frame_selection": "frame_selection/configuration_synthetic_sequences.yaml",
+                            "keypoint_detection": "keypoint_detection/configuration_synthetic_shapes.yaml"}
 
 # Side of the network input of the test experiments, number of frames of their windows, and number of images of the
 # inference folder, the image of index i being filled with the value 10 * (i + 1)
 TEST_IMAGE_SIZE = 32
 TEST_SEQUENCE_LENGTH = 4
 TEST_NUMBER_IMAGES = 5
+
+# Crops of the keypoint test experiment, twice as high as wide and a multiple of the stride 32 of the lowest branch of
+# the 3 stages of the synthetic high resolution network, cut from boxes enlarged by 1.25
+TEST_CROP_HEIGHT = 64
+TEST_CROP_WIDTH = 32
 
 
 class RecordingResult:
@@ -86,7 +94,8 @@ def write_test_experiment(experiment_folder: Path, task: str) -> None:
     """
     Writes the training configuration of a trained experiment of a task, as read by the deployment client: the
     synthetic configuration of the task with 32 pixel inputs, windows of 4 frames for the sequence tasks, and a label
-    mapping of 3 classes.
+    mapping of 3 classes. The keypoint detection gets 64 x 32 crops, and the training labels of the synthetic shapes
+    whose keypoint definitions the configuration loader reads, every shape mapped to its own class.
 
     Args:
         experiment_folder (Path): The experiment folder receiving 'training_configuration.yaml'.
@@ -101,6 +110,18 @@ def write_test_experiment(experiment_folder: Path, task: str) -> None:
     configuration["Data"]["image_settings"]["size"] = TEST_IMAGE_SIZE
     if "sequence_settings" in configuration["Data"]:
         configuration["Data"]["sequence_settings"]["sequence_length"] = TEST_SEQUENCE_LENGTH
+
+    # Keypoint detection: rectangular crops, and the synthetic shape categories as the training labels
+    if task == "keypoint_detection":
+        configuration["Data"]["crop_settings"].update({"height": TEST_CROP_HEIGHT, "width": TEST_CROP_WIDTH})
+        categories = build_keypoint_labels(image_records=[], image_size=TEST_IMAGE_SIZE,
+                                           split_name="train")[0]["categories"]
+        train_folder = experiment_folder / "train"
+        train_folder.mkdir()
+        (train_folder / "labels.json").write_text(data=json.dumps(obj={"images": [], "annotations": [],
+                                                                       "categories": categories}))
+        configuration["ExperimentConfiguration"]["train_data_folder"] = str(train_folder)
+        mapping_path.write_text(data=json.dumps(obj={str(category["id"]): category["id"] for category in categories}))
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(mapping_path)
     (experiment_folder / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=configuration))
 
@@ -145,6 +166,83 @@ def test_requests_hold_the_inputs_of_the_task(tmp_path: Path, task: str,
             assert input_batch.shape == (1, TEST_SEQUENCE_LENGTH, 3, TEST_IMAGE_SIZE, TEST_IMAGE_SIZE)
             centre_values = input_batch[0, :, 0, TEST_IMAGE_SIZE // 2, TEST_IMAGE_SIZE // 2].tolist()
         assert centre_values == [10 * (image_index + 1) for image_index in image_indices]
+
+
+def test_inference_crop_samples_the_enlarged_box() -> None:
+    """
+    Verifies the crop cut for the deployed keypoint detector on an image whose first two channels hold the x and y
+    coordinates of every pixel centre, so that the bilinear sampling gives back exactly the image point of every crop
+    pixel: the 20 x 10 box (10, 30, 30, 40) is widened to the 1 / 2 aspect ratio of the 64 x 32 crop (20 x 40) and
+    enlarged by 1.25 (25 x 50) around its centre (20, 35), so that the crop pixel centres step by 25 / 32 pixels from
+    7.5 + 25 / 64 in x and 10 + 25 / 64 in y.
+    """
+    # Image of 64 x 64 pixels: x coordinate, y coordinate and a constant channel
+    pixel_centres = np.arange(64, dtype=np.float32) + 0.5
+    image = np.stack(arrays=[np.tile(A=pixel_centres, reps=(64, 1)), np.tile(A=pixel_centres[:, None], reps=(1, 64)),
+                             np.full(shape=(64, 64), fill_value=100.0, dtype=np.float32)])
+
+    crop = cut_inference_crop(image=image, bounding_box=[10.0, 30.0, 30.0, 40.0],
+                              crop_settings={"height": TEST_CROP_HEIGHT, "width": TEST_CROP_WIDTH,
+                                             "box_enlargement": 1.25})
+
+    # Every crop pixel centre sampled at its place in the 25 x 50 region centred on the box, inside the image
+    assert crop.shape == (1, 3, TEST_CROP_HEIGHT, TEST_CROP_WIDTH) and crop.dtype == np.float32
+    pixel_step = 25.0 / TEST_CROP_WIDTH
+    expected_x = 7.5 + (np.arange(TEST_CROP_WIDTH) + 0.5) * pixel_step
+    expected_y = 10.0 + (np.arange(TEST_CROP_HEIGHT) + 0.5) * pixel_step
+    assert np.allclose(a=crop[0, 0], b=np.tile(A=expected_x, reps=(TEST_CROP_HEIGHT, 1)), atol=1e-3)
+    assert np.allclose(a=crop[0, 1], b=np.tile(A=expected_y[:, None], reps=(1, TEST_CROP_WIDTH)), atol=1e-3)
+    assert np.allclose(a=crop[0, 2], b=100.0, atol=1e-3)
+
+
+@pytest.mark.parametrize(argnames=("image_index", "nonzero_region", "filled_region"), argvalues=[
+    (0, (25, 38, 3, 28), (26, 37, 4, 27)), (1, (6, 57, 2, 29), (7, 56, 4, 27))])
+def test_keypoint_requests_hold_the_crop_of_the_whole_image(tmp_path: Path, image_index: int,
+                                                            nonzero_region: Tuple[int, int, int, int],
+                                                            filled_region: Tuple[int, int, int, int]) -> None:
+    """
+    Verifies the requests of a keypoint detector: every image of the inference folder is the box of one object, so
+    that each request is one 64 x 32 crop of its whole preprocessed image, centred, widened to the crop aspect ratio
+    and enlarged by 1.25, black outside the image. A 16 x 8 image (resized to 32 x 16 between letterbox rows 8 and 24)
+    gives a 40 x 80 region, the image covering the crop rows 25.6 to 38.4 and columns 3.2 to 28.8; an 8 x 16 image
+    (resized to 16 x 32 between letterbox columns 8 and 24) gives a 20 x 40 region, covering the crop rows 6.4 to 57.6
+    and columns 3.2 to 28.8. The crop pixels whose bilinear sample touches the image are not black, and those whose
+    sample lies between image pixel centres hold the image value.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        image_index (int): The index of the checked image, 0 for the wide one and 1 for the tall one.
+        nonzero_region (Tuple[int, int, int, int]): The first and last rows and columns of the crop pixels that are
+            not black.
+        filled_region (Tuple[int, int, int, int]): The first and last rows and columns of the crop pixels holding the
+            image value.
+    """
+    # Inference folder of a wide and a tall uniform image, and the trained keypoint experiment
+    image_folder = tmp_path / "inference_data"
+    image_folder.mkdir()
+    image_values = [60, 120]
+    for index, (image_height, image_width) in enumerate([(8, 16), (16, 8)]):
+        cv2.imwrite(filename=str(image_folder / f"image_{index:06d}.png"),
+                    img=np.full(shape=(image_height, image_width, 3), fill_value=image_values[index], dtype=np.uint8))
+    write_test_experiment(experiment_folder=tmp_path / "experiment", task="keypoint_detection")
+
+    requests = load_inference_inputs(image_folder=image_folder, experiment_folder=tmp_path / "experiment")
+
+    # One crop request per image, a [1, 3, crop height, crop width] float32 batch
+    assert len(requests) == 2 and all(list(request) == ["crops"] for request in requests)
+    crop = requests[image_index]["crops"]
+    assert crop.shape == (1, 3, TEST_CROP_HEIGHT, TEST_CROP_WIDTH) and crop.dtype == np.float32
+
+    # The rows and columns of the pixels that are not black, and of those holding the image value
+    channel = crop[0, 0]
+    nonzero_rows, nonzero_columns = np.nonzero(channel > 0.0)
+    filled_rows, filled_columns = np.nonzero(np.isclose(a=channel, b=image_values[image_index], atol=1e-3))
+    assert (nonzero_rows.min(), nonzero_rows.max(), nonzero_columns.min(), nonzero_columns.max()) == nonzero_region
+    assert (filled_rows.min(), filled_rows.max(), filled_columns.min(), filled_columns.max()) == filled_region
+    first_filled_row, last_filled_row, first_filled_column, last_filled_column = filled_region
+    assert np.isclose(a=channel[first_filled_row:last_filled_row + 1, first_filled_column:last_filled_column + 1],
+                      b=image_values[image_index], atol=1e-3).all()
+    assert np.array_equal(a1=crop[0, 0], a2=crop[0, 2])
 
 
 def test_frame_windows_cycle_through_the_folder() -> None:

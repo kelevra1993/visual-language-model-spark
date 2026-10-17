@@ -12,6 +12,7 @@ from typing import Any, Dict, Tuple
 
 from vision_training.configuration_processing.configuration_checker import check_configuration
 from vision_training.configuration_processing.configuration_values import ConfigurationError
+from vision_training.data.keypoints.keypoint_categories import read_keypoint_categories
 from vision_training.data.label_mapping import build_label_dictionary
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
@@ -41,6 +42,38 @@ def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
             return configuration if configuration is not None else {}
         except yaml.YAMLError as e:
             raise ValueError(f"Error parsing YAML file at {path}:\n{e}")
+
+
+def inject_keypoint_categories(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Adds 'Data.keypoint_categories' to the configuration of the keypoint detection, the keypoint names, skeleton, crop
+    rotation limit and flip pairs of every class read from the 'categories' of the training split: they size the
+    heatmap channels of the keypoint detector and drive the flips of its crops, and the evaluation and viewers name and
+    draw the keypoints. A missing training split, label dictionary or crop augmentation section gives no definitions,
+    the configuration checker then reports the problem.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration, giving the training split.
+        model_configuration (Dict[str, Any]): The model configuration, whose 'Data' section holds the injected label
+            dictionary and the 'crop_augmentation.flip_pairs' given by hand; updated in place.
+    """
+    # Every input of the definitions must be there, otherwise the checker reports the missing one
+    if "train_data_folder" not in experiment_configuration or "Data" not in model_configuration:
+        return
+    data_configuration = model_configuration["Data"]
+    if "label_dictionary" not in data_configuration or "crop_augmentation" not in data_configuration:
+        return
+    crop_augmentation = data_configuration["crop_augmentation"]
+    if not isinstance(crop_augmentation, dict) or "flip_pairs" not in crop_augmentation or \
+            not isinstance(crop_augmentation["flip_pairs"], dict):
+        return
+
+    # The definitions are read from the training split only, shared by the validation and test splits
+    labels_file = Path(experiment_configuration["train_data_folder"]) / "labels.json"
+    if labels_file.is_file():
+        data_configuration["keypoint_categories"] = read_keypoint_categories(
+            labels_file=labels_file, label_dictionary=data_configuration["label_dictionary"],
+            flip_pairs_override=crop_augmentation["flip_pairs"])
 
 
 def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -127,6 +160,11 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
                                                       task=experiment_configuration["task"])
             if label_dictionary is not None:
                 model_configuration["Data"]["label_dictionary"] = label_dictionary
+
+    # Keypoint definitions of the classes of the keypoint detection, read from the categories of the training split
+    if "task" in experiment_configuration and experiment_configuration["task"] == "keypoint_detection":
+        inject_keypoint_categories(experiment_configuration=experiment_configuration,
+                                   model_configuration=model_configuration)
 
     # Reject incomplete or inconsistent configurations before any model or data loader is built,
     # listing each problem as a short red message rather than a full traceback

@@ -24,18 +24,13 @@ from vision_training.data.loaders import get_detection_dataloaders
 from vision_training.data.split_description import count_split_images_and_annotations
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
-from vision_training.evaluation.detection.average_precision_report import (build_average_recall_table,
-                                                                           build_class_average_precision_rows,
-                                                                           build_class_average_precision_table,
-                                                                           build_mean_average_precision_table,
-                                                                           build_object_size_table)
+from vision_training.evaluation.detection.average_precision_report import summarise_average_precisions
 from vision_training.evaluation.detection.detection_confusion import (BACKGROUND_CLASS_INDEX,
                                                                       MATCHING_INTERSECTION_OVER_UNION_THRESHOLD,
                                                                       add_to_confusion_matrix, compute_overlap_matrix,
                                                                       group_image_errors, match_image_detections,
                                                                       summarise_confusion_matrix)
-from vision_training.evaluation.detection.mean_average_precision import AVERAGE_PRECISION_METHODS, evaluate_detections
-from vision_training.evaluation.detection.object_sizes import OBJECT_SIZE_NAMES, compute_box_areas
+from vision_training.evaluation.detection.object_sizes import compute_box_areas
 from vision_training.evaluation.detection.region_recall import (
     accumulate_proposal_recall, compute_best_anchor_overlaps, create_proposal_recall_accumulator,
     gather_training_object_boxes, summarise_anchor_recall, summarise_proposal_recall)
@@ -296,7 +291,8 @@ class DetectionTrainer(BaseTrainer):
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
         """
         Keeps the valid detections and the ground truth of every kept image of a test batch on the CPU, both expressed
-        in network input pixels, adds the overlaps of its objects with the proposals to the proposal recall, matches the
+        in network input pixels (in original image pixels for the instance segmentation evaluated at the original
+        resolution), adds the overlaps of its objects with the proposals to the proposal recall, matches the
         detections the deployed detector returns (score reaching 'Detector.inference.score_threshold') to the objects
         of the image at an overlap of 0.5 for the confusion matrix, and saves the errors of the image as images when the
         error images are on, while the image is still in the batch.
@@ -443,7 +439,11 @@ class DetectionTrainer(BaseTrainer):
         Returns:
             EvaluationResults: The results of the evaluation.
         """
-        summary = self.summarise_average_precisions(accumulator=accumulator, target_precision=self.target_precision)
+        summary = summarise_average_precisions(
+            detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
+            number_classes=len(self.label_dictionary), class_names=self.class_names,
+            target_precision=self.target_precision,
+            resolution_name="original image" if self.original_resolution else "network input")
         proposal_recall = self.save_proposal_recall(accumulator=accumulator, iteration=iteration)
 
         # Average precisions and thresholds of every class, saved whatever the per-class report, and the proposal
@@ -548,81 +548,6 @@ class DetectionTrainer(BaseTrainer):
             if error_counts:
                 files["Error Images"] = accumulator["errors_folder"]
         return {"files": files, "images": images, "notes": notes}
-
-    def summarise_average_precisions(self, accumulator: Dict[str, Any], overlap_type: str = "boxes",
-                                     title_prefix: str = "", name_prefix: str = "", column_prefix: str = "",
-                                     legend: Optional[str] = None,
-                                     target_precision: Optional[float] = None) -> Dict[str, Any]:
-        """
-        Computes the average precisions of the test split with one overlap (the boxes, or the masks of the instance
-        segmentation) and organises them for the report: the tables of the methods, of the object sizes and of the mean
-        average recall and the per-class table, the rows of class_metrics.csv, the mean average precisions of every
-        method, those of every object size (area method) and the mean average recalls of all the objects and of every
-        size as TensorBoard scalars, to follow them over the training, and the AP@0.5 of every class for the per-class
-        report. The object sizes are measured at the resolution of the evaluated objects, the network input, or the
-        original images for the instance segmentation evaluated at the original resolution. With a target precision,
-        the score threshold of every class reaching it joins the class rows and the per-class table. The object
-        detection uses no prefix, the instance segmentation prefixes the titles of both its box and mask tables, and the
-        names of its mask scalars and columns.
-
-        Args:
-            accumulator (Dict[str, Any]): The detections and ground truths of the test split.
-            overlap_type (str): "boxes" or "masks". Defaults to "boxes".
-            title_prefix (str): The prefix of the table titles ("Box", "Mask"). Defaults to "".
-            name_prefix (str): The prefix of the scalar names ("Mask "). Defaults to "".
-            column_prefix (str): The prefix of the average precision columns of the class rows ("mask_"). Defaults
-                to "".
-            legend (Optional[str]): The legend of the table of the methods, None for the one naming its mAP@0.5 as the
-                metric comparing the checkpoints. Defaults to None.
-            target_precision (Optional[float]): The precision of the class thresholds, None for no thresholds (the box
-                average precisions of the instance segmentation). Defaults to None.
-
-        Returns:
-            Dict[str, Any]: The 'class_rows', the 'tables' ('methods', 'sizes', 'recalls' and 'classes'), the
-                'scalars', the 'class_scalars' and the 'class_score_thresholds' of every foreground class (None without
-                target precision).
-        """
-        results = evaluate_detections(detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
-                                      number_classes=len(self.label_dictionary), overlap_type=overlap_type,
-                                      target_precision=target_precision)
-        class_rows = build_class_average_precision_rows(results=results, class_names=self.class_names,
-                                                        column_prefix=column_prefix)
-
-        # The mean average precisions of every method, and the AP@0.5 of every class for the per-class report
-        scalars = {}
-        for method in AVERAGE_PRECISION_METHODS:
-            for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@[0.5:0.95]"]:
-                scalars[f"{name_prefix}{metric_name}/{method}"] = results[method][metric_name]
-        class_scalars = {f"{name_prefix}AP@0.5/{self.class_names[class_index]}": average_precision
-                         for class_index, average_precision in results["area"]["class_AP@0.5"].items()}
-
-        # The mean average precisions of every object size with the area method, a size without objects having none
-        for object_size in OBJECT_SIZE_NAMES:
-            for metric_name in ["mAP@0.5", "mAP@[0.5:0.95]"]:
-                size_mean_average_precision = results["area"]["sizes"][object_size][metric_name]
-                if size_mean_average_precision is not None:
-                    scalars[f"{name_prefix}{metric_name} By Size/{object_size}"] = size_mean_average_precision
-
-        # The mean average recalls of all the objects and of every object size, the same for every method
-        for group_name, group_results in [("all", results["area"]), *results["area"]["sizes"].items()]:
-            for metric_name in ["mAR@0.5", "mAR@0.75", "mAR@[0.5:0.95]"]:
-                if group_results[metric_name] is not None:
-                    scalars[f"{name_prefix}{metric_name}/{group_name}"] = group_results[metric_name]
-
-        # Objects measured by their box or mask area, in the pixels of the resolution they are evaluated at
-        area_name = "mask" if overlap_type == "masks" else "box"
-        resolution_name = "original image" if self.original_resolution else "network input"
-        tables = {"methods": build_mean_average_precision_table(results=results, title_prefix=title_prefix,
-                                                                legend=legend),
-                  "sizes": build_object_size_table(results=results, title_prefix=title_prefix, area_name=area_name,
-                                                   resolution_name=resolution_name),
-                  "recalls": build_average_recall_table(results=results, title_prefix=title_prefix,
-                                                        area_name=area_name, resolution_name=resolution_name),
-                  "classes": build_class_average_precision_table(class_rows=class_rows, title_prefix=title_prefix,
-                                                                 column_prefix=column_prefix,
-                                                                 target_precision=target_precision)}
-        return {"class_rows": class_rows, "tables": tables, "scalars": scalars, "class_scalars": class_scalars,
-                "class_score_thresholds": results["class_score_thresholds"] if target_precision is not None else None}
 
     def get_test_sample_classes(self) -> Dict[int, List[int]]:
         """

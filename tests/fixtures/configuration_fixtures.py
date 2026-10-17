@@ -1,7 +1,7 @@
 """
 Small model configuration dictionaries of the detection (with or without mask heads), classification, semantic
-segmentation, sequence, sequence comparison and self-supervised models, with their device and dtype, shared by the
-model, export and transfer tests. Every configuration keeps no moving average of the weights (the 'Optimization'
+segmentation, sequence, sequence comparison, self-supervised and keypoint detection models, with their device and
+dtype, shared by the model, export and transfer tests. Every configuration keeps no moving average of the weights (the 'Optimization'
 setting read by the transfer of the components).
 """
 
@@ -218,5 +218,37 @@ def get_self_supervised_model_configuration(method: str, global_pooling: str) ->
                                        'fully_connected_normalization': 'batch', 'batch_normalization_momentum': 0.1,
                                        'method': method, 'simclr': {'temperature': 0.2},
                                        'barlow_twins': {'off_diagonal_weight': 0.005}}
+
+    return configuration, device, dtype
+
+
+def get_keypoint_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
+    """
+    Supplies a small keypoint detector configuration dictionary, with its device and dtype, shared by the keypoint
+    model and export tests: 64 x 48 crops, a stem of 3 backbone blocks ending at a quarter of the crop, a high
+    resolution network of 2 stages (3 branches, the lowest at 1/16 of the crop) of base width 8, and the keypoint
+    categories injected by the configuration loader for 2 classes, a triangle of 3 keypoints and a rectangle of 4
+    keypoints, so 7 heatmap channels.
+
+    Returns:
+        Tuple[Dict[str, Any], torch.device, torch.dtype]: The keypoint detector configuration, compute device and
+            dtype.
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    del configuration['ClassificationHead']
+    configuration['Data']['label_dictionary'] = {'background': 0, 1: 1, 2: 2}
+    configuration['Data']['crop_settings'] = {'height': 64, 'width': 48, 'box_enlargement': 1.25}
+    configuration['Data']['keypoint_categories'] = {
+        1: {'name': 'triangle', 'keypoints': ['top', 'left', 'right'], 'skeleton': [[0, 1], [1, 2], [2, 0]],
+            'maximum_rotation_degrees': 20.0, 'flip_pairs': [['left', 'right']]},
+        2: {'name': 'rectangle', 'keypoints': ['top_left', 'top_right', 'bottom_right', 'bottom_left'],
+            'skeleton': [[0, 1], [1, 2], [2, 3], [3, 0]], 'maximum_rotation_degrees': 180.0,
+            'flip_pairs': [['top_left', 'top_right'], ['bottom_left', 'bottom_right']]}}
+    configuration['Backbone']['convolutions'] = {'1': [1, 8], '2': [1, 16], '3': [1, 16]}
+    configuration['HRNet'] = {'base_width': 8, 'modules_per_stage': [1, 1], 'blocks_per_branch': 1,
+                              'modules': {'squeeze_and_excite': True, 'residual_nets': True},
+                              'normalization': {'feature_map_normalization': 'batch',
+                                                'batch_normalization_momentum': 0.1}}
+    configuration['KeypointHead'] = {'heatmap_sigma': 2.0}
 
     return configuration, device, dtype
