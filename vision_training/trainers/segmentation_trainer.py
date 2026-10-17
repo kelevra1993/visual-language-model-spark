@@ -253,7 +253,7 @@ class SegmentationTrainer(BaseTrainer):
             Dict[str, Any]: The batch with its augmented images and masks, and the 'augmentation_reports' of its
                 samples for the input viewer.
         """
-        augmented_images, _, _, augmented_masks, _, augmentation_reports = self.data_augmenter.augment_batch(
+        augmented_images, _, _, augmented_masks, _, _, augmentation_reports = self.data_augmenter.augment_batch(
             images=batch["images"], masks=batch["masks"])
         return {**batch, "images": augmented_images, "masks": augmented_masks,
                 "augmentation_reports": augmentation_reports}

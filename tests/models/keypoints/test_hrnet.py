@@ -1,10 +1,12 @@
 """
-Tests of the high resolution network of vision_training/models/keypoints/hrnet.py, the body of the keypoint detector on
-the 1/4 resolution stem feature map: for 2 and 3 stages, with and without the Squeeze-and-Excitation and residual
-modules and with batch or layer normalization, the branches of every stage have twice the width and half the
+Tests of vision_training/models/keypoints/hrnet.py, the body of the keypoint detector on the 1/4 resolution stem
+feature map: for 2 and 3 stages, with and without the Squeeze-and-Excitation and residual modules and with batch or
+layer normalization, the branches of every stage of the high resolution network have twice the width and half the
 resolution of the previous one, the network returns the highest resolution branch at the stem resolution with the base
 width, the very last module only computes that branch, and every parameter receives a gradient from it. The stem
-sides are divisible by the stride of the lowest resolution branch, as keypoint_checks.py requires of the crop.
+sides are divisible by the stride of the lowest resolution branch, as keypoint_checks.py requires of the image. The
+higher resolution branch of HigherHRNet doubles the resolution of the features and of the predictions it is given,
+and reads both, with or without the 3x3 hidden convolution before its heatmaps.
 """
 
 import pytest
@@ -12,7 +14,7 @@ import torch
 
 from typing import Any, Dict, List
 
-from vision_training.models.keypoints.hrnet import HighResolutionNetwork
+from vision_training.models.keypoints.hrnet import HigherResolutionBranch, HighResolutionNetwork
 
 # Channels of the stem feature map of the tests
 STEM_CHANNELS = 16
@@ -53,8 +55,8 @@ def test_branches_halve_the_resolution_and_double_the_width(modules_per_stage: L
 
     Args:
         modules_per_stage (List[int]): The number of exchange modules of every stage.
-        stem_height (int): The height of the stem feature map, a quarter of a 64 or 128 pixel high crop.
-        stem_width (int): The width of the stem feature map, a quarter of a 48 or 96 pixel wide crop.
+        stem_height (int): The height of the stem feature map, a quarter of a 64 or 128 pixel high image.
+        stem_width (int): The width of the stem feature map, a quarter of a 48 or 96 pixel wide image.
         squeeze_and_excite (bool): Whether the branch convolutions use Squeeze-and-Excitation.
         residual_nets (bool): Whether the branch convolutions are residual pairs.
         feature_map_normalization (str): The normalization of every convolution.
@@ -84,3 +86,41 @@ def test_branches_halve_the_resolution_and_double_the_width(modules_per_stage: L
     output.square().mean().backward()
     missing_gradients = [name for name, parameter in network.named_parameters() if parameter.grad is None]
     assert missing_gradients == []
+
+
+@pytest.mark.parametrize("feature_map_normalization, hidden_width", [("batch", 0), ("layer", 0), ("batch", 16)])
+def test_higher_resolution_branch_doubles_the_resolution(feature_map_normalization: str, hidden_width: int) -> None:
+    """
+    Verifies that the higher resolution branch turns the features and predictions at a quarter of a 64 x 48 image into
+    7 heatmaps at half of it, that the heatmaps change with the predictions as well as with the features, and that
+    every parameter of the branch receives a gradient, its heatmap head being a 1x1 convolution or a 3x3 convolution
+    of 16 channels followed by the 1x1 convolution.
+
+    Args:
+        feature_map_normalization (str): The normalization of every convolution, "batch" or "layer".
+        hidden_width (int): The channels of the 3x3 convolution of the heatmap head, 0 for none.
+    """
+    torch.manual_seed(seed=0)
+    branch = HigherResolutionBranch(feature_channels=8, prediction_channels=14, heatmap_channels=7,
+                                    hidden_width=hidden_width, blocks_per_branch=1,
+                                    modules={"squeeze_and_excite": True, "residual_nets": True},
+                                    normalization={"feature_map_normalization": feature_map_normalization,
+                                                   "batch_normalization_momentum": 0.1},
+                                    device=torch.device("cpu"), dtype=torch.float32).eval()
+    features, predictions = torch.randn(size=(2, 8, 16, 12)), torch.randn(size=(2, 14, 16, 12))
+    heatmaps = branch(features=features, predictions=predictions)
+    assert heatmaps.shape == (2, 7, 32, 24) and bool(torch.isfinite(heatmaps).all())
+
+    # The heatmap head ends with the 1x1 convolution, preceded by the 3x3 convolution of the hidden width if any
+    assert len(branch.heatmap_head) == (2 if hidden_width > 0 else 1)
+    assert branch.heatmap_head[-1].kernel_size == (1, 1) and branch.heatmap_head[-1].in_channels == (hidden_width or 8)
+
+    # The heatmaps read the predictions and the features
+    with torch.no_grad():
+        assert not torch.allclose(input=branch(features=features, predictions=predictions + 1.0), other=heatmaps)
+        assert not torch.allclose(input=branch(features=features + 1.0, predictions=predictions), other=heatmaps)
+
+    # Every parameter receives a gradient
+    branch.train()
+    branch(features=features, predictions=predictions).square().mean().backward()
+    assert [name for name, parameter in branch.named_parameters() if parameter.grad is None] == []

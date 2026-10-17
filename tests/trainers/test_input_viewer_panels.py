@@ -3,9 +3,9 @@ Tests of the information panels written by the trainers for the input viewer ('v
 being replaced by a recorder of its arguments: the object detection panels count the objects per class and name the
 objects removed by the augmentations, the panels of a pair of sequences give the real frames and the shuffled order of
 every member window, the self-supervised panels describe the transformations drawn for each view, and the keypoint
-panels count the keypoints of the crop by visibility and those trained inside it, with the crop augmentation of the
-training crop. The trainers are created without their datasets, only the attributes read by show_input_samples being
-set.
+panels count the objects per class and their keypoints by visibility, the flipped training image moving the keypoints
+without renaming them. The trainers are created without their datasets, only the attributes read by
+show_input_samples being set.
 """
 
 import random
@@ -20,9 +20,9 @@ import vision_training.trainers.self_supervised_trainer as self_supervised_train
 import vision_training.trainers.sequence_classification_trainer as sequence_classification_trainer_module
 from vision_training.data.augmentations import AUGMENTATION_TYPES, MAXIMUM_TRANSLATION_FRACTION, DataAugmenter
 from vision_training.data.view_augmentations import ViewAugmenter
-from vision_training.utilities.visualization import KEYPOINT_SIDE_COLOURS
+from vision_training.utilities.visualization import KEYPOINT_SIDE_COLOURS, build_class_colours
 from vision_training.trainers.detection_trainer import DetectionTrainer
-from vision_training.trainers.keypoint_trainer import KeypointTrainer, build_keypoint_counts
+from vision_training.trainers.keypoint_trainer import KeypointTrainer
 from vision_training.trainers.self_supervised_trainer import SelfSupervisedTrainer
 from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
 
@@ -179,61 +179,62 @@ def test_self_supervised_panels_describe_the_transformations_of_each_view(monkey
          "  random_resized_crop : 32x32 pixels at x 0, y 0 (100 % of the area)"]] * 2
 
 
-def test_keypoint_panels_count_the_keypoints_and_describe_the_crop(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_keypoint_panels_count_the_keypoints_of_the_flipped_image(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    Verifies the panels of the keypoint detection input viewer for a figure of 4 keypoints (a visible head, an
-    occluded left hand, an unlabelled right hand and a visible foot below its box): both crops count the keypoints by
-    visibility, the training crop, cut from a region 1.5 times larger and flipped, trains the foot that falls outside
-    the validation crop and keeps the names of the keypoints (the left hand mirrored to the right half of the crop
-    stays in its channel, with its visibility), and its panel writes the crop augmentation between the augmentation title and the photometric
-    augmentations. Both crops are drawn at the display size of the viewer with the head at its place in the crop.
+    Verifies the panels of the keypoint detection input viewer for an image holding a figure of 4 keypoints (a visible
+    head, an occluded left hand, an unlabelled right hand and a visible foot) in its left half: both panels count the
+    objects per class and the keypoints by visibility, the training image flipped from left to right moves the box and
+    the keypoints to the right half without renaming them (the left hand stays in its channel with its visibility, the
+    unlabelled keypoint stays at 0), and both images are drawn at their own resolution, the head disc at its place and
+    the left hand coloured as a left keypoint in the half of the image holding the figure.
 
     Args:
         monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the viewer.
     """
-    torch.manual_seed(seed=0)
     trainer = KeypointTrainer.__new__(KeypointTrainer)
-    trainer.crop_height, trainer.crop_width, trainer.box_enlargement, trainer.heatmap_sigma = 64, 32, 1.25, 2.0
     trainer.keypoint_categories = {1: {"name": "figure", "keypoints": ["head", "left_hand", "right_hand", "foot"],
                                        "skeleton": [[0, 1], [0, 2], [0, 3]]}}
-    trainer.keypoint_counts = build_keypoint_counts(keypoint_categories=trainer.keypoint_categories)
-    trainer.crop_augmentation_configuration = {"scale_range": [1.5, 1.5], "maximum_rotation_degrees": 180.0,
-                                               "rotation_probability": 0.0, "flip_probability": 1.0,
-                                               "maximum_shift_fraction": 0.0}
-    trainer.data_augmenter, trainer.input_image_size = build_augmenter(enabled_types=[]), IMAGE_SIZE
+    # Label dictionary keyed by the raw category identifier of the COCO labels, the class names naming the objects
+    trainer.label_dictionary, trainer.class_names = {7: 1}, {1: "figure"}
+    trainer.class_colours = build_class_colours(number_classes=2)
+    trainer.data_augmenter = build_augmenter(enabled_types=["random_left_right_flip"])
+    trainer.input_image_size = IMAGE_SIZE
     viewer_recorder = ViewerRecorder()
     monkeypatch.setattr(target=keypoint_trainer_module, name="view_input_data", value=viewer_recorder)
 
-    # One figure whose 24 x 56 box gives a 35 x 70 validation region centred on (48, 48), from y = 13 to y = 83,
-    # the foot at y = 90 lying outside it but inside the 52.5 x 105 training region
+    # One figure in the left half of the image, the flip mirroring every x to 96 - x
     batch = {"images": torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)),
-             "bounding_boxes": torch.tensor(data=[[36.0, 20.0, 60.0, 76.0]]), "labels": torch.tensor(data=[1]),
-             "keypoints": torch.tensor(data=[[[48.0, 30.0], [40.0, 50.0], [56.0, 50.0], [48.0, 90.0]]]),
-             "visibilities": torch.tensor(data=[[2, 1, 0, 2]])}
+             "bounding_boxes": [torch.tensor(data=[[18.0, 20.0, 42.0, 94.0]])], "labels": [torch.tensor(data=[1])],
+             "keypoints": [torch.tensor(data=[[[30.0, 30.0, 2.0], [22.0, 50.0, 1.0], [0.0, 0.0, 0.0],
+                                               [30.0, 90.0, 2.0]]])]}
     training_batch = trainer.augment_batch(batch=batch)
-
-    # The flipped left hand, 8 pixels left of the region centre, lands 8 x 32 / 52.5 pixels right of the crop centre
-    # without changing channel nor visibility
-    assert torch.equal(input=training_batch["crop_visibilities"], other=batch["visibilities"])
-    assert abs(float(training_batch["crop_keypoints"][0, 1, 0]) - (16.0 + 8.0 * 32.0 / 52.5)) < 1e-4
+    assert torch.equal(input=training_batch["bounding_boxes"][0], other=torch.tensor(data=[[54.0, 20.0, 78.0, 94.0]]))
+    assert torch.equal(input=training_batch["keypoints"][0],
+                       other=torch.tensor(data=[[[66.0, 30.0, 2.0], [74.0, 50.0, 1.0], [0.0, 0.0, 0.0],
+                                                 [66.0, 90.0, 2.0]]]))
     assert trainer.show_input_samples(training_batch=training_batch, validation_batch=batch, sample_index=0)
 
+    # Same objects and keypoints in both panels, the training panel naming the flip
     training_lines, validation_lines = viewer_recorder.arguments["panel_lines"]
-    target_lines = ["Class : figure", "Keypoints : 2 visible, 1 occluded, 1 unlabelled, of 4"]
-    colour_line = "Colours : left blue, right orange, others yellow, rings occluded"
-    # Without shift the drawn zeros may be negative, written without a minus sign
-    assert training_lines == target_lines + ["Trained : 3 labelled keypoints inside the crop", colour_line, "",
-                                             "Augmentations", "Crop :", "  scale : 1.50", "  rotation : 0.0 degrees",
-                                             "  flip : yes", "  shift : +0.00 width, +0.00 height",
-                                             "Geometric :", "  none", "Photometric :", "  none"]
-    assert validation_lines == target_lines + ["Trained : 2 labelled keypoints inside the crop", colour_line, "",
-                                               "Augmentations : none (validation sample)"]
+    target_lines = ["Objects : 1 (figure 1)", "Keypoints : 2 visible, 1 occluded, 1 unlabelled",
+                    "Colours : left blue, right orange, others yellow, rings occluded, skeleton in the class colour"]
+    assert training_lines == target_lines + ["", "Augmentations", "Geometric :", "  random_left_right_flip",
+                                             "Photometric :", "  none", "Removed objects : none"]
+    assert validation_lines == target_lines + ["", "Augmentations : none (validation sample)"]
 
-    # Both crops drawn at the display size, 1.5 times the 64 x 32 crop, the head on the vertical axis of the crop at
-    # y = 32 - 18 x 32 / 52.5 in the training crop and y = 32 - 18 x 32 / 35 in the validation crop
+    # Both images drawn at their own resolution, the head disc at its pixel, the left hand ring in the half of the
+    # image holding the figure
     training_image, validation_image = viewer_recorder.arguments["images"]
-    assert training_image.shape == validation_image.shape == (3, IMAGE_SIZE, IMAGE_SIZE // 2)
-    assert training_image[:, 31, 24].tolist() == list(KEYPOINT_SIDE_COLOURS["Centre"])
-    assert validation_image[:, 23, 24].tolist() == list(KEYPOINT_SIDE_COLOURS["Centre"])
+    assert training_image.shape == validation_image.shape == (3, IMAGE_SIZE, IMAGE_SIZE)
+    assert training_image[:, 30, 66].tolist() == list(KEYPOINT_SIDE_COLOURS["Centre"])
+    assert validation_image[:, 30, 30].tolist() == list(KEYPOINT_SIDE_COLOURS["Centre"])
+    left_colour = torch.tensor(data=KEYPOINT_SIDE_COLOURS["Left"], dtype=torch.float32)[:, None, None]
+    training_left_columns = torch.nonzero(input=(training_image == left_colour).all(dim=0))[:, 1]
+    validation_left_columns = torch.nonzero(input=(validation_image == left_colour).all(dim=0))[:, 1]
+    assert len(training_left_columns) > 0 and bool((training_left_columns > IMAGE_SIZE // 2).all())
+    assert len(validation_left_columns) > 0 and bool((validation_left_columns < IMAGE_SIZE // 2).all())
+
+    # The viewer draws the box of every image, captioned with the class name
     assert viewer_recorder.arguments["window_titles"] == ["Training", "Validation"]
-    assert viewer_recorder.arguments["bounding_boxes"] is None
+    assert torch.equal(input=viewer_recorder.arguments["bounding_boxes"][0], other=training_batch["bounding_boxes"][0])
+    assert viewer_recorder.arguments["label_names"] == {1: "figure"}

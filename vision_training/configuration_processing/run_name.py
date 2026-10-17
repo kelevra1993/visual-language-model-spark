@@ -576,13 +576,14 @@ def build_self_supervised_sections(model_configuration: Dict[str, Any]) -> List[
 
 def build_keypoint_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
     """
-    Builds the sections of the run name specific to the keypoint detection: the crop size C<height>x<width> the objects
-    are cut to, the high resolution network (modules HRSE and HRRES, HR<normalization>, then
-    HR<base width>.<modules of every stage>x<blocks per branch>, then HRPT and HRFRZ when it is transferred and
-    frozen), the keypoint head K<heatmap channels> (the keypoints of every class, then KHPT and KHFRZ when it is
-    transferred and frozen) and the classes MC<foreground classes>, e.g. 'C256x192_HRSE-HRRES-HRBN-HR32.1.4.3x4_K107_
-    MC22' (without the line break). The crop augmentation and the heatmap sigma give no token, so that they can change
-    between two resumptions of a run.
+    Builds the sections of the run name specific to the keypoint detection: the high resolution network (modules HRSE
+    and HRRES, HR<normalization>, then HR<base width>.<modules of every stage>x<blocks per branch>, then HRPT and
+    HRFRZ when it is transferred and frozen), the keypoint head K<heatmap channels> (the keypoints of every class, each
+    with its heatmap and its tag map, then KH<hidden width> with a hidden convolution, HH with the higher resolution
+    branch, then KHPT and KHFRZ when it is transferred and frozen) and the classes MC<foreground classes>, e.g.
+    'HRSE-HRRES-HRBN-HR32.1.4.3x4_K107-KH256-HH_MC22'.
+    The heatmap sigma, the tag loss weights and the grouping settings give no token, so that they can change between
+    two resumptions of a run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary and the
@@ -594,10 +595,6 @@ def build_keypoint_sections(model_configuration: Dict[str, Any]) -> List[List[st
     data_configuration = model_configuration["Data"]
     network_configuration = model_configuration["HRNet"]
     network_modules = network_configuration["modules"]
-
-    # Crop size the objects are cut to, the input of the network
-    crop_settings = data_configuration["crop_settings"]
-    crop_tokens = [f"C{crop_settings['height']}x{crop_settings['width']}"]
 
     # High resolution network: modules, normalization, then the base width, modules of every stage and blocks per branch
     network_tokens = []
@@ -612,15 +609,20 @@ def build_keypoint_sections(model_configuration: Dict[str, Any]) -> List[List[st
                           f"x{network_configuration['blocks_per_branch']}")
     network_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="HRNet")
 
-    # Keypoint head: one heatmap channel per keypoint of every class
+    # Keypoint head: one heatmap channel per keypoint of every class, then the hidden convolution and the higher
+    # resolution branch
     keypoint_categories = data_configuration["keypoint_categories"]
     heatmap_channels = sum(len(category["keypoints"]) for category in keypoint_categories.values())
     head_tokens = [f"K{heatmap_channels}"]
+    if model_configuration["KeypointHead"]["hidden_width"] > 0:
+        head_tokens.append(f"KH{model_configuration['KeypointHead']['hidden_width']}")
+    if model_configuration["KeypointHead"]["higher_resolution"]:
+        head_tokens.append("HH")
     head_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="KeypointHead")
 
     # Classes, the label dictionary including the background class
     classes_token = f"MC{len(data_configuration['label_dictionary']) - 1}"
-    return [crop_tokens, network_tokens, head_tokens, [classes_token]]
+    return [network_tokens, head_tokens, [classes_token]]
 
 
 # Builder of the task-specific sections of the run name, placed between the backbone and training sections

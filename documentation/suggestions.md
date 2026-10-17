@@ -326,21 +326,22 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
     name and skeleton of every channel) next to the exported files, read by the clients instead of the training labels.
     Cost and risk: small.
 15. **Mixed precision for the COCO training**: `configuration_example.yaml` trains in float32
-    (`mixed_precision: False`) and processed about 41.6 objects per second in the COCO smoke run, about 64 hours for
-    the 150000 iterations. The bfloat16 autocast used by the other tasks could be tried on a short run, the heatmap
-    loss being computed in float32 already. Cost and risk: small, the OKS AP of a short run in both precisions telling
-    whether the heatmaps lose accuracy.
-16. **Evaluation on detected boxes**: the crops are cut around the ground truth boxes, at training and at evaluation,
-    so the OKS AP measures the keypoints alone, every object being found. The COCO protocol cuts the crops around the
-    boxes of a person detector and scores every object by its box score times its mean keypoint score. A
-    `Data.crop_settings` option could read the boxes of a DET run for the test split (written by its evaluation in a
-    new detections file, none being written today), the unmatched ground truths counting as missed. Cost and risk:
-    medium, needed only to compare with the published COCO numbers.
-17. **Finer decoding**: `decode_heatmaps` takes the maximum of every heatmap and shifts it by a quarter of a cell
-    towards the higher neighbour, an error of up to a quarter of a cell (1 pixel of the crop at stride 4) and of an
-    eighth on average. A Taylor expansion of the log-heatmap around the maximum (DARK) estimates the peak within the
-    cell. It could replace the shift in the eager and in the exported model, both sharing `decode_heatmaps`. Cost and
-    risk: small, the published gain being largest at small crops.
+    (`mixed_precision: False`), and a 3000 iteration run on the synthetic shapes with a W16 network and 243 heatmap
+    channels processed about 16.5 images per second, the W32 network of the COCO configuration not being timed. The
+    bfloat16 autocast used by the other tasks could be tried on a short run, the heatmap, tag and candidate
+    computations being in float32 already. Cost and risk: small, the OKS AP of a short run in both precisions telling
+    whether the heatmaps or the tags lose accuracy.
+16. **Ignored regions**: the objects left out of the labels (the COCO crowds and the persons without any labelled
+    keypoint) stay in the images, where the heatmaps learn to find no keypoint on persons that are there. HigherHRNet
+    masks their pixels out of the heatmap loss. The `segmentation` of these annotations could give a [h, w] weight map
+    per image, zero on their pixels, multiplying the focal terms of the cells in `compute_heatmap_loss` at both strides.
+    Cost and risk: medium, the dataset keeping the masks of objects it removes today.
+17. **Finer peaks**: `extract_keypoint_candidates` shifts every local maximum by a quarter of a cell towards the
+    higher neighbour, an error of up to a quarter of a cell (half a pixel at stride 2 with the higher resolution branch,
+    1 pixel at stride 4 without it) and of an eighth on average. A Taylor expansion of the log-heatmap around the
+    maximum (DARK) estimates the peak within the cell. It could replace the shift in the eager and in the exported
+    model, both sharing `extract_keypoint_candidates`. Cost and risk: small, the published gain being largest for small
+    objects.
 
 ## Suggested Order
 1. **The loss weights (item 6)**, a small change, in the same experiment as audit L5.

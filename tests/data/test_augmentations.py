@@ -4,7 +4,8 @@ geometric augmentations moving the segmentation masks with nearest interpolation
 instance masks and recomputing their boxes, photometric augmentations keeping boxes, masks and pixel range, images
 without boxes, shared or per-frame draws of the sequence frames, frame shuffling, the rejected inputs, the zoom-out, the
 translation by whole pixels with the removal of the objects it pushes out, the removal of the fragments of objects
-left by the crop, and the augmentation reports written in the information panels of the input viewer.
+left by the crop, the keypoints moved without being renamed and unlabelled once out of the image, and the augmentation
+reports written in the information panels of the input viewer.
 """
 
 import random
@@ -95,7 +96,7 @@ def test_geometric_augmentation_moves_boxes_with_the_image(augmentation_type: st
     for seed in range(5):
         random.seed(seed)
         torch.manual_seed(seed)
-        images, boxes, labels, _, _, _ = augmenter.augment_batch(
+        images, boxes, labels, _, _, _, _ = augmenter.augment_batch(
             images=create_rectangle_image(box=box).unsqueeze(dim=0), bounding_boxes=[torch.tensor(data=[box])],
             labels=[torch.tensor(data=[1])])
 
@@ -113,7 +114,7 @@ def test_boxes_leaving_the_image_are_removed_with_their_labels() -> None:
     boxes = torch.tensor(data=[[-30.0, 10.0, -5.0, 40.0], [80.0, 20.0, 120.0, 60.0], [10.0, 10.0, 40.0, 40.0]])
     labels = torch.tensor(data=[3, 2, 1])
 
-    kept_boxes, kept_labels, _, removed_labels = DataAugmenter.clean_bounding_boxes(
+    kept_boxes, kept_labels, _, _, removed_labels = DataAugmenter.clean_bounding_boxes(
         bounding_boxes=boxes, labels=labels, image_height=IMAGE_SIZE, image_width=IMAGE_SIZE)
 
     assert kept_labels.tolist() == [2, 1] and removed_labels.tolist() == [3]
@@ -135,9 +136,8 @@ def test_photometric_augmentation_keeps_boxes_and_range(augmentation_type: str) 
     boxes = [torch.tensor(data=[[10.0, 20.0, 30.0, 40.0]]), torch.zeros(size=(0, 4))]
     labels = [torch.tensor(data=[1]), torch.zeros(size=(0,), dtype=torch.int64)]
 
-    augmented_images, augmented_boxes, augmented_labels, _, _, _ = augmenter.augment_batch(images=images,
-                                                                                           bounding_boxes=boxes,
-                                                                                           labels=labels)
+    augmented_images, augmented_boxes, augmented_labels, _, _, _, _ = augmenter.augment_batch(
+        images=images, bounding_boxes=boxes, labels=labels)
 
     assert augmented_images.shape == images.shape
     assert float(augmented_images.min()) >= 0.0 and float(augmented_images.max()) <= 255.0
@@ -153,7 +153,8 @@ def test_images_without_boxes_for_classification() -> None:
         enabled_types=["random_colour_augmentation"]))
     images = torch.rand(size=(2, 3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0
 
-    augmented_images, augmented_boxes, augmented_labels, augmented_masks, _, _ = augmenter.augment_batch(images=images)
+    augmented_images, augmented_boxes, augmented_labels, augmented_masks, _, _, _ = augmenter.augment_batch(
+        images=images)
 
     assert augmented_boxes is None and augmented_labels is None and augmented_masks is None
     assert torch.equal(input=augmented_images, other=images.flip(dims=(1,)))
@@ -172,7 +173,7 @@ def test_sequence_frames_share_the_same_augmentation() -> None:
     frame = torch.rand(size=(3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0
     sequences = frame.expand(2, 4, 3, IMAGE_SIZE, IMAGE_SIZE).clone()
 
-    augmented_sequences, _, _, _, _, _ = augmenter.augment_batch(images=sequences)
+    augmented_sequences, _, _, _, _, _, _ = augmenter.augment_batch(images=sequences)
 
     assert augmented_sequences.shape == sequences.shape
     assert not torch.allclose(input=augmented_sequences, other=sequences)
@@ -214,8 +215,8 @@ def test_disabled_augmentation_is_identity() -> None:
 
     for configuration in [deactivated_configuration, zero_probability_configuration]:
         augmenter = DataAugmenter(augmentation_configuration=configuration)
-        augmented_images, augmented_boxes, _, _, _, _ = augmenter.augment_batch(images=images, bounding_boxes=boxes,
-                                                                                labels=labels)
+        augmented_images, augmented_boxes, _, _, _, _, _ = augmenter.augment_batch(images=images, bounding_boxes=boxes,
+                                                                                   labels=labels)
         assert torch.equal(input=augmented_images, other=images)
         assert all(torch.equal(input=output, other=original) for output, original in zip(augmented_boxes, boxes))
 
@@ -302,8 +303,8 @@ def test_geometric_augmentation_moves_masks_with_the_image(augmentation_type: st
     for seed in range(5):
         random.seed(seed)
         torch.manual_seed(seed)
-        images, _, _, masks, _, _ = augmenter.augment_batch(images=create_rectangle_image(box=box).unsqueeze(dim=0),
-                                                            masks=mask.unsqueeze(dim=0))
+        images, _, _, masks, _, _, _ = augmenter.augment_batch(images=create_rectangle_image(box=box).unsqueeze(dim=0),
+                                                               masks=mask.unsqueeze(dim=0))
 
         # Only class indices or the ignored index, the class region following the rectangle
         assert masks.shape == (1, IMAGE_SIZE, IMAGE_SIZE) and masks.dtype == torch.int64
@@ -325,8 +326,8 @@ def test_rotation_ignores_the_uncovered_corners_of_the_mask() -> None:
     mask = torch.ones(size=(1, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.int64)
 
     random.seed(0)
-    _, _, _, rotated_masks, _, _ = augmenter.augment_batch(images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)),
-                                                           masks=mask)
+    _, _, _, rotated_masks, _, _, _ = augmenter.augment_batch(images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)),
+                                                              masks=mask)
 
     assert set(rotated_masks.unique().tolist()) == {1, IGNORED_LABEL_INDEX}
     assert int(rotated_masks[0, 0, 0]) == IGNORED_LABEL_INDEX and int(rotated_masks[0, IMAGE_SIZE // 2,
@@ -343,7 +344,7 @@ def test_photometric_augmentations_leave_masks_unchanged() -> None:
     images = torch.rand(size=(2, 3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0
     masks = torch.randint(low=0, high=4, size=(2, IMAGE_SIZE, IMAGE_SIZE))
 
-    augmented_images, _, _, augmented_masks, _, _ = augmenter.augment_batch(images=images, masks=masks)
+    augmented_images, _, _, augmented_masks, _, _, _ = augmenter.augment_batch(images=images, masks=masks)
 
     assert not torch.equal(input=augmented_images, other=images)
     assert torch.equal(input=augmented_masks, other=masks)
@@ -368,7 +369,7 @@ def test_geometric_augmentation_moves_instance_masks_and_recomputes_boxes(augmen
     for seed in range(5):
         random.seed(seed)
         torch.manual_seed(seed)
-        images, boxes, labels, masks, moved_masks, _ = augmenter.augment_batch(
+        images, boxes, labels, masks, moved_masks, _, _ = augmenter.augment_batch(
             images=create_rectangle_image(box=box).unsqueeze(dim=0),
             bounding_boxes=[torch.tensor(data=[box, [60.0, 40.0, 80.0, 56.0]])], labels=[torch.tensor(data=[1, 2])],
             instance_masks=[instance_masks])
@@ -398,7 +399,7 @@ def test_rotation_leaves_the_uncovered_corners_of_instance_masks_as_background()
     instance_masks = torch.ones(size=(1, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
 
     random.seed(0)
-    _, boxes, _, _, rotated_masks, _ = augmenter.augment_batch(
+    _, boxes, _, _, rotated_masks, _, _ = augmenter.augment_batch(
         images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)),
         bounding_boxes=[torch.tensor(data=[[0.0, 0.0, float(IMAGE_SIZE), float(IMAGE_SIZE)]])],
         labels=[torch.tensor(data=[1])], instance_masks=[instance_masks])
@@ -419,7 +420,7 @@ def test_instance_masks_of_removed_objects_and_images_without_objects() -> None:
     instance_masks[1, 5:9, 10:20] = 1
     mask_boxes = compute_mask_bounding_boxes(instance_masks=instance_masks)
     assert mask_boxes.tolist() == [[0.0, 0.0, 0.0, 0.0], [10.0, 5.0, 20.0, 9.0]]
-    kept_boxes, kept_labels, kept_masks, _ = DataAugmenter.clean_bounding_boxes(
+    kept_boxes, kept_labels, kept_masks, _, _ = DataAugmenter.clean_bounding_boxes(
         bounding_boxes=mask_boxes, labels=torch.tensor(data=[3, 4]), image_height=IMAGE_SIZE,
         image_width=IMAGE_SIZE, instance_masks=instance_masks)
     assert kept_labels.tolist() == [4] and torch.equal(input=kept_masks, other=instance_masks[1:])
@@ -427,7 +428,7 @@ def test_instance_masks_of_removed_objects_and_images_without_objects() -> None:
     # An image without objects goes through every geometric augmentation
     augmenter = DataAugmenter(augmentation_configuration=build_configuration(
         enabled_types=GEOMETRIC_AUGMENTATION_TYPES))
-    _, boxes, labels, _, moved_masks, _ = augmenter.augment_batch(
+    _, boxes, labels, _, moved_masks, _, _ = augmenter.augment_batch(
         images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)), bounding_boxes=[torch.zeros(size=(0, 4))],
         labels=[torch.zeros(size=(0,), dtype=torch.int64)],
         instance_masks=[torch.zeros(size=(0, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)])
@@ -541,7 +542,7 @@ def test_objects_translated_out_of_the_image_are_removed(monkeypatch: pytest.Mon
     monkeypatch.setattr(target=random, name="randint", value=lambda low, high: high)
     maximum_shift = int(IMAGE_SIZE * MAXIMUM_TRANSLATION_FRACTION)
 
-    images, boxes, labels, _, _, _ = augmenter.augment_batch(
+    images, boxes, labels, _, _, _, _ = augmenter.augment_batch(
         images=create_rectangle_image(box=[10.0, 10.0, 30.0, 30.0]).unsqueeze(dim=0),
         bounding_boxes=[torch.tensor(data=[[10.0, 10.0, 30.0, 30.0], [80.0, 40.0, 95.0, 60.0]])],
         labels=[torch.tensor(data=[1, 2])])
@@ -561,14 +562,14 @@ def test_fragments_of_objects_are_removed_with_their_labels() -> None:
     labels = torch.tensor(data=[3, 2, 1])
 
     # 10 of 40 pixels of width inside the image is a quarter, kept, 5 of 40 is removed
-    kept_boxes, kept_labels, _, _ = DataAugmenter.clean_bounding_boxes(bounding_boxes=boxes, labels=labels,
-                                                                       image_height=IMAGE_SIZE, image_width=IMAGE_SIZE)
+    kept_boxes, kept_labels, _, _, _ = DataAugmenter.clean_bounding_boxes(
+        bounding_boxes=boxes, labels=labels, image_height=IMAGE_SIZE, image_width=IMAGE_SIZE)
     assert kept_labels.tolist() == [3, 1]
     assert kept_boxes.tolist() == [[0.0, 10.0, 10.0, 40.0], [10.0, 10.0, 40.0, 40.0]]
 
     # The shares of the mask pixels decide when they are given, whatever the boxes
     instance_masks = torch.zeros(size=(3, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
-    _, kept_labels, kept_masks, _ = DataAugmenter.clean_bounding_boxes(
+    _, kept_labels, kept_masks, _, _ = DataAugmenter.clean_bounding_boxes(
         bounding_boxes=boxes, labels=labels, image_height=IMAGE_SIZE, image_width=IMAGE_SIZE,
         instance_masks=instance_masks, visible_fractions=torch.tensor(data=[0.1, 0.9, 0.5]))
     assert kept_labels.tolist() == [2, 1] and kept_masks.shape[0] == 2
@@ -592,13 +593,13 @@ def test_crop_removes_the_fragments_of_boxes_and_instance_masks(monkeypatch: pyt
     instance_masks[1, 10:40, 10:40] = 1
 
     # Object detection: the box of the fragment keeps 1/7 of its area inside the crop
-    _, kept_boxes, kept_labels, _, _, _ = augmenter.augment_batch(
+    _, kept_boxes, kept_labels, _, _, _, _ = augmenter.augment_batch(
         images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)), bounding_boxes=[boxes],
         labels=[torch.tensor(data=[2, 1])])
     assert kept_labels[0].tolist() == [1] and kept_boxes[0].shape == (1, 4)
 
     # Instance segmentation: the mask of the fragment keeps 1/7 of the pixels it would have at the zoom of the crop
-    _, kept_boxes, kept_labels, _, kept_masks, _ = augmenter.augment_batch(
+    _, kept_boxes, kept_labels, _, kept_masks, _, _ = augmenter.augment_batch(
         images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)), bounding_boxes=[boxes],
         labels=[torch.tensor(data=[2, 1])], instance_masks=[instance_masks])
     assert kept_labels[0].tolist() == [1] and kept_masks[0].shape == (1, IMAGE_SIZE, IMAGE_SIZE)
@@ -618,7 +619,7 @@ def test_reports_name_the_drawn_types_their_values_and_the_removed_objects(monke
     monkeypatch.setattr(target=random, name="randint", value=lambda low, high: high)
     maximum_shift = int(IMAGE_SIZE * MAXIMUM_TRANSLATION_FRACTION)
 
-    _, _, _, _, _, reports = augmenter.augment_batch(
+    _, _, _, _, _, _, reports = augmenter.augment_batch(
         images=create_rectangle_image(box=[10.0, 10.0, 30.0, 30.0]).unsqueeze(dim=0),
         bounding_boxes=[torch.tensor(data=[[10.0, 10.0, 30.0, 30.0], [80.0, 40.0, 95.0, 60.0]])],
         labels=[torch.tensor(data=[1, 2])])
@@ -648,7 +649,7 @@ def test_report_lines_of_sequences_and_of_unaugmented_samples() -> None:
     # Every frame gets its own brightness draw, the padding frames 2 and 3 being left out of the lines
     augmenter = DataAugmenter(augmentation_configuration=build_configuration(
         enabled_types=["brightness_contrast_saturation"], independent_frames=True))
-    _, _, _, _, _, reports = augmenter.augment_batch(images=sequences)
+    _, _, _, _, _, _, reports = augmenter.augment_batch(images=sequences)
     assert len(reports[0]["photometric_augmentations"]) == 4 and reports[0]["removed_labels"] is None
     lines = augmenter.describe_report(report=reports[0], real_frames=[0, 1])
     assert lines[:3] == ["Geometric :", "  none", "Photometric, drawn frame by frame :"] and len(lines) == 5
@@ -658,11 +659,91 @@ def test_report_lines_of_sequences_and_of_unaugmented_samples() -> None:
     # A sample not drawn by the global probability, and an augmenter turned off
     unaugmented_augmenter = DataAugmenter(augmentation_configuration=build_configuration(
         enabled_types=["brightness_contrast_saturation"], probability=0.0))
-    _, _, _, _, _, reports = unaugmented_augmenter.augment_batch(images=sequences[:, 0])
+    _, _, _, _, _, _, reports = unaugmented_augmenter.augment_batch(images=sequences[:, 0])
     assert unaugmented_augmenter.describe_report(report=reports[0]) == [
         "Not augmented (global probability 0.0 not drawn)"]
     deactivated_augmenter = DataAugmenter(augmentation_configuration={
         **build_configuration(enabled_types=["brightness_contrast_saturation"]), "activated": False})
-    _, _, _, _, _, reports = deactivated_augmenter.augment_batch(images=sequences[:, 0])
+    _, _, _, _, _, _, reports = deactivated_augmenter.augment_batch(images=sequences[:, 0])
     assert deactivated_augmenter.describe_report(report=reports[0]) == [
         "Augmentation off (data_augmentation.activated False)"]
+
+
+@pytest.mark.parametrize(argnames="augmentation_type", argvalues=GEOMETRIC_AUGMENTATION_TYPES)
+def test_geometric_augmentation_moves_keypoints_with_the_image(augmentation_type: str) -> None:
+    """
+    Verifies that every geometric augmentation moves the keypoints of the keypoint detection like the image content:
+    a keypoint at the centre of the bright rectangle must land at the centre of the moved rectangle, keeping its
+    visibility, and the box of its object must follow the rectangle, for several random draws.
+
+    Args:
+        augmentation_type (str): The geometric augmentation type under test.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[augmentation_type]))
+    box = [20.0, 30.0, 50.0, 70.0]
+    keypoints = torch.tensor(data=[[[35.0, 50.0, 2.0], [0.0, 0.0, 0.0]]])
+
+    for seed in range(5):
+        random.seed(seed)
+        torch.manual_seed(seed)
+        images, boxes, _, _, _, moved_keypoints, _ = augmenter.augment_batch(
+            images=create_rectangle_image(box=box).unsqueeze(dim=0), bounding_boxes=[torch.tensor(data=[box])],
+            labels=[torch.tensor(data=[1])], keypoints=[keypoints])
+
+        # The centre keypoint follows the rectangle, the unlabelled one staying unlabelled at the origin
+        bright_box = get_bright_region_box(image=images[0])
+        bright_centre = torch.tensor(data=[(bright_box[0] + bright_box[2]) / 2, (bright_box[1] + bright_box[3]) / 2])
+        assert moved_keypoints[0].shape == (1, 2, 3)
+        assert torch.allclose(input=moved_keypoints[0][0, 0, :2], other=bright_centre,
+                              atol=BOX_TOLERANCES[augmentation_type] + 1e-4)
+        assert moved_keypoints[0][0, 0, 2] == 2.0 and moved_keypoints[0][0, 1].tolist() == [0.0, 0.0, 0.0]
+        assert boxes[0].shape == (1, 4)
+
+
+def test_flip_keeps_the_keypoint_names() -> None:
+    """
+    Verifies that a left-right flip mirrors every keypoint without renaming it: the keypoint at the top left corner of
+    the object stays the first keypoint, now at the top right corner, since the user chooses the geometric types that
+    suit the keypoints of the dataset.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_left_right_flip"]))
+    keypoints = torch.tensor(data=[[[20.0, 30.0, 2.0], [50.0, 70.0, 1.0]]])
+
+    _, _, _, _, _, flipped_keypoints, _ = augmenter.augment_batch(
+        images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)),
+        bounding_boxes=[torch.tensor(data=[[20.0, 30.0, 50.0, 70.0]])], labels=[torch.tensor(data=[1])],
+        keypoints=[keypoints])
+
+    assert flipped_keypoints[0].tolist() == [[[IMAGE_SIZE - 20.0, 30.0, 2.0], [IMAGE_SIZE - 50.0, 70.0, 1.0]]]
+
+
+def test_keypoints_leaving_the_image_are_unlabelled() -> None:
+    """
+    Verifies the cleaning of the keypoints after the geometric augmentations: a keypoint outside the image becomes
+    unlabelled (visibility and position 0), an object keeping a labelled keypoint inside the image stays although too
+    small a share of its box is left inside it, and an object whose keypoints all left the image is removed with its
+    box.
+    """
+    boxes = torch.tensor(data=[[-50.0, 10.0, 10.0, 40.0], [-60.0, 10.0, -20.0, 40.0], [10.0, 10.0, 40.0, 40.0]])
+    keypoints = torch.tensor(data=[[[-20.0, 20.0, 2.0], [5.0, 20.0, 2.0]], [[-30.0, 20.0, 2.0], [-25.0, 20.0, 1.0]],
+                                   [[20.0, 20.0, 2.0], [30.0, float(IMAGE_SIZE), 2.0]]])
+
+    kept_boxes, kept_labels, _, kept_keypoints, removed_labels = DataAugmenter.clean_bounding_boxes(
+        bounding_boxes=boxes, labels=torch.tensor(data=[1, 2, 3]), image_height=IMAGE_SIZE, image_width=IMAGE_SIZE,
+        keypoints=keypoints)
+
+    assert kept_labels.tolist() == [1, 3] and removed_labels.tolist() == [2] and kept_boxes.shape == (2, 4)
+    assert kept_keypoints.tolist() == [[[0.0, 0.0, 0.0], [5.0, 20.0, 2.0]], [[20.0, 20.0, 2.0], [0.0, 0.0, 0.0]]]
+
+
+def test_keypoints_need_their_boxes() -> None:
+    """
+    Verifies that keypoints given without the boxes of their objects, or with sequences, are rejected.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_crop"]))
+    keypoints = [torch.zeros(size=(1, 2, 3))]
+
+    with pytest.raises(expected_exception=ValueError, match="Keypoints must be given"):
+        augmenter.augment_batch(images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)), keypoints=keypoints)
+    with pytest.raises(expected_exception=ValueError, match="not supported for image sequences"):
+        augmenter.augment_batch(images=torch.zeros(size=(1, 2, 3, IMAGE_SIZE, IMAGE_SIZE)), keypoints=keypoints)

@@ -218,7 +218,7 @@ class DetectionTrainer(BaseTrainer):
             Dict[str, Any]: The batch with its augmented images, boxes and labels, and the 'augmentation_reports' of
                 its samples for the input viewer.
         """
-        images, bounding_boxes, labels, _, _, augmentation_reports = self.data_augmenter.augment_batch(
+        images, bounding_boxes, labels, _, _, _, augmentation_reports = self.data_augmenter.augment_batch(
             images=batch["images"], bounding_boxes=batch["bounding_boxes"], labels=batch["labels"])
         return {**batch, "images": images, "bounding_boxes": bounding_boxes, "labels": labels,
                 "augmentation_reports": augmentation_reports}

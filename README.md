@@ -4,7 +4,7 @@
   <img src="README/tasks_overview.png" width="100%" />
 </p>
 
-> **Screenshot placeholder** (`README/tasks_overview.png`): one evaluation sample image of each of the nine supervised tasks side by side, taken from `<run>/Evaluation/Iteration_<n>/Samples/` of the synthetic runs: a classified shape, the detected boxes, the detected boxes with their masks, an object crop with its keypoints, a segmentation (input, true mask, predicted mask, error map), a sequence classification frame grid, a sequence labelling frame grid, a before / after pair and a frame selection grid with its heat map.
+> **Screenshot placeholder** (`README/tasks_overview.png`): one evaluation sample image of each of the nine supervised tasks side by side, taken from `<run>/Evaluation/Iteration_<n>/Samples/` of the synthetic runs: a classified shape, the detected boxes, the detected boxes with their masks, the grouped keypoints of the objects of an image, a segmentation (input, true mask, predicted mask, error map), a sequence classification frame grid, a sequence labelling frame grid, a before / after pair and a frame selection grid with its heat map.
 
 ## Table Of Content
 - [Description](#description)
@@ -56,7 +56,7 @@ This repository trains, evaluates and exports PyTorch models for nine vision tas
 | CLS | `classification` | one image | one class (multi-class) or several classes (multi-label) | backbone, global pooling, fully connected head |
 | DET | `object_detection` | one image | boxes with their class and score | backbone, region proposal heads on several backbone levels, RoI Align detection heads |
 | INS | `instance_segmentation` | one image | boxes with their class and score, and the mask of every object | the detector of DET with a RoI Align mask head on every detection level |
-| KPT | `keypoint_detection` | one object crop, cut out of its image around its box | the keypoints of the object (one heatmap per keypoint of its class) and their scores | stem of the backbone, high resolution network (HRNet), 1x1 heatmap head |
+| KPT | `keypoint_detection` | one image | the objects found in the image, each with its class, its keypoints (one heatmap and one tag map per keypoint of every class, the keypoints grouped into objects by their tags) and its score | stem of the backbone, high resolution network (HRNet), 1x1 heatmap and tag head, higher resolution branch (HigherHRNet) |
 | SEG | `semantic_segmentation` | one image | one class per pixel | backbone as the encoder of a U-Net decoder with skip connections |
 | M2O | `sequence_classification` | a sequence of frames | one class per sequence (many to one) | backbone on every frame, temporal module, fully connected head |
 | M2M | `sequence_labelling` | a sequence of frames | one class per frame (many to many) | backbone on every frame, temporal module, head on every frame |
@@ -68,7 +68,7 @@ This repository trains, evaluates and exports PyTorch models for nine vision tas
   <img src="README/architectures.png" width="100%" />
 </p>
 
-> **Image placeholder** (`README/architectures.png`): a diagram of the shared backbone feeding the task heads: the classification head, the region proposal and detection heads (with the mask heads for INS), the high resolution network and heatmap head of KPT on the backbone stem, the U-Net decoder, and the temporal module (with the fusion of the two members for CMP) followed by the classification head (and the decoding of the selection for SEL).
+> **Image placeholder** (`README/architectures.png`): a diagram of the shared backbone feeding the task heads: the classification head, the region proposal and detection heads (with the mask heads for INS), the high resolution network, heatmap and tag head and higher resolution branch of KPT on the backbone stem, the U-Net decoder, and the temporal module (with the fusion of the two members for CMP) followed by the classification head (and the decoding of the selection for SEL).
 
 ## Prerequisites
 
@@ -466,16 +466,20 @@ The COCO 2017 splits downloaded by `vision_training/data/data_retriever.py` alre
 > **Screenshot placeholder** (`README/instance_segmentation_sample.png`): a sample image of an instance segmentation evaluation, the ground truth boxes and masks on the left next to the detections above `Detector.inference.score_threshold` with their masks on the right, every box and mask in the colour of its class.
 
 ### Keypoint Detection (KPT)
-The keypoint detector is top-down, as in HRNet ([Sun et al., 2019](https://arxiv.org/abs/1902.09212)): every object box is cut out of its image to a fixed-size crop, and the network predicts one heatmap per keypoint on the crop. The boxes come from the ground truth in training and evaluation, and from a detector (DET or INS) in deployment. Every sample is one object, so a batch of 64 holds 64 crops whatever the number of objects per image.
+The keypoint detector is bottom-up, as in HigherHRNet ([Cheng et al., 2020](https://arxiv.org/abs/1908.10357)): the network sees the whole image, finds the keypoints of all its objects at once, and groups them into objects with the tags of associative embedding ([Newell et al., 2017](https://arxiv.org/abs/1611.05424)). It needs no box: an image without any object gives no keypoint, and an image with several objects of several classes gives all of them in one pass. Every sample is one whole image, as in DET.
 
 The network is made of three parts:
-- A stem: the first blocks of the backbone of the other tasks, bringing the crop down to a quarter of its resolution. Every block but the last is followed by a 2x2 max pooling, so the stem has 3 blocks with `Backbone.last_max_pooling: False`, or 2 blocks with it True.
-- The high resolution network (`HRNet`): it keeps a branch at 1/4 of the crop through the whole network and adds a branch at half the resolution and twice the width at every stage (`base_width`, 2 x `base_width`...). The branches exchange their features at the end of every module, every branch receiving the sum of all the branches brought to its resolution and width. `modules_per_stage: [1, 4, 3]` with `base_width: 32` and `blocks_per_branch: 4` is HRNet-W32.
-- The keypoint head (`KeypointHead`): a 1x1 convolution of the highest resolution branch giving one heatmap per keypoint of every class, at 1/4 of the crop.
+- A stem: the first blocks of the backbone of the other tasks, bringing the image down to a quarter of its resolution. Every block but the last is followed by a 2x2 max pooling, so the stem has 3 blocks with `Backbone.last_max_pooling: False`, or 2 blocks with it True.
+- The high resolution network (`HRNet`): it keeps a branch at 1/4 of the image through the whole network and adds a branch at half the resolution and twice the width at every stage (`base_width`, 2 x `base_width`...). The branches exchange their features at the end of every module, every branch receiving the sum of all the branches brought to its resolution and width. `modules_per_stage: [1, 4, 3]` with `base_width: 32` and `blocks_per_branch: 4` is HRNet-W32.
+- The keypoint head (`KeypointHead`): a 1x1 convolution of the highest resolution branch giving one heatmap and one tag map per keypoint of every class, at 1/4 of the image. With `higher_resolution: True`, the higher resolution branch of HigherHRNet concatenates the features of the highest resolution branch with these heatmaps and tags, doubles their resolution with a transposed convolution, refines them with `HRNet.blocks_per_branch` residual blocks and gives a second set of heatmaps at 1/2 of the image, which helps the small objects. With `hidden_width` above 0, both 1x1 convolutions read a 3x3 convolution of `hidden_width` channels (with the `HRNet` normalization and a ReLU) instead of the features. A 1x1 convolution gives every heatmap as a weighted sum of its input channels at the cell, so with more heatmap channels than input channels the heatmaps cannot peak on their own keypoints while the others stay at zero; set `hidden_width` to at least the number of heatmap channels when they outnumber `HRNet.base_width` (243 channels and `hidden_width: 256` in `configuration_synthetic_shapes.yaml`), and to 0 for the 1x1 convolutions of the paper.
 
-Several classes can have different keypoints (a person with 17 keypoints, a car with 12). The heatmap channels are the keypoints of every class, the classes in increasing order and the keypoints of a class in the order of its category: only the channels of the class of a crop are trained and decoded. The targets are Gaussians of `KeypointHead.heatmap_sigma` heatmap cells centred on the keypoints, and the loss is the mean squared error of the labelled keypoints inside the crop. The keypoint of a heatmap is its highest cell moved by a quarter of a cell towards its higher neighbour, its score the value of that cell, and the score of an object the mean score of its keypoints.
+Several classes can have different keypoints (a person with 17 keypoints, a car with 12). The heatmap channels are the keypoints of every class, the classes in increasing order and the keypoints of a class in the order of its category, every channel having its own tag map. Every channel is trained in every image, towards zero where the image holds no keypoint of it.
 
-**Data.** The COCO `labels.json` of DET, every object having its `keypoints`, a flat `[x1, y1, v1, x2, y2, v2, ...]` list in pixels of the original image with the visibility v (0 not labelled, 1 labelled but hidden, 2 labelled and visible), and every category its keypoint `keypoints` names and its `skeleton`, pairs of 1-based keypoint numbers linked in the drawings. A category may give `maximum_rotation_degrees`, the largest rotation of its crops (180 without it). The objects without any labelled keypoint are left out of every split, having nothing to learn from nor to evaluate.
+**Training.** The heatmaps are the sigmoid of the predicted logits, the bias of their channels starting at the logit of 0.01. Their targets are Gaussians of `KeypointHead.heatmap_sigma` cells centred on the labelled keypoints of all the objects of the image, the cell containing a keypoint set to 1 and the highest value being kept where two Gaussians overlap, at 1/4 of the image and, with the higher resolution branch, at 1/2. The heatmap loss is the focal loss of CornerNet ([Law and Deng, 2018](https://arxiv.org/abs/1808.01244)), at every resolution: -(1 - p)² log(p) on the cells at 1 and -(1 - y)⁴ p² log(1 - p) on the others, p being the predicted heatmap and y the target, summed over the cells, channels and images and divided by the number of cells at 1. The keypoint cells are a few hundredths of a percent of the cells: a squared error averaged over the cells is lowest for heatmaps at 0 everywhere, while the focal loss gives little weight to the empty cells once their prediction is low and less to the cells near a keypoint. The tags have no target value: a keypoint reads the tag map of its channel at its cell, and only the distances between the tags are trained. The pull loss, the mean squared distance between the tags of the keypoints of every object and their mean, gathers the keypoints of an object around one value; the push loss, the mean of exp(-(h_m - h_n)²) over the pairs of objects of the same class in the same image, h being their mean tags, separates the objects. The loss is the heatmap loss plus `tag_pull_weight` x the pull loss plus `tag_push_weight` x the push loss. Only the labelled keypoints inside the image are trained.
+
+**Grouping.** At inference, with the higher resolution branch, the heatmaps at 1/4 of the image are upsampled to 1/2 and averaged with its heatmaps, the tag maps being upsampled as well. The candidates of every channel are its `KeypointHead.inference.maximum_candidates` highest local maxima over 3x3 cells, each moved by a quarter of a cell towards its higher neighbour, with the heatmap value of its cell as score and the tag of its channel at that cell. `group_keypoint_candidates` of `vision_training/models/keypoints/keypoint_grouping.py` then forms the objects class by class: the keypoints of the class are taken in order, and the candidates of each above `keypoint_threshold` are matched to the objects formed by the previous keypoints (Hungarian matching on the distance between the candidate tag and the mean tag of the object, rounded to whole units, the score breaking the ties); a candidate left unmatched or farther than `tag_threshold` starts a new object. The score of an object is the sum of the scores of its keypoints divided by the number of keypoints of its class, so that an object missing keypoints scores lower. The evaluation keeps every object; the sample images and the deployment keep those scoring at least `object_score_threshold`.
+
+**Data.** The COCO `labels.json` of DET, every object having its `keypoints`, a flat `[x1, y1, v1, x2, y2, v2, ...]` list in pixels of the original image with the visibility v (0 not labelled, 1 labelled but hidden, 2 labelled and visible), and every category its keypoint `keypoints` names and its `skeleton`, pairs of 1-based keypoint numbers linked in the drawings. The objects without any labelled keypoint are left out of the labels of every split, having nothing to learn from nor to evaluate; they stay in their images, where the heatmaps learn to find no keypoint.
 
 ```json
 {
@@ -489,15 +493,13 @@ Several classes can have different keypoints (a person with 17 keypoints, a car 
 }
 ```
 
-The label mapping keeps the class indices of the detector that will give the boxes, class 0 being its background, and the categories merged into one class must have the same keypoint names. The COCO 2017 person keypoints use the images of the COCO detection splits and the `person_keypoints_<split>2017.json` annotations of the COCO download as their `labels.json`.
+The label mapping is that of DET, class 0 being the background, which has no heatmap channel, and the categories merged into one class must have the same keypoint names. The COCO 2017 person keypoints use the images of the COCO detection splits and the `person_keypoints_<split>2017.json` annotations of the COCO download as their `labels.json`.
 
-**Crops.** The ground truth box is centred, widened along its short side to the aspect ratio of `Data.crop_settings` (no distortion), enlarged by `box_enlargement` (1.25 keeps some context), then warped to `height` x `width` pixels in one affine warp on the GPU, the keypoints being moved by the same affine. Both sides must be multiples of the stride of the lowest resolution branch, 4 x 2 to the power of the number of stages (32 for 3 stages). The keypoints leaving the crop are not trained.
-
-**Augmentation.** `Data.crop_augmentation` draws the geometry of every training crop inside its warp: a scale of the region within `scale_range`, a rotation up to `maximum_rotation_degrees` (or the smaller limit of the category, half the angle of its rotational symmetry, beyond which its keypoints would change names), a left to right flip, and a shift of the centre up to `maximum_shift_fraction` of the region. It is always applied to the training crops, the validation and test crops being cut without it. A flipped crop swaps the names of its left and right keypoints: the pairs are deduced from the `left_` and `right_` prefixes of the keypoint names, or given by category in `flip_pairs` (`[]` for a category whose keypoints keep their names). The geometric types of `Data.data_augmentation` would move the crops without their keypoints, so they must be off; its photometric types are applied to the crops after the warp.
+**Augmentation.** The geometric types of `Data.data_augmentation` move the keypoints with the image, as boxes of zero size moved with the boxes of their objects. A keypoint leaving the image becomes unlabelled, and an object is removed when less than 25 % of its box and none of its labelled keypoints stay inside the image. A keypoint keeps its name and heatmap channel whatever the augmentation: a left to right flip leaves the `left_wrist` of a mirrored person on its right side, and a large rotation brings the `top` corner of a triangle to the bottom. These types only suit keypoints whose names depend neither on the side nor on the orientation (the tip of a flame), which is the choice of the user; both keypoint configurations turn the flips and the 90 degree rotations off. A dataset whose keypoints must be renamed by a flip is augmented offline. The photometric types leave the keypoints unchanged.
 
 **Converting a dataset.** The COCO 2017 keypoint annotations are part of the COCO download (`annotations_trainval2017.zip`). Every split folder links the images of the COCO split as its `data/` and its `person_keypoints_<split>2017.json` as its `labels.json`. The keypoint annotations of the COCO test split are withheld, so `configuration_example.yaml` uses the validation split as its validation and test splits.
 
-**Configuration.** Copy `keypoint_detection/configuration_example.yaml` (COCO persons, HRNet-W32 on 256x192 crops). The task keys are `Data.crop_settings`, `Data.crop_augmentation`, `HRNet`, `KeypointHead`, `evaluation.default_keypoint_sigma` and `evaluation.keypoint_sigmas`. `Backbone` is the stem, and `Backbone.pretrained` loads the first blocks of the backbone of any run (e.g. an ImageNet classification run), as many as the stem has. `HRNet.pretrained` and `KeypointHead.pretrained` load the network and the head of another KPT run.
+**Configuration.** Copy `keypoint_detection/configuration_example.yaml` (COCO persons, HigherHRNet-W32 on 512x512 images). The task keys are `HRNet`, `KeypointHead`, `evaluation.default_keypoint_sigma` and `evaluation.keypoint_sigmas`. `Data.image_settings.size` must be a multiple of the stride of the lowest resolution branch, 4 x 2 to the power of the number of stages (32 for 3 stages). `Backbone` is the stem, and `Backbone.pretrained` loads the first blocks of the backbone of any run (e.g. an ImageNet classification run), as many as the stem has. `HRNet.pretrained` and `KeypointHead.pretrained` load the network and the head of another KPT run.
 
 ```yaml
 HRNet:
@@ -506,28 +508,36 @@ HRNet:
   blocks_per_branch: 4
   modules: { squeeze_and_excite: True, residual_nets: True }
   normalization: { feature_map_normalization: "batch", batch_normalization_momentum: 0.1 }
+KeypointHead:
+  higher_resolution: True
+  hidden_width: 0
+  heatmap_sigma: 2.0
+  tag_pull_weight: 0.1
+  tag_push_weight: 0.1
+  inference: { maximum_candidates: 30, keypoint_threshold: 0.1, tag_threshold: 1.0, object_score_threshold: 0.2 }
 ```
 
-**Evaluation.** Every evaluated checkpoint predicts the keypoints of the ground truth boxes of the test split, without a detector in the loop, and brings them back to the network input image. Every object is scored against the ground truth objects of its image with the object keypoint similarity (OKS) of COCO, which replaces the IoU of the detection average precisions:
+**Evaluation.** Every evaluated checkpoint finds the keypoints of every test image and groups them into objects with the settings of `KeypointHead.inference`, every object being kept whatever its score. Every object found is scored against the ground truth objects of the same class in its image with the object keypoint similarity (OKS) of COCO, which replaces the IoU of the detection average precisions:
 
 OKS = Σ exp(-d² / (2 s² k²)) δ(v > 0) / Σ δ(v > 0)
 
 where d is the distance between a predicted keypoint and its ground truth, s² the area of the ground truth box, k = 2 x sigma the constant of the keypoint and the sums run over the labelled keypoints. A keypoint at 2 x sigma x sqrt(box area) from its ground truth scores exp(-0.5) = 0.61. The sigma of every keypoint is `evaluation.keypoint_sigmas.<category>.<keypoint>`, or `default_keypoint_sigma` (0.05) for the keypoints it leaves out; a loosely defined keypoint (a hip under the clothes) gets a larger value than a sharp corner.
 
 - The OKS mAP at 0.5, 0.75, 0.95 and 0.5:0.95 with the area, 11-point and 101-point methods, by object size and per class, and the OKS mean average recall, as the box tables of DET. `OKS mAP@0.5/area` compares the checkpoints.
-- PCK@0.05, the percentage of correct keypoints: the share of the labelled keypoints within 0.05 of the longest box side of their object.
-- The mean OKS of the objects and the mean keypoint error in network input pixels.
-- The table `Keypoint Accuracy Per Class` (objects, labelled keypoints, PCK, mean OKS, mean error) and the table `Keypoint Accuracy Per Keypoint` (labelled keypoints, PCK and mean error of every keypoint of every class), saved in `class_metrics.csv` and `keypoint_metrics.csv`. A class or keypoint without labelled keypoint shows `—`.
+- Matched Objects: every ground truth object is matched to at most one object found, by the one-to-one matching of the largest total OKS whatever the scores (a pair of OKS 0 never matching), and the share of the ground truth objects matched measures how many objects the grouping finds.
+- PCK@0.05, the percentage of correct keypoints: the share of the labelled keypoints within 0.05 of the longest box side of their object, a missed object or keypoint counting as wrong.
+- The mean OKS of the ground truth objects with their matched object (0 for a missed object) and the mean error of the keypoints found, in network input pixels.
+- The table `Keypoint Accuracy Per Class` (objects, matched objects, labelled keypoints, PCK, mean OKS, mean error) and the table `Keypoint Accuracy Per Keypoint` (labelled and found keypoints, PCK and mean error of every keypoint of every class), saved in `class_metrics.csv` and `keypoint_metrics.csv`. A class or keypoint without labelled keypoint shows `—`.
 
-The OKS metrics are written to TensorBoard with the names of the box metrics of DET prefixed by `OKS ` (`OKS mAP@0.5/area`, `OKS mAP@0.5 By Size/<size>`, `OKS mAR@0.5/<all or size>`, `OKS AP@0.5/<class>`), and the keypoint accuracy as `Keypoint Accuracy/PCK@0.05`, `Keypoint Accuracy/Mean OKS` and `Keypoint Accuracy/Mean Keypoint Error (pixels)`.
+The OKS metrics are written to TensorBoard with the names of the box metrics of DET prefixed by `OKS ` (`OKS mAP@0.5/area`, `OKS mAP@0.5 By Size/<size>`, `OKS mAR@0.5/<all or size>`, `OKS AP@0.5/<class>`), and the keypoint accuracy as `Keypoint Accuracy/Matched Objects`, `Keypoint Accuracy/PCK@0.05`, `Keypoint Accuracy/Mean OKS` and `Keypoint Accuracy/Mean Keypoint Error (pixels)`.
 
-The sample images show every fixed test object as its crop with the ground truth keypoints next to the same crop with the predicted keypoints, the skeleton of its category drawn between them, captioned with its OKS, its correct keypoints and its score. The left keypoints are blue, the right ones orange and the others yellow, the hidden ones (v = 1) are drawn as rings and the unlabelled ones are left out. The input viewer (`view_input_images`) draws the training and validation crops the same way, next to a panel giving the class, the labelled keypoints and the drawn crop and photometric augmentations.
+The sample images show the same test images at every evaluation: the ground truth objects captioned with their class next to the objects found scoring at least `object_score_threshold`, captioned with their class and score, all with the skeleton of their class, under a caption counting both and above a legend of the keypoint sides and classes drawn. The left keypoints are blue, the right ones orange and the others yellow (from the `left` or `right` word of their names), the hidden ones (v = 1) are drawn as rings and the unlabelled ones are left out. The input viewer (`view_input_images`) draws the boxes of the training and validation images with the keypoints of their objects the same way, next to a panel giving the objects per class, the keypoints by visibility, the keypoint colours, the drawn augmentations and the objects they removed.
 
 <p align="center">
   <img src="README/keypoint_sample.png" width="80%" />
 </p>
 
-> **Screenshot placeholder** (`README/keypoint_sample.png`): a sample image of a keypoint detection evaluation, the crop of one test object with its ground truth keypoints and skeleton on the left next to its predicted keypoints on the right.
+> **Screenshot placeholder** (`README/keypoint_sample.png`): a sample image of a keypoint detection evaluation, one test image with its ground truth objects, keypoints and skeletons on the left next to the objects found with their scores on the right.
 
 ### Semantic Segmentation (SEG)
 The segmenter predicts the class of every pixel. The backbone is the encoder of a U-Net: the decoder upsamples its last feature map level by level, each level merging the skip connection of a backbone block.
@@ -874,24 +884,24 @@ The models are written to `vision_training/deployment/triton/served_models/<mode
 | CLS | `image_classifier` | `images` [B, 3, S, S] | `class_probabilities` [B, K] |
 | DET | `object_detector` | `images` [B, 3, S, S] | `detection_boxes` [B, D, 4], `detection_scores` [B, D], `detection_labels` [B, D], `number_detections` [B] |
 | INS | `instance_segmenter` | `images` [B, 3, S, S] | the outputs of DET, then `detection_masks` [B, D, M, M] |
-| KPT | `keypoint_detector` | `crops` [B, 3, H, W] | `keypoints` [B, C, 2], `keypoint_scores` [B, C], `heatmaps` [B, C, H/4, W/4] |
+| KPT | `keypoint_detector` | `images` [B, 3, S, S] | `candidate_positions` [B, C, N, 2], `candidate_scores` [B, C, N], `candidate_tags` [B, C, N] |
 | SEG | `semantic_segmenter` | `images` [B, 3, S, S] | `class_map` [B, S, S], `class_probabilities` [B, K, S, S] |
 | M2O | `sequence_classifier` | `images` [B, T, 3, S, S] | `class_probabilities` [B, K] |
 | M2M | `sequence_labeller` | `images` [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
 | CMP | `sequence_comparator` | `before_images`, `after_images` [B, T, 3, S, S] | `class_probabilities` [B, K] |
 | SEL | `frame_selector` | `images` [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
 
-S is `Data.image_settings.size`, K the number of classes, D the largest number of detections per image, M `MaskHead.mask_resolution`, T any number of frames from 1 to `sequence_length`, H and W `Data.crop_settings.height` and `width`, and C the number of heatmap channels. The inputs are float32 BGR images in [0, 255], resized and padded like the data loaders do (`keep_ratio`); the input normalization is part of the exported model.
+S is `Data.image_settings.size`, K the number of classes, D the largest number of detections per image, M `MaskHead.mask_resolution`, T any number of frames from 1 to `sequence_length`, C the number of heatmap channels and N the number of keypoint candidates of every channel, `KeypointHead.inference.maximum_candidates` (at most the number of cells of the heatmaps). The inputs are float32 BGR images in [0, 255], resized and padded like the data loaders do (`keep_ratio`); the input normalization is part of the exported model.
 
 The outputs of SEG are at the network resolution: `restore_prediction_to_original_image` of `vision_training/data/preprocessing.py` brings a class map or the class probabilities back to the original image. A SEG run trained on tiles (`Data.tiling`) is exported the same way, its input being one tile: the client scales the image by `Data.tiling.scale`, then segments it with `segment_image_by_tiles` of `vision_training/models/segmentation/sliding_window.py`, given a function sending a batch of tiles to Triton and returning their `class_probabilities`.
 
 The masks of INS are the probabilities of the detected class inside the box of every detection, 0 for the padding detections. The client pastes every mask into the image inside its box with `paste_instance_masks` of `vision_training/models/instance_segmentation/mask_operations.py`, the boxes being first brought back to the original image by `restore_boxes_to_original_image` of `vision_training/data/preprocessing.py`, then keeps the pixels above `MaskHead.inference.mask_threshold`.
 
-The keypoint detector of KPT takes object crops and decodes every heatmap channel, the client knowing the class of the box it cut each crop from:
-1. Resize and pad the image like the data loaders (`preprocess_image` of `vision_training/data/preprocessing.py`) and detect its objects with a DET or INS model, whose boxes are in the pixels of that image.
-2. Cut every box to a crop with `cut_inference_crop` of `vision_training/deployment/deployment_utilities.py`, given the `Data.crop_settings` of the run: the crops of the evaluation, without augmentation.
-3. Keep the channels of the class of every box: `build_keypoint_channel_table` of `vision_training/models/keypoints/keypoint_detector.py` gives the channel of every keypoint of every class, from the `Data.keypoint_categories` of the run configuration (`load_experiment_configuration` of `vision_training/configuration_processing/configuration_loader.py` reads them from the training `labels.json`).
-4. Bring the keypoints from the crop pixels back to the image with the crop to image matrix of `build_crop_affines` and `transform_points` of `vision_training/data/keypoints/crop_transform.py`.
+The keypoint detector of KPT gives the keypoint candidates of every heatmap channel of the whole image, in network input pixels, their grouping into objects being a Python function run by the client:
+1. Resize and pad the image like the data loaders (`preprocess_image` of `vision_training/data/preprocessing.py`) and send it to the model.
+2. Build the channel of every keypoint of every class with `build_keypoint_channel_table` of `vision_training/models/keypoints/keypoint_detector.py`, from the `Data.keypoint_categories` of the run configuration (`load_experiment_configuration` of `vision_training/configuration_processing/configuration_loader.py` reads them from the training `labels.json`).
+3. Group the candidates of every image into objects with `group_keypoint_candidates` of `vision_training/models/keypoints/keypoint_grouping.py`, given the channel table as a numpy array and the `KeypointHead.inference` settings of the run (`keypoint_threshold`, `tag_threshold`, `object_score_threshold`): it gives the class, the keypoints (NaN for the keypoints not found), the keypoint scores and the score of every object.
+4. Bring the keypoints back to the original image like the boxes, the letterbox of `preprocess_image` being undone by `restore_boxes_to_original_image` of `vision_training/data/preprocessing.py` on boxes of zero size.
 
 For SEL, the export also writes the decoder `frame_selector_decoder`, a Triton Python backend model run on the CPU, and one ensemble per format, `frame_selector_<format>_ensemble`, chaining the exported network and the decoder. The decoder runs the decoding of `Selection.decoding` with the thresholds of `Evaluation/Iteration_<n>/class_thresholds.json` of the exported checkpoint, every threshold being 0 when that checkpoint was not evaluated. Its folder holds a copy of `vision_training/models/sequence/frame_selection_decoding.py`, the decoding of the evaluation, and `decoding_settings.json`, giving the names of the wanted classes in output order. It uses the numpy and scipy of the Triton image. The ensemble takes the `images` of the network and gives:
 
@@ -976,8 +986,6 @@ The tables below list only the keys that are not in every task. Every other key 
 | `ProjectionHead` | | | | | | | | | ✓ | |
 | `Data.view_augmentation` | | | | | | | | | ✓ | |
 | `ExperimentConfiguration.evaluation.number_neighbours` | | | | | | | | | ✓ | |
-| `Data.crop_settings` | | | | | | | | | | ✓ |
-| `Data.crop_augmentation` | | | | | | | | | | ✓ |
 | `HRNet` | | | | | | | | | | ✓ |
 | `KeypointHead` | | | | | | | | | | ✓ |
 | `ExperimentConfiguration.evaluation.default_keypoint_sigma` | | | | | | | | | | ✓ |
@@ -998,7 +1006,7 @@ The tables below list only the keys that are not in every task. Every other key 
 | SEG | `SegmentationDecoder`, `SegmentationLoss`, `Data.tiling`, `ExperimentConfiguration.evaluation.save_predicted_masks`, `boundary_tolerance` |
 | SEL | `Selection` |
 | SSL | `ProjectionHead`, `Data.view_augmentation`, `ExperimentConfiguration.evaluation.number_neighbours` |
-| KPT | `Data.crop_settings`, `Data.crop_augmentation`, `HRNet`, `KeypointHead`, `ExperimentConfiguration.evaluation.default_keypoint_sigma`, `keypoint_sigmas` |
+| KPT | `HRNet`, `KeypointHead`, `ExperimentConfiguration.evaluation.default_keypoint_sigma`, `keypoint_sigmas` |
 
 ### Values Per Task
 Some keys are in several tasks but do not accept the same values in each. The check of the task refuses a value that its task cannot use. Everything not listed here accepts the same values in every task that has the key.
@@ -1014,17 +1022,17 @@ Some keys are in several tasks but do not accept the same values in each. The ch
 | `ClassificationHead.output_mode` | | | `multi_class` or `multi_label` | `multi_class` | `multi_class` | `multi_class` | | `multi_class` | | |
 | `TemporalModel.type` | | | | all 7 types | `gru`, `lstm`, `transformer`, `temporal_convolution` | all 7 types | | `gru`, `lstm`, `transformer`, `temporal_convolution` | | |
 | `TemporalModel.causal` | | | | `False` | `True` or `False` | `False` | | `True` or `False` | | |
-| `Data.data_augmentation.types.<geometric type>.activated` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` |
+| `Data.data_augmentation.types.<geometric type>.activated` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` | `True` or `False` |
 
-An empty cell means that the task does not have the key. The geometric types of KPT are `random_crop`, `random_zoom_out`, `random_translation`, `random_left_right_flip`, `random_up_down_flip`, `random_rotation` and `random_90_rotation`, its crops being moved by `Data.crop_augmentation`. The 7 temporal types are `mean_pooling`, `max_pooling`, `attention_pooling`, `gru`, `lstm`, `transformer` and `temporal_convolution`. M2M and SEL need one output per frame, which the three poolings do not give.
+An empty cell means that the task does not have the key. The geometric types are `random_crop`, `random_zoom_out`, `random_translation`, `random_left_right_flip`, `random_up_down_flip`, `random_rotation` and `random_90_rotation`, those of KPT moving the keypoints without renaming them. The 7 temporal types are `mean_pooling`, `max_pooling`, `attention_pooling`, `gru`, `lstm`, `transformer` and `temporal_convolution`. M2M and SEL need one output per frame, which the three poolings do not give.
 
-For KPT, `Backbone` is the stem of the network and must end at 1/4 of the crop: 3 blocks with `last_max_pooling: False`, or 2 blocks with it True. `Data.crop_settings.height` and `width` must be multiples of 4 x 2 to the power of the length of `HRNet.modules_per_stage`. The categories of `Evaluation.keypoint_sigmas` and `Data.crop_augmentation.flip_pairs` must be categories of the training split with keypoints, and their keypoint names those of the category.
+For KPT, `Backbone` is the stem of the network and must end at 1/4 of the image: 3 blocks with `last_max_pooling: False`, or 2 blocks with it True. `Data.image_settings.size` must be a multiple of 4 x 2 to the power of the length of `HRNet.modules_per_stage`. `KeypointHead.higher_resolution` is `True` or `False`, `KeypointHead.hidden_width` is an integer of at least 0, the tag loss weights are at least 0, `inference.maximum_candidates` is an integer of at least 1, `inference.keypoint_threshold` is within ]0, 1[, `inference.tag_threshold` is positive and `inference.object_score_threshold` is within [0, 1]. The categories of `Evaluation.keypoint_sigmas` must be categories of the training split with keypoints, and their keypoint names those of the category.
 
 For SEG, the keys of `SegmentationDecoder.convolutions` must be the backbone blocks whose output before pooling is a skip connection: blocks 1 to N-1 of a backbone of N blocks, and block N too with `Backbone.last_max_pooling: True`. The keys of `SegmentationDecoder.deep_supervision_weights` must be keys of `convolutions` other than the finest level, which gives the final logits. The categories of a `multi_class` mapping file are the pixel values of the masks (1 to 254, 0 being the background and 255 the unlabelled pixels).
 
 For DET, every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`; for INS, it also holds `mask_head`, whose `roi_align_pool_size` must not exceed `MaskHead.mask_resolution`.
 
-INS has the keys of DET and `MaskHead`. M2O and M2M have exactly the same keys. SEL has the keys of M2M without `window_stride` and `short_sequences`, and `Selection`. SSL has the keys of CLS without `ClassificationHead`, `top_k`, `target_precision`, `save_predictions` and `error_dumps`, and `ProjectionHead`, `Data.view_augmentation` and `number_neighbours`. KPT has the keys of SSL without `Data.view_augmentation`, `ProjectionHead` and `number_neighbours`, and `Data.crop_settings`, `Data.crop_augmentation`, `HRNet`, `KeypointHead`, `default_keypoint_sigma` and `keypoint_sigmas`. The number of blocks in `Backbone.convolutions` changes from one example to another, but this is a value, not a different key.
+INS has the keys of DET and `MaskHead`. M2O and M2M have exactly the same keys. SEL has the keys of M2M without `window_stride` and `short_sequences`, and `Selection`. SSL has the keys of CLS without `ClassificationHead`, `top_k`, `target_precision`, `save_predictions` and `error_dumps`, and `ProjectionHead`, `Data.view_augmentation` and `number_neighbours`. KPT has the keys of SSL without `Data.view_augmentation`, `ProjectionHead` and `number_neighbours`, and `HRNet`, `KeypointHead`, `default_keypoint_sigma` and `keypoint_sigmas`. The number of blocks in `Backbone.convolutions` changes from one example to another, but this is a value, not a different key.
 
 ### Evaluation Outputs
 Every evaluated checkpoint is reported in the console and in a block of `<run>/Results.txt` with the same layout: a header `Iteration <n> · <evaluated samples> · <date and time>`, the global metrics, the notes (e.g. the error images) and the tables of the task, the per-class table being sorted worst first. Its files are written in `<run>/Evaluation/Iteration_<n>/`, those of the moving average of the weights in `<run>/Evaluation/Iteration_<n>/EMA/`. `ExperimentConfiguration.evaluation.per_class_report` set to `False` keeps the global metrics only, for runs with many classes: the files written in every case keep the details.
@@ -1033,7 +1041,7 @@ Every evaluated checkpoint is reported in the console and in a block of `<run>/R
 |---|---|---|
 | Global metrics and notes (console, `Results.txt`), global Test scalars (TensorBoard) | all | every evaluation |
 | Per-class table (console, `Results.txt`), per-class Test scalars (TensorBoard) | all | with `per_class_report` |
-| `class_metrics.csv`: one row per class (samples, precision, recall, F1, threshold and recall at the target precision; detection: ground truths and average precisions, of all the objects and of every object size, with the mask average precisions for INS, and the threshold and recall at the target precision; segmentation: pixels, IoU, Dice, boundary IoU, boundary F1, precision, recall; self-supervised: labelled test images, k-NN precision, recall, F1; keypoints: objects and OKS average precisions as for DET, labelled keypoints, PCK, mean OKS, mean error) | all, SSL with labelled test images | every evaluation |
+| `class_metrics.csv`: one row per class (samples, precision, recall, F1, threshold and recall at the target precision; detection: ground truths and average precisions, of all the objects and of every object size, with the mask average precisions for INS, and the threshold and recall at the target precision; segmentation: pixels, IoU, Dice, boundary IoU, boundary F1, precision, recall; self-supervised: labelled test images, k-NN precision, recall, F1; keypoints: objects and OKS average precisions as for DET, matched objects, labelled keypoints, PCK, mean OKS, mean error) | all, SSL with labelled test images | every evaluation |
 | `keypoint_metrics.csv`: one row per keypoint of every class (labelled keypoints, PCK, mean error in pixels) | KPT | every evaluation |
 | `Mean Average Precision By Object Size (Area)` and `Mean Average Recall` tables on the object keypoint similarity, `Keypoint Accuracy Per Keypoint` table (console, `Results.txt`) | KPT | every evaluation, the per keypoint table with `per_class_report` |
 | `Mean Average Precision By Object Size (Area)`, `Mean Average Recall` and `Proposal Recall` tables (console, `Results.txt`), their Test scalars (TensorBoard), `proposal_recall.csv` | DET, INS | every evaluation |
@@ -1045,7 +1053,7 @@ Every evaluated checkpoint is reported in the console and in a block of `<run>/R
 | `Errors/<TRUE>-TO-<PREDICTED>/` | CLS (multi-class), M2O, M2M, CMP | with `error_dumps.activated` |
 | `Errors/<CLASS>/<sequence>.png` | SEL | with `error_dumps.activated` |
 | `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/`, `Errors/<TRUE>-TO-<PREDICTED>/`: the test images with errors, the boxes in error outlined with red dashes | DET, INS | with `error_dumps.activated` |
-| `Samples/<sample>.png` and its Test image `Samples/<sample>` (TensorBoard): the same test samples at every evaluation with their targets and predictions. CLS, M2O, CMP: the input (frame grid of the window, before member above after member for CMP) captioned `true -> predicted probability`, green when right and red when wrong. M2M: the frame grid, every frame captioned `true/predicted` with `X` on the wrong ones. SEL: the thumbnail grid of the whole sequence with the borders of the selection, and the probability heat map of the wanted classes. DET: ground truth boxes next to the detections above `Detector.inference.score_threshold`. INS: the same, with the masks of the objects painted under their boxes. SEG: input, true mask, predicted mask and error map. SSL: the image next to two random views of it, captioned with its class and the cosine similarity of the representations of both views. KPT: the crop of the object with its ground truth keypoints next to its predicted keypoints, with the skeleton of its class, captioned with its OKS, correct keypoints and score | all | with `number_sample_images` above 0, whatever `per_class_report` |
+| `Samples/<sample>.png` and its Test image `Samples/<sample>` (TensorBoard): the same test samples at every evaluation with their targets and predictions. CLS, M2O, CMP: the input (frame grid of the window, before member above after member for CMP) captioned `true -> predicted probability`, green when right and red when wrong. M2M: the frame grid, every frame captioned `true/predicted` with `X` on the wrong ones. SEL: the thumbnail grid of the whole sequence with the borders of the selection, and the probability heat map of the wanted classes. DET: ground truth boxes next to the detections above `Detector.inference.score_threshold`. INS: the same, with the masks of the objects painted under their boxes. SEG: input, true mask, predicted mask and error map. SSL: the image next to two random views of it, captioned with its class and the cosine similarity of the representations of both views. KPT: the ground truth objects with their keypoints next to the objects found above `KeypointHead.inference.object_score_threshold`, with the skeleton of their class, captioned with their class (and score) | all | with `number_sample_images` above 0, whatever `per_class_report` |
 | `Predicted_Masks/<image>.png`: class index of every pixel at the resolution of the metrics (network input, scaled image with `Data.tiling`, original image with `original_resolution`) | SEG | with `save_predicted_masks` |
 | `Evaluation/evaluation_summary.csv` (`scripts/evaluation/evaluate_checkpoint.py` with `iteration = "all"`) | all | per-class columns with `per_class_report` |
 
@@ -1122,18 +1130,19 @@ The training settings that can change between two resumptions of a run give no t
 | Projection head | `PBN`, `PLN` | `ProjectionHead.fully_connected_normalization` is batch or layer | | | | | | | | | ✓ | |
 | Method | `SIMCLR-T<temperature>` | `ProjectionHead.method` simclr, `simclr.temperature` | | | | | | | | | ✓ | |
 | Method | `BT-OD<weight>` | `ProjectionHead.method` barlow_twins, `barlow_twins.off_diagonal_weight` | | | | | | | | | ✓ | |
-| Crop | `C<height>x<width>` | `Data.crop_settings.height`, `width` | | | | | | | | | | ✓ |
 | High resolution network | `HRSE`, `HRRES` | `HRNet.modules.squeeze_and_excite`, `residual_nets` are True | | | | | | | | | | ✓ |
 | High resolution network | `HRBN`, `HRLN`, `HRNN` | `HRNet.normalization.feature_map_normalization` | | | | | | | | | | ✓ |
 | High resolution network | `HR<width>.<modules of every stage>x<blocks>` | `HRNet.base_width`, `modules_per_stage`, `blocks_per_branch` | | | | | | | | | | ✓ |
 | High resolution network | `HRPT`, then `HRFRZ` when frozen | `HRNet.pretrained` | | | | | | | | | | ✓ |
 | Keypoint head | `K<channels>` | the heatmap channels, the keypoints of every class | | | | | | | | | | ✓ |
+| Keypoint head | `KH<width>` | `KeypointHead.hidden_width` is above 0 | | | | | | | | | | ✓ |
+| Keypoint head | `HH` | `KeypointHead.higher_resolution: True` | | | | | | | | | | ✓ |
 | Keypoint head | `KHPT`, then `KHFRZ` when frozen | `KeypointHead.pretrained` | | | | | | | | | | ✓ |
 | Classes | `MC<classes>` | foreground classes of the label dictionary | | | | | | | | | | ✓ |
 | Optimizer | `ADAMW` or `SGD` | `Optimization.optimizer` is not adam | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Optimizer | `WD<decay>` | `Optimization.weight_decay` is above 0 | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
-For the detection heads, the mask heads and the anchors, a setting identical on every detection level is written once, otherwise the levels are joined with `+` in level order. The classes of SEG count the foreground classes. The weights of the deep supervision levels of SEG give no token, only their levels: the heads exist whatever their weights. The `Data.tiling.overlap` of SEG gives no token, being only used by the evaluation. The `MaskHead.inference.mask_threshold` of INS gives no token, nor do `Data.crop_settings.box_enlargement`, `Data.crop_augmentation` and `KeypointHead.heatmap_sigma` of KPT. The loading settings (`Data.loading`) and the evaluation settings add no token either.
+For the detection heads, the mask heads and the anchors, a setting identical on every detection level is written once, otherwise the levels are joined with `+` in level order. The classes of SEG count the foreground classes. The weights of the deep supervision levels of SEG give no token, only their levels: the heads exist whatever their weights. The `Data.tiling.overlap` of SEG gives no token, being only used by the evaluation. The `MaskHead.inference.mask_threshold` of INS gives no token, nor do `KeypointHead.heatmap_sigma`, `tag_pull_weight`, `tag_push_weight` and `inference` of KPT. The loading settings (`Data.loading`) and the evaluation settings add no token either.
 
 Examples, built from the configurations of the repository:
 
@@ -1147,7 +1156,7 @@ Examples, built from the configurations of the repository:
 | SEG | `SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9` |
 | SEL | `SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T12_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1` |
 | SSL | `SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2` |
-| KPT | `KPT_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64_C256x192_HRSE-HRRES-HRBN-HR32.1.4.3x4_K17_MC1` |
+| KPT | `KPT_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64_HRSE-HRRES-HRBN-HR32.1.4.3x4_K17-HH_MC1` |
 
 M2M names have the same layout as M2O names. SEL names have it too, followed by the selection section.
 
@@ -1227,7 +1236,7 @@ The checkpoint evaluation and launch comparison scripts are in `scripts/`, also 
 │   ├── data/                          # Datasets, loaders, preprocessing, augmentation, label mapping
 │   │   ├── classification/            # Classification dataset (every image kept for the self-supervised task), class folder converter, ImageNet download
 │   │   ├── detection/                 # COCO dataset, decoding of the COCO segmentations into instance masks
-│   │   ├── keypoints/                 # Keypoint dataset (one sample per object), keypoint categories and flip pairs, crops and heatmap targets
+│   │   ├── keypoints/                 # Keypoint categories, heatmap and tag targets
 │   │   ├── segmentation/              # Segmentation dataset
 │   │   ├── sequence/                  # Sequence and pair datasets, pair list converter
 │   │   └── synthetic/                 # Synthetic shapes datasets of every task

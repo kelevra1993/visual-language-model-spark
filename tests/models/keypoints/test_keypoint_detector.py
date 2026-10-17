@@ -1,11 +1,15 @@
 """
-Tests of vision_training/models/keypoints/keypoint_detector.py, the model of the keypoint detection task: the heatmap
-channel table (consecutive channels per class in increasing class order, -1 for the padding positions and the classes
-without keypoints, the 'class.keypoint' names, an empty definition refused), the decoding of the heatmaps (a Gaussian
-target of the crop transform decodes back within a quarter of a cell of its keypoint, a maximum on the border is not
-shifted, the scores are the maxima), and the forward pass of the KeypointDetector on the keypoint fixture (the outputs
-and their shapes, the selection of the channels of the class of every crop, and the heatmap loss given only with the
-targets, which sends no gradient to the channels of the other classes nor to the untrained keypoints).
+Tests of vision_training/models/keypoints/keypoint_detector.py, the bottom-up model of the keypoint detection task: the
+heatmap channel table (consecutive channels per class in increasing class order, -1 for the padding positions and the
+classes without keypoints, the 'class.keypoint' names, an empty definition refused), the extraction of the keypoint
+candidates (the Gaussian targets of build_keypoint_targets come back within a quarter of a cell of their keypoints with
+the tag of their cell, a maximum on the border is not shifted, the candidates are sorted and padded with zero scores,
+and the higher resolution heatmaps are averaged at half the image resolution), and the forward pass of the
+KeypointDetector on the keypoint fixture with and without the higher resolution branch and the 3x3 hidden convolution
+of the prediction heads (the outputs and their shapes, the first heatmaps at the prior probability and the first tags
+near 0, the heatmaps the sigmoid of the logits, the losses given only with the ground truth and equal to the losses of
+the logits and of the targets, the heatmap loss training every heatmap channel and the tag losses the tags of the cells
+of the labelled keypoints only).
 """
 
 import pytest
@@ -15,31 +19,41 @@ from functools import partial
 from torch import nn
 from typing import List, Tuple
 
-from vision_training.data.keypoints.crop_transform import build_heatmap_targets
-from vision_training.losses.keypoint_losses import compute_keypoint_heatmap_loss
+from vision_training.data.keypoints.heatmap_targets import build_keypoint_targets
+from vision_training.losses.keypoint_losses import compute_heatmap_loss, compute_tag_losses
 from vision_training.models.keypoints.keypoint_detector import (HEATMAP_STRIDE, KeypointDetector,
-                                                                build_keypoint_channel_table, decode_heatmaps)
+                                                                build_keypoint_channel_table,
+                                                                extract_keypoint_candidates)
 from tests.fixtures.configuration_fixtures import get_keypoint_model_configuration
 
-# Crop size of the keypoint fixture and the size of its heatmaps
-CROP_HEIGHT, CROP_WIDTH = 64, 48
-HEATMAP_HEIGHT, HEATMAP_WIDTH = CROP_HEIGHT // HEATMAP_STRIDE, CROP_WIDTH // HEATMAP_STRIDE
+# Image size of the keypoint fixture and the size of its heatmaps
+IMAGE_SIZE = 64
+HEATMAP_SIZE = IMAGE_SIZE // HEATMAP_STRIDE
+
+# Keypoints of the fixture image: two rectangles (class 2) and a triangle (class 1) whose right keypoint is unlabelled
+GROUND_TRUTH_KEYPOINTS = [torch.tensor(data=[[[6.0, 6.0, 2.0], [26.0, 6.0, 2.0], [26.0, 26.0, 2.0], [6.0, 26.0, 2.0]],
+                                             [[38.0, 38.0, 2.0], [58.0, 38.0, 2.0], [58.0, 58.0, 2.0],
+                                              [38.0, 58.0, 2.0]],
+                                             [[46.0, 6.0, 2.0], [38.0, 22.0, 2.0], [54.0, 22.0, 0.0],
+                                              [0.0, 0.0, 0.0]]]),
+                          torch.zeros(size=(0, 4, 3))]
+GROUND_TRUTH_LABELS = [torch.tensor(data=[2, 2, 1]), torch.zeros(size=(0,), dtype=torch.int64)]
 
 
-def retain_heatmap_gradient(module: nn.Module, inputs: Tuple[torch.Tensor, ...], output: torch.Tensor,
-                            retained_heatmaps: List[torch.Tensor]) -> None:
+def keep_predictions(module: nn.Module, inputs: Tuple[torch.Tensor, ...], output: torch.Tensor,
+                     retained_predictions: List[torch.Tensor]) -> None:
     """
-    Forward hook of the heatmap head keeping the gradient of the heatmaps it predicts, so that the test of the loss
-    sees which channels receive a gradient from it.
+    Forward hook of the prediction heads keeping their predictions, so that the test of the losses sees which heatmap
+    and tag cells receive a gradient from them and computes the expected heatmap loss from the logits.
 
     Args:
-        module (nn.Module): The heatmap head.
-        inputs (Tuple[torch.Tensor, ...]): The inputs of the head.
-        output (torch.Tensor): The [B, C, h, w] predicted heatmaps.
-        retained_heatmaps (List[torch.Tensor]): The list receiving the heatmaps.
+        module (nn.Module): The heatmap and tag head or the higher resolution branch.
+        inputs (Tuple[torch.Tensor, ...]): The inputs of the module.
+        output (torch.Tensor): The [B, 2C, h, w] predicted heatmap logits then tags, or the [B, C, 2h, 2w] higher
+            resolution heatmap logits.
+        retained_predictions (List[torch.Tensor]): The list receiving the predictions.
     """
-    output.retain_grad()
-    retained_heatmaps.append(output)
+    retained_predictions.append(output)
 
 
 def test_channel_table_gives_consecutive_channels_per_class() -> None:
@@ -58,104 +72,189 @@ def test_channel_table_gives_consecutive_channels_per_class() -> None:
         build_keypoint_channel_table(keypoint_categories={})
 
 
-def test_heatmap_targets_decode_back_to_their_keypoints() -> None:
+def test_candidates_come_back_to_their_keypoints() -> None:
     """
-    Verifies that the Gaussian targets of random keypoints inside the crop decode back within a quarter of a cell of
-    their keypoints, exactly for a keypoint at a cell centre and for a keypoint a quarter of a cell right of it, that
-    the scores are the maxima of the heatmaps, and that a maximum on the border of the heatmap is not shifted.
+    Verifies that the Gaussian targets of random keypoints, one per channel, give a first candidate within a quarter of
+    a cell of their keypoints, exactly for a keypoint at a cell centre and for a keypoint a quarter of a cell right of
+    it, that its score is the maximum of its heatmap and its tag the tag of its cell, and that the other candidates
+    follow by decreasing score, padded with zero scores when the heatmap has fewer local maxima.
     """
     generator = torch.Generator().manual_seed(0)
-    random_keypoints = torch.rand(size=(2, 30, 2), generator=generator) * torch.tensor(data=[CROP_WIDTH - 8.0,
-                                                                                            CROP_HEIGHT - 8.0]) + 4.0
-    exact_keypoints = torch.tensor(data=[[[18.0, 26.0], [19.0, 26.0]]]).expand(2, 2, 2)
-    crop_keypoints = torch.cat(tensors=[random_keypoints, exact_keypoints], dim=1)
-    heatmaps, _ = build_heatmap_targets(crop_keypoints=crop_keypoints, visibilities=torch.full(size=(2, 32),
-                                                                                               fill_value=2),
-                                        crop_height=CROP_HEIGHT, crop_width=CROP_WIDTH, heatmap_stride=HEATMAP_STRIDE,
-                                        heatmap_sigma=2.0)
-    keypoints, keypoint_scores = decode_heatmaps(heatmaps=heatmaps, heatmap_stride=HEATMAP_STRIDE)
-    assert keypoints.shape == (2, 32, 2) and keypoints.dtype == keypoint_scores.dtype == torch.float32
-    assert float((keypoints - crop_keypoints).abs().max()) <= HEATMAP_STRIDE / 4.0 + 1e-5
-    assert torch.equal(input=keypoints[:, 30:], other=exact_keypoints)
-    assert torch.equal(input=keypoint_scores, other=heatmaps.flatten(start_dim=2).max(dim=2).values)
+    random_keypoints = torch.rand(size=(30, 2), generator=generator) * (IMAGE_SIZE - 8.0) + 4.0
+    exact_keypoints = torch.tensor(data=[[18.0, 26.0], [19.0, 26.0]])
+    keypoints = torch.cat(tensors=[random_keypoints, exact_keypoints])
+    channel_table = torch.arange(end=32)[None]
+    labelled_keypoints = torch.cat(tensors=[keypoints, torch.full(size=(32, 1), fill_value=2.0)], dim=1)
+    targets = build_keypoint_targets(keypoints=[labelled_keypoints[None]],
+                                     labels=[torch.tensor(data=[0])], channel_table=channel_table, number_channels=32,
+                                     image_height=IMAGE_SIZE, image_width=IMAGE_SIZE, heatmap_strides=[HEATMAP_STRIDE],
+                                     tag_stride=HEATMAP_STRIDE, heatmap_sigma=2.0)
+    heatmaps = targets["heatmaps"][0]
+    tags = torch.randn(size=heatmaps.shape, generator=generator)
+    candidates = extract_keypoint_candidates(heatmaps=heatmaps, tags=tags, higher_resolution_heatmaps=None,
+                                             maximum_candidates=3)
+    assert candidates["candidate_positions"].shape == (1, 32, 3, 2)
+    assert candidates["candidate_scores"].shape == (1, 32, 3)
+    first_positions = candidates["candidate_positions"][0, :, 0]
+    assert float((first_positions - keypoints).abs().max()) <= HEATMAP_STRIDE / 4.0 + 1e-5
+    assert torch.equal(input=first_positions[30:], other=exact_keypoints)
+    assert torch.equal(input=candidates["candidate_scores"][0, :, 0],
+                       other=heatmaps[0].flatten(start_dim=1).max(dim=1).values)
+
+    # The tag of the first candidate is the tag of its cell, and a single Gaussian leaves zero scores behind it
+    cells = torch.div(keypoints, HEATMAP_STRIDE, rounding_mode="floor").to(dtype=torch.int64)
+    assert torch.equal(input=candidates["candidate_tags"][0, :, 0],
+                       other=tags[0, torch.arange(end=32), cells[:, 1], cells[:, 0]])
+    assert bool((candidates["candidate_scores"][0, :, 1:] == 0.0).all())
 
     # A maximum in the top left cell has no neighbour above nor on its left and stays at the cell centre
-    border_heatmaps = torch.zeros(size=(1, 1, HEATMAP_HEIGHT, HEATMAP_WIDTH))
+    border_heatmaps = torch.zeros(size=(1, 1, HEATMAP_SIZE, HEATMAP_SIZE))
     border_heatmaps[0, 0, 0, 0], border_heatmaps[0, 0, 0, 1], border_heatmaps[0, 0, 1, 0] = 0.9, 0.5, 0.4
-    border_keypoints, border_scores = decode_heatmaps(heatmaps=border_heatmaps, heatmap_stride=HEATMAP_STRIDE)
-    assert border_keypoints.tolist() == [[[2.0, 2.0]]] and border_scores.tolist() == [[pytest.approx(0.9)]]
+    border_heatmaps[0, 0, 8, 8] = 0.7
+    border_candidates = extract_keypoint_candidates(heatmaps=border_heatmaps,
+                                                    tags=torch.zeros_like(input=border_heatmaps),
+                                                    higher_resolution_heatmaps=None, maximum_candidates=2)
+    assert border_candidates["candidate_positions"][0, 0].tolist() == [[2.0, 2.0], [34.0, 34.0]]
+    assert border_candidates["candidate_scores"][0, 0].tolist() == [pytest.approx(0.9), pytest.approx(0.7)]
 
 
-def test_detector_selects_the_channels_of_the_class_of_every_crop() -> None:
+def test_higher_resolution_heatmaps_are_averaged_at_half_the_resolution() -> None:
     """
-    Verifies the outputs of the keypoint detector of the fixture (7 channels: the 3 of the triangle, then the 4 of the
-    rectangle): without labels only the heatmaps, keypoints and scores of every channel, with the labels the keypoints
-    and scores of the channels of the class of every crop, the padding position of the triangle being zero, and the
-    loss only with the targets.
+    Verifies that with the higher resolution heatmaps, the quarter resolution heatmaps and tags are upsampled to half
+    the image resolution: zero quarter resolution heatmaps and the Gaussian of a keypoint at stride 2 give a candidate
+    within a quarter of a half resolution cell of the keypoint with half the score, a constant tag map gives its
+    constant, and the number of candidates is capped by the number of cells.
+    """
+    keypoint = torch.tensor(data=[[[21.0, 37.0, 2.0]]])
+    targets = build_keypoint_targets(keypoints=[keypoint], labels=[torch.tensor(data=[1])],
+                                     channel_table=torch.tensor(data=[[-1], [0]]), number_channels=1,
+                                     image_height=IMAGE_SIZE, image_width=IMAGE_SIZE, heatmap_strides=[2],
+                                     tag_stride=HEATMAP_STRIDE, heatmap_sigma=2.0)
+    candidates = extract_keypoint_candidates(heatmaps=torch.zeros(size=(1, 1, HEATMAP_SIZE, HEATMAP_SIZE)),
+                                             tags=torch.full(size=(1, 1, HEATMAP_SIZE, HEATMAP_SIZE), fill_value=0.3),
+                                             higher_resolution_heatmaps=targets["heatmaps"][0],
+                                             maximum_candidates=10000)
+    number_cells = (2 * HEATMAP_SIZE) ** 2
+    assert candidates["candidate_positions"].shape == (1, 1, number_cells, 2)
+    assert float((candidates["candidate_positions"][0, 0, 0] - keypoint[0, 0, :2]).abs().max()) <= 2.0 / 4.0 + 1e-5
+    assert float(candidates["candidate_scores"][0, 0, 0]) == pytest.approx(float(targets["heatmaps"][0].max()) / 2.0)
+    assert torch.allclose(input=candidates["candidate_tags"], other=torch.tensor(data=0.3))
+
+
+@pytest.mark.parametrize("higher_resolution, hidden_width", [(False, 0), (True, 0), (False, 16), (True, 16)])
+def test_detector_gives_candidates_without_ground_truth(higher_resolution: bool, hidden_width: int) -> None:
+    """
+    Verifies the inference outputs of the keypoint detector of the fixture (7 channels: the 3 of the triangle, then the
+    4 of the rectangle): the heatmaps and tags at a quarter of the image, the higher resolution heatmaps at half of it
+    with the branch, and the 5 candidates of every channel inside the image, without any loss. With a hidden width,
+    every prediction head starts with a 3x3 convolution of that width before its 1x1 convolution. The first heatmaps
+    are the prior probability of 0.01 at every cell and the first tags near 0.
+
+    Args:
+        higher_resolution (bool): Whether the detector has the higher resolution branch.
+        hidden_width (int): The channels of the 3x3 convolution of the prediction heads, 0 for none.
     """
     torch.manual_seed(seed=0)
-    configuration, device, dtype = get_keypoint_model_configuration()
+    configuration, device, dtype = get_keypoint_model_configuration(higher_resolution=higher_resolution,
+                                                                    hidden_width=hidden_width)
     model = KeypointDetector(configuration=configuration, device=device, dtype=dtype).eval()
     assert model.channel_table.tolist() == [[-1, -1, -1, -1], [0, 1, 2, -1], [3, 4, 5, 6]]
-    crops = torch.rand(size=(2, 3, CROP_HEIGHT, CROP_WIDTH)) * 255.0
 
-    # Every channel of every crop is decoded
+    # Every prediction head ends with a 1x1 convolution, after a 3x3 convolution of the hidden width if any
+    prediction_heads = [model.keypoint_head["prediction_convolution"]]
+    if higher_resolution:
+        prediction_heads.append(model.keypoint_head["higher_resolution_branch"].heatmap_head)
+    for prediction_head in prediction_heads:
+        assert len(prediction_head) == (2 if hidden_width > 0 else 1)
+        assert prediction_head[-1].kernel_size == (1, 1)
+        if hidden_width > 0:
+            hidden_convolution = prediction_head[0].block[0]
+            assert hidden_convolution.kernel_size == (3, 3) and hidden_convolution.out_channels == hidden_width
+            assert prediction_head[-1].in_channels == hidden_width
     with torch.no_grad():
-        outputs = model(input_tensor=crops)
-    assert set(outputs) == {"heatmaps", "keypoints", "keypoint_scores"}
-    assert outputs["heatmaps"].shape == (2, 7, HEATMAP_HEIGHT, HEATMAP_WIDTH)
-    assert outputs["keypoints"].shape == (2, 7, 2) and outputs["keypoint_scores"].shape == (2, 7)
+        outputs = model(input_tensor=torch.rand(size=(2, 3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0)
+    expected_keys = {"heatmaps", "tags", "candidate_positions", "candidate_scores", "candidate_tags"}
+    assert set(outputs) == expected_keys | ({"higher_resolution_heatmaps"} if higher_resolution else set())
+    assert outputs["heatmaps"].shape == outputs["tags"].shape == (2, 7, HEATMAP_SIZE, HEATMAP_SIZE)
+    if higher_resolution:
+        assert outputs["higher_resolution_heatmaps"].shape == (2, 7, 2 * HEATMAP_SIZE, 2 * HEATMAP_SIZE)
+    assert torch.allclose(input=outputs["heatmaps"], other=torch.full_like(input=outputs["heatmaps"], fill_value=0.01),
+                          atol=1e-3)
+    assert float(outputs["tags"].abs().max()) < 0.1
+    if higher_resolution:
+        assert torch.allclose(input=outputs["higher_resolution_heatmaps"], atol=1e-3,
+                              other=torch.full_like(input=outputs["higher_resolution_heatmaps"], fill_value=0.01))
+    assert outputs["candidate_positions"].shape == (2, 7, 5, 2)
+    assert outputs["candidate_scores"].shape == outputs["candidate_tags"].shape == (2, 7, 5)
+    assert bool(((outputs["candidate_positions"] > 0.0) & (outputs["candidate_positions"] < IMAGE_SIZE)).all())
 
-    # The triangle crop reads channels 0 to 2 with a zero padding, the rectangle crop channels 3 to 6
-    with torch.no_grad():
-        labelled_outputs = model(input_tensor=crops, labels=torch.tensor(data=[1, 2]))
-    assert "keypoint_loss" not in labelled_outputs
-    assert torch.equal(input=labelled_outputs["category_keypoints"][0, :3], other=outputs["keypoints"][0, :3])
-    assert torch.equal(input=labelled_outputs["category_keypoints"][1], other=outputs["keypoints"][1, 3:])
-    assert torch.equal(input=labelled_outputs["category_keypoint_scores"][1], other=outputs["keypoint_scores"][1, 3:])
-    assert labelled_outputs["category_keypoints"][0, 3].tolist() == [0.0, 0.0]
-    assert float(labelled_outputs["category_keypoint_scores"][0, 3]) == 0.0
 
-
-def test_heatmap_loss_trains_only_the_channels_of_the_class() -> None:
+@pytest.mark.parametrize("higher_resolution, hidden_width", [(False, 0), (True, 0), (True, 16)])
+def test_losses_train_every_heatmap_and_the_tags_of_the_keypoints(higher_resolution: bool, hidden_width: int) -> None:
     """
-    Verifies that the heatmap loss of a triangle crop and a rectangle crop is the loss of the channels of their
-    classes, and that its gradient reaches the trained keypoints only: neither the channels of the other class, nor the
-    unlabelled keypoint of the rectangle, nor the padding position of the triangle, given a weight of 1 on purpose.
+    Verifies that with the ground truth of an image of two rectangles and a triangle next to an image without object,
+    the heatmaps are the sigmoid of the predicted logits, the heatmap loss is the sum of the heatmap losses of these
+    logits and of the targets at every stride and the tag losses are the weighted pull and push losses of the targets,
+    that every heatmap channel of both images receives a gradient from the heatmap loss (the empty ones are trained
+    towards zero), and that the tags receive one from the tag losses only at the cells of the labelled keypoints (the
+    higher resolution branch reads the tags too, so the heatmap loss reaches them).
+
+    Args:
+        higher_resolution (bool): Whether the detector has the higher resolution branch.
+        hidden_width (int): The channels of the 3x3 convolution of the prediction heads, 0 for none.
     """
     torch.manual_seed(seed=0)
-    configuration, device, dtype = get_keypoint_model_configuration()
+    configuration, device, dtype = get_keypoint_model_configuration(higher_resolution=higher_resolution,
+                                                                    hidden_width=hidden_width)
     model = KeypointDetector(configuration=configuration, device=device, dtype=dtype).train()
-    crops = torch.rand(size=(2, 3, CROP_HEIGHT, CROP_WIDTH)) * 255.0
-    labels = torch.tensor(data=[1, 2])
+    images = torch.rand(size=(2, 3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0
 
-    # Targets of 4 keypoint positions, the rectangle keypoint 2 untrained and the triangle padding weighted 1
-    target_keypoints = torch.tensor(data=[[[24.0, 10.0], [10.0, 50.0], [38.0, 50.0], [0.0, 0.0]],
-                                          [[8.0, 20.0], [40.0, 20.0], [40.0, 44.0], [8.0, 44.0]]])
-    target_heatmaps, _ = build_heatmap_targets(crop_keypoints=target_keypoints, visibilities=torch.full(size=(2, 4),
-                                                                                                        fill_value=2),
-                                               crop_height=CROP_HEIGHT, crop_width=CROP_WIDTH,
-                                               heatmap_stride=HEATMAP_STRIDE, heatmap_sigma=2.0)
-    heatmap_weights = torch.tensor(data=[[1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 0.0, 1.0]])
+    # The predictions of the heads are kept to see which cells the losses reach, the quarter resolution logits and
+    # tags first, then the higher resolution logits
+    retained_predictions = []
+    prediction_modules = [model.keypoint_head["prediction_convolution"]]
+    if higher_resolution:
+        prediction_modules.append(model.keypoint_head["higher_resolution_branch"])
+    hook_handles = [prediction_module.register_forward_hook(
+        hook=partial(keep_predictions, retained_predictions=retained_predictions))
+        for prediction_module in prediction_modules]
+    outputs = model(input_tensor=images, ground_truth_keypoints=GROUND_TRUTH_KEYPOINTS,
+                    ground_truth_labels=GROUND_TRUTH_LABELS)
+    for hook_handle in hook_handles:
+        hook_handle.remove()
+    assert {"heatmap_loss", "tag_pull_loss", "tag_push_loss"} <= set(outputs)
 
-    # The heatmaps of the head keep their gradient to see which channels the loss reaches
-    retained_heatmaps = []
-    hook_handle = model.keypoint_head.register_forward_hook(
-        hook=partial(retain_heatmap_gradient, retained_heatmaps=retained_heatmaps))
-    outputs = model(input_tensor=crops, labels=labels, target_heatmaps=target_heatmaps, heatmap_weights=heatmap_weights)
-    hook_handle.remove()
-    outputs["keypoint_loss"].backward()
-    heatmaps = retained_heatmaps[0]
+    # The heatmaps are the sigmoid of the logits
+    heatmap_logits = [retained_predictions[0][:, :7]] + retained_predictions[1:]
+    assert torch.allclose(input=outputs["heatmaps"], other=torch.sigmoid(heatmap_logits[0]))
+    if higher_resolution:
+        assert torch.allclose(input=outputs["higher_resolution_heatmaps"], other=torch.sigmoid(heatmap_logits[1]))
 
-    # The loss is the one of the channels of the class of every crop, the triangle padding left out
-    expected_loss = compute_keypoint_heatmap_loss(
-        predicted_heatmaps=torch.stack(tensors=[heatmaps[0, [0, 1, 2, 0]], heatmaps[1, 3:]]),
-        target_heatmaps=target_heatmaps, heatmap_weights=torch.tensor(data=[[1.0, 1.0, 1.0, 0.0],
-                                                                            [1.0, 1.0, 0.0, 1.0]]))
-    assert torch.allclose(input=outputs["keypoint_loss"], other=expected_loss)
+    # The losses are those of the targets, at the strides 4 and 2 with the branch
+    heatmap_strides = [HEATMAP_STRIDE, HEATMAP_STRIDE // 2] if higher_resolution else [HEATMAP_STRIDE]
+    targets = build_keypoint_targets(keypoints=GROUND_TRUTH_KEYPOINTS, labels=GROUND_TRUTH_LABELS,
+                                     channel_table=model.channel_table, number_channels=7, image_height=IMAGE_SIZE,
+                                     image_width=IMAGE_SIZE, heatmap_strides=heatmap_strides,
+                                     tag_stride=HEATMAP_STRIDE, heatmap_sigma=2.0)
+    expected_heatmap_loss = sum(compute_heatmap_loss(predicted_logits=logits, target_heatmaps=target)
+                                for logits, target in zip(heatmap_logits, targets["heatmaps"], strict=True))
+    pull_loss, push_loss = compute_tag_losses(tag_maps=outputs["tags"], tag_indices=targets["tag_indices"],
+                                              tag_valid=targets["tag_valid"], object_labels=targets["object_labels"])
+    assert torch.allclose(input=outputs["heatmap_loss"], other=expected_heatmap_loss)
+    assert torch.allclose(input=outputs["tag_pull_loss"], other=0.001 * pull_loss)
+    assert torch.allclose(input=outputs["tag_push_loss"], other=0.001 * push_loss)
+    assert push_loss.item() > 0.0
 
-    # Gradient on the trained channels only
-    channel_gradients = heatmaps.grad.abs().flatten(start_dim=2).sum(dim=2)
-    assert bool((channel_gradients[0, :3] > 0).all()) and float(channel_gradients[0, 3:].sum()) == 0.0
-    assert float(channel_gradients[1, :3].sum()) == 0.0 and float(channel_gradients[1, 5]) == 0.0
-    assert bool((channel_gradients[1, [3, 4, 6]] > 0).all())
+    # Every heatmap channel of both images is trained by the heatmap loss
+    heatmap_gradients = torch.autograd.grad(outputs=outputs["heatmap_loss"], inputs=retained_predictions[0],
+                                            retain_graph=True)[0]
+    assert bool((heatmap_gradients[:, :7].abs().flatten(start_dim=2).sum(dim=2) > 0.0).all())
+
+    # The tag losses reach the tags only, at the cells of the 10 labelled keypoints
+    tag_gradients = torch.autograd.grad(outputs=outputs["tag_pull_loss"] + outputs["tag_push_loss"],
+                                        inputs=retained_predictions[0])[0]
+    assert not tag_gradients[:, :7].any()
+    tag_gradient_cells = (tag_gradients[:, 7:].reshape(2, -1) != 0.0).nonzero()
+    trained_cells = targets["tag_indices"][0][targets["tag_valid"][0]]
+    assert len(trained_cells) == 10 and not tag_gradient_cells[:, 0].any()
+    assert set(tag_gradient_cells[:, 1].tolist()) == set(trained_cells.tolist())

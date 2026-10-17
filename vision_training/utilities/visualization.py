@@ -4,8 +4,9 @@ of the detection sample and error images and anchors, the input viewer of the tr
 information panel listing its target and its augmentations, the windows centred on the screen), the frame grids of the
 sequence tasks, the caption bars of the evaluation error images, the class colours,
 mask overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
-segmentation, the keypoint crops with their skeleton and the keypoint sample grids of the keypoint detection, and the
-selection grids with their probability heat map of the frame selection. Used by the trainers.
+segmentation, the keypoints of the objects of an image with their skeleton and the keypoint sample grids of the
+keypoint detection, and the selection grids with their probability heat map of the frame selection. Used by the
+trainers.
 """
 
 import importlib
@@ -16,7 +17,7 @@ import numpy as np
 import torch
 
 from functools import lru_cache
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.models.sequence.frame_selection_decoding import NO_FRAME
@@ -78,13 +79,11 @@ ERROR_OUTLINE_DASH_LENGTH = 6
 ERROR_OUTLINE_LEGEND = "Error"
 
 # Keypoint drawings: BGR colours of the keypoints by the side of the object their name gives (blue left, orange right,
-# yellow for the keypoints of neither side), radius in pixels of their discs, BGR colour and thickness of the skeleton
-# lines, and side in pixels of the panels of the keypoint sample grids
+# yellow for the keypoints of neither side), radius in pixels of their discs, and thickness of the skeleton lines,
+# drawn in the colour of the class of their object
 KEYPOINT_SIDE_COLOURS = {"Left": (255, 160, 0), "Right": (0, 140, 255), "Centre": (0, 255, 255)}
 KEYPOINT_RADIUS = 4
-SKELETON_COLOUR = (200, 200, 200)
 SKELETON_THICKNESS = 2
-KEYPOINT_DISPLAY_SIZE = 256
 
 # Frame selection drawings: side in pixels of the thumbnails of the frames, thumbnails per row, width of the selection
 # borders, length of the dashes of the missed true frames, brightness kept by the frames rightly unselected, height of
@@ -882,9 +881,8 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
 def find_keypoint_side(keypoint_name: str) -> str:
     """
     Tells the side of the object a keypoint belongs to from its name, so that the keypoint drawings of the input
-    viewer and of the evaluation sample grids colour the left and right keypoints differently: a horizontal flip that
-    forgot to swap them, or a prediction mixing them up, then shows at a glance. The words of the name are read as
-    the flip pairs are deduced (read_keypoint_categories), 'left' or 'right' as a whole word.
+    viewer and of the evaluation sample grids colour the left and right keypoints differently: a prediction mixing them
+    up then shows at a glance. The name is split on its underscores, 'left' or 'right' being read as a whole word.
 
     Args:
         keypoint_name (str): The name of the keypoint, e.g. 'left_elbow' or 'roof_apex'.
@@ -900,93 +898,134 @@ def find_keypoint_side(keypoint_name: str) -> str:
     return "Centre"
 
 
-def draw_keypoint_crop(crop: np.ndarray, keypoints: np.ndarray, visibilities: Optional[np.ndarray],
-                       keypoint_names: List[str], skeleton: List[List[int]], display_size: int) -> np.ndarray:
+def draw_keypoint_objects(image: np.ndarray, keypoints: np.ndarray, visibilities: Optional[np.ndarray],
+                          labels: np.ndarray, keypoint_categories: Dict[int, Dict[str, Any]],
+                          class_colours: np.ndarray, captions: Optional[List[str]] = None) -> np.ndarray:
     """
-    Draws the keypoints of one object crop of the keypoint detection over the crop enlarged to the display size, for
-    the input viewer of the trainer (the targets of an augmented crop) and the panels of the evaluation sample grids
-    (the true and predicted keypoints of a test object): the skeleton lines between the drawn keypoints, then every
-    keypoint as a disc coloured by its side (find_keypoint_side). A labelled visible keypoint, or any predicted one, is
-    a filled disc, a labelled occluded keypoint a hollow ring, and an unlabelled keypoint is left out.
+    Draws the keypoints of every object of one image of the keypoint detection over a copy of the image, at its own
+    resolution, for the input viewer of the trainer (the targets of an augmented image) and the panels of the
+    evaluation sample grids (the true and the predicted objects of a test image): the skeleton of every object in the
+    colour of its class, then every keypoint as a disc coloured by its side (find_keypoint_side), and the caption of
+    the object above its highest keypoint. A labelled visible keypoint, or a found predicted one, is a filled disc, a
+    labelled occluded keypoint a hollow ring, and an unlabelled keypoint or a predicted one not found is left out.
 
     Args:
-        crop (np.ndarray): The [h, w, 3] uint8 BGR crop given to the network.
-        keypoints (np.ndarray): The [K, 2] keypoints of the class (x, y) in continuous crop pixels, a pixel centre
-            being at its index plus 0.5.
-        visibilities (Optional[np.ndarray]): The [K] COCO visibilities (0 unlabelled, 1 labelled occluded, 2 labelled
-            visible) of the true keypoints, None for predicted keypoints, all drawn as visible.
-        keypoint_names (List[str]): The K names of the keypoints of the class.
-        skeleton (List[List[int]]): The pairs of keypoint indices (0-based) joined by a line.
-        display_size (int): The side in pixels the longest side of the crop is enlarged (or reduced) to.
+        image (np.ndarray): The [H, W, 3] uint8 BGR network input.
+        keypoints (np.ndarray): The [N, K, 2] keypoints (x, y) of the objects in continuous image pixels, a pixel
+            centre being at its index plus 0.5, NaN for the predicted keypoints not found.
+        visibilities (Optional[np.ndarray]): The [N, K] COCO visibilities (0 unlabelled, 1 labelled occluded, 2
+            labelled visible) of the true keypoints, None for predicted keypoints, drawn as visible when found.
+        labels (np.ndarray): The [N] class index of every object.
+        keypoint_categories (Dict[int, Dict[str, Any]]): The 'keypoints' names and 'skeleton' (0-based pairs of
+            keypoint positions) of every class index ('Data.keypoint_categories').
+        class_colours (np.ndarray): The [C, 3] uint8 BGR colour of every class (build_class_colours).
+        captions (Optional[List[str]]): The text written above every object in the colour of its class, on a black
+            background. Defaults to None, in which case the objects are drawn without text.
 
     Returns:
-        np.ndarray: The [display_size x h / max(h, w), display_size x w / max(h, w), 3] uint8 BGR drawing.
+        np.ndarray: The [H, W, 3] uint8 BGR drawing.
     """
-    crop_height, crop_width = crop.shape[:2]
-    scale = display_size / max(crop_height, crop_width)
-    drawing = cv2.resize(src=crop, dsize=(int(round(crop_width * scale)), int(round(crop_height * scale))),
-                         interpolation=cv2.INTER_LINEAR)
+    drawing = image.copy()
+    for object_index, class_index in enumerate(labels.tolist()):
+        definition = keypoint_categories[class_index]
+        number_keypoints = len(definition["keypoints"])
+        object_keypoints = keypoints[object_index, :number_keypoints]
+        class_colour = tuple(int(component) for component in class_colours[class_index])
 
-    # Display pixel of every keypoint, the continuous coordinates being scaled before the half pixel offset, and the
-    # keypoints drawn: every predicted keypoint, the labelled true ones
-    display_points = [(int(round(x * scale - 0.5)), int(round(y * scale - 0.5))) for x, y in keypoints.tolist()]
-    drawn_keypoints = (np.ones(shape=len(keypoint_names), dtype=bool) if visibilities is None
-                       else visibilities[:len(keypoint_names)] > 0)
-
-    # Skeleton lines between two drawn keypoints, under the keypoint discs
-    for start_index, end_index in skeleton:
-        if drawn_keypoints[start_index] and drawn_keypoints[end_index]:
-            cv2.line(img=drawing, pt1=display_points[start_index], pt2=display_points[end_index],
-                     color=SKELETON_COLOUR, thickness=SKELETON_THICKNESS, lineType=cv2.LINE_AA)
-
-    # Keypoint discs coloured by their side with a black outline, the occluded true keypoints as rings
-    for keypoint_index, keypoint_name in enumerate(keypoint_names):
-        if not drawn_keypoints[keypoint_index]:
+        # Keypoints drawn: the labelled true ones, the found predicted ones, at the pixel of their continuous position
+        drawn_keypoints = (np.isfinite(object_keypoints).all(axis=1) if visibilities is None
+                           else visibilities[object_index, :number_keypoints] > 0)
+        if not drawn_keypoints.any():
             continue
-        side_colour = KEYPOINT_SIDE_COLOURS[find_keypoint_side(keypoint_name=keypoint_name)]
-        occluded = visibilities is not None and visibilities[keypoint_index] == 1
-        cv2.circle(img=drawing, center=display_points[keypoint_index], radius=KEYPOINT_RADIUS + 1, color=(0, 0, 0),
-                   thickness=-1 if not occluded else 4, lineType=cv2.LINE_AA)
-        cv2.circle(img=drawing, center=display_points[keypoint_index], radius=KEYPOINT_RADIUS, color=side_colour,
-                   thickness=-1 if not occluded else 2, lineType=cv2.LINE_AA)
+        drawn_points = [(int(round(x - 0.5)), int(round(y - 0.5))) if drawn else (0, 0)
+                        for (x, y), drawn in zip(object_keypoints.tolist(), drawn_keypoints.tolist(), strict=True)]
+
+        # Skeleton lines between two drawn keypoints, in the colour of the class, under the keypoint discs
+        for start_index, end_index in definition["skeleton"]:
+            if drawn_keypoints[start_index] and drawn_keypoints[end_index]:
+                cv2.line(img=drawing, pt1=drawn_points[start_index], pt2=drawn_points[end_index], color=class_colour,
+                         thickness=SKELETON_THICKNESS, lineType=cv2.LINE_AA)
+
+        # Keypoint discs coloured by their side with a black outline, the occluded true keypoints as rings
+        for keypoint_index, keypoint_name in enumerate(definition["keypoints"]):
+            if not drawn_keypoints[keypoint_index]:
+                continue
+            side_colour = KEYPOINT_SIDE_COLOURS[find_keypoint_side(keypoint_name=keypoint_name)]
+            occluded = visibilities is not None and visibilities[object_index, keypoint_index] == 1
+            cv2.circle(img=drawing, center=drawn_points[keypoint_index], radius=KEYPOINT_RADIUS + 1, color=(0, 0, 0),
+                       thickness=-1 if not occluded else 4, lineType=cv2.LINE_AA)
+            cv2.circle(img=drawing, center=drawn_points[keypoint_index], radius=KEYPOINT_RADIUS, color=side_colour,
+                       thickness=-1 if not occluded else 2, lineType=cv2.LINE_AA)
+
+        # Caption of the object above its highest keypoint, or below it when the keypoint touches the top of the image
+        if captions is not None:
+            caption_left = min(point[0] for point, drawn in zip(drawn_points, drawn_keypoints, strict=True) if drawn)
+            highest_point = min(point[1] for point, drawn in zip(drawn_points, drawn_keypoints, strict=True) if drawn)
+            (caption_width, caption_height), _ = cv2.getTextSize(text=captions[object_index],
+                                                                 fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.4,
+                                                                 thickness=1)
+            caption_top = highest_point - KEYPOINT_RADIUS - caption_height - 6
+            if caption_top < 0:
+                caption_top = highest_point + KEYPOINT_RADIUS + 2
+            caption_left = int(np.clip(caption_left, a_min=0, a_max=max(0, drawing.shape[1] - caption_width - 4)))
+            cv2.rectangle(img=drawing, pt1=(caption_left, caption_top),
+                          pt2=(caption_left + caption_width + 4, caption_top + caption_height + 6), color=(0, 0, 0),
+                          thickness=-1)
+            cv2.putText(img=drawing, text=captions[object_index],
+                        org=(caption_left + 2, caption_top + caption_height + 3), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                        fontScale=0.4, color=class_colour, thickness=1)
     return drawing
 
 
-def build_keypoint_sample_grid(crop: np.ndarray, ground_truth_keypoints: np.ndarray, visibilities: np.ndarray,
-                               predicted_keypoints: np.ndarray, keypoint_names: List[str], skeleton: List[List[int]],
-                               caption: str, display_size: int = KEYPOINT_DISPLAY_SIZE) -> np.ndarray:
+def build_keypoint_sample_grid(image: np.ndarray, ground_truth_keypoints: np.ndarray, visibilities: np.ndarray,
+                               ground_truth_labels: np.ndarray, predicted_keypoints: np.ndarray,
+                               predicted_labels: np.ndarray, predicted_scores: np.ndarray,
+                               keypoint_categories: Dict[int, Dict[str, Any]], class_names: Dict[int, str],
+                               class_colours: np.ndarray, caption: str) -> np.ndarray:
     """
-    Lays out one evaluated test object of the keypoint detection in two titled panels side by side, saved and sent to
-    TensorBoard at every evaluation so that the keypoints of the same objects can be followed over the training: its
-    crop with the labelled keypoints, and the same crop with the predicted keypoints, both with their skeleton. A
-    caption bar names the object above the panels, and a legend bar below them names the keypoint sides drawn.
+    Lays out one evaluated test image of the keypoint detection in two titled panels side by side, saved and sent to
+    TensorBoard at every evaluation so that the keypoints of the same images can be followed over the training: the
+    true objects captioned with their class, and the predicted objects captioned with their class and score, all with
+    the skeleton of their class (draw_keypoint_objects). A caption bar names the sample above the panels, and a legend
+    bar below them names the keypoint sides, then the classes drawn.
 
     Args:
-        crop (np.ndarray): The [h, w, 3] uint8 BGR crop of the object given to the network.
-        ground_truth_keypoints (np.ndarray): The [K, 2] true keypoints of the class in continuous crop pixels.
-        visibilities (np.ndarray): The [K] COCO visibilities of the true keypoints.
-        predicted_keypoints (np.ndarray): The [K, 2] predicted keypoints of the class in continuous crop pixels.
-        keypoint_names (List[str]): The K names of the keypoints of the class.
-        skeleton (List[List[int]]): The pairs of keypoint indices (0-based) joined by a line.
-        caption (str): The text of the caption bar, e.g. the class and the keypoint similarity of the object.
-        display_size (int): The side in pixels the longest side of the crop is enlarged to. Defaults to
-            KEYPOINT_DISPLAY_SIZE.
+        image (np.ndarray): The [H, W, 3] uint8 BGR network input.
+        ground_truth_keypoints (np.ndarray): The [N, K, 2] true keypoints of the objects in continuous image pixels.
+        visibilities (np.ndarray): The [N, K] COCO visibilities of the true keypoints.
+        ground_truth_labels (np.ndarray): The [N] class index of every true object.
+        predicted_keypoints (np.ndarray): The [D, K, 2] predicted keypoints in continuous image pixels, NaN for the
+            keypoints not found.
+        predicted_labels (np.ndarray): The [D] class index of every predicted object.
+        predicted_scores (np.ndarray): The [D] score of every predicted object.
+        keypoint_categories (Dict[int, Dict[str, Any]]): The 'keypoints' names and 'skeleton' of every class index.
+        class_names (Dict[int, str]): The name of every class index.
+        class_colours (np.ndarray): The [C, 3] uint8 BGR colour of every class (build_class_colours).
+        caption (str): The text of the caption bar, e.g. the number of true and predicted objects.
 
     Returns:
-        np.ndarray: The [24 + display height + 24, 2 x display width + 4, 3] uint8 BGR grid.
+        np.ndarray: The [24 + H + 24, 2 x W + 4, 3] uint8 BGR grid.
     """
     grid = place_panels_side_by_side(panels={
-        "Ground Truth": draw_keypoint_crop(crop=crop, keypoints=ground_truth_keypoints, visibilities=visibilities,
-                                           keypoint_names=keypoint_names, skeleton=skeleton,
-                                           display_size=display_size),
-        "Prediction": draw_keypoint_crop(crop=crop, keypoints=predicted_keypoints, visibilities=None,
-                                         keypoint_names=keypoint_names, skeleton=skeleton,
-                                         display_size=display_size)})
+        "Ground Truth": draw_keypoint_objects(image=image, keypoints=ground_truth_keypoints, visibilities=visibilities,
+                                              labels=ground_truth_labels, keypoint_categories=keypoint_categories,
+                                              class_colours=class_colours,
+                                              captions=[class_names[label] for label in ground_truth_labels.tolist()]),
+        "Prediction": draw_keypoint_objects(image=image, keypoints=predicted_keypoints, visibilities=None,
+                                            labels=predicted_labels, keypoint_categories=keypoint_categories,
+                                            class_colours=class_colours,
+                                            captions=[f"{class_names[label]} {score:.2f}" for label, score in
+                                                      zip(predicted_labels.tolist(), predicted_scores.tolist(),
+                                                          strict=True)])})
 
-    # Legend of the keypoint sides of the class, in the order of KEYPOINT_SIDE_COLOURS
-    drawn_sides = {find_keypoint_side(keypoint_name=keypoint_name) for keypoint_name in keypoint_names}
+    # Legend of the keypoint sides of the classes drawn, in the order of KEYPOINT_SIDE_COLOURS, then of the classes
+    drawn_class_indices = sorted(set(ground_truth_labels.tolist()) | set(predicted_labels.tolist()))
+    drawn_sides = {find_keypoint_side(keypoint_name=keypoint_name) for class_index in drawn_class_indices
+                   for keypoint_name in keypoint_categories[class_index]["keypoints"]}
     legend_entries = [(side_name, side_colour) for side_name, side_colour in KEYPOINT_SIDE_COLOURS.items()
                       if side_name in drawn_sides]
+    legend_entries += [(class_names[class_index], tuple(class_colours[class_index].tolist()))
+                       for class_index in drawn_class_indices]
     legend_bar = draw_legend_bar(width=grid.shape[1], legend_entries=legend_entries)
     return add_caption_bar(image=np.concatenate([grid, legend_bar], axis=0), caption=caption)
 

@@ -1,36 +1,39 @@
 # Configuration of the COCO 2017 person keypoints (17 keypoints per person: the nose, the eyes, the ears, the
-# shoulders, the elbows, the wrists, the hips, the knees and the ankles) with an HRNet-W32 network on 256x192 crops.
-# Each split folder holds the images of the COCO detection split ('data') and the person_keypoints_<split>2017.json
-# annotations of the COCO download as its 'labels.json' (both linked from object_detection_data/coco-2017). Every person
-# of an image with at least one labelled keypoint is one sample, cut out of the image around its ground truth box:
-# 149,813 of the 262,465 train persons, so about 2,340 iterations per epoch at a batch of 64.
+# shoulders, the elbows, the wrists, the hips, the knees and the ankles) with a HigherHRNet-W32 network on 512x512
+# images. Each split folder holds the images of the COCO detection split ('data') and the
+# person_keypoints_<split>2017.json annotations of the COCO download as its 'labels.json' (both linked from
+# object_detection_data/coco-2017). Every image is one sample with all its persons having at least one labelled
+# keypoint: the 118,287 train images, 56,599 of them with such persons (149,813 of the 262,465 train persons), so
+# about 7,390 iterations per epoch at a batch of 16.
 ExperimentConfiguration:
   # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
-  # "keypoint_detection" trains the top-down keypoint detector (one crop per object box, one heatmap per keypoint), and
-  # requires the Data.crop_settings, Data.crop_augmentation, HRNet and KeypointHead sections. The labels are COCO
-  # annotations with the 'keypoints' of every object and the 'keypoints' names and 'skeleton' of every category.
+  # "keypoint_detection" trains the bottom-up keypoint detector (HigherHRNet: one heatmap and one tag map per keypoint
+  # of every class on the whole image, the keypoints found being grouped into objects by their tags), and requires the
+  # HRNet and KeypointHead sections. The labels are COCO annotations with the 'keypoints' of every object and the
+  # 'keypoints' names and 'skeleton' of every category.
   task: "keypoint_detection"
   # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
-  # backbone modules, normalization and blocks, crop size, high resolution network, heatmap channels, classes,
-  # optimizer and weight decay unless plain Adam), so that the same settings resume in the same folder and changed
-  # settings start a new one, e.g. KPT_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64_C256x192_HRSE-HRRES-HRBN-HR32.1.4.3x4_K17_
-  # MC1 (without the line break). The augmentation, crop augmentation, heatmap sigma, batch size, learning rate and its
-  # schedule, gradient clipping and mixed precision give no token, so that a run can be resumed in its folder with
-  # changed values. The format is described in vision_training/configuration_processing/run_name.py.
+  # backbone modules, normalization and blocks, high resolution network, heatmap channels, hidden width and higher
+  # resolution branch, classes, optimizer and weight decay unless plain Adam), so that the same settings resume in
+  # the same folder and changed settings start a new one, e.g.
+  # KPT_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64_HRSE-HRRES-HRBN-HR32.1.4.3x4_K17-HH_MC1
+  # The augmentation, heatmap sigma, tag loss weights, grouping settings, batch size, learning rate and its schedule,
+  # gradient clipping and mixed precision give no token, so that a run can be resumed in its folder with changed
+  # values. The format is described in vision_training/configuration_processing/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
-  # Root directory containing the training dataset images and labels.json annotation file. The keypoint names,
-  # skeleton and crop rotation limit of every category are read from its labels.json (COCO gives no rotation limit,
-  # so the persons keep the limit of crop_augmentation).
+  # Root directory containing the training dataset images and labels.json annotation file. The keypoint names and
+  # skeleton of every category are read from its labels.json.
   train_data_folder: "/home/robert_kelevra/Data/keypoint_data/coco-2017/train"
   # Root directory containing the validation dataset images and labels.json annotation file.
   validation_data_folder: "/home/robert_kelevra/Data/keypoint_data/coco-2017/validation"
   # Root directory containing the test dataset images and labels.json annotation file, the COCO validation split, the
   # keypoint annotations of the COCO test split being withheld. The objects without any labelled keypoint are left out
-  # of every split, having nothing to learn from nor to evaluate (6,352 of the 11,004 validation persons are kept).
+  # of the labels of every split, having nothing to learn from nor to evaluate, their images being kept (6,352 of the
+  # 11,004 validation persons are kept, in 2,346 of the 5,000 validation images). The persons left out (crowds and
+  # small persons) stay in the images, where the heatmaps learn to find no keypoint.
   test_data_folder: "/home/robert_kelevra/Data/keypoint_data/coco-2017/validation"
-  # Number of object crops processed in a single forward/backward pass, the objects of an image being separate
-  # samples.
-  batch_size: 64
+  # Number of whole images processed in a single forward/backward pass.
+  batch_size: 16
   # Frequency (in iterations) to log performance metrics.
   information_dump: 500
   # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
@@ -38,28 +41,29 @@ ExperimentConfiguration:
   # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
   # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
   intermediate_weight_saving_iterations: 2000
-  # Total number of training iterations before stopping, about 64 epochs.
+  # Total number of training iterations before stopping, about 20 epochs.
   number_iterations: 150000
   # Ratio controlling how often validation is run during training.
   # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
   validation_iteration_ratio: 0
-  # Test evaluation run at every weight_saving_iterations checkpoint on the ground truth boxes of the whole test split
-  # (no detector in the loop): the predicted keypoints of every crop are brought back to the network input image, and
-  # every object is scored against the ground truth objects of its image with the object keypoint similarity (OKS),
-  # which replaces the intersection over union of the detection average precisions (OKS mAP@0.5, @0.75, @0.95 and
-  # @0.5:0.95, the score of an object being the mean score of its keypoints). The percentage of correct keypoints
-  # (PCK@0.05: a keypoint within 0.05 of the longest box side), the mean OKS and the mean pixel error are computed too.
+  # Test evaluation run at every weight_saving_iterations checkpoint on the whole test split: the keypoints found in
+  # every test image are grouped into objects with the settings of KeypointHead.inference (every object kept whatever
+  # its score), and every object found is scored against the ground truth objects of the same class in its image with
+  # the object keypoint similarity (OKS), which replaces the intersection over union of the detection average
+  # precisions (OKS mAP@0.5, @0.75, @0.95 and @0.5:0.95). Every ground truth object is then matched to at most one
+  # object found (the matching of the largest total OKS) for the share of matched objects, the percentage of correct
+  # keypoints (PCK@0.05: a keypoint within 0.05 of the longest box side), the mean OKS and the mean pixel error, a
+  # missed object or keypoint counting as wrong.
   evaluation:
     # Reports every class and every keypoint at every evaluation: the table of the classes (objects, OKS average
-    # precisions, PCK, mean OKS and mean pixel error, worst AP@0.5 first) and the table of every keypoint of every class
-    # (labelled keypoints, PCK and mean pixel error) in the console and Results.txt, and the AP@0.5 Test scalar of every
-    # class in TensorBoard. False keeps the global metrics only: class_metrics.csv and keypoint_metrics.csv are saved
-    # either way.
+    # precisions, matched objects, PCK, mean OKS and mean pixel error, worst AP@0.5 first) and the table of every
+    # keypoint of every class (labelled keypoints, PCK and mean pixel error) in the console and Results.txt, and the
+    # AP@0.5 Test scalar of every class in TensorBoard. False keeps the global metrics only: class_metrics.csv and
+    # keypoint_metrics.csv are saved either way.
     per_class_report: True
-    # Number of test objects drawn once and shown at every evaluation, each as its crop with the ground truth keypoints
-    # next to the same crop with the predicted keypoints and the skeleton of its category, the caption giving its OKS,
-    # its correct keypoints and its score, saved in Evaluation/Iteration_<n>/Samples/ and sent to TensorBoard. The
-    # classes receive one object each in turn, in class order, all of them being persons here. 0 to disable.
+    # Number of test images drawn once and shown at every evaluation, each with its ground truth objects next to the
+    # objects found whose score reaches KeypointHead.inference.object_score_threshold, every object with its keypoints
+    # and the skeleton of its class, saved in Evaluation/Iteration_<n>/Samples/ and sent to TensorBoard. 0 to disable.
     number_sample_images: 16
     # Standard deviation of every keypoint of the object keypoint similarity, as a fraction of the square root of the
     # box area of the object (the COCO sigma, the constant of the keypoint being twice this value): a keypoint at a
@@ -107,11 +111,11 @@ ExperimentConfiguration:
       # Choice to compute final model size
       compute_model_size: True
       # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
-      # object crops with their keypoints (left keypoints blue, right keypoints orange, the others yellow, the occluded
-      # ones as rings) and the skeleton of their category, next to a panel giving the class, the labelled keypoints and
-      # the drawn crop and photometric augmentations. SPACE shows the next crops, ENTER closes the viewer and exits the
-      # program without training, so set it to False to train. Requires a display (skipped with a warning otherwise). No
-      # run folder is created in this mode.
+      # whole images with the boxes and keypoints of their objects (left keypoints blue, right keypoints orange, the
+      # others yellow, the occluded ones as rings) and the skeleton of their class, next to a panel giving the objects
+      # per class, the keypoints by visibility and the drawn augmentations. SPACE shows the next images, ENTER closes
+      # the viewer and exits the program without training, so set it to False to train. Requires a display (skipped
+      # with a warning otherwise). No run folder is created in this mode.
       view_input_images: False
 
 Optimization:
@@ -159,8 +163,9 @@ Data:
     prefetch_batches: 2
   image_settings:
     # Target resolution to resize all input images, a power of two: 512 keeps 80% of the longest side of the COCO
-    # images (640 pixels), where 1024 would load images upsampled 1.6 times. The crops are cut out of the resized
-    # images, and the evaluation measures the keypoints in their pixels.
+    # images (640 pixels), where 1024 would load images upsampled 1.6 times. It is the input of the network, a multiple
+    # of the stride of the lowest resolution branch of the high resolution network (4 x 2 ** the number of stages of
+    # HRNet.modules_per_stage, 32 for 3 stages), and the evaluation measures the keypoints in its pixels.
     size: 512
     # Flag to maintain the original aspect ratio when resizing.
     keep_ratio: True
@@ -168,47 +173,13 @@ Data:
     # "multi_class" uses a specific mapping file, the only mode of the keypoint detection: every class has its own
     # keypoints.
     mode: "multi_class"
-    # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs, the keypoint detection keeping
-    # the class indices of the detector that will give its boxes (class 0 being its background). Categories merged into
-    # one class must have the same keypoint names. The person (category 1) is class 1.
+    # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs (class 0 being the background).
+    # Categories merged into one class must have the same keypoint names. The person (category 1) is class 1.
     mapping_file_path: "/home/robert_kelevra/Data/keypoint_data/coco-2017/label_mapping.json"
-  # Crops every object is cut to before the keypoint detector, the input of the network: the ground truth box centred,
-  # widened along its short side to the aspect ratio of the crop (no distortion) and enlarged by box_enlargement, then
-  # warped to height x width pixels. The heatmaps are a quarter of the crop size.
-  crop_settings:
-    # Height of the crops in pixels, a multiple of the stride of the lowest resolution branch of the high resolution
-    # network (4 x 2 ** the number of stages of HRNet.modules_per_stage, 32 for 3 stages). 256 x 192 is the crop of
-    # the HRNet COCO models, the 4:3 aspect ratio of a standing person.
-    height: 256
-    # Width of the crops in pixels, a multiple of the same stride.
-    width: 192
-    # Factor applied to both sides of the region of the crop, keeping some context around the object, >= 1.
-    box_enlargement: 1.25
-  # Geometric augmentation of the training crops, drawn crop by crop and applied in the single warp that cuts the crop
-  # out of the image, the keypoints being moved with it (the geometric types of data_augmentation would move the crops
-  # without their keypoints, so they must be off). It is always applied to the training crops, whatever
-  # data_augmentation.activated, the validation and test crops being cut without it. Keypoints leaving the crop are not
-  # trained.
-  crop_augmentation:
-    # Range [minimum, maximum] of the scale of the crop region, drawn uniformly: above 1 the region grows and the
-    # object looks smaller, below 1 it is cut more tightly. The HRNet COCO training draws its scale within 35%.
-    scale_range: [0.65, 1.35]
-    # Largest rotation of the crops in degrees, either way, within [0, 180], the same for every class. The keypoints
-    # keep their names whatever the rotation. The HRNet COCO training rotates its crops by up to 45 degrees.
-    maximum_rotation_degrees: 45.0
-    # Probability that a training crop is rotated.
-    rotation_probability: 0.6
-    # Probability that a training crop is mirrored left to right. The keypoints keep their names and their heatmap
-    # channels, so a flip only suits keypoints whose names do not depend on the side; 0 for the person, whose
-    # left_ keypoints would lie where its right_ keypoints are.
-    flip_probability: 0.0
-    # Largest shift of the centre of the crop region, as a fraction of its sides, within [0, 0.5].
-    maximum_shift_fraction: 0.1
   data_augmentation:
-    # Global switch to enable or disable the photometric augmentations below (applied on the GPU to the training crops
-    # only, after their warp). The crop augmentation is applied either way.
+    # Global switch to enable or disable all data augmentation (applied on the GPU to training batches only).
     activated: True
-    # Probability that a training crop is augmented at all. Each activated type below is then applied to that crop
+    # Probability that a training image is augmented at all. Each activated type below is then applied to that image
     # with its own probability.
     probability: 0.4
     # Sequence tasks only (False for the image tasks): draws the photometric augmentations below frame by frame,
@@ -220,22 +191,27 @@ Data:
     # a pair being shuffled on its own. For the sequences whose frame order carries no information (sets of photos).
     shuffle_frames: { activated: False, probability: 0.5 }
     types:
-      # Geometric augmentations : must all be off for the keypoint detection, the geometry of the crops being drawn by
-      # crop_augmentation.
+      # Geometric augmentations : the boxes and keypoints are moved with the image, the keypoints leaving the image
+      # becoming unlabelled, and an object being removed when less than 25% of its box and none of its labelled
+      # keypoints stay inside the image. The keypoints keep their names and heatmap channels whatever the
+      # augmentation: a flip or a large rotation only suits keypoints whose names depend neither on the side nor
+      # on the orientation (the tip of a flame), the choice of the user.
+      # The left_ keypoints of a mirrored person would lie where its right_ keypoints are, so the flips and the 90
+      # degree rotations are off.
       # Random Crop : crop keeping 75% to 100% of each side (same aspect ratio), resized back to the input size
-      random_crop: { activated: False, probability: 0.3 }
+      random_crop: { activated: True, probability: 0.3 }
       # Random Zoom Out : image shrunk to 50% to 100% of each side (same aspect ratio) at a random position of a
       # black canvas of the input size, the objects then appearing smaller than in the dataset
-      random_zoom_out: { activated: False, probability: 0.3 }
+      random_zoom_out: { activated: True, probability: 0.3 }
       # Random Translation : shift along x, y or both (drawn at random) of up to 25% of the image width and
       # height, the uncovered border filled with black
-      random_translation: { activated: False, probability: 0.5 }
+      random_translation: { activated: True, probability: 0.5 }
       # Random Left to Right Flip (mirror)
       random_left_right_flip: { activated: False, probability: 0.5 }
       # Random Up to Down Flip
       random_up_down_flip: { activated: False, probability: 0.5 }
       # Random Rotation between -5° and 5°
-      random_rotation: { activated: False, probability: 0.3 }
+      random_rotation: { activated: True, probability: 0.3 }
       # Random -90° or 90° rotation (square images only)
       random_90_rotation: { activated: False, probability: 0.3 }
 
@@ -259,7 +235,7 @@ Data:
       # Random Image Blurring : 9x9 Gaussian kernel with sigma 2.5
       random_blur: { activated: True, probability: 0.3 }
 
-# Stem of the keypoint detector: the first blocks of the backbone of the other tasks, bringing the crop down to a
+# Stem of the keypoint detector: the first blocks of the backbone of the other tasks, bringing the image down to a
 # quarter of its resolution, the resolution of the highest resolution branch of the HRNet section and of the
 # heatmaps. Every block but the last one is followed by a 2x2 max pooling, so the stem needs 3 blocks with
 # last_max_pooling False, or 2 blocks with last_max_pooling True. The 3 blocks below are the first blocks of the
@@ -342,17 +318,17 @@ Backbone:
     learning_rate_multiplier: 1.0
 
 # High resolution network (HRNet, paper "Deep High-Resolution Representation Learning for Human Pose Estimation"
-# https://arxiv.org/abs/1902.09212) on the stem: it keeps a branch at a quarter of the crop resolution through the whole
-# network and adds a branch at half the resolution and twice the width at every stage (1/4, 1/8, 1/16, 1/32 of the crop
-# for 3 stages, base_width, 2 x base_width...), the branches exchanging their features at the end of every module
-# (every branch receiving the sum of all the branches brought to its resolution and width). Only the highest resolution
-# branch feeds the keypoint head.
+# https://arxiv.org/abs/1902.09212) on the stem: it keeps a branch at a quarter of the image resolution through the
+# whole network and adds a branch at half the resolution and twice the width at every stage (1/4, 1/8, 1/16, 1/32 of
+# the image for 3 stages, base_width, 2 x base_width...), the branches exchanging their features at the end of every
+# module (every branch receiving the sum of all the branches brought to its resolution and width). Only the highest
+# resolution branch feeds the keypoint head.
 HRNet:
   # Width (channels) of the highest resolution branch, doubled by every lower resolution branch, e.g. 32 for HRNet-W32.
   base_width: 32
   # Number of exchange modules of every stage, one branch being added per stage: [1, 4, 3] gives the 4 branches and
-  # 8 modules of HRNet-W32. Its length sets the stride of the lowest resolution branch, 4 x 2 ** len, which the crop
-  # sides must be multiples of.
+  # 8 modules of HRNet-W32. Its length sets the stride of the lowest resolution branch, 4 x 2 ** len, which
+  # Data.image_settings.size must be a multiple of.
   modules_per_stage: [1, 4, 3]
   # Number of residual pairs of 3x3 convolutions of every branch in every module, 4 in HRNet-W32.
   blocks_per_branch: 4
@@ -385,14 +361,59 @@ HRNet:
     # layers.
     learning_rate_multiplier: 1.0
 
-# Keypoint head: a 1x1 convolution of the highest resolution branch giving one heatmap per keypoint of every class
-# (17 channels for the person), only the channels of the class of the crop being trained and decoded.
-# The targets are Gaussians centred on the keypoints, the loss the mean squared error of the trained keypoints, and the
-# keypoint of a heatmap its highest cell moved by a quarter of a cell towards its higher neighbour, its score the value
-# of that cell.
+# Keypoint head (HigherHRNet, paper "HigherHRNet: Scale-Aware Representation Learning for Bottom-Up Human Pose
+# Estimation" https://arxiv.org/abs/1908.10357, with the tags of "Associative Embedding: End-to-End Learning for Joint
+# Detection and Grouping" https://arxiv.org/abs/1611.05424): a 1x1 convolution of the highest resolution branch giving,
+# at a quarter of the image resolution, one heatmap and one tag map per keypoint of every class (17 of each for the
+# person). The heatmaps are the sigmoid of the predicted logits, their targets Gaussians centred on the keypoints of
+# all the objects of the image with the cell containing every keypoint at 1, every channel being trained in every
+# image (towards zero without keypoint). The keypoints found are the local maxima of the heatmaps, moved by a
+# quarter of a cell towards their higher neighbours, their score the value of their cell, grouped into objects by their
+# tags.
 KeypointHead:
-  # Standard deviation of the target Gaussians in heatmap cells (a quarter of the crop pixels), 2 in HRNet.
+  # Adds the higher resolution branch of HigherHRNet: the features of the highest resolution branch and the heatmaps
+  # and tags predicted from them are upsampled by a transposed convolution to half the image resolution, refined by
+  # HRNet.blocks_per_branch residual blocks and turned into a second set of heatmaps, trained with their own targets.
+  # The keypoints are then found on the average of both heatmaps at half the image resolution, which helps the small
+  # objects. Gives the HH run name token.
+  higher_resolution: True
+  # Channels of a 3x3 convolution (with its normalization and a ReLU) between the features and the 1x1 convolution
+  # giving the heatmaps and tags, in the head at a quarter of the image and in the higher resolution branch, 0 for
+  # none. The 1x1 convolution gives at every cell a linear combination of its input channels, which cannot raise
+  # every heatmap on its own keypoints while keeping the others at zero when the heatmaps outnumber these channels:
+  # the hidden width should then be at least the number of heatmaps (the K run name token). Gives the KH<width> run
+  # name token when above 0.
+  # The 17 heatmaps of the COCO persons are fewer than the 32 channels of HRNet-W32, so the 1x1 convolution of
+  # HigherHRNet reads the features directly.
+  hidden_width: 0
+  # Standard deviation of the target Gaussians in heatmap cells (a quarter of the image pixels, half with the higher
+  # resolution branch), the same at both resolutions, 2 in HigherHRNet.
   heatmap_sigma: 2.0
+  # Weights of the tag losses next to the heatmap loss, the focal loss of CornerNet (paper "CornerNet: Detecting
+  # Objects as Paired Keypoints" https://arxiv.org/abs/1808.01244) summed over the cells of every channel and divided
+  # by the number of keypoints: -(1 - p)^2 log(p) on the cells at 1, -(1 - target)^4 p^2 log(1 - p) on the others, so
+  # that the many empty cells weigh little once below the keypoint cells and the cells near a keypoint are penalised
+  # less. The pull loss gathers the tags of the keypoints of every object around their mean, the push loss separates
+  # the mean tags of the objects of the same class in the same image. CornerNet weights them by 0.1 next to this
+  # heatmap loss.
+  tag_pull_weight: 0.1
+  tag_push_weight: 0.1
+  # Grouping of the keypoints into objects at inference, in the evaluation, the sample images and the deployment.
+  inference:
+    # Number of keypoint candidates of every heatmap channel, its highest local maxima over 3x3 cells, the most objects
+    # of a class one image can give.
+    maximum_candidates: 30
+    # Lowest heatmap score of a candidate grouped into an object, within ]0, 1[, the heatmaps being probabilities that
+    # start at 0.01 on every cell.
+    keypoint_threshold: 0.1
+    # Largest distance between the tag of a keypoint and the mean tag of the object it joins, the keypoints of the
+    # class taken one after the other and matched to the objects of the previous ones, the others starting new
+    # objects. 1 in HigherHRNet.
+    tag_threshold: 1.0
+    # Lowest score of an object kept by the deployment and the sample images, its score being the sum of the scores of
+    # its keypoints divided by the number of keypoints of its class, so that an object missing keypoints scores lower.
+    # The evaluation keeps every object, for the low-confidence end of the precision-recall curves.
+    object_score_threshold: 0.2
   # Keypoint head of another KPT run initialising this run. Both runs must have the same classes with the same
   # keypoints, as well as the same HRNet.base_width.
   pretrained:

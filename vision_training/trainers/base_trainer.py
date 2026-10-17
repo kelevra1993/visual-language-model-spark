@@ -555,7 +555,8 @@ class BaseTrainer(ABC):
         Returns:
             Dict[str, Any]: The batch with its augmented images and their 'augmentation_reports'.
         """
-        augmented_images, _, _, _, _, augmentation_reports = self.data_augmenter.augment_batch(images=batch["images"])
+        augmented_images, _, _, _, _, _, augmentation_reports = self.data_augmenter.augment_batch(
+            images=batch["images"])
         return {**batch, "images": augmented_images, "augmentation_reports": augmentation_reports}
 
     def compute_batch_metrics(self, batch: Dict[str, Any], model_outputs: Dict[str, Any]) -> Dict[str, torch.Tensor]:

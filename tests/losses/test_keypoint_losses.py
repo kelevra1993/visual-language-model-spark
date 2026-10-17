@@ -1,82 +1,116 @@
 """
-Tests of vision_training/losses/keypoint_losses.py: compute_keypoint_heatmap_loss, the weighted mean squared error of
-the heatmaps that the keypoint detector adds to the total loss, on a hand-computed case, with the unlabelled keypoints,
-the keypoints outside the crop and the padding positions (weight 0) giving neither loss nor gradient.
+Tests of vision_training/losses/keypoint_losses.py, the losses of the bottom-up keypoint detector: compute_heatmap_loss,
+the focal loss of the heatmap logits, on a hand-computed case, divided by the number of keypoint cells whatever the
+number of images, channels and empty cells, close to 0 for confident right predictions, trained towards 0 on the empty
+channels and computed in float32; and compute_tag_losses, the associative embedding pull and push losses, on a
+hand-computed image of three objects (two of the same class, which push each other apart, and one of another class,
+which pushes nothing) next to an image without object, the untrained keypoints giving neither loss nor gradient.
 """
 
+import math
 import torch
 
-from vision_training.losses.keypoint_losses import compute_keypoint_heatmap_loss
-
-
-def test_equal_heatmaps_give_no_loss() -> None:
-    """
-    Verifies that heatmaps predicted exactly as their targets give a loss of 0, and that a batch without any trained
-    keypoint gives 0 instead of a NaN whatever its heatmaps.
-    """
-    target_heatmaps = torch.rand(size=(2, 3, 4, 5), generator=torch.Generator().manual_seed(0))
-    loss = compute_keypoint_heatmap_loss(predicted_heatmaps=target_heatmaps.clone(), target_heatmaps=target_heatmaps,
-                                         heatmap_weights=torch.ones(size=(2, 3)))
-    assert loss.item() == 0.0
-
-    # No trained keypoint at all
-    untrained_loss = compute_keypoint_heatmap_loss(predicted_heatmaps=target_heatmaps + 1.0,
-                                                   target_heatmaps=target_heatmaps,
-                                                   heatmap_weights=torch.zeros(size=(2, 3)))
-    assert untrained_loss.item() == 0.0
+from vision_training.losses.keypoint_losses import compute_heatmap_loss, compute_tag_losses
 
 
 def test_heatmap_loss_matches_a_hand_computed_case() -> None:
     """
-    Verifies the loss on two crops of two keypoints with 2 x 2 heatmaps: the mean squared errors over the cells are 1,
-    4, 9 and 0.25, and only the three trained keypoints are averaged, (1 + 9 + 0.25) / 3.
+    Verifies the focal loss of a 2 x 2 heatmap whose logits are all 0 (probability 0.5): the keypoint cell at 1 gives
+    (1 - 0.5) ** 2 x log(2), the cell at 0.5 next to it (1 - 0.5) ** 4 x 0.5 ** 2 x log(2) and each of the two empty
+    cells 0.5 ** 2 x log(2), divided by the single keypoint cell. A bfloat16 prediction gives a float32 loss.
     """
-    predicted_heatmaps = torch.zeros(size=(2, 2, 2, 2))
-    target_heatmaps = torch.stack(tensors=[torch.stack(tensors=[torch.full(size=(2, 2), fill_value=1.0),
-                                                                torch.full(size=(2, 2), fill_value=2.0)]),
-                                           torch.stack(tensors=[torch.full(size=(2, 2), fill_value=3.0),
-                                                                torch.full(size=(2, 2), fill_value=0.5)])])
-    heatmap_weights = torch.tensor(data=[[1.0, 0.0], [1.0, 1.0]])
-    loss = compute_keypoint_heatmap_loss(predicted_heatmaps=predicted_heatmaps, target_heatmaps=target_heatmaps,
-                                         heatmap_weights=heatmap_weights)
-    assert torch.isclose(input=loss, other=torch.tensor(data=(1.0 + 9.0 + 0.25) / 3.0))
+    target_heatmaps = torch.tensor(data=[[[[1.0, 0.5], [0.0, 0.0]]]])
+    loss = compute_heatmap_loss(predicted_logits=torch.zeros(size=(1, 1, 2, 2)), target_heatmaps=target_heatmaps)
+    expected_loss = (0.25 + 0.0625 * 0.25 + 2.0 * 0.25) * math.log(2.0)
+    assert math.isclose(loss.item(), expected_loss, rel_tol=1e-6)
 
-    # Only some cells differ: an error of 2 on one cell of four gives a mean squared error of 1
-    partial_targets = torch.zeros(size=(1, 1, 2, 2))
-    partial_targets[0, 0, 1, 0] = 2.0
-    partial_loss = compute_keypoint_heatmap_loss(predicted_heatmaps=torch.zeros(size=(1, 1, 2, 2)),
-                                                 target_heatmaps=partial_targets,
-                                                 heatmap_weights=torch.ones(size=(1, 1)))
-    assert torch.isclose(input=partial_loss, other=torch.tensor(data=1.0))
+    # A bfloat16 prediction is compared in float32
+    bfloat16_loss = compute_heatmap_loss(predicted_logits=torch.zeros(size=(1, 1, 2, 2), dtype=torch.bfloat16),
+                                         target_heatmaps=target_heatmaps)
+    assert bfloat16_loss.dtype == torch.float32 and math.isclose(bfloat16_loss.item(), expected_loss, rel_tol=1e-6)
 
 
-def test_untrained_keypoints_give_neither_loss_nor_gradient() -> None:
+def test_heatmap_loss_is_divided_by_the_number_of_keypoints() -> None:
     """
-    Verifies that the heatmaps of the keypoints of weight 0 change nothing to the loss, whatever their values, and
-    receive no gradient, while every trained heatmap does, and that a bfloat16 prediction is compared in float32.
+    Verifies that the focal loss is the loss of one keypoint whatever the number of keypoints, channels and empty cells:
+    the same image twice gives the same loss as once, and an empty channel and empty cells predicted confidently at 0
+    add nearly nothing; that confident right predictions give nearly 0; that a batch without keypoint is divided by 1;
+    and that an empty channel at the probability 0.5 receives a gradient towards lower logits.
     """
-    generator = torch.Generator().manual_seed(1)
-    target_heatmaps = torch.rand(size=(2, 4, 3, 3), generator=generator)
-    heatmap_weights = torch.tensor(data=[[1.0, 1.0, 0.0, 0.0], [0.0, 1.0, 1.0, 0.0]])
-    untrained_keypoints = heatmap_weights == 0.0
-    predicted_heatmaps = torch.rand(size=(2, 4, 3, 3), generator=generator).requires_grad_(True)
-    loss = compute_keypoint_heatmap_loss(predicted_heatmaps=predicted_heatmaps, target_heatmaps=target_heatmaps,
-                                         heatmap_weights=heatmap_weights)
+    target_heatmaps = torch.tensor(data=[[[[1.0, 0.5], [0.0, 0.0]]]])
+    logits = torch.tensor(data=[[[[0.5, 0.0], [-1.0, -2.0]]]])
+    loss = compute_heatmap_loss(predicted_logits=logits, target_heatmaps=target_heatmaps)
+    twice_loss = compute_heatmap_loss(predicted_logits=logits.repeat(2, 1, 1, 1),
+                                      target_heatmaps=target_heatmaps.repeat(2, 1, 1, 1))
+    assert math.isclose(twice_loss.item(), loss.item(), rel_tol=1e-6)
 
-    # Any values on the untrained heatmaps give the same loss
-    changed_heatmaps = predicted_heatmaps.detach().clone()
-    changed_heatmaps[untrained_keypoints] = 100.0
-    changed_loss = compute_keypoint_heatmap_loss(predicted_heatmaps=changed_heatmaps, target_heatmaps=target_heatmaps,
-                                                 heatmap_weights=heatmap_weights)
-    assert torch.isclose(input=changed_loss, other=loss.detach())
+    # An empty channel and empty cells predicted at a logit of -20 add nearly nothing
+    padded_logits = torch.full(size=(1, 2, 8, 8), fill_value=-20.0)
+    padded_logits[:, :1, :2, :2] = logits
+    padded_targets = torch.zeros(size=(1, 2, 8, 8))
+    padded_targets[:, :1, :2, :2] = target_heatmaps
+    padded_loss = compute_heatmap_loss(predicted_logits=padded_logits, target_heatmaps=padded_targets)
+    assert math.isclose(padded_loss.item(), loss.item(), rel_tol=1e-6)
 
-    # The gradient reaches the trained heatmaps only
-    loss.backward()
-    heatmap_gradients = predicted_heatmaps.grad
-    assert torch.all(heatmap_gradients[untrained_keypoints] == 0.0)
-    assert torch.all(heatmap_gradients[~untrained_keypoints].abs().sum(dim=(1, 2)) > 0.0)
+    # Confident right predictions: a logit of 20 at the keypoint cell and of -20 at the other cells
+    confident_logits = torch.tensor(data=[[[[20.0, -20.0], [-20.0, -20.0]]]])
+    confident_loss = compute_heatmap_loss(predicted_logits=confident_logits, target_heatmaps=target_heatmaps)
+    assert confident_loss.item() < 1e-3
 
-    # A bfloat16 prediction gives a float32 loss
-    bfloat16_loss = compute_keypoint_heatmap_loss(predicted_heatmaps=predicted_heatmaps.detach().to(
-        dtype=torch.bfloat16), target_heatmaps=target_heatmaps, heatmap_weights=heatmap_weights)
-    assert bfloat16_loss.dtype == torch.float32
+    # A batch without keypoint is divided by 1, and its empty channel is trained towards lower logits
+    empty_logits = torch.zeros(size=(1, 1, 2, 2), requires_grad=True)
+    empty_loss = compute_heatmap_loss(predicted_logits=empty_logits, target_heatmaps=torch.zeros(size=(1, 1, 2, 2)))
+    assert math.isclose(empty_loss.item(), 4.0 * 0.25 * math.log(2.0), rel_tol=1e-6)
+    empty_loss.backward()
+    assert bool((empty_logits.grad > 0.0).all())
+
+
+def test_tag_losses_match_a_hand_computed_case() -> None:
+    """
+    Verifies the pull and push losses on a batch of two images with 2 x 2 tag maps of 2 channels. In the first image,
+    object 0 (class 1) has the tags 1 and 3 (reference 2, pull 1), object 1 (class 1) the tags 4 and 4 (reference 4,
+    pull 0), and object 2 (class 2) the tag 2 on its only trained keypoint (reference 2, pull 0): the pull is
+    (1 + 0 + 0) / 3, and the push exp(-(2 - 4) ** 2) for the two ordered pairs of class 1, object 2 having the same
+    reference as object 0 but another class. The second image has no object and gives 0 to both, halving the means.
+    The tags of the cells read by no trained keypoint receive no gradient.
+    """
+    tag_maps = torch.zeros(size=(2, 2, 2, 2))
+    tag_maps[0].view(-1)[[0, 4, 1, 5, 2]] = torch.tensor(data=[1.0, 3.0, 4.0, 4.0, 2.0])
+    tag_maps[0].view(-1)[7] = 50.0
+    tag_maps.requires_grad_(True)
+
+    # Flat [C x h x w] indices of the keypoints, the second keypoint of object 2 reading the untrained cell 7
+    tag_indices = torch.zeros(size=(2, 3, 2), dtype=torch.int64)
+    tag_indices[0] = torch.tensor(data=[[0, 4], [1, 5], [2, 7]])
+    tag_valid = torch.zeros(size=(2, 3, 2), dtype=torch.bool)
+    tag_valid[0] = torch.tensor(data=[[True, True], [True, True], [True, False]])
+    object_labels = torch.tensor(data=[[1, 1, 2], [0, 0, 0]])
+    pull_loss, push_loss = compute_tag_losses(tag_maps=tag_maps, tag_indices=tag_indices, tag_valid=tag_valid,
+                                              object_labels=object_labels)
+    assert math.isclose(pull_loss.item(), (1.0 / 3.0 + 0.0) / 2.0, rel_tol=1e-6)
+    assert math.isclose(push_loss.item(), (math.exp(-4.0) + 0.0) / 2.0, rel_tol=1e-6)
+
+    # Only the cells of the trained keypoints receive a gradient, the untrained cell 7 none whatever its tag
+    (pull_loss + push_loss).backward()
+    gradient_cells = tag_maps.grad.reshape(2, -1) != 0.0
+    assert gradient_cells[0].nonzero().flatten().tolist() == [0, 1, 4, 5] and not gradient_cells[1].any()
+
+
+def test_objects_of_one_keypoint_and_empty_batches_give_finite_losses() -> None:
+    """
+    Verifies that objects of a single trained keypoint have no pull loss, that two such objects of the same class with
+    equal tags give the largest push loss of 1, and that a batch without any trained keypoint gives 0 to both losses
+    instead of a NaN.
+    """
+    tag_maps = torch.full(size=(1, 1, 2, 2), fill_value=0.5)
+    pull_loss, push_loss = compute_tag_losses(tag_maps=tag_maps, tag_indices=torch.tensor(data=[[[0], [3]]]),
+                                              tag_valid=torch.ones(size=(1, 2, 1), dtype=torch.bool),
+                                              object_labels=torch.tensor(data=[[1, 1]]))
+    assert pull_loss.item() == 0.0 and math.isclose(push_loss.item(), 1.0, rel_tol=1e-6)
+
+    # No trained keypoint at all
+    empty_pull, empty_push = compute_tag_losses(tag_maps=tag_maps, tag_indices=torch.zeros(size=(1, 1, 1),
+                                                                                          dtype=torch.int64),
+                                                tag_valid=torch.zeros(size=(1, 1, 1), dtype=torch.bool),
+                                                object_labels=torch.zeros(size=(1, 1), dtype=torch.int64))
+    assert empty_pull.item() == 0.0 and empty_push.item() == 0.0

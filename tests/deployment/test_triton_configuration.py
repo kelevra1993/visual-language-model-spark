@@ -1,7 +1,8 @@
 """
 Tests of write_triton_configuration of vision_training/deployment/triton_configuration.py: the detection configuration
 is unchanged, the sequence configuration has dynamic frames, the comparison configuration has one input line per
-member and the keypoint configuration has one input of rectangular object crops and three outputs.
+member and the keypoint configuration has one input of whole images and the three outputs of the keypoint
+candidates.
 """
 
 import pytest
@@ -142,18 +143,17 @@ def test_comparison_triton_configuration_has_one_line_per_member(tmp_path: Path)
 
 @pytest.mark.parametrize(argnames=("export_format", "output_suffixes"), argvalues=[
     ("torchscript", ["__0", "__1", "__2"]), ("onnx", ["", "", ""])])
-def test_keypoint_triton_configuration_has_rectangular_crops(tmp_path: Path, export_format: str,
-                                                             output_suffixes: List[str]) -> None:
+def test_keypoint_triton_configuration_has_whole_images_and_candidates(tmp_path: Path, export_format: str,
+                                                                       output_suffixes: List[str]) -> None:
     """
-    Verifies the Triton configuration of a keypoint detector: one input of object crops of the crop height and width
-    of the configuration (64 x 48, not square), and the decoded keypoints, their scores and the heatmaps at a quarter
-    of the crop size of the 7 heatmap channels of the triangle and the rectangle, suffixed with their index in the
-    TorchScript export only.
+    Verifies the Triton configuration of a keypoint detector: one input of whole 64 x 64 images, and the positions,
+    scores and tags of the 5 candidates of each of the 7 heatmap channels of the triangle and the rectangle, which the
+    client groups into objects, suffixed with their index in the TorchScript export only.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         export_format (str): The export format.
-        output_suffixes (List[str]): The suffixes of the keypoint, keypoint score and heatmap output names.
+        output_suffixes (List[str]): The suffixes of the candidate position, score and tag output names.
     """
     configuration, device, dtype = get_keypoint_model_configuration()
     inference_model = build_inference_model(task="keypoint_detection", model=KeypointDetector(
@@ -165,14 +165,14 @@ def test_keypoint_triton_configuration_has_rectangular_crops(tmp_path: Path, exp
                                model_version=1, export_format=export_format, specification=specification,
                                maximum_batch_size=32, tensorrt_precision=None)
     triton_configuration = (tmp_path / "config.pbtxt").read_text()
-    keypoint_suffix, score_suffix, heatmap_suffix = output_suffixes
+    position_suffix, score_suffix, tag_suffix = output_suffixes
     assert ('input [\n'
-            '  { name: "crops" data_type: TYPE_FP32 dims: [ 3, 64, 48 ] }\n'
+            '  { name: "images" data_type: TYPE_FP32 dims: [ 3, 64, 64 ] }\n'
             ']\n') in triton_configuration
     assert ('output [\n'
-            f'  {{ name: "keypoints{keypoint_suffix}" data_type: TYPE_FP32 dims: [ 7, 2 ] }},\n'
-            f'  {{ name: "keypoint_scores{score_suffix}" data_type: TYPE_FP32 dims: [ 7 ] }},\n'
-            f'  {{ name: "heatmaps{heatmap_suffix}" data_type: TYPE_FP32 dims: [ 7, 16, 12 ] }}\n'
+            f'  {{ name: "candidate_positions{position_suffix}" data_type: TYPE_FP32 dims: [ 7, 5, 2 ] }},\n'
+            f'  {{ name: "candidate_scores{score_suffix}" data_type: TYPE_FP32 dims: [ 7, 5 ] }},\n'
+            f'  {{ name: "candidate_tags{tag_suffix}" data_type: TYPE_FP32 dims: [ 7, 5 ] }}\n'
             ']\n') in triton_configuration
     assert f'name: "keypoint_detector_{export_format}"' in triton_configuration
     assert "max_batch_size: 32" in triton_configuration

@@ -1,10 +1,11 @@
 """
 Tests of the average precision of the keypoint detection, the object keypoint similarity taking the place of the
-intersection over union: the objects grouped by group_image_objects (evaluation/keypoints/object_keypoint_similarity.py)
-are evaluated by evaluate_detections with the 'keypoints' overlap (evaluation/detection/mean_average_precision.py) and
-reported by summarise_average_precisions (evaluation/detection/average_precision_report.py), as the keypoint trainer
-does on the test split: perfect keypoints, keypoints whose similarity passes 0.5 but not 0.75, the small, medium and
-large objects sized by their box areas, and the mean average recall.
+intersection over union: the predicted and ground truth objects of every image compared by evaluate_image_keypoints
+(evaluation/keypoints/object_keypoint_similarity.py) are evaluated by evaluate_detections with the 'keypoints' overlap
+(evaluation/detection/mean_average_precision.py) and reported by summarise_average_precisions
+(evaluation/detection/average_precision_report.py), as the keypoint trainer does on the test split: perfect keypoints,
+keypoints whose similarity passes 0.5 but not 0.75, the small, medium and large objects sized by their box areas, the
+mean average recall, and a ground truth object the detector misses.
 """
 
 import pytest
@@ -17,7 +18,7 @@ from vision_training.evaluation.detection.mean_average_precision import (AVERAGE
                                                                          INTERSECTION_OVER_UNION_THRESHOLDS,
                                                                          evaluate_detections)
 from vision_training.evaluation.keypoints.object_keypoint_similarity import (build_keypoint_sigma_table,
-                                                                             group_image_objects)
+                                                                             evaluate_image_keypoints)
 
 # Foreground classes of the keypoint task, both with the four corners of a square as keypoints
 KEYPOINT_CATEGORIES = {1: {"name": "square", "keypoints": ["top_left", "top_right", "bottom_right", "bottom_left"]},
@@ -34,50 +35,63 @@ NUMBER_CLASSES = 3
 PARTIAL_SHIFT_PIXELS = 10.0
 
 
-def make_square_objects(object_definitions: List[Tuple[int, int, float, float, float, float]]) -> Dict[
-        str, torch.Tensor]:
+def make_square_images(object_definitions: List[Tuple[int, int, float, float, float, float]]) -> List[
+        Dict[str, torch.Tensor]]:
     """
-    Builds the evaluated objects of the test split, as gathered by the keypoint trainer, from squares whose four
-    corners are the keypoints and whose predicted keypoints are all moved along x by a known shift.
+    Builds the evaluated test images, as gathered by the keypoint trainer, from squares whose four corners are the
+    keypoints, every square being found by the detector with its keypoints all moved along x by a known shift, or
+    missed when its score is negative.
 
     Args:
-        object_definitions (List[Tuple[int, int, float, float, float, float]]): The image identifier, class index,
-            left coordinate, side, keypoint shift in pixels and keypoint score of every object.
+        object_definitions (List[Tuple[int, int, float, float, float, float]]): The image index, class index, left
+            coordinate, side, keypoint shift in pixels and score of every object, a negative score for a missed one.
 
     Returns:
-        Dict[str, torch.Tensor]: The 'image_identifiers', 'labels', 'bounding_boxes', 'keypoints', 'visibilities',
-            'predicted_keypoints' and 'scores' of the objects.
+        List[Dict[str, torch.Tensor]]: The ground truth 'labels', 'bounding_boxes', 'keypoints' and 'visibilities' of
+            every image, and its 'predicted_labels', 'predicted_keypoints' and 'predicted_scores'.
     """
-    bounding_boxes, keypoints, keypoint_shifts = [], [], []
-    for _, _, left, side, shift, _ in object_definitions:
-        bounding_boxes.append([left, 0.0, left + side, side])
-        keypoints.append([[left, 0.0], [left + side, 0.0], [left + side, side], [left, side]])
-        keypoint_shifts.append([[shift, 0.0]] * 4)
-    keypoints_tensor = torch.tensor(data=keypoints, dtype=torch.float32)
-    return {"image_identifiers": torch.tensor(data=[definition[0] for definition in object_definitions]),
-            "labels": torch.tensor(data=[definition[1] for definition in object_definitions]),
-            "bounding_boxes": torch.tensor(data=bounding_boxes, dtype=torch.float32), "keypoints": keypoints_tensor,
-            "visibilities": torch.full(size=(len(object_definitions), 4), fill_value=2),
-            "predicted_keypoints": keypoints_tensor + torch.tensor(data=keypoint_shifts, dtype=torch.float32),
-            "scores": torch.tensor(data=[definition[5] for definition in object_definitions], dtype=torch.float32)}
+    number_images = max(definition[0] for definition in object_definitions) + 1
+    images = [{"labels": [], "bounding_boxes": [], "keypoints": [], "predicted_labels": [], "predicted_keypoints": [],
+               "predicted_scores": []} for _ in range(number_images)]
+    for image_index, class_index, left, side, shift, score in object_definitions:
+        image = images[image_index]
+        corners = [[left, 0.0], [left + side, 0.0], [left + side, side], [left, side]]
+        image["labels"].append(class_index)
+        image["bounding_boxes"].append([left, 0.0, left + side, side])
+        image["keypoints"].append(corners)
+
+        # The detector finds the square with its keypoints shifted, unless it misses it
+        if score >= 0.0:
+            image["predicted_labels"].append(class_index)
+            image["predicted_keypoints"].append([[corner_x + shift, corner_y] for corner_x, corner_y in corners])
+            image["predicted_scores"].append(score)
+    return [{"labels": torch.tensor(data=image["labels"], dtype=torch.int64),
+             "bounding_boxes": torch.tensor(data=image["bounding_boxes"], dtype=torch.float32),
+             "keypoints": torch.tensor(data=image["keypoints"], dtype=torch.float32),
+             "visibilities": torch.full(size=(len(image["labels"]), 4), fill_value=2, dtype=torch.int64),
+             "predicted_labels": torch.tensor(data=image["predicted_labels"], dtype=torch.int64),
+             "predicted_keypoints": torch.tensor(data=image["predicted_keypoints"], dtype=torch.float32).reshape(
+                 -1, 4, 2),
+             "predicted_scores": torch.tensor(data=image["predicted_scores"], dtype=torch.float32)}
+            for image in images]
 
 
-def evaluate_keypoint_objects(objects: Dict[str, torch.Tensor]) -> Dict[str, Dict]:
+def evaluate_keypoint_images(images: List[Dict[str, torch.Tensor]]) -> Dict[str, Dict]:
     """
-    Evaluates the objects with the average precision on the object keypoint similarity, the default sigma of 0.05
+    Evaluates the images with the average precision on the object keypoint similarity, the default sigma of 0.05
     applying to every keypoint, as the keypoint trainer does at the end of its test evaluation.
 
     Args:
-        objects (Dict[str, torch.Tensor]): The evaluated objects of make_square_objects.
+        images (List[Dict[str, torch.Tensor]]): The evaluated images of make_square_images.
 
     Returns:
         Dict[str, Dict]: The results of evaluate_detections for every average precision method.
     """
     sigma_table = build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=0.05,
                                              keypoint_sigmas={}, maximum_keypoints=4)
-    detections, ground_truths = group_image_objects(objects=objects, sigma_table=sigma_table)
-    return evaluate_detections(detections=detections, ground_truths=ground_truths, number_classes=NUMBER_CLASSES,
-                               overlap_type="keypoints")
+    evaluation = evaluate_image_keypoints(images=images, sigma_table=sigma_table)
+    return evaluate_detections(detections=evaluation["detections"], ground_truths=evaluation["ground_truths"],
+                               number_classes=NUMBER_CLASSES, overlap_type="keypoints")
 
 
 def test_perfect_keypoints_give_an_average_precision_of_one_at_every_threshold() -> None:
@@ -86,9 +100,9 @@ def test_perfect_keypoints_give_an_average_precision_of_one_at_every_threshold()
     precision and a recall of 1 with every method at every threshold, the objects of different classes or far apart
     never taking each other's ground truth.
     """
-    objects = make_square_objects(object_definitions=[(0, 1, 0.0, 100.0, 0.0, 0.9), (0, 2, 300.0, 50.0, 0.0, 0.4),
+    images = make_square_images(object_definitions=[(0, 1, 0.0, 100.0, 0.0, 0.9), (0, 2, 300.0, 50.0, 0.0, 0.4),
                                                       (1, 1, 0.0, 20.0, 0.0, 0.7), (1, 1, 300.0, 100.0, 0.0, 0.2)])
-    results = evaluate_keypoint_objects(objects=objects)
+    results = evaluate_keypoint_images(images=images)
     for method in AVERAGE_PRECISION_METHODS:
         for metric_name in ["mAP@0.5", "mAP@0.75", "mAP@0.95", "mAP@[0.5:0.95]", "mAR@0.5", "mAR@0.75", "mAR@0.95",
                             "mAR@[0.5:0.95]"]:
@@ -102,9 +116,9 @@ def test_partially_correct_keypoints_lower_the_strict_thresholds_first() -> None
     and missed from 0.65 on: with a perfect object of higher score in the same image, the AP and the recall stay 1 at
     0.5 and fall to 0.5 at 0.75 and 0.95, and their mean over the ten thresholds is (3 · 1 + 7 · 0.5) / 10.
     """
-    objects = make_square_objects(object_definitions=[(0, 1, 0.0, 100.0, 0.0, 0.9),
+    images = make_square_images(object_definitions=[(0, 1, 0.0, 100.0, 0.0, 0.9),
                                                       (0, 1, 300.0, 100.0, PARTIAL_SHIFT_PIXELS, 0.8)])
-    results = evaluate_keypoint_objects(objects=objects)
+    results = evaluate_keypoint_images(images=images)
     area_results = results["area"]
     assert area_results["mAP@0.5"] == pytest.approx(1.0) and area_results["mAP@0.75"] == pytest.approx(0.5)
     assert area_results["mAP@0.95"] == pytest.approx(0.5) and area_results["mAP@[0.5:0.95]"] == pytest.approx(0.65)
@@ -114,11 +128,35 @@ def test_partially_correct_keypoints_lower_the_strict_thresholds_first() -> None
     assert INTERSECTION_OVER_UNION_THRESHOLDS[2:4] == [0.6, 0.65]
 
     # The same keypoints ranked first make a false positive come before the true positive at 0.75
-    swapped_objects = make_square_objects(object_definitions=[(0, 1, 0.0, 100.0, 0.0, 0.8),
+    swapped_images = make_square_images(object_definitions=[(0, 1, 0.0, 100.0, 0.0, 0.8),
                                                               (0, 1, 300.0, 100.0, PARTIAL_SHIFT_PIXELS, 0.9)])
-    swapped_results = evaluate_keypoint_objects(objects=swapped_objects)
+    swapped_results = evaluate_keypoint_images(images=swapped_images)
     assert swapped_results["area"]["mAP@0.5"] == pytest.approx(1.0)
     assert swapped_results["area"]["mAP@0.75"] < area_results["mAP@0.75"]
+
+
+def test_missed_objects_and_false_detections_lower_the_recall_and_precision() -> None:
+    """
+    Verifies that a ground truth object the detector misses lowers the recall and the average precision of its class
+    (two of three squares found, both perfect: a recall and an area AP of 2 / 3 at every threshold), and that a
+    detection in an image without ground truth object is a false positive, which lowers the precision once ranked
+    above the true positives.
+    """
+    images = make_square_images(object_definitions=[(0, 1, 0.0, 100.0, 0.0, 0.9), (0, 1, 300.0, 100.0, 0.0, -1.0),
+                                                    (1, 1, 0.0, 100.0, 0.0, 0.8)])
+    area_results = evaluate_keypoint_images(images=images)["area"]
+    for threshold_name in ["0.5", "0.75", "0.95"]:
+        assert area_results[f"mAP@{threshold_name}"] == pytest.approx(2.0 / 3.0)
+        assert area_results[f"mAR@{threshold_name}"] == pytest.approx(2.0 / 3.0)
+
+    # A detection of the highest score in a third image without ground truth comes first as a false positive
+    false_detection_image = make_square_images(object_definitions=[(0, 1, 0.0, 100.0, 0.0, 0.95)])[0]
+    false_detection_image.update({"labels": torch.zeros(size=(0,), dtype=torch.int64),
+                                  "bounding_boxes": torch.zeros(size=(0, 4)), "keypoints": torch.zeros(size=(0, 4, 2)),
+                                  "visibilities": torch.zeros(size=(0, 4), dtype=torch.int64)})
+    false_detection_results = evaluate_keypoint_images(images=images + [false_detection_image])["area"]
+    assert false_detection_results["mAR@0.5"] == pytest.approx(2.0 / 3.0)
+    assert false_detection_results["mAP@0.5"] < area_results["mAP@0.5"]
 
 
 def test_object_sizes_are_measured_by_the_box_areas() -> None:
@@ -127,9 +165,9 @@ def test_object_sizes_are_measured_by_the_box_areas() -> None:
     an AP of 1, a partially correct 100 x 100 object is large with an AP of 1 at 0.5 and 0 at 0.75, and no object being
     medium gives no medium mAP nor mAR.
     """
-    objects = make_square_objects(object_definitions=[(0, 1, 0.0, 20.0, 0.0, 0.9),
+    images = make_square_images(object_definitions=[(0, 1, 0.0, 20.0, 0.0, 0.9),
                                                       (0, 1, 300.0, 100.0, PARTIAL_SHIFT_PIXELS, 0.8)])
-    size_results = evaluate_keypoint_objects(objects=objects)["area"]["sizes"]
+    size_results = evaluate_keypoint_images(images=images)["area"]["sizes"]
     assert size_results["small"]["mAP@0.5"] == pytest.approx(1.0)
     assert size_results["small"]["mAP@0.75"] == pytest.approx(1.0)
     assert size_results["large"]["mAP@0.5"] == pytest.approx(1.0)
@@ -144,15 +182,15 @@ def test_keypoint_report_prefixes_its_tables_scalars_and_columns() -> None:
     the 'OKS ' scalars of every method, size and recall (none for the size without object), and the 'oks_' columns of
     the class rows.
     """
-    objects = make_square_objects(object_definitions=[(0, 1, 0.0, 20.0, 0.0, 0.9),
+    images = make_square_images(object_definitions=[(0, 1, 0.0, 20.0, 0.0, 0.9),
                                                       (0, 2, 300.0, 100.0, PARTIAL_SHIFT_PIXELS, 0.8)])
     sigma_table = build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=0.05,
                                              keypoint_sigmas={}, maximum_keypoints=4)
-    detections, ground_truths = group_image_objects(objects=objects, sigma_table=sigma_table)
-    summary = summarise_average_precisions(detections=detections, ground_truths=ground_truths,
-                                           number_classes=NUMBER_CLASSES, class_names=CLASS_NAMES,
-                                           overlap_type="keypoints", title_prefix="OKS", name_prefix="OKS ",
-                                           column_prefix="oks_")
+    evaluation = evaluate_image_keypoints(images=images, sigma_table=sigma_table)
+    summary = summarise_average_precisions(detections=evaluation["detections"],
+                                           ground_truths=evaluation["ground_truths"], number_classes=NUMBER_CLASSES,
+                                           class_names=CLASS_NAMES, overlap_type="keypoints", title_prefix="OKS",
+                                           name_prefix="OKS ", column_prefix="oks_")
 
     # Scalars of the mean average precisions, of the sizes with objects and of the recalls
     scalars = summary["scalars"]

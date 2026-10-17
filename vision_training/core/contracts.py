@@ -8,13 +8,11 @@ Batch dictionary, produced by the loaders and moved to the device by the 'prepar
 - "images": float BGR pixels in [0, 255], [B, C, H, W] for the image tasks, [B, T, C, H, W] for the sequence tasks,
   [B, 2T, C, H, W] for the sequence comparison task (the before window then the after window of every pair).
 - "labels": the targets of the task (one [N_i] tensor per image for detection, [B] for classification, ...).
-- "bounding_boxes": one [N_i, 4] tensor of [x1, y1, x2, y2] boxes per image, object detection and instance
-  segmentation only; one [4] box per sample ([B, 4]) for the keypoint detection, whose samples are objects.
-- "keypoints" and "visibilities": [B, K, 2] keypoints in image pixels and their [B, K] int64 visibilities (0
-  unlabelled, 1 occluded, 2 visible), padded to the most keypoints of a class, keypoint detection only, with its
-  "image_identifiers" [B] (the image of every object) and the "crops" [B, C, h, w] cut out of the images by the
-  trainer, with their "crop_affines" and "crop_inverse_affines" [B, 2, 3], "crop_keypoints" [B, K, 2],
-  "target_heatmaps" [B, K, h / 4, w / 4] and "heatmap_weights" [B, K].
+- "bounding_boxes": one [N_i, 4] tensor of [x1, y1, x2, y2] boxes per image, object detection, instance
+  segmentation and keypoint detection only.
+- "keypoints": one [N_i, K, 3] float tensor per image of the (x, y, visibility) keypoints of its objects in image
+  pixels (visibility 0 unlabelled, 1 occluded, 2 visible), padded to the most keypoints of a class, in the order of
+  its boxes, keypoint detection only.
 - "instance_masks": one [N_i, H, W] uint8 tensor of binary masks per image, in the order of its boxes, instance
   segmentation only.
 - "original_instance_masks" and "original_bounding_boxes": one [N_i, H0, W0] uint8 tensor of binary masks and one
@@ -170,30 +168,12 @@ class InstanceSegmentationBatch(DetectionBatch):
     original_bounding_boxes: NotRequired[List[torch.Tensor]]
 
 
-class KeypointBatch(TypedDict):
+class KeypointBatch(DetectionBatch):
     """
-    Batch of the keypoint detection task, on the device, one object per sample: its whole resized image ([B, 3, S, S]
-    float), box ([B, 4]), class ([B] int64), keypoints ([B, K, 2]) and visibilities ([B, K] int64) in image pixels and
-    image identifier ([B]), with the crop cut out of the image around the object by the trainer ([B, 3, h, w] float),
-    the affine matrices from the image to the crop and back ([B, 2, 3]), the keypoints moved into the crop
-    ([B, K, 2]) with their visibilities ([B, K] int64, swapped with the keypoints by a horizontal flip of the crop),
-    their Gaussian target heatmaps ([B, K, h / 4, w / 4]) and their weights ([B, K], 1 for the labelled keypoints
-    inside the crop). A training batch also holds the drawn 'crop_augmentations' and the DataAugmenter
-    'augmentation_reports' of its crops, for the input viewer.
+    Batch of the keypoint detection task, on the device: the detection batch of the whole images with the keypoints of
+    every object, one [N_i, K, 3] float tensor of (x, y, visibility) per image in the order of its boxes and labels, in
+    continuous image pixels (the first pixel centre at 0.5), padded to the most keypoints of a class. A training batch
+    also holds the DataAugmenter 'augmentation_reports' of its images, for the input viewer.
     """
-    images: torch.Tensor
-    bounding_boxes: torch.Tensor
-    labels: torch.Tensor
-    keypoints: torch.Tensor
-    visibilities: torch.Tensor
-    image_identifiers: torch.Tensor
-    sample_identifiers: torch.Tensor
-    crops: torch.Tensor
-    crop_affines: torch.Tensor
-    crop_inverse_affines: torch.Tensor
-    crop_keypoints: torch.Tensor
-    crop_visibilities: torch.Tensor
-    target_heatmaps: torch.Tensor
-    heatmap_weights: torch.Tensor
-    crop_augmentations: NotRequired[Dict[str, torch.Tensor]]
+    keypoints: List[torch.Tensor]
     augmentation_reports: NotRequired[List[Dict[str, Any]]]

@@ -2,12 +2,12 @@
 Tests of vision_training/models/model_transfer.py: backbones, temporal modules, heads, segmentation decoders and
 region proposal, detection and mask heads of a saved run initialising other models and tasks, rejected architectures and
 components (flattened heads, decoders and detection heads of other levels included), order-blind transformers moving
-between window lengths, source runs missing a setting (the pre-activation flag of the backbone counting as off),
-frozen and fixed normalization parameters and backbones moving between batch and sequence normalization. The runs
-adding classes after those of their source run are covered too: the class layers of the classification, detection and
-mask heads and of the semantic segmentation grown to the new classes, which keep the random initialisation of the new
-run, the classes of another order or fewer classes rejected, the source runs without class names, and the averaged or
-trained weights read from the source checkpoint.
+between window lengths, the keypoint heads of another hidden width, source runs missing a setting (the pre-activation
+flag of the backbone counting as off), frozen and fixed normalization parameters and backbones moving between batch and
+sequence normalization. The runs adding classes after those of their source run are covered too: the class layers of
+the classification, detection and mask heads and of the semantic segmentation grown to the new classes, which keep the
+random initialisation of the new run, the classes of another order or fewer classes rejected, the source runs without
+class names, and the averaged or trained weights read from the source checkpoint.
 """
 
 import copy
@@ -24,7 +24,8 @@ from vision_training.models.classification.image_classifier import ImageClassifi
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, TRANSFERABLE_COMPONENTS,
-                                                   compare_detection_heads, disable_pretrained_settings,
+                                                   compare_detection_heads, compare_keypoint_heads,
+                                                   disable_pretrained_settings,
                                                    freeze_batch_normalization_statistics, freeze_component,
                                                    freeze_normalization_parameters, load_pretrained_component,
                                                    load_segmentation_class_layers)
@@ -33,6 +34,7 @@ from vision_training.trainers.checkpointing import save_checkpoint
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY, NUMBER_UPDATES_KEY
 from tests.fixtures.configuration_fixtures import (get_classification_model_configuration,
                                                    get_detection_model_configuration,
+                                                   get_keypoint_model_configuration,
                                                    get_segmentation_model_configuration,
                                                    get_sequence_comparison_model_configuration,
                                                    get_sequence_model_configuration)
@@ -1076,6 +1078,42 @@ def test_detection_heads_of_another_batch_normalization_momentum_match(section_n
     differences = compare_detection_heads(section_name=section_name, source_configuration=source_configuration,
                                           target_configuration=target_configuration)
     assert len(differences) == 1 and differences[0].startswith(f"'{section_name}.normalization' is ")
+
+
+@pytest.mark.parametrize(argnames=("higher_resolution", "hidden_width", "normalization_reported"),
+                         argvalues=[(False, 0, False), (False, 16, True), (True, 0, True)])
+def test_keypoint_heads_compare_their_hidden_width(higher_resolution: bool, hidden_width: int,
+                                                   normalization_reported: bool) -> None:
+    """
+    Verifies that the keypoint heads of two runs match when their settings are equal, that another width of the 3x3
+    hidden convolution of the prediction heads is reported alone, and that another feature map normalization of the
+    high resolution network is reported only when the head has layers it normalizes: the hidden convolutions or the
+    refinement of the higher resolution branch.
+
+    Args:
+        higher_resolution (bool): Whether both runs have the higher resolution branch.
+        hidden_width (int): The width of the hidden convolution of both runs, 0 for none.
+        normalization_reported (bool): Whether another normalization changes the weights of the head.
+    """
+    source_configuration, _, _ = get_keypoint_model_configuration(higher_resolution=higher_resolution,
+                                                                  hidden_width=hidden_width)
+    target_configuration = copy.deepcopy(source_configuration)
+    assert compare_keypoint_heads(source_configuration=source_configuration,
+                                  target_configuration=target_configuration) == []
+
+    # Another hidden width changes the layers of the heads
+    target_configuration["KeypointHead"]["hidden_width"] = hidden_width + 32
+    assert compare_keypoint_heads(source_configuration=source_configuration,
+                                  target_configuration=target_configuration) == [
+        f"'KeypointHead.hidden_width' is {hidden_width} in the source run and {hidden_width + 32} in this run."]
+
+    # Another normalization of the high resolution network only matters to the normalized layers of the head
+    target_configuration["KeypointHead"]["hidden_width"] = hidden_width
+    target_configuration["HRNet"]["normalization"]["feature_map_normalization"] = "layer"
+    differences = compare_keypoint_heads(source_configuration=source_configuration,
+                                         target_configuration=target_configuration)
+    assert [difference.split(" is ")[0] for difference in differences] == (
+        ["'HRNet.normalization'"] if normalization_reported else [])
 
 
 def add_detection_level(configuration: Dict[str, Any]) -> None:

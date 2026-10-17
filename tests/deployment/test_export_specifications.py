@@ -1,9 +1,10 @@
 """
 Tests of the model exports of vision_training/deployment/export_model.py and export_specifications.py: the TorchScript
 and ONNX exports of every task (the image classifier with a pooled or flattened feature map or pre-activation residual
-shortcuts, the semantic segmenter, the frame selector, the encoder of the self-supervised task, the keypoint detector on
-rectangular crops) match the eager model, keep their dynamic frames, the comparisons of the segmenter and keypoint
-detector outputs report their differences, and the inference models match the training path on full windows.
+shortcuts, the semantic segmenter, the frame selector, the encoder of the self-supervised task, the bottom-up keypoint
+detector with its higher resolution branch and the 3x3 hidden convolution of its prediction heads) match the eager
+model, keep their dynamic frames, the comparisons of the segmenter and keypoint detector outputs report their
+differences, and the inference models match the training path on full windows.
 """
 
 import numpy as np
@@ -41,7 +42,7 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
     """
     Builds a small untrained model of a task on the CPU, in evaluation mode, with seeded weights: bidirectional
     recurrent modules, a causal transformer for the sequence labeller, the selection settings of the frame selector,
-    and a keypoint head giving heatmaps of a trained scale.
+    and a keypoint head with its higher resolution branch giving heatmaps and tags of a trained scale.
 
     Args:
         task (str): "classification", "semantic_segmentation", "sequence_classification", "sequence_labelling",
@@ -64,7 +65,7 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
         configuration, device, dtype = get_self_supervised_model_configuration(method="simclr",
                                                                                global_pooling=global_pooling)
     elif task == "keypoint_detection":
-        configuration, device, dtype = get_keypoint_model_configuration()
+        configuration, device, dtype = get_keypoint_model_configuration(higher_resolution=True, hidden_width=16)
     elif temporal_type is None:
         configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
         configuration["ClassificationHead"]["global_pooling"] = global_pooling
@@ -81,9 +82,12 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
                                       "frames_per_class": 1, "selection_loss_weight": 1.0}
     model = TASK_MODEL_CLASSES[task](configuration=configuration, device=device, dtype=dtype).eval()
 
-    # The keypoint head starts with heatmaps of about 1e-5, below every tolerance, so it is drawn at a trained scale
+    # The keypoint head starts with heatmaps of about 1e-5, below every tolerance, so both of its final convolutions,
+    # behind the 3x3 hidden convolutions, are drawn at a trained scale
     if task == "keypoint_detection":
-        nn.init.normal_(tensor=model.keypoint_head.weight, mean=0.0, std=25.0)
+        nn.init.normal_(tensor=model.keypoint_head["prediction_convolution"][-1].weight, mean=0.0, std=25.0)
+        nn.init.normal_(tensor=model.keypoint_head["higher_resolution_branch"].heatmap_head[-1].weight, mean=0.0,
+                        std=25.0)
     return model
 
 
@@ -107,8 +111,8 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
     """
     Verifies the TorchScript and ONNX exports of the inference models of the classification, segmentation, sequence,
     self-supervised and keypoint detection tasks: both keep the input names of the specification and reproduce the
-    eager class probabilities (class maps of the segmenter, representations of the encoder, keypoints, scores and
-    heatmaps of the keypoint detector on rectangular crops) on a batch of another size than the traced one and, for
+    eager class probabilities (class maps of the segmenter, representations of the encoder, candidate positions,
+    scores and tags of the keypoint detector) on a batch of another size than the traced one and, for
     the sequence models, with another number of frames, so that Triton can batch requests and receive windows of any
     length. The before and after windows of the comparison model are checked
     with different numbers of frames, and its recurrent case, exported after the recurrent sequence classifier in the
@@ -145,15 +149,16 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
         assert [input_batch.shape[1] for input_batch in check_inputs.values()] == [3, 2]
 
     # One vector of class probabilities per sample, or per frame for the sequence labeller and the frame selector, a
-    # class map and the class probabilities of every pixel for the segmenter, or the representation of every image
+    # class map and the class probabilities of every pixel for the segmenter, the representation of every image, or
+    # the 5 candidates of the 7 heatmap channels of every image for the keypoint detector
     check_shape = specification["inputs"][0]["check_shape"]
     if task == "semantic_segmentation":
         assert [output.shape for output in reference_outputs] == [(3, 64, 64), (3, 3, 64, 64)]
     elif task == "self_supervised":
         assert reference_outputs[0].shape == (3, 32)
     elif task == "keypoint_detection":
-        assert check_shape == [3, 3, 64, 48]
-        assert [output.shape for output in reference_outputs] == [(3, 7, 2), (3, 7), (3, 7, 16, 12)]
+        assert check_shape == [3, 3, 64, 64]
+        assert [output.shape for output in reference_outputs] == [(3, 7, 5, 2), (3, 7, 5), (3, 7, 5)]
     else:
         expected_shape = (check_shape[0], check_shape[1], 3) if task in FRAME_OUTPUT_TASKS else (3, 3)
         assert reference_outputs[0].shape == expected_shape
@@ -205,32 +210,51 @@ def test_segmentation_comparison_reports_the_differences() -> None:
 
 def test_keypoint_comparison_reports_the_differences() -> None:
     """
-    Verifies that the comparison of the keypoint detector outputs accepts one keypoint of 40 moved by a tied maximum,
-    and reports more moved keypoints, heatmaps and scores beyond their tolerances, and outputs of another shape.
+    Verifies that the comparison of the keypoint detector outputs accepts one candidate of 200 moved by a tied
+    maximum with another tag, the zero-score candidates filling a channel at other cells with other tags and a tied
+    cell becoming a maximum in the exported model only, which shifts the ranks of the following candidates, and
+    reports more moved candidates, candidate tags and scores beyond their tolerances, and outputs of another shape.
     """
-    keypoints = np.zeros(shape=(4, 10, 2), dtype=np.float32)
-    keypoint_scores = np.full(shape=(4, 10), fill_value=0.5, dtype=np.float32)
-    heatmaps = np.zeros(shape=(4, 10, 16, 12), dtype=np.float32)
-    tolerances = {"keypoint_tolerance": 1e-2, "score_tolerance": 1e-4, "heatmap_tolerance": 1e-4,
+    positions = np.zeros(shape=(4, 10, 5, 2), dtype=np.float32)
+    scores = np.full(shape=(4, 10, 5), fill_value=0.5, dtype=np.float32)
+    tags = np.zeros(shape=(4, 10, 5), dtype=np.float32)
+    tolerances = {"position_tolerance": 1e-2, "score_tolerance": 1e-4, "tag_tolerance": 1e-3,
                   "minimum_equal_share": 0.95}
 
-    # One keypoint of 40 moved by a whole heatmap cell is accepted, one in four is reported
-    almost_equal_keypoints = keypoints.copy()
-    almost_equal_keypoints[0, 0] = [4.0, 0.0]
-    assert compare_keypoints(reference=[keypoints, keypoint_scores, heatmaps],
-                             candidate=[almost_equal_keypoints, keypoint_scores, heatmaps], **tolerances) == []
-    different_keypoints = keypoints.copy()
-    different_keypoints[0] = 4.0
-    assert compare_keypoints(reference=[keypoints, keypoint_scores, heatmaps],
-                             candidate=[different_keypoints, keypoint_scores + 0.01, heatmaps + 0.02],
-                             **tolerances) == ["heatmaps differ by up to 2.00e-02",
-                                               "keypoint scores differ by up to 1.00e-02",
-                                               "keypoints agree on 75.0% of the channels only"]
+    # One candidate of 200 moved by a whole heatmap cell with another tag is accepted
+    almost_equal_positions, almost_equal_tags = positions.copy(), tags.copy()
+    almost_equal_positions[0, 0, 0], almost_equal_tags[0, 0, 0] = [4.0, 0.0], 1.0
+    assert compare_keypoints(reference=[positions, scores, tags],
+                             candidate=[almost_equal_positions, scores, almost_equal_tags], **tolerances) == []
+
+    # The zero-score candidates after the first two of every channel, tied, may come at other cells with other tags
+    filled_scores, filled_positions, filled_tags = scores.copy(), positions.copy(), tags.copy()
+    filled_scores[:, :, 2:], filled_positions[:, :, 2:], filled_tags[:, :, 2:] = 0.0, 4.0, 1.0
+    assert compare_keypoints(reference=[positions, filled_scores, tags],
+                             candidate=[filled_positions, filled_scores, filled_tags], **tolerances) == []
+
+    # A tied cell becoming a maximum in one channel of the exported model only shifts the ranks of the candidates
+    # after it, the last one leaving the top-k, and is accepted although the scores at every rank differ
+    ranked_positions = np.stack(arrays=[np.arange(5) * 4.0, np.zeros(shape=5)], axis=-1).astype(np.float32)
+    ranked_positions = np.broadcast_to(array=ranked_positions, shape=positions.shape).copy()
+    ranked_scores = np.broadcast_to(array=np.linspace(start=0.5, stop=0.1, num=5), shape=scores.shape).copy()
+    inserted_positions, inserted_scores, inserted_tags = ranked_positions.copy(), ranked_scores.copy(), tags.copy()
+    inserted_positions[0, 0, 2:], inserted_scores[0, 0, 2:] = ranked_positions[0, 0, 1:4], ranked_scores[0, 0, 1:4]
+    inserted_positions[0, 0, 1], inserted_scores[0, 0, 1], inserted_tags[0, 0, 1] = [2.0, 0.0], 0.45, 1.0
+    assert compare_keypoints(reference=[ranked_positions, ranked_scores, tags],
+                             candidate=[inserted_positions, inserted_scores, inserted_tags], **tolerances) == []
+
+    # One candidate in four moved and one in four with another tag are reported, with the shifted scores
+    different_positions, different_tags = positions.copy(), tags.copy()
+    different_positions[0], different_tags[1] = 4.0, 0.01
+    assert compare_keypoints(reference=[positions, scores, tags],
+                             candidate=[different_positions, scores + 0.01, different_tags], **tolerances) == [
+        "candidate scores differ by up to 1.00e-02",
+        "candidate positions and tags agree on 50.0% of the candidates only"]
 
     # Outputs of another shape are reported before any value is compared
-    assert compare_keypoints(reference=[keypoints, keypoint_scores, heatmaps],
-                             candidate=[keypoints[:, :9], keypoint_scores, heatmaps], **tolerances) == [
-        "keypoint shapes differ: (4, 10, 2) vs (4, 9, 2)"]
+    assert compare_keypoints(reference=[positions, scores, tags], candidate=[positions[:, :9], scores, tags],
+                             **tolerances) == ["candidate position shapes differ: (4, 10, 5, 2) vs (4, 9, 5, 2)"]
 
 
 def test_second_recurrent_export_keeps_dynamic_frames(tmp_path: Path) -> None:

@@ -16,8 +16,7 @@ if __name__ == "__main__":
     # local run and the names of its served models)
     experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / "poseidon_experiment_4"
     # Folder of the images sent to the models, one image per request (one window of consecutive images for the
-    # sequence models, two windows, the after one starting where the before one ends, for the comparison model, and the
-    # crop of the whole image, taken as the box of one object, for the keypoint detector)
+    # sequence models, and two windows, the after one starting where the before one ends, for the comparison model)
     image_folder = Path(__file__).absolute().parent / "inference_data"
     # Triton gRPC address of the server started with deployment/triton/docker-compose.yml
     url = "localhost:8001"

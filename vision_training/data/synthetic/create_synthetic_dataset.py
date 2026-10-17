@@ -1815,8 +1815,8 @@ def build_keypoint_label_mapping() -> Dict[str, int]:
     Builds the 'label_mapping.json' of the synthetic keypoint dataset, read by the 'multi_class' label mapping of
     keypoint_detection/configuration_synthetic_shapes.yaml: the categories with keypoints are numbered from 1 in the
     order of KEYPOINT_CATEGORIES, and the distractors without keypoints (the circle, the ellipse, the annulus and
-    the hollow ellipse) are left out, so that the keypoint dataset maps them to the background and never crops them, while they
-    still appear in the crops of the other objects.
+    the hollow ellipse) are left out, so that the keypoint dataset maps them to the background, while they still
+    appear in the images next to the other objects.
 
     Returns:
         Dict[str, int]: The class index of every category identifier with keypoints, as a string key.
@@ -1831,8 +1831,7 @@ def build_keypoint_labels(image_records: List[Dict[str, Any]], image_size: int, 
     Assembles the COCO annotation file of a synthetic keypoint detection split, read by the keypoint dataset: the
     detection labels of the KEYPOINT_CATEGORIES with the 'keypoints' of every object, flattened as the COCO
     [x1, y1, v1, x2, y2, v2, ...] in the continuous coordinates of the image, and their 'num_keypoints' labelled, and
-    for every category the names of its keypoints, its skeleton and the largest rotation of its crops by the keypoint
-    augmentation.
+    for every category the names of its keypoints and its skeleton.
 
     Args:
         image_records (List[Dict[str, Any]]): The 'index', 'file_name' and (category, box, keypoints) 'objects' of
@@ -2507,8 +2506,8 @@ if __name__ == "__main__":
     # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task. The 128000
     # training images of the instance segmentation are the 2000 iterations of 64 images of the synthetic object
     # detection and instance segmentation configurations, every image being seen once. The 250000 training images of
-    # the keypoint detection, of 2 to 5 objects, give about 790000 object crops, the 20000 iterations of 64 crops of
-    # its synthetic configuration seeing every crop less than twice
+    # the keypoint detection, of 2 to 5 objects, are seen about 1.3 times by the 20000 iterations of 16 images of its
+    # synthetic configuration
     split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
                    "instance_segmentation": {"train": 128000, "validation": 20000, "test": 20000},
                    "keypoint_detection": {"train": 250000, "validation": 50000, "test": 50000},

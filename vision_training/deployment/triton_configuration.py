@@ -43,9 +43,9 @@ def write_triton_configuration(model_directory: Path, model_name: str, model_ver
                                specification: Dict[str, Any], maximum_batch_size: int,
                                tensorrt_precision: Optional[str]) -> None:
     """
-    Writes the 'config.pbtxt' describing an exported model to Triton, for every task: platform, inputs ('images',
-    'crops' for the keypoint detection, or 'before_images' and 'after_images' for the comparison) and outputs of the
-    export specification, dynamic batching, GPU execution and, for ONNX, the optional TensorRT accelerator.
+    Writes the 'config.pbtxt' describing an exported model to Triton, for every task: platform, inputs ('images', or
+    'before_images' and 'after_images' for the comparison) and outputs of the export specification, dynamic
+    batching, GPU execution and, for ONNX, the optional TensorRT accelerator.
 
     Args:
         model_directory (Path): The model folder of the Triton repository (holding the version folder).

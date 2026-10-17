@@ -162,7 +162,7 @@ class Backbone(nn.Module):
 
         return current_tensor, output_tensor_dictionary
 
-    def print_summary(self, input_width: Optional[int] = None) -> None:
+    def print_summary(self) -> None:
         """
         Prints a structural summary of the Backbone architecture using the initialized input image size.
         
@@ -170,18 +170,13 @@ class Backbone(nn.Module):
         and display the spatial and channel dimensions at each significant step of the feature 
         extraction pipeline. This summary is crucial for visually verifying that the spatial resolutions 
         and channel depths accurately align with the required downstream region proposal and detection modules.
-
-        Args:
-            input_width (Optional[int]): The width of the traced image when the inputs are not square (the object
-                crops of the keypoint detector, input_image_size being their height), None for square inputs.
         """
         # Initialize the rich console for formatted output, specifying a wide width to comfortably accommodate the panel
         console = Console(width=80)
 
         # Create a dummy tensor on the appropriate device and in the precision of the weights (float32 or float64) to
         # mathematically trace the dimension transformations
-        dummy_width = self.input_image_size if input_width is None else input_width
-        dummy_tensor = torch.zeros(size=(1, self.input_channels, self.input_image_size, dummy_width),
+        dummy_tensor = torch.zeros(size=(1, self.input_channels, self.input_image_size, self.input_image_size),
                                    device=self.device, dtype=self.dtype)
 
         # Print the overarching title and the initial tensor shape to begin the structured summary

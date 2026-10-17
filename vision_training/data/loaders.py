@@ -1,6 +1,6 @@
 """
 Builds the training, validation and test data loaders of every task from the experiment and model configurations:
-COCO detection, keypoint detection (one sample per object), classification and self-supervised learning (same
+COCO detection and keypoint detection (one sample per image), classification and self-supervised learning (same
 layout), semantic segmentation, and the sequence and sequence comparison tasks, every one with a PyTorch DataLoader over
 its dataset. Called by the task trainers.
 """
@@ -14,7 +14,6 @@ from torch.utils.data import DataLoader, Dataset
 
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
-from vision_training.data.keypoints.keypoint_dataset import KeypointDataset
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_longest_windows
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset
@@ -55,12 +54,14 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
 
 def get_detection_dataloader(split_name: str, split_data_folder: str, model_configuration: Dict[str, Any],
                              batch_size: int, load_instance_masks: bool = False,
-                             load_original_instances: bool = False) -> DataLoader:
+                             load_original_instances: bool = False, load_keypoints: bool = False,
+                             maximum_keypoints: int = 0) -> DataLoader:
     """
-    Instantiates the DataLoader feeding one COCO split (Train, Validation or Test) to the object detection or instance
-    segmentation trainer: the CocoDetectionDataset decodes the images with OpenCV and resizes them on the CPU workers,
-    with the instance masks rasterised there too for the instance segmentation, also at the original image resolution
-    for the test split evaluated at that resolution.
+    Instantiates the DataLoader feeding one COCO split (Train, Validation or Test) to the object detection, instance
+    segmentation or keypoint detection trainer: the CocoDetectionDataset decodes the images with OpenCV and resizes
+    them on the CPU workers, with the instance masks rasterised there too for the instance segmentation, also at the
+    original image resolution for the test split evaluated at that resolution, and the keypoints moved with the image
+    for the keypoint detection.
 
     Args:
         split_name (str): The name of the split (e.g., 'Train', 'Validation', 'Test').
@@ -72,6 +73,9 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
         load_original_instances (bool): Whether the samples also carry the masks and boxes of the objects at the
             original image resolution (test split of the instance segmentation evaluated at that resolution).
             Defaults to False.
+        load_keypoints (bool): Whether the samples carry the keypoints of every object (keypoint detection), the
+            objects without any labelled keypoint being left out. Defaults to False.
+        maximum_keypoints (int): The most keypoints of a class, with load_keypoints. Defaults to 0.
 
     Returns:
         DataLoader: The configured loader for the requested split.
@@ -89,7 +93,8 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
                                    label_mode=data_configuration["label_mode"],
                                    label_dictionary=data_configuration["label_dictionary"],
                                    load_instance_masks=load_instance_masks,
-                                   load_original_instances=load_original_instances)
+                                   load_original_instances=load_original_instances,
+                                   load_keypoints=load_keypoints, maximum_keypoints=maximum_keypoints)
     return build_native_loader(dataset=dataset, batch_size=batch_size,
                                loading_configuration=data_configuration["loading"], collate_function=collate_function)
 
@@ -141,36 +146,31 @@ def get_keypoint_dataloaders(experiment_configuration: Dict[str, Any], model_con
                              batch_size: int) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Initializes the training, validation and testing loaders of the keypoint detection task, read from the COCO
-    'labels.json' of every split with the Native loader: every sample is one object, given with its whole image resized
-    on the CPU workers, its box, class, keypoints and visibilities padded to the most keypoints of a class, so that the
-    default collate stacks them. The keypoint trainer cuts the crops out of the images on the GPU. Every split leaves
-    out the objects without any labelled keypoint, which give no heatmap loss and cannot be scored.
+    'labels.json' of every split like the object detection: every sample is one whole image resized on the CPU
+    workers, with the boxes, classes and keypoints of all its objects, the keypoints being padded to the most keypoints
+    of a class and kept as per-image lists by the collate. Every split leaves out the objects without any labelled
+    keypoint, which give no heatmap nor tag target and cannot be scored.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
         model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label dictionary,
             the keypoint categories injected by the configuration loader and the loading settings.
-        batch_size (int): The number of objects of a batch.
+        batch_size (int): The number of images of a batch.
 
     Returns:
         Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
     """
-    data_configuration = model_configuration["Data"]
     maximum_keypoints = max(len(definition["keypoints"])
-                            for definition in data_configuration["keypoint_categories"].values())
+                            for definition in model_configuration["Data"]["keypoint_categories"].values())
     loaders = []
 
     # Build the loader of every split with the same settings
-    for split_key in ["train_data_folder", "validation_data_folder", "test_data_folder"]:
-        split_data_folder = str(experiment_configuration[split_key])
-        dataset = KeypointDataset(data_directory=os.path.join(split_data_folder, "data"),
-                                  labels_file=os.path.join(split_data_folder, "labels.json"),
-                                  image_size=data_configuration["image_settings"]["size"],
-                                  keep_ratio=data_configuration["image_settings"]["keep_ratio"],
-                                  label_dictionary=data_configuration["label_dictionary"],
-                                  maximum_keypoints=maximum_keypoints)
-        loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
-                                           loading_configuration=data_configuration["loading"]))
+    for split_name, split_key in [("Train", "train_data_folder"), ("Validation", "validation_data_folder"),
+                                  ("Test", "test_data_folder")]:
+        loaders.append(get_detection_dataloader(split_name=split_name,
+                                                split_data_folder=str(experiment_configuration[split_key]),
+                                                model_configuration=model_configuration, batch_size=batch_size,
+                                                load_keypoints=True, maximum_keypoints=maximum_keypoints))
 
     return loaders[0], loaders[1], loaders[2]
 

@@ -1,17 +1,19 @@
 """
-Object keypoint similarity and keypoint accuracy of the keypoint detection task, computed on the objects of the test
-split once the keypoint trainer has brought the predicted keypoints of every crop back to the network input image: the
-per-keypoint standard deviations of the similarity (COCO sigmas, from the evaluation section of the configuration),
-the object keypoint similarity (OKS) of every predicted object with every ground truth object of the same class and
-image, which replaces the intersection over union of the average precision of mean_average_precision.py, the
-percentage of correct keypoints (PCK, a keypoint within a fraction of the longest box side) and the pixel errors of
-every class and keypoint, and their tables for the report and rows for the metrics files. The objects are measured by
-their box areas in network input pixels.
+Object keypoint similarity and keypoint accuracy of the keypoint detection task, computed on the test images once the
+keypoint trainer has grouped the keypoint candidates of every image into objects
+(models/keypoints/keypoint_grouping.py): the per-keypoint standard deviations of the similarity (COCO sigmas, from the
+evaluation section of the configuration), the object keypoint similarity (OKS) of every predicted object with every
+ground truth object of the same class and image, which replaces the intersection over union of the average precision
+of mean_average_precision.py, the matching of every ground truth object to one predicted object, and, on the matched
+keypoints, the percentage of correct keypoints (PCK, a keypoint within a fraction of the longest box side) and the
+pixel errors of every class and keypoint, with their tables for the report and rows for the metrics files. The objects
+are measured by their box areas in network input pixels.
 """
 
 import torch
 
-from typing import Any, Dict, List, Tuple
+from scipy.optimize import linear_sum_assignment
+from typing import Any, Dict, List
 
 from vision_training.core.contracts import EvaluationTable
 from vision_training.evaluation.detection.object_sizes import compute_box_areas
@@ -24,6 +26,9 @@ CORRECT_KEYPOINTS_NAME = f"PCK@{CORRECT_KEYPOINT_FRACTION:g}"
 
 # Smallest box area dividing the squared distances, so that a degenerate box gives a similarity instead of a NaN
 MINIMUM_OBJECT_AREA = torch.finfo(torch.float64).eps
+
+# Values of every ground truth object of the test split kept by evaluate_image_keypoints for the keypoint accuracy
+EVALUATED_OBJECT_KEYS = ["labels", "bounding_boxes", "keypoints", "visibilities", "predicted_keypoints", "matched"]
 
 
 def build_keypoint_sigma_table(keypoint_categories: Dict[int, Dict[str, Any]], default_sigma: float,
@@ -96,67 +101,143 @@ def compute_object_keypoint_similarity(squared_distances: torch.Tensor, visibili
     return (torch.exp(-keypoint_errors) * labelled_keypoints).sum(dim=-1) / labelled_counts
 
 
-def group_image_objects(objects: Dict[str, torch.Tensor], sigma_table: torch.Tensor) -> Tuple[
-        List[Dict[str, torch.Tensor]], List[Dict[str, torch.Tensor]]]:
+def compute_squared_distances(predicted_keypoints: torch.Tensor, ground_truth_keypoints: torch.Tensor) -> torch.Tensor:
     """
-    Groups the evaluated objects of the test split by image into the detections and ground truths of the average
-    precision (evaluate_detections with the 'keypoints' overlap), the keypoint dataset spreading the objects of one
-    image over several batches. Every ground truth object gives one detection, the keypoints predicted on its crop, with
-    its box and class and the score of its keypoints; the overlap of a detection with a ground truth of the same class
-    is their object keypoint similarity, 0 across classes since their keypoints differ.
+    Computes the squared pixel distances of predicted keypoints to ground truth keypoints for the object keypoint
+    similarity and the keypoint accuracy, a keypoint the grouping did not find (NaN) being infinitely far, so that it
+    adds 0 to the similarity and is never correct. The inputs broadcast together.
 
     Args:
-        objects (Dict[str, torch.Tensor]): The 'image_identifiers' [N], 'labels' [N], 'bounding_boxes' [N, 4],
-            ground truth 'keypoints' [N, K, 2] and 'visibilities' [N, K], 'predicted_keypoints' [N, K, 2] and 'scores'
-            [N] of every evaluated object, in network input pixels.
+        predicted_keypoints (torch.Tensor): The [..., K, 2] (x, y) predicted keypoints, NaN for the keypoints not found.
+        ground_truth_keypoints (torch.Tensor): The [..., K, 2] (x, y) ground truth keypoints.
+
+    Returns:
+        torch.Tensor: The [..., K] float64 squared distances, infinite for the keypoints not found.
+    """
+    differences = predicted_keypoints.to(dtype=torch.float64) - ground_truth_keypoints.to(dtype=torch.float64)
+    squared_distances = (differences ** 2).sum(dim=-1)
+    return torch.nan_to_num(input=squared_distances, nan=float("inf"))
+
+
+def compute_keypoint_boxes(keypoints: torch.Tensor) -> torch.Tensor:
+    """
+    Gives the box of the keypoints found for every predicted object, which sizes the detections of the keypoint average
+    precision that match no ground truth (the matched ones being sized by their ground truth box).
+
+    Args:
+        keypoints (torch.Tensor): The [D, K, 2] (x, y) predicted keypoints, NaN for the keypoints not found.
+
+    Returns:
+        torch.Tensor: The [D, 4] float64 (x1, y1, x2, y2) boxes.
+
+    Raises:
+        ValueError: If a predicted object has no keypoint.
+    """
+    keypoints = keypoints.to(dtype=torch.float64)
+    found = ~torch.isnan(keypoints).any(dim=-1)
+    if not bool(found.any(dim=1).all()):
+        raise ValueError("A predicted object has no keypoint, the grouping must give at least one keypoint per object.")
+    smallest = torch.where(found[..., None], keypoints, torch.full_like(input=keypoints, fill_value=float("inf")))
+    largest = torch.where(found[..., None], keypoints, torch.full_like(input=keypoints, fill_value=float("-inf")))
+    return torch.cat(tensors=(smallest.amin(dim=1), largest.amax(dim=1)), dim=1)
+
+
+def match_ground_truth_objects(keypoint_overlaps: torch.Tensor) -> torch.Tensor:
+    """
+    Matches every ground truth object of an image to at most one predicted object for the keypoint accuracy, whatever
+    the scores: the one-to-one matching of the largest total object keypoint similarity, a pair of similarity 0 (other
+    class or no keypoint close) never matching.
+
+    Args:
+        keypoint_overlaps (torch.Tensor): The [D, G] object keypoint similarity of every predicted object with every
+            ground truth object, 0 across classes.
+
+    Returns:
+        torch.Tensor: The [G] int64 index of the predicted object of every ground truth object, -1 when it is missed.
+    """
+    matched_predictions = torch.full(size=(keypoint_overlaps.shape[1],), fill_value=-1, dtype=torch.int64)
+    if keypoint_overlaps.numel() == 0:
+        return matched_predictions
+    prediction_indices, ground_truth_indices = linear_sum_assignment(cost_matrix=keypoint_overlaps.numpy(),
+                                                                     maximize=True)
+    for prediction_index, ground_truth_index in zip(prediction_indices, ground_truth_indices, strict=True):
+        if keypoint_overlaps[prediction_index, ground_truth_index] > 0:
+            matched_predictions[ground_truth_index] = int(prediction_index)
+    return matched_predictions
+
+
+def evaluate_image_keypoints(images: List[Dict[str, torch.Tensor]], sigma_table: torch.Tensor) -> Dict[str, Any]:
+    """
+    Compares the objects found by the keypoint detector in every test image with its ground truth objects, for the
+    average precision (evaluate_detections with the 'keypoints' overlap) and the keypoint accuracy: the object keypoint
+    similarity of every predicted object with every ground truth object of the same class, 0 across classes since their
+    keypoints differ, measured with the ground truth box area; then every ground truth object matched to one predicted
+    object (match_ground_truth_objects), its keypoints compared with the matched ones, NaN for a missed object.
+
+    Args:
+        images (List[Dict[str, torch.Tensor]]): For every image, its ground truth 'labels' [G], 'bounding_boxes'
+            [G, 4], 'keypoints' [G, K, 2] and 'visibilities' [G, K], and its 'predicted_labels' [D],
+            'predicted_keypoints' [D, K, 2] (NaN for the keypoints not found) and 'predicted_scores' [D], in network
+            input pixels.
         sigma_table (torch.Tensor): The [C, K] sigmas of every class (build_keypoint_sigma_table).
 
     Returns:
-        Tuple[List[Dict[str, torch.Tensor]], List[Dict[str, torch.Tensor]]]: The detections of every image ('boxes',
-            'scores', 'labels' and the [N_i, N_i] 'keypoint_overlaps') and its ground truths ('boxes' and 'labels').
+        Dict[str, Any]: The 'detections' of every image ('boxes' of their keypoints, 'scores', 'labels' and the
+            [D, G] 'keypoint_overlaps'), its 'ground_truths' ('boxes' and 'labels'), and the ground truth 'objects' of
+            all the images ('labels', 'bounding_boxes', 'keypoints', 'visibilities', the 'predicted_keypoints' of their
+            matched object, NaN when missed, and the 'matched' booleans).
     """
-    detections, ground_truths = [], []
-    image_identifiers, image_positions = torch.unique(input=objects["image_identifiers"], return_inverse=True)
-    for image_position in range(len(image_identifiers)):
-        object_indices = torch.nonzero(input=image_positions == image_position).squeeze(dim=1)
-        labels = objects["labels"][object_indices]
-        boxes = objects["bounding_boxes"][object_indices].to(dtype=torch.float64)
+    detections, ground_truths, objects = [], [], {object_key: [] for object_key in EVALUATED_OBJECT_KEYS}
+    for image in images:
+        labels, predicted_labels = image["labels"], image["predicted_labels"]
+        boxes = image["bounding_boxes"].to(dtype=torch.float64)
 
-        # Similarity of the keypoints predicted on every crop with the keypoints of every object of the image
-        predicted_keypoints = objects["predicted_keypoints"][object_indices].to(dtype=torch.float64)
-        ground_truth_keypoints = objects["keypoints"][object_indices].to(dtype=torch.float64)
-        squared_distances = ((predicted_keypoints.unsqueeze(dim=1) - ground_truth_keypoints.unsqueeze(dim=0)) ** 2).sum(
-            dim=-1)
+        # Similarity of every predicted object with every ground truth object of the image, of the same class only
+        squared_distances = compute_squared_distances(predicted_keypoints=image["predicted_keypoints"][:, None],
+                                                      ground_truth_keypoints=image["keypoints"][None])
         keypoint_overlaps = compute_object_keypoint_similarity(
-            squared_distances=squared_distances, visibilities=objects["visibilities"][object_indices].unsqueeze(dim=0),
-            areas=compute_box_areas(boxes=boxes).unsqueeze(dim=0), sigmas=sigma_table[labels].unsqueeze(dim=0))
-
-        # Objects of different classes have different keypoints, so they never match
-        keypoint_overlaps = keypoint_overlaps * (labels.unsqueeze(dim=1) == labels.unsqueeze(dim=0))
-        detections.append({"boxes": boxes, "scores": objects["scores"][object_indices].to(dtype=torch.float64),
-                           "labels": labels, "keypoint_overlaps": keypoint_overlaps})
+            squared_distances=squared_distances, visibilities=image["visibilities"][None],
+            areas=compute_box_areas(boxes=boxes)[None], sigmas=sigma_table[labels][None])
+        keypoint_overlaps = keypoint_overlaps * (predicted_labels[:, None] == labels[None, :])
+        detections.append({"boxes": compute_keypoint_boxes(keypoints=image["predicted_keypoints"]),
+                           "scores": image["predicted_scores"].to(dtype=torch.float64), "labels": predicted_labels,
+                           "keypoint_overlaps": keypoint_overlaps})
         ground_truths.append({"boxes": boxes, "labels": labels})
-    return detections, ground_truths
+
+        # Keypoints of the predicted object matched to every ground truth object, NaN for the missed ones
+        matched_predictions = match_ground_truth_objects(keypoint_overlaps=keypoint_overlaps)
+        matched = matched_predictions >= 0
+        matched_keypoints = torch.full_like(input=image["keypoints"], fill_value=float("nan"), dtype=torch.float32)
+        matched_keypoints[matched] = image["predicted_keypoints"][matched_predictions[matched]].to(dtype=torch.float32)
+        image_objects = {"labels": labels, "bounding_boxes": boxes, "keypoints": image["keypoints"],
+                         "visibilities": image["visibilities"], "predicted_keypoints": matched_keypoints,
+                         "matched": matched}
+        for object_key in EVALUATED_OBJECT_KEYS:
+            objects[object_key].append(image_objects[object_key])
+    return {"detections": detections, "ground_truths": ground_truths,
+            "objects": {object_key: torch.cat(tensors=values, dim=0) for object_key, values in objects.items()}}
 
 
 def measure_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: torch.Tensor) -> Dict[str, torch.Tensor]:
     """
-    Measures how close the keypoints predicted on the crop of every object are to its own ground truth keypoints,
-    independently of the score ranking of the average precision: the pixel distance of every keypoint, whether it is
-    within CORRECT_KEYPOINT_FRACTION of the longest box side (the PCK) and the object keypoint similarity of the
-    object, the unlabelled keypoints being left out.
+    Measures how close the keypoints of the predicted object matched to every ground truth object are to its ground
+    truth keypoints, independently of the score ranking of the average precision: the pixel distance of every keypoint,
+    whether it is within CORRECT_KEYPOINT_FRACTION of the longest box side (the PCK) and the object keypoint similarity
+    of the object, the unlabelled keypoints being left out. A keypoint not found, alone or with its missed object, is
+    infinitely far: never correct, adding 0 to the similarity.
 
     Args:
-        objects (Dict[str, torch.Tensor]): The evaluated objects (group_image_objects), in network input pixels.
+        objects (Dict[str, torch.Tensor]): The ground truth objects (evaluate_image_keypoints), in network input
+            pixels.
         sigma_table (torch.Tensor): The [C, K] sigmas of every class (build_keypoint_sigma_table).
 
     Returns:
-        Dict[str, torch.Tensor]: The [N, K] 'distances' in pixels, the [N, K] booleans 'labelled' and 'correct', and
-            the [N] 'similarities' of every object.
+        Dict[str, torch.Tensor]: The [N, K] 'distances' in pixels (infinite for the keypoints not found), the [N, K]
+            booleans 'labelled', 'found' and 'correct', and the [N] 'similarities' of every object.
     """
     boxes = objects["bounding_boxes"].to(dtype=torch.float64)
-    differences = objects["predicted_keypoints"].to(dtype=torch.float64) - objects["keypoints"].to(dtype=torch.float64)
-    squared_distances = (differences ** 2).sum(dim=-1)
+    squared_distances = compute_squared_distances(predicted_keypoints=objects["predicted_keypoints"],
+                                                  ground_truth_keypoints=objects["keypoints"])
     distances = squared_distances.sqrt()
 
     # Correct keypoints within a fraction of the longest side of the box of their object
@@ -167,7 +248,8 @@ def measure_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: tor
                                                       visibilities=objects["visibilities"],
                                                       areas=compute_box_areas(boxes=boxes),
                                                       sigmas=sigma_table[objects["labels"]])
-    return {"distances": distances, "labelled": labelled, "correct": correct, "similarities": similarities}
+    return {"distances": distances, "labelled": labelled, "found": torch.isfinite(distances), "correct": correct,
+            "similarities": similarities}
 
 
 def compute_mean_or_none(values: torch.Tensor) -> float | None:
@@ -189,13 +271,16 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
                                 class_names: Dict[int, str]) -> Dict[str, Any]:
     """
     Summarises the keypoint accuracy of the test split for the report of the keypoint trainer, next to the average
-    precisions on the object keypoint similarity: the PCK, the mean object keypoint similarity and the mean pixel error
-    of all the labelled keypoints as global metrics and TensorBoard scalars, the same values for every class (the
-    per-class table and the rows of class_metrics.csv) and for every keypoint of every class (the per-keypoint table
-    and the rows of keypoint_metrics.csv), telling which shapes and which keypoints the detector places badly.
+    precisions on the object keypoint similarity: the fraction of the ground truth objects matched to a predicted
+    object, the PCK and the mean object keypoint similarity of all the labelled keypoints (a missed object or keypoint
+    counting as wrong) and the mean pixel error of the keypoints found as global metrics and TensorBoard scalars, the
+    same values for every class (the per-class table and the rows of class_metrics.csv) and for every keypoint of every
+    class (the per-keypoint table and the rows of keypoint_metrics.csv), telling which shapes and which keypoints the
+    detector misses or places badly.
 
     Args:
-        objects (Dict[str, torch.Tensor]): The evaluated objects (group_image_objects), in network input pixels.
+        objects (Dict[str, torch.Tensor]): The ground truth objects (evaluate_image_keypoints), in network input
+            pixels.
         sigma_table (torch.Tensor): The [C, K] sigmas of every class (build_keypoint_sigma_table).
         keypoint_categories (Dict[int, Dict[str, Any]]): The 'keypoints' names of every foreground class.
         class_names (Dict[int, str]): The name of every class index.
@@ -206,53 +291,60 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
     """
     accuracy = measure_keypoint_accuracy(objects=objects, sigma_table=sigma_table)
     labelled, correct, distances = accuracy["labelled"], accuracy["correct"], accuracy["distances"]
-    # Objects without labelled keypoint have no similarity to average (their OKS of 0 means nothing)
+    matched = objects["matched"]
+    # Objects without labelled keypoint have no similarity to average (their OKS of 0 means nothing), and the pixel
+    # errors are those of the labelled keypoints found
     measured_objects = labelled.any(dim=1)
-    metrics = {CORRECT_KEYPOINTS_NAME: compute_mean_or_none(values=correct[labelled]),
+    measured_errors = labelled & accuracy["found"]
+    metrics = {"Matched Objects": compute_mean_or_none(values=matched),
+               CORRECT_KEYPOINTS_NAME: compute_mean_or_none(values=correct[labelled]),
                "Mean OKS": compute_mean_or_none(values=accuracy["similarities"][measured_objects]),
-               "Mean Keypoint Error (pixels)": compute_mean_or_none(values=distances[labelled])}
+               "Mean Keypoint Error (pixels)": compute_mean_or_none(values=distances[measured_errors])}
 
     # Accuracy of every class, in class index order, and of every keypoint of the class
     class_rows, keypoint_rows = [], []
     for class_index, definition in keypoint_categories.items():
         class_objects = objects["labels"] == class_index
-        class_labelled = labelled[class_objects]
+        class_labelled, class_errors = labelled[class_objects], measured_errors[class_objects]
         class_rows.append({"class_index": class_index, "class": class_names[class_index],
-                           "objects": int(class_objects.sum()), "labelled_keypoints": int(class_labelled.sum()),
+                           "objects": int(class_objects.sum()), "matched_objects": int(matched[class_objects].sum()),
+                           "labelled_keypoints": int(class_labelled.sum()),
                            "percentage_correct_keypoints": compute_mean_or_none(
                                values=correct[class_objects][class_labelled]),
                            "mean_object_keypoint_similarity": compute_mean_or_none(
                                values=accuracy["similarities"][class_objects & measured_objects]),
-                           "mean_error_pixels": compute_mean_or_none(values=distances[class_objects][class_labelled])})
+                           "mean_error_pixels": compute_mean_or_none(values=distances[class_objects][class_errors])})
         for keypoint_position, keypoint_name in enumerate(definition["keypoints"]):
             keypoint_labelled = class_labelled[:, keypoint_position]
             keypoint_rows.append({
                 "class_index": class_index, "class": class_names[class_index], "keypoint": keypoint_name,
                 "labelled": int(keypoint_labelled.sum()),
+                "found": int(class_errors[:, keypoint_position].sum()),
                 "percentage_correct_keypoints": compute_mean_or_none(
                     values=correct[class_objects][:, keypoint_position][keypoint_labelled]),
                 "mean_error_pixels": compute_mean_or_none(
-                    values=distances[class_objects][:, keypoint_position][keypoint_labelled])})
+                    values=distances[class_objects][:, keypoint_position][class_errors[:, keypoint_position]])})
 
     # Tables of the classes and of the keypoints, the worst ones first
     class_table: EvaluationTable = {
         "title": "Keypoint Accuracy Per Class", "rows": [
-            [row["class"], row["objects"], row["labelled_keypoints"], row["percentage_correct_keypoints"],
-             row["mean_object_keypoint_similarity"], row["mean_error_pixels"]] for row in class_rows],
-        "columns": ["Class", "Objects", "Labelled\nKeypoints", CORRECT_KEYPOINTS_NAME, "Mean\nOKS",
-                    "Mean Error\n(pixels)"],
+            [row["class"], row["objects"], row["matched_objects"], row["labelled_keypoints"],
+             row["percentage_correct_keypoints"], row["mean_object_keypoint_similarity"], row["mean_error_pixels"]]
+            for row in class_rows],
+        "columns": ["Class", "Objects", "Matched\nObjects", "Labelled\nKeypoints", CORRECT_KEYPOINTS_NAME,
+                    "Mean\nOKS", "Mean Error\n(pixels)"],
         "sort_column": CORRECT_KEYPOINTS_NAME, "per_class": True,
         "legend": f"Worst {CORRECT_KEYPOINTS_NAME} first. {CORRECT_KEYPOINTS_NAME} : labelled keypoints within "
-                  f"{CORRECT_KEYPOINT_FRACTION:g} of the longest box side, errors in network input pixels. — : no "
-                  f"labelled keypoint."}
+                  f"{CORRECT_KEYPOINT_FRACTION:g} of the longest box side, a missed object or keypoint counting as "
+                  f"wrong; errors of the keypoints found, in network input pixels. — : no labelled keypoint."}
     keypoint_table: EvaluationTable = {
         "title": "Keypoint Accuracy Per Keypoint", "rows": [
-            [row["class"], row["keypoint"], row["labelled"], row["percentage_correct_keypoints"],
+            [row["class"], row["keypoint"], row["labelled"], row["found"], row["percentage_correct_keypoints"],
              row["mean_error_pixels"]] for row in keypoint_rows],
-        "columns": ["Class", "Keypoint", "Labelled", CORRECT_KEYPOINTS_NAME, "Mean Error\n(pixels)"],
+        "columns": ["Class", "Keypoint", "Labelled", "Found", CORRECT_KEYPOINTS_NAME, "Mean Error\n(pixels)"],
         "sort_column": CORRECT_KEYPOINTS_NAME, "per_class": True,
-        "legend": f"Worst {CORRECT_KEYPOINTS_NAME} first, errors in network input pixels. — : keypoint never "
-                  f"labelled."}
+        "legend": f"Worst {CORRECT_KEYPOINTS_NAME} first, a missed keypoint counting as wrong; errors of the keypoints "
+                  f"found, in network input pixels. — : keypoint never labelled or never found."}
 
     # Global values as TensorBoard scalars, a split without labelled keypoint having none
     scalars = {f"Keypoint Accuracy/{metric_name}": value for metric_name, value in metrics.items() if value is not None}

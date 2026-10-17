@@ -1,7 +1,7 @@
 """
 Tests of vision_training/core/task_registry.py: every trainable task is registered in every table of the framework
 (trainer, model, configuration checks, run name, inference model and export inputs), the keypoint detection with its own
-classes, crop input and run name code, and an unknown task has no trainer.
+classes, whole-image input and run name code, and an unknown task has no trainer.
 """
 
 import pytest
@@ -40,8 +40,8 @@ def test_every_task_is_registered_everywhere() -> None:
 def test_keypoint_detection_is_registered() -> None:
     """
     Verifies that the keypoint detection is trained by the keypoint trainer on the keypoint detector, checked by the
-    keypoint checks, named with the KPT code and its crop, high resolution network and head sections, and exported as
-    the keypoint_detector Triton model of one 'crops' input, the object crops cut by the client, not as a sequence.
+    keypoint checks, named with the KPT code and its high resolution network and head sections, and exported as the
+    keypoint_detector Triton model of one 'images' input, the whole images, not as a sequence.
     """
     assert get_trainer_class(task="keypoint_detection") is KeypointTrainer
     assert TASK_MODEL_CLASSES["keypoint_detection"] is KeypointDetector
@@ -50,7 +50,7 @@ def test_keypoint_detection_is_registered() -> None:
     assert TASK_RUN_NAME_SECTIONS["keypoint_detection"] is build_keypoint_sections
     assert INFERENCE_MODEL_CLASSES["keypoint_detection"] is InferenceKeypointDetector
     assert TASK_MODEL_NAMES["keypoint_detection"] == "keypoint_detector"
-    assert TASK_INPUT_NAMES["keypoint_detection"] == ["crops"]
+    assert TASK_INPUT_NAMES["keypoint_detection"] == ["images"]
     assert "keypoint_detection" not in SEQUENCE_TASKS
 
 

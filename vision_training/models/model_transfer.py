@@ -26,7 +26,8 @@ from vision_training.utilities.os_utilities import format_path_link, print_color
 # attribute holding the component in every task model, which is also the prefix of its weights in the state
 # dictionaries. Their order is the order of the optimizer parameter groups of the components learning at their own
 # speed, the heads of the detection tasks, then the mask heads of the instance segmentation and the high resolution
-# network and heatmap head of the keypoint detection, coming last so that the runs written before them keep their groups
+# network and keypoint head (heatmap and tag convolution with the higher resolution branch) of the keypoint detection,
+# coming last so that the runs written before them keep their groups
 TRANSFERABLE_COMPONENTS = {"Backbone": "backbone", "TemporalModel": "temporal_module",
                            "ClassificationHead": "classification_head", "SegmentationDecoder": "segmentation_decoder",
                            "RegionProposal": "region_proposer_dictionary", "Detector": "detector_heads_dictionary",
@@ -79,6 +80,11 @@ SEGMENTATION_DECODER_WEIGHT_KEYS = ["upsampling", "convolutions", "modules", "fe
 # momentum. The width of the stem feature map it reads is compared on the weights themselves
 HIGH_RESOLUTION_NETWORK_WEIGHT_KEYS = ["base_width", "modules_per_stage", "blocks_per_branch", "modules",
                                        "normalization"]
+
+# High resolution network settings defining the weights of the keypoint head: the width of the features read by its
+# heatmap and tag convolution, and the residual pairs, modules and normalization of the refinement of its higher
+# resolution branch
+HIGHER_RESOLUTION_BRANCH_WEIGHT_KEYS = ["base_width", "blocks_per_branch", "modules", "normalization"]
 
 # Component of every detection level ('DetectionLevels.<level>.<component>') holding the layers of the region
 # proposal, detection or mask head of that level, compared level by level. The RoIAlign pool size of the detection
@@ -428,23 +434,26 @@ def compare_detection_heads(section_name: str, source_configuration: Dict[str, A
     return differences
 
 
-def compare_high_resolution_networks(source_configuration: Dict[str, Any],
-                                     target_configuration: Dict[str, Any]) -> List[str]:
+def compare_high_resolution_networks(source_configuration: Dict[str, Any], target_configuration: Dict[str, Any],
+                                     key_names: List[str]) -> List[str]:
     """
-    Lists the differences between the settings defining the weights of the high resolution networks of two keypoint
-    detection runs: the width of its highest resolution branch, its stages, the convolutions of its branches, their
-    modules and their normalization (without the batch normalization momentum, which changes no tensor). The width of
-    the stem feature map it reads is compared on the weights themselves.
+    Lists the differences between the 'HRNet' settings of two keypoint detection runs that define the weights of a
+    component: for the high resolution network itself (HIGH_RESOLUTION_NETWORK_WEIGHT_KEYS), the width of its highest
+    resolution branch, its stages, the convolutions of its branches, their modules and their normalization (without
+    the batch normalization momentum, which changes no tensor), the width of the stem feature map it reads being
+    compared on the weights themselves; for the keypoint head, the subset its layers follow
+    (HIGHER_RESOLUTION_BRANCH_WEIGHT_KEYS).
 
     Args:
         source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
-        target_configuration (Dict[str, Any]): The model configuration of the run receiving the network.
+        target_configuration (Dict[str, Any]): The model configuration of the run receiving the component.
+        key_names (List[str]): The 'HRNet' settings compared.
 
     Returns:
-        List[str]: The description of every difference, empty when the weights of the networks match.
+        List[str]: The description of every difference, empty when the weights of the components match.
     """
     differences = []
-    for key_name in HIGH_RESOLUTION_NETWORK_WEIGHT_KEYS:
+    for key_name in key_names:
         source_value = source_configuration["HRNet"][key_name]
         target_value = target_configuration["HRNet"][key_name]
         compared_source_value, compared_target_value = source_value, target_value
@@ -459,9 +468,13 @@ def compare_high_resolution_networks(source_configuration: Dict[str, Any],
 
 def compare_keypoint_heads(source_configuration: Dict[str, Any], target_configuration: Dict[str, Any]) -> List[str]:
     """
-    Lists the differences between the settings defining the weights of the heatmap heads of two keypoint detection
-    runs: the width of the high resolution network they read. Their heatmap channels follow the keypoints of the
-    classes, which load_pretrained_component checks on the class names of the runs and on the weights themselves.
+    Lists the differences between the settings defining the weights of the keypoint heads of two keypoint detection
+    runs: the higher resolution branch, on in both runs or in neither, the width of the hidden convolution of the
+    heads, the width of the high resolution network read by the heads, the normalization of the hidden convolution
+    and, with the higher resolution branch, the residual pairs, modules and normalization of its refinement. A run of
+    the top-down keypoint detector, saved before the bottom-up one, has no tag channels and cannot initialise the head.
+    The heatmap and tag channels follow the keypoints of the classes, which load_pretrained_component checks on the
+    class names of the runs and on the weights themselves.
 
     Args:
         source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
@@ -470,12 +483,29 @@ def compare_keypoint_heads(source_configuration: Dict[str, Any], target_configur
     Returns:
         List[str]: The description of every difference, empty when the weights of the heads match.
     """
-    source_width = source_configuration["HRNet"]["base_width"]
-    target_width = target_configuration["HRNet"]["base_width"]
-    if source_width != target_width:
-        return [f"'HRNet.base_width' is {source_width!r} in the source run and {target_width!r} in this run, the "
-                f"channels read by the keypoint head."]
-    return []
+    # The top-down keypoint detector predicted the heatmaps of object crops, without tags nor higher resolution branch
+    if "higher_resolution" not in source_configuration["KeypointHead"]:
+        return ["The source run is a top-down keypoint detector, whose keypoint head has no tag channels."]
+    source_higher_resolution = source_configuration["KeypointHead"]["higher_resolution"]
+    target_higher_resolution = target_configuration["KeypointHead"]["higher_resolution"]
+    if source_higher_resolution != target_higher_resolution:
+        return [f"'KeypointHead.higher_resolution' is {source_higher_resolution!r} in the source run and "
+                f"{target_higher_resolution!r} in this run."]
+
+    # Width of the hidden convolution of both heads, 0 for the 1x1 predictions read on the features
+    source_hidden_width = source_configuration["KeypointHead"]["hidden_width"]
+    target_hidden_width = target_configuration["KeypointHead"]["hidden_width"]
+    if source_hidden_width != target_hidden_width:
+        return [f"'KeypointHead.hidden_width' is {source_hidden_width!r} in the source run and "
+                f"{target_hidden_width!r} in this run."]
+
+    # Settings of the high resolution network the layers of the head follow, its normalization being that of the
+    # hidden convolution
+    key_names = list(HIGHER_RESOLUTION_BRANCH_WEIGHT_KEYS) if target_higher_resolution else ["base_width"]
+    if target_hidden_width > 0 and "normalization" not in key_names:
+        key_names.append("normalization")
+    return compare_high_resolution_networks(source_configuration=source_configuration,
+                                            target_configuration=target_configuration, key_names=key_names)
 
 
 def compare_component_configurations(section_name: str, source_configuration: Dict[str, Any],
@@ -507,7 +537,8 @@ def compare_component_configurations(section_name: str, source_configuration: Di
                                        target_configuration=target_configuration)
     if section_name == "HRNet":
         return compare_high_resolution_networks(source_configuration=source_configuration,
-                                                target_configuration=target_configuration)
+                                                target_configuration=target_configuration,
+                                                key_names=HIGH_RESOLUTION_NETWORK_WEIGHT_KEYS)
     if section_name == "KeypointHead":
         return compare_keypoint_heads(source_configuration=source_configuration,
                                       target_configuration=target_configuration)
@@ -788,7 +819,8 @@ def read_checkpoint_model_state(checkpoint_path: Path, device: torch.device,
 def describe_backbone_input(configuration: Dict[str, Any]) -> str:
     """
     Describes the images the backbone of a run sees, for the message of the transfer of a backbone between runs of
-    other input sizes: the object crops of the keypoint detection, the network input images of the other tasks.
+    other input sizes: the network input images, or the object crops of the keypoint detection runs saved before the
+    bottom-up keypoint detector (their 'Data.crop_settings'), whose backbones still serve as stems.
 
     Args:
         configuration (Dict[str, Any]): The configuration of the run, whose 'Data' section gives its input size.
@@ -905,13 +937,13 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
             print_color(color="yellow", output=f"The Pretrained Region Proposal Heads Were Trained With The Anchors "
                                                f"{source_anchors}, This Run Uses The Anchors {target_anchors}.")
 
-    # The heatmap channels of the keypoint head follow the keypoints of the classes, which must be the same
+    # The heatmap and tag channels of the keypoint head follow the keypoints of the classes, which must be the same
     if section_name == "KeypointHead":
         source_class_names = read_source_class_names(source_folder=source_folder)
         if source_class_names is not None and class_names is not None and source_class_names != class_names:
             raise ValueError(f"The Keypoint Head Of The Source Run {format_path_link(path=source_folder)} Cannot "
-                             f"Initialise This Run, Its Heatmap Channels Following The Keypoints Of Other Classes: "
-                             f"{source_class_names} In The Source Run And {class_names} In This Run.")
+                             f"Initialise This Run, Its Heatmap And Tag Channels Following The Keypoints Of Other "
+                             f"Classes: {source_class_names} In The Source Run And {class_names} In This Run.")
 
     # Keep the tensors of the component in the source model, its averaged weights when both runs keep a moving
     # average, without their prefix

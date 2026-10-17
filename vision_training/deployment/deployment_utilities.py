@@ -1,10 +1,11 @@
 """
 Inference helpers of the deployment stage: preprocessing the images of the inference folder into the requests of the
-model of any task (the whole image being the object crop of the keypoint detection, a predicted segmentation being
-restored to its original image by data/preprocessing.py:restore_prediction_to_original_image), loading the local
-inference model of a run (with the decoding settings of a frame selector, decoded after it like in the Triton
-ensembles), sending requests to Triton over gRPC (optionally through shared memory), and measuring the throughput of
-the local and served models. Used by deployment/run_inference.py.
+model of any task (the client restoring a predicted segmentation to its original image with
+data/preprocessing.py:restore_prediction_to_original_image, and grouping the keypoint candidates into objects with
+models/keypoints/keypoint_grouping.py:group_keypoint_candidates), loading the local inference model of a run (with the
+decoding settings of a frame selector, decoded after it like in the Triton ensembles), sending requests to Triton over
+gRPC (optionally through shared memory), and measuring the throughput of the local and served models. Used by
+deployment/run_inference.py.
 """
 
 import os
@@ -27,9 +28,7 @@ from vision_training.deployment.frame_selection_deployment import (DECODER_OUTPU
 from vision_training.models.sequence.frame_selection_decoding import run_frame_selection
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.models.model_loading import load_trained_model
-from vision_training.data.keypoints.crop_transform import (build_crop_affines, compute_crop_regions,
-                                                           create_identity_augmentations, warp_crops)
-from vision_training.data.preprocessing import preprocess_boxes, preprocess_image
+from vision_training.data.preprocessing import preprocess_image
 from vision_training.utilities.os_utilities import get_image_paths
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 
@@ -50,35 +49,6 @@ def build_frame_window(images: List[np.ndarray], window_start: int, sequence_len
     return np.stack([images[(window_start + frame_index) % len(images)] for frame_index in range(sequence_length)])
 
 
-def cut_inference_crop(image: np.ndarray, bounding_box: List[float], crop_settings: Dict[str, Any]) -> np.ndarray:
-    """
-    Cuts the crop of one object out of a preprocessed image for the keypoint detector, exactly like the unaugmented
-    validation and test crops of the keypoint trainer (the box centred, widened to the aspect ratio of the crop and
-    enlarged), so that the deployed model receives the same kind of crop as in its evaluation.
-
-    Args:
-        image (np.ndarray): The preprocessed [3, H, W] float32 BGR image in [0, 255].
-        bounding_box (List[float]): The (x1, y1, x2, y2) box of the object in preprocessed image pixels.
-        crop_settings (Dict[str, Any]): The Data.crop_settings section, giving the 'height', 'width' and
-            'box_enlargement' of the crops.
-
-    Returns:
-        np.ndarray: The [1, 3, crop height, crop width] float32 crop.
-    """
-    crop_height, crop_width = crop_settings["height"], crop_settings["width"]
-    centres, sizes = compute_crop_regions(bounding_boxes=torch.tensor(data=[bounding_box], dtype=torch.float32),
-                                          crop_height=crop_height, crop_width=crop_width,
-                                          box_enlargement=crop_settings["box_enlargement"])
-
-    # The crop without augmentation, sampled from the image through the crop to image matrix
-    _, crop_to_image = build_crop_affines(centres=centres, sizes=sizes,
-                                          augmentations=create_identity_augmentations(number_samples=1),
-                                          crop_height=crop_height, crop_width=crop_width)
-    crops = warp_crops(images=torch.from_numpy(image)[None], crop_to_image=crop_to_image, crop_height=crop_height,
-                       crop_width=crop_width)
-    return crops.numpy()
-
-
 def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[Dict[str, np.ndarray]]:
     """
     Reads and preprocesses the images of the inference folder exactly like the data loaders (resize and centred
@@ -86,20 +56,18 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
     training, and turns them into the requests sent to the models of the run, keyed by input name: one image, or for
     the sequence tasks one window of consecutive images of the folder (cycling through them) as long as the windows
     of the training. For the comparison, the after window starts one window later than the before window, so that the
-    two members of every pair hold different images. For the keypoint detection, every image is the box of one object
-    (a folder of object images cut by a detector), turned into its crop.
+    two members of every pair hold different images.
 
     Args:
         image_folder (Path): The folder holding the images.
         experiment_folder (Path): The trained experiment, whose configuration gives the task, the input size, the
-            resizing mode, the sequence length and the crop settings.
+            resizing mode and the sequence length.
 
     Returns:
         List[Dict[str, np.ndarray]]: One request per image of the folder, the float32 BGR batch in [0, 255] of every
             input of the task: {'images': [1, 3, image_size, image_size]}, {'images': [1, T, 3, image_size,
-            image_size]} for the sequence classification, labelling and frame selection, the 'before_images' and
-            'after_images' windows for the comparison, and {'crops': [1, 3, crop height, crop width]} for the
-            keypoint detection.
+            image_size]} for the sequence classification, labelling and frame selection, and the 'before_images' and
+            'after_images' windows for the comparison.
     """
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=experiment_folder / "training_configuration.yaml")
@@ -107,22 +75,12 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
     image_size = model_configuration["Data"]["image_settings"]["size"]
     keep_ratio = model_configuration["Data"]["image_settings"]["keep_ratio"]
 
-    # Every image in the channels first layout of the network, with the place of the original image in it
-    images, image_boxes = [], []
+    # Every image in the channels first layout of the network
+    images = []
     for image_path in get_image_paths(folder=image_folder):
-        original_image = cv2.imread(filename=str(image_path))
-        image = preprocess_image(image=original_image, image_size=image_size, keep_ratio=keep_ratio)
+        image = preprocess_image(image=cv2.imread(filename=str(image_path)), image_size=image_size,
+                                 keep_ratio=keep_ratio)
         images.append(image.transpose(2, 0, 1).astype(np.float32))
-        original_height, original_width = original_image.shape[:2]
-        image_boxes.append(preprocess_boxes(bounding_boxes=[[0.0, 0.0, float(original_width), float(original_height)]],
-                                            image_width=original_width, image_height=original_height,
-                                            image_size=image_size, keep_ratio=keep_ratio)[0])
-
-    # Keypoint detection: the whole image is the box of the object of the crop
-    if task == "keypoint_detection":
-        return [{"crops": cut_inference_crop(image=image, bounding_box=image_box,
-                                             crop_settings=model_configuration["Data"]["crop_settings"])}
-                for image, image_box in zip(images, image_boxes)]
 
     # Every image becomes a batch of one element, or starts a window of one element for the sequence tasks, every
     # further input starting one window later

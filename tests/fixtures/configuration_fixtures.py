@@ -222,13 +222,20 @@ def get_self_supervised_model_configuration(method: str, global_pooling: str) ->
     return configuration, device, dtype
 
 
-def get_keypoint_model_configuration() -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
+def get_keypoint_model_configuration(higher_resolution: bool = False,
+                                     hidden_width: int = 0) -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
     """
     Supplies a small keypoint detector configuration dictionary, with its device and dtype, shared by the keypoint
-    model and export tests: 64 x 48 crops, a stem of 3 backbone blocks ending at a quarter of the crop, a high
-    resolution network of 2 stages (3 branches, the lowest at 1/16 of the crop) of base width 8, and the keypoint
+    model and export tests: 64 x 64 whole images, a stem of 3 backbone blocks ending at a quarter of the image, a high
+    resolution network of 2 stages (3 branches, the lowest at 1/16 of the image) of base width 8, and the keypoint
     categories injected by the configuration loader for 2 classes, a triangle of 3 keypoints and a rectangle of 4
-    keypoints, so 7 heatmap channels.
+    keypoints, so 7 heatmap and 7 tag channels.
+
+    Args:
+        higher_resolution (bool): Whether to add the higher resolution branch of heatmaps at half the image
+            resolution. Defaults to False.
+        hidden_width (int): The channels of the 3x3 convolution of the heads before their predictions, 0 for the 1x1
+            predictions read on the features. Defaults to 0.
 
     Returns:
         Tuple[Dict[str, Any], torch.device, torch.dtype]: The keypoint detector configuration, compute device and
@@ -237,7 +244,6 @@ def get_keypoint_model_configuration() -> Tuple[Dict[str, Any], torch.device, to
     configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
     del configuration['ClassificationHead']
     configuration['Data']['label_dictionary'] = {'background': 0, 1: 1, 2: 2}
-    configuration['Data']['crop_settings'] = {'height': 64, 'width': 48, 'box_enlargement': 1.25}
     configuration['Data']['keypoint_categories'] = {
         1: {'name': 'triangle', 'keypoints': ['top', 'left', 'right'], 'skeleton': [[0, 1], [1, 2], [2, 0]]},
         2: {'name': 'rectangle', 'keypoints': ['top_left', 'top_right', 'bottom_right', 'bottom_left'],
@@ -247,6 +253,10 @@ def get_keypoint_model_configuration() -> Tuple[Dict[str, Any], torch.device, to
                               'modules': {'squeeze_and_excite': True, 'residual_nets': True},
                               'normalization': {'feature_map_normalization': 'batch',
                                                 'batch_normalization_momentum': 0.1}}
-    configuration['KeypointHead'] = {'heatmap_sigma': 2.0}
+    configuration['KeypointHead'] = {'higher_resolution': higher_resolution, 'hidden_width': hidden_width,
+                                     'heatmap_sigma': 2.0,
+                                     'tag_pull_weight': 0.001, 'tag_push_weight': 0.001,
+                                     'inference': {'maximum_candidates': 5, 'keypoint_threshold': 0.1,
+                                                   'tag_threshold': 1.0, 'object_score_threshold': 0.2}}
 
     return configuration, device, dtype

@@ -2098,7 +2098,7 @@ def test_keypoint_configurations_are_consistent_with_their_injected_categories(t
     Verifies that both keypoint detection configurations shipped with the repository pass every consistency check, and
     that the configuration loader injects the keypoint definition of every class from the training labels: the
     keypoint names and the skeleton turned 0-based, without any other field (the keypoints keeping their names whatever
-    the crop augmentation).
+    the geometric augmentation).
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -2130,37 +2130,28 @@ def test_keypoint_configurations_are_consistent_with_their_injected_categories(t
     assert stick_figure["skeleton"][0] == [0, 1]
 
 
-def set_crop_not_matching_the_branches(configuration: Dict[str, Any]) -> None:
+def set_image_size_not_matching_the_branches(configuration: Dict[str, Any]) -> None:
     """
-    Sets a crop width that is not a multiple of the stride of the lowest resolution branch of the high resolution
-    network, and a box enlargement shrinking the boxes.
+    Sets an image size that is not a multiple of the stride of the lowest resolution branch of the high resolution
+    network, whose upsampled feature maps would then not add up cell by cell with the higher resolution ones.
 
     Args:
         configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
     """
-    configuration["Data"]["crop_settings"]["width"] = 200
-    configuration["Data"]["crop_settings"]["box_enlargement"] = 0.5
+    configuration["Data"]["image_settings"]["size"] = 500
 
 
-def activate_geometric_augmentation(configuration: Dict[str, Any]) -> None:
+def set_invalid_keypoint_head(configuration: Dict[str, Any]) -> None:
     """
-    Turns on a geometric type of the DataAugmenter, which would move the crops without their keypoints.
+    Sets a higher resolution branch flag written as text, a negative hidden width, a negative tag pull weight, no
+    keypoint candidate, a keypoint threshold of 1, a zero tag threshold and an object score threshold above 1.
 
     Args:
         configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
     """
-    configuration["Data"]["data_augmentation"]["types"]["random_left_right_flip"]["activated"] = True
-
-
-def set_invalid_crop_augmentation(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a reversed scale range, a rotation above half a turn and a shift beyond half the region.
-
-    Args:
-        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
-    """
-    configuration["Data"]["crop_augmentation"].update({"scale_range": [1.5, 0.5], "maximum_rotation_degrees": 200.0,
-                                                       "maximum_shift_fraction": 0.6})
+    configuration["KeypointHead"].update({"higher_resolution": "yes", "hidden_width": -1, "tag_pull_weight": -0.1})
+    configuration["KeypointHead"]["inference"].update({"maximum_candidates": 0, "keypoint_threshold": 1.0,
+                                                       "tag_threshold": 0, "object_score_threshold": 1.5})
 
 
 def set_unknown_keypoint_sigmas(configuration: Dict[str, Any]) -> None:
@@ -2178,7 +2169,7 @@ def set_unknown_keypoint_sigmas(configuration: Dict[str, Any]) -> None:
 
 def end_stem_at_an_eighth(configuration: Dict[str, Any]) -> None:
     """
-    Adds the last max pooling to the 3 stem blocks, so that the stem ends at 1/8 of the crop instead of 1/4.
+    Adds the last max pooling to the 3 stem blocks, so that the stem ends at 1/8 of the image instead of 1/4.
 
     Args:
         configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
@@ -2221,18 +2212,18 @@ def remove_training_labels(configuration: Dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
-    (set_crop_not_matching_the_branches, ["'Data.crop_settings.width' (200) must be a multiple of 32, the stride of "
-                                          "the lowest resolution branch of the 3 stages of 'HRNet.modules_per_stage'.",
-                                          "'Data.crop_settings.box_enlargement' must be a number >= 1, got 0.5."]),
-    (activate_geometric_augmentation, ["'Data.data_augmentation.types.random_left_right_flip.activated' must be False "
-                                       "for the keypoint detection: the geometry of the crops is drawn by "
-                                       "'Data.crop_augmentation', which moves their keypoints with them."]),
-    (set_invalid_crop_augmentation, ["'Data.crop_augmentation.scale_range' must be [minimum, maximum] with positive "
-                                     "numbers and minimum <= maximum, got [1.5, 0.5].",
-                                     "'Data.crop_augmentation.maximum_rotation_degrees' must be a number within "
-                                     "[0, 180], got 200.0.",
-                                     "'Data.crop_augmentation.maximum_shift_fraction' must be a number within "
-                                     "[0, 0.5], got 0.6."]),
+    (set_image_size_not_matching_the_branches, ["'Data.image_settings.size' (500) must be a multiple of 32, the "
+                                                "stride of the lowest resolution branch of the 3 stages of "
+                                                "'HRNet.modules_per_stage'."]),
+    (set_invalid_keypoint_head, ["'KeypointHead.higher_resolution' must be True or False, got 'yes'.",
+                                 "'KeypointHead.hidden_width' must be an integer >= 0, got -1.",
+                                 "'KeypointHead.tag_pull_weight' must be a number >= 0, got -0.1.",
+                                 "'KeypointHead.inference.maximum_candidates' must be an integer >= 1, got 0.",
+                                 "'KeypointHead.inference.keypoint_threshold' must be a number within ]0, 1[, got "
+                                 "1.0.",
+                                 "'KeypointHead.inference.tag_threshold' must be a positive number, got 0.",
+                                 "'KeypointHead.inference.object_score_threshold' must be a number within [0, 1], "
+                                 "got 1.5."]),
     (set_unknown_keypoint_sigmas, ["'ExperimentConfiguration.evaluation.default_keypoint_sigma' must be a positive "
                                    "number, got 0.",
                                    "'ExperimentConfiguration.evaluation.keypoint_sigmas.dragon' names a category that "
@@ -2241,9 +2232,9 @@ def remove_training_labels(configuration: Dict[str, Any]) -> None:
                                    "keypoints ['left_wing'], the keypoints of the category being ['head', 'neck', "
                                    "'left_elbow', 'right_elbow', 'left_hand', 'right_hand', 'pelvis', 'left_knee', "
                                    "'right_knee', 'left_foot', 'right_foot']."]),
-    (end_stem_at_an_eighth, ["The Backbone stem of the keypoint detector must end at 1/4 of the crop, got 1/8 from its "
-                             "3 blocks with 'Backbone.last_max_pooling' True: use 3 blocks without the last max "
-                             "pooling, or 2 blocks with it."]),
+    (end_stem_at_an_eighth, ["The Backbone stem of the keypoint detector must end at 1/4 of the image, got 1/8 from "
+                             "its 3 blocks with 'Backbone.last_max_pooling' True: use 3 blocks without the last "
+                             "max pooling, or 2 blocks with it."]),
     (set_invalid_high_resolution_network, ["'HRNet.base_width' must be an integer >= 1, got 0.",
                                            "'HRNet.modules_per_stage' must be a non-empty list of positive integers, "
                                            "the exchange modules of every stage, got [1, 0].",
@@ -2260,10 +2251,10 @@ def test_inconsistent_keypoint_configuration_is_rejected(tmp_path: Path, capsys:
                                                          modify_function: Callable[[Dict[str, Any]], None],
                                                          expected_messages: List[str]) -> None:
     """
-    Verifies that every inconsistency of the keypoint detection sections (crop size against the branches of the high
-    resolution network, geometric augmentations of the DataAugmenter, crop augmentation, keypoint sigmas of the
-    evaluation, stem, high resolution network and heatmap head, label mode and training labels) stops the loading with
-    a short message naming the faulty key.
+    Verifies that every inconsistency of the keypoint detection sections (image size against the branches of the high
+    resolution network, keypoint head and its grouping settings, keypoint sigmas of the evaluation, stem, high
+    resolution network and heatmap sigma, label mode and training labels) stops the loading with a short message
+    naming the faulty key.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -2282,6 +2273,35 @@ def test_inconsistent_keypoint_configuration_is_rejected(tmp_path: Path, capsys:
     for expected_message in expected_messages:
         assert expected_message in printed_output
     assert "Traceback" not in printed_output
+
+
+def activate_flips_and_quarter_turns(configuration: Dict[str, Any]) -> None:
+    """
+    Turns on both flips and the 90 degree rotations of the DataAugmenter, which move the keypoints without renaming
+    them, a choice left to the user (the tip of a flame keeps its name when flipped).
+
+    Args:
+        configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
+    """
+    for augmentation_name in ["random_left_right_flip", "random_up_down_flip", "random_90_rotation"]:
+        configuration["Data"]["data_augmentation"]["types"][augmentation_name]["activated"] = True
+
+
+def test_keypoint_geometric_augmentations_are_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that the keypoint detection accepts every geometric augmentation, flips and 90 degree rotations included,
+    the keypoints being moved with the image and keeping their names, so that no augmentation is forbidden.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_keypoint_configuration(temporary_directory=tmp_path,
+                                                      configuration_name="configuration_synthetic_shapes.yaml",
+                                                      modify_function=activate_flips_and_quarter_turns)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    augmentation_types = model_configuration["Data"]["data_augmentation"]["types"]
+    assert all(augmentation_types[augmentation_name]["activated"]
+               for augmentation_name in ["random_left_right_flip", "random_up_down_flip", "random_90_rotation"])
 
 
 def give_merged_categories_different_sigmas(configuration: Dict[str, Any]) -> None:

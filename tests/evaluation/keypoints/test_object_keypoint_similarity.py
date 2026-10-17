@@ -2,8 +2,11 @@
 Tests of vision_training/evaluation/keypoints/object_keypoint_similarity.py, the keypoint evaluation of the keypoint
 trainer on the test split: the sigma table built from the configured COCO sigmas (default, padding positions, merged
 categories and their conflict), the object keypoint similarity on a hand-computed case with the box-area scale, the
-grouping of the objects by image into the detections and ground truths of the average precision, and the PCK and
-pixel errors of every class and keypoint, with the classes and keypoints that have no labelled keypoint.
+boxes of the predicted objects spanning their keypoints found, the one-to-one matching of the ground truth objects of
+an image to the predicted ones by the largest total similarity, the comparison of the predicted and ground truth
+objects of every image into the detections and ground truths of the average precision and the matched objects of the
+keypoint accuracy, and the matched fraction, PCK and pixel errors of every class and keypoint, with the missed objects,
+the classes and keypoints that have no labelled keypoint, and a split without object.
 """
 
 import math
@@ -13,9 +16,12 @@ import torch
 from typing import Any, Dict, List
 
 from vision_training.evaluation.keypoints.object_keypoint_similarity import (CORRECT_KEYPOINTS_NAME,
+                                                                             EVALUATED_OBJECT_KEYS,
                                                                              build_keypoint_sigma_table,
+                                                                             compute_keypoint_boxes,
                                                                              compute_object_keypoint_similarity,
-                                                                             group_image_objects,
+                                                                             evaluate_image_keypoints,
+                                                                             match_ground_truth_objects,
                                                                              measure_keypoint_accuracy,
                                                                              summarise_keypoint_accuracy)
 
@@ -35,55 +41,90 @@ MAXIMUM_KEYPOINTS = 4
 DEFAULT_SIGMA = 0.05
 
 
-def make_objects(image_identifiers: List[int], labels: List[int], bounding_boxes: List[List[float]],
-                 keypoints: List[List[List[float]]], visibilities: List[List[int]],
-                 keypoint_errors: List[List[List[float]]], scores: List[float]) -> Dict[str, torch.Tensor]:
+def make_objects(labels: List[int], bounding_boxes: List[List[float]], keypoints: List[List[List[float]]],
+                 visibilities: List[List[int]], keypoint_errors: List[List[List[float]]],
+                 matched: List[bool]) -> Dict[str, torch.Tensor]:
     """
-    Builds the evaluated objects of the test split in the format gathered by the keypoint trainer before the average
-    precision and the keypoint accuracy, the predicted keypoints being the ground truth keypoints moved by a known
-    error, so that every distance is known in advance.
+    Builds the ground truth objects of the test split in the format of evaluate_image_keypoints before the keypoint
+    accuracy, the keypoints of the predicted object matched to every object being its ground truth keypoints moved by a
+    known error, so that every distance is known in advance, and NaN for the objects missed.
 
     Args:
-        image_identifiers (List[int]): The image of every object.
         labels (List[int]): The class index of every object.
         bounding_boxes (List[List[float]]): The [x1, y1, x2, y2] box of every object.
         keypoints (List[List[List[float]]]): The [K, 2] ground truth keypoints of every object.
         visibilities (List[List[int]]): The [K] COCO visibilities of every object.
-        keypoint_errors (List[List[List[float]]]): The [K, 2] displacement of the predicted keypoints of every object.
-        scores (List[float]): The keypoint score of every object.
+        keypoint_errors (List[List[List[float]]]): The [K, 2] displacement of the matched keypoints of every object.
+        matched (List[bool]): Whether every object is matched to a predicted object.
 
     Returns:
-        Dict[str, torch.Tensor]: The 'image_identifiers', 'labels', 'bounding_boxes', 'keypoints', 'visibilities',
-            'predicted_keypoints' and 'scores' of the objects.
+        Dict[str, torch.Tensor]: The 'labels', 'bounding_boxes', 'keypoints', 'visibilities', 'predicted_keypoints'
+            and 'matched' of the objects.
     """
     ground_truth_keypoints = torch.tensor(data=keypoints, dtype=torch.float32)
-    return {"image_identifiers": torch.tensor(data=image_identifiers), "labels": torch.tensor(data=labels),
-            "bounding_boxes": torch.tensor(data=bounding_boxes, dtype=torch.float32),
+    predicted_keypoints = ground_truth_keypoints + torch.tensor(data=keypoint_errors, dtype=torch.float32)
+    matched_tensor = torch.tensor(data=matched)
+    predicted_keypoints[~matched_tensor] = float("nan")
+    return {"labels": torch.tensor(data=labels),
+            "bounding_boxes": torch.tensor(data=bounding_boxes, dtype=torch.float64),
             "keypoints": ground_truth_keypoints, "visibilities": torch.tensor(data=visibilities),
-            "predicted_keypoints": ground_truth_keypoints + torch.tensor(data=keypoint_errors, dtype=torch.float32),
-            "scores": torch.tensor(data=scores, dtype=torch.float32)}
+            "predicted_keypoints": predicted_keypoints, "matched": matched_tensor}
 
 
 def make_accuracy_objects() -> Dict[str, torch.Tensor]:
     """
     Builds a triangle in a 100 x 50 box (correct within 5 pixels) and a rectangle in a 40 x 40 box (correct within 2
-    pixels), whose predicted keypoints are moved along x by known pixel errors, with unlabelled keypoints and padding
-    positions whose large errors must be left out of every metric.
+    pixels), whose matched keypoints are moved along x by known pixel errors, with unlabelled keypoints and padding
+    positions whose large errors must be left out of every metric, and a second rectangle missed by the detector, whose
+    two labelled keypoints count as wrong and are left out of the pixel errors.
 
     Returns:
         Dict[str, torch.Tensor]: The evaluated objects of make_objects.
     """
     triangle_keypoints = [[50.0, 5.0], [10.0, 45.0], [90.0, 45.0], [0.0, 0.0]]
     rectangle_keypoints = [[205.0, 5.0], [235.0, 5.0], [235.0, 35.0], [205.0, 35.0]]
+    missed_keypoints = [[305.0, 5.0], [335.0, 5.0], [335.0, 35.0], [305.0, 35.0]]
 
     # The triangle has its 'right' keypoint unlabelled and a padding position, the rectangle its 'bottom_left'
-    # unlabelled
-    return make_objects(image_identifiers=[0, 0], labels=[1, 2],
-                        bounding_boxes=[[0.0, 0.0, 100.0, 50.0], [200.0, 0.0, 240.0, 40.0]],
-                        keypoints=[triangle_keypoints, rectangle_keypoints], visibilities=[[2, 1, 0, 0], [2, 1, 2, 0]],
+    # unlabelled, the missed rectangle its two bottom keypoints unlabelled
+    return make_objects(labels=[1, 2, 2],
+                        bounding_boxes=[[0.0, 0.0, 100.0, 50.0], [200.0, 0.0, 240.0, 40.0], [300.0, 0.0, 340.0, 40.0]],
+                        keypoints=[triangle_keypoints, rectangle_keypoints, missed_keypoints],
+                        visibilities=[[2, 1, 0, 0], [2, 1, 2, 0], [2, 2, 0, 0]],
                         keypoint_errors=[[[3.0, 0.0], [6.0, 0.0], [50.0, 0.0], [70.0, 0.0]],
-                                         [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0], [10.0, 0.0]]],
-                        scores=[0.9, 0.8])
+                                         [[1.0, 0.0], [2.0, 0.0], [3.0, 0.0], [10.0, 0.0]], [[0.0, 0.0]] * 4],
+                        matched=[True, True, False])
+
+
+def make_image(labels: List[int], bounding_boxes: List[List[float]], keypoints: List[List[List[float]]],
+               visibilities: List[List[int]], predicted_labels: List[int],
+               predicted_keypoints: List[List[List[float]]], predicted_scores: List[float]) -> Dict[str, torch.Tensor]:
+    """
+    Builds one test image in the format gathered by the keypoint trainer for evaluate_image_keypoints: its ground truth
+    objects and the objects grouped from the keypoint candidates of the detector, with 4 keypoint positions each.
+
+    Args:
+        labels (List[int]): The class index of every ground truth object.
+        bounding_boxes (List[List[float]]): The [x1, y1, x2, y2] box of every ground truth object.
+        keypoints (List[List[List[float]]]): The [K, 2] keypoints of every ground truth object.
+        visibilities (List[List[int]]): The [K] COCO visibilities of every ground truth object.
+        predicted_labels (List[int]): The class index of every predicted object.
+        predicted_keypoints (List[List[List[float]]]): The [K, 2] keypoints of every predicted object, NaN where not
+            found.
+        predicted_scores (List[float]): The score of every predicted object.
+
+    Returns:
+        Dict[str, torch.Tensor]: The ground truth 'labels', 'bounding_boxes', 'keypoints' and 'visibilities', and the
+            'predicted_labels', 'predicted_keypoints' and 'predicted_scores'.
+    """
+    return {"labels": torch.tensor(data=labels, dtype=torch.int64),
+            "bounding_boxes": torch.tensor(data=bounding_boxes, dtype=torch.float32).reshape(-1, 4),
+            "keypoints": torch.tensor(data=keypoints, dtype=torch.float32).reshape(-1, MAXIMUM_KEYPOINTS, 2),
+            "visibilities": torch.tensor(data=visibilities, dtype=torch.int64).reshape(-1, MAXIMUM_KEYPOINTS),
+            "predicted_labels": torch.tensor(data=predicted_labels, dtype=torch.int64),
+            "predicted_keypoints": torch.tensor(data=predicted_keypoints, dtype=torch.float32).reshape(
+                -1, MAXIMUM_KEYPOINTS, 2),
+            "predicted_scores": torch.tensor(data=predicted_scores, dtype=torch.float32)}
 
 
 def compute_expected_similarity(squared_distances: List[float], labelled: List[bool], area: float,
@@ -187,86 +228,147 @@ def test_object_keypoint_similarity_of_perfect_and_unlabelled_objects() -> None:
     assert 0.0 < similarities[3].item() < similarities[4].item() < 1.0
 
 
-def test_group_image_objects_builds_the_keypoint_overlaps_of_every_image() -> None:
+def test_keypoint_boxes_span_the_keypoints_found() -> None:
     """
-    Verifies that the objects are grouped by image in increasing identifier order, every ground truth giving one
-    detection with its box, score and class, and that the overlap of a detection with a ground truth is the
-    similarity of its keypoints with the keypoints of that ground truth (its visibilities, box area and class sigmas),
-    0 across classes.
+    Verifies that the box of a predicted object spans its keypoints found, the keypoints not found (NaN) left out, a
+    single keypoint giving a box of no size, and that an object without any keypoint raises an error instead of an
+    infinite box.
     """
-    triangle_keypoints = [[10.0, 2.0], [2.0, 18.0], [18.0, 18.0], [0.0, 0.0]]
-    shifted_triangle = [[keypoint_x + 4.0, keypoint_y] for keypoint_x, keypoint_y in triangle_keypoints]
-    rectangle_keypoints = [[1.0, 1.0], [19.0, 1.0], [19.0, 19.0], [1.0, 19.0]]
-    objects = make_objects(image_identifiers=[7, 3, 7, 7], labels=[1, 1, 1, 2],
-                           bounding_boxes=[[0.0, 0.0, 20.0, 20.0], [0.0, 0.0, 20.0, 20.0],
-                                           [4.0, 0.0, 24.0, 20.0], [0.0, 0.0, 20.0, 20.0]],
-                           keypoints=[triangle_keypoints, triangle_keypoints, shifted_triangle, rectangle_keypoints],
-                           visibilities=[[2, 2, 1, 0], [2, 2, 2, 0], [2, 0, 2, 0], [2, 2, 2, 2]],
-                           keypoint_errors=[[[1.0, 0.0]] * 4, [[0.0, 0.0]] * 4, [[0.0, 2.0]] * 4, [[0.0, 0.0]] * 4],
-                           scores=[0.9, 0.8, 0.7, 0.6])
+    nan = float("nan")
+    keypoints = torch.tensor(data=[[[1.0, 2.0], [5.0, 8.0], [nan, nan]], [[3.0, 3.0], [nan, nan], [nan, nan]]])
+    boxes = compute_keypoint_boxes(keypoints=keypoints)
+    assert boxes.dtype == torch.float64 and boxes.tolist() == [[1.0, 2.0, 5.0, 8.0], [3.0, 3.0, 3.0, 3.0]]
+    assert compute_keypoint_boxes(keypoints=torch.zeros(size=(0, 3, 2))).shape == (0, 4)
+    with pytest.raises(ValueError, match="no keypoint"):
+        compute_keypoint_boxes(keypoints=torch.full(size=(1, 3, 2), fill_value=nan))
+
+
+def test_ground_truth_objects_are_matched_by_the_largest_total_similarity() -> None:
+    """
+    Verifies that the matching maximises the total similarity rather than taking the best pair first (prediction 0
+    goes to ground truth 1 so that prediction 1 can take ground truth 0), that a pair of similarity 0 never matches even
+    when it is the only one, and that images without prediction or without ground truth give no match.
+    """
+    total_matching = match_ground_truth_objects(keypoint_overlaps=torch.tensor(data=[[0.9, 0.8], [0.7, 0.0]],
+                                                                               dtype=torch.float64))
+    assert total_matching.dtype == torch.int64 and total_matching.tolist() == [1, 0]
+    assert match_ground_truth_objects(keypoint_overlaps=torch.tensor(data=[[0.0, 0.5]])).tolist() == [-1, 0]
+    assert match_ground_truth_objects(keypoint_overlaps=torch.tensor(data=[[0.0]])).tolist() == [-1]
+    assert match_ground_truth_objects(keypoint_overlaps=torch.zeros(size=(0, 2))).tolist() == [-1, -1]
+    assert match_ground_truth_objects(keypoint_overlaps=torch.zeros(size=(2, 0))).tolist() == []
+
+
+def test_evaluate_image_keypoints_compares_the_predicted_and_ground_truth_objects_of_every_image() -> None:
+    """
+    Verifies the evaluation of three images: the first with two close triangles and a rectangle found in another order
+    plus a far false positive, the second with a rectangle and no prediction, the third with a prediction and no ground
+    truth. The detections take the boxes of their keypoints found, their scores and classes; the overlap of a
+    prediction with a ground truth is the similarity of their keypoints (the visibilities, box area and class sigmas of
+    the ground truth, a keypoint not found adding 0), 0 across classes; and every ground truth object gets the
+    keypoints of its matched prediction, NaN when missed.
+    """
+    nan = float("nan")
+    triangle = [[10.0, 2.0], [2.0, 18.0], [18.0, 18.0], [0.0, 0.0]]
+    shifted_triangle = [[keypoint_x + 4.0, keypoint_y] for keypoint_x, keypoint_y in triangle]
+    rectangle = [[1.0, 1.0], [19.0, 1.0], [19.0, 19.0], [1.0, 19.0]]
+
+    # Predictions of the first image: the shifted triangle moved down by 2 pixels, the exact rectangle, the triangle
+    # moved right by 1 pixel without its right keypoint, and a lone keypoint far from every object
+    predicted_keypoints = [[[14.0, 4.0], [6.0, 20.0], [22.0, 20.0], [nan, nan]], rectangle,
+                           [[11.0, 2.0], [3.0, 18.0], [nan, nan], [nan, nan]],
+                           [[200.0, 200.0], [nan, nan], [nan, nan], [nan, nan]]]
+    images = [make_image(labels=[1, 1, 2],
+                         bounding_boxes=[[0.0, 0.0, 20.0, 20.0], [4.0, 0.0, 24.0, 20.0], [0.0, 0.0, 20.0, 20.0]],
+                         keypoints=[triangle, shifted_triangle, rectangle],
+                         visibilities=[[2, 2, 1, 0], [2, 0, 2, 0], [2, 2, 2, 2]], predicted_labels=[1, 2, 1, 1],
+                         predicted_keypoints=predicted_keypoints, predicted_scores=[0.7, 0.6, 0.9, 0.3]),
+              make_image(labels=[2], bounding_boxes=[[0.0, 0.0, 20.0, 20.0]], keypoints=[rectangle],
+                         visibilities=[[2, 2, 2, 2]], predicted_labels=[], predicted_keypoints=[],
+                         predicted_scores=[]),
+              make_image(labels=[], bounding_boxes=[], keypoints=[], visibilities=[], predicted_labels=[2],
+                         predicted_keypoints=[rectangle], predicted_scores=[0.5])]
     sigma_table = build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=DEFAULT_SIGMA,
                                              keypoint_sigmas={"triangle": {"left": 0.1}},
                                              maximum_keypoints=MAXIMUM_KEYPOINTS)
-    detections, ground_truths = group_image_objects(objects=objects, sigma_table=sigma_table)
+    evaluation = evaluate_image_keypoints(images=images, sigma_table=sigma_table)
+    detections, ground_truths = evaluation["detections"], evaluation["ground_truths"]
 
-    # Image 3 first with its single object, then image 7 with its three objects in their original order
-    assert len(detections) == len(ground_truths) == 2
-    assert detections[0]["labels"].tolist() == [1] and detections[1]["labels"].tolist() == [1, 1, 2]
-    assert detections[1]["scores"].tolist() == pytest.approx([0.9, 0.7, 0.6])
-    assert torch.equal(detections[1]["boxes"], ground_truths[1]["boxes"])
-    assert torch.equal(ground_truths[1]["labels"], detections[1]["labels"])
-    assert detections[0]["keypoint_overlaps"].tolist() == [[1.0]]
+    # Detections boxed by their keypoints found, with their scores and classes, and the ground truth boxes
+    assert len(detections) == len(ground_truths) == 3
+    assert detections[0]["boxes"].tolist() == [[6.0, 4.0, 22.0, 20.0], [1.0, 1.0, 19.0, 19.0], [3.0, 2.0, 11.0, 18.0],
+                                               [200.0, 200.0, 200.0, 200.0]]
+    assert detections[0]["scores"].dtype == torch.float64
+    assert detections[0]["scores"].tolist() == pytest.approx([0.7, 0.6, 0.9, 0.3])
+    assert detections[0]["labels"].tolist() == [1, 2, 1, 1] and ground_truths[0]["labels"].tolist() == [1, 1, 2]
+    assert ground_truths[0]["boxes"].dtype == torch.float64
+    assert detections[1]["boxes"].shape == (0, 4) and detections[1]["keypoint_overlaps"].shape == (0, 1)
+    assert detections[2]["keypoint_overlaps"].shape == (1, 0) and ground_truths[2]["boxes"].shape == (0, 4)
 
-    # Every detection of image 7 against every ground truth of image 7, each ground truth bringing its own visibilities,
-    # box area and sigmas, the rectangle never matching a triangle
-    image_objects = [0, 2, 3]
-    keypoint_overlaps = detections[1]["keypoint_overlaps"]
-    assert keypoint_overlaps.shape == (3, 3)
-    for detection_position, detection_index in enumerate(image_objects):
-        for ground_truth_position, ground_truth_index in enumerate(image_objects):
-            if objects["labels"][detection_index] != objects["labels"][ground_truth_index]:
-                assert keypoint_overlaps[detection_position, ground_truth_position].item() == 0.0
+    # Every prediction of the first image against every ground truth, each ground truth bringing its own visibilities,
+    # box area and sigmas, a keypoint not found adding 0, the rectangle never matching a triangle
+    keypoint_overlaps = detections[0]["keypoint_overlaps"]
+    assert keypoint_overlaps.shape == (4, 3)
+    for prediction_index in range(4):
+        for ground_truth_index in range(3):
+            if images[0]["predicted_labels"][prediction_index] != images[0]["labels"][ground_truth_index]:
+                assert keypoint_overlaps[prediction_index, ground_truth_index].item() == 0.0
                 continue
-            differences = objects["predicted_keypoints"][detection_index] - objects["keypoints"][ground_truth_index]
-            box = objects["bounding_boxes"][ground_truth_index]
+            differences = (images[0]["predicted_keypoints"][prediction_index]
+                           - images[0]["keypoints"][ground_truth_index])
+            squared_distances = torch.nan_to_num(input=(differences ** 2).sum(dim=-1), nan=float("inf"))
+            box = images[0]["bounding_boxes"][ground_truth_index]
             expected_similarity = compute_expected_similarity(
-                squared_distances=(differences ** 2).sum(dim=-1).tolist(),
-                labelled=(objects["visibilities"][ground_truth_index] > 0).tolist(),
+                squared_distances=squared_distances.tolist(),
+                labelled=(images[0]["visibilities"][ground_truth_index] > 0).tolist(),
                 area=float((box[2] - box[0]) * (box[3] - box[1])),
-                sigmas=sigma_table[objects["labels"][ground_truth_index]].tolist())
-            assert keypoint_overlaps[detection_position, ground_truth_position].item() == pytest.approx(
-                expected_similarity)
+                sigmas=sigma_table[images[0]["labels"][ground_truth_index]].tolist())
+            assert keypoint_overlaps[prediction_index, ground_truth_index].item() == pytest.approx(expected_similarity)
+    assert keypoint_overlaps[3].tolist() == [0.0, 0.0, 0.0]
+
+    # The ground truth objects of all the images with the keypoints of their matched prediction, NaN when missed
+    objects = evaluation["objects"]
+    assert sorted(objects) == sorted(EVALUATED_OBJECT_KEYS)
+    assert objects["labels"].tolist() == [1, 1, 2, 2] and objects["matched"].tolist() == [True, True, True, False]
+    expected_keypoints = torch.tensor(data=[predicted_keypoints[2], predicted_keypoints[0], rectangle,
+                                            [[nan, nan]] * 4])
+    assert torch.allclose(input=objects["predicted_keypoints"], other=expected_keypoints, equal_nan=True)
+    assert objects["keypoints"].shape == (4, MAXIMUM_KEYPOINTS, 2) and objects["visibilities"].shape == (4, 4)
 
 
 def test_measure_keypoint_accuracy_counts_the_keypoints_within_the_box_fraction() -> None:
     """
-    Verifies the distances, the labelled and correct keypoints (within 0.05 of the longest box side, the limit itself
-    included) and the similarity of every object, the unlabelled keypoints and padding positions never being correct.
+    Verifies the distances, the labelled, found and correct keypoints (within 0.05 of the longest box side, the limit
+    itself included) and the similarity of every object, the unlabelled keypoints and padding positions never being
+    correct, and the keypoints of the missed object infinitely far, never found nor correct, with a similarity of 0.
     """
     objects = make_accuracy_objects()
     sigma_table = build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=DEFAULT_SIGMA,
                                              keypoint_sigmas={}, maximum_keypoints=MAXIMUM_KEYPOINTS)
     accuracy = measure_keypoint_accuracy(objects=objects, sigma_table=sigma_table)
 
+    infinity = float("inf")
     assert torch.allclose(input=accuracy["distances"], other=torch.tensor(
-        data=[[3.0, 6.0, 50.0, 70.0], [1.0, 2.0, 3.0, 10.0]], dtype=torch.float64))
-    assert accuracy["labelled"].tolist() == [[True, True, False, False], [True, True, True, False]]
-    assert accuracy["correct"].tolist() == [[True, False, False, False], [True, True, False, False]]
+        data=[[3.0, 6.0, 50.0, 70.0], [1.0, 2.0, 3.0, 10.0], [infinity] * 4], dtype=torch.float64))
+    assert accuracy["labelled"].tolist() == [[True, True, False, False], [True, True, True, False],
+                                             [True, True, False, False]]
+    assert accuracy["found"].tolist() == [[True] * 4, [True] * 4, [False] * 4]
+    assert accuracy["correct"].tolist() == [[True, False, False, False], [True, True, False, False], [False] * 4]
 
-    # Similarities from their definition, with the 100 x 50 and 40 x 40 box areas
+    # Similarities from their definition, with the 100 x 50 and 40 x 40 box areas, 0 for the missed object
     expected_similarities = [
         compute_expected_similarity(squared_distances=[9.0, 36.0, 2500.0, 4900.0], labelled=[True, True, False, False],
                                     area=5000.0, sigmas=[DEFAULT_SIGMA] * 4),
         compute_expected_similarity(squared_distances=[1.0, 4.0, 9.0, 100.0], labelled=[True, True, True, False],
-                                    area=1600.0, sigmas=[DEFAULT_SIGMA] * 4)]
+                                    area=1600.0, sigmas=[DEFAULT_SIGMA] * 4), 0.0]
     assert accuracy["similarities"].tolist() == pytest.approx(expected_similarities)
 
 
 def test_summarise_keypoint_accuracy_gives_the_global_class_and_keypoint_values() -> None:
     """
-    Verifies the global PCK, mean similarity and mean pixel error over the labelled keypoints, the rows of every class
-    and of every keypoint, None for a keypoint never labelled and for a class without object, the tables built from the
-    rows, and the scalars.
+    Verifies the global fraction of matched objects, PCK and mean similarity over the labelled keypoints (the missed
+    object counting as wrong) and mean pixel error over the keypoints found, the rows of every class and of every
+    keypoint, None for a keypoint never labelled and for a class without object, the tables built from the rows, and
+    the scalars.
     """
     objects = make_accuracy_objects()
     sigma_table = build_keypoint_sigma_table(keypoint_categories=KEYPOINT_CATEGORIES, default_sigma=DEFAULT_SIGMA,
@@ -275,9 +377,11 @@ def test_summarise_keypoint_accuracy_gives_the_global_class_and_keypoint_values(
                                           keypoint_categories=KEYPOINT_CATEGORIES, class_names=CLASS_NAMES)
     similarities = measure_keypoint_accuracy(objects=objects, sigma_table=sigma_table)["similarities"]
 
-    # Three of the five labelled keypoints are correct, with errors of 3, 6, 1, 2 and 3 pixels
+    # Two of the three objects are matched, three of the seven labelled keypoints are correct, and the five keypoints
+    # found have errors of 3, 6, 1, 2 and 3 pixels
     assert CORRECT_KEYPOINTS_NAME == "PCK@0.05"
-    assert summary["metrics"][CORRECT_KEYPOINTS_NAME] == pytest.approx(0.6)
+    assert summary["metrics"]["Matched Objects"] == pytest.approx(2.0 / 3.0)
+    assert summary["metrics"][CORRECT_KEYPOINTS_NAME] == pytest.approx(3.0 / 7.0)
     assert summary["metrics"]["Mean Keypoint Error (pixels)"] == pytest.approx(3.0)
     assert summary["metrics"]["Mean OKS"] == pytest.approx(float(similarities.mean()))
     assert summary["scalars"] == {f"Keypoint Accuracy/{name}": value for name, value in summary["metrics"].items()}
@@ -285,26 +389,31 @@ def test_summarise_keypoint_accuracy_gives_the_global_class_and_keypoint_values(
     # One row per class in class index order, the class without object having no mean
     class_rows = summary["class_rows"]
     assert [row["class_index"] for row in class_rows] == [1, 2, 3]
-    assert class_rows[0] == {"class_index": 1, "class": "triangle", "objects": 1, "labelled_keypoints": 2,
-                             "percentage_correct_keypoints": pytest.approx(0.5),
+    assert class_rows[0] == {"class_index": 1, "class": "triangle", "objects": 1, "matched_objects": 1,
+                             "labelled_keypoints": 2, "percentage_correct_keypoints": pytest.approx(0.5),
                              "mean_object_keypoint_similarity": pytest.approx(similarities[0].item()),
                              "mean_error_pixels": pytest.approx(4.5)}
-    assert class_rows[1]["labelled_keypoints"] == 3
-    assert class_rows[1]["percentage_correct_keypoints"] == pytest.approx(2.0 / 3.0)
+    assert class_rows[1]["objects"] == 2 and class_rows[1]["matched_objects"] == 1
+    assert class_rows[1]["labelled_keypoints"] == 5
+    assert class_rows[1]["percentage_correct_keypoints"] == pytest.approx(2.0 / 5.0)
+    assert class_rows[1]["mean_object_keypoint_similarity"] == pytest.approx(similarities[1].item() / 2.0)
     assert class_rows[1]["mean_error_pixels"] == pytest.approx(2.0)
-    assert class_rows[2] == {"class_index": 3, "class": "square+diamond", "objects": 0, "labelled_keypoints": 0,
-                             "percentage_correct_keypoints": None, "mean_object_keypoint_similarity": None,
-                             "mean_error_pixels": None}
+    assert class_rows[2] == {"class_index": 3, "class": "square+diamond", "objects": 0, "matched_objects": 0,
+                             "labelled_keypoints": 0, "percentage_correct_keypoints": None,
+                             "mean_object_keypoint_similarity": None, "mean_error_pixels": None}
 
-    # One row per keypoint of every class, the keypoints never labelled having no mean
+    # One row per keypoint of every class, the keypoints never labelled having no mean, those of the missed object
+    # labelled but not found
     keypoint_rows = summary["keypoint_rows"]
     assert len(keypoint_rows) == 3 + 4 + 2
     assert find_row(rows=keypoint_rows, class_index=1, keypoint="top")["mean_error_pixels"] == pytest.approx(3.0)
     assert find_row(rows=keypoint_rows, class_index=1, keypoint="left")["percentage_correct_keypoints"] == 0.0
     assert find_row(rows=keypoint_rows, class_index=1, keypoint="right") == {
-        "class_index": 1, "class": "triangle", "keypoint": "right", "labelled": 0,
+        "class_index": 1, "class": "triangle", "keypoint": "right", "labelled": 0, "found": 0,
         "percentage_correct_keypoints": None, "mean_error_pixels": None}
-    assert find_row(rows=keypoint_rows, class_index=2, keypoint="top_right")["percentage_correct_keypoints"] == 1.0
+    assert find_row(rows=keypoint_rows, class_index=2, keypoint="top_right") == {
+        "class_index": 2, "class": "rectangle", "keypoint": "top_right", "labelled": 2, "found": 1,
+        "percentage_correct_keypoints": 0.5, "mean_error_pixels": pytest.approx(2.0)}
     assert find_row(rows=keypoint_rows, class_index=2, keypoint="bottom_right")["mean_error_pixels"] == pytest.approx(
         3.0)
     assert find_row(rows=keypoint_rows, class_index=2, keypoint="bottom_left")["labelled"] == 0
@@ -313,14 +422,17 @@ def test_summarise_keypoint_accuracy_gives_the_global_class_and_keypoint_values(
     class_table, keypoint_table = summary["tables"]["classes"], summary["tables"]["keypoints"]
     assert len(class_table["rows"]) == 3 and len(keypoint_table["rows"]) == 9
     assert class_table["sort_column"] == keypoint_table["sort_column"] == CORRECT_KEYPOINTS_NAME
-    assert class_table["rows"][2] == ["square+diamond", 0, 0, None, None, None]
-    assert keypoint_table["rows"][2] == ["triangle", "right", 0, None, None]
+    assert class_table["rows"][2] == ["square+diamond", 0, 0, 0, None, None, None]
+    assert keypoint_table["rows"][2] == ["triangle", "right", 0, 0, None, None]
+    assert len(class_table["columns"]) == len(class_table["rows"][0])
+    assert len(keypoint_table["columns"]) == len(keypoint_table["rows"][0])
 
 
 def test_summarise_keypoint_accuracy_without_labelled_keypoint_has_no_value() -> None:
     """
     Verifies that a split without any labelled keypoint gives no PCK, no pixel error and no mean similarity, neither in
-    the metrics, the scalars nor the class rows, instead of a NaN or the meaningless similarity of 0 of such objects.
+    the metrics, the scalars nor the class rows, instead of a NaN or the meaningless similarity of 0 of such objects,
+    only the fraction of matched objects remaining.
     """
     objects = make_accuracy_objects()
     objects["visibilities"] = torch.zeros_like(input=objects["visibilities"])
@@ -331,6 +443,23 @@ def test_summarise_keypoint_accuracy_without_labelled_keypoint_has_no_value() ->
     assert summary["metrics"][CORRECT_KEYPOINTS_NAME] is None
     assert summary["metrics"]["Mean Keypoint Error (pixels)"] is None
     assert summary["metrics"]["Mean OKS"] is None
-    assert summary["scalars"] == {}
+    assert summary["scalars"] == {"Keypoint Accuracy/Matched Objects": pytest.approx(2.0 / 3.0)}
     assert all(row["mean_object_keypoint_similarity"] is None for row in summary["class_rows"])
     assert all(row["percentage_correct_keypoints"] is None for row in summary["keypoint_rows"])
+
+
+def test_summarise_keypoint_accuracy_of_a_split_without_objects() -> None:
+    """
+    Verifies that a test split without any ground truth object gives no value at all, including the fraction of
+    matched objects, instead of failing on the empty tensors.
+    """
+    objects = evaluate_image_keypoints(images=[make_image(labels=[], bounding_boxes=[], keypoints=[], visibilities=[],
+                                                          predicted_labels=[], predicted_keypoints=[],
+                                                          predicted_scores=[])],
+                                       sigma_table=torch.full(size=(4, MAXIMUM_KEYPOINTS), fill_value=DEFAULT_SIGMA,
+                                                              dtype=torch.float64))["objects"]
+    summary = summarise_keypoint_accuracy(objects=objects, sigma_table=torch.full(
+        size=(4, MAXIMUM_KEYPOINTS), fill_value=DEFAULT_SIGMA, dtype=torch.float64),
+        keypoint_categories=KEYPOINT_CATEGORIES, class_names=CLASS_NAMES)
+    assert all(value is None for value in summary["metrics"].values()) and summary["scalars"] == {}
+    assert [row["objects"] for row in summary["class_rows"]] == [0, 0, 0]

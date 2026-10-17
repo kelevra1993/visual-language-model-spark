@@ -2,7 +2,7 @@
 Keypoint definitions of the classes of the keypoint detection task, read from the COCO 'categories' of the training
 split: the names of the keypoints of every class and its skeleton. The configuration loader injects them into
 'Data.keypoint_categories', from which the keypoint detector sizes its heatmap channels and the evaluation and viewers
-name and draw the keypoints. The keypoints keep their names whatever the augmentation of their crop.
+name and draw the keypoints. The keypoints keep their names whatever the augmentation of their image.
 """
 
 import json
@@ -14,9 +14,9 @@ from typing import Any, Dict
 def read_keypoint_categories(labels_file: str | Path, label_dictionary: Dict[Any, int]) -> Dict[int, Dict[str, Any]]:
     """
     Reads the keypoint definition of every class of the keypoint detection task from the 'categories' of a COCO
-    'labels.json', called by the configuration loader on the training split so that the model, the crop transform, the
-    evaluation and the viewers share one definition. The categories mapped to the background (0) or absent from the
-    label dictionary are left out, and categories merged into one class must define the same keypoints.
+    'labels.json', called by the configuration loader on the training split so that the model, the evaluation and the
+    viewers share one definition. The categories mapped to the background (0) or absent from the label dictionary
+    are left out, and categories merged into one class must define the same keypoints.
 
     Args:
         labels_file (str | Path): The 'labels.json' of the training split.

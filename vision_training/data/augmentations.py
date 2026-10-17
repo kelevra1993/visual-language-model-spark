@@ -1,8 +1,8 @@
 """
 DataAugmenter, the random geometric and photometric augmentations applied on the device to the training batches of
 every task right before the forward pass, moving the bounding boxes of the object detector, the masks of the semantic
-segmentation and the instance masks of the instance segmentation with the images and handling the frame shuffling and
-per-frame draws of the sequence tasks.
+segmentation, the instance masks of the instance segmentation and the keypoints of the keypoint detection with the
+images and handling the frame shuffling and per-frame draws of the sequence tasks.
 Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
 common checks. Every augmented batch comes with a report of the types drawn for each sample and their values, which
 the 'view_input_images' diagnosis mode writes in the information panel next to every training image.
@@ -111,7 +111,8 @@ class DataAugmenter:
     moved, clipped and filtered together with the geometric augmentations, the semantic segmenter passes the class
     masks of its images, moved with nearest interpolation so that every pixel keeps a class, the instance segmenter
     passes the binary mask of every object with its boxes, the boxes then becoming the tight boxes of the moved masks,
-    while a classifier simply omits them.
+    the keypoint detector passes the keypoints of every object with its boxes, moved without being renamed, while a
+    classifier simply omits them.
     Images are float BGR tensors in the [0, 255] range, either single images [B, C, H, W] or sequences
     [B, T, C, H, W] for the sequence networks, in which case every frame of a sequence receives exactly the same
     random augmentation so that the sequence stays coherent, unless the photometric types are drawn frame by frame
@@ -144,9 +145,10 @@ class DataAugmenter:
 
     def augment_batch(self, images: torch.Tensor, bounding_boxes: Optional[List[torch.Tensor]] = None,
                       labels: Optional[List[torch.Tensor]] = None, masks: Optional[torch.Tensor] = None,
-                      instance_masks: Optional[List[torch.Tensor]] = None) -> Tuple[
+                      instance_masks: Optional[List[torch.Tensor]] = None,
+                      keypoints: Optional[List[torch.Tensor]] = None) -> Tuple[
                       torch.Tensor, Optional[List[torch.Tensor]], Optional[List[torch.Tensor]], Optional[torch.Tensor],
-                      Optional[List[torch.Tensor]], List[AugmentationReport]]:
+                      Optional[List[torch.Tensor]], Optional[List[torch.Tensor]], List[AugmentationReport]]:
         """
         Augments every sample of a training batch independently, each one with probability 'probability', and reports
         the types drawn for every sample with their values, for the information panels of the input viewer.
@@ -160,23 +162,28 @@ class DataAugmenter:
                 for networks without masks. Defaults to None.
             instance_masks (Optional[List[torch.Tensor]]): Per-image [N, H, W] uint8 binary masks matching the boxes
                 (instance segmentation), or None. Defaults to None.
+            keypoints (Optional[List[torch.Tensor]]): Per-image [N, K, 3] float keypoints (x, y, visibility) of the
+                objects of the boxes (keypoint detection), or None. Defaults to None.
 
         Returns:
             Tuple[torch.Tensor, Optional[List[torch.Tensor]], Optional[List[torch.Tensor]], Optional[torch.Tensor],
-                Optional[List[torch.Tensor]], List[AugmentationReport]]: The augmented images, boxes, labels, masks
-                and instance masks, with the same structure as the inputs, and the augmentation report of every sample.
+                Optional[List[torch.Tensor]], Optional[List[torch.Tensor]], List[AugmentationReport]]: The augmented
+                images, boxes, labels, masks, instance masks and keypoints, with the same structure as the inputs, and
+                the augmentation report of every sample.
 
         Raises:
-            ValueError: If boxes or masks are given with sequences, boxes and labels are not given together, or
-                instance masks are given without boxes or with class masks.
+            ValueError: If boxes, masks or keypoints are given with sequences, boxes and labels are not given together,
+                or instance masks or keypoints are given without boxes, the instance masks also with class masks.
         """
         if not self.activated:
-            return (images, bounding_boxes, labels, masks, instance_masks,
+            return (images, bounding_boxes, labels, masks, instance_masks, keypoints,
                     [create_empty_report() for sample_index in range(images.shape[0])])
 
         # Boxes and masks are only supported for single images, and the boxes always travel together with their labels
-        if images.dim() == 5 and (bounding_boxes is not None or masks is not None or instance_masks is not None):
-            raise ValueError("Bounding boxes and masks are not supported for image sequences [B, T, C, H, W].")
+        if images.dim() == 5 and (bounding_boxes is not None or masks is not None or instance_masks is not None or
+                                  keypoints is not None):
+            raise ValueError("Bounding boxes, masks and keypoints are not supported for image sequences "
+                             "[B, T, C, H, W].")
         if (bounding_boxes is None) != (labels is None):
             raise ValueError("Bounding boxes and labels must be given together.")
 
@@ -184,8 +191,12 @@ class DataAugmenter:
         if instance_masks is not None and (bounding_boxes is None or masks is not None):
             raise ValueError("Instance masks must be given with their bounding boxes and without class masks.")
 
+        # The keypoints belong to the objects of the boxes, removed with them
+        if keypoints is not None and bounding_boxes is None:
+            raise ValueError("Keypoints must be given with the bounding boxes of their objects.")
+
         augmented_images, augmented_boxes, augmented_labels, augmented_masks = [], [], [], []
-        augmented_instance_masks, augmentation_reports = [], []
+        augmented_instance_masks, augmented_keypoints, augmentation_reports = [], [], []
 
         # Decide independently for every sample whether it is augmented, an unaugmented sample keeping an empty report
         for sample_index in range(images.shape[0]):
@@ -194,39 +205,45 @@ class DataAugmenter:
             sample_labels = labels[sample_index] if labels is not None else None
             sample_mask = masks[sample_index] if masks is not None else None
             sample_instance_masks = instance_masks[sample_index] if instance_masks is not None else None
+            sample_keypoints = keypoints[sample_index] if keypoints is not None else None
             sample_report = create_empty_report()
 
             if random.random() < self.probability:
-                (sample_image, sample_boxes, sample_labels, sample_mask, sample_instance_masks,
+                (sample_image, sample_boxes, sample_labels, sample_mask, sample_instance_masks, sample_keypoints,
                  sample_report) = self.augment_sample(image=sample_image, bounding_boxes=sample_boxes,
                                                       labels=sample_labels, mask=sample_mask,
-                                                      instance_masks=sample_instance_masks)
+                                                      instance_masks=sample_instance_masks, keypoints=sample_keypoints)
 
             augmented_images.append(sample_image)
             augmented_boxes.append(sample_boxes)
             augmented_labels.append(sample_labels)
             augmented_masks.append(sample_mask)
             augmented_instance_masks.append(sample_instance_masks)
+            augmented_keypoints.append(sample_keypoints)
             augmentation_reports.append(sample_report)
 
         output_boxes = augmented_boxes if bounding_boxes is not None else None
         output_labels = augmented_labels if labels is not None else None
         output_masks = torch.stack(tensors=augmented_masks) if masks is not None else None
         output_instance_masks = augmented_instance_masks if instance_masks is not None else None
+        output_keypoints = augmented_keypoints if keypoints is not None else None
 
         return (torch.stack(tensors=augmented_images), output_boxes, output_labels, output_masks, output_instance_masks,
-                augmentation_reports)
+                output_keypoints, augmentation_reports)
 
     def augment_sample(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                        labels: Optional[torch.Tensor], mask: Optional[torch.Tensor],
-                       instance_masks: Optional[torch.Tensor] = None) -> Tuple[
+                       instance_masks: Optional[torch.Tensor] = None,
+                       keypoints: Optional[torch.Tensor] = None) -> Tuple[
                        torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor],
-                       Optional[torch.Tensor], AugmentationReport]:
+                       Optional[torch.Tensor], Optional[torch.Tensor], AugmentationReport]:
         """
         Applies every activated augmentation type to one sample, each with its own probability, and reports the
         applied types with their drawn values. A sequence [T, C, H, W] is transformed as a whole, so all its frames
         share the same random parameters, except the photometric types with 'independent_frames', drawn for every
-        frame.
+        frame. The keypoints of the keypoint detection move with the image as boxes of zero size, so that every
+        geometric type moves them exactly, and keep their names: a flip or a rotation never renames a keypoint, the
+        user choosing the geometric types that suit the keypoints of the dataset.
 
         Args:
             image (torch.Tensor): A float BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -235,14 +252,23 @@ class DataAugmenter:
             mask (Optional[torch.Tensor]): The [H, W] int64 class index of every pixel, or None.
             instance_masks (Optional[torch.Tensor]): The [N, H, W] uint8 binary masks of the boxes, or None. Defaults
                 to None.
+            keypoints (Optional[torch.Tensor]): The [N, K, 3] float keypoints (x, y, visibility) of the objects of the
+                boxes, or None. Defaults to None.
 
         Returns:
             Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor],
-                Optional[torch.Tensor], AugmentationReport]: The augmented image, boxes, labels, mask and instance
-                masks, and the report of the applied types.
+                Optional[torch.Tensor], Optional[torch.Tensor], AugmentationReport]: The augmented image, boxes,
+                labels, mask, instance masks and keypoints, and the report of the applied types.
         """
         report = create_empty_report()
         report["augmented"] = True
+
+        # The keypoints travel as [x, y, x, y] boxes of zero size after the boxes of the objects, split again after the
+        # geometric types
+        number_objects = bounding_boxes.shape[0] if bounding_boxes is not None else 0
+        if keypoints is not None:
+            point_boxes = keypoints[..., :2].reshape(-1, 2).to(dtype=bounding_boxes.dtype).repeat(1, 2)
+            bounding_boxes = torch.cat(tensors=[bounding_boxes, point_boxes], dim=0)
 
         # The instance masks go through the mask argument of the geometric methods, except for an image without objects,
         # their pixels counted first to measure the share of every object left inside the image afterwards
@@ -265,6 +291,12 @@ class DataAugmenter:
                 area_scale *= type_area_scale
                 geometry_changed = True
 
+        # The moved keypoints taken back from their boxes of zero size, with their visibilities
+        if keypoints is not None:
+            moved_points = bounding_boxes[number_objects:, :2].reshape(*keypoints.shape[:2], 2)
+            keypoints = torch.cat(tensors=[moved_points.to(dtype=keypoints.dtype), keypoints[..., 2:]], dim=-1)
+            bounding_boxes = bounding_boxes[:number_objects]
+
         # The moved instance masks give the exact boxes of their objects, tighter than the moved boxes, and the share of
         # the pixels every object kept inside the image, out of those it would have at the new scale
         visible_fractions = None
@@ -280,11 +312,12 @@ class DataAugmenter:
                                                 torch.ones_like(input=visible_mask_pixels))
 
         # Clip the boxes to the image and remove the ones that left it or kept too small a share of their area inside
-        # it, together with their labels and masks, the labels of the removed objects being reported
+        # it, together with their labels, masks and keypoints, the labels of the removed objects being reported
         if bounding_boxes is not None:
-            bounding_boxes, labels, instance_masks, report["removed_labels"] = self.clean_bounding_boxes(
+            bounding_boxes, labels, instance_masks, keypoints, report["removed_labels"] = self.clean_bounding_boxes(
                 bounding_boxes=bounding_boxes, labels=labels, image_height=image.shape[-2],
-                image_width=image.shape[-1], instance_masks=instance_masks, visible_fractions=visible_fractions)
+                image_width=image.shape[-1], instance_masks=instance_masks, visible_fractions=visible_fractions,
+                keypoints=keypoints)
 
         # Apply the photometric augmentations, which never move the boxes nor change the mask, once for the sample or
         # frame by frame, the report keeping one list of applied types per draw
@@ -296,7 +329,7 @@ class DataAugmenter:
             image, applied_types = self.apply_photometric_augmentations(image=image)
             report["photometric_augmentations"] = [applied_types]
 
-        return image.clamp(min=0.0, max=255.0), bounding_boxes, labels, mask, instance_masks, report
+        return image.clamp(min=0.0, max=255.0), bounding_boxes, labels, mask, instance_masks, keypoints, report
 
     def apply_photometric_augmentations(self, image: torch.Tensor) -> Tuple[torch.Tensor, List[Tuple[str, str]]]:
         """
@@ -422,15 +455,18 @@ class DataAugmenter:
     @staticmethod
     def clean_bounding_boxes(bounding_boxes: torch.Tensor, labels: torch.Tensor, image_height: int, image_width: int,
                              instance_masks: Optional[torch.Tensor] = None,
-                             visible_fractions: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor,
-                                                                                       Optional[torch.Tensor],
-                                                                                       torch.Tensor]:
+                             visible_fractions: Optional[torch.Tensor] = None,
+                             keypoints: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor,
+                                                                                Optional[torch.Tensor],
+                                                                                Optional[torch.Tensor], torch.Tensor]:
         """
         Clips the boxes to the image borders after the geometric augmentations and removes the boxes that became
         too small (mostly cropped or rotated out of the image) or that kept less than MINIMUM_VISIBLE_AREA_FRACTION of
         their area inside the image (a sliver of an object at the border of a crop, which would teach the detector to
         fire on fragments), so the detector only receives valid targets. The instance masks of the removed boxes are
-        removed with them, and their labels are returned for the augmentation report.
+        removed with them, and their labels are returned for the augmentation report. The keypoints that left the
+        image become unlabelled (visibility 0, position 0), and an object keeping a labelled keypoint inside the image
+        is never removed, since the keypoint detector would otherwise learn its visible keypoints as background.
 
         Args:
             bounding_boxes (torch.Tensor): The [N, 4] absolute [x1, y1, x2, y2] boxes, moved without clipping so that
@@ -443,10 +479,13 @@ class DataAugmenter:
             visible_fractions (Optional[torch.Tensor]): The [N] share of every object left inside the image measured
                 on its mask pixels (instance segmentation), or None to measure it on the boxes, as the clipped area
                 over the area of the moved box. Defaults to None.
+            keypoints (Optional[torch.Tensor]): The [N, K, 3] moved keypoints (x, y, visibility) of the boxes, or None.
+                Defaults to None.
 
         Returns:
-            Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], torch.Tensor]: The kept boxes, their labels and
-                their instance masks (None without instance masks), and the labels of the removed boxes.
+            Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], torch.Tensor]: The kept
+                boxes, their labels, their instance masks and their keypoints (None without them), and the labels of
+                the removed boxes.
         """
         clipped_boxes = bounding_boxes.clone()
         clipped_boxes[:, 0::2] = clipped_boxes[:, 0::2].clamp(min=0.0, max=float(image_width))
@@ -464,8 +503,18 @@ class DataAugmenter:
             visible_fractions = box_widths.clamp(min=0.0) * box_heights.clamp(min=0.0) / moved_areas.clamp(min=1e-6)
         kept_mask &= visible_fractions >= MINIMUM_VISIBLE_AREA_FRACTION
 
+        # Keypoints outside the image unlabelled, the objects keeping a labelled keypoint inside the image kept
+        kept_keypoints = None
+        if keypoints is not None:
+            inside_image = ((keypoints[..., 0] >= 0.0) & (keypoints[..., 0] < image_width) &
+                            (keypoints[..., 1] >= 0.0) & (keypoints[..., 1] < image_height))
+            labelled = (keypoints[..., 2] > 0) & inside_image
+            keypoints = torch.where(labelled[..., None], keypoints, torch.zeros_like(input=keypoints))
+            kept_mask |= labelled.any(dim=1)
+            kept_keypoints = keypoints[kept_mask]
+
         kept_instance_masks = instance_masks[kept_mask] if instance_masks is not None else None
-        return clipped_boxes[kept_mask], labels[kept_mask], kept_instance_masks, labels[~kept_mask]
+        return clipped_boxes[kept_mask], labels[kept_mask], kept_instance_masks, kept_keypoints, labels[~kept_mask]
 
     @staticmethod
     def wrap_bounding_boxes(bounding_boxes: torch.Tensor, image: torch.Tensor) -> tv_tensors.BoundingBoxes:
