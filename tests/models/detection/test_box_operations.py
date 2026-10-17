@@ -56,17 +56,17 @@ def test_batched_boxes_give_the_overlaps_of_every_image() -> None:
 def test_regression_targets_are_weighted_and_decoded_back() -> None:
     """
     Verifies that a ground truth box shifted by a tenth of the reference width and twice as wide gives the targets
-    (1, 0, 5 log 2, 0), the offsets (0.1, 0, log 2, 0) scaled by the weights (10, 10, 5, 5), and that decoding the
-    targets of random boxes, in float32 and float64, gives back their ground truth boxes.
+    (0.1, 0, log 2, 0), its offsets left unscaled by the weights (1, 1, 1, 1), and that decoding the targets of random
+    boxes, in float32 and float64, gives back their ground truth boxes.
     """
-    assert BOX_REGRESSION_WEIGHTS == (10.0, 10.0, 5.0, 5.0)
+    assert BOX_REGRESSION_WEIGHTS == (1.0, 1.0, 1.0, 1.0)
 
     # A reference box of 100 x 50 pixels and its ground truth, centred 10 pixels to the right and twice as wide
     reference_boxes = torch.tensor(data=[[100.0, 100.0, 200.0, 150.0]], dtype=torch.float64)
     ground_truth_boxes = torch.tensor(data=[[60.0, 100.0, 260.0, 150.0]], dtype=torch.float64)
     targets = turn_boxes_to_transformation_targets(ground_truth_boxes=ground_truth_boxes,
                                                    predicted_boxes=reference_boxes)
-    expected_targets = torch.tensor(data=[[1.0, 0.0, 5.0 * math.log(2.0), 0.0]], dtype=torch.float64)
+    expected_targets = torch.tensor(data=[[0.1, 0.0, math.log(2.0), 0.0]], dtype=torch.float64)
     assert torch.allclose(input=targets, other=expected_targets, atol=1e-6)
 
     # Decoding the weighted targets of random boxes gives back the ground truth boxes

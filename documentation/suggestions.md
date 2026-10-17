@@ -37,8 +37,8 @@
 > - region proposal negatives down to IoU 0 (audit H1), the check warning when `background_iou_threshold.min` is
 >   above 0;
 > - NMS at 0.7 for the region proposals and 0.5 for the detections (audit M4);
-> - box regression targets of both stages scaled by the fixed weights (10, 10, 5, 5) (`BOX_REGRESSION_WEIGHTS`, the
->   first part of item 6);
+> - box regression weights of both stages kept at (1, 1, 1, 1) (`BOX_REGRESSION_WEIGHTS`, the first part of item 6),
+>   the (10, 10, 5, 5) of torchvision giving about 2.5 times lower box and mask mAP@0.5 on the synthetic shapes;
 > - INS evaluation at the original resolution of the test images (`evaluation.original_resolution`) and mean
 >   average recall of the boxes and masks by object size, for DET and INS (item 12), not compared with pycocotools.
 >
@@ -127,9 +127,9 @@
      features.
 6. **A weight per loss**:
    - **Mask R-CNN:** `LOSS_WEIGHTS` multiplies each of the five losses (`config.py:189-195`, `model.py:2172-2174`).
-   - **Here:** the five losses are summed with weight 1. The box regression targets of both stages are already
-     scaled by the fixed weights (10, 10, 5, 5) of `BOX_REGRESSION_WEIGHTS`, the equivalent of the
-     [0.1, 0.1, 0.2, 0.2] of Mask R-CNN.
+   - **Here:** the five losses are summed with weight 1. The box regression targets of both stages keep the fixed
+     weights (1, 1, 1, 1) of `BOX_REGRESSION_WEIGHTS`: the (10, 10, 5, 5) equivalent to the [0.1, 0.1, 0.2, 0.2] of
+     Mask R-CNN gave about 2.5 times lower box and mask mAP@0.5 on the synthetic shapes.
    - **Why it can help:** it lets the mask loss be raised when the masks lag behind the boxes, or the box losses be
      balanced against the classification.
    - **Change:** an `Optimization.loss_weights` dictionary keyed by the tracked loss names. The loss weights do not
@@ -271,7 +271,7 @@ average recall by object size and the recall of the anchors and of the proposals
 | RoI sampling | 200 RoIs, 33 % positive (IoU ≥ 0.5). Negatives below 0.5 that touch no crowd, in proportion to the positives, so none without positives (`model.py:486-619`). The ground truth boxes are left out on purpose, a comment citing a sampling study that found no gain (`model.py:1317-1318`). | The ground truth boxes of every image are added to its proposals at the level of their best anchor (`add_ground_truth_proposals`, as in torchvision and Detectron2). 128 RoIs, up to 64 positive (IoU ≥ 0.5), the negatives filling the rest of the budget. |
 | RoI pooling | `PyramidROIAlign`: level `4 + round(log2(√(wh) / 224))`, clamped to P2–P5, then `crop_and_resize`, one bilinear sample per bin (`model.py:344-447`). | `roi_align` with `aligned=True` and adaptive sampling, on the level of the anchor that produced the proposal (item 2). |
 | Box head | Shared: 7 × 7 conv to 1024 + BN, 1 × 1 conv 1024 + BN, then class and per-class box layers (`model.py:900-953`). | Per level (`DetectionLevels.<level>.detector`): `ConvolutionBlock`, flattened, fully connected layers without normalization, then class and per-class box layers. |
-| Box regression | Targets divided by [0.1, 0.1, 0.2, 0.2] on both stages. Smooth L1 with β = 1, averaged over the coordinates of the positives (`model.py:575, 1047-1073, 1112-1140`). | Targets multiplied by the fixed (10, 10, 5, 5) on both stages (`BOX_REGRESSION_WEIGHTS`), the same scaling. Smooth L1 with β = 1/9, summed per box and divided by the positives (audit L5). |
+| Box regression | Targets divided by [0.1, 0.1, 0.2, 0.2] on both stages. Smooth L1 with β = 1, averaged over the coordinates of the positives (`model.py:575, 1047-1073, 1112-1140`). | Targets left unscaled, fixed weights (1, 1, 1, 1) on both stages (`BOX_REGRESSION_WEIGHTS`), (10, 10, 5, 5) giving about 2.5 times lower mAP@0.5 on the synthetic shapes. Smooth L1 with β = 1/9, summed per box and divided by the positives (audit L5). |
 | Mask head | Shared: 4 × (3 × 3 conv 256 + BN + ReLU), 2 × 2 transposed conv 256, 1 × 1 conv to one sigmoid per class (`model.py:956-1005`). | Per level (`DetectionLevels.<level>.mask_head`, item 7): `ConvolutionBlock` of `[layers, channels]` with module options, configurable pool size, mask resolution and upsampling, 1 × 1 conv per class. |
 | Mask targets | `crop_and_resize` of the matched mask (full or mini) inside the positive RoI, rounded at 0.5 (`model.py:577-606`). | `roi_align` (aligned) of the matched full-resolution mask inside the positive proposal, thresholded at 0.5. |
 | Mask loss | BCE of the ground truth class channel, mean over the positives (`model.py:1143-1179`). | Same, computed in float32. |
@@ -306,8 +306,8 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
 | RoIs sampled per image | 200, 33 % positive, without the ground truth boxes | 128, ≤ 64 positive, with the ground truth boxes | The paper: 512, 25 % |
 | Box head | Shared, 2 × FC 1024 with BN | Per level, 2 conv × 64, FC 256 and 128 | |
 | Mask head | Shared, 4 conv × 256 with BN | Per level, 4 conv × 64, residual, BN | Item 7 |
-| Box target scaling | ÷ [0.1, 0.1, 0.2, 0.2] | × (10, 10, 5, 5), fixed | Same |
-| Smooth L1 β | 1 (on scaled targets) | 1/9 (on scaled targets) | torchvision: 1/9 |
+| Box target scaling | ÷ [0.1, 0.1, 0.2, 0.2] | × (1, 1, 1, 1), fixed | Different |
+| Smooth L1 β | 1 (on scaled targets) | 1/9 (on unscaled targets) | torchvision: 1/9 |
 | Detection score threshold | 0.7 | 0.5 (0.05 in evaluation) | |
 | Detection NMS | 0.3 | 0.5 | |
 | Maximum detections | 100 | 100 | Same |

@@ -17,12 +17,12 @@ from vision_training.utilities.tensor_utilities import print_tensor_shape
 # It caps a box at 1000/16 = 62.5 times its reference size and prevents exp() from overflowing to inf.
 MAXIMUM_LOG_SCALE_OFFSET = math.log(1000.0 / 16)
 
-# Weights of the regression offsets (dx, dy, dw, dh) of both stages, those of the second stage of torchvision and
-# Detectron2 (whose region proposal networks keep (1, 1, 1, 1)) applied here to both stages: the targets are
-# multiplied by them (turn_boxes_to_transformation_targets) and the predictions divided by them before decoding
-# (apply_regression_predictions), so that the small centre and log-scale offsets of well placed boxes are regressed
-# in a range where the smooth L1 loss keeps a useful gradient. Fixed in the code, without configuration option.
-BOX_REGRESSION_WEIGHTS = (10.0, 10.0, 5.0, 5.0)
+# Weights of the regression offsets (dx, dy, dw, dh) of both stages: the targets are multiplied by them
+# (turn_boxes_to_transformation_targets) and the predictions divided by them before decoding
+# (apply_regression_predictions). Kept at (1, 1, 1, 1), the offsets being regressed unscaled: on the synthetic shapes,
+# with the smooth L1 beta of 1/9, the (10, 10, 5, 5) of the second stage of torchvision and Detectron2 gave about
+# 2.5 times lower box and mask mAP@0.5 after 2000 iterations. Fixed in the code, without configuration option.
+BOX_REGRESSION_WEIGHTS = (1.0, 1.0, 1.0, 1.0)
 
 
 def get_area(boxes: torch.Tensor) -> torch.Tensor:
