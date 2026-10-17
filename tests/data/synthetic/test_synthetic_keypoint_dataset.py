@@ -73,7 +73,7 @@ def test_created_keypoint_dataset_is_valid_coco_and_loads(tmp_path: Path) -> Non
     label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
     distractor_identifiers = {str(identifier) for name, identifier in KEYPOINT_CATEGORIES.items()
                               if not KEYPOINT_NAMES[name]}
-    assert distractor_identifiers == {str(KEYPOINT_CATEGORIES[name]) for name in ["circle", "annulus",
+    assert distractor_identifiers == {str(KEYPOINT_CATEGORIES[name]) for name in ["circle", "ellipse", "annulus",
                                                                                    "hollow_ellipse"]}
     assert label_mapping == build_keypoint_label_mapping() and not distractor_identifiers & set(label_mapping)
     assert list(label_mapping.values()) == list(range(1, len(KEYPOINT_CATEGORIES) - len(distractor_identifiers) + 1))

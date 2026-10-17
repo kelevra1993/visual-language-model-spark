@@ -2058,7 +2058,7 @@ def write_keypoint_configuration(temporary_directory: Path, configuration_name: 
         modify_function (Callable[[Dict[str, Any]], None] | None): Function altering the raw configuration in place,
             or None to keep it.
         label_mapping (Dict[str, int] | None): The class of every raw category identifier. Defaults to None, in which
-            case the synthetic categories with keypoints get the classes 1 to 34 and the COCO person the class 1.
+            case the synthetic categories with keypoints get the classes 1 to 33 and the COCO person the class 1.
 
     Returns:
         Path: The path of the written configuration file.
@@ -2117,15 +2117,16 @@ def test_keypoint_configurations_are_consistent_with_their_injected_categories(t
     assert sorted(person["flip_pairs"]) == sorted([f"left_{part}", f"right_{part}"] for part in [
         "eye", "ear", "shoulder", "elbow", "wrist", "hip", "knee", "ankle"])
 
-    # Synthetic configuration: the 34 classes with keypoints, the triangle keeping the rotation limit of its category
+    # Synthetic configuration: the 33 classes with keypoints, the triangle keeping the rotation limit of its category
     synthetic_path = write_keypoint_configuration(temporary_directory=tmp_path,
                                                   configuration_name="configuration_synthetic_shapes.yaml",
                                                   modify_function=None)
     _, model_configuration = load_experiment_configuration(configuration_path=synthetic_path)
     keypoint_categories = model_configuration["Data"]["keypoint_categories"]
     label_dictionary = model_configuration["Data"]["label_dictionary"]
-    assert sorted(keypoint_categories) == list(range(1, 35))
-    assert all(KEYPOINT_CATEGORIES[name] not in label_dictionary for name in ["circle", "annulus", "hollow_ellipse"])
+    assert sorted(keypoint_categories) == list(range(1, 34))
+    assert all(KEYPOINT_CATEGORIES[name] not in label_dictionary
+               for name in ["circle", "ellipse", "annulus", "hollow_ellipse"])
     triangle = keypoint_categories[label_dictionary[KEYPOINT_CATEGORIES["triangle"]]]
     assert triangle == {"name": "triangle", "keypoints": ["top", "bottom_left", "bottom_right"],
                         "skeleton": [[0, 2], [2, 1], [1, 0]], "maximum_rotation_degrees": 20.0,

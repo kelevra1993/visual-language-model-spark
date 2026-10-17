@@ -89,7 +89,7 @@ HOLLOW_MAXIMUM_ATTEMPTS = 20
 
 # Keypoints of the hollow shapes: the hollow polygons and the hollow capsule also have a keypoint at every corner of
 # their hole, and the hollow ellipse has none, a distractor drawn among the objects of the keypoint images that is left
-# out of the keypoint label mapping, like the circle and the annulus, so that the keypoint detector must tell them
+# out of the keypoint label mapping, like the circle, the annulus and the ellipse, so that the keypoint detector must tell them
 # apart from the shapes it learns. The other hollow shapes keep the keypoints of their filled shape
 HOLLOW_INNER_KEYPOINT_SHAPE_NAMES = ["square", "triangle", "rectangle", "pentagon", "hexagon", "octagon", "rhombus",
                                      "parallelogram", "trapezoid", "kite", "heptagon", "nonagon", "capsule"]
@@ -110,7 +110,7 @@ KEYPOINT_CATEGORIES = {**SHAPE_CATEGORIES, "stick_figure": len(SHAPE_CATEGORIES)
 # and the tips of the star go clockwise from the top one, the vertices of each side numbered from the top. The left and
 # right of the shapes are those of the image, those of the stick figure its own: it faces the viewer, its left limbs on
 # the right of the image as in COCO. A horizontal flip swaps the keypoints whose names differ by left and right. The
-# circle and the annulus have no keypoints, distractors left out of the keypoint label mapping
+# circle, the annulus and the ellipse have no keypoints, distractors left out of the keypoint label mapping
 KEYPOINT_NAMES = {"square": ["top_left", "top_right", "bottom_right", "bottom_left"],
                   "circle": [],
                   "triangle": ["top", "bottom_left", "bottom_right"],
@@ -127,7 +127,7 @@ KEYPOINT_NAMES = {"square": ["top_left", "top_right", "bottom_right", "bottom_le
                   "heptagon": ["top", "right_1", "right_2", "right_3", "left_3", "left_2", "left_1"],
                   "nonagon": ["top", "right_1", "right_2", "right_3", "right_4", "left_4", "left_3", "left_2",
                               "left_1"],
-                  "ellipse": ["left_end", "centre", "right_end"],
+                  "ellipse": [],
                   "semicircle": ["arc_top", "base_centre", "base_left", "base_right"],
                   "annulus": [],
                   "capsule": ["left_end", "top_left", "top_right", "right_end", "bottom_right", "bottom_left"],
@@ -152,7 +152,6 @@ KEYPOINT_OUTLINES = {"square": KEYPOINT_NAMES["square"],
                      "l_shape": KEYPOINT_NAMES["l_shape"],
                      "house": ["roof_apex", "roof_right", "base_right", "base_left", "roof_left"]}
 KEYPOINT_LINKS = {"plus_sign": [["top", "bottom"], ["left", "right"]],
-                  "ellipse": [["left_end", "centre"], ["centre", "right_end"]],
                   "stick_figure": [["head", "neck"], ["neck", "pelvis"], ["neck", "left_elbow"],
                                    ["left_elbow", "left_hand"], ["neck", "right_elbow"], ["right_elbow", "right_hand"],
                                    ["pelvis", "left_knee"], ["left_knee", "left_foot"], ["pelvis", "right_knee"],
@@ -888,7 +887,8 @@ def draw_ellipse_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
                       random_generator: np.random.Generator, upright: bool = False) -> np.ndarray:
     """
     Draws a filled ellipse whose long axis is 'size' long and 1.5 to 3 times its short axis, far from the circles, at
-    a random rotation, on a binary mask. One of the synthetic shape classes.
+    a random rotation, on a binary mask. One of the synthetic shape classes, a distractor without keypoints in the
+    keypoint images.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -899,20 +899,14 @@ def draw_ellipse_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
         upright (bool): True for a horizontal long axis, without rotation (keypoint images). Defaults to False.
 
     Returns:
-        np.ndarray: The [3, 2] float keypoints, the two ends of the long axis around the centre, the left end first
-            when upright, in the continuous coordinates of the mask.
+        np.ndarray: The empty [0, 2] float keypoints of the ellipse.
     """
     aspect_ratio = random_generator.uniform(low=ELLIPSE_ASPECT_RATIO_RANGE[0], high=ELLIPSE_ASPECT_RATIO_RANGE[1])
     half_short_axis = max(1, int(round(size / 2 / aspect_ratio)))
     angle = 0.0 if upright else random_generator.uniform(low=0.0, high=180.0)
     cv2.ellipse(img=mask, center=(center_x, center_y), axes=(size // 2, half_short_axis), angle=angle, startAngle=0.0,
                 endAngle=360.0, color=255, thickness=-1)
-
-    # Ends of the long axis, along the x axis of cv2.ellipse turned clockwise on the image (the y axis pointing down),
-    # on the outer edges of their pixels
-    centre = np.array([center_x + 0.5, center_y + 0.5])
-    half_axis = (size // 2 + 0.5) * np.array([np.cos(np.radians(angle)), np.sin(np.radians(angle))])
-    return np.stack([centre - half_axis, centre, centre + half_axis])
+    return np.zeros(shape=(0, 2), dtype=np.float64)
 
 
 def draw_semicircle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
@@ -1833,8 +1827,8 @@ def build_keypoint_label_mapping() -> Dict[str, int]:
     """
     Builds the 'label_mapping.json' of the synthetic keypoint dataset, read by the 'multi_class' label mapping of
     keypoint_detection/configuration_synthetic_shapes.yaml: the categories with keypoints are numbered from 1 in the
-    order of KEYPOINT_CATEGORIES, and the distractors without keypoints (the circle, the annulus and the hollow
-    ellipse) are left out, so that the keypoint dataset maps them to the background and never crops them, while they
+    order of KEYPOINT_CATEGORIES, and the distractors without keypoints (the circle, the ellipse, the annulus and
+    the hollow ellipse) are left out, so that the keypoint dataset maps them to the background and never crops them, while they
     still appear in the crops of the other objects.
 
     Returns:

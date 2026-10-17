@@ -317,8 +317,8 @@ def test_keypoint_drawing_functions_give_one_point_per_keypoint_name(category_na
     """
     Verifies that every keypoint category draws one keypoint per name of KEYPOINT_NAMES, at any size and rotation, so
     that the annotations of build_keypoint_labels hold 3 values per keypoint of their category: none for the circle,
-    the annulus and the hollow ellipse, the distractors of the keypoint images, and four tips without centre for the
-    plus sign.
+    the ellipse, the annulus and the hollow ellipse, the distractors of the keypoint images, and four tips without
+    centre for the plus sign.
 
     Args:
         category_name (str): The name of the keypoint category of KEYPOINT_CATEGORIES.
@@ -330,7 +330,7 @@ def test_keypoint_drawing_functions_give_one_point_per_keypoint_name(category_na
         keypoints = KEYPOINT_DRAWING_FUNCTIONS[category_name](mask=mask, center_x=64, center_y=64, size=size,
                                                               random_generator=random_generator, upright=upright)
         assert keypoints.shape == (len(KEYPOINT_NAMES[category_name]), 2) and np.any(mask)
-    assert not KEYPOINT_NAMES["circle"] and not KEYPOINT_NAMES["annulus"] and not KEYPOINT_NAMES["hollow_ellipse"]
+    assert all(not KEYPOINT_NAMES[name] for name in ["circle", "ellipse", "annulus", "hollow_ellipse"])
     assert "centre" not in KEYPOINT_NAMES["plus_sign"] and "centre" not in KEYPOINT_NAMES["capsule"]
 
 
