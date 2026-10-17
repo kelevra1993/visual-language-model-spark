@@ -2520,10 +2520,12 @@ if __name__ == "__main__":
                    "frame_selection": 256}
     # Number of images (or sequences, or pairs) of every split, all of them labelled, for every task. The 128000
     # training images of the instance segmentation are the 2000 iterations of 64 images of the synthetic object
-    # detection and instance segmentation configurations, every image being seen once
+    # detection and instance segmentation configurations, every image being seen once. The 250000 training images of
+    # the keypoint detection, of 2 to 5 objects, give about 790000 object crops, the 20000 iterations of 64 crops of
+    # its synthetic configuration seeing every crop less than twice
     split_sizes = {"object_detection": {"train": 100, "validation": 100, "test": 100},
                    "instance_segmentation": {"train": 128000, "validation": 20000, "test": 20000},
-                   "keypoint_detection": {"train": 40000, "validation": 4000, "test": 4000},
+                   "keypoint_detection": {"train": 250000, "validation": 50000, "test": 50000},
                    "classification": {"train": 500000, "validation": 50000, "test": 50000},
                    "semantic_segmentation": {"train": 2000, "validation": 200, "test": 200},
                    "sequence_classification": {"train": 2000, "validation": 200, "test": 200},
@@ -2533,7 +2535,7 @@ if __name__ == "__main__":
     # Maximum number of shapes drawn in one image (at least one is always drawn, object detection, instance
     # segmentation and semantic segmentation, at least two for the keypoint detection) or in the before member of a
     # pair (at least two, sequence comparison), for every task (unused by the other tasks)
-    maximum_objects = {"object_detection": 6, "instance_segmentation": 6, "keypoint_detection": 4, "classification": 1,
+    maximum_objects = {"object_detection": 6, "instance_segmentation": 6, "keypoint_detection": 5, "classification": 1,
                        "semantic_segmentation": 6, "sequence_classification": 1, "sequence_labelling": 1,
                        "sequence_comparison": 6, "frame_selection": 1}
     # Minimum and maximum number of frames of a sequence or of a member of a pair, every sequence and every member

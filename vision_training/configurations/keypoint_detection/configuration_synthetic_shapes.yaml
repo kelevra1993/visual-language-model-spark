@@ -1,5 +1,5 @@
 # Configuration of the synthetic keypoint dataset (the 35 shape classes of SHAPE_CATEGORIES drawn upright, a stick
-# figure and a house, 2 to 4 objects per image, each category with its own keypoints: the corners of the polygons, the
+# figure and a house, 2 to 5 objects per image, each category with its own keypoints: the corners of the polygons, the
 # tips of the star and of the plus sign, the ends and corners of the capsule, the joints of the stick figure, the hollow
 # polygons and capsule adding the corners of their hole to those of their filled shape..., the circle, the ellipse,
 # the annulus and the hollow ellipse being distractors without keypoints), created with
