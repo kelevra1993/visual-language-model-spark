@@ -1,7 +1,7 @@
 """
 Tests of the keypoint detection mode of vision_training/data/synthetic/create_synthetic_dataset.py, which creates the
 synthetic shapes keypoint dataset of configuration_synthetic_shapes.yaml: the COCO labels.json holds every keypoint
-category with its keypoint names, its 1-based skeleton and the rotation limit of its crops, every annotation holds
+category with its keypoint names and its 1-based skeleton and nothing else, every annotation holds
 3 x K keypoint values with its number of labelled keypoints, the labelled keypoints lying in the image and in the box
 of their object and the unlabelled ones at 0, the label mapping numbers the categories with keypoints from 1 and leaves
 out the distractors without keypoints, and the keypoint categories and the KeypointDataset of the training pipeline read the
@@ -14,8 +14,7 @@ from pathlib import Path
 
 from vision_training.data.keypoints.keypoint_categories import read_keypoint_categories
 from vision_training.data.keypoints.keypoint_dataset import KeypointDataset
-from vision_training.data.synthetic.create_synthetic_dataset import (KEYPOINT_CATEGORIES,
-                                                                     KEYPOINT_MAXIMUM_ROTATION_DEGREES, KEYPOINT_NAMES,
+from vision_training.data.synthetic.create_synthetic_dataset import (KEYPOINT_CATEGORIES, KEYPOINT_NAMES,
                                                                      build_keypoint_label_mapping,
                                                                      create_synthetic_dataset)
 
@@ -43,12 +42,12 @@ def test_created_keypoint_dataset_is_valid_coco_and_loads(tmp_path: Path) -> Non
     labels = json.loads((tmp_path / "train" / "labels.json").read_text())
     assert len(labels["images"]) == 6 and len(labels["annotations"]) >= 6
 
-    # Every category gives its keypoint names, its 1-based skeleton and the rotation limit of its crops
+    # Every category gives its keypoint names and its 1-based skeleton, without any augmentation setting
     assert [category["name"] for category in labels["categories"]] == list(KEYPOINT_CATEGORIES)
     keypoint_counts = {}
     for category in labels["categories"]:
         assert category["keypoints"] == KEYPOINT_NAMES[category["name"]]
-        assert category["maximum_rotation_degrees"] == KEYPOINT_MAXIMUM_ROTATION_DEGREES[category["name"]]
+        assert set(category) == {"id", "name", "supercategory", "keypoints", "skeleton"}
         assert all(1 <= keypoint_number <= len(category["keypoints"]) for link in category["skeleton"]
                    for keypoint_number in link)
         keypoint_counts[category["id"]] = len(category["keypoints"])
@@ -82,11 +81,10 @@ def test_created_keypoint_dataset_is_valid_coco_and_loads(tmp_path: Path) -> Non
 
     # The training pipeline reads the categories, then one sample per object with a labelled keypoint
     keypoint_categories = read_keypoint_categories(labels_file=tmp_path / "train" / "labels.json",
-                                                   label_dictionary=label_dictionary, flip_pairs_override={})
+                                                   label_dictionary=label_dictionary)
     assert len(keypoint_categories) == len(label_mapping)
     square_class = label_dictionary[KEYPOINT_CATEGORIES["square"]]
-    assert keypoint_categories[square_class]["flip_pairs"] == [["top_left", "top_right"],
-                                                               ["bottom_right", "bottom_left"]]
+    assert keypoint_categories[square_class]["keypoints"] == ["top_left", "top_right", "bottom_right", "bottom_left"]
     maximum_keypoints = max(len(definition["keypoints"]) for definition in keypoint_categories.values())
     dataset = KeypointDataset(data_directory=str(tmp_path / "train" / "data"),
                               labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,

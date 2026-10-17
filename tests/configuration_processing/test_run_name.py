@@ -1307,8 +1307,7 @@ def get_keypoint_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, A
     model_configuration["Data"]["label_mode"] = "multi_class"
     model_configuration["Data"]["label_dictionary"] = {"background": 0, 1: 1}
     model_configuration["Data"]["keypoint_categories"] = {1: {"name": "person", "keypoints": COCO_PERSON_KEYPOINTS,
-                                                              "skeleton": [], "maximum_rotation_degrees": 180.0,
-                                                              "flip_pairs": []}}
+                                                              "skeleton": []}}
     return experiment_configuration, model_configuration
 
 
@@ -1372,8 +1371,7 @@ def add_keypoint_class(experiment_configuration: Dict[str, Any], model_configura
     """
     model_configuration["Data"]["label_dictionary"][2] = 2
     model_configuration["Data"]["keypoint_categories"][2] = {
-        "name": "rectangle", "keypoints": ["top_left", "top_right", "bottom_right", "bottom_left"], "skeleton": [],
-        "maximum_rotation_degrees": 180.0, "flip_pairs": []}
+        "name": "rectangle", "keypoints": ["top_left", "top_right", "bottom_right", "bottom_left"], "skeleton": []}
     model_configuration["Data"]["crop_settings"].update({"height": 192, "width": 192})
 
 

@@ -20,8 +20,7 @@ from vision_training.core.contracts import EvaluationResults, KeypointBatch
 from vision_training.data.keypoints.crop_transform import (build_crop_affines, build_heatmap_targets,
                                                            compute_crop_regions, create_identity_augmentations,
                                                            describe_crop_augmentation, draw_crop_augmentations,
-                                                           swap_flipped_keypoints, transform_points, warp_crops)
-from vision_training.data.keypoints.keypoint_categories import DEFAULT_MAXIMUM_ROTATION_DEGREES, build_flip_permutation
+                                                           transform_points, warp_crops)
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.loaders import get_keypoint_dataloaders
 from vision_training.data.split_description import count_split_images_and_annotations
@@ -48,38 +47,25 @@ EVALUATED_OBJECT_KEYS = ["image_identifiers", "labels", "bounding_boxes", "keypo
 KEYPOINT_HEADLINE_METRIC = "OKS mAP@0.5/area"
 
 
-def build_keypoint_tables(keypoint_categories: Dict[int, Dict[str, Any]],
-                          maximum_keypoints: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def build_keypoint_counts(keypoint_categories: Dict[int, Dict[str, Any]]) -> torch.Tensor:
     """
-    Gathers the keypoint definition of every class index into the tables the keypoint trainer indexes with the labels
-    of a batch: the renaming of the keypoints of a flipped crop (swap_flipped_keypoints), the largest rotation of its
-    crops (draw_crop_augmentations) and its number of keypoints, which marks the valid keypoint positions of its
-    predictions. The background and the classes without keypoints keep the identity renaming, the default rotation limit
-    and no keypoint.
+    Gathers the number of keypoints of every class index into the table the keypoint trainer indexes with the labels of
+    a batch, which marks the valid keypoint positions of its predictions. The background and the classes without
+    keypoints have none.
 
     Args:
-        keypoint_categories (Dict[int, Dict[str, Any]]): The 'keypoints' names, 'flip_pairs' and
-            'maximum_rotation_degrees' of every foreground class index ('Data.keypoint_categories').
-        maximum_keypoints (int): The most keypoints of a class, the number of keypoint positions of every object.
+        keypoint_categories (Dict[int, Dict[str, Any]]): The 'keypoints' names of every foreground class index
+            ('Data.keypoint_categories').
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: The [C, K] int64 flip permutations, the [C] float32 largest
-            rotations in degrees and the [C] int64 keypoint counts, C being the largest class index plus one.
+        torch.Tensor: The [C] int64 keypoint counts, C being the largest class index plus one.
     """
-    number_classes = max(keypoint_categories) + 1
-    flip_permutations = torch.arange(end=maximum_keypoints, dtype=torch.int64).repeat(number_classes, 1)
-    maximum_rotations = torch.full(size=(number_classes,), fill_value=DEFAULT_MAXIMUM_ROTATION_DEGREES,
-                                   dtype=torch.float32)
-    keypoint_counts = torch.zeros(size=(number_classes,), dtype=torch.int64)
+    keypoint_counts = torch.zeros(size=(max(keypoint_categories) + 1,), dtype=torch.int64)
 
-    # Definition of every foreground class written in its row
+    # Number of keypoints of every foreground class written in its row
     for class_index, definition in keypoint_categories.items():
-        flip_permutations[class_index] = torch.tensor(data=build_flip_permutation(
-            keypoint_names=definition["keypoints"], flip_pairs=definition["flip_pairs"],
-            maximum_keypoints=maximum_keypoints), dtype=torch.int64)
-        maximum_rotations[class_index] = float(definition["maximum_rotation_degrees"])
         keypoint_counts[class_index] = len(definition["keypoints"])
-    return flip_permutations, maximum_rotations, keypoint_counts
+    return keypoint_counts
 
 
 class KeypointTrainer(BaseTrainer):
@@ -117,12 +103,11 @@ class KeypointTrainer(BaseTrainer):
         self.heatmap_sigma = model_configuration["KeypointHead"]["heatmap_sigma"]
 
         # Keypoint definition of every class, injected by the configuration loader from the training labels.json, with
-        # the tables indexed by the labels of the batches
+        # the keypoint counts indexed by the labels of the batches
         self.keypoint_categories = {int(class_index): definition
                                     for class_index, definition in data_configuration["keypoint_categories"].items()}
         self.maximum_keypoints = max(len(definition["keypoints"]) for definition in self.keypoint_categories.values())
-        self.flip_permutations, self.maximum_rotations, self.keypoint_counts = build_keypoint_tables(
-            keypoint_categories=self.keypoint_categories, maximum_keypoints=self.maximum_keypoints)
+        self.keypoint_counts = build_keypoint_counts(keypoint_categories=self.keypoint_categories)
 
         # Tolerance of the object keypoint similarity of every keypoint of every class
         evaluation_configuration = experiment_configuration["evaluation"]
@@ -208,8 +193,8 @@ class KeypointTrainer(BaseTrainer):
                          augmentations: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
         Cuts the crop of every object of a batch out of its resized image with its geometric augmentation, on the device
-        of the images, and moves its keypoints into the crop: renamed when the crop is flipped, turned into Gaussian
-        heatmap targets with their weights. Used for the identity crops of every prepared batch, the augmented crops of
+        of the images, and moves its keypoints into the crop, keeping their names and visibilities, turned into
+        Gaussian heatmap targets with their weights. Used for the identity crops of every prepared batch, the augmented crops of
         the training batches and the crops shown by the input viewer.
 
         Args:
@@ -232,11 +217,9 @@ class KeypointTrainer(BaseTrainer):
         crops = warp_crops(images=batch["images"], crop_to_image=crop_inverse_affines, crop_height=self.crop_height,
                            crop_width=self.crop_width)
 
-        # Keypoints moved into the crop, renamed when it is flipped, and their heatmap targets
+        # Keypoints moved into the crop, keeping their names and visibilities, and their heatmap targets
         crop_keypoints = transform_points(points=batch["keypoints"].to(dtype=torch.float32), affines=crop_affines)
-        crop_keypoints, crop_visibilities = swap_flipped_keypoints(
-            keypoints=crop_keypoints, visibilities=batch["visibilities"], labels=batch["labels"],
-            flips=augmentations["flips"], flip_permutations=self.flip_permutations)
+        crop_visibilities = batch["visibilities"]
         target_heatmaps, heatmap_weights = build_heatmap_targets(
             crop_keypoints=crop_keypoints, visibilities=crop_visibilities, crop_height=self.crop_height,
             crop_width=self.crop_width, heatmap_stride=HEATMAP_STRIDE, heatmap_sigma=self.heatmap_sigma)
@@ -268,10 +251,10 @@ class KeypointTrainer(BaseTrainer):
 
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Randomly augments the training crops: cuts them again with a random scale, rotation (within the limit of the
-        class of every crop), horizontal flip and shift drawn from 'Data.crop_augmentation', their keypoints and targets
-        following, then applies the photometric augmentations of the DataAugmenter to the crops. The input viewer calls
-        it on the loader batch on the CPU.
+        Randomly augments the training crops: cuts them again with a random scale, rotation, horizontal flip and shift
+        drawn from 'Data.crop_augmentation', their keypoints and targets following without being renamed, then applies
+        the photometric augmentations of the DataAugmenter to the crops. The input viewer calls it on the loader batch on
+        the CPU.
 
         Args:
             batch (Dict[str, Any]): The training batch.
@@ -280,7 +263,7 @@ class KeypointTrainer(BaseTrainer):
             Dict[str, Any]: The batch with its augmented crops, keypoints and targets, and the drawn
                 'crop_augmentations' and the 'augmentation_reports' of its crops for the input viewer.
         """
-        crop_augmentations = draw_crop_augmentations(labels=batch["labels"], maximum_rotations=self.maximum_rotations,
+        crop_augmentations = draw_crop_augmentations(number_samples=batch["labels"].shape[0],
                                                      augmentation_configuration=self.crop_augmentation_configuration)
         augmented_batch = {**batch, **self.cut_object_crops(batch=batch, augmentations=crop_augmentations)}
 

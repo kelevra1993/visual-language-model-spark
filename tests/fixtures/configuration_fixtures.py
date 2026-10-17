@@ -239,11 +239,9 @@ def get_keypoint_model_configuration() -> Tuple[Dict[str, Any], torch.device, to
     configuration['Data']['label_dictionary'] = {'background': 0, 1: 1, 2: 2}
     configuration['Data']['crop_settings'] = {'height': 64, 'width': 48, 'box_enlargement': 1.25}
     configuration['Data']['keypoint_categories'] = {
-        1: {'name': 'triangle', 'keypoints': ['top', 'left', 'right'], 'skeleton': [[0, 1], [1, 2], [2, 0]],
-            'maximum_rotation_degrees': 20.0, 'flip_pairs': [['left', 'right']]},
+        1: {'name': 'triangle', 'keypoints': ['top', 'left', 'right'], 'skeleton': [[0, 1], [1, 2], [2, 0]]},
         2: {'name': 'rectangle', 'keypoints': ['top_left', 'top_right', 'bottom_right', 'bottom_left'],
-            'skeleton': [[0, 1], [1, 2], [2, 3], [3, 0]], 'maximum_rotation_degrees': 180.0,
-            'flip_pairs': [['top_left', 'top_right'], ['bottom_left', 'bottom_right']]}}
+            'skeleton': [[0, 1], [1, 2], [2, 3], [3, 0]]}}
     configuration['Backbone']['convolutions'] = {'1': [1, 8], '2': [1, 16], '3': [1, 16]}
     configuration['HRNet'] = {'base_width': 8, 'modules_per_stage': [1, 1], 'blocks_per_branch': 1,
                               'modules': {'squeeze_and_excite': True, 'residual_nets': True},

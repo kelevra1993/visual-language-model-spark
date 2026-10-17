@@ -28,25 +28,6 @@ MAXIMUM_CROP_ROTATION_DEGREES = 180.0
 MAXIMUM_CROP_SHIFT_FRACTION = 0.5
 
 
-def list_category_names(model_configuration: Dict[str, Any]) -> List[str]:
-    """
-    Lists the names of the categories of the training split whose keypoints are learnt, the categories merged into one
-    class being joined with '+' in their injected definition, so that the flip pairs and the sigmas given by category
-    name can be verified.
-
-    Args:
-        model_configuration (Dict[str, Any]): The model configuration, with the 'Data.keypoint_categories' injected by
-            the configuration loader when the training split could be read.
-
-    Returns:
-        List[str]: The category names, empty when the keypoint definitions could not be read.
-    """
-    if "keypoint_categories" not in model_configuration["Data"]:
-        return []
-    return [name for definition in model_configuration["Data"]["keypoint_categories"].values()
-            for name in definition["name"].split("+")]
-
-
 def check_crop_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies 'Data.crop_settings', the crops every object is cut to before the keypoint detector: their height and
@@ -87,9 +68,8 @@ def check_crop_augmentation_configuration(model_configuration: Dict[str, Any]) -
     """
     Verifies 'Data.crop_augmentation', the geometric augmentation drawn in the warp of every training crop (the
     geometric types of 'Data.data_augmentation' would move the crops without their keypoints, so they must be off):
-    the range of the scale of the region, the largest rotation and its probability, the flip probability, the largest
-    shift of the region centre and the flip pairs given by category name, replacing the pairs deduced from the
-    left and right keypoint names.
+    the range of the scale of the region, the largest rotation and its probability, the flip probability and the
+    largest shift of the region centre.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Data' section.
@@ -130,23 +110,6 @@ def check_crop_augmentation_configuration(model_configuration: Dict[str, Any]) -
     if not is_number(value=maximum_shift) or not 0.0 <= maximum_shift <= MAXIMUM_CROP_SHIFT_FRACTION:
         errors.append(f"'Data.crop_augmentation.maximum_shift_fraction' must be a number within "
                       f"[0, {MAXIMUM_CROP_SHIFT_FRACTION:g}], got {maximum_shift!r}.")
-
-    # Flip pairs given by hand: pairs of keypoint names of a category of the training split
-    flip_pairs = get_configuration_value(configuration=model_configuration,
-                                         key_path="Data.crop_augmentation.flip_pairs")
-    if not isinstance(flip_pairs, dict):
-        return errors + [f"'Data.crop_augmentation.flip_pairs' must map category names to lists of "
-                         f"[left keypoint, right keypoint] pairs ({{}} for none), got {flip_pairs!r}."]
-    category_names = list_category_names(model_configuration=model_configuration)
-    for category_name, category_pairs in flip_pairs.items():
-        if category_names and category_name not in category_names:
-            errors.append(f"'Data.crop_augmentation.flip_pairs' names the category {category_name!r}, which is not "
-                          f"a learnt category of the training split ({category_names}).")
-        if not isinstance(category_pairs, list) or \
-                not all(isinstance(flip_pair, list) and len(flip_pair) == 2 and
-                        all(isinstance(name, str) for name in flip_pair) for flip_pair in category_pairs):
-            errors.append(f"'Data.crop_augmentation.flip_pairs.{category_name}' must be a list of [left keypoint, "
-                          f"right keypoint] name pairs, got {category_pairs!r}.")
     return errors
 
 
@@ -174,7 +137,7 @@ def check_keypoint_data_configuration(model_configuration: Dict[str, Any]) -> Li
     if "keypoint_categories" not in data_configuration:
         errors.append("The keypoint definitions of the classes could not be read: the 'labels.json' of "
                       "'ExperimentConfiguration.train_data_folder' must exist, with the 'keypoints' names of every "
-                      "category, and 'Data.crop_augmentation.flip_pairs' must be a mapping.")
+                      "category.")
         return errors
 
     # Every foreground class of the label dictionary has its keypoint definition

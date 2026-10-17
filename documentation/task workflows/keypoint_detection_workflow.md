@@ -35,8 +35,8 @@ main()
 │   ├── load_configuration(configuration_path)
 │   ├── build_label_dictionary(label_mapping_configuration, task)       {category id: class index} + 'background': 0
 │   ├── inject_keypoint_categories(experiment_configuration, model_configuration)
-│   │   └── read_keypoint_categories(labels_file, label_dictionary, flip_pairs_override)
-│   │           keypoint names, skeleton, rotation limit and flip pairs of every class, from the training labels.json
+│   │   └── read_keypoint_categories(labels_file, label_dictionary)
+│   │           keypoint names and skeleton of every class, from the training labels.json
 │   └── check_configuration()
 │       ├── common checks
 │       └── check_keypoint_configuration()
@@ -51,7 +51,7 @@ main()
 │
 ├── KeypointTrainer(experiment_configuration, model_configuration, configuration_path)   [STAGE 2]
 │   │   Reads the crop settings, the crop augmentation and the heatmap sigma.
-│   ├── build_keypoint_tables()                                    flip_permutations, maximum_rotations, keypoint_counts
+│   ├── build_keypoint_counts()                                    keypoint_counts
 │   ├── build_keypoint_sigma_table()                               OKS sigma of every keypoint of every class
 │   └── BaseTrainer.__init__()
 │       ├── get_device() / get_run_name() -> build_run_name() -> build_keypoint_sections()
@@ -84,7 +84,7 @@ main()
         │   │   │       ├── compute_crop_regions()                                    box -> square region x 1.25
         │   │   │       ├── build_crop_affines()                                      image_to_crop, crop_to_image
         │   │   │       ├── warp_crops()                                              grid_sample of the region
-        │   │   │       ├── transform_points() + swap_flipped_keypoints()             keypoints in crop pixels
+        │   │   │       ├── transform_points()                                        keypoints in crop pixels
         │   │   │       └── build_heatmap_targets()                                   Gaussians on 48x48, weights
         │   │   ├── augment_batch()
         │   │   │   ├── draw_crop_augmentations()                                     scale, rotation, flip, shift
@@ -145,7 +145,7 @@ CUDA_VISIBLE_DEVICES= PYTHONPATH=. COLUMNS=120 .venv/bin/python vision_training/
 ### Step 1.2 — `load_experiment_configuration()`
 The model sections are `Optimization`, `Data`, `Backbone`, `HRNet` and `KeypointHead`. Three settings of `Data` belong to this task:
 - `crop_settings`: the `height` and `width` of the crops fed to the network, and `box_enlargement`, the factor applied to the box (once widened to the aspect ratio of the crop), so that the crop also shows some context around the object.
-- `crop_augmentation`: the random geometry of the training crops, drawn per crop (`scale_range`, `maximum_rotation_degrees`, `rotation_probability`, `flip_probability`, `maximum_shift_fraction`), and `flip_pairs`, the left/right keypoint pairs given by hand per class (empty: deduced from the keypoint names).
+- `crop_augmentation`: the random geometry of the training crops, drawn per crop (`scale_range`, `maximum_rotation_degrees`, `rotation_probability`, `flip_probability`, `maximum_shift_fraction`), the same for every class. The keypoints keep their names and their heatmap channels whatever the augmentation.
 - `keypoint_categories`: not in the YAML, added by `inject_keypoint_categories()` (Step 1.5).
 
 `HRNet` holds the network after the stem (`base_width`, the channels of its highest resolution branch, doubled at every lower branch; `modules_per_stage`; `blocks_per_branch`; `modules`; `normalization`; `pretrained`), and `KeypointHead` the `heatmap_sigma` of the targets, in heatmap cells. The `evaluation` section gives the OKS sigmas: `default_keypoint_sigma`, and `keypoint_sigmas` per class and keypoint.
@@ -164,7 +164,7 @@ Data keys:       ['loading', 'image_settings', 'label_mapping', 'crop_settings',
                   'label_dictionary', 'keypoint_categories']
 crop_settings:     {'height': 192, 'width': 192, 'box_enlargement': 1.25}
 crop_augmentation: {'scale_range': [0.75, 1.25], 'maximum_rotation_degrees': 180.0, 'rotation_probability': 0.6, 'flip_probability': 0.5,
-                    'maximum_shift_fraction': 0.1, 'flip_pairs': {}}
+                    'maximum_shift_fraction': 0.1}
 HRNet:        {"base_width": 16, "modules_per_stage": [1, 2, 2], "blocks_per_branch": 2,
                "modules": {"squeeze_and_excite": true, "residual_nets": true},
                "normalization": {"feature_map_normalization": "batch", "batch_normalization_momentum": 0.1},
@@ -188,33 +188,26 @@ label_dictionary: {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, ..., 20: 20, 21: 21, 22: 22, 'b
 ```
 
 ### Step 1.5 — `inject_keypoint_categories()` → `read_keypoint_categories()`
-The keypoints are not described in the YAML but in the `categories` of the COCO `labels.json`, the way COCO describes its person keypoints. `inject_keypoint_categories()` reads them from the training split only (the validation and test splits share them) and writes `Data.keypoint_categories`, keyed by class index. It returns without writing anything when the training folder, the label dictionary or the `crop_augmentation.flip_pairs` dictionary is missing, and the checker of Step 1.6 then reports the problem. For every class of the label dictionary (the classes mapped to 0 are skipped), `read_keypoint_categories()` gives:
+The keypoints are not described in the YAML but in the `categories` of the COCO `labels.json`, the way COCO describes its person keypoints. `inject_keypoint_categories()` reads them from the training split only (the validation and test splits share them) and writes `Data.keypoint_categories`, keyed by class index. It returns without writing anything when the training folder or the label dictionary is missing, and the checker of Step 1.6 then reports the problem. For every class of the label dictionary (the classes mapped to 0 are skipped), `read_keypoint_categories()` gives:
 - `keypoints`: the names, in the order of the COCO `keypoints` triplets.
 - `skeleton`: the pairs of keypoint indices drawn as lines in the viewers and the sample images.
-- `maximum_rotation_degrees`: the rotation limit of the crop augmentation for the class. A square looks the same every 90 degrees, so rotating it by more than 45 degrees would ask the network to tell `top_left` from `top_right` on an identical image.
-- `flip_pairs`: the pairs whose names swap when the crop is mirrored, from `crop_augmentation.flip_pairs` when the class is listed there, otherwise deduced from the `left`/`right` words of the names.
+
+Any other field of a category is ignored. A keypoint keeps its name whatever the augmentation of its crop: after a flip, the keypoint labelled `top_left` lies on the top right of the crop and is still trained in the `top_left` channel. A flip or a large rotation therefore only suits keypoints whose names do not depend on their side or their orientation.
 
 **Example: 5 of the 22 definitions**
 ```text
 keypoint_categories: 22 classes, keys [1, 2, 3, ..., 22]
 1  {"name": "square", "keypoints": ["top_left", "top_right", "bottom_right", "bottom_left", "centre"],
-    "skeleton": [[0, 1], [1, 2], [2, 3], [3, 0]], "maximum_rotation_degrees": 45.0,
-    "flip_pairs": [["top_left", "top_right"], ["bottom_right", "bottom_left"]]}
-3  {"name": "triangle", "keypoints": ["top", "bottom_left", "bottom_right"], "skeleton": [[0, 2], [2, 1], [1, 0]],
-    "maximum_rotation_degrees": 20.0, "flip_pairs": [["bottom_left", "bottom_right"]]}
+    "skeleton": [[0, 1], [1, 2], [2, 3], [3, 0]]}
+3  {"name": "triangle", "keypoints": ["top", "bottom_left", "bottom_right"], "skeleton": [[0, 2], [2, 1], [1, 0]]}
 9  {"name": "octagon", "keypoints": ["top", "right_1", "right_2", "right_3", "bottom", "left_3", "left_2", "left_1"],
-    "skeleton": [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 0]], "maximum_rotation_degrees": 22.5,
-    "flip_pairs": [["right_1", "left_1"], ["right_2", "left_2"], ["right_3", "left_3"]]}
+    "skeleton": [[0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 0]]}
 21 {"name": "stick_figure", "keypoints": ["head", "neck", "left_elbow", "right_elbow", "left_hand", "right_hand", "pelvis",
     "left_knee", "right_knee", "left_foot", "right_foot"],
-    "skeleton": [[0, 1], [1, 6], [1, 2], [2, 4], [1, 3], [3, 5], [6, 7], [7, 9], [6, 8], [8, 10]],
-    "maximum_rotation_degrees": 180.0,
-    "flip_pairs": [["left_elbow", "right_elbow"], ["left_hand", "right_hand"], ["left_knee", "right_knee"], ["left_foot", "right_foot"]]}
+    "skeleton": [[0, 1], [1, 6], [1, 2], [2, 4], [1, 3], [3, 5], [6, 7], [7, 9], [6, 8], [8, 10]]}
 22 {"name": "house", "keypoints": ["roof_apex", "roof_left", "roof_right", "base_left", "base_right"],
-    "skeleton": [[0, 2], [2, 4], [4, 3], [3, 1], [1, 0]], "maximum_rotation_degrees": 180.0,
-    "flip_pairs": [["roof_left", "roof_right"], ["base_left", "base_right"]]}
+    "skeleton": [[0, 2], [2, 4], [4, 3], [3, 1], [1, 0]]}
 ```
-The square's `top_left` and `top_right` swap names when the crop is mirrored: after a flip, the corner on the top left of the crop is the one that was labelled `top_right`.
 
 ### Step 1.6 — `check_configuration()`
 The common checks run first, then `check_keypoint_configuration()`, which calls in order `check_image_task_sequence_settings()`, `check_keypoint_data_configuration()`, `check_crop_configuration()`, `check_crop_augmentation_configuration()`, `check_keypoint_stem_configuration()`, `check_high_resolution_network_configuration()` and `check_keypoint_evaluation_configuration()`. Three rules come from the architecture:
@@ -246,9 +239,9 @@ get_trainer_class(task="keypoint_detection") -> <class 'vision_training.trainers
 
 > The examples below are real outputs from building the trainer on the redirected configuration with the iterations of Stage 3 (batch size 16), the run folder redirected to a temporary folder and the MLflow tracking off. The whole construction took 0.5 s on CPU.
 
-### Step 2.1 — `KeypointTrainer.__init__()` → `build_keypoint_tables()` + `build_keypoint_sigma_table()`
+### Step 2.1 — `KeypointTrainer.__init__()` → `build_keypoint_counts()` + `build_keypoint_sigma_table()`
 The trainer reads the crop settings, the crop augmentation and the heatmap sigma, turns the keys of `keypoint_categories` into integers and sets `maximum_keypoints`, the keypoint count of the largest class (11, the stick figure): every per-object keypoint tensor of the batches has 11 positions, the classes with fewer keypoints being padded. It then builds the tables indexed by the labels of a batch, so that the per-class lookups run on whole batches:
-- `build_keypoint_tables()` gives `flip_permutations` [23, 11] (for every class, the position each keypoint takes in a mirrored crop, identity for the padding and the classes without flip pairs), `maximum_rotations` [23] (the rotation limit of every class, `DEFAULT_MAXIMUM_ROTATION_DEGREES` = 180 for the background row) and `keypoint_counts` [23].
+- `build_keypoint_counts()` gives `keypoint_counts` [23], the number of keypoints of every class (0 for the background row).
 - `build_keypoint_sigma_table()` gives `sigma_table` [23, 11], the OKS sigma of every keypoint of every class, `default_keypoint_sigma` unless `keypoint_sigmas` names the keypoint.
 
 The constructor of `BaseTrainer` runs last, since it builds the loaders and the model that use these tables.
@@ -256,13 +249,6 @@ The constructor of `BaseTrainer` runs last, since it builds the loaders and the 
 **Example: the attributes after the construction**
 ```text
 crop 192 192 1.25   sigma 2.0   maximum_keypoints 11
-flip_permutations (23, 11) torch.int64
-  flip_permutations[ 0 ] [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]            background
-  flip_permutations[ 1 ] [1, 0, 3, 2, 4, 5, 6, 7, 8, 9, 10]            square: top_left <-> top_right, bottom_right <-> bottom_left
-  flip_permutations[ 3 ] [0, 2, 1, 3, 4, 5, 6, 7, 8, 9, 10]            triangle: bottom_left <-> bottom_right
-  flip_permutations[ 21 ] [0, 1, 3, 2, 5, 4, 6, 8, 7, 10, 9]           stick_figure: 4 pairs
-maximum_rotations [180.0, 45.0, 180.0, 20.0, 90.0, 36.0, 30.0, 45.0, 36.0, 22.5, 90.0, 90.0, 180.0, 180.0, 25.700000762939453, 20.0,
-                   90.0, 180.0, 180.0, 90.0, 180.0, 180.0, 180.0]
 keypoint_counts [0, 5, 1, 3, 4, 5, 6, 5, 5, 8, 4, 4, 4, 4, 7, 9, 3, 4, 1, 3, 6, 11, 5]
 sigma_table (23, 11) torch.float64
   sigma_table[1] [0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05]
@@ -538,7 +524,7 @@ The loader batch holds 16 objects, each with its whole 512 pixel image. `prepare
 - `compute_crop_regions()`: the centre of the box, and its sides widened to the aspect ratio of the crop (square here: the longest side), times `box_enlargement`. A 84x35 box gives a region of 84 × 1.25 = 105 pixels.
 - `build_crop_affines()`: the 2x3 affine `image_to_crop` (`crop_affines`), which zooms the region to the crop (192 / 105 = 1.8286), and its inverse `crop_to_image` (`crop_inverse_affines`). With an augmentation, the zoom is also divided by the scale, the rotation is anticlockwise around the centre, the flip mirrors the crop and the shift moves the centre by a fraction of the region.
 - `warp_crops()`: bilinear `grid_sample` of every pixel of the crop at its position in the image, zeros outside the image.
-- `transform_points()`: the keypoints moved into the crop with `image_to_crop`; `swap_flipped_keypoints()` permutes them for the flipped crops (Step 3.4).
+- `transform_points()`: the keypoints moved into the crop with `image_to_crop`, keeping their order, names and visibilities.
 - `build_heatmap_targets()`: one Gaussian of sigma `heatmap_sigma` cells per keypoint on the 48x48 heatmap (crop / `HEATMAP_STRIDE`), centred at keypoint / 4 − 0.5 cells, and its weight, 1 for a labelled keypoint inside the crop, 0 otherwise (unlabelled, padding, or moved out of the crop by the augmentation).
 
 **Example: the loader batch and the prepared batch**
@@ -577,7 +563,7 @@ crops range 0.0 253.0
 The box (84 pixels wide) fills 19.2 to 172.8 of the 192 pixel crop, 80 % of it, since 1 / 1.25 = 0.8. The `top_left` corner (19.2, 64) falls at (4.8 − 0.5, 16 − 0.5) = (4.3, 15.5) cells, between two cells, so the target maximum is 0.9584 and not 1. The unlabelled positions hold the image origin moved into the crop (−293.49, −594.29); their weight is 0, so they are never trained.
 
 ### Step 3.4 — `augment_batch()` → `draw_crop_augmentations()` → `cut_object_crops()` + `DataAugmenter.augment_batch()`
-`draw_crop_augmentations()` draws, on the CPU, one scale in `scale_range` (above 1 the object looks smaller), one rotation in ± the limit of the class (the smaller of `maximum_rotation_degrees` and the `maximum_rotation_degrees` of the class) applied with `rotation_probability`, one flip with `flip_probability` and one shift of at most `maximum_shift_fraction` of the region. `cut_object_crops()` then cuts the crops again with them: the keypoints move with the image, `swap_flipped_keypoints()` renames them in the flipped crops with `flip_permutations`, and the targets are rebuilt. Last, the photometric augmentations of the `DataAugmenter` are applied to the crops, `DataAugmenter.augment_batch(images=crops)` returning its six values, of which the trainer keeps the crops and the `augmentation_reports`. The batch also gets the drawn `crop_augmentations`, which `describe_crop_augmentation()` turns into the lines of the input viewer.
+`draw_crop_augmentations()` draws, on the CPU, one scale in `scale_range` (above 1 the object looks smaller), one rotation in ± `maximum_rotation_degrees` applied with `rotation_probability`, one flip with `flip_probability` and one shift of at most `maximum_shift_fraction` of the region. `cut_object_crops()` then cuts the crops again with them: the keypoints move with the image without being renamed, and the targets are rebuilt. Last, the photometric augmentations of the `DataAugmenter` are applied to the crops, `DataAugmenter.augment_batch(images=crops)` returning its six values, of which the trainer keeps the crops and the `augmentation_reports`. The batch also gets the drawn `crop_augmentations`, which `describe_crop_augmentation()` turns into the lines of the input viewer.
 
 **Example: the drawn augmentations of the batch (first 6 of 16)**
 ```text
@@ -589,7 +575,7 @@ shifts     (16, 2) [[-0.075, -0.083], [0.002, -0.072], [0.053, 0.045], [0.022, 0
 augmentation_reports[0] {'augmented': False, 'geometric_augmentations': [], 'photometric_augmentations': [], 'removed_labels': None}
 ```
 
-**Example: sample 0 again, the rectangle, flipped (rotation limit of the class 90 degrees)**
+**Example: sample 0 again, the rectangle, flipped**
 ```text
 describe_crop_augmentation ['Crop :', '  scale : 0.75', '  rotation : -58.4 degrees', '  flip : yes', '  shift : -0.07 width, -0.08 height']
 identity crop keypoints  [[19.2, 64.0], [172.8, 64.0], [172.8, 128.0], [19.2, 128.0], ...]
@@ -598,13 +584,6 @@ augmented visibilities   [2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0]
 augmented weights        [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 ```
 With a scale of 0.75 the region is 0.75 times as large, so the object looks 1 / 0.75 = 1.33 times larger and, rotated by 58 degrees, three of its four corners leave the 192x192 crop: their weight drops to 0, and only the corner that stays inside (157.7, 155.5) is trained.
-
-**Example: the rotation limits on a batch of 6 squares (limit 45 degrees) and 6 stick figures (180 degrees), seed 5**
-```text
-rotations [0.0, 14.3, 19.4, 0.0, 43.3, 13.5,   -159.6, 151.2, 61.1, -85.9, 0.0, 0.0]
-scales    [1.17, 0.81, 1.2, 1.16, 1.21, 0.81,  0.83, 1.12, 0.77, 1.25, 1.05, 1.03]
-```
-The rotations of 0.0 are the crops left unrotated (`rotation_probability` 0.6).
 
 ### Step 3.5 — `forward_pass()` → `KeypointDetector.forward(input_tensor=crops, labels, target_heatmaps, heatmap_weights)`
 The crops go through the stem, the HRNet and the 1x1 head, giving the 107 heatmaps of every crop, decoded by `decode_heatmaps()` into a keypoint and a score per channel. With the labels, `channel_table[labels]` picks the channels of the class of every crop (the padding positions read channel 0 and are zeroed), giving `category_keypoints` and `category_keypoint_scores` in the keypoint order of the class. With the targets, the heatmap loss is computed on these channels only (Step 3.7); the 102 other channels of a crop get no gradient from it. The scores are the raw heatmap maxima, without sigmoid, so a channel can score below 0.

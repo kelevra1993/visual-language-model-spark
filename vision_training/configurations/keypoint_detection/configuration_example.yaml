@@ -193,24 +193,17 @@ Data:
     # Range [minimum, maximum] of the scale of the crop region, drawn uniformly: above 1 the region grows and the
     # object looks smaller, below 1 it is cut more tightly. The HRNet COCO training draws its scale within 35%.
     scale_range: [0.65, 1.35]
-    # Largest rotation of the crops in degrees, either way, within [0, 180]. Every category has its own limit in its
-    # 'maximum_rotation_degrees' of labels.json (half the angle of its rotational symmetry, 45 degrees for a square,
-    # beyond which its keypoints would change names), the smaller of both being used, 180 when the category gives none.
-    # The COCO person gives none, and the HRNet COCO training rotates its crops by up to 45 degrees.
+    # Largest rotation of the crops in degrees, either way, within [0, 180], the same for every class. The keypoints
+    # keep their names whatever the rotation. The HRNet COCO training rotates its crops by up to 45 degrees.
     maximum_rotation_degrees: 45.0
     # Probability that a training crop is rotated.
     rotation_probability: 0.6
-    # Probability that a training crop is mirrored left to right, the keypoints of every flip pair swapping their
-    # names (the left_ and right_ keypoints of the category, or the pairs given in flip_pairs). The keypoints of a
-    # category without pairs keep their names.
-    flip_probability: 0.5
+    # Probability that a training crop is mirrored left to right. The keypoints keep their names and their heatmap
+    # channels, so a flip only suits keypoints whose names do not depend on the side; 0 for the person, whose
+    # left_ keypoints would lie where its right_ keypoints are.
+    flip_probability: 0.0
     # Largest shift of the centre of the crop region, as a fraction of its sides, within [0, 0.5].
     maximum_shift_fraction: 0.1
-    # Flip pairs given by hand, by category name: a list of [left keypoint, right keypoint] names replacing the pairs
-    # deduced from the left_ and right_ prefixes of the keypoint names of the category, [] for a category whose
-    # keypoints keep their names. {} keeps the deduced pairs of every category, the 8 left_ and right_ pairs of the
-    # person, its nose keeping its name.
-    flip_pairs: {}
   data_augmentation:
     # Global switch to enable or disable the photometric augmentations below (applied on the GPU to the training crops
     # only, after their warp). The crop augmentation is applied either way.

@@ -157,24 +157,11 @@ KEYPOINT_LINKS = {"plus_sign": [["top", "bottom"], ["left", "right"]],
                                    ["pelvis", "left_knee"], ["left_knee", "left_foot"], ["pelvis", "right_knee"],
                                    ["right_knee", "right_foot"]]}
 
-# Largest rotation in degrees of the crops of every category by the keypoint augmentation: half the angle of its
-# rotational symmetry, beyond which the rotated shape looks like the shape with its keypoints renamed (the top left
-# corner of a square turned by more than 45 degrees is where its top right corner was), and 180 for the shapes without
-# rotational symmetry. The random vertices of a triangle are only told apart by their height, so its crops turn by 20
-# degrees at most
-KEYPOINT_MAXIMUM_ROTATION_DEGREES = {"square": 45.0, "circle": 180.0, "triangle": 20.0, "rectangle": 90.0,
-                                     "pentagon": 36.0, "hexagon": 30.0, "plus_sign": 45.0, "star": 36.0,
-                                     "octagon": 22.5, "rhombus": 90.0, "parallelogram": 90.0, "trapezoid": 180.0,
-                                     "kite": 180.0, "heptagon": 25.7, "nonagon": 20.0, "ellipse": 90.0,
-                                     "semicircle": 180.0, "annulus": 180.0, "capsule": 90.0, "l_shape": 180.0,
-                                     "stick_figure": 180.0, "house": 180.0}
-
-# Hollow shapes keep the rotation limit of their filled shape and, unless they are distractors, its keypoints and its
-# skeleton, their outer vertices being those of the filled shape. The hollow polygons add the inner_ keypoints of the
-# corners of their hole after the outer ones, linked in a closed loop in the order of the outer outline
+# Hollow shapes keep, unless they are distractors, the keypoints and the skeleton of their filled shape, their outer
+# vertices being those of the filled shape. The hollow polygons add the inner_ keypoints of the corners of their hole
+# after the outer ones, linked in a closed loop in the order of the outer outline
 for hollow_source_name in HOLLOW_SHAPE_NAMES:
     hollow_name = f"hollow_{hollow_source_name}"
-    KEYPOINT_MAXIMUM_ROTATION_DEGREES[hollow_name] = KEYPOINT_MAXIMUM_ROTATION_DEGREES[hollow_source_name]
 
     # Distractors have no keypoints, nor any skeleton
     if hollow_source_name in HOLLOW_DISTRACTOR_SHAPE_NAMES:
@@ -1867,11 +1854,10 @@ def build_keypoint_labels(image_records: List[Dict[str, Any]], image_size: int, 
                                    for value in (round(float(x), 2), round(float(y), 2), int(visibility))]
         annotation["num_keypoints"] = int((keypoints[:, 2] > 0).sum())
 
-    # Every category lists the names of its keypoints, its skeleton and the largest rotation of its crops
+    # Every category lists the names of its keypoints and its skeleton
     for category in labels["categories"]:
         category["keypoints"] = KEYPOINT_NAMES[category["name"]]
         category["skeleton"] = build_keypoint_skeleton(shape_name=category["name"])
-        category["maximum_rotation_degrees"] = KEYPOINT_MAXIMUM_ROTATION_DEGREES[category["name"]]
     return labels, class_counts
 
 

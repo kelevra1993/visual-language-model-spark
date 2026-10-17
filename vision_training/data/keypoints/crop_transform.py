@@ -1,9 +1,9 @@
 """
 Crop transform of the keypoint detection task, run on the device by the keypoint trainer for whole batches: the crop
 region of every object (its box enlarged and widened to the aspect ratio of the crop), the random scale, rotation,
-horizontal flip and shift of the crop augmentation (the rotation bounded by the largest rotation of the class), the
-affine matrices between the resized image and the crop, the bilinear warp of the crops, the matching transformation
-of the keypoints with the left and right keypoints exchanged by a flip, and the Gaussian heatmap targets of the
+horizontal flip and shift of the crop augmentation, the affine matrices between the resized image and the crop, the
+bilinear warp of the crops, the matching transformation of the keypoints, which keep their names whatever the
+augmentation (a flipped keypoint stays in its heatmap channel), and the Gaussian heatmap targets of the
 keypoint detector. All the coordinates are continuous pixel coordinates (the centre of the first pixel at 0.5), the
 convention of the datasets, so that a point keeps its exact place through the warp and the inverse warp of the
 predictions.
@@ -61,19 +61,15 @@ def create_identity_augmentations(number_samples: int) -> Dict[str, torch.Tensor
             "shifts": torch.zeros(size=(number_samples, 2))}
 
 
-def draw_crop_augmentations(labels: torch.Tensor, maximum_rotations: torch.Tensor,
-                            augmentation_configuration: Dict[str, Any]) -> Dict[str, torch.Tensor]:
+def draw_crop_augmentations(number_samples: int, augmentation_configuration: Dict[str, Any]) -> Dict[str, torch.Tensor]:
     """
     Draws the random geometric augmentation of every training crop on the CPU, applied by build_crop_affines in the
     single warp that cuts the crop out of the image: a scale of the region (above 1 the object looks smaller), a
-    rotation drawn with its probability within the smaller of the configured limit and the limit of the class (beyond
-    half the rotational symmetry angle of a shape its keypoints would change names), a horizontal flip with its
-    probability, and a shift of the region centre as a fraction of its sides.
+    rotation drawn with its probability within the configured limit, a horizontal flip with its probability, and a
+    shift of the region centre as a fraction of its sides. The same limits apply to every class.
 
     Args:
-        labels (torch.Tensor): The [B] class indices of the crops.
-        maximum_rotations (torch.Tensor): The [number of classes] largest rotation of the crops of every class, in
-            degrees.
+        number_samples (int): The number of crops.
         augmentation_configuration (Dict[str, Any]): The 'Data.crop_augmentation' section: 'scale_range',
             'maximum_rotation_degrees', 'rotation_probability', 'flip_probability' and 'maximum_shift_fraction'.
 
@@ -81,15 +77,12 @@ def draw_crop_augmentations(labels: torch.Tensor, maximum_rotations: torch.Tenso
         Dict[str, torch.Tensor]: The [B] 'scales', [B] 'rotations' in degrees, [B] bool 'flips' and [B, 2] 'shifts'
             (fractions of the region width and height) of the crops.
     """
-    labels = labels.cpu()
-    number_samples = labels.shape[0]
     minimum_scale, maximum_scale = augmentation_configuration["scale_range"]
     scales = minimum_scale + (maximum_scale - minimum_scale) * torch.rand(size=(number_samples,))
 
-    # Rotation within the limit of the class, applied with its probability
-    rotation_limits = torch.clamp(maximum_rotations.cpu()[labels],
-                                  max=float(augmentation_configuration["maximum_rotation_degrees"]))
-    rotations = (2.0 * torch.rand(size=(number_samples,)) - 1.0) * rotation_limits
+    # Rotation within the configured limit, applied with its probability
+    rotations = ((2.0 * torch.rand(size=(number_samples,)) - 1.0) *
+                 float(augmentation_configuration["maximum_rotation_degrees"]))
     rotations = torch.where(torch.rand(size=(number_samples,)) < augmentation_configuration["rotation_probability"],
                             rotations, torch.zeros_like(input=rotations))
 
@@ -192,35 +185,6 @@ def warp_crops(images: torch.Tensor, crop_to_image: torch.Tensor, crop_height: i
     return crops.to(dtype=images.dtype)
 
 
-def swap_flipped_keypoints(keypoints: torch.Tensor, visibilities: torch.Tensor, labels: torch.Tensor,
-                           flips: torch.Tensor, flip_permutations: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Renames the keypoints of the horizontally flipped crops, whose left and right keypoints have exchanged their
-    places, so that every keypoint position keeps its meaning (the left elbow of a flipped figure is where its right
-    elbow was).
-
-    Args:
-        keypoints (torch.Tensor): The [B, K, 2] keypoints in crop pixels.
-        visibilities (torch.Tensor): The [B, K] visibilities of the keypoints.
-        labels (torch.Tensor): The [B] class indices of the crops.
-        flips (torch.Tensor): The [B] bool flips of the crops.
-        flip_permutations (torch.Tensor): The [number of classes, K] source position of every keypoint position of a
-            flipped crop of every class (build_flip_permutation).
-
-    Returns:
-        Tuple[torch.Tensor, torch.Tensor]: The renamed keypoints and visibilities.
-    """
-    device = keypoints.device
-    flips = flips.to(device=device)
-    permutations = flip_permutations.to(device=device)[labels.to(device=device)]
-
-    # Unflipped crops keep their order
-    identity = torch.arange(end=keypoints.shape[1], device=device).expand_as(permutations)
-    permutations = torch.where(flips[:, None], permutations, identity)
-    return (torch.gather(input=keypoints, dim=1, index=permutations[:, :, None].expand(-1, -1, 2)),
-            torch.gather(input=visibilities, dim=1, index=permutations))
-
-
 def build_heatmap_targets(crop_keypoints: torch.Tensor, visibilities: torch.Tensor, crop_height: int, crop_width: int,
                           heatmap_stride: int, heatmap_sigma: float) -> Tuple[torch.Tensor, torch.Tensor]:
     """
@@ -274,8 +238,8 @@ def describe_crop_augmentation(augmentations: Dict[str, torch.Tensor], sample_in
     Returns:
         List[str]: The lines of the crop augmentation.
     """
-    # Adding zero turns the negative zeros (no shift, or the rotation of a class without rotation) into zeros, so that
-    # they never print with a minus sign
+    # Adding zero turns the negative zeros (no shift, or no rotation) into zeros, so that they never print with a minus
+    # sign
     shift_x, shift_y = (shift + 0.0 for shift in augmentations["shifts"][sample_index].tolist())
     rotation = float(augmentations["rotations"][sample_index]) + 0.0
     return ["Crop :", f"  scale : {float(augmentations['scales'][sample_index]):.2f}",

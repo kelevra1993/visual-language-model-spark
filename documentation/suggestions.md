@@ -330,20 +330,13 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
     the 150000 iterations. The bfloat16 autocast used by the other tasks could be tried on a short run, the heatmap
     loss being computed in float32 already. Cost and risk: small, the OKS AP of a short run in both precisions telling
     whether the heatmaps lose accuracy.
-16. **Flip test-time augmentation**: the usual HRNet evaluation averages the heatmaps of the crop and of its
-    horizontally flipped copy, the flipped heatmaps being flipped back and their left and right channels swapped. Here
-    the crop is predicted once. The flip pairs of every class are already known (`flip_pairs` of the injected
-    `keypoint_categories`, used by the flip of `Data.crop_augmentation`), so an `evaluation.flip_test` flag could run
-    the flipped crops through the network, reorder their channels with the permutation of `build_flip_permutation` and
-    average both heatmaps before `decode_heatmaps`, in the evaluation and as an option of the exported model. Cost and
-    risk: medium, doubling the inference time for about 1 AP in the published results.
-17. **Evaluation on detected boxes**: the crops are cut around the ground truth boxes, at training and at evaluation,
+16. **Evaluation on detected boxes**: the crops are cut around the ground truth boxes, at training and at evaluation,
     so the OKS AP measures the keypoints alone, every object being found. The COCO protocol cuts the crops around the
     boxes of a person detector and scores every object by its box score times its mean keypoint score. A
     `Data.crop_settings` option could read the boxes of a DET run for the test split (written by its evaluation in a
     new detections file, none being written today), the unmatched ground truths counting as missed. Cost and risk:
     medium, needed only to compare with the published COCO numbers.
-18. **Finer decoding**: `decode_heatmaps` takes the maximum of every heatmap and shifts it by a quarter of a cell
+17. **Finer decoding**: `decode_heatmaps` takes the maximum of every heatmap and shifts it by a quarter of a cell
     towards the higher neighbour, an error of up to a quarter of a cell (1 pixel of the crop at stride 4) and of an
     eighth on average. A Taylor expansion of the log-heatmap around the maximum (DARK) estimates the peak within the
     cell. It could replace the shift in the eager and in the exported model, both sharing `decode_heatmaps`. Cost and

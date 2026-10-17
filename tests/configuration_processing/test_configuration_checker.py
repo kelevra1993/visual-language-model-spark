@@ -16,7 +16,6 @@ from typing import Any, Callable, Dict, List
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_detection_levels
-from vision_training.data.keypoints.keypoint_categories import DEFAULT_MAXIMUM_ROTATION_DEGREES
 from vision_training.data.synthetic.create_synthetic_dataset import (KEYPOINT_CATEGORIES, build_keypoint_label_mapping,
                                                                      build_keypoint_labels)
 from vision_training.utilities.os_utilities import color_text
@@ -2098,26 +2097,23 @@ def test_keypoint_configurations_are_consistent_with_their_injected_categories(t
     """
     Verifies that both keypoint detection configurations shipped with the repository pass every consistency check, and
     that the configuration loader injects the keypoint definition of every class from the training labels: the
-    keypoint names, the skeleton turned 0-based, the flip pairs deduced from the left and right names, and the largest
-    rotation of the crops, given by the category or the default one.
+    keypoint names and the skeleton turned 0-based, without any other field (the keypoints keeping their names whatever
+    the crop augmentation).
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
-    # Example configuration: the COCO person, without rotation limit in its category
+    # Example configuration: the COCO person
     example_path = write_keypoint_configuration(temporary_directory=tmp_path,
                                                 configuration_name="configuration_example.yaml", modify_function=None)
     experiment_configuration, model_configuration = load_experiment_configuration(configuration_path=example_path)
     assert experiment_configuration["task"] == "keypoint_detection"
     assert model_configuration["Data"]["label_dictionary"] == {"background": 0, 1: 1}
     person = model_configuration["Data"]["keypoint_categories"][1]
-    assert person["name"] == "person" and person["keypoints"] == COCO_PERSON_KEYPOINTS
-    assert person["skeleton"] == [[start - 1, end - 1] for start, end in COCO_PERSON_SKELETON]
-    assert person["maximum_rotation_degrees"] == DEFAULT_MAXIMUM_ROTATION_DEGREES
-    assert sorted(person["flip_pairs"]) == sorted([f"left_{part}", f"right_{part}"] for part in [
-        "eye", "ear", "shoulder", "elbow", "wrist", "hip", "knee", "ankle"])
+    assert person == {"name": "person", "keypoints": COCO_PERSON_KEYPOINTS,
+                      "skeleton": [[start - 1, end - 1] for start, end in COCO_PERSON_SKELETON]}
 
-    # Synthetic configuration: the 33 classes with keypoints, the triangle keeping the rotation limit of its category
+    # Synthetic configuration: the 33 classes with keypoints
     synthetic_path = write_keypoint_configuration(temporary_directory=tmp_path,
                                                   configuration_name="configuration_synthetic_shapes.yaml",
                                                   modify_function=None)
@@ -2129,12 +2125,9 @@ def test_keypoint_configurations_are_consistent_with_their_injected_categories(t
                for name in ["circle", "ellipse", "annulus", "hollow_ellipse"])
     triangle = keypoint_categories[label_dictionary[KEYPOINT_CATEGORIES["triangle"]]]
     assert triangle == {"name": "triangle", "keypoints": ["top", "bottom_left", "bottom_right"],
-                        "skeleton": [[0, 2], [2, 1], [1, 0]], "maximum_rotation_degrees": 20.0,
-                        "flip_pairs": [["bottom_left", "bottom_right"]]}
+                        "skeleton": [[0, 2], [2, 1], [1, 0]]}
     stick_figure = keypoint_categories[label_dictionary[KEYPOINT_CATEGORIES["stick_figure"]]]
     assert stick_figure["skeleton"][0] == [0, 1]
-    assert stick_figure["flip_pairs"] == [["left_elbow", "right_elbow"], ["left_hand", "right_hand"],
-                                          ["left_knee", "right_knee"], ["left_foot", "right_foot"]]
 
 
 def set_crop_not_matching_the_branches(configuration: Dict[str, Any]) -> None:
@@ -2161,15 +2154,13 @@ def activate_geometric_augmentation(configuration: Dict[str, Any]) -> None:
 
 def set_invalid_crop_augmentation(configuration: Dict[str, Any]) -> None:
     """
-    Sets a reversed scale range, a rotation above half a turn, a shift beyond half the region and flip pairs of a
-    category the training split does not hold.
+    Sets a reversed scale range, a rotation above half a turn and a shift beyond half the region.
 
     Args:
         configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
     """
     configuration["Data"]["crop_augmentation"].update({"scale_range": [1.5, 0.5], "maximum_rotation_degrees": 200.0,
-                                                       "maximum_shift_fraction": 0.6,
-                                                       "flip_pairs": {"dragon": [["left_wing", "right_wing"]]}})
+                                                       "maximum_shift_fraction": 0.6})
 
 
 def set_unknown_keypoint_sigmas(configuration: Dict[str, Any]) -> None:
@@ -2241,9 +2232,7 @@ def remove_training_labels(configuration: Dict[str, Any]) -> None:
                                      "'Data.crop_augmentation.maximum_rotation_degrees' must be a number within "
                                      "[0, 180], got 200.0.",
                                      "'Data.crop_augmentation.maximum_shift_fraction' must be a number within "
-                                     "[0, 0.5], got 0.6.",
-                                     "'Data.crop_augmentation.flip_pairs' names the category 'dragon', which is not a "
-                                     "learnt category of the training split"]),
+                                     "[0, 0.5], got 0.6."]),
     (set_unknown_keypoint_sigmas, ["'ExperimentConfiguration.evaluation.default_keypoint_sigma' must be a positive "
                                    "number, got 0.",
                                    "'ExperimentConfiguration.evaluation.keypoint_sigmas.dragon' names a category that "

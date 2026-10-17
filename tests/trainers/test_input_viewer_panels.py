@@ -22,7 +22,7 @@ from vision_training.data.augmentations import AUGMENTATION_TYPES, MAXIMUM_TRANS
 from vision_training.data.view_augmentations import ViewAugmenter
 from vision_training.utilities.visualization import KEYPOINT_SIDE_COLOURS
 from vision_training.trainers.detection_trainer import DetectionTrainer
-from vision_training.trainers.keypoint_trainer import KeypointTrainer, build_keypoint_tables
+from vision_training.trainers.keypoint_trainer import KeypointTrainer, build_keypoint_counts
 from vision_training.trainers.self_supervised_trainer import SelfSupervisedTrainer
 from vision_training.trainers.sequence_comparison_trainer import SequenceComparisonTrainer
 
@@ -184,7 +184,8 @@ def test_keypoint_panels_count_the_keypoints_and_describe_the_crop(monkeypatch: 
     Verifies the panels of the keypoint detection input viewer for a figure of 4 keypoints (a visible head, an
     occluded left hand, an unlabelled right hand and a visible foot below its box): both crops count the keypoints by
     visibility, the training crop, cut from a region 1.5 times larger and flipped, trains the foot that falls outside
-    the validation crop, and its panel writes the crop augmentation between the augmentation title and the photometric
+    the validation crop and keeps the names of the keypoints (the left hand mirrored to the right half of the crop
+    stays in its channel, with its visibility), and its panel writes the crop augmentation between the augmentation title and the photometric
     augmentations. Both crops are drawn at the display size of the viewer with the head at its place in the crop.
 
     Args:
@@ -194,10 +195,8 @@ def test_keypoint_panels_count_the_keypoints_and_describe_the_crop(monkeypatch: 
     trainer = KeypointTrainer.__new__(KeypointTrainer)
     trainer.crop_height, trainer.crop_width, trainer.box_enlargement, trainer.heatmap_sigma = 64, 32, 1.25, 2.0
     trainer.keypoint_categories = {1: {"name": "figure", "keypoints": ["head", "left_hand", "right_hand", "foot"],
-                                       "skeleton": [[0, 1], [0, 2], [0, 3]], "maximum_rotation_degrees": 180.0,
-                                       "flip_pairs": [["left_hand", "right_hand"]]}}
-    trainer.flip_permutations, trainer.maximum_rotations, trainer.keypoint_counts = build_keypoint_tables(
-        keypoint_categories=trainer.keypoint_categories, maximum_keypoints=4)
+                                       "skeleton": [[0, 1], [0, 2], [0, 3]]}}
+    trainer.keypoint_counts = build_keypoint_counts(keypoint_categories=trainer.keypoint_categories)
     trainer.crop_augmentation_configuration = {"scale_range": [1.5, 1.5], "maximum_rotation_degrees": 180.0,
                                                "rotation_probability": 0.0, "flip_probability": 1.0,
                                                "maximum_shift_fraction": 0.0}
@@ -212,6 +211,11 @@ def test_keypoint_panels_count_the_keypoints_and_describe_the_crop(monkeypatch: 
              "keypoints": torch.tensor(data=[[[48.0, 30.0], [40.0, 50.0], [56.0, 50.0], [48.0, 90.0]]]),
              "visibilities": torch.tensor(data=[[2, 1, 0, 2]])}
     training_batch = trainer.augment_batch(batch=batch)
+
+    # The flipped left hand, 8 pixels left of the region centre, lands 8 x 32 / 52.5 pixels right of the crop centre
+    # without changing channel nor visibility
+    assert torch.equal(input=training_batch["crop_visibilities"], other=batch["visibilities"])
+    assert abs(float(training_batch["crop_keypoints"][0, 1, 0]) - (16.0 + 8.0 * 32.0 / 52.5)) < 1e-4
     assert trainer.show_input_samples(training_batch=training_batch, validation_batch=batch, sample_index=0)
 
     training_lines, validation_lines = viewer_recorder.arguments["panel_lines"]

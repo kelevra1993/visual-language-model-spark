@@ -4,9 +4,8 @@ for whole batches: the crop region of every object (its box widened to the aspec
 degenerate box keeping one pixel), the affine matrices between the resized image and the crop (inverse of each other,
 the region centre at the crop centre, the flip mirroring x, a positive rotation turning anticlockwise on the screen),
 the bilinear warp of the crops (pixels reproduced by an identity region, black outside the image, the image content
-landing where transform_points moves it), the renaming of the flipped keypoints, the Gaussian heatmap targets and
-their weights, the random crop augmentation within its ranges and the rotation limit of every class, and the lines of
-the crop augmentation in the input viewer panel.
+landing where transform_points moves it), the Gaussian heatmap targets and their weights, the random crop
+augmentation within its ranges, and the lines of the crop augmentation in the input viewer panel.
 """
 
 import torch
@@ -14,8 +13,7 @@ import torch
 from vision_training.data.keypoints.crop_transform import (build_crop_affines, build_heatmap_targets,
                                                            compute_crop_regions, create_identity_augmentations,
                                                            describe_crop_augmentation, draw_crop_augmentations,
-                                                           swap_flipped_keypoints, transform_points, warp_crops)
-from vision_training.data.keypoints.keypoint_categories import build_flip_permutation
+                                                           transform_points, warp_crops)
 
 # Crop size of the tests, the 64 x 48 crops of the keypoint fixture, and the heatmap stride of the HRNet output
 CROP_HEIGHT, CROP_WIDTH, HEATMAP_STRIDE = 64, 48, 4
@@ -152,40 +150,6 @@ def test_warped_content_lands_where_the_points_go() -> None:
     assert abs(brightest_row + 0.5 - float(moved_point[1])) <= 0.5
 
 
-def test_flipped_keypoints_exchange_their_names() -> None:
-    """
-    Verifies that the flipped crops of a triangle and of a rectangle exchange the positions and visibilities of their
-    left and right keypoints through their flip permutations, the padding position keeping its place, and that the
-    unflipped crops keep their order.
-    """
-    flip_permutations = torch.tensor(data=[
-        build_flip_permutation(keypoint_names=[], flip_pairs=[], maximum_keypoints=4),
-        build_flip_permutation(keypoint_names=["top", "left", "right"], flip_pairs=[["left", "right"]],
-                               maximum_keypoints=4),
-        build_flip_permutation(keypoint_names=["top_left", "top_right", "bottom_right", "bottom_left"],
-                               flip_pairs=[["top_left", "top_right"], ["bottom_left", "bottom_right"]],
-                               maximum_keypoints=4)])
-    assert flip_permutations.tolist() == [[0, 1, 2, 3], [0, 2, 1, 3], [1, 0, 3, 2]]
-
-    # Keypoint k of every crop at (k, 10 k), its visibility telling it apart
-    keypoints = torch.stack(tensors=[torch.arange(end=4.0), 10.0 * torch.arange(end=4.0)], dim=1).expand(4, 4, 2)
-    visibilities = torch.tensor(data=[[2, 1, 2, 0], [2, 1, 2, 0], [2, 1, 2, 1], [2, 1, 2, 1]])
-    labels = torch.tensor(data=[1, 1, 2, 2])
-    flips = torch.tensor(data=[True, False, True, False])
-    swapped_keypoints, swapped_visibilities = swap_flipped_keypoints(keypoints=keypoints, visibilities=visibilities,
-                                                                     labels=labels, flips=flips,
-                                                                     flip_permutations=flip_permutations)
-    assert swapped_keypoints[0, :, 0].tolist() == [0.0, 2.0, 1.0, 3.0]
-    assert swapped_visibilities[0].tolist() == [2, 2, 1, 0]
-    assert swapped_keypoints[2, :, 1].tolist() == [10.0, 0.0, 30.0, 20.0]
-    assert swapped_visibilities[2].tolist() == [1, 2, 1, 2]
-
-    # Unflipped crops are untouched
-    assert torch.equal(input=swapped_keypoints[1], other=keypoints[1])
-    assert torch.equal(input=swapped_keypoints[3], other=keypoints[3])
-    assert torch.equal(input=swapped_visibilities[[1, 3]], other=visibilities[[1, 3]])
-
-
 def test_heatmap_targets_peak_on_the_keypoint_cell() -> None:
     """
     Verifies that a keypoint at the centre of a heatmap cell gives a Gaussian of peak 1 on that cell with the configured
@@ -210,27 +174,22 @@ def test_heatmap_targets_peak_on_the_keypoint_cell() -> None:
 
 def test_crop_augmentations_stay_within_their_ranges() -> None:
     """
-    Verifies that the drawn scales, shifts and rotations stay within their ranges, the rotation of every class bounded
-    by the smaller of the configured limit and the limit of the class, that the flips follow their probability, and
-    that a rotation probability of 0 and a flip probability of 0 leave the crops unrotated and unflipped.
+    Verifies that the drawn scales, shifts and rotations stay within their ranges, the rotation bounded by the
+    configured limit, that the flips follow their probability, and that a rotation probability of 0 and a flip probability of 0 leave the crops unrotated and unflipped.
     """
     torch.manual_seed(seed=0)
-    labels = torch.tensor(data=[1, 2]).repeat(1000)
-    maximum_rotations = torch.tensor(data=[0.0, 20.0, 180.0])
-    augmentations = draw_crop_augmentations(labels=labels, maximum_rotations=maximum_rotations,
-                                            augmentation_configuration=AUGMENTATION_CONFIGURATION)
+    augmentations = draw_crop_augmentations(number_samples=2000, augmentation_configuration=AUGMENTATION_CONFIGURATION)
     assert float(augmentations["scales"].min()) >= 0.8 and float(augmentations["scales"].max()) <= 1.2
     assert float(augmentations["shifts"].abs().max()) <= 0.1 and augmentations["shifts"].shape == (2000, 2)
     assert augmentations["flips"].dtype == torch.bool and 0.4 < float(augmentations["flips"].float().mean()) < 0.6
 
-    # The triangles turn by 20 degrees at most, the rectangles by the 30 degrees of the configuration
-    triangle_rotations, rectangle_rotations = augmentations["rotations"][0::2], augmentations["rotations"][1::2]
-    assert float(triangle_rotations.abs().max()) <= 20.0 and float(triangle_rotations.abs().max()) > 19.0
-    assert float(rectangle_rotations.abs().max()) <= 30.0 and float(rectangle_rotations.abs().max()) > 29.0
+    # Every crop turns by the 30 degrees of the configuration at most
+    assert augmentations["rotations"].shape == (2000,)
+    assert 29.0 < float(augmentations["rotations"].abs().max()) <= 30.0
 
     # Without rotation nor flip probability, the crops are neither rotated nor flipped
     unrotated_configuration = {**AUGMENTATION_CONFIGURATION, "rotation_probability": 0.0, "flip_probability": 0.0}
-    unrotated_augmentations = draw_crop_augmentations(labels=labels, maximum_rotations=maximum_rotations,
+    unrotated_augmentations = draw_crop_augmentations(number_samples=2000,
                                                       augmentation_configuration=unrotated_configuration)
     assert float(unrotated_augmentations["rotations"].abs().max()) == 0.0
     assert not bool(unrotated_augmentations["flips"].any())
