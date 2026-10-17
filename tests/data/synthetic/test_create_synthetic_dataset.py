@@ -22,7 +22,9 @@ from vision_training.data.detection.coco_masks import decode_run_length_encoding
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset
 from vision_training.data.synthetic import create_synthetic_dataset as synthetic_dataset_module
-from vision_training.data.synthetic.create_synthetic_dataset import (HOLLOW_SHAPE_NAMES, KITE_UPPER_RATIO_RANGE,
+from vision_training.data.synthetic.create_synthetic_dataset import (HOLLOW_DISTRACTOR_SHAPE_NAMES,
+                                                                     HOLLOW_INNER_KEYPOINT_SHAPE_NAMES,
+                                                                     HOLLOW_SHAPE_NAMES, KITE_UPPER_RATIO_RANGE,
                                                                      KITE_WIDTH_RATIO_RANGE,
                                                                      MINIMUM_SHAPE_SIZE,
                                                                      MINIMUM_VISIBLE_OBJECT_PIXELS,
@@ -243,9 +245,10 @@ def test_annulus_is_a_closed_ring_around_a_hole() -> None:
 def test_hollow_shapes_are_closed_rings_inside_their_filled_shape(shape_name: str, size: int, upright: bool) -> None:
     """
     Verifies that every hollow shape is its filled shape with one hole cut inside it, like the annulus is the hollow
-    circle: drawn with the same random generator state, its pixels are a strict part of the filled shape and keep its
-    keypoints, they form one group, and the hole is a background region of its own, apart from the background around
-    the walls.
+    circle: drawn with the same random generator state, its pixels are a strict part of the filled shape, they form one
+    group, and the hole is a background region of its own, apart from the background around the walls. The hollow shape
+    keeps the keypoints of its filled shape, followed for HOLLOW_INNER_KEYPOINT_SHAPE_NAMES by the corners of the hole,
+    each less than one pixel away from a hole pixel, while the distractors of HOLLOW_DISTRACTOR_SHAPE_NAMES get none.
 
     Args:
         shape_name (str): The name of the filled shape of HOLLOW_SHAPE_NAMES.
@@ -265,15 +268,32 @@ def test_hollow_shapes_are_closed_rings_inside_their_filled_shape(shape_name: st
         hollow_keypoints = SHAPE_DRAWING_FUNCTIONS[f"hollow_{shape_name}"](
             mask=hollow_mask, center_x=64, center_y=64, size=size, random_generator=random_generator, upright=upright)
 
-        # The walls lie inside the filled shape, cover less of it and keep its keypoints
+        # The walls lie inside the filled shape and cover less of it
         assert np.all(filled_mask[hollow_mask > 0] > 0) and np.count_nonzero(hollow_mask) < np.count_nonzero(filled_mask)
-        np.testing.assert_array_equal(hollow_keypoints, filled_keypoints)
 
         # The walls form one group closed around a single hole
         number_ring_groups, _ = cv2.connectedComponents(image=(hollow_mask > 0).astype(np.uint8), connectivity=8)
-        number_background_groups, _ = cv2.connectedComponents(image=(hollow_mask == 0).astype(np.uint8),
-                                                              connectivity=4)
+        number_background_groups, background_groups = cv2.connectedComponents(
+            image=(hollow_mask == 0).astype(np.uint8), connectivity=4)
         assert number_ring_groups - 1 == 1 and number_background_groups - 1 == 2
+
+        # The distractors have no keypoints, the other shapes keep the outer keypoints of their filled shape
+        if shape_name in HOLLOW_DISTRACTOR_SHAPE_NAMES:
+            assert hollow_keypoints.shape == (0, 2)
+            continue
+        number_outer_keypoints = len(filled_keypoints)
+        np.testing.assert_array_equal(hollow_keypoints[:number_outer_keypoints], filled_keypoints)
+        if shape_name not in HOLLOW_INNER_KEYPOINT_SHAPE_NAMES:
+            assert len(hollow_keypoints) == number_outer_keypoints
+            continue
+
+        # Every corner of the hole lies less than one pixel away from the centre of a hole pixel
+        assert len(hollow_keypoints) == 2 * number_outer_keypoints
+        hole_rows, hole_columns = np.nonzero(background_groups != background_groups[0, 0])
+        hole_pixel_centres = np.stack([hole_columns + 0.5, hole_rows + 0.5], axis=1)
+        inner_keypoints = hollow_keypoints[number_outer_keypoints:]
+        hole_distances = np.linalg.norm(inner_keypoints[:, np.newaxis] - hole_pixel_centres[np.newaxis], axis=2)
+        assert np.all(hole_distances.min(axis=1) < 1.0)
 
 
 def test_hollow_shape_too_small_for_a_hole_raises() -> None:
@@ -287,6 +307,19 @@ def test_hollow_shape_too_small_for_a_hole_raises() -> None:
         draw_hollow_mask(mask=mask, center_x=16, center_y=16, size=3, random_generator=np.random.default_rng(seed=0),
                          filled_drawing_function=SHAPE_DRAWING_FUNCTIONS["square"])
     assert not np.any(mask)
+
+
+def test_hollow_inner_keypoints_without_outer_keypoints_raise() -> None:
+    """
+    Verifies that draw_hollow_mask refuses to return the corners of the hole without the outer keypoints they follow,
+    since the keypoint names of a hollow class always list the outer keypoints first.
+    """
+    mask = np.zeros(shape=(128, 128), dtype=np.uint8)
+
+    with pytest.raises(expected_exception=ValueError, match="inner_keypoints is True while outer_keypoints is False"):
+        draw_hollow_mask(mask=mask, center_x=64, center_y=64, size=64, random_generator=np.random.default_rng(seed=0),
+                         filled_drawing_function=SHAPE_DRAWING_FUNCTIONS["square"], outer_keypoints=False,
+                         inner_keypoints=True)
 
 
 @pytest.mark.parametrize(argnames=("image_size", "expected_size_range"), argvalues=[

@@ -87,6 +87,14 @@ HOLLOW_INNER_SIZE_RATIO_RANGE = (0.4, 0.6)
 HOLLOW_MINIMUM_WALL_PIXELS = 2
 HOLLOW_MAXIMUM_ATTEMPTS = 20
 
+# Keypoints of the hollow shapes: the hollow polygons also have a keypoint at every corner of their hole, and the
+# hollow ellipse and capsule have none, distractors drawn among the objects of the keypoint images that are left out
+# of the keypoint label mapping, so that the keypoint detector must tell them apart from the shapes it learns. The
+# other hollow shapes keep the keypoints of their filled shape
+HOLLOW_INNER_KEYPOINT_SHAPE_NAMES = ["square", "triangle", "rectangle", "pentagon", "hexagon", "octagon", "rhombus",
+                                     "parallelogram", "trapezoid", "kite", "heptagon", "nonagon"]
+HOLLOW_DISTRACTOR_SHAPE_NAMES = ["ellipse", "capsule"]
+
 # L-shapes: length of the foot relative to the long arm, and width of both arms relative to the long arm, the foot
 # sticking out of the long arm by at least a quarter of its length
 L_SHAPE_FOOT_RATIO_RANGE = (0.6, 1.0)
@@ -102,7 +110,7 @@ KEYPOINT_CATEGORIES = {**SHAPE_CATEGORIES, "stick_figure": len(SHAPE_CATEGORIES)
 # and the tips of the star go clockwise from the top one, the vertices of each side numbered from the top. The left and
 # right of the shapes are those of the image, those of the stick figure its own: it faces the viewer, its left limbs on
 # the right of the image as in COCO. A horizontal flip swaps the keypoints whose names differ by left and right
-KEYPOINT_NAMES = {"square": ["top_left", "top_right", "bottom_right", "bottom_left", "centre"],
+KEYPOINT_NAMES = {"square": ["top_left", "top_right", "bottom_right", "bottom_left"],
                   "circle": ["centre"],
                   "triangle": ["top", "bottom_left", "bottom_right"],
                   "rectangle": ["top_left", "top_right", "bottom_right", "bottom_left"],
@@ -130,7 +138,7 @@ KEYPOINT_NAMES = {"square": ["top_left", "top_right", "bottom_right", "bottom_le
 
 # Skeleton of every category, drawn by the viewers: the keypoints of an outline linked in a closed loop, in its order,
 # and the other links between two keypoints
-KEYPOINT_OUTLINES = {"square": ["top_left", "top_right", "bottom_right", "bottom_left"],
+KEYPOINT_OUTLINES = {"square": KEYPOINT_NAMES["square"],
                      "triangle": ["top", "bottom_right", "bottom_left"],
                      "rectangle": ["top_left", "top_right", "bottom_right", "bottom_left"],
                      "pentagon": KEYPOINT_NAMES["pentagon"], "hexagon": KEYPOINT_NAMES["hexagon"],
@@ -161,16 +169,30 @@ KEYPOINT_MAXIMUM_ROTATION_DEGREES = {"square": 45.0, "circle": 180.0, "triangle"
                                      "semicircle": 180.0, "annulus": 180.0, "capsule": 90.0, "l_shape": 180.0,
                                      "stick_figure": 180.0, "house": 180.0}
 
-# Hollow shapes keep the keypoints, the skeleton and the rotation limit of their filled shape, their outer vertices
-# being those of the filled shape, so that only the hole tells them apart
+# Hollow shapes keep the rotation limit of their filled shape and, unless they are distractors, its keypoints and its
+# skeleton, their outer vertices being those of the filled shape. The hollow polygons add the inner_ keypoints of the
+# corners of their hole after the outer ones, linked in a closed loop in the order of the outer outline
 for hollow_source_name in HOLLOW_SHAPE_NAMES:
-    KEYPOINT_NAMES[f"hollow_{hollow_source_name}"] = KEYPOINT_NAMES[hollow_source_name]
-    KEYPOINT_MAXIMUM_ROTATION_DEGREES[f"hollow_{hollow_source_name}"] = KEYPOINT_MAXIMUM_ROTATION_DEGREES[
-        hollow_source_name]
+    hollow_name = f"hollow_{hollow_source_name}"
+    KEYPOINT_MAXIMUM_ROTATION_DEGREES[hollow_name] = KEYPOINT_MAXIMUM_ROTATION_DEGREES[hollow_source_name]
+
+    # Distractors have no keypoints, nor any skeleton
+    if hollow_source_name in HOLLOW_DISTRACTOR_SHAPE_NAMES:
+        KEYPOINT_NAMES[hollow_name] = []
+        continue
+    KEYPOINT_NAMES[hollow_name] = list(KEYPOINT_NAMES[hollow_source_name])
     if hollow_source_name in KEYPOINT_OUTLINES:
-        KEYPOINT_OUTLINES[f"hollow_{hollow_source_name}"] = KEYPOINT_OUTLINES[hollow_source_name]
-    if hollow_source_name in KEYPOINT_LINKS:
-        KEYPOINT_LINKS[f"hollow_{hollow_source_name}"] = KEYPOINT_LINKS[hollow_source_name]
+        KEYPOINT_OUTLINES[hollow_name] = KEYPOINT_OUTLINES[hollow_source_name]
+    hollow_links = list(KEYPOINT_LINKS[hollow_source_name]) if hollow_source_name in KEYPOINT_LINKS else []
+
+    # Inner keypoints after the outer ones, and the loop of the hole after the links of the filled shape
+    if hollow_source_name in HOLLOW_INNER_KEYPOINT_SHAPE_NAMES:
+        KEYPOINT_NAMES[hollow_name] += [f"inner_{name}" for name in KEYPOINT_NAMES[hollow_source_name]]
+        inner_outline = [f"inner_{name}" for name in KEYPOINT_OUTLINES[hollow_source_name]]
+        hollow_links += [[inner_outline[index], inner_outline[(index + 1) % len(inner_outline)]]
+                         for index in range(len(inner_outline))]
+    if hollow_links:
+        KEYPOINT_LINKS[hollow_name] = hollow_links
 
 # Stick figures, in torso lengths: radius of the head disc, which touches the neck, and for the arms and the legs the
 # joint they hang from, the names of their middle and end joints, the lengths of their two segments, the angle of the
@@ -315,16 +337,15 @@ def draw_square_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, 
             Defaults to False.
 
     Returns:
-        np.ndarray: The [5, 2] float keypoints in the order of KEYPOINT_NAMES, in the continuous coordinates of the
-            mask (pixel (x, y) covering [x, x + 1] x [y, y + 1]).
+        np.ndarray: The [4, 2] float outer corners in the order of KEYPOINT_NAMES, in the continuous coordinates of
+            the mask (pixel (x, y) covering [x, x + 1] x [y, y + 1]).
     """
     half_size = size // 2
     left, top = center_x - half_size, center_y - half_size
     cv2.rectangle(img=mask, pt1=(left, top), pt2=(left + size - 1, top + size - 1), color=255, thickness=-1)
 
-    # Four outer corners, then the centre of the square
-    corners = get_rectangle_corners(left=left, top=top, width=size, height=size)
-    return np.concatenate([corners, corners.mean(axis=0, keepdims=True)], axis=0)
+    # Four outer corners, clockwise from the top left one
+    return get_rectangle_corners(left=left, top=top, width=size, height=size)
 
 
 def draw_circle_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
@@ -1052,7 +1073,8 @@ def draw_l_shape_mask(mask: np.ndarray, center_x: int, center_y: int, size: int,
 
 
 def draw_hollow_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, random_generator: np.random.Generator,
-                     filled_drawing_function: Callable[..., np.ndarray], upright: bool = False) -> np.ndarray:
+                     filled_drawing_function: Callable[..., np.ndarray], upright: bool = False,
+                     outer_keypoints: bool = True, inner_keypoints: bool = False) -> np.ndarray:
     """
     Draws the hollow version of a filled shape class on a binary mask: the filled shape, out of which the same outline
     scaled down to 0.4 to 0.6 of its size around its centroid is cut, a hole showing the background (or the objects
@@ -1060,7 +1082,9 @@ def draw_hollow_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, 
     differ from their filled class by the hole only, so that a model must look inside the outline to tell them apart.
     Every filled shape of HOLLOW_SHAPE_NAMES being convex, the scaled outline stays inside it; the hole is further
     kept HOLLOW_MINIMUM_WALL_PIXELS away from the outside, and only its largest piece is cut, so that the shape is one
-    ring around one hole. A shape leaving no hole is drawn again, up to HOLLOW_MAXIMUM_ATTEMPTS times.
+    ring around one hole. A shape leaving no hole is drawn again, up to HOLLOW_MAXIMUM_ATTEMPTS times. The keypoints
+    of the keypoint images are the outer vertices of the filled shape, followed for the hollow polygons by the corners
+    of the hole, the outer vertices scaled like the hole, and none for the distractors.
 
     Args:
         mask (np.ndarray): The [H, W] uint8 mask drawn in place.
@@ -1071,13 +1095,23 @@ def draw_hollow_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, 
         filled_drawing_function (Callable[..., np.ndarray]): The drawing function of the filled shape, e.g.
             draw_square_mask.
         upright (bool): True for the upright filled shape of the keypoint images. Defaults to False.
+        outer_keypoints (bool): Whether to return the keypoints of the filled shape, False for the distractors of the
+            keypoint images (HOLLOW_DISTRACTOR_SHAPE_NAMES). Defaults to True.
+        inner_keypoints (bool): Whether to add the corners of the hole after the outer keypoints, for the hollow
+            polygons (HOLLOW_INNER_KEYPOINT_SHAPE_NAMES). Defaults to False.
 
     Returns:
-        np.ndarray: The [K, 2] float keypoints of the filled shape, its outer vertices, in the order of KEYPOINT_NAMES.
+        np.ndarray: The [K, 2] float keypoints in the order of KEYPOINT_NAMES and in the continuous coordinates of the
+            mask: the K outer vertices of the filled shape, the [2K, 2] outer vertices then the corners of the hole
+            with inner_keypoints, or a [0, 2] array without outer_keypoints.
 
     Raises:
-        ValueError: If no drawn shape leaves a hole inside its walls, the size being too small for the shape.
+        ValueError: If inner keypoints are asked without the outer ones, or if no drawn shape leaves a hole inside its
+            walls, the size being too small for the shape.
     """
+    if inner_keypoints and not outer_keypoints:
+        raise ValueError("Expected the inner keypoints of a hollow shape to follow its outer keypoints, but "
+                         "inner_keypoints is True while outer_keypoints is False.")
     wall_kernel = cv2.getStructuringElement(shape=cv2.MORPH_ELLIPSE, ksize=(2 * HOLLOW_MINIMUM_WALL_PIXELS + 1,
                                                                              2 * HOLLOW_MINIMUM_WALL_PIXELS + 1))
     for _ in range(HOLLOW_MAXIMUM_ATTEMPTS):
@@ -1104,6 +1138,15 @@ def draw_hollow_mask(mask: np.ndarray, center_x: int, center_y: int, size: int, 
             continue
         largest_hole_group = 1 + int(np.argmax(hole_statistics[1:, cv2.CC_STAT_AREA]))
         mask[(filled_mask > 0) & (hole_groups != largest_hole_group)] = 255
+
+        # Distractors have no keypoints; the corners of the hole are the outer vertices scaled like the hole, around
+        # the centroid in the continuous coordinates (pixel centres at + 0.5)
+        if not outer_keypoints:
+            return np.zeros(shape=(0, 2), dtype=np.float64)
+        if inner_keypoints:
+            continuous_centroid = np.array([centroid_x + 0.5, centroid_y + 0.5])
+            hole_corners = continuous_centroid + inner_size_ratio * (keypoints - continuous_centroid)
+            return np.concatenate([keypoints, hole_corners], axis=0)
         return keypoints
     raise ValueError(f"Expected a hollow shape of size {size} to leave a hole inside walls of "
                      f"{HOLLOW_MINIMUM_WALL_PIXELS} pixels, but {HOLLOW_MAXIMUM_ATTEMPTS} drawn shapes left none.")
@@ -1264,9 +1307,12 @@ SHAPE_DRAWING_FUNCTIONS = {"square": draw_square_mask, "circle": draw_circle_mas
                            "ellipse": draw_ellipse_mask, "semicircle": draw_semicircle_mask,
                            "annulus": draw_annulus_mask, "capsule": draw_capsule_mask, "l_shape": draw_l_shape_mask}
 
-# Hollow shapes, drawn by draw_hollow_mask around the drawing function of their filled shape
+# Hollow shapes, drawn by draw_hollow_mask around the drawing function of their filled shape, with the corners of
+# their hole for the hollow polygons and without keypoints for the distractors
 SHAPE_DRAWING_FUNCTIONS.update({
-    f"hollow_{shape_name}": partial(draw_hollow_mask, filled_drawing_function=SHAPE_DRAWING_FUNCTIONS[shape_name])
+    f"hollow_{shape_name}": partial(draw_hollow_mask, filled_drawing_function=SHAPE_DRAWING_FUNCTIONS[shape_name],
+                                    outer_keypoints=shape_name not in HOLLOW_DISTRACTOR_SHAPE_NAMES,
+                                    inner_keypoints=shape_name in HOLLOW_INNER_KEYPOINT_SHAPE_NAMES)
     for shape_name in HOLLOW_SHAPE_NAMES})
 
 # Drawing function of every keypoint category, the shape classes followed by the stick figure and the house
@@ -1511,7 +1557,7 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
     image, background_colour = draw_background(image_size=image_size, random_generator=random_generator)
     class_map = np.zeros(shape=(image_size, image_size), dtype=np.uint8)
     instance_map = np.zeros(shape=(image_size, image_size), dtype=np.uint16)
-    objects, box_centres = [], []
+    objects, box_centres, inner_keypoint_flags = [], [], []
 
     # Shapes up to a third of the image side, at least MINIMUM_SHAPE_SIZE pixels when the image is large enough
     maximum_size = max(33, image_size // 3)
@@ -1540,27 +1586,32 @@ def generate_image(image_size: int, maximum_objects: int, random_generator: np.r
             image_keypoints = shape_descriptor["keypoints"] + np.array([box[0] - shape_box[0], box[1] - shape_box[1]])
             objects.append((category_identifier, clipped_box, image_keypoints))
             box_centres.append(np.array([(box[0] + box[2]) / 2, (box[1] + box[3]) / 2]))
+            inner_keypoint_flags.append(np.array([name.startswith("inner_")
+                                                  for name in KEYPOINT_NAMES[shape_descriptor["shape_name"]]],
+                                                 dtype=bool))
         else:
             objects.append((category_identifier, clipped_box))
 
     # Visibility of the keypoints once every object is drawn, a keypoint being hidden by the objects drawn after it
     if keypoints:
         objects = [(category_identifier, box, compute_keypoint_visibilities(
-            keypoints=object_keypoints, box_centre=box_centre, instance_map=instance_map, object_index=object_index))
-                   for object_index, ((category_identifier, box, object_keypoints), box_centre)
-                   in enumerate(zip(objects, box_centres, strict=True))]
+            keypoints=object_keypoints, box_centre=box_centre, instance_map=instance_map, object_index=object_index,
+            inner_keypoints=object_inner_keypoints))
+                   for object_index, ((category_identifier, box, object_keypoints), box_centre, object_inner_keypoints)
+                   in enumerate(zip(objects, box_centres, inner_keypoint_flags, strict=True))]
     return image, objects, class_map, instance_map
 
 
 def compute_keypoint_visibilities(keypoints: np.ndarray, box_centre: np.ndarray, instance_map: np.ndarray,
-                                  object_index: int) -> np.ndarray:
+                                  object_index: int, inner_keypoints: np.ndarray) -> np.ndarray:
     """
     Gives the keypoints of an object of a synthetic keypoint image their COCO visibility flag once every object of the
     image is drawn: 0 (not labelled, the coordinates set to 0) outside the image, 1 (labelled but hidden) when an
     object drawn after it covers it, and 2 (visible) otherwise. A keypoint on the outline of a shape lies on the edge
     of its pixels, so the pixel tested is the one a quarter of a pixel from the keypoint towards the centre of the box
     of the shape, the pixel of the shape for both the outer pixel corners and the pixel centres the drawing functions
-    return.
+    return. The corners of the hole of a hollow polygon test the pixel a quarter of a pixel away from that centre, the
+    pixel of its wall rather than of its hole.
 
     Args:
         keypoints (np.ndarray): The [K, 2] float keypoints in the continuous coordinates of the image.
@@ -1568,6 +1619,8 @@ def compute_keypoint_visibilities(keypoints: np.ndarray, box_centre: np.ndarray,
         instance_map (np.ndarray): The [H, W] uint16 index of the object of every pixel (object i at i + 1, 0 for the
             background).
         object_index (int): The index of the object in drawing order.
+        inner_keypoints (np.ndarray): The [K] bool flag of the keypoints at the corners of a hole (the inner_
+            keypoints of the hollow polygons).
 
     Returns:
         np.ndarray: The [K, 3] float keypoints with their visibility, as the COCO [x, y, visibility].
@@ -1578,8 +1631,10 @@ def compute_keypoint_visibilities(keypoints: np.ndarray, box_centre: np.ndarray,
     inside_mask = ((keypoints[:, 0] >= 0) & (keypoints[:, 0] <= image_width) & (keypoints[:, 1] >= 0) &
                    (keypoints[:, 1] <= image_height))
 
-    # Pixel of every keypoint a quarter of a pixel towards the centre of the shape, inside the image
-    pixels = np.floor(keypoints + 0.25 * np.sign(box_centre - keypoints)).astype(np.int64)
+    # Pixel of every keypoint a quarter of a pixel towards the centre of the shape, away from it for the corners of a
+    # hole, inside the image
+    shape_directions = np.where(inner_keypoints[:, np.newaxis], -1.0, 1.0) * np.sign(box_centre - keypoints)
+    pixels = np.floor(keypoints + 0.25 * shape_directions).astype(np.int64)
     pixel_columns = np.clip(pixels[:, 0], a_min=0, a_max=image_width - 1)
     pixel_rows = np.clip(pixels[:, 1], a_min=0, a_max=image_height - 1)
     covered_mask = instance_map[pixel_rows, pixel_columns] > object_index + 1
@@ -1767,6 +1822,21 @@ def build_keypoint_skeleton(shape_name: str) -> List[List[int]]:
         skeleton += [[names.index(first_name) + 1, names.index(second_name) + 1]
                      for first_name, second_name in KEYPOINT_LINKS[shape_name]]
     return skeleton
+
+
+def build_keypoint_label_mapping() -> Dict[str, int]:
+    """
+    Builds the 'label_mapping.json' of the synthetic keypoint dataset, read by the 'multi_class' label mapping of
+    keypoint_detection/configuration_synthetic_shapes.yaml: the categories with keypoints are numbered from 1 in the
+    order of KEYPOINT_CATEGORIES, and the distractors without keypoints (HOLLOW_DISTRACTOR_SHAPE_NAMES) are left out, so
+    that the keypoint dataset maps them to the background and never crops them, while they still appear in the crops
+    of the other objects.
+
+    Returns:
+        Dict[str, int]: The class index of every category identifier with keypoints, as a string key.
+    """
+    keypoint_category_names = [name for name in KEYPOINT_CATEGORIES if KEYPOINT_NAMES[name]]
+    return {str(KEYPOINT_CATEGORIES[name]): class_index + 1 for class_index, name in enumerate(keypoint_category_names)}
 
 
 def build_keypoint_labels(image_records: List[Dict[str, Any]], image_size: int, split_name: str) -> Tuple[
@@ -2407,12 +2477,17 @@ def create_synthetic_dataset(output_folder: str, image_size: int, split_sizes: D
         print_color(color="green", output=f"Labels per class : {class_counts}", indent=1)
 
     # Map every raw category identifier to its class index: itself for the detector and the segmenters (index 0 being
-    # their background), from 0 for the models of the other tasks
-    class_index_offset = 0 if task in TASKS_WITH_BACKGROUND_CLASS else 1
+    # their background), from 0 for the models of the other tasks, and the categories with keypoints numbered from 1
+    # for the keypoint detection
+    if task == "keypoint_detection":
+        label_mapping = build_keypoint_label_mapping()
+    else:
+        class_index_offset = 0 if task in TASKS_WITH_BACKGROUND_CLASS else 1
+        label_mapping = {str(category_identifier): category_identifier - class_index_offset
+                         for category_identifier in TASK_CATEGORIES[task].values()}
     label_mapping_path = os.path.abspath(os.path.join(output_folder, "label_mapping.json"))
     with open(label_mapping_path, "w") as label_mapping_file:
-        json.dump({str(category_identifier): category_identifier - class_index_offset
-                   for category_identifier in TASK_CATEGORIES[task].values()}, label_mapping_file, indent=4)
+        json.dump(label_mapping, label_mapping_file, indent=4)
     print_color(color="green", output=f"Label Mapping File : {format_path_link(path=label_mapping_path)}",
                 add_separators=True)
 

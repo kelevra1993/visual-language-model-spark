@@ -17,7 +17,7 @@ import yaml
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from vision_training.data.synthetic.create_synthetic_dataset import build_keypoint_labels
+from vision_training.data.synthetic.create_synthetic_dataset import build_keypoint_label_mapping, build_keypoint_labels
 from vision_training.deployment.deployment_utilities import (build_frame_window, cut_inference_crop,
                                                              load_inference_inputs, run_triton_inference)
 
@@ -95,7 +95,7 @@ def write_test_experiment(experiment_folder: Path, task: str) -> None:
     Writes the training configuration of a trained experiment of a task, as read by the deployment client: the
     synthetic configuration of the task with 32 pixel inputs, windows of 4 frames for the sequence tasks, and a label
     mapping of 3 classes. The keypoint detection gets 64 x 32 crops, and the training labels of the synthetic shapes
-    whose keypoint definitions the configuration loader reads, every shape mapped to its own class.
+    whose keypoint definitions the configuration loader reads, with the label mapping of the synthetic dataset.
 
     Args:
         experiment_folder (Path): The experiment folder receiving 'training_configuration.yaml'.
@@ -121,7 +121,7 @@ def write_test_experiment(experiment_folder: Path, task: str) -> None:
         (train_folder / "labels.json").write_text(data=json.dumps(obj={"images": [], "annotations": [],
                                                                        "categories": categories}))
         configuration["ExperimentConfiguration"]["train_data_folder"] = str(train_folder)
-        mapping_path.write_text(data=json.dumps(obj={str(category["id"]): category["id"] for category in categories}))
+        mapping_path.write_text(data=json.dumps(obj=build_keypoint_label_mapping()))
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(mapping_path)
     (experiment_folder / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=configuration))
 

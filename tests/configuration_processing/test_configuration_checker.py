@@ -17,7 +17,8 @@ from typing import Any, Callable, Dict, List
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_detection_levels
 from vision_training.data.keypoints.keypoint_categories import DEFAULT_MAXIMUM_ROTATION_DEGREES
-from vision_training.data.synthetic.create_synthetic_dataset import KEYPOINT_CATEGORIES, build_keypoint_labels
+from vision_training.data.synthetic.create_synthetic_dataset import (KEYPOINT_CATEGORIES, build_keypoint_label_mapping,
+                                                                     build_keypoint_labels)
 from vision_training.utilities.os_utilities import color_text
 
 EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "object_detection" /
@@ -2048,8 +2049,8 @@ def write_keypoint_configuration(temporary_directory: Path, configuration_name: 
     checks, both written in the temporary directory since the shipped ones only exist once the datasets are created:
     the 'labels.json' of the training split, whose categories give the keypoint definitions injected into
     'Data.keypoint_categories' (the 37 synthetic categories, or the COCO person of the example configuration), and the
-    label mapping file (every category to its own class unless a mapping is given), then alters it by the given
-    function.
+    label mapping file (the mapping written by the synthetic dataset, which leaves out the hollow distractors, or the
+    person to class 1, unless a mapping is given), then alters it by the given function.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and its files.
@@ -2057,7 +2058,7 @@ def write_keypoint_configuration(temporary_directory: Path, configuration_name: 
         modify_function (Callable[[Dict[str, Any]], None] | None): Function altering the raw configuration in place,
             or None to keep it.
         label_mapping (Dict[str, int] | None): The class of every raw category identifier. Defaults to None, in which
-            case every category of the labels gets its own class.
+            case the synthetic categories with keypoints get the classes 1 to 35 and the COCO person the class 1.
 
     Returns:
         Path: The path of the written configuration file.
@@ -2077,8 +2078,10 @@ def write_keypoint_configuration(temporary_directory: Path, configuration_name: 
                                                                    "categories": categories}))
     configuration["ExperimentConfiguration"]["train_data_folder"] = str(train_folder)
 
-    # Label mapping of the categories, each one to its own class by default
-    if label_mapping is None:
+    # Label mapping of the categories: the one of the synthetic dataset, or the person to its own class by default
+    if label_mapping is None and configuration_name == "configuration_synthetic_shapes.yaml":
+        label_mapping = build_keypoint_label_mapping()
+    elif label_mapping is None:
         label_mapping = {str(category["id"]): category["id"] for category in categories}
     mapping_path = temporary_directory / "label_mapping.json"
     mapping_path.write_text(data=json.dumps(obj=label_mapping))
@@ -2114,18 +2117,20 @@ def test_keypoint_configurations_are_consistent_with_their_injected_categories(t
     assert sorted(person["flip_pairs"]) == sorted([f"left_{part}", f"right_{part}"] for part in [
         "eye", "ear", "shoulder", "elbow", "wrist", "hip", "knee", "ankle"])
 
-    # Synthetic configuration: the 37 categories, the triangle keeping the rotation limit of its category
+    # Synthetic configuration: the 35 classes with keypoints, the triangle keeping the rotation limit of its category
     synthetic_path = write_keypoint_configuration(temporary_directory=tmp_path,
                                                   configuration_name="configuration_synthetic_shapes.yaml",
                                                   modify_function=None)
     _, model_configuration = load_experiment_configuration(configuration_path=synthetic_path)
     keypoint_categories = model_configuration["Data"]["keypoint_categories"]
-    assert sorted(keypoint_categories) == sorted(KEYPOINT_CATEGORIES.values())
-    triangle = keypoint_categories[KEYPOINT_CATEGORIES["triangle"]]
+    label_dictionary = model_configuration["Data"]["label_dictionary"]
+    assert sorted(keypoint_categories) == list(range(1, 36))
+    assert KEYPOINT_CATEGORIES["hollow_ellipse"] not in label_dictionary
+    triangle = keypoint_categories[label_dictionary[KEYPOINT_CATEGORIES["triangle"]]]
     assert triangle == {"name": "triangle", "keypoints": ["top", "bottom_left", "bottom_right"],
                         "skeleton": [[0, 2], [2, 1], [1, 0]], "maximum_rotation_degrees": 20.0,
                         "flip_pairs": [["bottom_left", "bottom_right"]]}
-    stick_figure = keypoint_categories[KEYPOINT_CATEGORIES["stick_figure"]]
+    stick_figure = keypoint_categories[label_dictionary[KEYPOINT_CATEGORIES["stick_figure"]]]
     assert stick_figure["skeleton"][0] == [0, 1]
     assert stick_figure["flip_pairs"] == [["left_elbow", "right_elbow"], ["left_hand", "right_hand"],
                                           ["left_knee", "right_knee"], ["left_foot", "right_foot"]]
