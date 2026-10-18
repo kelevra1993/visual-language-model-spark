@@ -304,8 +304,8 @@ if __name__ == "__main__":
     experiment_folder = experiment_folders[task]
     metric = metrics[task]
     # Number of last iterations evaluated in the experiment averaged by the <metric>_last_<n>_mean column, 4 giving the
-    # mean of iterations 1250 to 2000 when the launches are evaluated every 250 iterations up to 2000 (classification),
-    # of iterations 3500 to 5000 when they are evaluated every 500 iterations up to 5000 (sequence labelling)
+    # mean of iterations 1250 to 2000 when the launches are evaluated every 250 iterations up to 2000 (the classification
+    # and the sequence labelling experiments)
     number_last_evaluations = 4
     # Results file, written again from all the launches at every run, so that it can be refreshed while launches train
     output_path = experiment_folder / "results.csv"

@@ -22,22 +22,22 @@ ExperimentConfiguration:
   # Root directory containing the validation sequences and labels.json manifest.
   validation_data_folder: "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes/validation"
   # Root directory containing the test sequences and labels.json manifest.
-  test_data_folder: "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes/test"
+  test_data_folder: "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes/test_10000"
   # Number of sequences (of at most Data.sequence_settings.maximum_sequence_length frames, fed whole) processed in a
   # single forward/backward pass. A step runs the backbone on up to batch_size x maximum_sequence_length frames.
   batch_size: 64
   # Frequency (in iterations) to log performance metrics.
-  information_dump: 500
+  information_dump: 250
   # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
-  weight_saving_iterations: 500
+  weight_saving_iterations: 250
   # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
   # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
-  intermediate_weight_saving_iterations: 250
+  intermediate_weight_saving_iterations: 125
   # Total number of training iterations before stopping.
-  number_iterations: 5000
+  number_iterations: 2000
   # Ratio controlling how often validation is run during training.
   # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
-  validation_iteration_ratio: 25
+  validation_iteration_ratio: 0
   # Test evaluation run at every weight_saving_iterations checkpoint on the labelled frames of every sequence of the
   # test split: frame accuracy, balanced accuracy, macro F1, top-k accuracy, precision / recall / F1 of every class,
   # the share of sequences whose every frame is right (sequence exact match), and the confusion matrix and class
@@ -150,7 +150,8 @@ Data:
   loading:
     # Number of worker processes reading and resizing the images. They stay alive between epochs and evaluations,
     # each decodes with a single OpenCV thread, and the training, validation and test loaders each have their own
-    # workers. 8 workers already feed the GPU of the example models; 0 loads in the main process (debugging).
+    # workers. 2 workers keep the GPU of two launches side by side about 95% busy at batch 64, both using about 54
+    # Gigabytes; 8 exhausted the 121 Gigabytes of the machine. 0 loads in the main process (debugging).
     number_workers: 2
     # Number of batches prepared in advance by every worker.
     prefetch_batches: 2
@@ -232,9 +233,9 @@ Backbone:
   # Second axis : Number of output filters per kernel per convolution Block
   convolutions:
     {
-      "1": [ 1, 32 ],
-      "2": [ 2, 32 ],
-      "3": [ 2, 32 ],
+      "1": [ 1, 16 ],
+      "2": [ 2, 16 ],
+      "3": [ 2, 16 ],
       "4": [ 4, 32 ],
       "5": [ 5, 32 ],
       "6": [ 5, 32 ],
@@ -308,7 +309,7 @@ TemporalModel:
   type: "lstm"
   # Size of the recurrent state (GRU, LSTM), model size (transformer, a multiple of number_heads) or channels
   # (temporal convolution).
-  hidden_size: 128
+  hidden_size: 96
   # Number of stacked layers (GRU, LSTM, transformer, temporal convolution).
   number_layers: 1
   # Number of attention heads of every transformer layer.
@@ -355,7 +356,7 @@ ClassificationHead:
   # "flatten" (all the values of the map, channels x height x width, which keeps where the features are in the frame).
   global_pooling: "flatten"
   # Units of the hidden fully connected layers between the vector of every frame and its class logits, [] for none.
-  fully_connected: [256, 128]
+  fully_connected: [96, 96]
   # Normalization of the outputs of every hidden layer before its ReLU: "batch" (statistics of every feature over
   # the vectors of the batch), "layer" (statistics of every vector over its features) or "none". Needs at least one
   # hidden layer unless "none", and gives the HBN or HLN run name token.
