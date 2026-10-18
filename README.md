@@ -149,6 +149,8 @@ A path leading to no file stops the program before anything starts.
 
 The configuration is checked before anything starts: a missing key, a value the task cannot use or an inconsistent combination stops the program with the list of every problem found.
 
+The launch turns on the expandable segments of the CUDA allocator (`expandable_segments:True` added to `PYTORCH_CUDA_ALLOC_CONF`, other allocator settings given in that variable being kept) before anything reaches the GPU: the batches of whole sequences change shape from batch to batch, and the default allocator otherwise keeps reserving more GPU memory during the test evaluations.
+
 ### Run Folder
 A run is saved in `<experiment_folder>/<run name>/`, the run name being built from its settings ([Run Names](#run-names)):
 

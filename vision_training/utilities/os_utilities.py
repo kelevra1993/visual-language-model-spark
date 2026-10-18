@@ -1,9 +1,11 @@
 """
 General helpers used across the framework, the scripts and the tests: JSON reading, coloured console output,
-dictionary printing, random colours, image path listing and folder linking.
+dictionary printing, random colours, image path listing, folder linking and the CUDA allocator setting of the training
+launch.
 """
 
 import json
+import os
 import re
 from json import JSONDecodeError
 
@@ -249,3 +251,27 @@ def link_folder(link_path: Path, target_folder: Path) -> None:
         raise FileExistsError(f"The data folder of the split already exists and is not a link to the dataset "
                               f"images : {format_path_link(path=link_path)}")
     link_path.symlink_to(target=target_folder.absolute(), target_is_directory=True)
+
+
+def enable_expandable_cuda_segments() -> None:
+    """
+    Turns on the expandable segments of the CUDA caching allocator at the start of the training launch
+    (vision_training/main.py), before anything is placed on the GPU. The batches of whole sequences are padded to their
+    longest sequence, so their shapes change from batch to batch, and the default allocator keeps reserving blocks of
+    new sizes during the test evaluations (about 4 Gigabytes at a time) until two parallel runs fill the unified memory
+    of the machine; expandable segments grow and reuse the same blocks instead, keeping the GPU memory flat. Setting it
+    in the code means no launch can forget the PYTORCH_CUDA_ALLOC_CONF environment variable. Allocator settings given
+    by hand in that variable are kept, the expandable segments being added unless the variable sets them itself.
+
+    Raises:
+        RuntimeError: If CUDA is already initialised, the allocator then ignoring the setting.
+    """
+    # The allocator reads its settings at the first CUDA call, so a later setting would be silently ignored
+    if torch.cuda.is_initialized():
+        raise RuntimeError("The expandable segments of the CUDA allocator must be turned on before CUDA is "
+                           "initialised, at the start of the launch")
+
+    # Add the expandable segments to the allocator settings given by hand, if any
+    allocator_settings = os.environ.get("PYTORCH_CUDA_ALLOC_CONF", "")
+    if "expandable_segments" not in allocator_settings:
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = ",".join(filter(None, [allocator_settings, "expandable_segments:True"]))

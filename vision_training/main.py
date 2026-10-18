@@ -12,7 +12,7 @@ import argparse
 from pathlib import Path
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.core.task_registry import get_trainer_class
-from vision_training.utilities.os_utilities import format_path_link
+from vision_training.utilities.os_utilities import enable_expandable_cuda_segments, format_path_link
 
 
 def parse_configuration_path() -> Path:
@@ -46,8 +46,11 @@ def main() -> None:
     Entry point of the training pipeline, for every task.
     This function loads the experiment and model configurations of the YAML file given on the command line, and
     initializes the trainer of the task of the configuration ('ExperimentConfiguration.task') to begin the model
-    training.
+    training. The expandable segments of the CUDA allocator are turned on first, before anything reaches the GPU.
     """
+    # Keep the GPU memory flat over the batches of changing shapes, before the first CUDA call
+    enable_expandable_cuda_segments()
+
     # Configuration file given on the command line
     experiment_configuration_path = parse_configuration_path()
 
