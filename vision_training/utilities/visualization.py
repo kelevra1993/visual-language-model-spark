@@ -27,13 +27,15 @@ from vision_training.utilities.os_utilities import print_color
 CAPTION_BAR_HEIGHT = 24
 
 # Information panel of the input viewer: its width and text margin in pixels, the font scale and height of its title
-# and of its lines, and the BGR colours of the title, of the group lines, of the indented lines and of the hint
-INFORMATION_PANEL_WIDTH = 760
-PANEL_MARGIN = 16
-PANEL_TITLE_FONT_SCALE = 0.9
-PANEL_TITLE_HEIGHT = 44
-PANEL_LINE_FONT_SCALE = 0.55
-PANEL_LINE_HEIGHT = 24
+# and of its lines (the augmentations of the sample), the stroke thickness of its lines, sized to be read on a 4K
+# screen at full scale, and the BGR colours of the title, of the group lines, of the indented lines and of the hint
+INFORMATION_PANEL_WIDTH = 1000
+PANEL_MARGIN = 20
+PANEL_TITLE_FONT_SCALE = 1.2
+PANEL_TITLE_HEIGHT = 56
+PANEL_LINE_FONT_SCALE = 0.85
+PANEL_LINE_HEIGHT = 36
+PANEL_LINE_THICKNESS = 2
 PANEL_TITLE_COLOUR = (255, 255, 255)
 PANEL_GROUP_COLOUR = (0, 255, 0)
 PANEL_LINE_COLOUR = (220, 220, 220)
@@ -283,7 +285,7 @@ def wrap_panel_line(line: str, maximum_width: int) -> List[str]:
     for word in line.split():
         candidate_line = f"{current_line} {word}" if current_line.strip() else f"{current_line}{word}"
         (text_width, _), _ = cv2.getTextSize(text=candidate_line, fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                                             fontScale=PANEL_LINE_FONT_SCALE, thickness=1)
+                                             fontScale=PANEL_LINE_FONT_SCALE, thickness=PANEL_LINE_THICKNESS)
         if text_width > maximum_width and current_line.strip():
             wrapped_lines.append(current_line)
             current_line = f"{indentation}    {word}"
@@ -325,12 +327,12 @@ def build_information_panel(title: str, lines: List[str], minimum_height: int) -
         line_colour = PANEL_LINE_COLOUR if line.startswith(" ") else PANEL_GROUP_COLOUR
         line_bottom = PANEL_MARGIN + PANEL_TITLE_HEIGHT + (line_index + 1) * PANEL_LINE_HEIGHT
         cv2.putText(img=panel, text=line, org=(PANEL_MARGIN, line_bottom), fontFace=cv2.FONT_HERSHEY_SIMPLEX,
-                    fontScale=PANEL_LINE_FONT_SCALE, color=line_colour, thickness=1)
+                    fontScale=PANEL_LINE_FONT_SCALE, color=line_colour, thickness=PANEL_LINE_THICKNESS)
 
     # Write the navigation hint at the bottom of the panel
     cv2.putText(img=panel, text=NAVIGATION_HINT, org=(PANEL_MARGIN, panel_height - PANEL_MARGIN),
                 fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=PANEL_LINE_FONT_SCALE, color=PANEL_HINT_COLOUR,
-                thickness=1)
+                thickness=PANEL_LINE_THICKNESS)
     return panel
 
 
