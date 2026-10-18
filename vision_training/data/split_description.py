@@ -1,6 +1,6 @@
 """
 Counts the samples of a dataset split from its 'labels.json' (images and annotations, classification samples,
-sequences and windows, pairs and kept pairs), printed by the task trainers at startup to describe the splits of a
+sequences and kept sequences, pairs and kept pairs), printed by the task trainers at startup to describe the splits of a
 run.
 """
 
@@ -9,8 +9,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
-from vision_training.data.sequence.sequence_dataset import compute_window_starts
-from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, compute_member_frame_indices
+from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
 from vision_training.utilities.os_utilities import read_json
 
 
@@ -46,43 +45,32 @@ def count_split_samples(split_data_folder: str | Path) -> Tuple[int, int]:
     return len(labels["samples"]), len(labels["categories"])
 
 
-def count_split_sequences(split_data_folder: str | Path, sequence_settings: Dict[str, Any],
-                          whole_sequences: bool) -> Tuple[int, int, int]:
+def count_split_sequences(split_data_folder: str | Path, sequence_settings: Dict[str, Any]) -> Tuple[int, int, int]:
     """
-    Counts the sequences, frames and windows of a sequence split from its 'labels.json' manifest, printed by the
-    sequence trainers at startup. The windows, cut as the sequence dataset does (one window per whole sequence for
-    the frame selection), are the samples of an epoch.
+    Counts the sequences, frames and kept sequences of a sequence split from its 'labels.json' manifest, printed by
+    the sequence trainers at startup. A sequence is kept, as in the sequence dataset, when it holds frames and at most
+    'maximum_sequence_length' of them; the kept sequences are the samples of an epoch.
 
     Args:
         split_data_folder (str | Path): The root folder of the split, containing a 'labels.json'.
         sequence_settings (Dict[str, Any]): The 'Data.sequence_settings' section.
-        whole_sequences (bool): Whether every sequence is one window (frame selection, without 'window_stride' nor
-            'short_sequences'), or is cut into windows.
 
     Returns:
-        Tuple[int, int, int]: The number of sequences, of frames and of windows (before label mapping).
+        Tuple[int, int, int]: The number of sequences, of frames and of kept sequences (before label mapping).
     """
     labels = read_json(path=os.path.join(str(split_data_folder), "labels.json"))
-    number_frames, number_windows = 0, 0
+    number_frames, number_kept_sequences = 0, 0
     for sequence in labels["sequences"]:
         number_frames += len(sequence["frames"])
-
-        # One window per whole sequence, or the windows cut every window stride frames
-        if whole_sequences:
-            number_windows += 1
-        else:
-            number_windows += len(compute_window_starts(
-                number_frames=len(sequence["frames"]), sequence_length=sequence_settings["sequence_length"],
-                window_stride=sequence_settings["window_stride"],
-                short_sequences=sequence_settings["short_sequences"]))
-    return len(labels["sequences"]), number_frames, number_windows
+        number_kept_sequences += int(0 < len(sequence["frames"]) <= sequence_settings["maximum_sequence_length"])
+    return len(labels["sequences"]), number_frames, number_kept_sequences
 
 
 def count_split_pairs(split_data_folder: str | Path, sequence_settings: Dict[str, Any]) -> Tuple[int, int, int]:
     """
     Counts the pairs, frames and kept pairs of a sequence comparison split from its 'labels.json' manifest, printed by
     the sequence comparison trainer at startup. A pair is kept, as in the sequence pair dataset, when both of its
-    members keep frames (compute_member_frame_indices); the kept pairs are the samples of an epoch.
+    members hold frames and at most 'maximum_sequence_length' of them; the kept pairs are the samples of an epoch.
 
     Args:
         split_data_folder (str | Path): The root folder of the split, containing a 'labels.json'.
@@ -94,13 +82,9 @@ def count_split_pairs(split_data_folder: str | Path, sequence_settings: Dict[str
     labels = read_json(path=os.path.join(str(split_data_folder), "labels.json"))
     number_frames, number_kept_pairs = 0, 0
     for pair in labels["pairs"]:
-        # Frames of both members, and whether every member keeps frames
-        member_frame_indices = []
-        for member_name in PAIR_MEMBERS:
-            number_frames += len(pair[member_name])
-            member_frame_indices.append(compute_member_frame_indices(
-                number_frames=len(pair[member_name]),
-                sequence_length=sequence_settings["sequence_length"],
-                short_sequences=sequence_settings["short_sequences"]))
-        number_kept_pairs += int(all(len(frame_indices) > 0 for frame_indices in member_frame_indices))
+        # Frames of both members, and whether every member holds frames, not too many
+        member_lengths = [len(pair[member_name]) for member_name in PAIR_MEMBERS]
+        number_frames += sum(member_lengths)
+        number_kept_pairs += int(min(member_lengths) > 0 and
+                                 max(member_lengths) <= sequence_settings["maximum_sequence_length"])
     return len(labels["pairs"]), number_frames, number_kept_pairs

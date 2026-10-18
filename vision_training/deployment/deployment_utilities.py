@@ -33,41 +33,28 @@ from vision_training.utilities.os_utilities import get_image_paths
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 
 
-def build_frame_window(images: List[np.ndarray], window_start: int, sequence_length: int) -> np.ndarray:
-    """
-    Builds one window of consecutive images of the inference folder for the sequence models, cycling back to the
-    first image at the end of the folder, so that any folder gives as many full windows as it holds images.
-
-    Args:
-        images (List[np.ndarray]): The preprocessed [3, H, W] images of the folder, in order.
-        window_start (int): The index of the first image of the window, which may go past the end of the folder.
-        sequence_length (int): The number of frames of the window.
-
-    Returns:
-        np.ndarray: The [T, 3, H, W] window.
-    """
-    return np.stack([images[(window_start + frame_index) % len(images)] for frame_index in range(sequence_length)])
-
-
 def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[Dict[str, np.ndarray]]:
     """
     Reads and preprocesses the images of the inference folder exactly like the data loaders (resize and centred
     padding to the square network input), so that every deployed model receives the same kind of input as in
     training, and turns them into the requests sent to the models of the run, keyed by input name: one image, or for
-    the sequence tasks one window of consecutive images of the folder (cycling through them) as long as the windows
-    of the training. For the comparison, the after window starts one window later than the before window, so that the
-    two members of every pair hold different images.
+    the sequence tasks the whole folder as one sequence, in the order of the image names. For the comparison, the
+    first half of the images is the before member and the second half the after member.
 
     Args:
         image_folder (Path): The folder holding the images.
         experiment_folder (Path): The trained experiment, whose configuration gives the task, the input size, the
-            resizing mode and the sequence length.
+            resizing mode and the maximum sequence length.
 
     Returns:
         List[Dict[str, np.ndarray]]: One request per image of the folder, the float32 BGR batch in [0, 255] of every
-            input of the task: {'images': [1, 3, image_size, image_size]}, {'images': [1, T, 3, image_size,
-            image_size]} for the sequence classification, labelling and frame selection, and the 'before_images' and
-            'after_images' windows for the comparison.
+            input of the task: {'images': [1, 3, image_size, image_size]}, or a single request {'images': [1, T, 3,
+            image_size, image_size]} for the sequence classification, labelling and frame selection, and the
+            'before_images' and 'after_images' members for the comparison.
+
+    Raises:
+        ValueError: If a sequence or a member is longer than the maximum sequence length of the training, or if the
+            folder holds less than two images for the comparison.
     """
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=experiment_folder / "training_configuration.yaml")
@@ -82,14 +69,26 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
                                  keep_ratio=keep_ratio)
         images.append(image.transpose(2, 0, 1).astype(np.float32))
 
-    # Every image becomes a batch of one element, or starts a window of one element for the sequence tasks, every
-    # further input starting one window later
+    # Every image becomes a batch of one element for the image tasks
     if task not in SEQUENCE_TASKS:
         return [{"images": image[None]} for image in images]
-    sequence_length = model_configuration["Data"]["sequence_settings"]["sequence_length"]
-    return [{input_name: build_frame_window(images=images, window_start=window_start + input_index * sequence_length,
-                                            sequence_length=sequence_length)[None]
-             for input_index, input_name in enumerate(TASK_INPUT_NAMES[task])} for window_start in range(len(images))]
+
+    # The folder is one sequence, or split in two halves, the before and after members of the comparison
+    input_names = TASK_INPUT_NAMES[task]
+    if len(images) < len(input_names):
+        raise ValueError(f"The inference folder {image_folder} holds {len(images)} images, the {task} task needing "
+                         f"at least {len(input_names)}.")
+    member_length = (len(images) + len(input_names) - 1) // len(input_names)
+    members = [images[member_start:member_start + member_length]
+               for member_start in range(0, len(images), member_length)]
+
+    # The sequences longer than those of the training are refused, as the training leaves them out
+    maximum_sequence_length = model_configuration["Data"]["sequence_settings"]["maximum_sequence_length"]
+    if max(len(member) for member in members) > maximum_sequence_length:
+        raise ValueError(f"The inference folder {image_folder} gives sequences of up to "
+                         f"{max(len(member) for member in members)} images, more than the maximum sequence length "
+                         f"of the training ({maximum_sequence_length}).")
+    return [{input_name: np.stack(member)[None] for input_name, member in zip(input_names, members)}]
 
 
 def load_local_inference_model(experiment_folder: Path, iteration: Optional[int]) -> Tuple[nn.Module,
@@ -187,7 +186,7 @@ def create_triton_input_shared_memory(client: triton_client.InferenceServerClien
     """
     Creates a system shared memory region holding the inputs of one request and registers it with Triton, so that the
     images are written once to memory shared with the server instead of being copied into every gRPC request (12 MB
-    per image of 1024 pixels, times the number of frames of a window for the sequence models, times two windows for
+    per image of 1024 pixels, times the number of frames of a sequence for the sequence models, times two members for
     the comparison). Triton must share the memory of the machine ('ipc: host' in deployment/triton/docker-compose.yml).
 
     Args:
@@ -298,9 +297,9 @@ def measure_local_throughput(inputs: List[Dict[str, np.ndarray]], inference_mode
                              decoding_settings: Optional[Dict[str, Any]], number_iterations: int,
                              number_warmup_iterations: int) -> None:
     """
-    Measures the raw throughput of the local inference model, one image (or window, or pair of windows) per call, the
-    tqdm bar showing the calls per second, the decoding of a frame selector included as in its Triton ensembles. The
-    first calls are left out, while CUDA is still initialising.
+    Measures the raw throughput of the local inference model, one image (or sequence, or pair of sequences) per call,
+    the tqdm bar showing the calls per second, the decoding of a frame selector included as in its Triton ensembles.
+    The first calls are left out, while CUDA is still initialising.
 
     Args:
         inputs (List[Dict[str, np.ndarray]]): The requests, from load_inference_inputs, sent in turn.
@@ -321,7 +320,7 @@ def measure_local_throughput(inputs: List[Dict[str, np.ndarray]], inference_mode
 def measure_triton_throughput(inputs: List[Dict[str, np.ndarray]], model_name: str, output_names: List[str], url: str,
                               use_shared_memory: bool, number_iterations: int, number_warmup_iterations: int) -> None:
     """
-    Measures the raw throughput of a model served by Triton, one image (or window, or pair of windows) per request,
+    Measures the raw throughput of a model served by Triton, one image (or sequence, or pair of sequences) per request,
     the tqdm bar showing the requests per second. The first requests are left out, while TensorRT and CUDA are still
     initialising.
 

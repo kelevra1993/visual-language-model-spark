@@ -75,7 +75,7 @@ def test_feature_batch_normalization_of_frame_vectors() -> None:
 
 def test_padding_vectors_take_no_part_in_the_head_statistics() -> None:
     """
-    Verifies that a classification head with batch normalized hidden layers classifies the real vectors of the windows
+    Verifies that a classification head with batch normalized hidden layers classifies the real vectors of the sequences
     of the sequence labeller with the statistics of the real vectors only, whatever the values of the padding vectors,
     and gives the padding vectors zero logits; without normalization or with the layer normalization, the mask changes
     nothing.

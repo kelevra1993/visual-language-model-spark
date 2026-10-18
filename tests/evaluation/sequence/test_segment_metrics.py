@@ -1,7 +1,7 @@
 """
 Tests of vision_training/evaluation/sequence/segment_metrics.py: the edit score and segment F1 of a fragmented
 prediction, of a perfect prediction and without sequence, the segments ended by unlabelled frames, the edit distance,
-and the windows of the test sequences merged back into whole sequences.
+and the labelled frames of the test sequences grouped sequence by sequence.
 """
 
 import numpy as np
@@ -9,7 +9,7 @@ import pytest
 import torch
 
 from vision_training.evaluation.sequence.segment_metrics import (compute_edit_distance, compute_segment_metrics,
-                                                                 extract_segments, merge_window_predictions)
+                                                                 extract_segments, group_sequence_predictions)
 
 
 def test_fragmented_prediction_scores_low_on_segments() -> None:
@@ -60,27 +60,30 @@ def test_unlabelled_frames_end_a_segment() -> None:
     assert compute_edit_distance(predicted_classes=[], true_classes=[0]) == 1
 
 
-def test_windows_are_merged_into_whole_sequences() -> None:
+def test_frames_are_grouped_by_sequence() -> None:
     """
-    Verifies that the labelled frames of overlapping windows are merged back into their sequences: every frame is kept
-    once, in order, sequence by sequence, and a frame held by two windows that disagree gets the class of their mean
-    probabilities.
+    Verifies that the labelled frames of the test sequences are grouped sequence by sequence, in frame order, every
+    frame predicted as its most probable class, that a frame given twice raises an error and that no frame gives no
+    sequence.
     """
-    # Sequence 1: windows of frames 0 to 2 and 1 to 3, disagreeing on frames 1 and 2; sequence 0: frames 0 and 1
-    sequence_indices = torch.tensor(data=[1, 1, 1, 1, 1, 1, 0, 0])
-    frame_indices = torch.tensor(data=[0, 1, 2, 1, 2, 3, 1, 0])
-    probabilities = torch.tensor(data=[[0.9, 0.1], [0.6, 0.4], [0.2, 0.8], [0.2, 0.8], [0.7, 0.3], [0.1, 0.9],
-                                       [0.3, 0.7], [0.8, 0.2]], dtype=torch.float64)
-    labels = torch.tensor(data=[0, 0, 1, 0, 1, 1, 1, 0])
-    sequences = merge_window_predictions(sequence_indices=sequence_indices, frame_indices=frame_indices,
-                                         probabilities=probabilities, labels=labels)
+    # Sequence 1: frames 0, 2 and 3 given out of order (frame 1 unlabelled); sequence 0: frames 0 and 1
+    sequence_indices = torch.tensor(data=[1, 1, 0, 1, 0])
+    frame_indices = torch.tensor(data=[3, 0, 1, 2, 0])
+    probabilities = torch.tensor(data=[[0.1, 0.9], [0.9, 0.1], [0.3, 0.7], [0.6, 0.4], [0.8, 0.2]], dtype=torch.float64)
+    labels = torch.tensor(data=[1, 0, 1, 1, 0])
+    sequences = group_sequence_predictions(sequence_indices=sequence_indices, frame_indices=frame_indices,
+                                           probabilities=probabilities, labels=labels)
 
     assert len(sequences) == 2
     assert sequences[0]["frame_indices"].tolist() == [0, 1] and sequences[0]["true_classes"].tolist() == [0, 1]
     assert sequences[0]["predicted_classes"].tolist() == [0, 1]
-    # Frame 1: mean (0.4, 0.6) gives class 1; frame 2: mean (0.45, 0.55) gives class 1
-    assert sequences[1]["frame_indices"].tolist() == [0, 1, 2, 3]
-    assert sequences[1]["true_classes"].tolist() == [0, 0, 1, 1]
-    assert sequences[1]["predicted_classes"].tolist() == [0, 1, 1, 1]
-    assert merge_window_predictions(sequence_indices=sequence_indices[:0], frame_indices=frame_indices[:0],
-                                    probabilities=probabilities[:0], labels=labels[:0]) == []
+    assert sequences[1]["frame_indices"].tolist() == [0, 2, 3]
+    assert sequences[1]["true_classes"].tolist() == [0, 1, 1]
+    assert sequences[1]["predicted_classes"].tolist() == [0, 0, 1]
+
+    # A frame given twice raises an error, no frame gives no sequence
+    with pytest.raises(expected_exception=ValueError, match="more than once"):
+        group_sequence_predictions(sequence_indices=torch.tensor(data=[0, 0]), frame_indices=torch.tensor(data=[1, 1]),
+                                   probabilities=probabilities[:2], labels=labels[:2])
+    assert group_sequence_predictions(sequence_indices=sequence_indices[:0], frame_indices=frame_indices[:0],
+                                      probabilities=probabilities[:0], labels=labels[:0]) == []

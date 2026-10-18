@@ -2,7 +2,7 @@
 Tests of the information panels written by the trainers for the input viewer ('view_input_images'), the viewer itself
 being replaced by a recorder of its arguments: the object detection panels count the objects per class and name the
 objects removed by the augmentations, the panels of a pair of sequences give the real frames and the shuffled order of
-every member window, the self-supervised panels describe the transformations drawn for each view, and the keypoint
+every member, the self-supervised panels describe the transformations drawn for each view, and the keypoint
 panels count the objects per class and their keypoints by visibility, the flipped training image moving the keypoints
 without renaming them. The trainers are created without their datasets, only the attributes read by
 show_input_samples being set.
@@ -58,12 +58,12 @@ class ViewerRecorder:
 
 def build_augmenter(enabled_types: List[str], shuffle_probability: float = 0.0) -> DataAugmenter:
     """
-    Builds an augmenter applying exactly the given types to every sample, and shuffling the frames of every window
+    Builds an augmenter applying exactly the given types to every sample, and shuffling the frames of every sequence
     with the given probability.
 
     Args:
         enabled_types (List[str]): The augmentation types to activate, each with probability 1.
-        shuffle_probability (float): The probability of shuffling the frames of a window, 0 turning the shuffling
+        shuffle_probability (float): The probability of shuffling the frames of a sequence, 0 turning the shuffling
             off. Defaults to 0.0.
 
     Returns:
@@ -110,9 +110,9 @@ def test_detection_panels_count_the_objects_and_name_the_removed_ones(monkeypatc
 
 def test_pair_panels_give_the_real_frames_and_the_shuffled_order(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    Verifies the panels of a pair of sequences in the input viewer: the real frames of both member windows, the
-    augmentations of the training pair and the original frames shown at every position of each shuffled member window,
-    the validation pair being neither augmented nor shuffled.
+    Verifies the panels of a pair of sequences in the input viewer: the real frames of both members, the
+    augmentations of the training pair and the original frames shown at every position of each shuffled member, the
+    validation pair being neither augmented nor shuffled.
 
     Args:
         monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the viewer.
@@ -121,12 +121,12 @@ def test_pair_panels_give_the_real_frames_and_the_shuffled_order(monkeypatch: py
     random.seed(0)
     trainer = SequenceComparisonTrainer.__new__(SequenceComparisonTrainer)
     trainer.data_augmenter = build_augmenter(enabled_types=[], shuffle_probability=1.0)
-    trainer.sequence_settings = {"sequence_length": 4}
+    trainer.sequence_settings = {"maximum_sequence_length": 4}
     trainer.class_names, trainer.output_mode = ["same", "changed"], "multi_class"
     viewer_recorder = ViewerRecorder()
     monkeypatch.setattr(target=sequence_classification_trainer_module, name="view_input_data", value=viewer_recorder)
 
-    # A before window of 3 real frames and an after window of 2, the frame of position i filled with i
+    # A before member of 3 real frames and an after member of 2, the frame of position i filled with i
     frames = torch.arange(8, dtype=torch.float32)[None, :, None, None, None].expand(1, 8, 3, 8, 8).clone()
     batch = {"images": frames, "labels": torch.tensor(data=[1]),
              "sequence_mask": torch.tensor(data=[[True, True, True, False, True, True, False, False]])}
@@ -139,7 +139,7 @@ def test_pair_panels_give_the_real_frames_and_the_shuffled_order(monkeypatch: py
     assert validation_lines == ["Class : changed", "Real frames : 3 + 2", "",
                                 "Augmentations : none (validation sample)"]
 
-    # The frame order names the original frames of each member window, as the shuffled frames show them
+    # The frame order names the original frames of each member, as the shuffled frames show them
     frame_order_line = training_lines[-1]
     assert frame_order_line.startswith("Frame order : shuffled, showing frames ")
     member_orders = [[int(frame_index) for frame_index in member_order.split(", ")]

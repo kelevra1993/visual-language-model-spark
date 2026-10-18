@@ -1,8 +1,8 @@
 """
 SequencePairDataset, the Native (OpenCV, CPU) dataset of the sequence comparison task, reading the before and after
-members of every pair of a 'labels.json' split as two padded windows stored one after the other, and the helpers
-choosing the member frames and splitting the pair tensors. Used by data/loaders.py and the sequence comparison
-trainer.
+members of every pair of a 'labels.json' split whole, both padded to the longer member and stored one after the other,
+the pairs with a member longer than 'Data.sequence_settings.maximum_sequence_length' being left out with a warning, and
+the helper splitting the pair tensors. Used by data/loaders.py and the sequence comparison trainer.
 """
 
 import json
@@ -13,47 +13,19 @@ from torch.utils.data import Dataset
 from typing import Any, Dict, List, Tuple
 
 from vision_training.data.label_mapping import get_class_names
-from vision_training.data.sequence.sequence_dataset import read_window_frames
+from vision_training.data.sequence.sequence_dataset import (read_sequence_frames, warn_long_sequence,
+                                                            warn_long_sequence_total)
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
-# Members of a pair in the manifests, in the order their windows are stacked along the frame axis of a sample
+# Members of a pair in the manifests, in the order they are stacked along the frame axis of a sample
 PAIR_MEMBERS = ["before", "after"]
-
-
-def compute_member_frame_indices(number_frames: int, sequence_length: int, short_sequences: str) -> List[int]:
-    """
-    Chooses the frames of one member of a pair (its before or after sequence) fed to the comparison model as a single
-    window of at most 'sequence_length' frames: every frame of a member that fits in the window, or the middle frame of
-    each of 'sequence_length' equal parts of a longer member, so that the window covers the whole member in order.
-    An empty member, or a member shorter than the window when short sequences are skipped, gives no frame, which
-    leaves the pair out. Shared by the sequence pair dataset and the split description printed at startup.
-
-    Args:
-        number_frames (int): The number of frames of the member.
-        sequence_length (int): The maximum number of frames of a member window.
-        short_sequences (str): "pad" (a shorter member is padded with black frames) or "skip" (its pair is left out).
-
-    Returns:
-        List[int]: The indices of the kept frames in increasing order, or [] when the pair is left out.
-    """
-    # An empty member, or a short member when the short members are skipped, leaves the pair out
-    if number_frames == 0 or (number_frames < sequence_length and short_sequences == "skip"):
-        return []
-
-    # Every frame of a member that fits in the window, the remaining positions being padded
-    if number_frames <= sequence_length:
-        return list(range(number_frames))
-
-    # Middle frame of each of the sequence_length equal parts of a longer member, in integer arithmetic
-    return [((2 * part_index + 1) * number_frames) // (2 * sequence_length) for part_index in range(sequence_length)]
 
 
 def split_pair_members(pair_tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Splits the frames or the sequence mask of a batch of pairs, stored as the before window followed by the after
-    window along the frame axis, into the before and after members given to the comparison model. Both windows have
-    the same number of frames: the sequence length, or the longest member of the batch when the batches are padded to
-    their longest window, so the frame axis is split in two halves.
+    Splits the frames or the sequence mask of a batch of pairs, stored as the before member followed by the after
+    member along the frame axis, into the before and after members given to the comparison model. Both members have
+    the same number of frames, the longest member of the batch, so the frame axis is split in two halves.
 
     Args:
         pair_tensor (torch.Tensor): The [B, 2 x T, ...] frames or [B, 2 x T] mask.
@@ -62,10 +34,10 @@ def split_pair_members(pair_tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.T
         Tuple[torch.Tensor, torch.Tensor]: The [B, T, ...] before member and after member.
 
     Raises:
-        ValueError: If the frame axis does not hold two member windows of the same number of frames.
+        ValueError: If the frame axis does not hold two members of the same number of frames.
     """
     if pair_tensor.shape[1] % 2 != 0:
-        raise ValueError(f"A batch of pairs must hold two member windows of the same number of frames, got "
+        raise ValueError(f"A batch of pairs must hold two members of the same number of frames, got "
                          f"{pair_tensor.shape[1]} frames per pair.")
     member_length = pair_tensor.shape[1] // 2
     return pair_tensor[:, :member_length], pair_tensor[:, member_length:]
@@ -77,18 +49,20 @@ class SequencePairDataset(Dataset):
 
     A split is a folder holding the frames in 'data/' and a 'labels.json' manifest listing the 'categories' and the
     'pairs', each pair giving its 'id', 'name', the ordered frames of its 'before' and 'after' members (paths relative
-    to 'data/') and its 'category_id'. Each member becomes one window of at most 'sequence_length' frames
-    (compute_member_frame_indices). A sample stores the before window followed by the after window along the frame
-    axis, each padded to 'sequence_length' with black frames, so that the generic code of the trainers (augmentation,
-    input viewer, evaluation) handles a pair as one sequence of 2 x sequence_length frames, both members sharing the
-    same augmentation draws. With 'batch_padding: "longest"', the collate of the loader cuts both windows of every pair
-    to the longest member of the batch.
+    to 'data/') and its 'category_id'. Both members are given whole, the pairs with a member longer than
+    'maximum_sequence_length' frames being left out with a red warning. A sample stores the before member followed by
+    the after member along the frame axis, both padded to the longer member with black frames, so that the generic
+    code of the trainers (augmentation, input viewer, evaluation) handles a pair as one sequence of 2 x T frames, both
+    members sharing the same augmentation draws. The collate of the loader pads both members of every pair to the
+    longest member of the batch.
     """
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
-                 label_dictionary: Dict[Any, int], sequence_settings: Dict[str, Any], shuffle: bool = True) -> None:
+                 label_dictionary: Dict[Any, int], sequence_settings: Dict[str, Any], split_name: str,
+                 shuffle: bool = True) -> None:
         """
-        Reads the manifest of the split and chooses the frames of every member of its pairs.
+        Reads the manifest of the split and keeps its pairs whose members hold at most 'maximum_sequence_length'
+        frames.
 
         Args:
             data_directory (str): The folder holding the frames of the pairs.
@@ -97,43 +71,45 @@ class SequencePairDataset(Dataset):
             keep_ratio (bool): Whether to keep the aspect ratio of the frames, padding them.
             label_dictionary (Dict[Any, int]): The class index of every raw category identifier, the pairs of unmapped
                 categories being left out.
-            sequence_settings (Dict[str, Any]): The 'Data.sequence_settings' section: 'sequence_length' (maximum number
-                of frames of a member) and 'short_sequences'.
+            sequence_settings (Dict[str, Any]): The 'Data.sequence_settings' section: 'maximum_sequence_length' (the
+                largest number of frames of a member).
+            split_name (str): "Training", "Validation" or "Test", named in the warnings of the left out pairs.
             shuffle (bool): Whether to shuffle the pairs once at creation. Defaults to True.
         """
         self.data_directory = data_directory
         self.image_size = image_size
         self.keep_ratio = keep_ratio
-        self.sequence_length = sequence_settings["sequence_length"]
+        self.maximum_sequence_length = sequence_settings["maximum_sequence_length"]
         self.number_classes = len(set(label_dictionary.values()))
 
         with open(file=labels_file, mode="r") as labels_file_handler:
             manifest = json.load(fp=labels_file_handler)
 
-        # Keep the pairs of mapped categories whose two members both keep frames
+        # Keep the pairs of mapped categories whose two members both hold frames, and not too many
         self.pairs = []
         number_left_out_pairs = 0
+        number_long_pairs = 0
         for pair in manifest["pairs"]:
-            if pair["category_id"] not in label_dictionary:
+            member_lengths = [len(pair[member_name]) for member_name in PAIR_MEMBERS]
+            if pair["category_id"] not in label_dictionary or min(member_lengths) == 0:
                 number_left_out_pairs += 1
                 continue
 
-            # Frames of every member kept in its window
-            member_frames = {}
-            for member_name in PAIR_MEMBERS:
-                frame_indices = compute_member_frame_indices(number_frames=len(pair[member_name]),
-                                                             sequence_length=self.sequence_length,
-                                                             short_sequences=sequence_settings["short_sequences"])
-                member_frames[member_name] = [pair[member_name][frame_index] for frame_index in frame_indices]
-            if any(len(frames) == 0 for frames in member_frames.values()):
-                number_left_out_pairs += 1
+            # Pairs with a member longer than the maximum sequence length are left out with a warning
+            if max(member_lengths) > self.maximum_sequence_length:
+                warn_long_sequence(sample_kind="Pair", sample_name=pair["name"], split_name=split_name,
+                                   number_frames=max(member_lengths),
+                                   maximum_sequence_length=self.maximum_sequence_length)
+                number_long_pairs += 1
                 continue
             self.pairs.append({"identifier": len(self.pairs), "pair_identifier": pair["id"], "name": pair["name"],
-                               **member_frames, "label": label_dictionary[pair["category_id"]]})
+                               **{member_name: pair[member_name] for member_name in PAIR_MEMBERS},
+                               "label": label_dictionary[pair["category_id"]]})
+        warn_long_sequence_total(sample_kind="Pair", number_long_samples=number_long_pairs, split_name=split_name,
+                                 maximum_sequence_length=self.maximum_sequence_length)
         if number_left_out_pairs > 0:
-            print_color(color="yellow", output=f"{number_left_out_pairs} pairs of unmapped categories, with an empty "
-                                               f"member or with a member shorter than {self.sequence_length} frames "
-                                               f"left out : {format_path_link(path=labels_file)}")
+            print_color(color="yellow", output=f"{number_left_out_pairs} pairs of unmapped categories or with an empty "
+                                               f"member left out : {format_path_link(path=labels_file)}")
         if shuffle:
             random.shuffle(self.pairs)
 
@@ -160,19 +136,20 @@ class SequencePairDataset(Dataset):
             pair_index (int): The index of the pair.
 
         Returns:
-            Dict[str, Any]: The uint8 [2 x sequence_length, 3, image_size, image_size] BGR frames (the before window,
-                then the after window, each with its black padding frames last), the [2 x sequence_length] boolean
-                sequence mask (True for the real frames), the int64 class index of the pair and its identifier.
+            Dict[str, Any]: The uint8 [2 x T, 3, image_size, image_size] BGR frames, T being the frames of the longer
+                member (the before member, then the after member, each with its black padding frames last), the
+                [2 x T] boolean sequence mask (True for the real frames), the int64 class index of the pair and its
+                identifier.
         """
         pair = self.pairs[pair_index]
 
-        # One window per member, the before window followed by the after window along the frame axis
+        # Both members padded to the longer one, the before member followed by the after member along the frame axis
+        member_length = max(len(pair[member_name]) for member_name in PAIR_MEMBERS)
         member_frames, member_masks = [], []
         for member_name in PAIR_MEMBERS:
-            frames, sequence_mask = read_window_frames(data_directory=self.data_directory,
-                                                       frame_files=pair[member_name],
-                                                       sequence_length=self.sequence_length,
-                                                       image_size=self.image_size, keep_ratio=self.keep_ratio)
+            frames, sequence_mask = read_sequence_frames(data_directory=self.data_directory,
+                                                         frame_files=pair[member_name], number_frames=member_length,
+                                                         image_size=self.image_size, keep_ratio=self.keep_ratio)
             member_frames.append(frames)
             member_masks.append(sequence_mask)
 

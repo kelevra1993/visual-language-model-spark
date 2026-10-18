@@ -1,9 +1,9 @@
 # Frame Selection Workflow
 
-This document follows one frame selection run (SEL: in every whole sequence, the frames to choose for every wanted class) from `main()` to the evaluation of a checkpoint, to show which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation followed by a **real** output. The frame selection trainer is the sequence labelling trainer fed with whole sequences: the steps it shares with the sequence labelling (one class per frame, temporal module keeping the time axis) are explained in `sequence_labelling_workflow.md`, those shared with the sequence classification (padding, frame encoder) in `sequence_classification_workflow.md`, and the steps shared by every task in `classification_workflow.md`; here they keep a short explanation and the real output of the selection run, and the steps specific to the selection (unselected class, one window per sequence, selection loss, Hungarian and greedy decodings, selection and ranking metrics, selections file, selection images) are explained in full.
+This document follows one frame selection run (SEL: in every whole sequence, the frames to choose for every wanted class) from `main()` to the evaluation of a checkpoint, to show which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation followed by a **real** output. The frame selection trainer is the sequence labelling trainer fed with whole sequences: the steps it shares with the sequence labelling (one class per frame, temporal module keeping the time axis) are explained in `sequence_labelling_workflow.md`, those shared with the sequence classification (maximum sequence length, padding, frame encoder) in `sequence_classification_workflow.md`, and the steps shared by every task in `classification_workflow.md`; here they keep a short explanation and the real output of the selection run, and the steps specific to the selection (unselected class, whole sequences checked against the wanted classes, selection loss, Hungarian and greedy decodings, selection and ranking metrics, selections file, selection images) are explained in full.
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training. The synthetic dataset of the configuration, `synthetic_selected_shapes`, is not on this machine, so a small one was generated in a temporary folder with `create_synthetic_dataset(task="frame_selection")`: 500 training, 60 validation and 60 test sequences of 4 to 12 frames of 128 pixels, every sequence holding one frame of each of the 3 wanted classes (`circle`, `triangle`, `star`), its other frames being `unselected`. The data folders and the mapping file of the configuration were redirected to it.
-- **Stages 1 and 2**: `configurations/frame_selection/configuration_synthetic_sequences.yaml` (whole sequences of at most 12 frames, 256 pixel frames, batch size 16, a bidirectional GRU, Hungarian decoding, one frame per class, selection loss weight 1), with the run folder redirected to a temporary folder.
+- **Stages 1 and 2**: `configurations/frame_selection/configuration_synthetic_sequences.yaml` (a maximum sequence length of 50 frames, 256 pixel frames, batch size 16, a bidirectional GRU, Hungarian decoding, one frame per class, selection loss weight 1), with the run folder redirected to a temporary folder.
 - **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network gives the most probability to `unselected` on every frame and almost the same probabilities to all the frames of a sequence, so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
 ## Table of Contents
@@ -31,8 +31,8 @@ main()
 │       ├── common checks
 │       └── check_frame_selection_configuration()
 │               ├── the data, head and evaluation checks of the classification
-│               ├── check_sequence_settings()             sequence_length and batch_padding only: no window_stride
-│               │                                         nor short_sequences, every sequence being one window
+│               ├── check_sequence_settings()             maximum_sequence_length: a positive integer, the
+│               │                                         longest sequence fed whole
 │               ├── check_temporal_model_configuration()  an ordered module only (GRU, LSTM, transformer, temporal
 │               │                                         convolution); causal allowed
 │               └── check_selection_configuration()       unselected_category, decoding, frames_per_class,
@@ -48,9 +48,10 @@ main()
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter() / setup_training_paths()
 │       ├── build_dataloaders() -> get_sequence_dataloaders(label_type="selection")
 │       │   ├── SequenceDataset.__init__() -> describe_selection_problem()
-│       │   │       One window per whole sequence, every frame keeping its class (the frames of unmapped categories
-│       │   │       being unselected); a sequence longer than sequence_length, or without exactly frames_per_class
-│       │   │       frames of every wanted class, stops the training with the list of such sequences.
+│       │   │       Every sequence whole, every frame keeping its class (the frames of unmapped categories being
+│       │   │       unselected); a sequence longer than maximum_sequence_length is left out with a red warning, and a
+│       │   │       sequence without exactly frames_per_class frames of every wanted class stops the training with
+│       │   │       the list of such sequences.
 │       │   └── unselected_class_index + get_wanted_class_indices()   the same unselected class in the 3 splits
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       The wanted classes of the frames of every test sequence, the unselected frames left out.
@@ -59,7 +60,7 @@ main()
 │       │       ├── SequenceLabeller.__init__()                 backbone, temporal module (keep_time_axis=True), head
 │       │       └── selection_loss_weight + wanted_class_mask buffer   the trainer sets 0 on the unselected class
 │       ├── initialise_pretrained_components() / build_optimizer() / MetricTracker(counts_frames=True)
-│       ├── print_experiment_information() -> describe_split() -> count_split_sequences(whole_sequences=True)
+│       ├── print_experiment_information() -> describe_split() -> count_split_sequences()
 │       ├── view_input_batches() -> show_input_samples()   the frames of the wanted classes captioned
 │       └── restore_last_model()
 │
@@ -67,8 +68,8 @@ main()
     └── run_training_iterations()
         ├── for each training_iteration:
         │   ├── save_model() + run_test_evaluation() when due                    -> [STAGE 4]
-        │   ├── get_next_batch() -> SequenceDataset.__getitem__() + collate_longest_windows()
-        │   │       labels [B, T]: the class of every frame, -100 on the padding frames
+        │   ├── get_next_batch() -> SequenceDataset.__getitem__() + collate_padded_sequences()
+        │   │       labels [B, T]: the class of every frame, -100 on the padding frames added by the collate
         │   ├── MetricTracker.count_frames()
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch() / augment_batch()
@@ -151,7 +152,7 @@ dict: {1: 0, 2: 1, 3: 2, 4: 3}       <- categories unselected, circle, triangle,
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_frame_selection_configuration()`: the checks of the sequence labelling, except that `Data.sequence_settings` only takes `sequence_length` and `batch_padding` (every sequence is fed whole as one window), then `check_selection_configuration()` checks the `Selection` section. Whether the unselected category is in the manifests is checked later, by the dataset (Step 2.8).
+The common checks run first, then `check_frame_selection_configuration()`: the checks of the sequence labelling, `Data.sequence_settings` taking only `maximum_sequence_length` as for every sequence task, then `check_selection_configuration()` checks the `Selection` section. Whether the unselected category is in the manifests is checked later, by the dataset (Step 2.8).
 
 **Example: output with `Selection.decoding: "beam"` and `Selection.selection_loss_weight: -1.0` in the YAML**
 ```text
@@ -174,14 +175,14 @@ get_trainer_class(task="frame_selection") -> <class 'vision_training.trainers.fr
 
 ## Stage 2 — Trainer Initialization
 
-> The examples below are real outputs from building the trainer on the redirected `configuration_synthetic_sequences.yaml` (256 pixel frames, sequences of at most 12 frames, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.4 s on CPU.
+> The examples below are real outputs from building the trainer on the redirected `configuration_synthetic_sequences.yaml` (256 pixel frames, a maximum sequence length of 50 frames, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.3 s on CPU.
 
 ### Step 2.1 — `FrameSelectionTrainer.__init__()`
 The constructor reads `Selection.decoding` and `Selection.frames_per_class`, then runs the constructor of the sequence labelling trainer. `LABEL_TYPE = "selection"` makes the loaders read whole sequences with one class per frame, and `CLASS_SUPPORT_COLUMN = "True Frames"` names the column of the per-class table counting the true frames of every wanted class. The trainer overrides the loaders (to find the unselected class), the model (to mark it), the tracked metrics, the evaluation accumulator, the error images, the sample images and the whole computation of the evaluation results.
 
 **Example: the attributes after the construction**
 ```text
-self.sequence_settings          = {'sequence_length': 12, 'batch_padding': 'longest'}
+self.sequence_settings          = {'maximum_sequence_length': 50}
 self.LABEL_TYPE                 = 'selection'
 self.CLASS_SUPPORT_COLUMN       = 'True Frames'
 self.decoding                   = 'hungarian'
@@ -208,29 +209,30 @@ For Training We Will Be Using device: cpu
 ```
 
 ### Step 2.4 — `get_run_name()` → `build_run_name()`
-The sections of the sequence labelling (`T12`, `GRU1x128-BI` for one bidirectional layer of 128), followed by the selection section: `FPC<frames_per_class>`, then `SLW<selection_loss_weight>` when the selection loss is used (a weight above 0). The decoding gives no token, since both decodings are scored at every evaluation.
+The sections of the sequence labelling (`T50` for the maximum sequence length, `GRU1x128-BI` for one bidirectional layer of 128), followed by the selection section: `FPC<frames_per_class>`, then `SLW<selection_loss_weight>` when the selection loss is used (a weight above 0). The decoding gives no token, since both decodings are scored at every evaluation.
 
 **Example output**
 ```text
-SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T12_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1
+SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1
 ```
 
 ### Step 2.5 — `DataAugmenter()`
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.5}
-8 of 16 types activated: random_crop, random_left_right_flip, random_up_down_flip, random_rotation, random_90_rotation,
-                         brightness_contrast_saturation, random_noise, random_colour_augmentation
+5 of 16 types activated: random_crop, random_left_right_flip, random_rotation, brightness_contrast_saturation, random_noise
 ```
 
 ### Step 2.6 — `setup_training_paths()`
 **Example: the run folder after this step**
 ```text
-SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T12_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/
+SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1/
 ├── Tensorboard/
 ├── Weights/
-└── training_configuration.yaml    4,741 bytes
+├── data.json                      176,654 bytes      the frames of every sequence of the three splits
+└── training_configuration.yaml    29,306 bytes
 ```
+The sizes come from the dataset generated again with the same settings (Step 2.8).
 
 ### Step 2.7 — `build_dataloaders()` → `get_sequence_dataloaders(label_type="selection")`
 The loaders of the sequence labelling, every dataset receiving the `Selection` section. The trainer then reads the unselected class of the three datasets, which must be the same, and lists the wanted classes (`get_wanted_class_indices()`: every class but the unselected one, in class order), the rows of every selection of the evaluation.
@@ -242,25 +244,45 @@ unselected_class_index = 0     wanted_class_indices = [1, 2, 3]
 train        500 sequences -> 32 batches of 16 (one epoch = 32 iterations)
 validation    60 sequences ->  4 batches of 16
 test          60 sequences ->  4 batches of 16
-collate      functools.partial(<function collate_longest_windows>, members_per_sample=1)
+collate      functools.partial(<function collate_padded_sequences>, members_per_sample=1)
 ```
 
 ### Step 2.8 — `SequenceDataset.__init__()` → `describe_selection_problem()`
-With the `selection` label type, the dataset finds the class of the unselected category, gives it to the frames of unmapped categories, and makes one window of every whole sequence, each frame keeping its class. `describe_selection_problem()` checks every sequence: it must fit in one window of `sequence_length` frames and hold exactly `frames_per_class` frames of every wanted class, since the decodings always choose that many frames per class. All the invalid sequences are listed at once and the training stops.
+With the `selection` label type, the dataset finds the class of the unselected category, gives it to the frames of unmapped categories, and keeps every sequence whole, each frame keeping its class. A sequence longer than `maximum_sequence_length` frames is left out with a red warning, and a total per split, as for every sequence task. `describe_selection_problem()` then checks every kept sequence: it must hold exactly `frames_per_class` frames of every wanted class, since the decodings always choose that many frames per class. All the invalid sequences are listed at once and the training stops.
 
-**Example: a manifest sequence, the first window after shuffling, and the sample the loader gets from it**
+**Example: a manifest sequence, the first sequence after shuffling, and the sample the loader gets from it**
 ```text
 labels.json:  {'id': 1, 'name': 'train_000000', 'frames': ['train_000000/000000.png', ... 11 frames],
                'frame_category_ids': [1, 1, 1, 1, 3, 4, 2, 1, 1, 1, 1]}
               (500 sequences of 4 to 12 frames, 3950 frames; 4 categories {'id': 1, 'name': 'unselected'}, ...)
-window:       {'identifier': 460, 'sequence_identifier': 461, 'sequence_name': 'train_000460', 'window_start': 0,
-               'frames': ['train_000460/000000.png', ... 11 frames]}      <- frame_category_ids [1, 1, 1, 3, 1, 4, 1, 1, 1, 2, 1]
-dataset[0]:   images (12, 3, 256, 256)
-              sequence_mask [True x 11, False]
-              labels [0, 0, 0, 2, 0, 3, 0, 0, 0, 1, 0, -100]                  <- one class per frame, -100 on the padding
+sequence:     {'identifier': 460, 'sequence_identifier': 461, 'sequence_name': 'train_000460',
+               'frames': ['train_000460/000000.png', ... 11 frames], 'frame_labels': [0, 0, 0, 2, 0, 3, 0, 0, 0, 1, 0]}
+dataset[0]:   images (11, 3, 256, 256)
+              sequence_mask [True x 11]
+              labels [0, 0, 0, 2, 0, 3, 0, 0, 0, 1, 0]                        <- one class per frame, no padding yet
 get_class_counts() = [2450, 500, 500, 500]                                   <- frames of every class
 ```
 Every training sequence holds one frame of each wanted class, so the 3950 frames give 500 frames of each wanted class and 2450 unselected frames.
+
+**Example: the warnings with `maximum_sequence_length: 8`, then the error with `Selection.frames_per_class: 2`** (on a dataset generated again with the same settings, 3957 training frames)
+```text
+Sequence 'train_000001' Of The Training Split Has 11 Frames, More Than The Maximum Sequence Length (8): It Is Left Out Of The Training.
+Sequence 'train_000003' Of The Training Split Has 9 Frames, More Than The Maximum Sequence Length (8): It Is Left Out Of The Training.
+...
+220 Sequences Of The Training Split Are Longer Than The Maximum Sequence Length (8) And Are Left Out Of The Training.
+25 Sequences Of The Validation Split Are Longer Than The Maximum Sequence Length (8) And Are Left Out Of The Validation.
+28 Sequences Of The Test Split Are Longer Than The Maximum Sequence Length (8) And Are Left Out Of The Test.
+- Train Data Folder       : train (500 sequences, 3957 frames, 280 sequences of at most 8 frames)
+- Iterations Per Epoch    : 18
+
+ValueError: 500 sequences cannot be used for the frame selection, which needs every wanted class exactly 2 times ('Selection.frames_per_class') : labels.json
+ - train_000000 : circle 1 frames, triangle 1 frames, star 1 frames
+ - train_000001 : circle 1 frames, triangle 1 frames, star 1 frames
+ ...
+ - train_000019 : circle 1 frames, triangle 1 frames, star 1 frames
+ - ... and 480 more
+```
+The warnings name every left-out sequence, in red; the run goes on with the 280 sequences of at most 8 frames. The error lists the first 20 invalid sequences and stops the training.
 
 ### Step 2.9 — `build_native_loader()`
 **Example output**
@@ -303,14 +325,14 @@ Adam, 1 parameter group, base_learning_rates [0.001], weight decay 0.0
 MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequences', counts_frames True
 ```
 
-### Step 2.13 — `print_experiment_information()` (→ `describe_split()` → `count_split_sequences(whole_sequences=True)`)
+### Step 2.13 — `print_experiment_information()` (→ `describe_split()` → `count_split_sequences()`)
 **Example output**
 ```text
-- Run Name                : SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T12_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1
+- Run Name                : SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1
 ...
-- Train Data Folder       : file://<datasets>/synthetic_selected_shapes/train (500 sequences, 3950 frames, one window of at most 12 frames per sequence)
-- Validation Data Folder  : file://<datasets>/synthetic_selected_shapes/validation (60 sequences, 481 frames, one window of at most 12 frames per sequence)
-- Test Data Folder        : file://<datasets>/synthetic_selected_shapes/test (60 sequences, 463 frames, one window of at most 12 frames per sequence)
+- Train Data Folder       : file://<datasets>/synthetic_selected_shapes/train (500 sequences, 3950 frames, 500 sequences of at most 50 frames)
+- Validation Data Folder  : file://<datasets>/synthetic_selected_shapes/validation (60 sequences, 481 frames, 60 sequences of at most 50 frames)
+- Test Data Folder        : file://<datasets>/synthetic_selected_shapes/test (60 sequences, 463 frames, 60 sequences of at most 50 frames)
 - Iterations Per Epoch    : 32
 - Batch Size              : 16
 ...
@@ -318,11 +340,11 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequen
 ```
 
 ### Step 2.14 — `print_summary()` / `view_input_batches()` / `restore_last_model()`
-The summary panels are those of the sequence labelling, the temporal module panel giving `Output Features : 256` and the head panel `Number Of Classes : 4`. With `view_input_images`, the frames of the wanted classes are captioned with their class and the unselected frames are left blank (`get_frame_captions()`), and the information panel of the sequence starts with the frame of every wanted class (`get_window_caption()`).
+The summary panels are those of the sequence labelling, the temporal module panel giving `Output Features : 256` and the head panel `Number Of Classes : 4`. With `view_input_images`, the frames of the wanted classes are captioned with their class and the unselected frames are left blank (`get_frame_captions()`), and the information panel of the sequence starts with the frame of every wanted class (`get_sample_caption()`).
 
-**Example: the captions of the first training window**
+**Example: the captions of the first training sequence**
 ```text
-get_window_caption = 'Selected : circle 9, triangle 3, star 5'
+get_sample_caption = 'Selected : circle 9, triangle 3, star 5'
 get_frame_captions = ['', '', '', 'triangle', '', 'star', '', '', '', 'circle', '']
 ```
 
@@ -337,7 +359,7 @@ We Generate A New Model That Will Be Trained From Scratch.            -> start_i
 
 ## Stage 3 — Training Loop
 
-> The examples below are real outputs from a run on CPU of the redirected `configuration_synthetic_sequences.yaml` shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the error images and the MLflow tracking on. Its run name is `SEL_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T12_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1`; with batches of 4 sequences, an epoch is 125 iterations.
+> The examples below are real outputs from a run on CPU of the redirected `configuration_synthetic_sequences.yaml` shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the error images and the MLflow tracking on. Its run name is `SEL_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1`; with batches of 4 sequences, an epoch is 125 iterations.
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
 **Example: what happens at each iteration of the run**
@@ -375,10 +397,10 @@ wanted_class_mask in every checkpoint: [0.0, 1.0, 1.0, 1.0]
 ### Step 3.4 — `run_test_evaluation()`
 At iterations 6 and 12 (the final checkpoint), see Stage 4.
 
-### Step 3.5 — `get_next_batch()` → `SequenceDataset.__getitem__()` + `collate_longest_windows()`
-The window of the sequence labelling (`sequence_labelling_workflow.md`, Step 3.5), holding a whole sequence: the `[T]` class of every frame, -100 on the padding frames. `collate_longest_windows()` cuts the batch to its longest sequence.
+### Step 3.5 — `get_next_batch()` → `SequenceDataset.__getitem__()` + `collate_padded_sequences()`
+The sample of the sequence labelling (`sequence_labelling_workflow.md`, Step 3.5): the whole sequence with the `[T]` class of every frame. `collate_padded_sequences()` pads every sequence of the batch to its longest sequence with black frames, a False mask and the label -100.
 
-**Example: the first batch of the run** (sequences of 7, 12, 4 and 10 frames: the longest has 12 frames, so nothing is cut)
+**Example: the first batch of the run** (sequences of 7, 12, 4 and 10 frames: the longest has 12 frames, so every sequence is padded to 12)
 ```text
 images               [4, 12, 3, 64, 64] torch.uint8
 sequence_mask        [4, 12] torch.bool
@@ -768,7 +790,7 @@ The same script for every task (see `classification_workflow.md`, Stage 5). The 
 ### Step 5.2 — trainer construction
 **Example: the split line of the launch information**
 ```text
-- Test Data Folder        : file:///.../test_reduced (20 sequences, 155 frames, one window of at most 12 frames per sequence)
+- Test Data Folder        : file:///.../test_reduced (20 sequences, 155 frames, 20 sequences of at most 50 frames)
 ```
 
 ### Step 5.3 — `get_checkpoint_iterations()`

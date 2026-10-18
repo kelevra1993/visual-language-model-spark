@@ -1,10 +1,10 @@
 # Sequence Labelling Workflow
 
-This document follows one sequence labelling run (many to many, M2M: one class per frame of the windows) from `main()` to the evaluation of a checkpoint, to show which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation followed by a **real** output. The sequence labelling trainer is the sequence classification trainer with one class per frame: the steps it shares with the sequence classification (windows, padding, frame encoder) are explained in `sequence_classification_workflow.md`, and the steps shared by every task in `classification_workflow.md`; here they keep a short explanation and the real output of the labelling run, and the steps specific to the frame labels (labels per frame, temporal module keeping the time axis, frame metrics, segment metrics of the whole sequences, frame error images) are explained in full.
+This document follows one sequence labelling run (many to many, M2M: one class per frame of the sequences) from `main()` to the evaluation of a checkpoint, to show which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation followed by a **real** output. The sequence labelling trainer is the sequence classification trainer with one class per frame: the steps it shares with the sequence classification (whole sequences, padding of the batches, frame encoder) are explained in `sequence_classification_workflow.md`, and the steps shared by every task in `classification_workflow.md`; here they keep a short explanation and the real output of the labelling run, and the steps specific to the frame labels (labels per frame, temporal module keeping the time axis, frame metrics, segment metrics of the sequences, frame error images) are explained in full.
 
-The examples come from real runs on CPU, so that the GPU stayed free for another training. The synthetic dataset of the configuration, `synthetic_changing_shapes`, is not on this machine, so a small one was generated in a temporary folder with `create_synthetic_dataset(task="sequence_labelling")`: 500 training, 60 validation and 60 test sequences of 2 to 12 frames of 128 pixels, a shape changing class during the sequence, 9 shape classes. The data folders and the mapping file of the configuration were redirected to it.
-- **Stages 1 and 2**: `configurations/sequence_labelling/configuration_synthetic_sequences.yaml` (windows of 8 frames every 8 frames, 512 pixel frames, batch size 16, a GRU), with the run folder redirected to a temporary folder.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network gives one class to every frame (9 classes: a loss near ln 9 = 2.197), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
+The examples come from real runs on CPU, so that the GPU stayed free for another training. The synthetic dataset of the configuration, `synthetic_changing_shapes` (250,000 training, 50,000 validation and 50,000 test sequences), is too large for short CPU runs, so a small one was generated in a temporary folder with `create_synthetic_dataset(task="sequence_labelling", image_size=128, maximum_objects=10, minimum_frames=2, maximum_frames=12)`: 500 training, 60 validation and 60 test sequences of 2 to 12 frames of 128 pixels. Every frame is labelled `no_change` (always the first frame), `appearing_<shape>` or `disappearing_<shape>`: 71 classes for the 35 shape classes, about half of the frames being `no_change`. The data folders and the mapping file of the configuration were redirected to it.
+- **Stages 1 and 2**: `configurations/sequence_labelling/configuration_synthetic_sequences.yaml` (sequences of at most 50 frames fed whole, 512 pixel frames, batch size 16, a GRU), with the run folder redirected to a temporary folder.
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts mostly `no_change` (71 classes: a first loss near ln 71 = 4.263), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
 ## Table of Contents
 - [Call Tree Overview](#call-tree-overview)
@@ -32,10 +32,10 @@ main()
 │       ├── common checks
 │       └── check_sequence_labelling_configuration()
 │               ├── the data, head and evaluation checks of the classification
-│               ├── check_sequence_settings()             window settings, batch padding, multi_class head
+│               ├── check_sequence_settings()             maximum_sequence_length a positive integer, multi_class head
 │               └── check_temporal_model_configuration()  an ordered module only (GRU, LSTM, transformer, temporal
-│                                                         convolution): the poolings give one vector per window; causal
-│                                                         allowed
+│                                                         convolution): the poolings give one vector per sequence;
+│                                                         causal allowed
 │
 ├── get_trainer_class(task)  -> SequenceLabellingTrainer
 │
@@ -45,11 +45,14 @@ main()
 │   └── BaseTrainer.__init__()
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter() / setup_training_paths()
 │       ├── build_dataloaders() -> get_sequence_dataloaders(label_type="frame")
-│       │   └── SequenceDataset.__init__() -> compute_window_starts()
-│       │           The windows of the sequence classification, each frame keeping the class of its category
-│       │           ('frame_category_ids'), -100 for an unmapped category.
+│       │   └── SequenceDataset.__init__(split_name=...)
+│       │           One sample per whole sequence, each frame keeping the class of its category
+│       │           ('frame_category_ids'), -100 for an unmapped category; a sequence longer than
+│       │           maximum_sequence_length is left out with a warning.
+│       ├── save_data_record()                       data.json: class names, data folder, labels SHA-256, images
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
-│       │       The classes of the labelled frames of every test window: a window counts for its most frequent class.
+│       │       The classes of the labelled frames of every test sequence: a sequence counts for its most frequent
+│       │       class.
 │       ├── build_model()
 │       │   └── SequenceLabeller.__init__()
 │       │       ├── build_backbone() + build_global_pooling()
@@ -65,8 +68,9 @@ main()
     └── run_training_iterations()
         ├── for each training_iteration:
         │   ├── save_model() + run_test_evaluation() when due                    -> [STAGE 4]
-        │   ├── get_next_batch() -> SequenceDataset.__getitem__() + collate_longest_windows()
-        │   │       labels [B, T]: the class of every frame, -100 on the padding frames
+        │   ├── get_next_batch() -> SequenceDataset.__getitem__() + collate_padded_sequences()
+        │   │       labels [B, T]: the class of every frame, -100 on the padding frames, T the longest sequence
+        │   │       of the batch
         │   ├── MetricTracker.count_frames()
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch() / augment_batch()   shuffle_frames() moves the frame labels with their frames
@@ -83,8 +87,8 @@ main()
 
 run_test_evaluation(iteration)  [STAGE 4]
 ├── create_evaluation_accumulator()
-│       The probabilities and labels of the labelled frames, the window and position of every labelled frame, and
-│       whether every labelled frame of each window is right.
+│       The probabilities and labels of the labelled frames, the sequence and position of every labelled frame,
+│       whether every labelled frame of each sequence is right, and the folder and counts of the error images.
 ├── for each test batch:
 │   ├── prepare_batch() / predict_batch()
 │   ├── accumulate_evaluation_batch() -> compute_sequence_exact_matches()
@@ -94,10 +98,9 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   ├── the frame metrics of the classification     confusion matrix, accuracy, balanced accuracy, macro F1, top-k,
 │   │                                               thresholds, class_metrics.csv
 │   ├── compute_extra_headline_metrics()
-│   │   ├── Sequence Exact Match                    share of the windows whose labelled frames are all right
+│   │   ├── Sequence Exact Match                    share of the sequences whose labelled frames are all right
 │   │   └── compute_segment_results()
-│   │       ├── merge_window_predictions()          whole test sequences rebuilt from their windows, the
-│   │       │                                       probabilities of a frame held by two windows averaged
+│   │       ├── group_sequence_predictions()        the labelled frames grouped sequence by sequence, in frame order
 │   │       └── compute_segment_metrics()           extract_segments(), compute_edit_distance(),
 │   │                                               count_segment_matches(): Edit Score, Segment F1@10/25/50
 │   ├── describe_extra_notes()                      the number of true and predicted segments
@@ -120,11 +123,12 @@ The entry point is the same for every task (see `classification_workflow.md`, St
 ### Step 1.2 — `load_experiment_configuration()`
 The sections are those of the sequence classification (`sequence_classification_workflow.md`, Step 1.2).
 
-**Example: the sections and the temporal module**
+**Example: the sections, the sequence settings and the temporal module**
 ```text
 model_configuration keys: Optimization, Data, Backbone, TemporalModel, ClassificationHead
 evaluation:               {'per_class_report': True, 'number_sample_images': 8, 'top_k': 2, 'target_precision': 0.99,
                            'save_predictions': True, 'error_dumps': {'activated': False, 'maximum_per_class_pair': 20}}
+sequence_settings:        {'maximum_sequence_length': 50}
 TemporalModel:            {'type': 'gru', 'hidden_size': 128, 'number_layers': 1, 'number_heads': 4, 'kernel_size': 3, 'dropout_rate': 0.0,
                            'bidirectional': False, 'causal': False, 'positional_embedding': True, 'pretrained': {...}}
 ```
@@ -142,20 +146,29 @@ The categories of the manifest are the classes of the frames.
 **Example: the label dictionary of the changing shapes**
 ```text
 label_mapping: {'mode': 'multi_class', 'mapping_file_path': '<datasets>/synthetic_changing_shapes/label_mapping.json'}
-dict: {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8}
-9 entries, 9 distinct classes
+dict: {1: 0, 2: 1, 3: 2, 4: 3, ..., 70: 69, 71: 70}
+71 entries, 71 distinct classes
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_sequence_labelling_configuration()`: the checks of the sequence classification, except that the temporal module must model the frame order and keep one vector per frame (the poolings summarise a whole window into one vector, so they are refused), and that it may be causal: a causal module only looks at the past frames, so the class of a frame can be given as soon as the frame arrives.
+The common checks run first, then `check_sequence_labelling_configuration()`: the checks of the sequence classification (`maximum_sequence_length` a positive integer, a `multi_class` head), except that the temporal module must model the frame order and keep one vector per frame (the poolings summarise a whole sequence into one vector, so they are refused), and that it may be causal: a causal module only looks at the past frames, so the class of a frame can be given as soon as the frame arrives.
 
-**Example: output with `TemporalModel.type: "mean_pooling"` and `short_sequences: "drop"` in the YAML**
+**Example: output with `TemporalModel.type: "mean_pooling"` and `maximum_sequence_length: 0` in the YAML**
 ```text
------------------------------------------------------------------------------------------------
-Invalid Configuration File : file:///.../configuration_wrong.yaml
------------------------------------------------------------------------------------------------
-  - 'Data.sequence_settings.short_sequences' must be one of ['pad', 'skip'], got 'drop'.
+------------------------------------------------------
+Invalid Configuration File : configuration_wrong.yaml
+------------------------------------------------------
+  - 'Data.sequence_settings.maximum_sequence_length' must be an integer >= 1, got 0.
   - 'TemporalModel.type' must be one of ['gru', 'lstm', 'transformer', 'temporal_convolution'] for this task, got 'mean_pooling'.
+SystemExit code 1
+```
+
+**Example: output with a `sequence_settings` section written for an older version (without `maximum_sequence_length`)**
+```text
+----------------------------------------------------
+Invalid Configuration File : configuration_old.yaml
+----------------------------------------------------
+  - Missing configuration key 'Data.sequence_settings.maximum_sequence_length'.
 SystemExit code 1
 ```
 
@@ -170,14 +183,14 @@ get_trainer_class(task="sequence_labelling") -> <class 'vision_training.trainers
 
 ## Stage 2 — Trainer Initialization
 
-> The examples below are real outputs from building the trainer on the redirected `configuration_synthetic_sequences.yaml` (512 pixel frames, windows of 8 frames, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.3 s on CPU.
+> The examples below are real outputs from building the trainer on the redirected `configuration_synthetic_sequences.yaml` (512 pixel frames, sequences of at most 50 frames, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.1 s on CPU.
 
 ### Step 2.1 — `SequenceLabellingTrainer.__init__()`
 The labelling trainer has no constructor of its own: it is the sequence classification trainer with `LABEL_TYPE = "frame"` (the loaders read one class per frame) and `CLASS_SUPPORT_COLUMN = "Frames"` (the per-class table counts frames). It overrides the batch metric, the evaluation accumulator, the error images, the sample images, the predictions file and the extra headline metrics, since every frame has its own class.
 
 **Example: the attributes after the construction**
 ```text
-self.sequence_settings          = {'sequence_length': 8, 'window_stride': 8, 'short_sequences': 'pad', 'batch_padding': 'longest'}
+self.sequence_settings          = {'maximum_sequence_length': 50}
 self.LABEL_TYPE                 = 'frame'
 self.CLASS_SUPPORT_COLUMN       = 'Frames'
 self.top_k                      = 2
@@ -200,81 +213,87 @@ For Training We Will Be Using device: cpu
 ```
 
 ### Step 2.4 — `get_run_name()` → `build_run_name()`
-The sections of the sequence classification (`sequence_classification_workflow.md`, Step 2.4): `T8`, then `GRU1x128` (one layer of 128, not bidirectional), and `CAU` would follow a causal transformer or temporal convolution.
+The sections of the sequence classification (`sequence_classification_workflow.md`, Step 2.4): `T50` (the maximum sequence length), then `GRU1x128` (one layer of 128, not bidirectional), and `CAU` would follow a causal transformer or temporal convolution. `MC71` gives the 71 frame classes.
 
 **Example output**
 ```text
-M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128_HAVG.64_MC9
+M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71
 ```
 
 ### Step 2.5 — `DataAugmenter()`
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.5}
-8 of 16 types activated: random_crop, random_left_right_flip, random_up_down_flip, random_rotation, random_90_rotation,
-                         brightness_contrast_saturation, random_noise, random_colour_augmentation
+5 of 16 types activated: random_crop, random_left_right_flip, random_rotation, brightness_contrast_saturation, random_noise
 ```
 
 ### Step 2.6 — `setup_training_paths()`
 **Example: the run folder after this step**
 ```text
-M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128_HAVG.64_MC9/
+M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71/
 ├── Tensorboard/
 ├── Weights/
-└── training_configuration.yaml    4,675 bytes
+└── training_configuration.yaml    4,881 bytes
 ```
 
-### Step 2.7 — `build_dataloaders()` → `get_sequence_dataloaders(label_type="frame")`
+### Step 2.7 — `build_dataloaders()` → `get_sequence_dataloaders(label_type="frame")` + `save_data_record()`
+Every sequence is one sample, so a split gives as many samples as it has sequences (minus those longer than `maximum_sequence_length`, Step 2.8). Right after the loaders, `save_data_record()` writes `data.json` next to the configuration: the class names and, for every split, its data folder, the SHA-256 of its `labels.json` and its images, so that the data a model was trained on stays known. `analyse_training_data()` gives no file for this task.
+
 **Example output**
 ```text
-class_names = ['square', 'circle', 'triangle', 'rectangle', 'pentagon', 'hexagon', 'plus_sign', 'star', 'octagon']
-train        676 windows -> 43 batches of 16 (one epoch = 43 iterations)
-validation    86 windows ->  6 batches of 16
-test          80 windows ->  5 batches of 16
-collate      functools.partial(<function collate_longest_windows>, members_per_sample=1)
+class_names = ['no_change', 'appearing_square', 'appearing_circle', ..., 'disappearing_hollow_semicircle', 'disappearing_hollow_capsule']   (71)
+train        500 sequences -> 32 batches of 16 (one epoch = 32 iterations)
+validation    60 sequences ->  4 batches of 16
+test          60 sequences ->  4 batches of 16
+collate      functools.partial(<function collate_padded_sequences>, members_per_sample=1)
+data.json    151,989 bytes   keys ['created', 'class_names', 'splits']
+             splits['train'] = {'data_folder': '<datasets>/synthetic_changing_shapes/train', 'labels_sha256': 'e5172364...',
+                                'number_images': 3388, 'images': ['train_000000/000000.png', 'train_000000/000001.png', ...]}
 ```
 
-### Step 2.8 — `SequenceDataset.__init__()` → `compute_window_starts()`
-The windows are cut as for the sequence classification (`sequence_classification_workflow.md`, Step 2.9), but every sequence gives `frame_category_ids`, one category per frame, and every window keeps the class of each of its frames, -100 for a frame of an unmapped category (ignored by the loss and the metrics). A sequence longer than a window gives overlapping windows, so some frames are in two windows.
+### Step 2.8 — `SequenceDataset.__init__(split_name=...)`
+The sequences are read as for the sequence classification (`sequence_classification_workflow.md`, Step 2.9), but every sequence gives `frame_category_ids`, one category per frame, and its record keeps the class of each of its frames, -100 for a frame of an unmapped category (ignored by the loss and the metrics). Every sequence is fed whole, so every frame is in exactly one sample. A sequence longer than `maximum_sequence_length` is left out of its split, with one red warning per sequence and a total; `split_name` names the split in these warnings.
 
-**Example: a manifest sequence, and the two windows of a sequence of 10 frames**
+**Example: a manifest sequence, and the record of a sequence**
 ```text
-labels.json:  {'id': 1, 'name': 'train_000000', 'frames': ['train_000000/000000.png', ... 7 frames], 'frame_category_ids': [6, 6, 6, 6, 6, 3, 3]}
-              (500 sequences of 2 to 12 frames, 3446 frames; 9 categories {'id': 1, 'name': 'square'}, ...)
-train_000228 (10 frames, frame_category_ids [5, 8, 8, 8, 8, 8, 8, 8, 2, 9]):
-  {'identifier': 303, 'sequence_identifier': 229, 'sequence_name': 'train_000228', 'window_start': 0,
-   'frames': [000000.png ... 000007.png], 'frame_labels': [4, 7, 7, 7, 7, 7, 7, 7]}
-  {'identifier': 304, 'sequence_identifier': 229, 'sequence_name': 'train_000228', 'window_start': 2,
-   'frames': [000002.png ... 000009.png], 'frame_labels': [7, 7, 7, 7, 7, 7, 1, 8]}      <- frames 2 to 7 in both windows
+labels.json:  {'id': 1, 'name': 'train_000000', 'frames': ['train_000000/000000.png', ... 10 frames], 'frame_category_ids': [1, 1, 50, 16, 10, 36, 6, 8, 1, 1]}
+              (500 sequences of 2 to 12 frames, 3388 frames; 71 categories {'id': 1, 'name': 'no_change'}, {'id': 2, 'name': 'appearing_square'}, ...)
+record:       {'identifier': 419, 'sequence_identifier': 420, 'sequence_name': 'train_000419',
+               'frames': ['train_000419/000000.png', ... 9 frames], 'frame_labels': [0, 0, 46, 20, 0, 0, 0, 41, 46]}
 ```
 
-**Example: the first window after shuffling, and the sample the loader gets from it** (a sequence of 2 frames)
+**Example: the first sequence after shuffling, and the sample the loader gets from it** (a sequence of 9 frames)
 ```text
-window:     {'identifier': 118, 'sequence_identifier': 89, 'sequence_name': 'train_000088', 'window_start': 0,
-             'frames': ['train_000088/000000.png', 'train_000088/000001.png'], 'frame_labels': [7, 3]}
-dataset[0]: images (8, 3, 512, 512) torch.uint8
-            sequence_mask (8,) torch.bool [True, True, False, False, False, False, False, False]
-            labels (8,) torch.int64 [7, 3, -100, -100, -100, -100, -100, -100]      <- one class per frame, -100 on the padding
-            sample_identifiers 118
-get_class_counts() = [523, 511, 498, 410, 559, 399, 488, 609, 414]                  <- labelled frames of every class
+dataset[0]: images (9, 3, 512, 512) torch.uint8                                     <- the real frames only, padded by the collate
+            sequence_mask (9,) torch.bool [True, True, True, True, True, True, True, True, True]
+            labels (9,) torch.int64 [0, 0, 46, 20, 0, 0, 0, 41, 46]                 <- one class per frame
+            sample_identifiers 419
+get_class_counts() = [1600, 23, 25, 22, 29, ..., 27, 16, 20]                        <- labelled frames of every class
 ```
-The class counts add up to 4,411 frames for 3,446 frames in the split: the frames held by two windows are counted twice.
+The class counts add up to the 3,388 frames of the split: no frame is counted twice. `no_change` holds 1,600 of them.
+
+**Example: the warnings of the test split with `maximum_sequence_length: 10`** (shortened)
+```text
+Sequence 'test_000002' Of The Test Split Has 12 Frames, More Than The Maximum Sequence Length (10): It Is Left Out Of The Test.
+... (15 lines: test_000002, 04, 07, 08, 09, 10, 12, 15, 16, 23, 31, 50, 52, 54, 56)
+15 Sequences Of The Test Split Are Longer Than The Maximum Sequence Length (10) And Are Left Out Of The Test.
+count_split_sequences() = (60, 427, 45)          <- sequences and frames of the manifest, sequences kept
+```
 
 ### Step 2.9 — `build_native_loader()`
 **Example output**
 ```text
-len(loader) = 43   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
+len(loader) = 32   batch_size = 16   num_workers = 8   prefetch_factor = 2   pin_memory = True   persistent_workers = True
 ```
 
 ### Step 2.10 — `get_test_sample_classes()` + `choose_sample_identifiers()`
-Every test window gives the classes of its labelled frames, and `choose_sample_identifiers()` groups it under its most frequent class (the lowest class index on a tie). With 9 classes and 8 sample windows, the first 8 classes get one window each, the first of their group.
+Every test sequence gives the classes of its labelled frames, and `choose_sample_identifiers()` groups it under its most frequent class (the lowest class index on a tie). Since about half of the frames are `no_change`, all 60 test sequences fall in the `no_change` group, so the 8 sample sequences are spread evenly over that group.
 
 **Example output**
 ```text
-get_test_sample_classes() -> 80 entries, e.g. {63: [6, 6, 1, 1, 4, 4, 4, 4], 8: [6, 6, 0, 0, 0, 0, 3, 3], 43: [2, 2, 0, 0, 0, 0], 5: [7, 7, 7, 7, 7, 5, 5, 7]}
-sample_image_identifiers  -> [0, 1, 2, 4, 5, 6, 10, 13]
-names                     -> test_000000_000000, test_000001_000000, test_000002_000000, test_000003_000000,
-                             test_000004_000000, test_000005_000000, test_000007_000000, test_000010_000000
+get_test_sample_classes() -> 60 entries, e.g. {28: [0, 19, 0, 0, 49, 52, 16, 45, 0], 23: [0, 0, 23, 24, 28, 55, 0, 0, 37, 58, 0, 0], 37: [0, 24, 0, 0], 33: [0, 44, 0, 11]}
+sample_image_identifiers  -> {0, 8, 17, 25, 34, 42, 51, 59}
+names                     -> test_000000, test_000008, test_000017, test_000025, test_000034, test_000042, test_000051, test_000059
 ```
 
 ### Step 2.11 — `build_model()` → `SequenceLabeller.__init__()`
@@ -285,8 +304,9 @@ The labeller has the parts of the sequence classifier (`sequence_classification_
 model.backbone                 Backbone                   183,648 parameters
 model.global_pooling           Sequential                       0 parameters
 model.temporal_module          RecurrentTemporalModule     74,496 parameters      GRU(64, 128, batch_first=True), output_features 128
-model.classification_head      ClassificationHead           8,841 parameters      Linear(128, 64) -> ReLU -> Linear(64, 9)
-model.class_weights            buffer [9] torch.float32 [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+model.classification_head      ClassificationHead          12,871 parameters      Linear(128, 64) -> ReLU -> Linear(64, 71)
+model.class_weights            buffer [71] torch.float32 [1.0, 1.0, 1.0, ...]
+total                                                     271,015 parameters
 ```
 The GRU reads the frames in order only (`bidirectional: False`): the vector of a frame then depends on the frames before it. A bidirectional GRU would give 256 features per frame, seeing the frames after it too.
 
@@ -300,21 +320,31 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequen
 ```
 
 ### Step 2.13 — `print_experiment_information()` (→ `describe_split()` → `count_split_sequences()`)
+Every split line gives its sequences and frames, then the sequences kept and the maximum sequence length.
+
 **Example output**
 ```text
-- Run Name                : M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128_HAVG.64_MC9
+- Run Name                : M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71
 ...
-- Train Data Folder       : file://<datasets>/synthetic_changing_shapes/train (500 sequences, 3446 frames, 676 windows of at most 8 frames)
-- Validation Data Folder  : file://<datasets>/synthetic_changing_shapes/validation (60 sequences, 449 frames, 86 windows of at most 8 frames)
-- Test Data Folder        : file://<datasets>/synthetic_changing_shapes/test (60 sequences, 434 frames, 80 windows of at most 8 frames)
-- Iterations Per Epoch    : 43
+- Data Record             : data.json
+- Train Data Folder       : train (500 sequences, 3388 frames, 500 sequences of at most 50 frames)
+- Validation Data Folder  : validation (60 sequences, 390 frames, 60 sequences of at most 50 frames)
+- Test Data Folder        : test (60 sequences, 427 frames, 60 sequences of at most 50 frames)
+- Iterations Per Epoch    : 32
 - Batch Size              : 16
 ...
 - MLflow Tracking         : Off
 ```
 
 ### Step 2.14 — `print_summary()` / `view_input_batches()` / `restore_last_model()`
-The summary panels are those of the sequence classification, the temporal module panel giving `Output Features : 128`. With `view_input_images`, every frame of the grids is captioned with its class (`get_frame_captions()`, `none` for an unmapped category), and the information panel of the window starts with the order of its classes (`get_window_caption()`, e.g. `Classes : hexagon > triangle`).
+The summary panels are those of the sequence classification, the temporal module panel giving `Output Features : 128` and the head panel `Number Of Classes : 71`. With `view_input_images`, every frame of the grids is captioned with its class (`get_frame_captions()`, `none` for an unmapped category), and the information panel of the sequence starts with the order of its classes (`get_sample_caption()`).
+
+**Example: the captions of the sequence of Step 2.8**
+```text
+get_sample_caption() -> 'Classes : no_change > disappearing_parallelogram > appearing_l_shape > no_change > disappearing_hexagon > disappearing_parallelogram'
+get_frame_captions() -> ['no_change', 'no_change', 'disappearing_parallelogram', 'appearing_l_shape', 'no_change', 'no_change', 'no_change',
+                         'disappearing_hexagon', 'disappearing_parallelogram']
+```
 
 **Example output: a new run**
 ```text
@@ -327,7 +357,7 @@ We Generate A New Model That Will Be Trained From Scratch.            -> start_i
 
 ## Stage 3 — Training Loop
 
-> The examples below are real outputs from a run on CPU of the redirected `configuration_synthetic_sequences.yaml` shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the error images and the MLflow tracking on. Its run name is `M2M_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128_HAVG.64_MC9`; with batches of 4 windows, an epoch is 169 iterations.
+> The examples below are real outputs from a run on CPU of the redirected `configuration_synthetic_sequences.yaml` shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the error images and the MLflow tracking on. Its run name is `M2M_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71`; with batches of 4 sequences, an epoch is 125 iterations.
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
 **Example: what happens at each iteration of the run**
@@ -344,70 +374,79 @@ We Generate A New Model That Will Be Trained From Scratch.            -> start_i
 ```text
 Tensorboard/Train/        Total Loss, Classification Loss, Accuracy, Learning Rate    (iterations 1 to 12)
 Tensorboard/Validation/   Total Loss, Classification Loss, Accuracy                   (iteration 10)
-MLflow Run Created In The Experiment 'sequence_labelling' : 39f5fb6183164c37a921cee2a6ae2f86 (Browse : mlflow ui --backend-store-uri sqlite:///.../runs/mlflow.db)
+MLflow Run Created In The Experiment 'sequence_labelling' : 924c26859f0f4a3dbea80d87b4eb67a6 (Browse : mlflow ui --backend-store-uri sqlite:///.../runs/mlflow.db)
 ```
 
 ### Step 3.3 — `save_model()` → `save_checkpoint()`
 **Example: the checkpoints and the keys of the last one**
 ```text
-Weights/Iteration_3/model_000003.pt   3,296,551 bytes      Weights/Iteration_6/model_000006.pt   3,296,551 bytes
-Weights/Iteration_9/model_000009.pt   3,296,615 bytes      Weights/Iteration_12/model_000012.pt  3,296,615 bytes
+Checkpoint Folder :
+ - Iteration_3
+ - Model Saved In : model_000003.pt
+Weights/Iteration_3/model_000003.pt   3,345,255 bytes      Weights/Iteration_6/model_000006.pt   3,345,255 bytes
+Weights/Iteration_9/model_000009.pt   3,345,255 bytes      Weights/Iteration_12/model_000012.pt  3,345,255 bytes
 ['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'mlflow_run_id',
  'pretrained_backbone', 'pretrained_temporal_module', 'pretrained_classification_head']
-model_state: 90 tensors, the first 'class_weights', then 'backbone.convolution_blocks.0. ...'
+model_state: 90 tensors, the first 'class_weights', then 'backbone.convolution_blocks.0. ...'      format_version 2
 ```
 
 ### Step 3.4 — `run_test_evaluation()`
 At iterations 6 and 12 (the final checkpoint), see Stage 4.
 
-### Step 3.5 — `get_next_batch()` → `SequenceDataset.__getitem__()` + `collate_longest_windows()`
-The window of the sequence classification (`sequence_classification_workflow.md`, Step 3.7), its label being the `[T]` class of every frame, -100 on the padding frames. `collate_longest_windows()` cuts the labels with the frames, since they have a frame axis.
+### Step 3.5 — `get_next_batch()` → `SequenceDataset.__getitem__()` + `collate_padded_sequences()`
+The sequence of the sequence classification (`sequence_classification_workflow.md`, Step 3.7), its label being the `[T]` class of every frame. `collate_padded_sequences()` pads every sequence of the batch to the longest one: black frames, `False` in the mask and -100 in the labels, so that the padding frames are ignored by the loss and the metrics.
 
-**Example: the first batch of the run** (the longest window of the batch has 8 frames, so nothing is cut)
+**Example: the first batch of the run** (the longest sequence of the batch has 12 frames)
 ```text
-images               [4, 8, 3, 64, 64] torch.uint8
-sequence_mask        [4, 8] torch.bool
-                     [[True x 8], [True, True, True, False, False, False, False, False], [True x 8], [True, True, True, True, False, False, False, False]]
-labels               [4, 8] torch.int64
-                     [[3, 3, 3, 3, 5, 8, 8, 8], [2, 1, 1, -100, -100, -100, -100, -100], [1, 1, 1, 6, 6, 6, 6, 6], [8, 7, 5, 6, -100, -100, -100, -100]]
-sample_identifiers   [4] torch.int64     [273, 499, 386, 34]
+images               [4, 12, 3, 64, 64] torch.uint8
+sequence_mask        [4, 12] torch.bool     real frames per sequence [7, 12, 11, 3]
+labels               [4, 12] torch.int64
+                     [[0, 35, 0, 43, 0, 0, 0, -100, -100, -100, -100, -100],
+                      [0, 0, 52, 36, 35, 0, 46, 0, 0, 0, 0, 0],
+                      [0, 0, 55, 0, 0, 36, 48, 58, 0, 39, 32, -100],
+                      [0, 0, 61, -100, -100, -100, -100, -100, -100, -100, -100, -100]]
+sample_identifiers   [4] torch.int64     [457, 480, 168, 34]
+second batch         images [4, 10, 3, 64, 64], labels[0] = [0, 8, 0, 0, 11, -100, -100, -100, -100, -100], sample_identifiers [163, 278, 272, 443]
 ```
 
 ### Step 3.6 — `MetricTracker.count_frames()`
-**Example: the frames of the first two intervals**
+**Example: the real frames of the three intervals**
 ```text
-interval_frames = 89 (iterations 1 to 4), 112 (iterations 5 to 8)
+interval_frames = 109 (iterations 1 to 4: 33, 59, 83, 109), 116 (iterations 5 to 8), 93 (iterations 9 to 12)
 ```
+The validation batch of iteration 10 does not add to the count.
 
 ### Step 3.7 — `run_model_iteration()` → `prepare_batch()`
 **Example: before and after**
 ```text
-images [4, 8, 3, 64, 64] torch.uint8 -> torch.float32     labels [4, 8] torch.int64     sequence_mask [4, 8] torch.bool
+images [4, 12, 3, 64, 64] torch.uint8 -> torch.float32     labels [4, 12] torch.int64     sequence_mask [4, 12] torch.bool
 ```
 
 ### Step 3.8 — `augment_batch()`
-The augmentation of the sequence classification (`sequence_classification_workflow.md`, Step 3.12). When `shuffle_frames` permutes the real frames of a window, the frame labels are gathered in the same order (`torch.gather()` with the frame order of the window), so that every frame keeps its class.
+The augmentation of the sequence classification (`sequence_classification_workflow.md`, Step 3.12). When `shuffle_frames` permutes the real frames of a sequence, it returns the frame order of every sequence, and the frame labels are gathered in the same order, so that every frame keeps its class.
 
-**Example: which windows of the first batch were changed** (`probability: 0.4`)
+**Example: which sequences of the first three batches were changed** (`probability: 0.4`)
 ```text
-images: changed per sample [False, False, True, True]      labels: changed per sample [False, False, False, False]
+iteration 1   images: changed per sample [False, False, False, True]   labels: changed per sample [False, False, False, False]
+iteration 2   images: changed per sample [False, False, True, False]   labels: unchanged
+iteration 3   images: unchanged                                         labels: unchanged
 ```
 
 ### Step 3.9 — `forward_pass()` → `SequenceLabeller.forward(sequence_mask=..., labels=...)`
-`encode_frames()` gives the `[B, T, F]` frame vectors (`sequence_classification_workflow.md`, Step 3.14). The temporal module keeps the time axis: the GRU reads the packed real frames of every window and returns its output at every frame, padded back to `[B, T, F']` with zeros on the padding frames. The head is applied to every frame vector.
+`encode_frames()` gives the `[B, T, F]` frame vectors (`sequence_classification_workflow.md`, Step 3.14). The temporal module keeps the time axis: the GRU reads the packed real frames of every sequence (`pack_padded_sequence`) and returns its output at every frame, padded back to `[B, T, F']` with zeros on the padding frames. The head is applied to every frame vector.
 
-**Example: the first batch through the trained model**
+**Example: the first batch through the model**
 ```text
-encode_frames   -> (4, 8, 64)    zero vectors per window [0, 5, 0, 4]       <- the padding frames
-temporal_module -> (4, 8, 128)   one vector per frame
-classification_head -> (4, 8, 9)
+encode_frames       -> (4, 12, 64)    zero vectors per sequence [5, 0, 1, 9]       <- the padding frames
+temporal_module     -> (4, 12, 128)   one vector per frame, zero vectors per sequence [5, 0, 1, 9]
+classification_head -> (4, 12, 71)
 ```
 
 **Example: the dictionary returned in training mode**
 ```text
-class_logits          [4, 8, 9] torch.float32
-class_probabilities   [4, 8, 9] torch.float32
-classification_loss   2.1962 (scalar)            <- close to ln 9 = 2.197
+class_logits          [4, 12, 71] torch.float32
+class_probabilities   [4, 12, 71] torch.float32
+classification_loss   4.3000 (scalar)            <- close to ln 71 = 4.263
 ```
 
 ### Step 3.10 — `compute_sequence_labelling_loss()`
@@ -418,21 +457,22 @@ The share of the labelled frames whose predicted class (the argmax of their logi
 
 **Example: the first batch**
 ```text
-accuracy = 0.0870          (2 of the 8 + 3 + 8 + 4 = 23 labelled frames right)
+accuracy = 0.0          (0 of the 7 + 12 + 11 + 3 = 33 labelled frames right)
 ```
 
 ### Step 3.12 — `MetricTracker.accumulate()` + `log_to_tensorboard()`
 **Example: the Train curves**
 ```text
-Total Loss   1: 2.1962, 2: 2.1879, 3: 2.2749, 4: 2.2360, 5: 2.2211, 6: 2.1614, 7: 2.1669, 8: 2.1590, 9: 2.1973, 10: 2.2007, 11: 2.1900, 12: 2.2046
-Accuracy     1: 0.0870, 2: 0.0714, 3: 0.0000, 4: 0.0769, 5: 0.1071, 6: 0.0345, 7: 0.2609, 8: 0.2500, 9: 0.1304, 10: 0.0312, 11: 0.2500, 12: 0.1250
+Total Loss   1: 4.3000, 2: 4.2443, 3: 4.2126, 4: 4.1890, 5: 4.1762, 6: 4.0613, 7: 4.0971, 8: 3.9974, 9: 3.8736, 10: 3.9365, 11: 4.0403, 12: 3.8194
+Accuracy     1: 0.0000, 2: 0.0000, 3: 0.0000, 4: 0.0385, 5: 0.1304, 6: 0.2424, 7: 0.3333, 8: 0.5000, 9: 0.5556, 10: 0.4643, 11: 0.3200, 12: 0.4545
 ```
+The accuracy rises as the network learns to predict `no_change`, the most frequent class.
 
 ### Step 3.13 — `training_loss.backward()` + `step_optimizer()` + validation pass
 **Example output**
 ```text
-gradient norm: iteration 1: 0.5323   iteration 2: 0.5271   iteration 3: 0.7529        learning rate 0.001 (constant)
-Tensorboard/Validation at iteration 10: Total Loss 2.1684, Classification Loss 2.1684, Accuracy 0.2333
+gradient norm: iteration 1: 0.9540   iteration 2: 0.9521   iteration 3: 0.7110        learning rate 0.001 (constant)
+Tensorboard/Validation at iteration 10: Total Loss 4.1790, Classification Loss 4.1790, Accuracy 0.0 (0 of 18 labelled frames)
 ```
 
 ### Step 3.14 — `average_trackers()` + `log_interval_metrics()` + `print_interval_summary()`
@@ -440,46 +480,61 @@ The batch accuracies are averaged over the batches of the interval, each batch h
 
 **Example: the sums and the averages of the first interval**
 ```text
-before: {'interval_batches': 4, 'total_loss': 8.895, 'classification_loss': 8.895, 'accuracy': 0.2353, 'interval_frames': 89}
-after:  {'interval_batches': 4, 'total_loss': 2.2237, 'classification_loss': 2.2237, 'accuracy': 0.0588, 'interval_frames': 89}
-MLflow, step 4: {'train/Total Loss': 2.2237, 'train/Classification Loss': 2.2237, 'train/Accuracy': 0.0588,
-                 'train/throughput': 5.7679, 'train/interval_seconds': 2.774, 'learning_rate': 0.001,
-                 'train/frame_throughput': 32.0837}
+before: {'interval_batches': 4, 'total_loss': 16.9459, 'classification_loss': 16.9459, 'accuracy': 0.0385, 'interval_frames': 109}
+after:  {'interval_batches': 4, 'total_loss': 4.2365, 'classification_loss': 4.2365, 'accuracy': 0.0096, 'interval_frames': 109}
+MLflow, step 4: {'train/Total Loss': 4.2365, 'train/Classification Loss': 4.2365, 'train/Accuracy': 0.0096,
+                 'train/throughput': 1.7998, 'train/interval_seconds': 8.8898, 'learning_rate': 0.001,
+                 'train/frame_throughput': 12.2612}
 ```
 
 **Example output: iterations 4 and 12**
 ```text
 ===========================================================================================================================================================
-|     Iteration: 4    |     Total Sequences: 16     |    Interval Sequences: 16    |   Throughput: 5.8 Sequences Per Second  |   32.1 Frames Per Second   |
+|     Iteration: 4    |     Total Sequences: 16     |    Interval Sequences: 16    |   Throughput: 1.8 Sequences Per Second  |   12.3 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   2.2237
-Moving Average of Train Classification Loss            :   2.2237
-Moving Average of Train Accuracy                       :   0.0588
+Moving Average of Train Total Loss                     :   4.2365
+Moving Average of Train Classification Loss            :   4.2365
+Moving Average of Train Accuracy                       :   0.0096
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 4 Iterations Took 00:00:02.
+Interval Of 4 Iterations Took 00:00:08.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
 ===========================================================================================================================================================
 ...
 ===========================================================================================================================================================
-|    Iteration: 12    |     Total Sequences: 48     |    Interval Sequences: 16    |  Throughput: 11.7 Sequences Per Second  |   81.0 Frames Per Second   |
+|    Iteration: 12    |     Total Sequences: 48     |    Interval Sequences: 16    |   Throughput: 2.6 Sequences Per Second  |   15.3 Frames Per Second   |
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   2.1982  +0.0210
-Moving Average of Valid Total Loss                     :   2.1684
-Moving Average of Train Classification Loss            :   2.1982  +0.0210
-Moving Average of Valid Classification Loss            :   2.1684
-Moving Average of Train Accuracy                       :   0.1342  -0.0290
-Moving Average of Valid Accuracy                       :   0.2333
+Moving Average of Train Total Loss                     :   3.9174  -0.1656 Best
+Moving Average of Valid Total Loss                     :   4.1790
+Moving Average of Train Classification Loss            :   3.9174  -0.1656 Best
+Moving Average of Valid Classification Loss            :   4.1790
+Moving Average of Train Accuracy                       :   0.4486  +0.1470 Best
+Moving Average of Valid Accuracy                       :   0.0000
 -----------------------------------------------------------------------------------------------------------------------------------------------------------
-Interval Of 4 Iterations Took 00:00:01.
+Interval Of 4 Iterations Took 00:00:06.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ===========================================================================================================================================================
 ```
+The interval of iteration 8 (loss 4.0830, accuracy 0.3015) took 00:01:06, since it includes the test evaluation of iteration 6, so its throughput is 0.2 Sequences Per Second.
 
 ### Step 3.15 — end of the loop
 **Example output**
 ```text
 Model successfully saved at iteration 12. Exiting Training.
-Iteration 12 · 80 Test Sequences, 541 Labelled Frames · 2026-10-10 07:15 ───────────────      <- the evaluation of the final checkpoint
+Iteration 12 · 60 Test Sequences, 427 Labelled Frames · 2026-10-18 08:48 ───────────────      <- the evaluation of the final checkpoint
+```
+
+**Example: the run folder after the training**
+```text
+M2M_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71/
+├── Evaluation/         Iteration_6/, Iteration_12/
+├── Tensorboard/        Train/, Validation/, Test/
+├── Weights/            Iteration_3/, Iteration_6/, Iteration_9/, Iteration_12/, full-checkpoint
+├── data.json
+├── mlflow_run.json
+├── Results.txt
+└── training_configuration.yaml
+MLflow artifacts: metric_names.json, Results.txt, data/data.json, configuration/training_configuration.yaml,
+                  evaluation/iteration_6/ and evaluation/iteration_12/ (class_metrics.csv, class_thresholds.json, confusion_matrix.png)
 ```
 
 
@@ -487,191 +542,202 @@ Iteration 12 · 80 Test Sequences, 541 Labelled Frames · 2026-10-10 07:15 ─�
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences cut into 80 windows), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. The checkpoint of iteration 6 gives `circle` to every frame, the one of iteration 12 gives `rectangle` to every frame.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences, 427 labelled frames), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. The checkpoint of iteration 6 gives `disappearing_hollow_ellipse` to every frame; the one of iteration 12 gives `no_change` to 307 frames and `disappearing_hollow_ellipse` to the 120 others.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1).
 
-**Example output: the progress bar** (80 windows, batch size 4)
+**Example output: the progress bar** (60 sequences, batch size 4)
 ```text
-Test Evaluation Iteration 12: 100%|██████████| 20/20 [00:01<00:00, 10.05it/s]
+Test Evaluation Iteration 12: 100%|██████████| 15/15 [00:08<00:00,  1.86it/s]
 ```
 
 ### Step 4.2 — `create_evaluation_accumulator()`
-The labelling hook keeps only the labelled frames: their probabilities and labels, the window and the position in it of every one of them (to name the frame in the predictions file and to place it in its sequence for the segment metrics), and, for every window, whether all its labelled frames are right.
+The labelling hook keeps only the labelled frames: their probabilities and labels, the sequence and the position in it of every one of them (to name the frame in the predictions file and to place it in its sequence for the segment metrics), and, for every sequence, whether all its labelled frames are right. It also holds the folder of the error images and their counts per class pair.
 
 **Example: the accumulator at the end of the loop of iteration 6**
 ```text
-'probabilities':            20 tensors, the first [28, 9] torch.float64     <- the 28 labelled frames of the first batch
-'labels':                   20 tensors, the first [28] torch.int64
-'frame_window_identifiers': 20 tensors, the first [28] torch.int64
-'frame_positions':          20 tensors, the first [28] torch.int64
-'exact_matches':            20 tensors, the first [4] torch.bool
+'probabilities':              15 tensors, the first [20, 71] torch.float64     <- the 20 labelled frames of the first batch, 427 in all
+'labels':                     15 tensors, the first [20] torch.int64
+'frame_sequence_identifiers': 15 tensors, the first [20] torch.int64
+'frame_positions':            15 tensors, the first [20] torch.int64
+'exact_matches':              15 tensors, the first [4] torch.bool             <- 60 in all, one per sequence
+'errors_folder':              .../Evaluation/Iteration_6/Errors
+'error_counts':               {}  at the start, the images written per class pair
 ```
 
 ### Step 4.3 — `prepare_batch()` + `predict_batch()`
-**Example: the predictions of a test batch**
+**Example: the predictions of the first test batch** (its longest sequence has 6 frames)
 ```text
-class_logits          [4, 8, 9] torch.float32
-class_probabilities   [4, 8, 9] torch.float32
+class_logits          [4, 6, 71] torch.float32
+class_probabilities   [4, 6, 71] torch.float32
 ```
 
 ### Step 4.4 — `accumulate_evaluation_batch()` → `compute_sequence_exact_matches()`
-It keeps the probabilities and the labels of the labelled frames (`labels != -100`), with their window and position, and `compute_sequence_exact_matches()` tells for every window whether all its labelled frames are right. Then `dump_errors()` runs while the frames are still in the batch.
+It keeps the probabilities and the labels of the labelled frames (`labels != -100`), with their sequence and position, and `compute_sequence_exact_matches()` tells for every sequence whether all its labelled frames are right. Then `dump_errors()` runs while the frames are still in the batch.
 
 ### Step 4.5 — `dump_errors()` → `build_frame_prediction_captions()` + `build_frame_grid()`
-Every wrong frame gives one image: the grid of its window, every real frame captioned `true/predicted` (with `X` before a wrong frame), under a caption bar naming the wrong frame, its classes and the probability of its predicted class. It is saved as `Errors/<TRUE>-TO-<PREDICTED>/<window>_frame<index>_<score>.png`, at most `maximum_per_class_pair` per pair, the window being named after its sequence and its first frame.
+Every wrong frame gives one image: the grid of its sequence, every real frame captioned `true/predicted` (with `X ` before a wrong frame, and `none` as the true class of an unlabelled frame), under a caption bar `frame <index> : <true> -> <predicted> <score>` naming the wrong frame, its classes and the probability of its predicted class. It is saved as `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_frame<index>_<score>.png`, at most `maximum_per_class_pair` per pair.
 
-**Example: the error images of the checkpoint of iteration 12** (every frame predicted as `rectangle`)
+**Example: the error images of the checkpoint of iteration 12**
 ```text
 Evaluation/Iteration_12/Errors/
-├── circle-TO-rectangle/      test_000025_000000_frame7_0.122.png   test_000032_000000_frame1_0.122.png
-├── hexagon-TO-rectangle/     test_000005_000003_frame1_0.122.png   test_000005_000003_frame2_0.122.png
-│                             <- frames 1 and 2 of the window of test_000005 starting at its frame 3
-├── octagon-TO-rectangle/     test_000016_000000_frame7_0.122.png   test_000016_000003_frame4_0.122.png
-...                           8 pairs x 2 images
-report line: "Error Images : 16 in 8 class pairs, at most 2 per pair"
+├── appearing_circle-TO-no_change/                 test_000041_frame3_0.019.png   test_000041_frame9_0.020.png
+│                                                  <- frames 3 and 9 of test_000041
+├── disappearing_square-TO-no_change/              test_000032_frame4_0.019.png   test_000035_frame4_0.019.png
+├── no_change-TO-disappearing_hollow_ellipse/      test_000032_frame0_0.017.png   test_000041_frame0_0.017.png
+...                                                96 pairs, 158 images
+report line: "Error Images : 158 in 96 class pairs, at most 2 per pair"
 ```
+The checkpoint of iteration 6 gives 133 images in 68 class pairs.
 
 ### Step 4.6 — `save_sample_images()` → `build_sample_image()`
-The labelling hook draws the frame grid of the window, every real frame captioned `true/predicted` with `X` before a wrong frame, under a caption bar giving the number of labelled frames that are right, in green when all are and in red otherwise.
+The labelling hook draws the frame grid of the sequence (`FRAME_GRID_COLUMNS = 4` frames per row), every real frame captioned `true/predicted` with `X ` before a wrong frame, under a caption bar giving the number of labelled frames that are right, in green when all are and in red otherwise.
 
 **Example: the sample images of the checkpoint of iteration 12**
 ```text
 Evaluation/Iteration_12/Samples/
-test_000000_000000.png  test_000001_000000.png  test_000002_000000.png  test_000003_000000.png
-test_000004_000000.png  test_000005_000000.png  test_000007_000000.png  test_000010_000000.png
-build_sample_image -> [96, 276, 3] torch.uint8      one row of up to 4 frames of 64 pixels under the caption bar
+test_000000.png  test_000008.png  test_000017.png  test_000025.png
+test_000034.png  test_000042.png  test_000051.png  test_000059.png
+build_sample_image -> (96, 276, 3) uint8      a sequence of 2 to 4 frames: one row of 64 pixel frames under the caption bar
+                      (164, 276, 3) uint8     a sequence of 5 to 8 frames: two rows
+                      (232, 276, 3) uint8     a sequence of 9 to 12 frames: three rows
 caption: "<right frames>/<labelled frames> labelled frames right (true/predicted)"
+TensorBoard: Samples/test_000000, ..., Samples/test_000059
 ```
 
 ### Step 4.7 — `compute_evaluation_results()`
-The frame metrics of the classification are computed on the labelled frames (Steps 4.8 and 4.9), then `compute_extra_headline_metrics()` adds the window and sequence metrics (Steps 4.10 and 4.11), and `describe_extra_notes()` the number of segments. `describe_evaluated_samples()` gives the windows and their labelled frames: the 434 frames of the test split are held 541 times by the 80 windows, since the overlapping windows hold some frames twice. The headline metric is the frame accuracy.
+The frame metrics of the classification are computed on the labelled frames (Steps 4.8 and 4.9), then `compute_extra_headline_metrics()` adds the sequence metrics (Steps 4.10 and 4.11), and `describe_extra_notes()` the number of segments. `describe_evaluated_samples()` gives the sequences and their labelled frames: every frame of the test split is evaluated once. The headline metric is the frame accuracy.
 
 **Example: the results of iteration 12**
 ```text
-evaluated_samples = '80 Test Sequences, 541 Labelled Frames'
-metrics           = {'Accuracy': 0.1183, 'Balanced Accuracy': 0.1111, 'Macro F1': 0.0235, 'Top-2 Accuracy': 0.1941,
-                     'Sequence Exact Match': 0.0, 'Edit Score': 0.1111, 'Segment F1@10': 0.1688, 'Segment F1@25': 0.1266,
-                     'Segment F1@50': 0.0759}
-notes             = ['Segments : 177 true and 60 predicted in 60 whole test sequences, their windows being merged and an
-                      unlabelled frame ending a segment', 'Error Images : 16 in 8 class pairs, at most 2 per pair',
-                     'Sample Images : 8 fixed test sequences']
+evaluated_samples = '60 Test Sequences, 427 Labelled Frames'
+metrics           = {'Accuracy': 0.2787, 'Balanced Accuracy': 0.0084, 'Macro F1': 0.0067, 'Top-2 Accuracy': 0.3466,
+                     'Sequence Exact Match': 0.0, 'Edit Score': 0.1424, 'Segment F1@10': 0.2047, 'Segment F1@25': 0.1151,
+                     'Segment F1@50': 0.0384}
+notes             = ['Segments : 355 true and 114 predicted in 60 test sequences, an unlabelled frame ending a segment',
+                     'Error Images : 158 in 96 class pairs, at most 2 per pair', 'Sample Images : 8 fixed test sequences']
 headline_metric   = 'Accuracy'
-class_scalars     = 27: Precision/square, Recall/square, F1/square, Precision/circle, ...
+class_scalars     = 213 (71 classes x 3): Precision/no_change, Recall/no_change, F1/no_change, Precision/appearing_square, ...
 tables            = Per Class Metrics: Class, Frames, Precision, Recall, F1, Threshold @ P0.99, Recall @ P0.99
+files             = Results.txt, confusion_matrix.csv, class_thresholds.json, class_metrics.csv, confusion_matrix.png,
+                    predictions.csv, Errors, Samples
 ```
 
 ### Step 4.8 — the frame metrics: `compute_confusion_matrix()` + `compute_metrics_from_confusion_matrix()` + `compute_top_k_accuracy()`
-The metrics of the classification (see `classification_workflow.md`, Steps 4.9 to 4.11), every labelled frame of every window being one sample.
+The metrics of the classification (see `classification_workflow.md`, Steps 4.8 to 4.11), every labelled frame of every sequence being one sample.
 
-**Example: `Evaluation/Iteration_12/confusion_matrix.csv`**
+**Example: `Evaluation/Iteration_12/confusion_matrix.csv`** (71 x 71, shortened)
 ```text
-true \ predicted,square,circle,triangle,rectangle,pentagon,hexagon,plus_sign,star,octagon
-square,0,0,0,68,0,0,0,0,0
-circle,0,0,0,41,0,0,0,0,0
-triangle,0,0,0,64,0,0,0,0,0
-rectangle,0,0,0,64,0,0,0,0,0
+true \ predicted,no_change,appearing_square,appearing_circle, ... ,disappearing_hollow_ellipse,disappearing_hollow_semicircle,disappearing_hollow_capsule
+no_change,119,0,0, ... ,87,0,0
+appearing_square,1,0,0, ... ,1,0,0
 ...
-octagon,0,0,0,48,0,0,0,0,0
+disappearing_hollow_ellipse,2,0,0, ... ,0,0,0
+...
+columns: 307 frames predicted no_change, 120 predicted disappearing_hollow_ellipse, 0 for the 69 other classes
 ```
 
 **Example: how the numbers of iteration 12 are obtained**
 ```text
-accuracy          = 64 / 541                                   = 0.1183   (only the rectangle frames are right)
-rectangle         precision = 64 / 541 = 0.1183   recall = 1.0   F1 = 2 x 0.1183 x 1.0 / (0.1183 + 1.0) = 0.2116
-balanced accuracy = (1.0 + 8 x 0.0) / 9                        = 0.1111
-macro F1          = (0.2116 + 8 x 0.0) / 9                     = 0.0235
+accuracy          = 119 / 427                                       = 0.2787   (only no_change frames are right)
+no_change         precision = 119 / 307 = 0.3876   recall = 119 / 206 = 0.5777   F1 = 0.4639
+balanced accuracy = 0.5777 / 69                                     = 0.0084   (69 classes have test frames)
+macro F1          = 0.4639 / 69                                     = 0.0067
 ```
+`appearing_star` and `appearing_semicircle` have no test frame, so they are left out of the averages.
 
 ### Step 4.9 — `find_class_thresholds()` + `write_class_metrics_file()` + `save_confusion_matrix_image()`
-**Example: `Evaluation/Iteration_12/class_metrics.csv`** (the `samples` column counts labelled frames)
+**Example: `Evaluation/Iteration_12/class_metrics.csv`** (72 lines; the `samples` column counts labelled frames)
 ```text
 class_index,class,samples,precision,recall,f1,threshold_at_target_precision,recall_at_target_precision
-0,square,68,0.000000,0.000000,0.000000,,
-1,circle,41,0.000000,0.000000,0.000000,,
-2,triangle,64,0.000000,0.000000,0.000000,,
-3,rectangle,64,0.118299,1.000000,0.211570,,
+0,no_change,206,0.387622,0.577670,0.463938,0.020103,0.009709
+1,appearing_square,2,0.000000,0.000000,0.000000,,
+...
+69,disappearing_hollow_semicircle,4,0.000000,0.000000,0.000000,0.014210,0.250000
 ...
 ```
-No class reaches a precision of 0.99 here, so every class of `class_thresholds.json` is `null`.
+In `class_thresholds.json` (`target_precision` 0.99), `no_change` reaches a precision of 0.99 from a probability of 0.0201 (recall 0.0097) and `disappearing_hollow_semicircle` from 0.0142 (recall 0.25); most of the other classes are `null`.
 
 ### Step 4.10 — Sequence Exact Match
-The share of the test windows whose labelled frames are all right, from the `exact_matches` of Step 4.4: the strictest metric of the task.
+The share of the test sequences whose labelled frames are all right, from the `exact_matches` of Step 4.4: the strictest metric of the task.
 
 **Example output**
 ```text
-Sequence Exact Match = 0.0      (no test window has all its labelled frames of the one class predicted everywhere)
+Sequence Exact Match = 0.0      (no test sequence has all its labelled frames right)
 ```
 
-### Step 4.11 — `compute_segment_results()` → `merge_window_predictions()` + `compute_segment_metrics()`
-The frame metrics do not see whether the prediction of a sequence is fragmented: a sequence of 10 frames of one class predicted with one wrong frame in the middle keeps a frame accuracy of 0.9, but it gives three segments for one event. The segment metrics score the events of the whole test sequences:
-- `merge_window_predictions()` places every labelled frame in its sequence (the start of its window plus its position), merges the windows of every sequence, and averages the probabilities of a frame held by two windows before taking its class;
+### Step 4.11 — `compute_segment_results()` → `group_sequence_predictions()` + `compute_segment_metrics()`
+The frame metrics do not see whether the prediction of a sequence is fragmented: a sequence of 10 frames of one class predicted with one wrong frame in the middle keeps a frame accuracy of 0.9, but it gives three segments for one event. The segment metrics score the events of the test sequences:
+- `group_sequence_predictions()` sorts the labelled frames by sequence then by frame (`np.lexsort`), takes the most probable class of every frame and splits them sequence by sequence; every frame is evaluated once, and a frame given twice raises a `ValueError`;
 - `extract_segments()` cuts every sequence into segments of consecutive frames of one class, a gap of unlabelled frames ending a segment, as true segments and predicted segments;
 - **Edit Score**: for every sequence, 1 minus the edit distance between the orders of the predicted and true segment classes (`compute_edit_distance()`: the segments to insert, remove or replace) over the larger number of segments, averaged over the sequences;
 - **Segment F1@10/25/50**: `count_segment_matches()` takes every predicted segment in order and finds the true segment of its class it overlaps most; it is right when their intersection over union reaches the overlap (10, 25 or 50 %) and no earlier predicted segment matched that true segment. The F1 is computed from the counts summed over all the sequences.
 
-**Example: the merged sequences of the evaluation of iteration 12**
+**Example: the grouped sequences of the evaluation of iteration 12** (class indices: 0 `no_change`, 68 `disappearing_hollow_ellipse`)
 ```text
-merge_window_predictions: 541 labelled frames of the windows -> 60 sequences, 434 distinct frames
-frames [0, 1]  true [3, 6]  predicted [3, 3]
-   true segments [(3, 0, 0), (6, 1, 1)]   predicted segments [(3, 0, 1)]   edit distance 1   edit score 0.5000
-frames [0, 1]  true [4, 8]  predicted [3, 3]
-   true segments [(4, 0, 0), (8, 1, 1)]   predicted segments [(3, 0, 1)]   edit distance 2   edit score 0.0000
-frames [0, ..., 10]  true [2, 2, 2, 5, 2, 2, 2, 2, 2, 2, 5]  predicted [3 x 11]
-   true segments [(2, 0, 2), (5, 3, 3), (2, 4, 9), (5, 10, 10)]   predicted segments [(3, 0, 10)]   edit distance 4   edit score 0.0000
-Segments : 177 true and 60 predicted in 60 whole test sequences      <- one predicted segment per sequence
-Edit Score 0.1111   Segment F1@10 0.1688   Segment F1@25 0.1266   Segment F1@50 0.0759
+group_sequence_predictions: 427 labelled frames -> 60 sequences
+frames [0, 1]  true [0, 0]  predicted [68, 68]
+   true segments [(0, 0, 1)]   predicted segments [(68, 0, 1)]   edit distance 1   edit score 0.0000
+frames [0, 1]  true [0, 22]  predicted [68, 68]
+   true segments [(0, 0, 0), (22, 1, 1)]   predicted segments [(68, 0, 1)]   edit distance 2   edit score 0.0000
+frames [0, ..., 11]  true [0, 0, 42, 0, 0, 0, 0, 23, 32, 0, 3, 0]  predicted [68, 68, 0 x 10]
+   true segments [(0, 0, 1), (42, 2, 2), (0, 3, 6), (23, 7, 7), (32, 8, 8), (0, 9, 9), (3, 10, 10), (0, 11, 11)]
+   predicted segments [(68, 0, 1), (0, 2, 11)]   edit distance 7   edit score 0.1250
+Segments : 355 true and 114 predicted in 60 test sequences
+Edit Score 0.1424   Segment F1@10 0.2047   Segment F1@25 0.1151   Segment F1@50 0.0384
 ```
-A segment is `(class, first frame, last frame)`. In the first sequence the predicted segment has the class `3` of the first true segment, so only the true segment `6` is missing: an edit distance of 1 over 2 segments, an edit score of 0.5.
+A segment is `(class, first frame, last frame)`. In the last sequence the 2 predicted segments must become the 8 true ones: the first is replaced and 6 are inserted, an edit distance of 7 over 8 segments, an edit score of 1 - 7/8 = 0.125.
 
 ### Step 4.12 — `write_predictions_file()` → `build_prediction_rows()`   (only with `save_predictions`)
-One row per labelled frame of every window, named by its sequence and its frame file: a frame held by two windows has two rows.
+One row per labelled frame of every sequence, named by its sequence and its frame file.
 
-**Example: `Evaluation/Iteration_12/predictions.csv`** (541 rows, 74,373 bytes; first rows, columns shortened)
+**Example: `Evaluation/Iteration_12/predictions.csv`** (427 rows, 76 columns, 305,323 bytes; first rows, columns shortened)
 ```text
-sequence,frame,true_class,predicted_class,correct,probability_square,probability_circle, ... ,probability_octagon
-test_000059,test_000059/000000.png,triangle,rectangle,0,0.113589,0.120350, ... ,0.117674
-test_000059,test_000059/000001.png,triangle,rectangle,0,0.114056,0.120155, ... ,0.117584
-test_000059,test_000059/000002.png,pentagon,rectangle,0,0.114399,0.119891, ... ,0.117497
+sequence,frame,true_class,predicted_class,correct,probability_no_change,probability_appearing_square, ... ,probability_disappearing_hollow_capsule
+test_000032,test_000032/000000.png,no_change,disappearing_hollow_ellipse,0,0.015759,0.013611, ...
+test_000032,test_000032/000001.png,appearing_square,disappearing_hollow_ellipse,0,0.017056, ...
+test_000032,test_000032/000002.png,no_change,no_change,1,0.017983, ...
 ```
 
 ### Step 4.13 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
 ```text
-Iteration 12 · 80 Test Sequences, 541 Labelled Frames · 2026-10-10 07:15 ───────────────────────────────────────────────
-  Accuracy               0.1183   Balanced Accuracy   0.1111
-  Macro F1               0.0235   Top-2 Accuracy      0.1941
-  Sequence Exact Match   0.0000   Edit Score          0.1111
-  Segment F1@10          0.1688   Segment F1@25       0.1266
-  Segment F1@50          0.0759
-  Segments : 177 true and 60 predicted in 60 whole test sequences, their windows being merged and an unlabelled frame
-  ending a segment
-  Error Images : 16 in 8 class pairs, at most 2 per pair
+Iteration 12 · 60 Test Sequences, 427 Labelled Frames · 2026-10-18 08:48 ───────────────────────────────────────────────
+  Accuracy               0.2787   Balanced Accuracy   0.0084
+  Macro F1               0.0067   Top-2 Accuracy      0.3466
+  Sequence Exact Match   0.0000   Edit Score          0.1424
+  Segment F1@10          0.2047   Segment F1@25       0.1151
+  Segment F1@50          0.0384
+  Segments : 355 true and 114 predicted in 60 test sequences, an unlabelled frame ending a segment
+  Error Images : 158 in 96 class pairs, at most 2 per pair
   Sample Images : 8 fixed test sequences
 
   Per Class Metrics
-                                                      Threshold    Recall
-   Class       Frames   Precision   Recall       F1     @ P0.99   @ P0.99
-  ────────────────────────────────────────────────────────────────────────
-   square          68      0.0000   0.0000   0.0000           —         —
-   circle          41      0.0000   0.0000   0.0000           —         —
+                                                                             Threshold    Recall
+   Class                              Frames   Precision   Recall       F1     @ P0.99   @ P0.99
+  ───────────────────────────────────────────────────────────────────────────────────────────────
+   appearing_square                        2      0.0000   0.0000   0.0000           —         —
+   appearing_circle                        6      0.0000   0.0000   0.0000           —         —
    ...
-   octagon         48      0.0000   0.0000   0.0000           —         —
-   rectangle       64      0.1183   1.0000   0.2116           —         —
+   disappearing_hollow_semicircle          4      0.0000   0.0000   0.0000      0.0142    0.2500
+   disappearing_hollow_capsule             4      0.0000   0.0000   0.0000           —         —
+   no_change                             206      0.3876   0.5777   0.4639      0.0201    0.0097
+   ...
+   appearing_semicircle                    0           —        —        —           —         —
   Worst F1 first, ties in class order. — : no frames of the class, or the precision 0.99 is never reached.
-  - Results : file:///.../Results.txt
+  - Results : Results.txt
   - ...
 ```
 
 **Example: TensorBoard and MLflow after the two evaluations**
 ```text
-Tensorboard/Test: 36 scalars (9 global + 27 per class), 9 images (8 samples + Confusion Matrix)
-    scalar Accuracy        6: 0.0758, 12: 0.1183
-    scalar Edit Score      6: 0.0861, 12: 0.1111
-    scalar Segment F1@50   6: 0.0253, 12: 0.0759
-MLflow: test/Accuracy, ..., test/Edit Score, test/Segment F1_at_10, test/Segment F1_at_25, test/Segment F1_at_50,
-        test/Sequence Exact Match, test/best_Accuracy (steps 6, 12), 27 test_class/<metric>/<class>
+Tensorboard/Test: 222 scalars (9 global + 213 per class), 9 images (8 samples + Confusion Matrix)
+    scalar Accuracy        6: 0.0047, 12: 0.2787
+    scalar Edit Score      6: 0.0038, 12: 0.1424
+    scalar Segment F1@50   6: 0.0,    12: 0.0384
+MLflow: 233 metrics: test/Accuracy, ..., test/Edit Score, test/Segment F1_at_10, test/Segment F1_at_25, test/Segment F1_at_50,
+        test/Sequence Exact Match, test/best_Accuracy (steps 6, 12), 213 test_class/<metric>/<class>, train/*, validation/*, learning_rate
 ```
 MLflow only accepts letters, digits, `_`, `-`, `.`, `/` and spaces in a metric name, so `sanitise_metric_name()` writes `Segment F1@10` as `Segment F1_at_10` (the original names are kept in the `metric_names.json` artifact); TensorBoard and the console keep the `@`.
 
@@ -683,12 +749,12 @@ MLflow only accepts letters, digits, `_`, `-`, `.`, `/` and spaces in a metric n
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 20 sequences of the test split (its `labels.json` reduced, its `data/` folder linked).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5). The windows of the test split are cut with the `sequence_settings` of the run, and the segment metrics merge them back into the sequences of that split.
+The same script for every task (see `classification_workflow.md`, Stage 5). The test sequences are read with the `sequence_settings` of the run, so a test sequence longer than its `maximum_sequence_length` is left out with the warnings of Step 2.8.
 
 ### Step 5.2 — trainer construction
 **Example: the split line of the launch information**
 ```text
-- Test Data Folder        : file:///.../test_reduced (20 sequences, 143 frames, 28 windows of at most 8 frames)
+- Test Data Folder        : test_reduced (20 sequences, 161 frames, 20 sequences of at most 50 frames)
 ```
 
 ### Step 5.3 — `get_checkpoint_iterations()`
@@ -700,39 +766,40 @@ evaluated_iterations = [12, 9, 6, 3]
 ### Step 5.4 — `evaluate_checkpoints()` → `start_evaluation_tracking()`
 **Example output**
 ```text
-MLflow Run Created In The Experiment 'sequence_labelling' : f6ccac8284bf428aa5a9bea81d43ce8a (Browse : mlflow ui --backend-store-uri sqlite:///.../runs/mlflow.db)
+-----------------------------
+Evaluating : model_000012.pt
+-----------------------------
+MLflow Run Created In The Experiment 'sequence_labelling' : 0a6b17420e9b4be1a981fe2d96db3cfd (Browse : mlflow ui --backend-store-uri sqlite:///.../runs/mlflow.db)
 ```
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
-**Example output** (iterations 12 and 9 tie on the accuracy, so both are listed in their evaluation order)
+**Example output** (iterations 9, 6 and 3 predict the same class everywhere and give the same row)
 ```text
-Evaluation Summary Of 4 Checkpoints : file:///.../runs/evaluations/M2M_IN-KAR-64_..._MC9/Evaluation/evaluation_summary.csv
-  - Best Checkpoint : iterations 12, 9 tie (Accuracy 0.1514)
+Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv
+  - Best Checkpoint : iteration 12 (Accuracy 0.2981)
 
 iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Sequence Exact Match,Edit Score,Segment F1@10,Segment F1@25,Segment F1@50, ...
-12,0.15135135135135136,0.1111111111111111,0.02921231090245175,0.17297297297297298,0.0,0.10833333333333335,0.16470588235294117,0.1411764705882353,0.09411764705882354, ...
-9,0.15135135135135136,0.1111111111111111,0.02921231090245175,0.17297297297297298,0.0,0.10833333333333335,0.16470588235294117,0.1411764705882353,0.09411764705882354, ...
-6,0.021621621621621623,0.1111111111111111,0.004703115814226926,0.17297297297297298,0.0,0.04583333333333334,0.07058823529411765,0.04705882352941177,0.023529411764705885, ...
-3,0.021621621621621623,0.1111111111111111,0.004703115814226926,0.17297297297297298,0.0,0.04583333333333334,0.07058823529411765,0.04705882352941177,0.023529411764705885, ...
+12,0.2981366459627329,0.01309328968903437,0.010264086389393778,0.36024844720496896,0.0,0.12883116883116885,0.1927710843373494,0.10843373493975904,0.012048192771084338, ...
+9,0.0,0.0,0.0,0.012422360248447204,0.0,0.0,0.0,0.0,0.0, ...
+6,0.0,0.0,0.0,0.012422360248447204,0.0,0.0,0.0,0.0,0.0, ...
+3,0.0,0.0,0.0,0.012422360248447204,0.0,0.0,0.0,0.0,0.0, ...
 ```
+The file has 223 columns: the iteration, the 9 global metrics, then the precision, recall and F1 of the 71 classes. It is written in `evaluations/<run name>/Evaluation/`, next to the `Iteration_12`, `Iteration_9`, `Iteration_6` and `Iteration_3` folders of the evaluation.
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
 **Example output: the block of the checkpoint of iteration 12 on the 20 sequences** (shortened)
 ```text
-Evaluating : file:///.../runs/M2M_IN-KAR-64_..._MC9/Weights/Iteration_12/model_000012.pt
-Iteration 12 · 28 Test Sequences, 185 Labelled Frames · 2026-10-10 07:15 ───────────────────────────────────────────────
-  Accuracy               0.1514   Balanced Accuracy   0.1111
-  Macro F1               0.0292   Top-2 Accuracy      0.1730
-  Sequence Exact Match   0.0000   Edit Score          0.1083
-  Segment F1@10          0.1647   Segment F1@25       0.1412
-  Segment F1@50          0.0941
-  Segments : 65 true and 20 predicted in 20 whole test sequences, their windows being merged and an unlabelled frame
-  ending a segment
-  Error Images : 16 in 8 class pairs, at most 2 per pair
+Iteration 12 · 20 Test Sequences, 161 Labelled Frames · 2026-10-18 08:49 ───────────────────────────────────────────────
+  Accuracy               0.2981   Balanced Accuracy   0.0131
+  Macro F1               0.0103   Top-2 Accuracy      0.3602
+  Sequence Exact Match   0.0000   Edit Score          0.1288
+  Segment F1@10          0.1928   Segment F1@25       0.1084
+  Segment F1@50          0.0120
+  Segments : 128 true and 38 predicted in 20 test sequences, an unlabelled frame ending a segment
+  Error Images : 75 in 54 class pairs, at most 2 per pair
   Sample Images : 8 fixed test sequences
   ...
-   hexagon         41      0.0000   0.0000   0.0000      0.0985    0.0488
+   no_change                              78      0.3967   0.6154   0.4824      0.0201    0.0256
    ...
-   rectangle       28      0.1514   1.0000   0.2629           —         —
 ```
-The header counts the 28 windows of the 20 sequences ("28 Test Sequences"), and the segment note the 20 whole sequences.
+The header and the segment note count the same 20 sequences, every sequence being evaluated whole.

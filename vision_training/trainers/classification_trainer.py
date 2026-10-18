@@ -265,7 +265,7 @@ class ClassificationTrainer(BaseTrainer):
         """
         Builds the image of a test sample shown by the error images and the sample images of the evaluation: the
         network input of an image, as the model saw it. The sequence trainers override it to lay out the frames of a
-        window or of a pair on a grid.
+        sequence or of a pair on a grid.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -316,7 +316,7 @@ class ClassificationTrainer(BaseTrainer):
 
     def get_test_sample_classes(self) -> Dict[int, List[int]]:
         """
-        Lists the classes of every test sample (image, window or pair), so that the fixed test samples drawn at every
+        Lists the classes of every test sample (image, sequence or pair), so that the fixed test samples drawn at every
         evaluation are spread over the classes.
 
         Returns:
@@ -327,7 +327,7 @@ class ClassificationTrainer(BaseTrainer):
     def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
         Draws a fixed test sample for the sample images of the evaluation: its input (the image, or the frame grid of a
-        window or of a pair) captioned with its true class and its predicted class with its probability, or in
+        sequence or of a pair) captioned with its true class and its predicted class with its probability, or in
         multi-label mode its true classes and its predicted classes with their probabilities, the caption in green
         when the prediction is right and in red when it is wrong. The sequence labelling trainer overrides it to
         caption every frame.
@@ -366,7 +366,7 @@ class ClassificationTrainer(BaseTrainer):
     def describe_evaluated_samples(self, accumulator: Dict[str, Any]) -> str:
         """
         Describes the evaluated test samples in the header of the report. The sequence labelling trainer overrides
-        it to count the windows and their labelled frames.
+        it to count the sequences and their labelled frames.
 
         Args:
             accumulator (Dict[str, Any]): The accumulated class probabilities and labels of the test split.

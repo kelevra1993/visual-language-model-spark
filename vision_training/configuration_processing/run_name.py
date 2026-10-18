@@ -25,7 +25,7 @@ TEMPORAL_TYPE_CODES = {"mean_pooling": "MEAN", "max_pooling": "MAX", "attention_
 FUSION_TYPE_CODES = {"concatenation": "FCAT", "difference": "FDIF", "cross_attention": "FXA"}
 
 # Run name code of every reduction of the final feature map before the classification head: its average or maximum,
-# or all its values flattened (image classifier only)
+# or all its values flattened
 GLOBAL_POOLING_CODES = {"average": "AVG", "max": "MAX", "flatten": "FLAT"}
 
 # Run name code of every method of the self-supervised task, followed by its setting: the temperature of SimCLR
@@ -349,18 +349,19 @@ def build_classification_sections(model_configuration: Dict[str, Any]) -> List[L
     return [head_tokens, [classes_token]]
 
 
-def build_window_tokens(model_configuration: Dict[str, Any]) -> List[str]:
+def build_sequence_length_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Builds the token of the run name describing the windows of frames fed to the sequence models: T<frames per window>
-    (frames per member of a pair for the comparison task), e.g. 'T16'.
+    Builds the token of the run name giving the largest number of frames of the sequences fed whole to the sequence
+    models, the longer ones being left out: T<maximum sequence length> (of a member of a pair for the comparison
+    task), e.g. 'T50'.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
 
     Returns:
-        List[str]: The window token.
+        List[str]: The maximum sequence length token.
     """
-    return [f"T{model_configuration['Data']['sequence_settings']['sequence_length']}"]
+    return [f"T{model_configuration['Data']['sequence_settings']['maximum_sequence_length']}"]
 
 
 def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
@@ -396,7 +397,7 @@ def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
         temporal_tokens = [f"{temporal_code}{layers_and_size}.{type_parameter}"] + (
             ["CAU"] if temporal_configuration["causal"] else [])
 
-        # Transformer treating a window as a set of frames, whose weights hold no positional embedding
+        # Transformer treating a sequence as a set of frames, whose weights hold no positional embedding
         if temporal_type == "transformer" and not temporal_configuration["positional_embedding"]:
             temporal_tokens.append("NPE")
 
@@ -407,9 +408,9 @@ def build_temporal_tokens(model_configuration: Dict[str, Any]) -> List[str]:
 
 def build_sequence_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
     """
-    Builds the sections of the run name specific to the sequence tasks: the window (build_window_tokens), the temporal
-    module (build_temporal_tokens), then the classification head and classes sections, e.g.
-    'T16_GRU2x256-BI_HAVG.256_MC4'.
+    Builds the sections of the run name specific to the sequence tasks: the maximum sequence length
+    (build_sequence_length_tokens), the temporal module (build_temporal_tokens), then the classification head and
+    classes sections, e.g. 'T50_GRU2x256-BI_HAVG.256_MC4'.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -417,7 +418,7 @@ def build_sequence_sections(model_configuration: Dict[str, Any]) -> List[List[st
     Returns:
         List[List[str]]: The tokens of every section.
     """
-    return ([build_window_tokens(model_configuration=model_configuration),
+    return ([build_sequence_length_tokens(model_configuration=model_configuration),
              build_temporal_tokens(model_configuration=model_configuration)] +
             build_classification_sections(model_configuration=model_configuration))
 
@@ -473,9 +474,9 @@ def build_fusion_tokens(model_configuration: Dict[str, Any]) -> List[str]:
 
 def build_sequence_comparison_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
     """
-    Builds the sections of the run name specific to the sequence comparison task: the member windows
-    (build_window_tokens), the temporal module (build_temporal_tokens), the fusion of the members
-    (build_fusion_tokens), then the classification head and classes sections, e.g. 'T8_MEAN_FDIF_HAVG.64_MC2'.
+    Builds the sections of the run name specific to the sequence comparison task: the maximum member length
+    (build_sequence_length_tokens), the temporal module (build_temporal_tokens), the fusion of the members
+    (build_fusion_tokens), then the classification head and classes sections, e.g. 'T50_MEAN_FDIF_HAVG.64_MC2'.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -483,7 +484,7 @@ def build_sequence_comparison_sections(model_configuration: Dict[str, Any]) -> L
     Returns:
         List[List[str]]: The tokens of every section.
     """
-    return ([build_window_tokens(model_configuration=model_configuration),
+    return ([build_sequence_length_tokens(model_configuration=model_configuration),
              build_temporal_tokens(model_configuration=model_configuration),
              build_fusion_tokens(model_configuration=model_configuration)] +
             build_classification_sections(model_configuration=model_configuration))

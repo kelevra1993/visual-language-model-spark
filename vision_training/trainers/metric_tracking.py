@@ -105,8 +105,8 @@ class MetricTracker:
         """
         Adds the real frames of a training batch of the sequence tasks to the count of its interval, from which the
         console summary and the MLflow run of the training get the frame throughput. The padding frames are not
-        counted, so that the throughput is comparable whether the batches are padded to the sequence length or to
-        their longest window. The mask is read before the batch is moved to the device, without synchronising it.
+        counted, so that the throughput does not depend on the length of the longest sequence of every batch. The
+        mask is read before the batch is moved to the device, without synchronising it.
 
         Args:
             tracker_dictionary (Dict[str, Any]): The training trackers of the interval, modified in place.

@@ -156,7 +156,7 @@ def get_segmentation_model_configuration(upsampling: str) -> Tuple[Dict[str, Any
 def get_sequence_model_configuration(temporal_type: str) -> Tuple[Dict[str, Any], torch.device, torch.dtype]:
     """
     Supplies a small sequence model configuration dictionary, with its device and dtype, shared by the sequence model
-    tests: the image classifier configuration with windows of 4 frames and a small temporal module.
+    tests: the image classifier configuration with sequences of at most 4 frames and a small temporal module.
 
     Args:
         temporal_type (str): The type of the temporal module.
@@ -165,8 +165,7 @@ def get_sequence_model_configuration(temporal_type: str) -> Tuple[Dict[str, Any]
         Tuple[Dict[str, Any], torch.device, torch.dtype]: The sequence model configuration, compute device and dtype.
     """
     configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
-    configuration['Data']['sequence_settings'] = {'sequence_length': 4, 'window_stride': 4, 'short_sequences': 'pad',
-                                                  'batch_padding': 'sequence_length'}
+    configuration['Data']['sequence_settings'] = {'maximum_sequence_length': 4}
     configuration['TemporalModel'] = {'type': temporal_type, 'hidden_size': 16, 'number_layers': 1, 'number_heads': 2,
                                       'kernel_size': 3, 'dropout_rate': 0.0, 'bidirectional': False, 'causal': False,
                                       'positional_embedding': True}
@@ -178,9 +177,8 @@ def get_sequence_comparison_model_configuration(temporal_type: str, fusion_type:
         Dict[str, Any], torch.device, torch.dtype]:
     """
     Supplies a small sequence comparison model configuration dictionary, with its device and dtype, shared by the
-    comparison model tests: the sequence model configuration with member windows of 4 frames (no window stride, a
-    member being one window) and the fusion of the members, its cross attention splitting the 32 channels of the last
-    backbone block between 2 heads.
+    comparison model tests: the sequence model configuration with members of at most 4 frames and the fusion of the
+    members, its cross attention splitting the 32 channels of the last backbone block between 2 heads.
 
     Args:
         temporal_type (str): The type of the temporal module.
@@ -190,7 +188,6 @@ def get_sequence_comparison_model_configuration(temporal_type: str, fusion_type:
         Tuple[Dict[str, Any], torch.device, torch.dtype]: The comparison model configuration, compute device and dtype.
     """
     configuration, device, dtype = get_sequence_model_configuration(temporal_type=temporal_type)
-    del configuration['Data']['sequence_settings']['window_stride']
     configuration['Fusion'] = {'type': fusion_type, 'number_heads': 2, 'dropout_rate': 0.0,
                                'sequence_normalization_scope': 'member'}
 

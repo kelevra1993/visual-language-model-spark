@@ -246,9 +246,9 @@ class TransformerTemporalModule(nn.Module):
     masked out of the attention. When causal, every frame only attends to itself and the frames before it. For many to
     one, the sequence vector is the mean of the outputs of the real frames.
 
-    Without the positional embedding, a non-causal transformer treats a window as a set of frames: shuffling the frames
-    leaves the sequence vector unchanged and shuffles the frame vectors with them, for sequences whose order carries no
-    information (sets of photos), and its weights no longer depend on the maximum number of frames.
+    Without the positional embedding, a non-causal transformer treats a sequence as a set of frames: shuffling the
+    frames leaves the sequence vector unchanged and shuffles the frame vectors with them, for sequences whose order
+    carries no information (sets of photos), and its weights no longer depend on the maximum number of frames.
     """
 
     def __init__(self, input_features: int, hidden_size: int, number_layers: int, number_heads: int,
@@ -265,7 +265,7 @@ class TransformerTemporalModule(nn.Module):
             dropout_rate (float): The dropout of the attention and feed forward layers.
             causal (bool): Whether every frame only attends to the frames before it (online use).
             positional_embedding (bool): Whether to give every frame its position with a learned embedding, False to
-                treat a window as a set of frames.
+                treat a sequence as a set of frames.
             keep_time_axis (bool): Whether to return one vector per frame (many to many) instead of per sequence.
             maximum_length (int): The maximum number of frames of a sequence, the size of the positional embedding.
             device (torch.device): The device of the parameters.
@@ -306,7 +306,7 @@ class TransformerTemporalModule(nn.Module):
             torch.Tensor: The [B, hidden_size] sequence vectors, or the [B, T, hidden_size] frame vectors when keeping
                 the time axis.
         """
-        # Project the frames to the model size, and give them their position unless the window is a set of frames
+        # Project the frames to the model size, and give them their position unless the sequence is a set of frames
         sequence_length = frame_features.shape[1]
         frame_tokens = self.input_projection(input=frame_features)
         if self.positional_embedding is not None:

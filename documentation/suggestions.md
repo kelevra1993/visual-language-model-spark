@@ -378,7 +378,7 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
 | INS | Everything DET has, plus M5 (RLE masks), L19, L22 |
 | CLS | C2, L3, L4, L9 |
 | SEG | C2, M5, M13, L20 |
-| M2O, M2M, CMP, SEL | C2, M11 (M2M), M18 (CMP), L10, L11 (M2M), L12, L21 (M2M), L23 (SEL) |
+| M2O, M2M, CMP, SEL | C2, M18 (CMP), L10, L11 (M2M) |
 
 ---
 
@@ -697,17 +697,6 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
 - **Fix:** split every group into decayed and non-decayed parameters (`ndim <= 1` get `weight_decay=0`). This changes
   the group layout, which is acceptable since no run uses weight decay yet.
 
-#### M11. M2M frame metrics count the frames of overlapping windows several times
-- **Where:** `trainers/sequence_labelling_trainer.py:91-106`, `227-254` and `256-269`.
-- **Effect (reproduced):**
-  - The accuracy, per-class P/R/F1, confusion matrix, `class_thresholds.json`, `predictions.csv` and the "Labelled
-    Frames" header use window-frames. A test split of 153 frames was reported as 206 labelled frames.
-  - With the example stride 8 and length 16, most frames count twice and the sequence ends count differently.
-  - The thresholds saved for deployment are skewed, and a frame can get several rows with different predictions.
-  - The segment metrics already merge the windows (`merge_window_predictions`).
-- **Fix:** compute the frame metrics from the merged per-(sequence, frame) probabilities, and name the counts
-  "windows" and "unique frames".
-
 #### M12. DET and INS remove crowd annotations instead of ignoring them
 - **Where:** the `iscrowd` filter of `CocoDetectionDataset.__getitem__` (`coco_dataset.py`), DET leaving the crowds
   out like INS since E15 of these suggestions.
@@ -890,21 +879,15 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
   - The SEL error message reports labels as "frames".
 - **Fix:** raise a `ValueError` listing the sequences whose label count differs from their frame count.
 
-#### L11. M2M windows or batches with no labelled frame give a NaN loss and inflate the exact match
+#### L11. M2M sequences or batches with no labelled frame give a NaN loss and inflate the exact match
 - **Where:** `sequence_losses.py:29-31` (mean reduction with every target ignored), `sequence_metrics.py`
   (`compute_sequence_exact_matches`).
 - **Effect (reproduced):**
   - The tracked interval loss becomes NaN. The gradients stay finite, but if NaN is the first value the "Best" marker
     stops updating.
-  - Windows without labels count as exact matches.
-- **Fix:** sum the losses and divide by `clamp(number of labelled frames, 1)`. Drop these windows from training and
+  - Sequences without labels count as exact matches.
+- **Fix:** sum the losses and divide by `clamp(number of labelled frames, 1)`. Drop these sequences from training and
   from the exact match.
-
-#### L12. A `window_stride` larger than `sequence_length` leaves frames in no window
-- **Where:** `sequence_dataset.py:37-61`; `sequence_checks.py:46-49` only checks that the stride is positive.
-- **Effect (reproduced):** `compute_window_starts(40, 16, 20)` gives `[0, 20, 24]`, so frames 16-19 are never seen,
-  and M2M segments are split at the gap. This contradicts "every frame belongs to a window".
-- **Fix:** require `window_stride <= sequence_length`.
 
 #### L13. The checkpoint registry is rewritten in place without fsync
 - **Where:** `checkpointing.py:106-107` (truncate, then write) and `142` (`os.replace` without fsync).
@@ -959,23 +942,11 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
 - **Effect:** a 6000×4000 image with 20 classes needs about 1.9 GB per image.
 - **Fix:** interpolate in class chunks with a running max and argmax, or in bfloat16.
 
-#### L21. Duplicate sequence names merge M2M segments
-- **Where:** `sequence_labelling_trainer.py:331-333` groups windows by `sequence_name`.
-- **Effect:** two sequences with the same name (the same clip under two cameras) are averaged together.
-- **Fix:** group by the stored `sequence_identifier`.
-
 #### L22. The README recipe for INS masks squeezes masks at the image border — PLAUSIBLE
 - **Where:** README Deployment / INS. `restore_boxes_to_original_image` clips the boxes to the image
   (`preprocessing.py:152`), while the M×M mask was predicted over the unclipped box.
 - **Fix:** paste with the unclipped restored boxes (`paste_instance_masks` handles parts outside the image), and say so
   in the README.
-
-#### L23. The local SEL inference client cycles images
-- **Where:** `deployment_utilities.py:84-91`: every request is `sequence_length` consecutive folder images, wrapping
-  around.
-- **Effect:** the frame selector gets duplicated frames, and the decoded indices refer to the wrapped window, so the
-  selections of `run_inference` on a folder are meaningless (the throughput numbers are fine).
-- **Fix:** send the folder as one request of `len(images)` frames for `frame_selection`.
 
 ---
 
@@ -993,7 +964,6 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
 | `backbone.py:42` | "Missing keys default to disabled modules" | Keys are read strictly (KeyError) |
 | `augmentations.py:530-531` | brightness ±20, contrast 0.8–1.0 | The constants and YAML comments say ±40 and 0.7–1.0 |
 | `preprocessing.py:124`, `deployment_utilities.py:3-4` | restore functions "used by the inference clients" | Only used in tests |
-| `sequence_dataset.py:41-42` | "every frame belongs to a window" | See L12 |
 | README CLS run name, synthetic CLS YAML | `..._HAVG.128_MC4` | That configuration gives `MC9` |
 | `Backbone.input_channels` comment | "3 for RGB images" | The inputs are BGR, and only 3 works (L2) |
 | `sequence_classification_trainer.py:66-72` | Frame shuffle warning for every transformer | A non-causal transformer without positional embedding (the README's recommendation for frame sets) cannot see the order |
@@ -1032,7 +1002,7 @@ it; `int(float(...))` silently truncates non-integer counts; unknown or misspell
   - BGR order everywhere, with normalisation inside the model.
   - The polygon rasteriser (0 pixels differ from a pixel-centre reference) and the RLE round trip.
   - Augmentation only on training batches.
-  - Window cutting, padding, masks and collate.
+  - Sequence padding, masks and collate.
   - The SEG lookup table and ignored pixels.
 - **Backbone, CLS, SEG:**
   - U-Net skip alignment for odd sizes.
@@ -1071,7 +1041,7 @@ it; `int(float(...))` silently truncates non-integer counts; unknown or misspell
 4. **Architecture of the shared blocks** *(changes every task, checkpoints of channel-changing residual blocks no
    longer load strictly)*: H4 (projection shortcuts), M1 (SE on the branch), M2 (shortcut before the ReLU). Compare
    them on the synthetic datasets before adopting them.
-5. **Evaluation and deployment:** M11 (M2M unique frames), M15 and M16 (export check), M19 (evaluation folder), L3, L6
+5. **Evaluation and deployment:** M15 and M16 (export check), M19 (evaluation folder), L3, L6
    and the statements of the last table.
 
 ## Foundation Models Data Downloader

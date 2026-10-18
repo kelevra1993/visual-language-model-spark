@@ -25,7 +25,7 @@ def choose_sample_identifiers(sample_classes: Dict[int, List[int]], number_sampl
 
     Args:
         sample_classes (Dict[int, List[int]]): The class indices of every test sample, keyed by sample identifier
-            (several for a multi-label sample or the frames of a window, none for a sample without class).
+            (several for a multi-label sample or the frames of a sequence, none for a sample without class).
         number_samples (int): The number of samples to choose, 0 for none.
 
     Returns:

@@ -783,28 +783,22 @@ def test_flattened_feature_map_is_accepted_for_classification(tmp_path: Path) ->
                                     ("sequence_labelling", "configuration_synthetic_sequences.yaml"),
                                     ("sequence_comparison", "configuration_synthetic_pairs.yaml"),
                                     ("frame_selection", "configuration_synthetic_sequences.yaml")])
-def test_flattened_feature_map_is_rejected_for_the_sequence_tasks(tmp_path: Path, capsys: pytest.CaptureFixture,
-                                                                  task_folder: str, configuration_name: str) -> None:
+def test_flattened_feature_map_is_accepted_for_the_sequence_tasks(tmp_path: Path, task_folder: str,
+                                                                  configuration_name: str) -> None:
     """
-    Verifies that the sequence tasks refuse to flatten the final feature map of their frames, their temporal module
-    and fusion reading frame vectors as wide as the last backbone block.
+    Verifies that the sequence tasks accept to flatten the final feature map of every frame, their temporal module
+    and fusion then reading frame vectors of one value per position and channel of the last backbone block.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
         task_folder (str): The folder of the configurations of the sequence task.
         configuration_name (str): The file name of the synthetic configuration of the task.
     """
     configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
                                                   configuration_name=configuration_name,
                                                   modify_function=flatten_final_feature_map)
-
-    with pytest.raises(expected_exception=SystemExit):
-        load_experiment_configuration(configuration_path=configuration_path)
-
-    printed_output = capsys.readouterr().out
-    assert "'ClassificationHead.global_pooling' cannot be 'flatten' for the sequence tasks" in printed_output
-    assert "Traceback" not in printed_output
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["ClassificationHead"]["global_pooling"] == "flatten"
 
 
 def test_classification_classes_must_be_contiguous(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -839,15 +833,14 @@ def set_causal_temporal_model(configuration: Dict[str, Any]) -> None:
 
 def set_invalid_transformer_and_settings(configuration: Dict[str, Any]) -> None:
     """
-    Uses a transformer whose model size is not a multiple of its heads, empty windows, an unknown handling of the
-    short sequences, an unknown padding of the batches and several classes per sequence.
+    Uses a transformer whose model size is not a multiple of its heads, empty sequences and several classes per
+    sequence.
 
     Args:
         configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
     """
     configuration["TemporalModel"].update({"type": "transformer", "hidden_size": 100, "number_heads": 8})
-    configuration["Data"]["sequence_settings"].update({"sequence_length": 0, "short_sequences": "repeat",
-                                                       "batch_padding": "shortest"})
+    configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = 0
     configuration["ClassificationHead"]["output_mode"] = "multi_label"
 
 
@@ -896,10 +889,8 @@ def test_sequence_classification_configurations_are_consistent(tmp_path: Path, c
                                  "'TemporalModel.bidirectional' must be False when 'TemporalModel.causal' is True"]),
     (set_invalid_transformer_and_settings, ["'TemporalModel.hidden_size' (100) must be a multiple of "
                                             "'TemporalModel.number_heads' (8) for the transformer.",
-                                            "'Data.sequence_settings.sequence_length' must be an integer >= 1",
-                                            "'Data.sequence_settings.short_sequences' must be one of ['pad', 'skip']",
-                                            "'Data.sequence_settings.batch_padding' must be one of "
-                                            "['sequence_length', 'longest'], got 'shortest'.",
+                                            "'Data.sequence_settings.maximum_sequence_length' must be an integer >= "
+                                            "1",
                                             "'ClassificationHead.output_mode' must be 'multi_class' for the sequence "
                                             "tasks"]),
     (set_even_temporal_kernel, ["'TemporalModel.kernel_size' must be odd for the temporal convolution, got 4."]),
@@ -1016,9 +1007,8 @@ def test_inconsistent_sequence_labelling_configuration_is_rejected(
                                                                    "configuration_synthetic_sequences.yaml"])
 def test_frame_selection_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
-    Verifies that the frame selection configurations shipped with the repository pass every consistency check,
-    without the window stride nor the short sequences that the frame selection does not read, every sequence being
-    one window.
+    Verifies that the frame selection configurations shipped with the repository pass every consistency check, their
+    sequence settings holding the maximum sequence length only.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1029,7 +1019,7 @@ def test_frame_selection_configurations_are_consistent(tmp_path: Path, configura
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=configuration_path)
     assert experiment_configuration["task"] == "frame_selection"
-    assert sorted(model_configuration["Data"]["sequence_settings"]) == ["batch_padding", "sequence_length"]
+    assert sorted(model_configuration["Data"]["sequence_settings"]) == ["maximum_sequence_length"]
 
 
 def set_invalid_selection(configuration: Dict[str, Any]) -> None:
@@ -1144,14 +1134,14 @@ def test_sequence_normalization_is_accepted_for_the_sequence_tasks(tmp_path: Pat
         assert model_configuration["Backbone"]["normalization"]["feature_map_normalization"] == "sequence"
 
 
-def remove_window_stride(configuration: Dict[str, Any]) -> None:
+def remove_maximum_sequence_length(configuration: Dict[str, Any]) -> None:
     """
-    Removes the window stride from the sequence settings.
+    Removes the maximum sequence length from the sequence settings.
 
     Args:
         configuration (Dict[str, Any]): The raw sequence configuration, modified in place.
     """
-    del configuration["Data"]["sequence_settings"]["window_stride"]
+    del configuration["Data"]["sequence_settings"]["maximum_sequence_length"]
 
 
 @pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
@@ -1159,7 +1149,7 @@ def remove_window_stride(configuration: Dict[str, Any]) -> None:
 def test_sequence_comparison_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
     """
     Verifies that the sequence comparison configurations shipped with the repository pass every consistency check,
-    without the window stride that the comparison task does not use.
+    their sequence settings holding the maximum sequence length only.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -1170,7 +1160,7 @@ def test_sequence_comparison_configurations_are_consistent(tmp_path: Path, confi
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=configuration_path)
     assert experiment_configuration["task"] == "sequence_comparison"
-    assert "window_stride" not in model_configuration["Data"]["sequence_settings"]
+    assert sorted(model_configuration["Data"]["sequence_settings"]) == ["maximum_sequence_length"]
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
@@ -1209,24 +1199,32 @@ def test_inconsistent_sequence_comparison_configuration_is_rejected(
     assert "Traceback" not in printed_output
 
 
-def test_sequence_classification_still_requires_the_window_stride(tmp_path: Path,
-                                                                  capsys: pytest.CaptureFixture) -> None:
+@pytest.mark.parametrize(argnames=("task_folder", "configuration_name"),
+                         argvalues=[("sequence_classification", "configuration_synthetic_sequences.yaml"),
+                                    ("sequence_labelling", "configuration_synthetic_sequences.yaml"),
+                                    ("sequence_comparison", "configuration_synthetic_pairs.yaml"),
+                                    ("frame_selection", "configuration_synthetic_sequences.yaml")])
+def test_sequence_tasks_require_the_maximum_sequence_length(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                            task_folder: str, configuration_name: str) -> None:
     """
-    Verifies that the sequence classification task, which cuts its sequences into windows, still requires the window
-    stride that the sequence comparison task does not read.
+    Verifies that every sequence task requires the maximum sequence length, which leaves the longer sequences out of
+    the splits and sizes the positional embedding of the transformer.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        task_folder (str): The folder of the configurations of the sequence task.
+        configuration_name (str): The file name of the synthetic configuration of the task.
     """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="sequence_classification",
-                                                  configuration_name="configuration_synthetic_sequences.yaml",
-                                                  modify_function=remove_window_stride)
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
+                                                  configuration_name=configuration_name,
+                                                  modify_function=remove_maximum_sequence_length)
 
     with pytest.raises(expected_exception=SystemExit):
         load_experiment_configuration(configuration_path=configuration_path)
 
-    assert "Missing configuration key 'Data.sequence_settings.window_stride'." in capsys.readouterr().out
+    assert ("Missing configuration key 'Data.sequence_settings.maximum_sequence_length'." in
+            capsys.readouterr().out)
 
 
 def freeze_random_backbone(configuration: Dict[str, Any]) -> None:

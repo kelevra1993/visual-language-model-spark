@@ -139,7 +139,7 @@ def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     errors += check_positive_integers(configuration=model_configuration, key_paths=["Data.loading.prefetch_batches"],
                                       allow_zero=False)
 
-    # Sequence augmentations: the photometric types drawn frame by frame, and the shuffling of the frames of a window
+    # Sequence augmentations: the photometric types drawn frame by frame, and the shuffling of the frames of a sequence
     errors += check_boolean_flags(configuration=model_configuration,
                                   key_paths=["Data.data_augmentation.independent_frames",
                                              "Data.data_augmentation.shuffle_frames.activated"])

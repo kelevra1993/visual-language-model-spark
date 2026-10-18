@@ -62,12 +62,11 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
                            label_mapping_path: Optional[Path] = None, moving_average: bool = False) -> BaseTrainer:
     """
     Writes a copy of the synthetic configuration of a task (synthetic shapes classification, segmentation, object
-    detection, instance segmentation or self-supervised learning, or synthetic sequences classification with windows
-    of 4 frames) for a quick
-    run on the generated dataset, with the given pretrained settings, and builds its trainer exactly like main.py
-    does. The detection tasks run on 256 pixel images with anchors fitting them, and the instance segmentation with
-    small mask heads. Another label mapping trains the run on some of the classes of the dataset only, and the moving
-    average of the weights can be turned on.
+    detection, instance segmentation or self-supervised learning, or synthetic sequences classification with
+    sequences of at most 4 frames) for a quick run on the generated dataset, with the given pretrained settings, and
+    builds its trainer exactly like main.py does. The detection tasks run on 256 pixel images with anchors fitting
+    them, and the instance segmentation with small mask heads. Another label mapping trains the run on some of the
+    classes of the dataset only, and the moving average of the weights can be turned on.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
@@ -112,8 +111,7 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
     # Two loader workers per split, enough for the small generated dataset
     configuration["Data"]["loading"]["number_workers"] = 2
     if task == "sequence_classification":
-        configuration["Data"]["sequence_settings"].update({"sequence_length": TRANSFER_NUMBER_FRAMES,
-                                                           "window_stride": TRANSFER_NUMBER_FRAMES})
+        configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = TRANSFER_NUMBER_FRAMES
     if label_mapping_path is None:
         label_mapping_path = dataset_folder / "label_mapping.json"
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(label_mapping_path)

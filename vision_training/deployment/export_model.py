@@ -133,8 +133,8 @@ def export_onnx(inference_model: nn.Module, example_inputs: Dict[str, torch.Tens
     """
     Exports an inference model to an ONNX file served by Triton's ONNX Runtime backend (optionally accelerated by
     TensorRT), with one dynamic batch dimension shared by every input up to the maximum batch size and, for the
-    sequence models, a dynamic number of frames per input up to the sequence length of the training, so that the
-    before and after windows of the comparison model may have different numbers of frames.
+    sequence models, a dynamic number of frames per input up to the maximum sequence length of the training, so that
+    the before and after members of the comparison model may have different numbers of frames.
 
     Args:
         inference_model (nn.Module): The inference model to export, in evaluation mode.

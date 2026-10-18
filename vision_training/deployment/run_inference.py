@@ -12,11 +12,11 @@ from vision_training.deployment.deployment_utilities import (get_served_model, l
                                                              measure_local_throughput, measure_triton_throughput)
 
 if __name__ == "__main__":
-    # Trained experiment of any task, giving the input size, resizing mode and sequence length (and the weights of the
-    # local run and the names of its served models)
+    # Trained experiment of any task, giving the input size, resizing mode and maximum sequence length (and the
+    # weights of the local run and the names of its served models)
     experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / "poseidon_experiment_4"
-    # Folder of the images sent to the models, one image per request (one window of consecutive images for the
-    # sequence models, and two windows, the after one starting where the before one ends, for the comparison model)
+    # Folder of the images sent to the models, one image per request (the whole folder as one sequence for the
+    # sequence models, its first half as the before member and its second half as the after one for the comparison)
     image_folder = Path(__file__).absolute().parent / "inference_data"
     # Triton gRPC address of the server started with deployment/triton/docker-compose.yml
     url = "localhost:8001"

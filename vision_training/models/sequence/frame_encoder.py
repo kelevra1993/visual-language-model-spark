@@ -1,5 +1,5 @@
 """
-Frame encoder of the sequence models: encode_frames runs the real frames of every window through the shared Backbone
+Frame encoder of the sequence models: encode_frames runs the real frames of every sequence through the shared Backbone
 and the global pooling to get one feature vector per frame, with zeros for the padding frames and the sequence
 grouping of the sequence normalization. Used by the sequence classifier, labeller and comparator.
 """
@@ -21,7 +21,7 @@ def encode_frames(backbone: Backbone, global_pooling: nn.Module, input_tensor: t
     sequence models: the shared Backbone extracts the final feature map of every real frame, and the global pooling
     reduces it to a vector. The padding frames are not run through the backbone, which saves their computation and
     keeps them out of the batch normalization statistics; their feature vectors are zeros. Without mask, every frame
-    is real (deployment windows), and the frames are run as one fixed-shape batch, which the exports require. The
+    is real (deployment sequences), and the frames are run as one fixed-shape batch, which the exports require. The
     sequence of every frame is given to the backbone, whose sequence normalization layers (if any) compute their
     statistics over the frames of each sequence, or of each group of sequences (both members of a pair).
 

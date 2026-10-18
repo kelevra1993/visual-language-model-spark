@@ -1,5 +1,5 @@
 """
-Model of the sequence comparison task (CMP): the frames of the before and after windows are encoded, fused,
+Model of the sequence comparison task (CMP): the frames of the before and after members are encoded, fused,
 summarised by the shared temporal module and classified as a pair, with the member or pair scope of the sequence
 normalization. Registered in model_registry.py for the "sequence_comparison" task and wrapped by
 inference_sequence_comparator.py for the exports.
@@ -13,6 +13,7 @@ from typing import Any, Dict, Optional, Tuple
 from vision_training.losses.classification_losses import compute_classification_loss, convert_logits_to_probabilities
 from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.classification.classification_head import (ClassificationHead, build_global_pooling,
+                                                                       compute_pooled_features,
                                                                        print_classification_head_summary)
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.sequence.member_fusion import MemberFusion
@@ -33,7 +34,7 @@ class SequenceComparator(TaskModel):
     are encoded and summarised together as one batch, so that the batch normalization statistics are computed over the
     frames of both members. Without masks (deployment, every frame real), each member is encoded and summarised on its
     own, so that the two members may have different numbers of frames. With sequence normalization in the backbone,
-    every member window is normalised by its own frames ('Fusion.sequence_normalization_scope: "member"'), or both
+    every member is normalised by its own frames ('Fusion.sequence_normalization_scope: "member"'), or both
     members of a pair together ('"pair"'), in which case the two members are encoded along one frame axis without
     masks.
 
@@ -62,7 +63,7 @@ class SequenceComparator(TaskModel):
         self.output_mode = self.head_configuration["output_mode"]
         self.label_smoothing = self.head_configuration["label_smoothing"]
         self.number_classes = len(set(configuration["Data"]["label_dictionary"].values()))
-        self.sequence_length = configuration["Data"]["sequence_settings"]["sequence_length"]
+        self.maximum_sequence_length = configuration["Data"]["sequence_settings"]["maximum_sequence_length"]
 
         # Frames sharing the statistics of the sequence normalization of the backbone: each member, or each pair
         self.sequence_normalization = (configuration["Backbone"]["normalization"]["feature_map_normalization"] ==
@@ -75,12 +76,13 @@ class SequenceComparator(TaskModel):
                                        input_image_size=configuration["Data"]["image_settings"]["size"],
                                        device=device, dtype=dtype)
         self.global_pooling = build_global_pooling(global_pooling=self.head_configuration["global_pooling"])
-        frame_features = list(backbone_configuration["convolutions"].values())[-1][1]
+        frame_features = compute_pooled_features(global_pooling=self.head_configuration["global_pooling"],
+                                                 backbone=self.backbone)
 
         # Shared summary of the frame vectors of a member, then the fusion of the two members and the class logits
         self.temporal_module = build_temporal_module(
             temporal_configuration=self.temporal_configuration, input_features=frame_features,
-            maximum_length=self.sequence_length, keep_time_axis=False, device=device, dtype=dtype)
+            maximum_length=self.maximum_sequence_length, keep_time_axis=False, device=device, dtype=dtype)
         self.member_fusion = MemberFusion(fusion_type=self.fusion_configuration["type"], frame_features=frame_features,
                                           member_features=self.temporal_module.output_features,
                                           number_heads=self.fusion_configuration["number_heads"],

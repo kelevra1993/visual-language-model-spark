@@ -116,7 +116,7 @@ class DataAugmenter:
     Images are float BGR tensors in the [0, 255] range, either single images [B, C, H, W] or sequences
     [B, T, C, H, W] for the sequence networks, in which case every frame of a sequence receives exactly the same
     random augmentation so that the sequence stays coherent, unless the photometric types are drawn frame by frame
-    ('independent_frames'). The real frames of the windows can also be shuffled ('shuffle_frames', see
+    ('independent_frames'). The real frames of the sequences can also be shuffled ('shuffle_frames', see
     shuffle_frames) for the sequences whose frame order carries no information.
     """
 
@@ -133,7 +133,7 @@ class DataAugmenter:
         self.activated = augmentation_configuration["activated"]
         self.probability = augmentation_configuration["probability"]
 
-        # Sequences only: the photometric types drawn frame by frame, and the shuffling of the frames of a window
+        # Sequences only: the photometric types drawn frame by frame, and the shuffling of the frames of a sequence
         self.independent_frames = augmentation_configuration["independent_frames"]
         self.shuffle_frames_activated = augmentation_configuration["shuffle_frames"]["activated"]
         self.shuffle_frames_probability = augmentation_configuration["shuffle_frames"]["probability"]
@@ -353,17 +353,17 @@ class DataAugmenter:
     def shuffle_frames(self, images: torch.Tensor, sequence_mask: torch.Tensor,
                        frame_block_length: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Shuffles the real frames of the windows of a training batch of sequences, for the sequences whose frame order
-        carries no information (e.g. sets of photos): every window is shuffled with the 'shuffle_frames' probability,
+        Shuffles the real frames of a training batch of sequences, for the sequences whose frame order carries no
+        information (e.g. sets of photos): every sequence is shuffled with the 'shuffle_frames' probability,
         independently of the global augmentation probability, its real frames being permuted and its padding frames
         staying last. The frames are shuffled within every block of frame_block_length frames, so that each member
-        window of a pair is shuffled on its own.
+        of a pair is shuffled on its own.
 
         Args:
             images (torch.Tensor): The [B, T, C, H, W] frames of the batch.
             sequence_mask (torch.Tensor): The [B, T] booleans, True for the real frames, which come first in every
                 block.
-            frame_block_length (int): The number of frames of a window, T being a multiple of it.
+            frame_block_length (int): The number of frames of a sequence or member, T being a multiple of it.
 
         Returns:
             Tuple[torch.Tensor, torch.Tensor]: The shuffled [B, T, C, H, W] frames and the [B, T] frame order, the
@@ -374,7 +374,7 @@ class DataAugmenter:
         if not self.activated or not self.shuffle_frames_activated:
             return images, frame_orders
 
-        # Every window drawn on its own, its real frames permuted among themselves
+        # Every sequence or member drawn on its own, its real frames permuted among themselves
         for sample_index in range(batch_size):
             for block_start in range(0, number_frames, frame_block_length):
                 if random.random() >= self.shuffle_frames_probability:

@@ -1,7 +1,7 @@
 """
-Classification head of the classification-like tasks: the global pooling (or the flattening, for the image classifier)
-turning the last backbone feature map into one vector, the fully connected head giving the class logits and its
-summary panel. Used by the image classifier and by the sequence classifier, labeller and comparator.
+Classification head of the classification-like tasks: the global pooling (or the flattening) turning the last
+backbone feature map into one vector, the fully connected head giving the class logits and its summary panel. Used by
+the image classifier and by the sequence classifier, labeller and comparator.
 """
 
 import torch
@@ -23,8 +23,8 @@ def build_global_pooling(global_pooling: str) -> nn.Sequential:
     """
     Builds the global pooling turning the final feature map of the backbone into one feature vector per image, the
     input of the classification head of the image classifier and of the frame encoder of the sequence models: its
-    average or maximum over the positions, or for the image classifier all its values flattened, which keeps where the
-    features are in the image.
+    average or maximum over the positions, or all its values flattened, which keeps where the features are in the
+    image.
 
     Args:
         global_pooling (str): "average", "max" or "flatten".
@@ -41,8 +41,9 @@ def build_global_pooling(global_pooling: str) -> nn.Sequential:
 def compute_pooled_features(global_pooling: str, backbone: Backbone) -> int:
     """
     Gives the size of the vector the global pooling makes from the final feature map of the backbone, the input size
-    of the classification head of the image classifier: the channels of the map for the average and max poolings,
-    whatever the image size, and its channels times its height and width when flattening, read from the output size
+    of the classification head of the image classifier and of the temporal module of the sequence models: the
+    channels of the map for the average and max poolings, whatever the image size, and its channels times its height
+    and width when flattening, read from the output size
     of the last spatial layer of the backbone (Data.image_settings.size halved by every max pooling).
 
     Args:
@@ -143,7 +144,7 @@ class ClassificationHead(nn.Module):
     def forward(self, features: torch.Tensor, feature_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Computes the class logits of feature vectors. With batch normalized hidden layers and a mask (the padding
-        frames of the windows of the sequence labeller), only the real vectors go through the head, so that the
+        frames of the sequences of the sequence labeller), only the real vectors go through the head, so that the
         padding frames take no part in the batch statistics, and the padding frames get zero logits, ignored by the
         loss and the evaluation like their labels. The layer normalization normalizes every vector alone, so the
         padding frames change nothing in the logits of the real ones.

@@ -59,7 +59,7 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     # Small frames, whole sequences and the generated label mapping, two loader workers per split
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
     configuration["Data"]["loading"]["number_workers"] = 2
-    configuration["Data"]["sequence_settings"]["sequence_length"] = SMOKE_MAXIMUM_FRAMES
+    configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = SMOKE_MAXIMUM_FRAMES
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
 
     configuration_path = temporary_directory / f"configuration_{number_iterations}_iterations.yaml"
@@ -170,8 +170,8 @@ def test_frame_selection_training_saves_evaluates_and_resumes(tmp_path: Path, ca
         assert torch.equal(input=parameter_value.cpu(), other=saved_model_state[parameter_name])
     resumed_trainer.run_training_loop()
 
-    # No iteration failed along the way
+    # The splits are described, and no iteration failed along the way
     console_output = capsys.readouterr().out
-    assert "8 sequences" in console_output and "one window of at most 6 frames per sequence" in console_output
+    assert "8 sequences" in console_output and "8 sequences of at most 6 frames" in console_output
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

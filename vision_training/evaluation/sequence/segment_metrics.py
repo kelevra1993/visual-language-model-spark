@@ -1,10 +1,10 @@
 """
 Segment metrics of the sequence labelling task (M2M), which score the predicted events instead of the frames: a segment
-is a run of consecutive labelled frames of one class. The predictions of the test windows are first merged back into
-whole sequences (the probabilities of a frame held by several windows being averaged), then every sequence gets its
-edit score (how many segments must be inserted, removed or replaced to turn the predicted order of segments into the
-true one) and the segment F1 at several overlaps (a predicted segment is right when it overlaps a true segment of its
-class enough). Used by the sequence labelling trainer to evaluate a checkpoint, next to the frame metrics.
+is a run of consecutive labelled frames of one class. The predictions of the labelled frames of the test sequences are
+first grouped sequence by sequence, then every sequence gets its edit score (how many segments must be inserted,
+removed or replaced to turn the predicted order of segments into the true one) and the segment F1 at several overlaps
+(a predicted segment is right when it overlaps a true segment of its class enough). Used by the sequence labelling
+trainer to evaluate a checkpoint, next to the frame metrics.
 """
 
 import numpy as np
@@ -17,12 +17,11 @@ from typing import Any, Dict, List, Tuple
 SEGMENT_OVERLAP_THRESHOLDS = [0.10, 0.25, 0.50]
 
 
-def merge_window_predictions(sequence_indices: torch.Tensor, frame_indices: torch.Tensor, probabilities: torch.Tensor,
-                             labels: torch.Tensor) -> List[Dict[str, np.ndarray]]:
+def group_sequence_predictions(sequence_indices: torch.Tensor, frame_indices: torch.Tensor,
+                               probabilities: torch.Tensor, labels: torch.Tensor) -> List[Dict[str, np.ndarray]]:
     """
-    Rebuilds the whole test sequences from the labelled frames of their evaluated windows, for the segment metrics of
-    the sequence labelling task: a segment can span several windows, and overlapping windows hold some frames twice.
-    The class probabilities of a frame held by several windows are averaged before its predicted class is taken.
+    Groups the labelled frames of the evaluated test sequences sequence by sequence, in frame order, for the segment
+    metrics of the sequence labelling task, the predicted class of every frame being its most probable class.
 
     Args:
         sequence_indices (torch.Tensor): The [N] int64 index of the sequence of every evaluated labelled frame.
@@ -33,22 +32,23 @@ def merge_window_predictions(sequence_indices: torch.Tensor, frame_indices: torc
     Returns:
         List[Dict[str, np.ndarray]]: One entry per sequence, in sequence index order, with the increasing
             'frame_indices' of its labelled frames, their 'true_classes' and their 'predicted_classes'.
+
+    Raises:
+        ValueError: If a frame of a sequence is given more than once.
     """
     if len(labels) == 0:
         return []
 
-    # Every distinct frame of every sequence, sorted by sequence then by frame, its probabilities summed over the
-    # windows holding it, which gives the class of their mean
-    frame_keys = torch.stack(tensors=[sequence_indices, frame_indices], dim=1)
-    unique_keys, key_indices = torch.unique(input=frame_keys, dim=0, return_inverse=True)
-    probability_sums = torch.zeros(size=(len(unique_keys), probabilities.shape[1]), dtype=probabilities.dtype)
-    probability_sums.index_add_(dim=0, index=key_indices, source=probabilities)
-    predicted_classes = probability_sums.argmax(dim=1).numpy()
-    true_classes = torch.zeros(size=(len(unique_keys),), dtype=labels.dtype).scatter_(dim=0, index=key_indices,
-                                                                                       src=labels).numpy()
+    # Frames sorted by sequence then by frame, every frame of a sequence being evaluated once
+    sequence_column, frame_column = sequence_indices.numpy(), frame_indices.numpy()
+    frame_order = np.lexsort(keys=(frame_column, sequence_column))
+    sequence_column, frame_column = sequence_column[frame_order], frame_column[frame_order]
+    if np.any((np.diff(sequence_column) == 0) & (np.diff(frame_column) == 0)):
+        raise ValueError("A frame of a test sequence was evaluated more than once, every sequence being expected once.")
+    predicted_classes = probabilities.argmax(dim=1).numpy()[frame_order]
+    true_classes = labels.numpy()[frame_order]
 
     # Split the sorted frames at every change of sequence
-    sequence_column, frame_column = unique_keys[:, 0].numpy(), unique_keys[:, 1].numpy()
     boundaries = [0] + (np.flatnonzero(np.diff(sequence_column)) + 1).tolist() + [len(sequence_column)]
     return [{"frame_indices": frame_column[start:end], "true_classes": true_classes[start:end],
              "predicted_classes": predicted_classes[start:end]}
@@ -144,7 +144,7 @@ def compute_segment_metrics(sequences: List[Dict[str, np.ndarray]]) -> Dict[str,
 
     Args:
         sequences (List[Dict[str, np.ndarray]]): The 'frame_indices', 'true_classes' and 'predicted_classes' of the
-            labelled frames of every whole sequence (merge_window_predictions).
+            labelled frames of every sequence (group_sequence_predictions).
 
     Returns:
         Dict[str, Any]: The 'edit_score' float, the 'segment_f1' float of every overlap threshold, and the

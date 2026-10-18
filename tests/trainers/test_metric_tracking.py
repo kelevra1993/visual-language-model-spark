@@ -69,7 +69,7 @@ def test_frame_throughput_counts_the_real_frames() -> None:
     tracker = build_metric_tracker(sample_name="Sequences", counts_frames=True)
     trackers = tracker.create_trackers()
 
-    # A batch padded to the sequence length and a batch cut to its longest window, holding 5 and 7 real frames
+    # Two batches padded to their longest sequence, holding 5 and 7 real frames
     padded_mask = torch.tensor(data=[[True, True, True, False, False, False], [True, True, False, False, False, False]])
     cut_mask = torch.tensor(data=[[True, True, True, True], [True, True, True, False]])
     for sequence_mask in [padded_mask, cut_mask]:

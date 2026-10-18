@@ -1,6 +1,6 @@
 """
 Trainer of the frame selection task (SEL): the frame selector trained on whole sequences of the 'labels.json'
-manifests (one window per sequence, every wanted class present 'frames_per_class' times), every evaluated checkpoint
+manifests (every wanted class present 'frames_per_class' times in every sequence), every evaluated checkpoint
 being scored with both decodings of the selection (Hungarian and greedy) on the same probabilities, with the ranks of
 the true frames, the per-frame metrics, the confidence thresholds of the chosen frames, the selections file and the
 sequence grids of the sample and error images. Built on the sequence labelling trainer and registered in the task
@@ -123,20 +123,20 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
 
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
         """
-        Counts the sequences and frames of a frame selection split from its labels.json manifest, every sequence
-        being one window.
+        Counts the sequences, frames and kept sequences of a frame selection split from its labels.json manifest,
+        every kept sequence being given whole.
 
         Args:
             split_data_folder (Path): The root folder of the split.
 
         Returns:
-            Tuple[int, str]: The number of sequences (the samples of an epoch) and their description.
+            Tuple[int, str]: The number of kept sequences (the samples of an epoch) and their description.
         """
-        number_sequences, number_frames, _ = count_split_sequences(
-            split_data_folder=split_data_folder, sequence_settings=self.sequence_settings, whole_sequences=True)
-        return number_sequences, (f"{number_sequences} sequences, {number_frames} frames, one window of "
-                                  f"{self.get_window_size_qualifier()}{self.sequence_settings['sequence_length']} "
-                                  f"frames per sequence")
+        number_sequences, number_frames, number_kept_sequences = count_split_sequences(
+            split_data_folder=split_data_folder, sequence_settings=self.sequence_settings)
+        return number_kept_sequences, (f"{number_sequences} sequences, {number_frames} frames, "
+                                       f"{number_kept_sequences} sequences of at most "
+                                       f"{self.sequence_settings['maximum_sequence_length']} frames")
 
     def get_sequence_predictions(self, batch: Dict[str, Any], predictions: Dict[str, Any],
                                  sample_index: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -371,7 +371,7 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         for sequence_index, sequence_identifier in enumerate(accumulator["sequence_identifiers"]):
             probabilities = accumulator["probabilities"][sequence_index]
             frame_labels = accumulator["frame_labels"][sequence_index]
-            frame_names = test_dataset.get_window_frame_names(sample_identifier=sequence_identifier)
+            frame_names = test_dataset.get_sequence_frame_names(sample_identifier=sequence_identifier)
             sequence_name = test_dataset.describe_sample(sample_identifier=sequence_identifier)["sequence"]
 
             # Low-confidence flags of the frames chosen by the decoding of the run
@@ -558,7 +558,7 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         return [self.class_names[int(frame_label)] if int(frame_label) != self.unselected_class_index else ""
                 for frame_label in label[sequence_mask]]
 
-    def get_window_caption(self, label: torch.Tensor) -> str:
+    def get_sample_caption(self, label: torch.Tensor) -> str:
         """
         Gives the caption of a sequence in the input viewer: the frames of every wanted class, e.g. 'Selected : A 3,
         B 0, C 5'.

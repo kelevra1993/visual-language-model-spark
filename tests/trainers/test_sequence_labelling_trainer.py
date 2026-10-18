@@ -12,7 +12,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
-from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
+from vision_training.data.split_description import count_split_sequences
+from vision_training.data.synthetic.create_synthetic_dataset import CHANGE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.sequence_labelling_trainer import SequenceLabellingTrainer
 from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
                                               check_sample_images, read_results_blocks)
@@ -20,18 +21,20 @@ from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_er
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                 "sequence_labelling" / "configuration_synthetic_sequences.yaml")
 
-# Frame size, frames per sequence and frames per window of the smoke test, small enough for a few quick iterations
+# Frame size, shortest and longest sequences and shapes per frame of the smoke test, small enough for a few quick
+# iterations, the sequences of different lengths padding the batches to their longest sequence
 SMOKE_IMAGE_SIZE = 64
-SMOKE_NUMBER_FRAMES = 6
-SMOKE_WINDOW_FRAMES = 4
+SMOKE_MINIMUM_FRAMES = 4
+SMOKE_MAXIMUM_FRAMES = 6
+SMOKE_MAXIMUM_OBJECTS = 6
 
 
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int) -> Path:
     """
     Writes a copy of the synthetic sequence labelling configuration adapted to a quick training smoke test: the
-    generated dataset, 64 pixel frames, windows of 4 frames cut every 3 frames from sequences of 6 frames (so that
-    some windows overlap), batches of 2 sequences, a causal transformer, and a saving schedule that triggers an
-    intermediate save, a save with test evaluation and a validation pass within a handful of iterations.
+    generated dataset, 64 pixel frames, whole sequences of at most 6 frames, batches of 2 sequences, a causal
+    transformer, and a saving schedule that triggers an intermediate save, a save with test evaluation and a
+    validation pass within a handful of iterations.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
@@ -55,11 +58,11 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": True, "compute_model_size": True,
                                                         "view_input_images": False})
 
-    # Small frames, short windows and the generated label mapping
+    # Small frames, short sequences and the generated label mapping
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
     # Two loader workers per split, enough for the small generated dataset
     configuration["Data"]["loading"]["number_workers"] = 2
-    configuration["Data"]["sequence_settings"].update({"sequence_length": SMOKE_WINDOW_FRAMES, "window_stride": 3})
+    configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = SMOKE_MAXIMUM_FRAMES
     configuration["TemporalModel"].update({"type": "transformer", "causal": True})
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["ClassificationHead"]["class_weighting"] = "balanced"
@@ -90,11 +93,10 @@ def build_trainer(configuration_path: Path) -> SequenceLabellingTrainer:
 def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the sequence labelling training pipeline on a generated synthetic changing shapes dataset: 5 iterations
-    save the intermediate, evaluated and final checkpoints, the evaluation of the labelled frames of the test windows
-    is reported in Results.txt with the sequence exact match, the segment metrics of the 3 whole test sequences
-    rebuilt from their windows and the labelled frames of every class, its per-class metrics, confusion matrix and
-    class thresholds files, and a second run with the same settings resumes from the last checkpoint with exactly its
-    weights. No training step may fail silently.
+    save the intermediate, evaluated and final checkpoints, the evaluation of every frame of the 3 test sequences of
+    4 to 6 frames is reported in Results.txt with the sequence exact match, the segment metrics and the labelled
+    frames of every class, its per-class metrics, confusion matrix and class thresholds files, and a second run with
+    the same settings resumes from the last checkpoint with exactly its weights. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -102,15 +104,20 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     """
     dataset_folder = tmp_path / "synthetic_changing_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
-                             split_sizes={"train": 8, "validation": 4, "test": 3}, maximum_objects=1,
-                             minimum_frames=SMOKE_NUMBER_FRAMES, maximum_frames=SMOKE_NUMBER_FRAMES,
-                             number_workers=2, task="sequence_labelling")
+                             split_sizes={"train": 8, "validation": 4, "test": 3},
+                             maximum_objects=SMOKE_MAXIMUM_OBJECTS, minimum_frames=SMOKE_MINIMUM_FRAMES,
+                             maximum_frames=SMOKE_MAXIMUM_FRAMES, number_workers=2, task="sequence_labelling")
+    sequence_settings = {"maximum_sequence_length": SMOKE_MAXIMUM_FRAMES}
+    _, number_train_frames, _ = count_split_sequences(split_data_folder=dataset_folder / "train",
+                                                      sequence_settings=sequence_settings)
+    _, number_test_frames, _ = count_split_sequences(split_data_folder=dataset_folder / "test",
+                                                     sequence_settings=sequence_settings)
 
     # First run: saves at iterations 2 (intermediate), 4 (with test evaluation) and 5 (end of the run)
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5))
-    assert trainer.run_name.startswith("M2M_") and "_T4_TRF1x128.4-CAU_" in trainer.run_name
-    assert trainer.class_names == list(SHAPE_CATEGORIES)
+    assert trainer.run_name.startswith("M2M_") and "_T6_TRF1x128.4-CAU_" in trainer.run_name
+    assert trainer.class_names == list(CHANGE_CATEGORIES)
     with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
         trainer.run_training_loop()
     results = report_mock.call_args.kwargs["results"]
@@ -119,31 +126,32 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
     assert sorted(path.name for path in weights_directory.glob("Iteration_*")) == ["Iteration_2", "Iteration_4",
                                                                                  "Iteration_5"]
     results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
-    # Every test sequence of 6 frames gives the windows of frames 0 to 3 and 2 to 5, all their frames being labelled
+    # Every frame of the 3 test sequences is labelled, the first one with no change
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
-        (4, "6 Test Sequences, 24 Labelled Frames")]
+        (4, f"3 Test Sequences, {number_test_frames} Labelled Frames")]
     assert "Accuracy" in results["metrics"] and "Sequence Exact Match" in results["metrics"]
     segment_metric_names = ["Edit Score", "Segment F1@10", "Segment F1@25", "Segment F1@50"]
     assert list(results["metrics"])[-4:] == segment_metric_names
     assert all(0.0 <= results["metrics"][metric_name] <= 1.0 for metric_name in segment_metric_names)
-    assert results["notes"][0].startswith("Segments : ") and " in 3 whole test sequences" in results["notes"][0]
+    assert results["notes"][0].startswith("Segments : ") and " in 3 test sequences" in results["notes"][0]
     assert results["tables"][0]["columns"][1] == "Frames"
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
         "Samples", "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
         "predictions.csv"]
-    check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=24)
+    check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names,
+                             number_samples=number_test_frames)
     rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
-                                  expected_rows=24, class_names=trainer.class_names,
+                                  expected_rows=number_test_frames, class_names=trainer.class_names,
                                   identification_columns=["sequence", "frame"])
-    # The 3 test sequences of 6 frames give 18 distinct frames, frames 2 and 3 of each sequence being in both windows
-    assert len({(row["sequence"], row["frame"]) for row in rows}) == 3 * 6
+    # Every frame of the test sequences is predicted once, the padding frames being left out
+    assert len({(row["sequence"], row["frame"]) for row in rows}) == number_test_frames
     if check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
                           maximum_per_class_pair=2):
         assert all("_frame" in image_path.stem for image_path in (evaluation_folder / "Errors").rglob("*.png"))
 
-    # Every test window is a sample image (8 asked for 6 windows), its frames captioned with their classes
-    check_sample_images(evaluation_folder=evaluation_folder, results=results, number_sample_images=6,
+    # Every test sequence is a sample image (8 asked for 3 sequences), its frames captioned with their classes
+    check_sample_images(evaluation_folder=evaluation_folder, results=results, number_sample_images=3,
                         sample_kind="sequences", correct_predictions=None)
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
@@ -157,8 +165,8 @@ def test_sequence_labelling_training_saves_evaluates_and_resumes(tmp_path: Path,
         assert torch.equal(input=parameter_value.cpu(), other=saved_model_state[parameter_name])
     resumed_trainer.run_training_loop()
 
-    # No iteration failed along the way
+    # The splits are described, and no iteration failed along the way
     console_output = capsys.readouterr().out
-    assert "8 sequences, 48 frames, 16 windows of at most 4 frames" in console_output
+    assert f"8 sequences, {number_train_frames} frames, 8 sequences of at most 6 frames" in console_output
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

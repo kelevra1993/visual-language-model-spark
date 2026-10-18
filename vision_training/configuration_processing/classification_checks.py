@@ -16,8 +16,8 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            check_probability_value,
                                                                            get_configuration_value)
 
-# Global pooling of the final feature map before the classification head, or its flattening (image classifier only,
-# refused by the sequence checks)
+# Global pooling of the final feature map before the classification head (or the temporal module of the sequence
+# models), or its flattening
 VALID_GLOBAL_POOLINGS = ["average", "max", "flatten"]
 
 # Output modes of the classification head: one class per sample (softmax) or several (sigmoid)

@@ -94,7 +94,7 @@ def test_detection_triton_configuration_is_unchanged(tmp_path: Path, export_form
 
 def test_sequence_triton_configuration_has_dynamic_frames(tmp_path: Path) -> None:
     """
-    Verifies the Triton configuration of a sequence labeller: windows with a varying number of frames, and one vector
+    Verifies the Triton configuration of a sequence labeller: sequences with a varying number of frames, and one vector
     of class probabilities per frame.
 
     Args:
@@ -116,7 +116,7 @@ def test_sequence_triton_configuration_has_dynamic_frames(tmp_path: Path) -> Non
 
 def test_comparison_triton_configuration_has_one_line_per_member(tmp_path: Path) -> None:
     """
-    Verifies the Triton configuration of a sequence comparator: one input line per member window, in the order of the
+    Verifies the Triton configuration of a sequence comparator: one input line per member, in the order of the
     forward arguments of the model and named like them, each with its own varying number of frames, and one vector of
     class probabilities per pair, named after the convention of the PyTorch backend.
 

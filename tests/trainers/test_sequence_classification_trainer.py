@@ -7,7 +7,7 @@ import pytest
 import torch
 import yaml
 
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from unittest.mock import patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
@@ -27,9 +27,8 @@ SMOKE_NUMBER_FRAMES = 4
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int) -> Path:
     """
     Writes a copy of the synthetic sequences configuration adapted to a quick training smoke test: the generated
-    dataset, 64 pixel frames, windows of 4 frames padded to the sequence length (the other smoke tests padding their
-    batches to their longest window), batches of 2 sequences and a saving schedule that triggers an intermediate save,
-    a save with test evaluation and a validation pass within a handful of iterations.
+    dataset, 64 pixel frames, whole sequences of at most 4 frames, batches of 2 sequences and a saving schedule that
+    triggers an intermediate save, a save with test evaluation and a validation pass within a handful of iterations.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
@@ -53,13 +52,11 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     experiment_configuration["diagnosis_modes"].update({"compute_receptive_field": True, "compute_model_size": True,
                                                         "view_input_images": False})
 
-    # Small frames, short windows and the generated label mapping
+    # Small frames, short sequences and the generated label mapping
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
     # Two loader workers per split, enough for the small generated dataset
     configuration["Data"]["loading"]["number_workers"] = 2
-    configuration["Data"]["sequence_settings"].update({"sequence_length": SMOKE_NUMBER_FRAMES,
-                                                       "window_stride": SMOKE_NUMBER_FRAMES,
-                                                       "batch_padding": "sequence_length"})
+    configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = SMOKE_NUMBER_FRAMES
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["ClassificationHead"]["class_weighting"] = "balanced"
     configuration["ExperimentConfiguration"]["evaluation"]["error_dumps"] = {"activated": True,
@@ -133,12 +130,11 @@ def test_sequence_classification_training_saves_evaluates_and_resumes(tmp_path: 
     check_error_images(evaluation_folder=evaluation_folder, rows=rows, notes=results["notes"],
                        maximum_per_class_pair=2)
 
-    # Every test window is a sample image (8 asked for 6 windows), named after its sequence and first frame and
-    # captioned in the colour of its prediction
+    # Every test sequence is a sample image (8 asked for 6 sequences), named after its sequence and captioned in the
+    # colour of its prediction
     check_sample_images(evaluation_folder=evaluation_folder, results=results, number_sample_images=6,
                         sample_kind="sequences",
-                        correct_predictions={f"{row['sequence']}_{PurePosixPath(row['first_frame']).stem}":
-                                             row["correct"] == "1" for row in rows})
+                        correct_predictions={row["sequence"]: row["correct"] == "1" for row in rows})
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
@@ -154,6 +150,6 @@ def test_sequence_classification_training_saves_evaluates_and_resumes(tmp_path: 
     # The sequence throughput comes with the frame throughput, and no iteration failed along the way
     console_output = capsys.readouterr().out
     assert "Sequences Per Second" in console_output and "Frames Per Second" in console_output
-    assert "8 sequences, 32 frames, 8 windows of 4 frames" in console_output
+    assert "8 sequences, 32 frames, 8 sequences of at most 4 frames" in console_output
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

@@ -105,7 +105,7 @@ def build_test_frame_selector() -> FrameSelector:
     Builds a small untrained frame selector on the CPU, in evaluation mode, its class 1 marked as unselected.
 
     Returns:
-        FrameSelector: The frame selector, predicting 3 classes for windows of up to 4 frames of 64 pixels.
+        FrameSelector: The frame selector, predicting 3 classes for sequences of up to 4 frames of 64 pixels.
     """
     torch.manual_seed(seed=0)
     configuration, device, dtype = get_sequence_model_configuration(temporal_type="gru")

@@ -128,9 +128,9 @@ def test_poolings_ignore_the_frame_order(temporal_type: str) -> None:
 
 def test_transformer_without_positional_embedding_ignores_the_frame_order() -> None:
     """
-    Verifies that the transformer without positional embedding treats a window as a set of frames: it holds no
+    Verifies that the transformer without positional embedding treats a sequence as a set of frames: it holds no
     embedding parameter, its weights are the same whatever the maximum number of frames, shuffling the real frames of
-    a window leaves its sequence vector unchanged (many to one), and the frame vectors follow their frames (many to
+    a sequence leaves its sequence vector unchanged (many to one), and the frame vectors follow their frames (many to
     many).
     """
     frame_features, sequence_mask = get_test_inputs()
@@ -148,7 +148,7 @@ def test_transformer_without_positional_embedding_ignores_the_frame_order() -> N
     assert {name: tensor.shape for name, tensor in longer_module.state_dict().items()} == {
         name: tensor.shape for name, tensor in sequence_module.state_dict().items()}
 
-    # Same sequence vector for the shuffled frames of the full window, frame vectors shuffled with their frames
+    # Same sequence vector for the shuffled frames of the full sequence, frame vectors shuffled with their frames
     frame_module = build_test_module(temporal_type="transformer", keep_time_axis=True, positional_embedding=False)
     with torch.no_grad():
         sequence_vectors = sequence_module(frame_features=frame_features, sequence_mask=sequence_mask)

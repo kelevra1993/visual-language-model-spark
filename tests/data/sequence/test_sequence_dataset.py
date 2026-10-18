@@ -1,8 +1,8 @@
 """
-Tests of SequenceDataset of vision_training/data/sequence/sequence_dataset.py: the window starts, the windows of
-sequences with one class per sequence or one class per frame, the whole sequences of the frame selection with their
-unselected frames and their check, the batches cut to their longest window by collate_longest_windows, and the window
-counts of vision_training/data/split_description.py.
+Tests of SequenceDataset of vision_training/data/sequence/sequence_dataset.py: the whole sequences with one class per
+sequence or one class per frame, the sequences longer than the maximum sequence length left out with red warnings, the
+whole sequences of the frame selection with their unselected frames and their check, the batches padded to their
+longest sequence by collate_padded_sequences, and the sequence counts of vision_training/data/split_description.py.
 """
 
 import json
@@ -17,8 +17,7 @@ from torch.utils.data import DataLoader
 from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.data.sequence.sequence_dataset import (SequenceDataset, collate_longest_windows,
-                                                            compute_window_starts)
+from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_padded_sequences
 from vision_training.data.split_description import count_split_sequences
 
 
@@ -26,7 +25,7 @@ def write_sequence_split(split_folder: Path, sequences: List[Dict[str, Any]]) ->
     """
     Writes a sequence split in the layout read by the sequence loader: the 32 pixel frames of every sequence in
     'data/<sequence name>/', the frame of index i of a sequence being filled with the value i + 1 so that the tests
-    can tell which frames a window holds, and the 'labels.json' manifest.
+    can tell which frames a sample holds, and the 'labels.json' manifest.
 
     Args:
         split_folder (Path): The folder of the split.
@@ -48,161 +47,152 @@ def write_sequence_split(split_folder: Path, sequences: List[Dict[str, Any]]) ->
                                                                    "sequences": manifest_sequences}))
 
 
-@pytest.mark.parametrize(argnames=("number_frames", "sequence_length", "window_stride", "short_sequences",
-                                   "expected_starts"), argvalues=[
-    (8, 4, 4, "pad", [0, 4]),
-    (10, 4, 4, "pad", [0, 4, 6]),
-    (6, 4, 1, "pad", [0, 1, 2]),
-    (4, 4, 2, "skip", [0]),
-    (3, 4, 4, "pad", [0]),
-    (3, 4, 4, "skip", [])])
-def test_window_starts(number_frames: int, sequence_length: int, window_stride: int, short_sequences: str,
-                       expected_starts: List[int]) -> None:
+def test_whole_sequences_with_one_class_per_sequence(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies how a sequence is cut into windows: one window every 'window_stride' frames, a last window ending on the
-    last frame when the stride does not reach it, and a sequence shorter than a window padded or skipped.
-
-    Args:
-        number_frames (int): The number of frames of the sequence.
-        sequence_length (int): The number of frames of a window.
-        window_stride (int): The number of frames between two window starts.
-        short_sequences (str): "pad" or "skip".
-        expected_starts (List[int]): The expected first frame of every window.
-    """
-    assert compute_window_starts(number_frames=number_frames, sequence_length=sequence_length,
-                                 window_stride=window_stride, short_sequences=short_sequences) == expected_starts
-
-
-def test_sequence_windows_with_one_class_per_sequence(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
-    """
-    Verifies the many to one dataset: every sequence is cut into windows carrying its class, a short sequence gives
-    one window padded with black frames marked by the sequence mask, the sequences of unmapped categories are left out
-    with a warning, the class counts count windows, every window has the class of its sequence, and a window is named
-    by its sequence, its real frames and its first frame in the sequence from its identifier.
+    Verifies the many to one dataset: every sequence is one sample holding all its frames with the class of the
+    sequence, the sequences of unmapped categories or without frames are left out with a yellow warning, a sequence
+    longer than the maximum sequence length is left out with a red warning of its own and a total, the class counts
+    count sequences, and a sequence is named by its frames from its identifier.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed warning.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed warnings.
     """
     write_sequence_split(split_folder=tmp_path, sequences=[
         {"id": 1, "name": "long", "number_frames": 8, "category_id": 1},
         {"id": 2, "name": "short", "number_frames": 2, "category_id": 2},
-        {"id": 3, "name": "unmapped", "number_frames": 12, "category_id": 3}])
-    sequence_settings = {"sequence_length": 4, "window_stride": 4, "short_sequences": "pad"}
+        {"id": 3, "name": "unmapped", "number_frames": 3, "category_id": 3},
+        {"id": 4, "name": "empty", "number_frames": 0, "category_id": 1},
+        {"id": 5, "name": "too_long", "number_frames": 9, "category_id": 1}])
 
     dataset = SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                               image_size=16, keep_ratio=True, label_dictionary={1: 0, 2: 1},
-                              sequence_settings=sequence_settings, label_type="sequence", shuffle=False)
-    assert "1 sequences of unmapped categories or shorter than 4 frames left out" in capsys.readouterr().out
+                              sequence_settings={"maximum_sequence_length": 8}, label_type="sequence",
+                              split_name="Training", shuffle=False)
+    printed_output = capsys.readouterr().out
+    assert "2 sequences of unmapped categories or without frames left out" in printed_output
+    assert ("Sequence 'too_long' Of The Training Split Has 9 Frames, More Than The Maximum Sequence Length (8): It Is "
+            "Left Out Of The Training." in printed_output)
+    assert ("1 Sequences Of The Training Split Are Longer Than The Maximum Sequence Length (8) And Are Left Out Of The "
+            "Training." in printed_output)
     assert dataset.class_names == {0: "left", 1: "right"}
 
-    # The long sequence is cut into the windows [0, 1, 2, 3] and [4, 5, 6, 7]
-    assert len(dataset) == 3 and dataset.get_class_counts() == [2, 1]
-    assert dataset.get_sample_class_indices() == {0: [0], 1: [0], 2: [1]}
-    first_window, second_window, short_window = dataset[0], dataset[1], dataset[2]
-    assert first_window["images"].shape == (4, 3, 16, 16) and first_window["images"].dtype == torch.uint8
-    assert first_window["images"][:, 0, 8, 8].tolist() == [1, 2, 3, 4]
-    assert second_window["images"][:, 0, 8, 8].tolist() == [5, 6, 7, 8]
-    assert first_window["labels"].dtype == torch.int64 and int(first_window["labels"]) == 0
-    assert first_window["sample_identifiers"] != second_window["sample_identifiers"]
+    # Every kept sequence is one sample of all its frames, without padding frames
+    assert len(dataset) == 2 and dataset.get_class_counts() == [1, 1]
+    assert dataset.get_sample_class_indices() == {0: [0], 1: [1]}
+    long_sequence, short_sequence = dataset[0], dataset[1]
+    assert long_sequence["images"].shape == (8, 3, 16, 16) and long_sequence["images"].dtype == torch.uint8
+    assert long_sequence["images"][:, 0, 8, 8].tolist() == list(range(1, 9))
+    assert long_sequence["sequence_mask"].tolist() == [True] * 8
+    assert long_sequence["labels"].dtype == torch.int64 and int(long_sequence["labels"]) == 0
+    assert short_sequence["images"].shape == (2, 3, 16, 16) and int(short_sequence["labels"]) == 1
 
-    # The short sequence keeps its frames 0 and 1, padded with two black frames
-    assert short_window["sequence_mask"].tolist() == [True, True, False, False]
-    assert short_window["images"][:, 0, 8, 8].tolist() == [1, 2, 0, 0]
-    assert int(short_window["labels"]) == 1
-
-    # Every window is named by its sequence and its first and last real frames, and placed in its sequence
-    assert dataset.describe_sample(sample_identifier=second_window["sample_identifiers"]) == {
-        "sequence": "long", "first_frame": "long/000004.png", "last_frame": "long/000007.png"}
-    assert [dataset.get_window_start(sample_identifier=window["sample_identifiers"])
-            for window in [first_window, second_window, short_window]] == [0, 4, 0]
-    assert dataset.get_window_frame_names(sample_identifier=short_window["sample_identifiers"]) == [
+    # Every sequence is named by its first and last frames, and lists all its frames
+    assert dataset.describe_sample(sample_identifier=long_sequence["sample_identifiers"]) == {
+        "sequence": "long", "first_frame": "long/000000.png", "last_frame": "long/000007.png"}
+    assert dataset.get_sequence_frame_names(sample_identifier=short_sequence["sample_identifiers"]) == [
         "short/000000.png", "short/000001.png"]
+    assert dataset.get_sample_name(sample_identifier=short_sequence["sample_identifiers"]) == "short"
 
 
-def test_sequence_windows_with_one_class_per_frame(tmp_path: Path) -> None:
+def test_whole_sequences_with_one_class_per_frame(tmp_path: Path) -> None:
     """
-    Verifies the many to one dataset with one class per frame: every frame gets its class, the frames of unmapped
-    categories and the padding frames get the ignored label -100, and the class counts and the classes of the window
-    count the labelled frames only.
+    Verifies the many to many dataset: every frame gets its class, the frames of unmapped categories get the ignored
+    label -100, and the class counts and the classes of the sequence count the labelled frames only.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
     write_sequence_split(split_folder=tmp_path, sequences=[
         {"id": 1, "name": "changing", "number_frames": 3, "frame_category_ids": [1, 3, 2]}])
-    sequence_settings = {"sequence_length": 4, "window_stride": 4, "short_sequences": "pad"}
 
     dataset = SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                               image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1},
-                              sequence_settings=sequence_settings, label_type="frame", shuffle=False)
-    window = dataset[0]
-    assert window["labels"].tolist() == [0, IGNORED_LABEL_INDEX, 1, IGNORED_LABEL_INDEX]
-    assert window["sequence_mask"].tolist() == [True, True, True, False]
+                              sequence_settings={"maximum_sequence_length": 50}, label_type="frame",
+                              split_name="Training", shuffle=False)
+    sequence = dataset[0]
+    assert sequence["labels"].tolist() == [0, IGNORED_LABEL_INDEX, 1]
+    assert sequence["sequence_mask"].tolist() == [True, True, True]
     assert dataset.get_class_counts() == [1, 1]
     assert dataset.get_sample_class_indices() == {0: [0, 1]}
 
 
 @pytest.mark.parametrize(argnames="label_type", argvalues=["sequence", "frame"])
-def test_collate_longest_windows_cuts_the_batches_to_their_longest_window(tmp_path: Path, label_type: str) -> None:
+def test_collate_pads_the_batches_to_their_longest_sequence(tmp_path: Path, label_type: str) -> None:
     """
-    Verifies that the batches of windows of 2, 3 and 5 real frames, padded to 8 frames by the dataset, are cut to the
-    5 frames of their longest window by collate_longest_windows: the frames, the sequence mask and the frame labels
-    are the first 5 positions of the batch of the default collate, while the labels of one class per window and the
-    window identifiers are unchanged.
+    Verifies that the sequences of 2, 3 and 5 frames are padded to the 5 frames of their longest sequence by
+    collate_padded_sequences: the real frames first, then black frames out of the sequence mask, the frame labels
+    padded with the ignored label -100, while the labels of one class per sequence and the identifiers are unchanged.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
-        label_type (str): "sequence" (one class per window) or "frame" (one class per frame).
+        label_type (str): "sequence" (one class per sequence) or "frame" (one class per frame).
     """
     write_sequence_split(split_folder=tmp_path, sequences=[
         {"id": 1, "name": "two", "number_frames": 2, "category_id": 1, "frame_category_ids": [1, 2]},
         {"id": 2, "name": "three", "number_frames": 3, "category_id": 2, "frame_category_ids": [2, 1, 2]},
         {"id": 3, "name": "five", "number_frames": 5, "category_id": 1, "frame_category_ids": [1, 1, 2, 2, 1]}])
-    sequence_settings = {"sequence_length": 8, "window_stride": 8, "short_sequences": "pad"}
     dataset = SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                               image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1},
-                              sequence_settings=sequence_settings, label_type=label_type, shuffle=False)
+                              sequence_settings={"maximum_sequence_length": 8}, label_type=label_type,
+                              split_name="Training", shuffle=False)
+    batch = next(iter(DataLoader(dataset=dataset, batch_size=3, shuffle=False,
+                                 collate_fn=partial(collate_padded_sequences, members_per_sample=1))))
 
-    # The same windows batched by the default collate and by the collate of the longest window
-    padded_batch = next(iter(DataLoader(dataset=dataset, batch_size=3, shuffle=False)))
-    cut_batch = next(iter(DataLoader(dataset=dataset, batch_size=3, shuffle=False,
-                                     collate_fn=partial(collate_longest_windows, members_per_sample=1))))
-
-    assert padded_batch["images"].shape == (3, 8, 3, 16, 16)
-    assert cut_batch["images"].shape == (3, 5, 3, 16, 16)
-    assert cut_batch["sequence_mask"].sum(dim=1).tolist() == [2, 3, 5]
-    assert torch.equal(input=cut_batch["images"], other=padded_batch["images"][:, :5])
-    assert torch.equal(input=cut_batch["sequence_mask"], other=padded_batch["sequence_mask"][:, :5])
-    assert torch.equal(input=cut_batch["sample_identifiers"], other=padded_batch["sample_identifiers"])
+    assert batch["images"].shape == (3, 5, 3, 16, 16)
+    assert batch["sequence_mask"].tolist() == [[True] * 2 + [False] * 3, [True] * 3 + [False] * 2, [True] * 5]
+    assert batch["images"][0, :, 0, 8, 8].tolist() == [1, 2, 0, 0, 0]
+    assert batch["images"][2, :, 0, 8, 8].tolist() == [1, 2, 3, 4, 5]
+    assert batch["sample_identifiers"].tolist() == [0, 1, 2]
     if label_type == "frame":
-        assert torch.equal(input=cut_batch["labels"], other=padded_batch["labels"][:, :5])
+        assert batch["labels"][0].tolist() == [0, 1] + [IGNORED_LABEL_INDEX] * 3
+        assert batch["labels"][1].tolist() == [1, 0, 1] + [IGNORED_LABEL_INDEX] * 2
     else:
-        assert torch.equal(input=cut_batch["labels"], other=padded_batch["labels"])
+        assert batch["labels"].tolist() == [0, 1, 0]
 
 
-def test_split_description_counts_windows(tmp_path: Path) -> None:
+def test_collate_pads_every_member_of_the_pairs() -> None:
     """
-    Verifies that the split description counts the sequences, the frames and the windows, the windows being the
-    samples of an epoch, a short sequence giving no window when the short sequences are skipped.
+    Verifies that collate_padded_sequences pads both members of every pair to the longest member of the batch: pairs
+    stored with members of 2 and 3 frames give [B, 2 x 3] batches, the padding frames of every member following its
+    real frames.
+    """
+    samples = [{"images": torch.arange(start=1, end=2 * member_length + 1).reshape(2 * member_length, 1),
+                "sequence_mask": torch.ones(size=(2 * member_length,), dtype=torch.bool),
+                "labels": torch.tensor(data=member_length, dtype=torch.int64), "sample_identifiers": member_length}
+               for member_length in [2, 3]]
+    batch = collate_padded_sequences(samples=samples, members_per_sample=2)
+
+    assert batch["images"].shape == (2, 6, 1)
+    assert batch["images"][0, :, 0].tolist() == [1, 2, 0, 3, 4, 0]
+    assert batch["images"][1, :, 0].tolist() == [1, 2, 3, 4, 5, 6]
+    assert batch["sequence_mask"][0].tolist() == [True, True, False, True, True, False]
+    assert batch["labels"].tolist() == [2, 3]
+
+
+def test_split_description_counts_kept_sequences(tmp_path: Path) -> None:
+    """
+    Verifies that the split description counts the sequences, the frames and the kept sequences, the samples of an
+    epoch, a sequence without frames or longer than the maximum sequence length not being kept.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
     write_sequence_split(split_folder=tmp_path, sequences=[
         {"id": 1, "name": "long", "number_frames": 12, "category_id": 1},
-        {"id": 2, "name": "short", "number_frames": 2, "category_id": 2}])
-    sequence_settings = {"sequence_length": 4, "window_stride": 4, "short_sequences": "skip"}
-    assert count_split_sequences(split_data_folder=tmp_path, sequence_settings=sequence_settings,
-                                 whole_sequences=False) == (2, 14, 3)
+        {"id": 2, "name": "short", "number_frames": 2, "category_id": 2},
+        {"id": 3, "name": "empty", "number_frames": 0, "category_id": 2}])
+    assert count_split_sequences(split_data_folder=tmp_path,
+                                 sequence_settings={"maximum_sequence_length": 10}) == (3, 14, 1)
+    assert count_split_sequences(split_data_folder=tmp_path,
+                                 sequence_settings={"maximum_sequence_length": 12}) == (3, 14, 2)
 
 
-def test_selection_sequences_are_whole_windows_with_unselected_frames(tmp_path: Path) -> None:
+def test_selection_sequences_are_whole_with_unselected_frames(tmp_path: Path) -> None:
     """
-    Verifies the frame selection dataset: every sequence is one window holding the whole sequence, the unselected
-    class is found by the name of its category, the frames of unmapped categories become unselected frames, the
-    padding frames are ignored, the windows are named after their sequence, and the classes of a window used to
-    spread the sample images leave the unselected frames out.
+    Verifies the frame selection dataset: every sequence is one sample, the unselected class is found by the name of
+    its category, the frames of unmapped categories become unselected frames, the sequences are named after their
+    folder, and the classes of a sequence used to spread the sample images leave the unselected frames out.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -213,29 +203,30 @@ def test_selection_sequences_are_whole_windows_with_unselected_frames(tmp_path: 
         {"id": 2, "name": "second", "number_frames": 2, "frame_category_ids": [1, 2]}])
     dataset = SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                               image_size=16, keep_ratio=False, label_dictionary={1: 0, 3: 1},
-                              sequence_settings={"sequence_length": 6, "batch_padding": "longest"},
-                              label_type="selection",
+                              sequence_settings={"maximum_sequence_length": 6}, label_type="selection",
+                              split_name="Training",
                               selection_settings={"unselected_category": "still", "frames_per_class": 1},
                               shuffle=False)
 
     assert dataset.unselected_class_index == 1 and len(dataset) == 2
-    assert dataset[0]["labels"].tolist() == [1, 0, 1, 1, 1, IGNORED_LABEL_INDEX]
-    assert dataset[1]["labels"].tolist() == [0, 1] + [IGNORED_LABEL_INDEX] * 4
+    assert dataset[0]["labels"].tolist() == [1, 0, 1, 1, 1]
+    assert dataset[1]["labels"].tolist() == [0, 1]
     assert dataset[0]["sequence_mask"].sum() == 5
     assert dataset.get_sample_name(sample_identifier=0) == "first"
     assert dataset.get_sample_class_indices() == {0: [0], 1: [0]}
-    assert count_split_sequences(split_data_folder=tmp_path, sequence_settings={"sequence_length": 6},
-                                 whole_sequences=True) == (2, 7, 2)
+    assert count_split_sequences(split_data_folder=tmp_path,
+                                 sequence_settings={"maximum_sequence_length": 6}) == (2, 7, 2)
 
 
-def test_selection_sequences_that_do_not_fit_are_all_listed(tmp_path: Path) -> None:
+def test_selection_sequences_that_do_not_fit_are_all_listed(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that the frame selection dataset refuses the sequences it cannot train on, listing all of them in one
-    error: a sequence holding a wanted class twice, one missing a wanted class, and one longer than the sequence
-    length.
+    error: a sequence holding a wanted class twice and one missing a wanted class, a sequence longer than the maximum
+    sequence length being left out with a red warning instead.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed warnings.
     """
     write_sequence_split(split_folder=tmp_path, sequences=[
         {"id": 1, "name": "valid", "number_frames": 3, "frame_category_ids": [1, 2, 3]},
@@ -246,15 +237,15 @@ def test_selection_sequences_that_do_not_fit_are_all_listed(tmp_path: Path) -> N
     with pytest.raises(expected_exception=ValueError) as raised_error:
         SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                         image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1, 3: 2},
-                        sequence_settings={"sequence_length": 4, "batch_padding": "longest"},
-                        label_type="selection",
+                        sequence_settings={"maximum_sequence_length": 4}, label_type="selection",
+                        split_name="Validation",
                         selection_settings={"unselected_category": "still", "frames_per_class": 1})
     error_message = str(raised_error.value)
-    assert error_message.startswith("3 sequences cannot be used for the frame selection")
+    assert error_message.startswith("2 sequences cannot be used for the frame selection")
     assert " - twice : left 2 frames" in error_message
-    assert " - missing : left 0 frames\n" in error_message
-    assert " - long : 5 frames, more than the sequence length 4" in error_message
-    assert "valid" not in error_message
+    assert error_message.endswith(" - missing : left 0 frames")
+    assert "valid" not in error_message and "long" not in error_message
+    assert "Sequence 'long' Of The Validation Split Has 5 Frames" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize(argnames=("unselected_category", "label_dictionary", "expected_message"), argvalues=[
@@ -277,6 +268,6 @@ def test_selection_needs_a_mapped_unselected_category(tmp_path: Path, unselected
     with pytest.raises(expected_exception=ValueError, match=expected_message.replace("(", r"\(").replace(")", r"\)")):
         SequenceDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                         image_size=16, keep_ratio=False, label_dictionary=label_dictionary,
-                        sequence_settings={"sequence_length": 4, "batch_padding": "longest"},
-                        label_type="selection",
+                        sequence_settings={"maximum_sequence_length": 4}, label_type="selection",
+                        split_name="Training",
                         selection_settings={"unselected_category": unselected_category, "frames_per_class": 1})

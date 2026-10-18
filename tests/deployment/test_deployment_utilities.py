@@ -1,8 +1,8 @@
 """
 Tests of the Triton deployment client of vision_training/deployment/deployment_utilities.py, with a recording stand-in
 for the gRPC client: the requests built for every task (the keypoint detection receiving the whole image like the
-classification), the frame windows cycling through the inference folder, and the inputs written in shared memory at
-their offsets.
+classification, the sequence tasks the whole folder as one sequence and the comparison its two halves), the folders
+refused for the sequence tasks, and the inputs written in shared memory at their offsets.
 """
 
 import json
@@ -18,8 +18,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from vision_training.data.synthetic.create_synthetic_dataset import build_keypoint_label_mapping, build_keypoint_labels
-from vision_training.deployment.deployment_utilities import (build_frame_window, load_inference_inputs,
-                                                             run_triton_inference)
+from vision_training.deployment.deployment_utilities import load_inference_inputs, run_triton_inference
 
 CONFIGURATIONS_FOLDER = Path(__file__).parents[2] / "vision_training" / "configurations"
 
@@ -31,10 +30,10 @@ TASK_CONFIGURATION_FILES = {"classification": "classification/configuration_synt
                             "frame_selection": "frame_selection/configuration_synthetic_sequences.yaml",
                             "keypoint_detection": "keypoint_detection/configuration_synthetic_shapes.yaml"}
 
-# Side of the network input of the test experiments, number of frames of their windows, and number of images of the
-# inference folder, the image of index i being filled with the value 10 * (i + 1)
+# Side of the network input of the test experiments, maximum number of frames of their sequences, and number of images
+# of the inference folder, the image of index i being filled with the value 10 * (i + 1)
 TEST_IMAGE_SIZE = 32
-TEST_SEQUENCE_LENGTH = 4
+TEST_MAXIMUM_SEQUENCE_LENGTH = 5
 TEST_NUMBER_IMAGES = 5
 
 
@@ -85,26 +84,29 @@ class RecordingClient:
         return RecordingResult()
 
 
-def write_test_experiment(experiment_folder: Path, task: str) -> None:
+def write_test_experiment(experiment_folder: Path, task: str,
+                          maximum_sequence_length: int = TEST_MAXIMUM_SEQUENCE_LENGTH) -> None:
     """
     Writes the training configuration of a trained experiment of a task, as read by the deployment client: the
-    synthetic configuration of the task with 32 pixel inputs, windows of 4 frames for the sequence tasks, and a label
+    synthetic configuration of the task with 32 pixel inputs, sequences of at most 5 frames, and a label
     mapping of 3 classes. The keypoint detection gets the training labels of the synthetic shapes whose keypoint
     definitions the configuration loader reads, with the label mapping of the synthetic dataset.
 
     Args:
         experiment_folder (Path): The experiment folder receiving 'training_configuration.yaml'.
         task (str): The task of the experiment, a key of TASK_CONFIGURATION_FILES.
+        maximum_sequence_length (int): The maximum sequence length of the sequence tasks. Defaults to
+            TEST_MAXIMUM_SEQUENCE_LENGTH.
     """
     experiment_folder.mkdir(parents=True)
     mapping_path = experiment_folder / "label_mapping.json"
     mapping_path.write_text(data=json.dumps(obj={"1": 0, "2": 1, "3": 2}))
 
-    # Small inputs, short windows and the written label mapping
+    # Small inputs, short sequences and the written label mapping
     configuration = yaml.safe_load(stream=(CONFIGURATIONS_FOLDER / TASK_CONFIGURATION_FILES[task]).read_text())
     configuration["Data"]["image_settings"]["size"] = TEST_IMAGE_SIZE
     if "sequence_settings" in configuration["Data"]:
-        configuration["Data"]["sequence_settings"]["sequence_length"] = TEST_SEQUENCE_LENGTH
+        configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = maximum_sequence_length
 
     # Keypoint detection: the synthetic shape categories as the training labels
     if task == "keypoint_detection":
@@ -120,58 +122,83 @@ def write_test_experiment(experiment_folder: Path, task: str) -> None:
     (experiment_folder / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=configuration))
 
 
-@pytest.mark.parametrize(argnames=("task", "expected_images"), argvalues=[
-    ("classification", {"images": [2]}), ("semantic_segmentation", {"images": [2]}),
-    ("keypoint_detection", {"images": [2]}), ("sequence_classification", {"images": [2, 3, 4, 0]}),
-    ("frame_selection", {"images": [2, 3, 4, 0]}),
-    ("sequence_comparison", {"before_images": [2, 3, 4, 0], "after_images": [1, 2, 3, 4]})])
-def test_requests_hold_the_inputs_of_the_task(tmp_path: Path, task: str,
-                                              expected_images: Dict[str, List[int]]) -> None:
+def write_inference_folder(image_folder: Path, number_images: int) -> None:
     """
-    Verifies the requests built from the inference folder for every kind of task: one request per image of the
-    folder, keyed by the input names of the task, holding one image, one window of consecutive images cycling through
-    the folder, or for the comparison a before window and an after window starting one window later.
+    Writes the inference folder read by the deployment client, the uniform image of index i being filled with the
+    value 10 * (i + 1) so that the tests can tell which images a request holds.
+
+    Args:
+        image_folder (Path): The inference folder to create.
+        number_images (int): The number of images of the folder.
+    """
+    image_folder.mkdir()
+    for image_index in range(number_images):
+        cv2.imwrite(filename=str(image_folder / f"image_{image_index:06d}.png"),
+                    img=np.full(shape=(16, 16, 3), fill_value=10 * (image_index + 1), dtype=np.uint8))
+
+
+@pytest.mark.parametrize(argnames=("task", "expected_requests"), argvalues=[
+    ("classification", [{"images": [image_index]} for image_index in range(TEST_NUMBER_IMAGES)]),
+    ("semantic_segmentation", [{"images": [image_index]} for image_index in range(TEST_NUMBER_IMAGES)]),
+    ("keypoint_detection", [{"images": [image_index]} for image_index in range(TEST_NUMBER_IMAGES)]),
+    ("sequence_classification", [{"images": [0, 1, 2, 3, 4]}]), ("frame_selection", [{"images": [0, 1, 2, 3, 4]}]),
+    ("sequence_comparison", [{"before_images": [0, 1, 2], "after_images": [3, 4]}])])
+def test_requests_hold_the_inputs_of_the_task(tmp_path: Path, task: str,
+                                              expected_requests: List[Dict[str, List[int]]]) -> None:
+    """
+    Verifies the requests built from the inference folder for every kind of task, keyed by the input names of the
+    task: one request per image for the image tasks, a single request of the whole folder as one sequence for the
+    sequence tasks, and for the comparison a single request whose before member is the first half of the folder and
+    whose after member is the rest.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         task (str): The task of the experiment.
-        expected_images (Dict[str, List[int]]): The indices of the images held by every input of the third request.
+        expected_requests (List[Dict[str, List[int]]]): The indices of the images held by every input of every request.
     """
-    # Inference folder of uniform images, and the trained experiment of the task
-    image_folder = tmp_path / "inference_data"
-    image_folder.mkdir()
-    for image_index in range(TEST_NUMBER_IMAGES):
-        cv2.imwrite(filename=str(image_folder / f"image_{image_index:06d}.png"),
-                    img=np.full(shape=(16, 16, 3), fill_value=10 * (image_index + 1), dtype=np.uint8))
+    write_inference_folder(image_folder=tmp_path / "inference_data", number_images=TEST_NUMBER_IMAGES)
     write_test_experiment(experiment_folder=tmp_path / "experiment", task=task)
 
-    requests = load_inference_inputs(image_folder=image_folder, experiment_folder=tmp_path / "experiment")
+    requests = load_inference_inputs(image_folder=tmp_path / "inference_data",
+                                     experiment_folder=tmp_path / "experiment")
 
-    # One request per image, keyed by the input names of the task, the third one checked image by image
-    assert len(requests) == TEST_NUMBER_IMAGES
-    assert all(list(request) == list(expected_images) for request in requests)
-    for input_name, image_indices in expected_images.items():
-        input_batch = requests[2][input_name]
-        assert input_batch.dtype == np.float32
-        # Images are [1, 3, H, W] batches, windows [1, T, 3, H, W] batches
-        if task in ["classification", "semantic_segmentation", "keypoint_detection"]:
-            assert input_batch.shape == (1, 3, TEST_IMAGE_SIZE, TEST_IMAGE_SIZE)
-            centre_values = [input_batch[0, 0, TEST_IMAGE_SIZE // 2, TEST_IMAGE_SIZE // 2]]
-        else:
-            assert input_batch.shape == (1, TEST_SEQUENCE_LENGTH, 3, TEST_IMAGE_SIZE, TEST_IMAGE_SIZE)
-            centre_values = input_batch[0, :, 0, TEST_IMAGE_SIZE // 2, TEST_IMAGE_SIZE // 2].tolist()
-        assert centre_values == [10 * (image_index + 1) for image_index in image_indices]
+    # Every request keyed by the input names of the task, checked image by image
+    assert len(requests) == len(expected_requests)
+    for request, expected_images in zip(requests, expected_requests):
+        assert list(request) == list(expected_images)
+        for input_name, image_indices in expected_images.items():
+            input_batch = request[input_name]
+            assert input_batch.dtype == np.float32
+            # Images are [1, 3, H, W] batches, sequences [1, T, 3, H, W] batches
+            if task in ["classification", "semantic_segmentation", "keypoint_detection"]:
+                assert input_batch.shape == (1, 3, TEST_IMAGE_SIZE, TEST_IMAGE_SIZE)
+                centre_values = [input_batch[0, 0, TEST_IMAGE_SIZE // 2, TEST_IMAGE_SIZE // 2]]
+            else:
+                assert input_batch.shape == (1, len(image_indices), 3, TEST_IMAGE_SIZE, TEST_IMAGE_SIZE)
+                centre_values = input_batch[0, :, 0, TEST_IMAGE_SIZE // 2, TEST_IMAGE_SIZE // 2].tolist()
+            assert centre_values == [10 * (image_index + 1) for image_index in image_indices]
 
 
-def test_frame_windows_cycle_through_the_folder() -> None:
+@pytest.mark.parametrize(argnames=("task", "number_images", "expected_message"), argvalues=[
+    ("sequence_classification", 5, "gives sequences of up to 5 images, more than the maximum sequence length of the "
+                                   "training \\(4\\)"),
+    ("sequence_comparison", 1, "holds 1 images, the sequence_comparison task needing at least 2")])
+def test_sequence_folders_that_do_not_fit_are_refused(tmp_path: Path, task: str, number_images: int,
+                                                      expected_message: str) -> None:
     """
-    Verifies that a window going past the last image of the folder continues from its first image.
+    Verifies that the deployment client refuses an inference folder longer than the sequences of the training, which
+    the training leaves out, and a folder too small to give the two members of the comparison.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task (str): The task of the experiment.
+        number_images (int): The number of images of the inference folder.
+        expected_message (str): The pattern of the expected error.
     """
-    # Window of 4 frames starting at the last of 3 images
-    images = [np.full(shape=(3, 2, 2), fill_value=image_index, dtype=np.float32) for image_index in range(3)]
-    window = build_frame_window(images=images, window_start=2, sequence_length=4)
-    assert window.shape == (4, 3, 2, 2)
-    assert window[:, 0, 0, 0].tolist() == [2, 0, 1, 2]
+    write_inference_folder(image_folder=tmp_path / "inference_data", number_images=number_images)
+    write_test_experiment(experiment_folder=tmp_path / "experiment", task=task, maximum_sequence_length=4)
+    with pytest.raises(expected_exception=ValueError, match=expected_message):
+        load_inference_inputs(image_folder=tmp_path / "inference_data", experiment_folder=tmp_path / "experiment")
 
 
 def test_triton_requests_write_every_input_at_its_offset() -> None:

@@ -1,6 +1,6 @@
 """
 Tests of the frame shuffling in the sequence trainers: the frame labels of SequenceLabellingTrainer follow their
-shuffled frames, and SequenceComparisonTrainer shuffles each member within its own window.
+shuffled frames, and SequenceComparisonTrainer shuffles each member within its own block of frames.
 """
 
 import random
@@ -13,7 +13,7 @@ from vision_training.trainers.sequence_labelling_trainer import SequenceLabellin
 
 def build_shuffling_augmenter() -> DataAugmenter:
     """
-    Builds an augmenter that shuffles every window and applies no other augmentation.
+    Builds an augmenter that shuffles every sequence and applies no other augmentation.
 
     Returns:
         DataAugmenter: The augmenter.
@@ -34,9 +34,9 @@ def test_frame_labels_follow_their_shuffled_frames() -> None:
     random.seed(0)
     trainer = SequenceLabellingTrainer.__new__(SequenceLabellingTrainer)
     trainer.data_augmenter = build_shuffling_augmenter()
-    trainer.sequence_settings = {"sequence_length": 6}
+    trainer.sequence_settings = {"maximum_sequence_length": 6}
 
-    # Frames filled with their position, labelled with their position, the last two frames of the second window
+    # Frames filled with their position, labelled with their position, the last two frames of the second sequence
     # being padding frames with the ignored label
     frames = torch.arange(6, dtype=torch.float32)[None, :, None, None, None].expand(2, 6, 3, 8, 8).clone()
     labels = torch.tensor(data=[[0, 1, 2, 3, 4, 5], [0, 1, 2, 3, -100, -100]])
@@ -50,16 +50,16 @@ def test_frame_labels_follow_their_shuffled_frames() -> None:
     assert not torch.equal(input=augmented_batch["labels"], other=labels)
 
 
-def test_pair_members_are_shuffled_within_their_windows() -> None:
+def test_pair_members_are_shuffled_within_their_blocks() -> None:
     """
-    Verifies that the augmentation of a comparison batch shuffles every member window on its own: the before frames
-    stay in the before window and the after frames in the after window, and the class of the pair is unchanged.
+    Verifies that the augmentation of a comparison batch shuffles every member on its own: the before frames stay in
+    the before member and the after frames in the after member, and the class of the pair is unchanged.
     """
     torch.manual_seed(seed=1)
     random.seed(1)
     trainer = SequenceComparisonTrainer.__new__(SequenceComparisonTrainer)
     trainer.data_augmenter = build_shuffling_augmenter()
-    trainer.sequence_settings = {"sequence_length": 4}
+    trainer.sequence_settings = {"maximum_sequence_length": 4}
 
     frames = torch.arange(8, dtype=torch.float32)[None, :, None, None, None].expand(3, 8, 3, 8, 8).clone()
     labels = torch.tensor(data=[0, 1, 0])

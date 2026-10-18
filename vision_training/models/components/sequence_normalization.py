@@ -1,6 +1,6 @@
 """
 Sequence batch normalization ('feature_map_normalization: "sequence"') used in the ConvolutionBlocks of the backbone
-of the sequence models: statistics computed over the frames of each window (or pair) at training and at inference,
+of the sequence models: statistics computed over the frames of each sequence (or pair) at training and at inference,
 with the same tensors as nn.BatchNorm2d so that a backbone transfers between batch and sequence normalization.
 """
 
@@ -16,8 +16,8 @@ class SequenceBatchNormalization(nn.BatchNorm2d):
     """
     Batch normalization whose statistics are computed over the frames of each sequence, at training and at inference,
     for the backbone of the sequence models ('feature_map_normalization: "sequence"'): every channel of every frame
-    is normalised with the mean and variance of that channel over the frames of its sequence (its window, or its pair
-    for the comparison task with the pair scope) and their spatial positions, so that a frame is normalised by the
+    is normalised with the mean and variance of that channel over the frames of its sequence (or of its pair for the
+    comparison task with the pair scope) and their spatial positions, so that a frame is normalised by the
     frames it is seen with, whatever the lighting of the sequence.
 
     It holds the same parameters and buffers as nn.BatchNorm2d, so that a backbone can move between batch and sequence

@@ -214,13 +214,45 @@ def compare_backbone_architectures(source_backbone_configuration: Dict[str, Any]
     return differences
 
 
+def compare_flattened_feature_maps(source_configuration: Dict[str, Any],
+                                   target_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Lists the differences between the settings giving the size of the vector made from the final feature map of the
+    backbone, read by the classification head of the image classifier and by the temporal module of the sequence
+    models: a flattened map gives one value per position and channel, a pooled one a value per channel only, and the
+    positions of a flattened map follow the image size.
+
+    Args:
+        source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
+        target_configuration (Dict[str, Any]): The model configuration of the run receiving the component.
+
+    Returns:
+        List[str]: The description of every difference, empty when both runs give vectors of the same size.
+    """
+    differences = []
+    source_pooling = source_configuration["ClassificationHead"]["global_pooling"]
+    target_pooling = target_configuration["ClassificationHead"]["global_pooling"]
+    if "flatten" in [source_pooling, target_pooling] and source_pooling != target_pooling:
+        differences.append(f"'ClassificationHead.global_pooling' is {source_pooling!r} in the source run and "
+                           f"{target_pooling!r} in this run: a flattened feature map and a pooled one give input "
+                           f"vectors of different sizes.")
+    elif source_pooling == "flatten":
+        source_image_size = source_configuration["Data"]["image_settings"]["size"]
+        target_image_size = target_configuration["Data"]["image_settings"]["size"]
+        if source_image_size != target_image_size:
+            differences.append(f"'Data.image_settings.size' is {source_image_size!r} in the source run and "
+                               f"{target_image_size!r} in this run: the flattened feature map, the input vector, "
+                               f"has a size following the image size.")
+    return differences
+
+
 def compare_temporal_modules(source_configuration: Dict[str, Any], target_configuration: Dict[str, Any]) -> List[str]:
     """
     Lists the differences between the settings defining the weights of the temporal modules of two runs, so that a
     temporal module is only transferred to a module of the same type and sizes: the type, the settings of that type
-    (TEMPORAL_WEIGHT_KEYS), the channels of the last backbone block, which give the size of the frame vectors the
-    module reads, and for a transformer with a positional embedding the sequence length, which gives the size of the
-    embedding.
+    (TEMPORAL_WEIGHT_KEYS), the channels of the last backbone block and, for a flattened feature map, the image size,
+    which give the size of the frame vectors the module reads, and for a transformer with a positional embedding the
+    maximum sequence length, which gives the size of the embedding.
 
     Args:
         source_configuration (Dict[str, Any]): The whole configuration of the source run, as saved in its folder.
@@ -252,23 +284,32 @@ def compare_temporal_modules(source_configuration: Dict[str, Any], target_config
             differences.append(f"'TemporalModel.{key_name}' is {source_temporal_configuration[key_name]!r} in the "
                                f"source run and {target_temporal_configuration[key_name]!r} in this run.")
 
-    # Size of the frame vectors read by the module, the channels of the last backbone block
+    # Size of the frame vectors read by the module, the channels of the last backbone block, times the positions of the
+    # map when it is flattened
     source_frame_features = list(source_configuration["Backbone"]["convolutions"].values())[-1][1]
     target_frame_features = list(target_configuration["Backbone"]["convolutions"].values())[-1][1]
     if source_frame_features != target_frame_features:
         differences.append(f"The last backbone block has {source_frame_features} channels in the source run and "
                            f"{target_frame_features} in this run, the size of the frame vectors of the temporal "
                            f"module.")
+    differences += compare_flattened_feature_maps(source_configuration=source_configuration,
+                                                  target_configuration=target_configuration)
 
-    # Positional embedding of both transformers, one vector per frame of a window, absent from an order-blind one
+    # Positional embedding of both transformers, one vector per possible frame of a sequence, absent from an
+    # order-blind one, a source run written before the setting existed having to be given it
     if temporal_type == "transformer" and target_temporal_configuration["positional_embedding"] and \
             "positional_embedding" not in differing_keys:
-        source_sequence_length = source_configuration["Data"]["sequence_settings"]["sequence_length"]
-        target_sequence_length = target_configuration["Data"]["sequence_settings"]["sequence_length"]
-        if source_sequence_length != target_sequence_length:
-            differences.append(f"'Data.sequence_settings.sequence_length' is {source_sequence_length} in the source "
-                               f"run and {target_sequence_length} in this run, the size of the positional embedding "
-                               f"of the transformer.")
+        source_sequence_settings = source_configuration["Data"]["sequence_settings"]
+        target_sequence_length = target_configuration["Data"]["sequence_settings"]["maximum_sequence_length"]
+        if "maximum_sequence_length" not in source_sequence_settings:
+            differences.append("'Data.sequence_settings.maximum_sequence_length' is missing from the source run, "
+                               "written before the setting existed: add it with the size of its positional embedding "
+                               "to its training_configuration.yaml.")
+        elif source_sequence_settings["maximum_sequence_length"] != target_sequence_length:
+            differences.append(f"'Data.sequence_settings.maximum_sequence_length' is "
+                               f"{source_sequence_settings['maximum_sequence_length']} in the source run and "
+                               f"{target_sequence_length} in this run, the size of the positional embedding of the "
+                               f"transformer.")
     return differences
 
 
@@ -315,21 +356,9 @@ def compare_classification_heads(source_configuration: Dict[str, Any],
                            f"{source_head_configuration['fully_connected_normalization']!r} in the source run and "
                            f"{target_head_configuration['fully_connected_normalization']!r} in this run.")
 
-    # A flattened feature map gives one input per position and channel, a pooled one an input per channel only, and
-    # the positions of a flattened map follow the image size
-    source_pooling = source_head_configuration["global_pooling"]
-    target_pooling = target_head_configuration["global_pooling"]
-    if "flatten" in [source_pooling, target_pooling] and source_pooling != target_pooling:
-        differences.append(f"'ClassificationHead.global_pooling' is {source_pooling!r} in the source run and "
-                           f"{target_pooling!r} in this run: a flattened feature map and a pooled one give input "
-                           f"vectors of different sizes.")
-    elif source_pooling == "flatten":
-        source_image_size = source_configuration["Data"]["image_settings"]["size"]
-        target_image_size = target_configuration["Data"]["image_settings"]["size"]
-        if source_image_size != target_image_size:
-            differences.append(f"'Data.image_settings.size' is {source_image_size!r} in the source run and "
-                               f"{target_image_size!r} in this run: the flattened feature map, the input of the head, "
-                               f"has a size following the image size.")
+    # A flattened feature map gives one input per position and channel, a pooled one an input per channel only
+    differences += compare_flattened_feature_maps(source_configuration=source_configuration,
+                                                  target_configuration=target_configuration)
     return differences
 
 

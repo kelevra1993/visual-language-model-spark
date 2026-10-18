@@ -22,12 +22,14 @@ from vision_training.data.detection.coco_masks import decode_run_length_encoding
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset
 from vision_training.data.synthetic import create_synthetic_dataset as synthetic_dataset_module
-from vision_training.data.synthetic.create_synthetic_dataset import (HOLLOW_DISTRACTOR_SHAPE_NAMES,
+from vision_training.data.synthetic.create_synthetic_dataset import (CHANGE_CATEGORIES,
+                                                                     HOLLOW_DISTRACTOR_SHAPE_NAMES,
                                                                      HOLLOW_INNER_KEYPOINT_SHAPE_NAMES,
                                                                      HOLLOW_SHAPE_NAMES, KEYPOINT_CATEGORIES,
                                                                      KEYPOINT_DRAWING_FUNCTIONS, KEYPOINT_NAMES,
                                                                      KITE_UPPER_RATIO_RANGE,
                                                                      KITE_WIDTH_RATIO_RANGE,
+                                                                     LABELLING_MINIMUM_OBJECTS,
                                                                      MINIMUM_SHAPE_SIZE,
                                                                      MINIMUM_VISIBLE_OBJECT_PIXELS,
                                                                      MOVEMENT_CATEGORIES, MOVEMENT_DIRECTIONS,
@@ -45,7 +47,7 @@ from vision_training.data.synthetic.create_synthetic_dataset import (HOLLOW_DIST
                                                                      create_synthetic_dataset, draw_annulus_mask,
                                                                      draw_hollow_mask,
                                                                      draw_shapes_frame,
-                                                                     generate_changing_shape_sequence,
+                                                                     generate_shape_change_sequence,
                                                                      generate_image, get_mask_bounding_box,
                                                                      keep_visible_objects)
 
@@ -400,30 +402,36 @@ def test_image_shapes_get_the_minimum_size(monkeypatch: pytest.MonkeyPatch, imag
 
 
 @pytest.mark.parametrize(argnames=("image_size", "expected_size_range"), argvalues=[
-    (512, (85, 170)), (IMAGE_SIZE, (MINIMUM_SHAPE_SIZE, 85)), (64, (21, 21))])
-def test_changing_shapes_get_the_minimum_size(monkeypatch: pytest.MonkeyPatch, image_size: int,
-                                              expected_size_range: Tuple[int, int]) -> None:
+    (512, (MINIMUM_SHAPE_SIZE, 102)), (IMAGE_SIZE, (51, 51))])
+def test_shape_change_shapes_get_the_minimum_size(monkeypatch: pytest.MonkeyPatch, image_size: int,
+                                                  expected_size_range: Tuple[int, int]) -> None:
     """
-    Verifies that the changing shape of the sequence labelling measures a sixth to a third of the frame side, raised
-    to MINIMUM_SHAPE_SIZE pixels when the frames are large enough, and the largest size on frames too small for it.
+    Verifies that the shapes of the sequence labelling frames measure MINIMUM_SHAPE_SIZE pixels to a fifth of the frame
+    side, and the largest size on frames too small for the minimum.
 
     Args:
-        monkeypatch (pytest.MonkeyPatch): The pytest fixture recording the sizes of the drawn shapes.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture recording the shape descriptors drawn.
         image_size (int): The side of the frames.
         expected_size_range (Tuple[int, int]): The expected smallest and largest shape sizes.
     """
-    drawing_recorders = {shape_name: CallRecorder(function=drawing_function)
-                         for shape_name, drawing_function in SHAPE_DRAWING_FUNCTIONS.items()}
-    for shape_name, drawing_recorder in drawing_recorders.items():
-        monkeypatch.setitem(dic=SHAPE_DRAWING_FUNCTIONS, name=shape_name, value=drawing_recorder)
+    shape_descriptor_recorder = CallRecorder(function=synthetic_dataset_module.draw_shape_descriptor)
+    monkeypatch.setattr(target=synthetic_dataset_module, name="draw_shape_descriptor", value=shape_descriptor_recorder)
+    generate_shape_change_sequence(image_size=image_size, number_frames=4, maximum_objects=8,
+                                   random_generator=np.random.default_rng(seed=0))
 
-    random_generator = np.random.default_rng(seed=0)
-    for _ in range(20):
-        generate_changing_shape_sequence(image_size=image_size, number_frames=4, random_generator=random_generator)
+    assert len(shape_descriptor_recorder.calls) >= 4 * LABELLING_MINIMUM_OBJECTS
+    assert all((call["minimum_size"], call["maximum_size"]) == expected_size_range
+               for call in shape_descriptor_recorder.calls)
 
-    drawn_sizes = [call["size"] for drawing_recorder in drawing_recorders.values() for call in drawing_recorder.calls]
-    assert len(drawn_sizes) >= 40
-    assert expected_size_range[0] <= min(drawn_sizes) and max(drawn_sizes) <= expected_size_range[1]
+
+def test_shape_change_sequence_needs_five_objects() -> None:
+    """
+    Verifies that a sequence labelling sample is refused when its frames could hold fewer shapes than the minimum.
+    """
+    with pytest.raises(expected_exception=ValueError, match="at least 5 shapes"):
+        generate_shape_change_sequence(image_size=IMAGE_SIZE, number_frames=4,
+                                       maximum_objects=LABELLING_MINIMUM_OBJECTS - 1,
+                                       random_generator=np.random.default_rng(seed=0))
 
 
 def test_created_dataset_is_valid_coco_and_loads(tmp_path: Path) -> None:
@@ -693,36 +701,41 @@ def test_created_sequence_dataset_moves_its_shapes_in_the_labelled_direction(tmp
 
 def test_created_sequence_labelling_dataset_labels_every_frame(tmp_path: Path) -> None:
     """
-    Verifies the sequence labelling mode of the generator: every sequence lists the shape category of every frame,
-    2 to 6 frames whose number varies from sequence to sequence, the shape changes class at least once, the frames of
-    the same class segment are identical and two consecutive segments differ, and the label mapping gives the 35
-    shapes the classes 0 to 34.
+    Verifies the sequence labelling mode of the generator: every sequence lists the change category of every frame,
+    2 to 6 frames whose number varies from sequence to sequence, the first frame is labelled 'no_change', every frame
+    shows 5 to 6 separate shapes, one more than the previous frame when labelled 'appearing_<class>', one less when
+    labelled 'disappearing_<class>' and as many otherwise, and the label mapping gives the 71 changes the classes 0 to
+    70.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
-    create_synthetic_dataset(output_folder=str(tmp_path), image_size=64,
-                             split_sizes={"train": 10, "validation": 2, "test": 2}, maximum_objects=1,
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=128,
+                             split_sizes={"train": 12, "validation": 2, "test": 2}, maximum_objects=6,
                              minimum_frames=2, maximum_frames=6, number_workers=2, task="sequence_labelling")
 
     labels = json.loads((tmp_path / "train" / "labels.json").read_text())
-    assert [category["name"] for category in labels["categories"]] == list(SHAPE_CATEGORIES)
+    assert [category["name"] for category in labels["categories"]] == list(CHANGE_CATEGORIES)
     assert json.loads((tmp_path / "label_mapping.json").read_text()) == {
-        str(category_identifier): category_identifier - 1 for category_identifier in SHAPE_CATEGORIES.values()}
+        str(category_identifier): category_identifier - 1 for category_identifier in CHANGE_CATEGORIES.values()}
+    assert len(CHANGE_CATEGORIES) == 2 * len(SHAPE_CATEGORIES) + 1
     sequence_lengths = [len(sequence["frames"]) for sequence in labels["sequences"]]
     assert all(2 <= sequence_length <= 6 for sequence_length in sequence_lengths) and len(set(sequence_lengths)) > 1
 
+    category_names = {category_identifier: name for name, category_identifier in CHANGE_CATEGORIES.items()}
+    expected_count_changes = {"appearing": 1, "disappearing": -1, "no": 0}
     for sequence in labels["sequences"]:
         frame_category_ids = sequence["frame_category_ids"]
         assert len(frame_category_ids) == len(sequence["frames"])
-        assert len(set(frame_category_ids)) >= 2 and set(frame_category_ids) <= set(SHAPE_CATEGORIES.values())
+        assert frame_category_ids[0] == CHANGE_CATEGORIES["no_change"]
 
-        # Identical frames within a class segment, different frames across a change of class
-        frames = [cv2.imread(filename=str(tmp_path / "train" / "data" / frame_file))
-                  for frame_file in sequence["frames"]]
-        for frame_index in range(1, len(frames)):
-            same_class = frame_category_ids[frame_index] == frame_category_ids[frame_index - 1]
-            assert np.array_equal(frames[frame_index], frames[frame_index - 1]) == same_class
+        # Number of shapes of every frame within its bounds, changed by the label of the frame
+        object_counts = [count_frame_objects(frame=cv2.imread(filename=str(tmp_path / "train" / "data" / frame_file)))
+                         for frame_file in sequence["frames"]]
+        assert all(LABELLING_MINIMUM_OBJECTS <= object_count <= 6 for object_count in object_counts)
+        for frame_index in range(1, len(object_counts)):
+            change_name = category_names[frame_category_ids[frame_index]].split("_")[0]
+            assert object_counts[frame_index] - object_counts[frame_index - 1] == expected_count_changes[change_name]
 
 
 def count_frame_objects(frame: np.ndarray) -> int:
@@ -843,7 +856,7 @@ def test_created_frame_selection_dataset_holds_every_wanted_shape_once(tmp_path:
     dataset = SequenceDataset(data_directory=str(tmp_path / "train" / "data"),
                               labels_file=str(tmp_path / "train" / "labels.json"), image_size=64, keep_ratio=True,
                               label_dictionary={int(key): value for key, value in label_mapping.items()},
-                              sequence_settings={"sequence_length": 8, "batch_padding": "longest"},
-                              label_type="selection",
+                              sequence_settings={"maximum_sequence_length": 8}, label_type="selection",
+                              split_name="train",
                               selection_settings={"unselected_category": "unselected", "frames_per_class": 1})
     assert len(dataset) == 10 and dataset.unselected_class_index == 0

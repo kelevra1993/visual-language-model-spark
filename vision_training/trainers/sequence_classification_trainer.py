@@ -1,6 +1,6 @@
 """
-Trainer of the sequence classification task (M2O): the loaders of the frame windows cut from the sequences of the
-'labels.json' manifests, the sequence classifier, the sequence augmentations and the frame grids of the input viewer,
+Trainer of the sequence classification task (M2O): the loaders of the whole sequences of the 'labels.json'
+manifests, the sequence classifier, the sequence augmentations and the frame grids of the input viewer,
 the error images and the sample images, the losses and evaluation being those of the classification trainer. Registered
 in the task registry and extended by the sequence labelling and sequence comparison trainers.
 """
@@ -26,10 +26,10 @@ FRAME_GRID_DISPLAY_SIZE = 800
 
 class SequenceClassificationTrainer(ClassificationTrainer):
     """
-    Trainer of the sequence classification task (many to one): the sequence classifier trained on windows of frames
-    cut from the sequences of 'labels.json' manifests (Native loader), one class per window. The losses, the accuracy
-    tracked on every batch and the evaluation of the checkpoints are those of the classification task, a window
-    being classified as a whole like an image.
+    Trainer of the sequence classification task (many to one): the sequence classifier trained on the whole sequences
+    of 'labels.json' manifests (Native loader), one class per sequence. The losses, the accuracy tracked on every batch
+    and the evaluation of the checkpoints are those of the classification task, a sequence being classified as a
+    whole like an image.
 
     The sequence labelling trainer extends it with one class per frame, and the sequence comparison trainer with one
     class per pair of sequences.
@@ -38,13 +38,13 @@ class SequenceClassificationTrainer(ClassificationTrainer):
     TASK_NAME = "sequence_classification"
     SAMPLE_NAME = "Sequences"
 
-    # Labels read from the manifests: one class per window (many to one)
+    # Labels read from the manifests: one class per sequence (many to one)
     LABEL_TYPE = "sequence"
 
     # Real frames of the training batches counted for the frame throughput of the console summaries
     COUNTS_FRAMES = True
 
-    # Windows of a sample stored one after the other along its frame axis: one window, two for the pairs
+    # Sequences of a sample stored one after the other along its frame axis: one sequence, two members for the pairs
     MEMBERS_PER_SAMPLE = 1
 
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
@@ -59,7 +59,7 @@ class SequenceClassificationTrainer(ClassificationTrainer):
                 Backbone, TemporalModel, ClassificationHead).
             configuration_path (str | Path): The file path to the original YAML configuration used for this run.
         """
-        # Window of frames fed to the model, cut from the sequences of the manifests
+        # Longest sequence fed to the model, the longer sequences of the manifests being left out
         self.sequence_settings = model_configuration["Data"]["sequence_settings"]
 
         # Shuffled frames carry no order, which an ordered temporal module would otherwise learn from
@@ -67,7 +67,7 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         temporal_type = model_configuration["TemporalModel"]["type"]
         if augmentation_configuration["activated"] and augmentation_configuration["shuffle_frames"]["activated"] and \
                 temporal_type in ORDERED_TEMPORAL_TYPES:
-            print_color(color="yellow", output=f"The frames of the training windows are shuffled "
+            print_color(color="yellow", output=f"The frames of the training sequences are shuffled "
                                                f"('Data.data_augmentation.shuffle_frames') while the {temporal_type!r} "
                                                f"temporal module models their order.")
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
@@ -89,47 +89,36 @@ class SequenceClassificationTrainer(ClassificationTrainer):
                             for class_index in range(training_dataset.number_classes)]
         return loaders
 
-    def get_window_length(self, batch: Dict[str, Any]) -> int:
+    def get_member_length(self, batch: Dict[str, Any]) -> int:
         """
-        Gives the number of frames of the windows of a batch, along which the training augmentation shuffles their real
-        frames: the sequence length, or the longest window of the batch when the batches are padded to their longest
-        window ('Data.sequence_settings.batch_padding'), a pair holding MEMBERS_PER_SAMPLE windows of that length.
+        Gives the number of frames of the sequences of a batch, along which the training augmentation shuffles their
+        real frames: the longest sequence of the batch, to which the collate pads the others, a pair holding
+        MEMBERS_PER_SAMPLE members of that length.
 
         Args:
             batch (Dict[str, Any]): The batch, with its [B, MEMBERS_PER_SAMPLE x T] sequence mask.
 
         Returns:
-            int: The number of frames T of a window of the batch.
+            int: The number of frames T of a sequence, or of a member of a pair, of the batch.
         """
         return batch["sequence_mask"].shape[1] // self.MEMBERS_PER_SAMPLE
 
-    def get_window_size_qualifier(self) -> str:
-        """
-        Gives the word placed before the number of frames of the windows in the split descriptions printed at
-        startup: the windows of a batch have at most sequence_length frames when the batches are padded to their
-        longest window, and exactly sequence_length frames otherwise.
-
-        Returns:
-            str: "at most " when the batches are padded to their longest window, an empty string otherwise.
-        """
-        return "at most " if self.sequence_settings["batch_padding"] == "longest" else ""
-
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
         """
-        Counts the sequences, frames and windows of a sequence split from its labels.json manifest.
+        Counts the sequences, frames and kept sequences of a sequence split from its labels.json manifest.
 
         Args:
             split_data_folder (Path): The root folder of the split.
 
         Returns:
-            Tuple[int, str]: The number of windows (the samples of an epoch) and their description with the number of
-                sequences and frames.
+            Tuple[int, str]: The number of kept sequences (the samples of an epoch) and their description with the
+                number of sequences and frames.
         """
-        number_sequences, number_frames, number_windows = count_split_sequences(
-            split_data_folder=split_data_folder, sequence_settings=self.sequence_settings, whole_sequences=False)
-        return number_windows, (f"{number_sequences} sequences, {number_frames} frames, {number_windows} windows of "
-                                f"{self.get_window_size_qualifier()}{self.sequence_settings['sequence_length']} "
-                                f"frames")
+        number_sequences, number_frames, number_kept_sequences = count_split_sequences(
+            split_data_folder=split_data_folder, sequence_settings=self.sequence_settings)
+        return number_kept_sequences, (f"{number_sequences} sequences, {number_frames} frames, "
+                                       f"{number_kept_sequences} sequences of at most "
+                                       f"{self.sequence_settings['maximum_sequence_length']} frames")
 
     def prepare_batch(self, batch: Dict[str, Any]) -> SequenceBatch:
         """
@@ -172,11 +161,11 @@ class SequenceClassificationTrainer(ClassificationTrainer):
 
     def get_frame_captions(self, label: torch.Tensor, sequence_mask: torch.Tensor) -> Optional[List[str]]:
         """
-        Gives the captions written on the frames of a window in the input viewer: none with one class per window,
-        whose class is the caption of the whole window.
+        Gives the captions written on the frames of a sequence in the input viewer: none with one class per sequence,
+        whose class is the caption of the whole sequence.
 
         Args:
-            label (torch.Tensor): The label of the window.
+            label (torch.Tensor): The label of the sequence.
             sequence_mask (torch.Tensor): The [T] booleans, True for the real frames.
 
         Returns:
@@ -184,15 +173,15 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         """
         return None
 
-    def get_window_caption(self, label: torch.Tensor) -> str:
+    def get_sample_caption(self, label: torch.Tensor) -> str:
         """
-        Gives the caption of a window in the input viewer: its class with one class per window.
+        Gives the caption of a sequence in the input viewer: its class with one class per sequence.
 
         Args:
-            label (torch.Tensor): The label of the window.
+            label (torch.Tensor): The label of the sequence.
 
         Returns:
-            str: The caption of the window.
+            str: The caption of the sequence.
         """
         return f"Class : {self.get_label_caption(label=label)}"
 
@@ -216,23 +205,23 @@ class SequenceClassificationTrainer(ClassificationTrainer):
 
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Randomly augments the frames of a training batch of windows (one draw per window for every type, or per frame
-        for the photometric types with 'independent_frames'), then shuffles the real frames of the windows when
+        Randomly augments the frames of a training batch of sequences (one draw per sequence for every type, or per
+        frame for the photometric types with 'independent_frames'), then shuffles the real frames of the sequences when
         'shuffle_frames' is on, the frame labels of the sequence labelling task following their frames. The
-        comparison trainer inherits it, each member window of a pair being shuffled on its own. The windows have the
-        length of the batch, cut to its longest window when 'batch_padding' is "longest".
+        comparison trainer inherits it, each member of a pair being shuffled on its own. The sequences have the length
+        of the longest sequence of the batch.
 
         Args:
             batch (Dict[str, Any]): The training batch, with its sequence mask.
 
         Returns:
             Dict[str, Any]: The batch with its augmented and possibly shuffled frames and frame labels, the
-                'augmentation_reports' of its windows and their [B, T] 'frame_orders' for the input viewer.
+                'augmentation_reports' of its sequences and their [B, T] 'frame_orders' for the input viewer.
         """
         augmented_batch = super().augment_batch(batch=batch)
         shuffled_images, frame_orders = self.data_augmenter.shuffle_frames(
             images=augmented_batch["images"], sequence_mask=augmented_batch["sequence_mask"],
-            frame_block_length=self.get_window_length(batch=augmented_batch))
+            frame_block_length=self.get_member_length(batch=augmented_batch))
         augmented_batch["images"] = shuffled_images
         augmented_batch["frame_orders"] = frame_orders
 
@@ -244,12 +233,12 @@ class SequenceClassificationTrainer(ClassificationTrainer):
 
     def build_input_image(self, batch: Dict[str, Any], sample_index: int) -> np.ndarray:
         """
-        Builds the image of a test window shown by the error images and the sample images of the evaluation: its real
+        Builds the image of a test sequence shown by the error images and the sample images of the evaluation: its real
         frames laid out on a grid, the before member above the after member for a pair.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
-            sample_index (int): The index of the window (or pair) in the batch.
+            sample_index (int): The index of the sequence (or pair) in the batch.
 
         Returns:
             np.ndarray: The [H, W, 3] uint8 BGR frame grid of the sample.
@@ -261,14 +250,14 @@ class SequenceClassificationTrainer(ClassificationTrainer):
 
     def describe_frame_order(self, batch: Dict[str, Any], sample_index: int) -> List[str]:
         """
-        Writes the frame order of a window in its information panel of the input viewer, when the training
+        Writes the frame order of a sequence in its information panel of the input viewer, when the training
         augmentation shuffles the frames ('Data.data_augmentation.shuffle_frames'): the original frame shown at every
         position of the grid, so that the frame by frame augmentation lines, numbered before the shuffle, can be
-        matched with the frames on the grid. The validation windows are never shuffled.
+        matched with the frames on the grid. The validation sequences are never shuffled.
 
         Args:
             batch (Dict[str, Any]): The augmented training batch, with its 'frame_orders', or the validation batch.
-            sample_index (int): The index of the displayed window (or pair) in its batch.
+            sample_index (int): The index of the displayed sequence (or pair) in its batch.
 
         Returns:
             List[str]: The frame order line, or no line when the frames are not shuffled.
@@ -277,14 +266,14 @@ class SequenceClassificationTrainer(ClassificationTrainer):
                                                self.data_augmenter.shuffle_frames_activated):
             return []
 
-        # The original index of the real frames of every member window, the members of a pair separated by a bar
+        # The original index of the real frames of every member, the members of a pair separated by a bar
         frame_order = batch["frame_orders"][sample_index]
         sequence_mask = batch["sequence_mask"][sample_index].to(dtype=torch.bool)
-        window_length = self.get_window_length(batch=batch)
+        member_length = self.get_member_length(batch=batch)
         member_orders = []
-        for block_start in range(0, sequence_mask.shape[0], window_length):
-            block_order = frame_order[block_start:block_start + window_length]
-            member_orders.append(block_order[sequence_mask[block_start:block_start + window_length]].tolist())
+        for block_start in range(0, sequence_mask.shape[0], member_length):
+            block_order = frame_order[block_start:block_start + member_length]
+            member_orders.append(block_order[sequence_mask[block_start:block_start + member_length]].tolist())
         if all(order == sorted(order) for order in member_orders):
             return ["Frame order : kept"]
         return ["Frame order : shuffled, showing frames " +
@@ -293,14 +282,14 @@ class SequenceClassificationTrainer(ClassificationTrainer):
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:
         """
-        Displays the frames of an augmented training window next to those of a validation window, each laid out on a
+        Displays the frames of an augmented training sequence next to those of a validation sequence, each laid out on a
         grid next to an information panel holding its classes, its number of real frames, the augmentations drawn for
         every real frame and the order of its frames.
 
         Args:
             training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
             validation_batch (Dict[str, Any]): The validation batch, on the CPU.
-            sample_index (int): The index of the displayed windows in their batches.
+            sample_index (int): The index of the displayed sequences in their batches.
 
         Returns:
             bool: True if the user asked to stop viewing.
@@ -311,14 +300,14 @@ class SequenceClassificationTrainer(ClassificationTrainer):
             frame_grids.append(self.build_sample_frame_grid(frames=batch["images"][sample_index],
                                                             sequence_mask=sequence_mask, label=label))
 
-            # The real frames of every member window, which stay first in their window after a shuffle
-            window_length = self.get_window_length(batch=batch)
-            member_frame_counts = [str(int(sequence_mask[block_start:block_start + window_length].sum()))
-                                   for block_start in range(0, sequence_mask.shape[0], window_length)]
+            # The real frames of every member, which stay first in their member after a shuffle
+            member_length = self.get_member_length(batch=batch)
+            member_frame_counts = [str(int(sequence_mask[block_start:block_start + member_length].sum()))
+                                   for block_start in range(0, sequence_mask.shape[0], member_length)]
             real_frames = torch.nonzero(input=sequence_mask).flatten().tolist()
 
-            # The classes and the real frames of the window, then its augmentations and its frame order
-            panel_lines.append([self.get_window_caption(label=label),
+            # The classes and the real frames of the sequence, then its augmentations and its frame order
+            panel_lines.append([self.get_sample_caption(label=label),
                                 f"Real frames : {' + '.join(member_frame_counts)}"] +
                                self.describe_input_augmentations(batch=batch, sample_index=sample_index,
                                                                  real_frames=real_frames) +

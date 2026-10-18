@@ -43,13 +43,13 @@ def test_samples_are_spread_over_the_classes() -> None:
 
 def test_samples_are_grouped_by_their_most_frequent_class() -> None:
     """
-    Verifies that a sample with several classes (the frames of a window, a multi-label sample) is grouped by its most
+    Verifies that a sample with several classes (the frames of a sequence, a multi-label sample) is grouped by its most
     frequent class, the lowest class on ties, that the samples without class form their own group, and that the order
     of the samples in the dictionary does not change the choice.
     """
     sample_classes = {5: [2, 2, 1], 3: [1, 2], 1: [], 4: [1, 1, 2]}
 
-    # Groups: no class {1}, class 1 {3, 4} (the tie of window 3 going to class 1), class 2 {5}
+    # Groups: no class {1}, class 1 {3, 4} (the tie of sample 3 going to class 1), class 2 {5}
     assert choose_sample_identifiers(sample_classes=sample_classes, number_samples=3) == {1, 3, 5}
     reversed_classes = dict(reversed(list(sample_classes.items())))
     assert choose_sample_identifiers(sample_classes=reversed_classes, number_samples=3) == {1, 3, 5}

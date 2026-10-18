@@ -38,7 +38,7 @@ def build_configuration(enabled_types: List[str], probability: float = 1.0, inde
         enabled_types (List[str]): The augmentation types to activate, each with probability 1.
         probability (float): The global probability of augmenting an image. Defaults to 1.0.
         independent_frames (bool): Whether the photometric types are drawn frame by frame. Defaults to False.
-        shuffle_probability (float): The probability of shuffling the frames of a window, 0 turning the shuffling
+        shuffle_probability (float): The probability of shuffling the frames of a sequence, 0 turning the shuffling
             off. Defaults to 0.0.
 
     Returns:
@@ -221,16 +221,16 @@ def test_disabled_augmentation_is_identity() -> None:
         assert all(torch.equal(input=output, other=original) for output, original in zip(augmented_boxes, boxes))
 
 
-def test_shuffling_permutes_the_real_frames_of_every_window() -> None:
+def test_shuffling_permutes_the_real_frames_of_every_sequence() -> None:
     """
-    Verifies the shuffling of the frames of the windows: only the real frames move, the padding frames staying last,
-    every member window of a pair is shuffled within its own block, the frame order gives the original frame at every
+    Verifies the shuffling of the frames of the sequences: only the real frames move, the padding frames staying last,
+    every member of a pair is shuffled within its own block, the frame order gives the original frame at every
     position, and nothing moves without shuffling.
     """
     torch.manual_seed(seed=0)
     random.seed(0)
 
-    # Two pairs of member windows of 4 frames, the frame of position i filled with the value i
+    # Two pairs of members padded to 4 frames, the frame of position i filled with the value i
     frames = torch.arange(8, dtype=torch.float32)[None, :, None, None, None].expand(2, 8, 3, 4, 4).clone()
     sequence_mask = torch.tensor(data=[[True, True, True, False, True, True, True, True],
                                        [True, True, False, False, True, True, True, False]])

@@ -1,5 +1,5 @@
 """
-Checks of the configuration sections specific to the sequence tasks: the window settings, the temporal module, the
+Checks of the configuration sections specific to the sequence tasks: the sequence settings, the temporal module, the
 fusion of the pairs and the selection settings, for sequence classification (M2O), sequence labelling (M2M), sequence
 comparison (CMP) and frame selection (SEL). Run by configuration_checker.py for these tasks, on top of the
 classification head and data checks.
@@ -17,65 +17,28 @@ from vision_training.models.sequence.frame_selection_decoding import VALID_DECOD
 from vision_training.models.sequence.member_fusion import FUSION_TYPES, SEQUENCE_NORMALIZATION_SCOPES
 from vision_training.models.sequence.temporal_modules import ORDERED_TEMPORAL_TYPES, POOLING_TEMPORAL_TYPES
 
-# Handling of the sequences shorter than one window: padded with black frames, or left out
-VALID_SHORT_SEQUENCES = ["pad", "skip"]
-
-# Number of frames the windows of a batch are padded to: the sequence length, or the longest window of the batch
-VALID_BATCH_PADDINGS = ["sequence_length", "longest"]
-
-
-def check_sequence_settings(model_configuration: Dict[str, Any], window_settings: List[str]) -> List[str]:
+def check_sequence_settings(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'Data.sequence_settings' section of the sequence tasks, which gives the windows of frames fed to the
-    models (cut from the sequences, one window per member of a pair, or one window per whole sequence) and the number
-    of frames their batches are padded to, that the classification head predicts one class per sequence, per frame or
-    per pair (the manifests give a single category per sequence, per frame or per pair), and that every frame is
-    pooled to one vector rather than flattened.
+    Verifies the 'Data.sequence_settings' section of the sequence tasks, which gives the largest number of frames of a
+    sequence (or of a member of a pair) fed whole to the models, the longer ones being left out of the splits, and
+    that the classification head predicts one class per sequence, per frame or per pair (the manifests give a single
+    category per sequence, per frame or per pair).
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
-        window_settings (List[str]): The window settings read by the task, among "window_stride" (the sequences are
-            cut into windows: sequence classification and labelling) and "short_sequences" (a sequence or member may
-            be shorter than a window: sequence classification, labelling and comparison). The frame selection reads
-            neither, every sequence being one window.
 
     Returns:
         List[str]: The description of every inconsistency found.
     """
-    # Frames per window, and frames between the starts of two windows when the sequences are cut into windows
-    key_paths = ["Data.sequence_settings.sequence_length"]
-    if "window_stride" in window_settings:
-        key_paths.append("Data.sequence_settings.window_stride")
-    errors = check_positive_integers(configuration=model_configuration, key_paths=key_paths, allow_zero=False)
-
-    # Sequences shorter than a window, padded or left out
-    if "short_sequences" in window_settings:
-        short_sequences = get_configuration_value(configuration=model_configuration,
-                                                  key_path="Data.sequence_settings.short_sequences")
-        if short_sequences not in VALID_SHORT_SEQUENCES:
-            errors.append(f"'Data.sequence_settings.short_sequences' must be one of {VALID_SHORT_SEQUENCES}, "
-                          f"got {short_sequences!r}.")
-
-    # Windows of a batch padded to the sequence length, or to the longest window of the batch
-    batch_padding = get_configuration_value(configuration=model_configuration,
-                                            key_path="Data.sequence_settings.batch_padding")
-    if batch_padding not in VALID_BATCH_PADDINGS:
-        errors.append(f"'Data.sequence_settings.batch_padding' must be one of {VALID_BATCH_PADDINGS}, "
-                      f"got {batch_padding!r}.")
+    # Largest number of frames of a sequence or member, also the size of the positional embedding of the transformer
+    errors = check_positive_integers(configuration=model_configuration,
+                                     key_paths=["Data.sequence_settings.maximum_sequence_length"], allow_zero=False)
 
     # One class per sequence, per frame or per pair
     output_mode = get_configuration_value(configuration=model_configuration, key_path="ClassificationHead.output_mode")
     if output_mode != "multi_class":
         errors.append(f"'ClassificationHead.output_mode' must be 'multi_class' for the sequence tasks, the manifests "
                       f"giving one category per sequence, per frame or per pair, got {output_mode!r}.")
-
-    # Frames pooled to vectors as wide as the last backbone block, which the temporal module and the fusion read
-    global_pooling = get_configuration_value(configuration=model_configuration,
-                                             key_path="ClassificationHead.global_pooling")
-    if global_pooling == "flatten":
-        errors.append("'ClassificationHead.global_pooling' cannot be 'flatten' for the sequence tasks: the temporal "
-                      "module and the fusion read frame vectors as wide as the last backbone block, use 'average' or "
-                      "'max'.")
     return errors
 
 
@@ -164,8 +127,7 @@ def check_sequence_classification_configuration(experiment_configuration: Dict[s
     errors += check_classification_head_configuration(model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
-    errors += check_sequence_settings(model_configuration=model_configuration,
-                                      window_settings=["window_stride", "short_sequences"])
+    errors += check_sequence_settings(model_configuration=model_configuration)
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=POOLING_TEMPORAL_TYPES + ORDERED_TEMPORAL_TYPES,
                                                  allow_causal=False)
@@ -191,8 +153,7 @@ def check_sequence_labelling_configuration(experiment_configuration: Dict[str, A
     errors += check_classification_head_configuration(model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
-    errors += check_sequence_settings(model_configuration=model_configuration,
-                                      window_settings=["window_stride", "short_sequences"])
+    errors += check_sequence_settings(model_configuration=model_configuration)
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=ORDERED_TEMPORAL_TYPES, allow_causal=True)
     return errors
@@ -229,8 +190,9 @@ def check_fusion_configuration(model_configuration: Dict[str, Any]) -> List[str]
         errors.append(f"'Fusion.sequence_normalization_scope' must be one of {SEQUENCE_NORMALIZATION_SCOPES}, "
                       f"got {normalization_scope!r}.")
 
-    # The cross attention splits the frame vectors, as wide as the last backbone block, between its heads (a
-    # malformed block being reported by the backbone check)
+    # The cross attention splits the frame vectors between its heads: requiring the channels of the last backbone
+    # block to be a multiple of the heads covers the flattened maps too, whose width is a multiple of these channels
+    # (a malformed block being reported by the backbone check)
     convolutions = get_configuration_value(configuration=model_configuration, key_path="Backbone.convolutions")
     if fusion_type == "cross_attention" and not head_errors and isinstance(convolutions, dict) and convolutions:
         last_block = list(convolutions.values())[-1]
@@ -246,8 +208,8 @@ def check_sequence_comparison_configuration(experiment_configuration: Dict[str, 
                                             model_configuration: Dict[str, Any]) -> List[str]:
     """
     Runs every check specific to the sequence comparison task: the data settings, classification head and evaluation
-    settings shared with the classification task, the sequence settings of the member windows (no window stride, a
-    member being one window), a temporal module summarising a member (any type, not causal), and the fusion of the
+    settings shared with the classification task, the sequence settings (the largest number of frames of a member),
+    a temporal module summarising a member (any type, not causal), and the fusion of the
     members.
 
     Args:
@@ -262,8 +224,7 @@ def check_sequence_comparison_configuration(experiment_configuration: Dict[str, 
     errors += check_classification_head_configuration(model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
-    errors += check_sequence_settings(model_configuration=model_configuration,
-                                      window_settings=["short_sequences"])
+    errors += check_sequence_settings(model_configuration=model_configuration)
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=POOLING_TEMPORAL_TYPES + ORDERED_TEMPORAL_TYPES,
                                                  allow_causal=False)
@@ -306,8 +267,8 @@ def check_frame_selection_configuration(experiment_configuration: Dict[str, Any]
                                         model_configuration: Dict[str, Any]) -> List[str]:
     """
     Runs every check specific to the frame selection task: the data settings, classification head and evaluation
-    settings shared with the classification task, the sequence length and batch padding (no window stride nor short
-    sequences, every sequence being one window), a temporal module keeping one vector per frame, possibly causal, and
+    settings shared with the classification task, the sequence settings (the largest number of frames of a sequence),
+    a temporal module keeping one vector per frame, possibly causal, and
     the selection settings.
 
     Args:
@@ -322,7 +283,7 @@ def check_frame_selection_configuration(experiment_configuration: Dict[str, Any]
     errors += check_classification_head_configuration(model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
-    errors += check_sequence_settings(model_configuration=model_configuration, window_settings=[])
+    errors += check_sequence_settings(model_configuration=model_configuration)
     errors += check_temporal_model_configuration(model_configuration=model_configuration,
                                                  valid_types=ORDERED_TEMPORAL_TYPES, allow_causal=True)
     errors += check_selection_configuration(model_configuration=model_configuration)

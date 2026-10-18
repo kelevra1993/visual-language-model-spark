@@ -15,7 +15,7 @@ from torch.utils.data import DataLoader, Dataset
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
-from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_longest_windows
+from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_padded_sequences
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset
 
 
@@ -272,11 +272,11 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
                              batch_size: int, label_type: str) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Initializes the training, validation and testing loaders of the sequence tasks, read from the 'labels.json'
-    manifest of every split with the Native loader (OpenCV decoding and CPU resizing). Every window of frames is
-    padded to the sequence length T by the datasets, so the default collate stacks them into [B, T, C, H, W] batches,
-    or into [B, 2T, C, H, W] batches of pairs (the before window followed by the after window) for the comparison task.
-    With 'Data.sequence_settings.batch_padding: "longest"', the windows of every batch are cut to its longest window
-    instead (collate_longest_windows), T then being the longest window, or the longest member of a pair, of the batch.
+    manifest of every split with the Native loader (OpenCV decoding and CPU resizing). Every sequence is given whole
+    by the datasets, those longer than 'Data.sequence_settings.maximum_sequence_length' being left out with a warning,
+    and the collate pads the sequences of every batch to its longest one (collate_padded_sequences), giving
+    [B, T, C, H, W] batches, or [B, 2T, C, H, W] batches of pairs (the before member followed by the after member) for
+    the comparison task, T being the longest sequence, or the longest member of a pair, of the batch.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
@@ -296,25 +296,24 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
     # Unselected category and frames per wanted class of the frame selection, read by its sequence check
     selection_settings = model_configuration["Selection"] if label_type == "selection" else None
 
-    # Batches padded to their longest window, a pair holding two member windows, or every window padded to the sequence
-    # length by the default collate
-    collate_function = None
-    if data_configuration["sequence_settings"]["batch_padding"] == "longest":
-        collate_function = partial(collate_longest_windows,
-                                   members_per_sample=len(PAIR_MEMBERS) if label_type == "pair" else 1)
+    # Batches padded to their longest sequence, a pair holding two members
+    collate_function = partial(collate_padded_sequences,
+                               members_per_sample=len(PAIR_MEMBERS) if label_type == "pair" else 1)
 
-    # Build the loader of every split with the same settings
-    for split_key in ["train_data_folder", "validation_data_folder", "test_data_folder"]:
+    # Build the loader of every split with the same settings, its name given to the warnings of the left out sequences
+    for split_key, split_name in [("train_data_folder", "Training"), ("validation_data_folder", "Validation"),
+                                  ("test_data_folder", "Test")]:
         split_data_folder = str(experiment_configuration[split_key])
 
-        # Pairs of before and after sequences, or sequences cut into windows
+        # Pairs of before and after sequences, or whole sequences
         if label_type == "pair":
             dataset = SequencePairDataset(data_directory=os.path.join(split_data_folder, "data"),
                                           labels_file=os.path.join(split_data_folder, "labels.json"),
                                           image_size=data_configuration["image_settings"]["size"],
                                           keep_ratio=data_configuration["image_settings"]["keep_ratio"],
                                           label_dictionary=data_configuration["label_dictionary"],
-                                          sequence_settings=data_configuration["sequence_settings"])
+                                          sequence_settings=data_configuration["sequence_settings"],
+                                          split_name=split_name)
         else:
             dataset = SequenceDataset(data_directory=os.path.join(split_data_folder, "data"),
                                       labels_file=os.path.join(split_data_folder, "labels.json"),
@@ -322,7 +321,8 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
                                       keep_ratio=data_configuration["image_settings"]["keep_ratio"],
                                       label_dictionary=data_configuration["label_dictionary"],
                                       sequence_settings=data_configuration["sequence_settings"],
-                                      label_type=label_type, selection_settings=selection_settings)
+                                      label_type=label_type, split_name=split_name,
+                                      selection_settings=selection_settings)
         loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
                                            loading_configuration=data_configuration["loading"],
                                            collate_function=collate_function))

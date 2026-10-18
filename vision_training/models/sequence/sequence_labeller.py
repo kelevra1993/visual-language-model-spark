@@ -13,6 +13,7 @@ from vision_training.losses.classification_losses import convert_logits_to_proba
 from vision_training.losses.sequence_losses import compute_sequence_labelling_loss
 from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.classification.classification_head import (ClassificationHead, build_global_pooling,
+                                                                       compute_pooled_features,
                                                                        print_classification_head_summary)
 from vision_training.models.sequence.frame_encoder import encode_frames
 from vision_training.models.sequence.temporal_modules import build_temporal_module, print_sequence_module_summary
@@ -50,7 +51,7 @@ class SequenceLabeller(TaskModel):
         self.output_mode = self.head_configuration["output_mode"]
         self.label_smoothing = self.head_configuration["label_smoothing"]
         self.number_classes = len(set(configuration["Data"]["label_dictionary"].values()))
-        self.sequence_length = configuration["Data"]["sequence_settings"]["sequence_length"]
+        self.maximum_sequence_length = configuration["Data"]["sequence_settings"]["maximum_sequence_length"]
 
         # Shared feature extractor applied to every frame, and the pooling of its final feature map
         backbone_configuration = configuration["Backbone"]
@@ -58,12 +59,13 @@ class SequenceLabeller(TaskModel):
                                        input_image_size=configuration["Data"]["image_settings"]["size"],
                                        device=device, dtype=dtype)
         self.global_pooling = build_global_pooling(global_pooling=self.head_configuration["global_pooling"])
-        frame_features = list(backbone_configuration["convolutions"].values())[-1][1]
+        frame_features = compute_pooled_features(global_pooling=self.head_configuration["global_pooling"],
+                                                 backbone=self.backbone)
 
         # Frame vectors in their temporal context, then the class logits of every frame
         self.temporal_module = build_temporal_module(
             temporal_configuration=self.temporal_configuration, input_features=frame_features,
-            maximum_length=self.sequence_length, keep_time_axis=True,
+            maximum_length=self.maximum_sequence_length, keep_time_axis=True,
             device=device, dtype=dtype)
         self.classification_head = ClassificationHead(input_features=self.temporal_module.output_features,
                                                       fully_connected=self.head_configuration["fully_connected"],
@@ -87,7 +89,7 @@ class SequenceLabeller(TaskModel):
         Args:
             input_tensor (torch.Tensor): The [B, T, 3, H, W] float BGR frames in [0, 255].
             sequence_mask (Optional[torch.Tensor]): The [B, T] booleans, True for the real frames, which come first, or
-                None when every frame is real (deployment windows).
+                None when every frame is real (deployment sequences).
             labels (Optional[torch.Tensor]): The [B, T] class index of every frame (-100 for the frames without class),
                 or None.
 

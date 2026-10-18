@@ -66,9 +66,9 @@ def test_frames_are_encoded_without_the_padding_frames() -> None:
 
 def test_sequence_normalization_ignores_the_padding_frames() -> None:
     """
-    Verifies that a sequence classifier whose backbone uses sequence normalization normalises every window with its
-    real frames only: the masked path of a window padded with black frames gives the prediction of the path without
-    masks on its real frames, and changing a frame of another window of the batch changes nothing.
+    Verifies that a sequence classifier whose backbone uses sequence normalization normalises every sequence with its
+    real frames only: the masked path of a sequence padded with black frames gives the prediction of the path without
+    masks on its real frames, and changing a frame of another sequence of the batch changes nothing.
     """
     torch.manual_seed(seed=0)
     configuration, device, _ = get_sequence_model_configuration(temporal_type="gru")

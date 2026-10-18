@@ -8,11 +8,11 @@ ExperimentConfiguration:
   # the Data.sequence_settings, TemporalModel and ClassificationHead sections.
   task: "sequence_classification"
   # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
-  # backbone modules, normalization and blocks, window, temporal module, classification head, classes, optimizer and
-  # weight decay unless plain Adam), so that the same settings resume in the same folder and changed settings start a
-  # new one, e.g. M2O_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64_T16_GRU2x256-BI_HAVG.256_MC4. The augmentation,
-  # batch size, learning rate and its schedule, gradient clipping, mixed precision and dropout rates give no token, so
-  # that a run can be resumed in its folder with changed values. The format is described in
+  # backbone modules, normalization and blocks, maximum sequence length, temporal module, classification head, classes,
+  # optimizer and weight decay unless plain Adam), so that the same settings resume in the same folder and changed
+  # settings start a new one, e.g. M2O_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64_T50_GRU2x256-BI_HAVG.256_MC4. The
+  # augmentation, batch size, learning rate and its schedule, gradient clipping, mixed precision and dropout rates give
+  # no token, so that a run can be resumed in its folder with changed values. The format is described in
   # vision_training/configuration_processing/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/experiments"
   # Root directory containing the training sequences (frames in data/<sequence name>/) and labels.json manifest.
@@ -21,8 +21,8 @@ ExperimentConfiguration:
   validation_data_folder: "/home/robert_kelevra/Data/sequence_data/sequence_classification/validation"
   # Root directory containing the test sequences and labels.json manifest.
   test_data_folder: "/home/robert_kelevra/Data/sequence_data/sequence_classification/test"
-  # Number of sequences (windows of Data.sequence_settings.sequence_length frames) processed in a single
-  # forward/backward pass. A step runs the backbone on up to batch_size x sequence_length frames.
+  # Number of sequences (of at most Data.sequence_settings.maximum_sequence_length frames, fed whole) processed in a
+  # single forward/backward pass. A step runs the backbone on up to batch_size x maximum_sequence_length frames.
   batch_size: 8
   # Frequency (in iterations) to log performance metrics.
   information_dump: 500
@@ -36,7 +36,7 @@ ExperimentConfiguration:
   # Ratio controlling how often validation is run during training.
   # 0 = never run validation, 1 = run every iteration, 2 = every 2nd iteration, N = every Nth iteration.
   validation_iteration_ratio: 25
-  # Test evaluation run at every weight_saving_iterations checkpoint on every window of the test split: accuracy,
+  # Test evaluation run at every weight_saving_iterations checkpoint on every sequence of the test split: accuracy,
   # balanced accuracy, macro F1, top-k accuracy, precision / recall / F1 of every class, and the confusion matrix and
   # class thresholds saved in <run folder>/Evaluation/Iteration_<iteration>/.
   evaluation:
@@ -46,11 +46,11 @@ ExperimentConfiguration:
     # and TensorBoard). False keeps the global metrics only, e.g. for many classes: class_metrics.csv,
     # class_thresholds.json and confusion_matrix.csv are saved either way.
     per_class_report: True
-    # Number of test windows drawn once and shown at every evaluation, each as the grid of its frames captioned with
+    # Number of test sequences drawn once and shown at every evaluation, each as the grid of its frames captioned with
     # its true class and its predicted class with its probability, in green when the prediction is right and in red
-    # when it is wrong, saved in Evaluation/Iteration_<n>/Samples/ and sent to TensorBoard. The windows are spread over
-    # the classes (one per class when the number reaches the number of classes), then evenly over the windows of each
-    # class. 0 to disable.
+    # when it is wrong, saved in Evaluation/Iteration_<n>/Samples/ and sent to TensorBoard. The sequences are spread
+    # over the classes (one per class when the number reaches the number of classes), then evenly over the sequences of
+    # each class. 0 to disable.
     number_sample_images: 16
     # Number of most probable classes among which the true class must be for the top-k accuracy. Must be a positive
     # integer, values above the number of classes counting every sample as right.
@@ -65,8 +65,8 @@ ExperimentConfiguration:
     save_predictions: True
     # Saves every misclassified test sample as an image at every evaluation, in
     # 'Evaluation/Iteration_<n>/Errors/<TRUE>-TO-<PREDICTED>/<sample>_<score>.png', the score being the probability
-    # of the predicted class: the network input of an image, the frame grid of a window or of a pair (the before
-    # member above the after member), or for sequence labelling the frame grid of the window of every wrong frame.
+    # of the predicted class: the network input of an image, the frame grid of a sequence or of a pair (the before
+    # member above the after member), or for sequence labelling the frame grid of the sequence of every wrong frame.
     # Multi-class output mode only.
     error_dumps:
       # Turns the error images on.
@@ -157,18 +157,11 @@ Data:
     # Flag to maintain the original aspect ratio when resizing.
     keep_ratio: True
   sequence_settings:
-    # Number of frames of the windows fed to the model, cut from the sequences of the manifests.
-    sequence_length: 16
-    # Number of frames between the starts of two consecutive windows of a sequence (sequence_length for windows that
-    # do not overlap). A last window ending on the last frame is added when the stride does not reach it.
-    window_stride: 8
-    # Sequences shorter than sequence_length: "pad" (one window padded with black frames, ignored by the model
-    # through the sequence mask) or "skip" (left out).
-    short_sequences: "pad"
-    # Frames the windows of a batch are padded to: "sequence_length" (every window padded to sequence_length frames)
-    # or "longest" (every window cut to the longest window of its batch), which loads fewer padding frames and runs
-    # the temporal module over fewer positions when the windows are shorter. The model outputs are the same.
-    batch_padding: "longest"
+    # Largest number of frames of a sequence, every sequence being fed whole to the model, the sequences of a
+    # batch padded with black frames to the longest one (ignored by the model through the sequence mask). A longer
+    # sequence is left out of its split with a red warning at startup. Also the size of the positional
+    # embedding of the transformer.
+    maximum_sequence_length: 50
   label_mapping:
     # Must be "multi_class" for the sequence tasks: the mapping file gives the class index of every category of the
     # labels.json manifests, the classes being indexed 0 to K-1 (no background class).
@@ -185,7 +178,7 @@ Data:
     # every frame of an augmented sequence getting its own brightness, noise, colour... while the geometric
     # augmentations stay the same for all its frames, a crop or a rotation per frame making the objects jump.
     independent_frames: False
-    # Sequence tasks only (activated False for the image tasks): shuffles the real frames of a training window with
+    # Sequence tasks only (activated False for the image tasks): shuffles the real frames of a training sequence with
     # this probability, independently of the probability above, the padding frames staying last and each member of
     # a pair being shuffled on its own. For the sequences whose frame order carries no information (sets of photos).
     shuffle_frames: { activated: False, probability: 0.5 }
@@ -257,8 +250,8 @@ Backbone:
 
     # Strategy for normalizing the feature maps in the convolution blocks.
     # Options are "batch" (Batch Normalization), "layer" (Layer Normalization over channels), "none" (no
-    # normalization) or "sequence" (Batch Normalization with the statistics of each window, at training
-    # and at inference alike, a window being normalised by its own frames).
+    # normalization) or "sequence" (Batch Normalization with the statistics of each sequence, at training
+    # and at inference alike, a sequence being normalised by its own frames).
     feature_map_normalization: "batch"
     # Momentum of the running mean and variance of the batch normalization layers (PyTorch convention): every
     # training batch moves them by this fraction, 0.1 following about the last 10 batches and 0.01 about the last
@@ -329,16 +322,17 @@ TemporalModel:
   # classification task, which classifies whole sequences.
   causal: False
   # Gives every frame its position with a learned embedding added to its vector (transformer), so that the
-  # transformer uses the order of the frames. False treats a window as a set of frames, e.g. photos taken in any
+  # transformer uses the order of the frames. False treats a sequence as a set of frames, e.g. photos taken in any
   # order: shuffling the frames then only shuffles the per-frame outputs along with them, and the transformer
-  # weights no longer depend on Data.sequence_settings.sequence_length. A causal transformer still sees the order
-  # through its attention mask.
+  # weights no longer depend on Data.sequence_settings.maximum_sequence_length. A causal transformer still sees the
+  # order through its attention mask.
   positional_embedding: True
   # Temporal module of another training run (of a sequence task) initialising this run instead of random weights.
   # Its type, the settings defining its weights for that type (hidden_size, plus number_layers and bidirectional
   # for GRU and LSTM, number_layers, number_heads and positional_embedding for the transformer, number_layers and
-  # kernel_size for the temporal convolution), the channels of the last backbone block and, for a transformer with
-  # its positional embedding, Data.sequence_settings.sequence_length must be identical in both runs. The poolings
+  # kernel_size for the temporal convolution), the channels of the last backbone block, the global pooling and image
+  # size when flattening, and, for a transformer with its positional embedding,
+  # Data.sequence_settings.maximum_sequence_length must be identical in both runs. The poolings
   # without weights (mean_pooling, max_pooling) have nothing to transfer.
   pretrained:
     # Run folder whose trained temporal module initialises this run, null to start from random weights. A run
@@ -354,8 +348,8 @@ TemporalModel:
     learning_rate_multiplier: 1.0
 
 ClassificationHead:
-  # Global pooling reducing the final backbone feature map of every frame to one feature vector, "average" or "max"
-  # ("flatten" is for the classification task only).
+  # Global pooling reducing the final backbone feature map of every frame to one feature vector: "average", "max" or
+  # "flatten" (all the values of the map, channels x height x width, which keeps where the features are in the frame).
   global_pooling: "average"
   # Units of the hidden fully connected layers between the sequence vector and the class logits, [] for none.
   fully_connected: [256]
@@ -374,7 +368,7 @@ ClassificationHead:
   # Label smoothing of the classification loss, within [0, 1), 0 to disable.
   label_smoothing: 0.0
   # Weighting of the classes in the loss: "none" (every sample weighs the same) or "balanced" (every class weighs the
-  # same, the weights being inversely proportional to the number of training windows of each class).
+  # same, the weights being inversely proportional to the number of training sequences of each class).
   class_weighting: "none"
   # Classification head of another training run initialising this run instead of random weights. Its fully_connected
   # layers and fully_connected_normalization must be identical in both runs (the dropout rate and the batch

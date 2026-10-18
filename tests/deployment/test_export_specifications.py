@@ -4,7 +4,7 @@ and ONNX exports of every task (the image classifier with a pooled or flattened 
 shortcuts, the semantic segmenter, the frame selector, the encoder of the self-supervised task, the bottom-up keypoint
 detector with its higher resolution branch and the 3x3 hidden convolution of its prediction heads) match the eager
 model, keep their dynamic frames, the comparisons of the segmenter and keypoint detector outputs report their
-differences, and the inference models match the training path on full windows.
+differences, and the inference models match the training path on full sequences.
 """
 
 import numpy as np
@@ -113,8 +113,8 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
     self-supervised and keypoint detection tasks: both keep the input names of the specification and reproduce the
     eager class probabilities (class maps of the segmenter, representations of the encoder, candidate positions,
     scores and tags of the keypoint detector) on a batch of another size than the traced one and, for
-    the sequence models, with another number of frames, so that Triton can batch requests and receive windows of any
-    length. The before and after windows of the comparison model are checked
+    the sequence models, with another number of frames, so that Triton can batch requests and receive sequences of any
+    length. The before and after members of the comparison model are checked
     with different numbers of frames, and its recurrent case, exported after the recurrent sequence classifier in the
     same process, also checks that a second recurrent export keeps its numbers of frames dynamic.
 
@@ -142,7 +142,7 @@ def test_exports_match_the_eager_model(tmp_path: Path, task: str, temporal_type:
     with torch.no_grad():
         reference_outputs = convert_outputs_to_numpy(outputs=inference_model(**check_inputs))
 
-    # The inputs follow the forward arguments, the windows of the comparison holding 3 and 2 of the 4 traced frames
+    # The inputs follow the forward arguments, the members of the comparison holding 3 and 2 of the 4 traced frames
     assert list(check_inputs) == TASK_INPUT_NAMES[task]
     if task == "sequence_comparison":
         assert [input_batch.shape[1] for input_batch in example_inputs.values()] == [4, 4]
@@ -319,10 +319,10 @@ def test_fixed_dynamic_dimensions_are_reported(tmp_path: Path) -> None:
 @pytest.mark.parametrize(argnames=("task", "temporal_type"), argvalues=[
     ("sequence_classification", "gru"), ("sequence_classification", "attention_pooling"),
     ("sequence_labelling", "transformer"), ("sequence_labelling", "temporal_convolution")])
-def test_inference_path_matches_the_training_path_on_full_windows(task: str, temporal_type: str) -> None:
+def test_inference_path_matches_the_training_path_on_full_sequences(task: str, temporal_type: str) -> None:
     """
     Verifies that the path of the sequence models without sequence mask, run by the inference models, gives the
-    predictions of the masked path used in training and evaluation when every frame of the windows is real.
+    predictions of the masked path used in training and evaluation when every frame of the sequences is real.
 
     Args:
         task (str): The sequence task of the model.
@@ -339,11 +339,11 @@ def test_inference_path_matches_the_training_path_on_full_windows(task: str, tem
 
 @pytest.mark.parametrize(argnames=("temporal_type", "fusion_type"), argvalues=[
     ("gru", "concatenation"), ("transformer", "cross_attention")])
-def test_inference_comparator_matches_the_training_path_on_full_windows(temporal_type: str, fusion_type: str) -> None:
+def test_inference_comparator_matches_the_training_path_on_full_sequences(temporal_type: str, fusion_type: str) -> None:
     """
     Verifies that the inference comparator, which encodes and summarises every member on its own without sequence
     masks, gives the predictions of the masked path used in training and evaluation, which runs both members as one
-    batch, when every frame of both windows is real.
+    batch, when every frame of both members is real.
 
     Args:
         temporal_type (str): The temporal module of the model.
@@ -368,9 +368,9 @@ def test_sequence_normalization_exports_match_the_eager_model(tmp_path: Path, ta
                                                               normalization_scope: Optional[str]) -> None:
     """
     Verifies the exports of the sequence models whose backbone uses sequence normalization: the statistics of every
-    window (or of every pair, with the pair scope of the comparator) are computed in the exported graphs too, which
+    sequence (or of every pair, with the pair scope of the comparator) are computed in the exported graphs too, which
     reproduce the eager probabilities on batches of another size and with other numbers of frames than traced, the
-    before and after windows of the comparator having different numbers of frames.
+    before and after members of the comparator having different numbers of frames.
 
     Args:
         tmp_path (Path): The pytest temporary directory.

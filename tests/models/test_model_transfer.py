@@ -1,13 +1,13 @@
 """
-Tests of vision_training/models/model_transfer.py: backbones, temporal modules, heads, segmentation decoders and
-region proposal, detection and mask heads of a saved run initialising other models and tasks, rejected architectures and
+Tests of vision_training/models/model_transfer.py: backbones, temporal modules, heads, segmentation decoders and region
+proposal, detection and mask heads of a saved run initialising other models and tasks, rejected architectures and
 components (flattened heads, decoders and detection heads of other levels included), order-blind transformers moving
-between window lengths, the keypoint heads of another hidden width, source runs missing a setting (the pre-activation
-flag of the backbone counting as off), frozen and fixed normalization parameters and backbones moving between batch and
-sequence normalization. The runs adding classes after those of their source run are covered too: the class layers of
-the classification, detection and mask heads and of the semantic segmentation grown to the new classes, which keep the
-random initialisation of the new run, the classes of another order or fewer classes rejected, the source runs without
-class names, and the averaged or trained weights read from the source checkpoint.
+between maximum sequence lengths, the keypoint heads of another hidden width, source runs missing a setting (the
+pre-activation flag of the backbone counting as off), frozen and fixed normalization parameters and backbones moving
+between batch and sequence normalization. The runs adding classes after those of their source run are covered too: the
+class layers of the classification, detection and mask heads and of the semantic segmentation grown to the new classes,
+which keep the random initialisation of the new run, the classes of another order or fewer classes rejected, the source
+runs without class names, and the averaged or trained weights read from the source checkpoint.
 """
 
 import copy
@@ -395,14 +395,14 @@ def widen_temporal_kernel(configuration: Dict[str, Any]) -> None:
     configuration["TemporalModel"]["kernel_size"] = 5
 
 
-def lengthen_windows(configuration: Dict[str, Any]) -> None:
+def lengthen_sequences(configuration: Dict[str, Any]) -> None:
     """
-    Lengthens the windows of frames, and so the positional embedding of the transformer.
+    Lengthens the maximum sequence length, and so the positional embedding of the transformer.
 
     Args:
         configuration (Dict[str, Any]): The configuration of the run receiving the component, modified in place.
     """
-    configuration["Data"]["sequence_settings"]["sequence_length"] = 6
+    configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = 6
 
 
 def remove_positional_embedding(configuration: Dict[str, Any]) -> None:
@@ -456,9 +456,9 @@ def normalize_head_layers(configuration: Dict[str, Any]) -> None:
      "'TemporalModel.number_heads' is 2 in the source run and 4 in this run."),
     ("temporal_convolution", widen_temporal_kernel, "TemporalModel",
      "'TemporalModel.kernel_size' is 3 in the source run and 5 in this run."),
-    ("transformer", lengthen_windows, "TemporalModel",
-     "'Data.sequence_settings.sequence_length' is 4 in the source run and 6 in this run, the size of the positional "
-     "embedding of the transformer."),
+    ("transformer", lengthen_sequences, "TemporalModel",
+     "'Data.sequence_settings.maximum_sequence_length' is 4 in the source run and 6 in this run, the size of the "
+     "positional embedding of the transformer."),
     ("transformer", remove_positional_embedding, "TemporalModel",
      "'TemporalModel.positional_embedding' is True in the source run and False in this run."),
     ("gru", widen_last_backbone_block, "TemporalModel",
@@ -500,7 +500,7 @@ def test_different_components_are_rejected(tmp_path: Path, source_temporal_type:
 def test_order_blind_transformer_initialises_runs_of_other_sequence_lengths(tmp_path: Path) -> None:
     """
     Verifies that a transformer without positional embedding, whose weights do not depend on the number of frames,
-    initialises the transformer of a run with longer windows with exactly its weights.
+    initialises the transformer of a run with longer sequences with exactly its weights.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -510,7 +510,7 @@ def test_order_blind_transformer_initialises_runs_of_other_sequence_lengths(tmp_
     source_model = build_task_model(task="sequence_classification", configuration=configuration, seed=0)
     write_source_run(run_folder=tmp_path / "source_run", configuration=configuration, model=source_model)
     target_configuration = copy.deepcopy(configuration)
-    lengthen_windows(configuration=target_configuration)
+    lengthen_sequences(configuration=target_configuration)
     target_model = build_task_model(task="sequence_classification", configuration=target_configuration, seed=1)
 
     load_pretrained_component(component=target_model.temporal_module, section_name="TemporalModel",
@@ -539,6 +539,29 @@ def test_source_run_written_before_a_temporal_setting_is_rejected(tmp_path: Path
     target_model = build_task_model(task="sequence_classification", configuration=configuration, seed=1)
 
     with pytest.raises(expected_exception=ValueError, match="positional_embedding' is missing from the source run"):
+        load_pretrained_component(component=target_model.temporal_module, section_name="TemporalModel",
+                                  model_configuration=point_to_source_run(configuration=configuration,
+                                                                          section_name="TemporalModel",
+                                                                          source_folder=tmp_path / "source_run"),
+                                  device=torch.device("cpu"))
+
+
+def test_source_run_written_before_the_maximum_sequence_length_is_rejected(tmp_path: Path) -> None:
+    """
+    Verifies that a transformer run written before the maximum sequence length existed, whose sequence settings gave
+    the length of its windows instead, is not read with a guessed size of positional embedding: the transfer stops
+    and asks for the setting in the configuration of the run.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration, _ = write_sequence_classifier_run(run_folder=tmp_path / "source_run", temporal_type="transformer")
+    old_configuration = copy.deepcopy(configuration)
+    old_configuration["Data"]["sequence_settings"] = {"sequence_length": 4, "window_stride": 4}
+    (tmp_path / "source_run" / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=old_configuration))
+    target_model = build_task_model(task="sequence_classification", configuration=configuration, seed=1)
+
+    with pytest.raises(expected_exception=ValueError, match="maximum_sequence_length' is missing from the source run"):
         load_pretrained_component(component=target_model.temporal_module, section_name="TemporalModel",
                                   model_configuration=point_to_source_run(configuration=configuration,
                                                                           section_name="TemporalModel",
@@ -711,7 +734,7 @@ def test_flattened_head_initialises_a_flattened_run(tmp_path: Path) -> None:
                                "sizes."),
     ("flatten", "max", 64, "'ClassificationHead.global_pooling' is 'flatten' in the source run and 'max' in this run"),
     ("flatten", "flatten", 32, "'Data.image_settings.size' is 64 in the source run and 32 in this run: the flattened "
-                               "feature map, the input of the head, has a size following the image size.")])
+                               "feature map, the input vector, has a size following the image size.")])
 def test_heads_of_other_input_sizes_are_rejected(tmp_path: Path, source_pooling: str, target_pooling: str,
                                                  target_image_size: int, expected_message: str) -> None:
     """

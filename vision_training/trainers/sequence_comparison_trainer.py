@@ -1,6 +1,6 @@
 """
-Trainer of the sequence comparison task (CMP): pairs of sequences stored as the before window followed by the after
-window of every pair, split again into the two members just before the sequence comparator, the rest being the
+Trainer of the sequence comparison task (CMP): pairs of sequences stored as the before member followed by the after
+member of every pair, split again into the two members just before the sequence comparator, the rest being the
 sequence classification trainer. Registered for the sequence comparison task in the task registry.
 """
 
@@ -20,7 +20,7 @@ class SequenceComparisonTrainer(SequenceClassificationTrainer):
     """
     Trainer of the sequence comparison task: the sequence comparator trained on pairs of sequences, a before member
     and an after member, read from the 'pairs' manifests (Native loader), one class per pair. A batch stores the before
-    window followed by the after window of every pair along the frame axis, so that the augmentation (one draw per
+    member followed by the after member of every pair along the frame axis, so that the augmentation (one draw per
     pair), the input viewer and the evaluation of the sequence classification trainer apply unchanged, the members
     being split again just before the model. The losses, the accuracy tracked on every batch and the evaluation of the
     checkpoints are those of the classification task, a pair being classified as a whole.
@@ -32,7 +32,7 @@ class SequenceComparisonTrainer(SequenceClassificationTrainer):
     # Labels read from the manifests: one class per pair of sequences
     LABEL_TYPE = "pair"
 
-    # Member windows of a pair stored one after the other along its frame axis, the before one then the after one
+    # Members of a pair stored one after the other along its frame axis, the before one then the after one
     MEMBERS_PER_SAMPLE = len(PAIR_MEMBERS)
 
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
@@ -48,9 +48,8 @@ class SequenceComparisonTrainer(SequenceClassificationTrainer):
         """
         number_pairs, number_frames, number_kept_pairs = count_split_pairs(split_data_folder=split_data_folder,
                                                                            sequence_settings=self.sequence_settings)
-        return number_kept_pairs, (f"{number_pairs} pairs, {number_frames} frames, {number_kept_pairs} kept pairs of "
-                                   f"{self.get_window_size_qualifier()}2 x "
-                                   f"{self.sequence_settings['sequence_length']} frames")
+        return number_kept_pairs, (f"{number_pairs} pairs, {number_frames} frames, {number_kept_pairs} pairs of "
+                                   f"members of at most {self.sequence_settings['maximum_sequence_length']} frames")
 
     def split_pair_batch(self, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
         """
@@ -63,7 +62,7 @@ class SequenceComparisonTrainer(SequenceClassificationTrainer):
         Returns:
             Dict[str, torch.Tensor]: The 'before_images', 'after_images', 'before_mask' and 'after_mask' of the batch.
         """
-        # Both member windows have the number of frames of the batch, the sequence length or its longest member
+        # Both members are padded to the longest member of the batch
         before_images, after_images = split_pair_members(pair_tensor=batch["images"])
         before_mask, after_mask = split_pair_members(pair_tensor=batch["sequence_mask"])
         return {"before_images": before_images, "after_images": after_images, "before_mask": before_mask,
@@ -100,9 +99,9 @@ class SequenceComparisonTrainer(SequenceClassificationTrainer):
         every frame captioned with its member.
 
         Args:
-            frames (torch.Tensor): The [2T, 3, H, W] frames of the pair, the before window then the after window.
+            frames (torch.Tensor): The [2T, 3, H, W] frames of the pair, the before member then the after member.
             sequence_mask (torch.Tensor): The [2T] booleans, True for the real frames.
-            label (torch.Tensor): The label of the pair, written in the caption of the window.
+            label (torch.Tensor): The label of the pair, written in the caption of the pair.
 
         Returns:
             torch.Tensor: The [3, height, width] uint8 grid, the before member above the after member.

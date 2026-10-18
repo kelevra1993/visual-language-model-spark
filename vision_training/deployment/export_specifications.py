@@ -39,10 +39,10 @@ TASK_MODEL_NAMES = {"object_detection": "object_detector", "instance_segmentatio
                     "frame_selection": "frame_selector", "self_supervised": "image_encoder",
                     "keypoint_detection": "keypoint_detector"}
 
-# Tasks whose inputs are windows of frames [B, T, 3, H, W] instead of images [B, 3, H, W]
+# Tasks whose inputs are sequences of frames [B, T, 3, H, W] instead of images [B, 3, H, W]
 SEQUENCE_TASKS = ["sequence_classification", "sequence_labelling", "sequence_comparison", "frame_selection"]
 
-# Tasks whose model gives the class probabilities of every frame [B, T, K] instead of every window or pair [B, K]
+# Tasks whose model gives the class probabilities of every frame [B, T, K] instead of every sequence or pair [B, K]
 FRAME_OUTPUT_TASKS = ["sequence_labelling", "frame_selection"]
 
 # Names of the inputs of the inference model of every task, in the order of the arguments of its forward method:
@@ -335,20 +335,20 @@ def compare_keypoints(reference: Sequence[np.ndarray], candidate: Sequence[np.nd
     return mismatches
 
 
-def build_input_specification(input_name: str, image_size: int, sequence_length: Optional[int],
+def build_input_specification(input_name: str, image_size: int, maximum_sequence_length: Optional[int],
                               input_index: int) -> Dict[str, Any]:
     """
     Describes one input of an exported model, read by the export (names and dynamic dimensions), the Triton
     configuration (one input line) and the checks of the exports (random batches): one image per sample for the image
-    tasks, or one window of up to sequence length frames per sample for the sequence tasks. The batches the exports
-    are checked on hold one frame less than the traced ones for the first input, and one more frame less for every
-    following input, so that the inputs of the comparison model are checked with different numbers of frames.
+    tasks, or one sequence of up to the maximum sequence length frames per sample for the sequence tasks. The batches
+    the exports are checked on hold one frame less than the traced ones for the first input, and one more frame less
+    for every following input, so that the inputs of the comparison model are checked with different numbers of frames.
 
     Args:
         input_name (str): The name of the input, from TASK_INPUT_NAMES.
         image_size (int): The side of the square network input in pixels.
-        sequence_length (Optional[int]): The largest number of frames of a window, the sequence length of the
-            training, or None for the image tasks.
+        maximum_sequence_length (Optional[int]): The largest number of frames of a sequence, the maximum sequence
+            length of the training, or None for the image tasks.
         input_index (int): The position of the input among the inputs of the model.
 
     Returns:
@@ -359,15 +359,16 @@ def build_input_specification(input_name: str, image_size: int, sequence_length:
     image_dimensions = [3, image_size, image_size]
 
     # Images: traced on batches of 2 images and checked on batches of 3
-    if sequence_length is None:
+    if maximum_sequence_length is None:
         return {"name": input_name, "dimensions": image_dimensions, "data_type": "TYPE_FP32", "dynamic_frames": False,
                 "maximum_frames": 1, "example_shape": [2] + image_dimensions, "check_shape": [3] + image_dimensions}
 
-    # Windows of frames: traced with the sequence length and checked with fewer frames, a different number per input
-    check_frames = max(1, sequence_length - 1 - input_index)
+    # Sequences of frames: traced with the maximum sequence length and checked with fewer frames, a different number
+    # per input
+    check_frames = max(1, maximum_sequence_length - 1 - input_index)
     return {"name": input_name, "dimensions": [-1] + image_dimensions, "data_type": "TYPE_FP32",
-            "dynamic_frames": True, "maximum_frames": sequence_length,
-            "example_shape": [2, sequence_length] + image_dimensions,
+            "dynamic_frames": True, "maximum_frames": maximum_sequence_length,
+            "example_shape": [2, maximum_sequence_length] + image_dimensions,
             "check_shape": [3, check_frames] + image_dimensions}
 
 
@@ -419,10 +420,10 @@ def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str,
             - 'compare_outputs' (Callable) and 'comparison_tolerances' (Dict[str, float]): the comparison of the
               exported outputs with the eager ones, and its tolerances.
     """
-    # Inputs of the task, windows of frames for the sequence tasks and images otherwise
-    sequence_length = inference_model.sequence_length if task in SEQUENCE_TASKS else None
+    # Inputs of the task, sequences of frames for the sequence tasks and images otherwise
+    maximum_sequence_length = inference_model.maximum_sequence_length if task in SEQUENCE_TASKS else None
     inputs = [build_input_specification(input_name=input_name, image_size=inference_model.input_image_size,
-                                        sequence_length=sequence_length, input_index=input_index)
+                                        maximum_sequence_length=maximum_sequence_length, input_index=input_index)
               for input_index, input_name in enumerate(TASK_INPUT_NAMES[task])]
 
     # Keypoint detection: the candidates of every heatmap channel of every image, grouped into objects by the client
@@ -485,7 +486,7 @@ def get_export_specification(task: str, inference_model: nn.Module) -> Dict[str,
                 "compare_outputs": compare_segmentations,
                 "comparison_tolerances": {"tolerance": 1e-4, "minimum_equal_share": 0.999}}
 
-    # Classification and sequence tasks: the class probabilities of every image, window or pair, or of every frame
+    # Classification and sequence tasks: the class probabilities of every image, sequence or pair, or of every frame
     # for the sequence labeller and the frame selector
     output_dimensions = [-1, number_classes] if task in FRAME_OUTPUT_TASKS else [number_classes]
     return {"model_name": TASK_MODEL_NAMES[task], "inputs": inputs,

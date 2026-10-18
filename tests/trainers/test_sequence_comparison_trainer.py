@@ -28,9 +28,9 @@ SMOKE_NUMBER_FRAMES = 4
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int) -> Path:
     """
     Writes a copy of the synthetic pairs configuration adapted to a quick training smoke test: the generated dataset,
-    64 pixel frames, members of up to 4 frames cut to the longest member of their batch (the shipped batch padding)
-    and summarised by a bidirectional GRU, the cross attention fusion, batches of 2 pairs and a saving schedule that
-    triggers an intermediate save, a save with test evaluation and a validation pass within a handful of iterations.
+    64 pixel frames, members of up to 4 frames padded to the longest member of their batch and summarised by a
+    bidirectional GRU, the cross attention fusion, batches of 2 pairs and a saving schedule that triggers an
+    intermediate save, a save with test evaluation and a validation pass within a handful of iterations.
 
     Args:
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
@@ -59,7 +59,7 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
     # Two loader workers per split, enough for the small generated dataset
     configuration["Data"]["loading"]["number_workers"] = 2
-    configuration["Data"]["sequence_settings"]["sequence_length"] = SMOKE_NUMBER_FRAMES
+    configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = SMOKE_NUMBER_FRAMES
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["TemporalModel"].update({"type": "gru", "hidden_size": 128, "bidirectional": True})
     configuration["Fusion"]["type"] = "cross_attention"
@@ -154,10 +154,10 @@ def test_sequence_comparison_training_saves_evaluates_and_resumes(tmp_path: Path
     console_output = capsys.readouterr().out
     number_pairs, number_frames, number_kept_pairs = count_split_pairs(
         split_data_folder=dataset_folder / "train",
-        sequence_settings={"sequence_length": SMOKE_NUMBER_FRAMES, "short_sequences": "pad"})
+        sequence_settings={"maximum_sequence_length": SMOKE_NUMBER_FRAMES})
     assert number_pairs == number_kept_pairs == 8
     assert "Pairs Per Second" in console_output and "Frames Per Second" in console_output
-    assert f"8 pairs, {number_frames} frames, 8 kept pairs of at most 2 x 4 frames" in console_output
+    assert f"8 pairs, {number_frames} frames, 8 pairs of members of at most 4 frames" in console_output
     assert "while the 'gru' temporal module models their order" in console_output
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

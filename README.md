@@ -27,7 +27,7 @@
   - [Instance Segmentation (INS)](#instance-segmentation-ins)
   - [Keypoint Detection (KPT)](#keypoint-detection-kpt)
   - [Semantic Segmentation (SEG)](#semantic-segmentation-seg)
-  - [Sequence Windows (M2O, M2M, CMP, SEL)](#sequence-windows-m2o-m2m-cmp-sel)
+  - [Sequence Lengths (M2O, M2M, CMP, SEL)](#sequence-lengths-m2o-m2m-cmp-sel)
   - [Sequence Classification (M2O)](#sequence-classification-m2o)
   - [Sequence Labelling (M2M)](#sequence-labelling-m2m)
   - [Sequence Comparison (CMP)](#sequence-comparison-cmp)
@@ -121,7 +121,7 @@ uv run python -m vision_training.main --configuration_path="vision_training/conf
 | KPT | 2 to 4 objects per 512 pixel image, the 35 shapes drawn upright, a stick figure and a house, each category with its own keypoints (the corners of the polygons, the tips of the star and of the plus sign, the 2 ends and 4 corners of the capsule, the 11 joints of the stick figure, the hollow polygons and capsule with the corners of their hole after those of their filled shape, the hollow semicircle with those of its filled shape...), some hidden by another object (v = 1) or outside the image; `circle`, `ellipse`, `annulus` and `hollow_ellipse` have no keypoints and are left out of `label_mapping.json`, objects drawn in the images only to distract the network | the 35 shapes, `stick_figure`, `house` (33 classes, without the 4 distractors) | `keypoint_detection/configuration_synthetic_shapes.yaml` |
 | SEG | up to 6 shapes per 512 pixel image, with the class mask of every image | the 35 shapes and the background | `semantic_segmentation/configuration_synthetic_shapes.yaml` |
 | M2O | one shape crossing 2 to 12 frames | `moving_left`, `moving_right`, `moving_up`, `moving_down` | `sequence_classification/configuration_synthetic_sequences.yaml` |
-| M2M | one shape changing class 1 to 3 times over 2 to 12 frames, labelled per frame | the 35 shapes | `sequence_labelling/configuration_synthetic_sequences.yaml` |
+| M2M | 5 to 10 shapes per frame over 2 to 12 frames, redrawn every frame with a new size, colour, position and rotation, at most one shape appearing or disappearing from one frame to the next, labelled per frame | `no_change`, and `appearing_<shape>` and `disappearing_<shape>` for the 35 shapes (71 labels) | `sequence_labelling/configuration_synthetic_sequences.yaml` |
 | CMP | a before and an after member of 2 to 12 frames, the before member showing 2 to 6 shapes | `loss_of_object` (the after member lost one shape), `same_number_of_objects` | `sequence_comparison/configuration_synthetic_pairs.yaml` |
 | SEL | one shape per frame over 4 to 12 frames, the largest circle, triangle and star of the sequence being the frames to select, the other frames showing smaller copies of them or other shapes | `unselected`, `circle`, `triangle`, `star` | `frame_selection/configuration_synthetic_sequences.yaml` |
 | SSL | the CLS dataset (`task = "classification"`), its classes only used by the k-NN evaluation | the 35 shapes | `self_supervised/configuration_synthetic_shapes.yaml` |
@@ -588,21 +588,19 @@ A side shorter than a tile is padded, the padding being ignored. `keep_ratio` is
 
 > **Screenshot placeholder** (`README/segmentation_sample.png`): a sample image of a segmentation evaluation: the input, the true mask, the predicted mask and the error map side by side.
 
-### Sequence Windows (M2O, M2M, CMP, SEL)
+### Sequence Lengths (M2O, M2M, CMP, SEL)
 The sequence tasks read sequences of frames. Every sequence holds its frames in `data/<sequence name>/`, listed in order in `labels.json`. The backbone runs on every frame, then the temporal module (`TemporalModel.type`) combines the frames: `mean_pooling`, `max_pooling` and `attention_pooling` ignore their order, `gru`, `lstm`, `transformer` and `temporal_convolution` follow it.
 
-`Data.sequence_settings` sets how the sequences are cut into windows, the samples the model sees:
-- `sequence_length`: the largest number of frames of a window.
-- `window_stride` (M2O, M2M): the number of frames between the starts of two windows of a sequence. A last window ending on the last frame is added when the stride does not reach it. For example, with `sequence_length: 50` and `window_stride: 25`, a 60-frame sequence gives the windows 0–49 and 10–59.
-- `short_sequences` (M2O, M2M, CMP): a sequence shorter than `sequence_length` gives one window padded with black frames (`"pad"`), or is left out (`"skip"`).
-- `batch_padding`: the windows of a batch are padded to `sequence_length` frames (`"sequence_length"`), or cut to the longest window of the batch (`"longest"`), which loads and processes fewer padding frames. The model outputs are the same.
+Every sequence, and every member of a pair for CMP, is fed whole to the model, one sample per sequence. `Data.sequence_settings.maximum_sequence_length` is the largest number of frames of a sequence: a longer sequence, or a pair with a longer member, is left out of its split with a red warning naming it, and a red total per split. The split descriptions printed at startup give the number of sequences (or pairs) kept.
 
-The padding frames are masked: they never change the outputs of the model. To see every sequence whole, in one window, set `sequence_length` to at least the length of the longest sequence of the dataset. SEL always sees every sequence whole, so it has neither `window_stride` nor `short_sequences`.
+The sequences of a batch are padded with black frames to the longest sequence of the batch. The padding frames are masked: they never change the outputs of the model. With the transformer positional embedding, `maximum_sequence_length` is also the number of learned frame positions.
 
-The augmentations draw the same transformation for all the frames of a window, unless `Data.data_augmentation.independent_frames` draws the photometric ones frame by frame. `shuffle_frames` shuffles the frames of a training window, for sequences whose order carries no information (sets of photos). For such sequences, `TemporalModel.positional_embedding: False` removes the learned position of every frame from the transformer, which then treats a window as a set: shuffling its frames leaves the output of M2O and CMP unchanged and shuffles the per-frame outputs of M2M and SEL along with them. A causal transformer still sees the order through its attention mask. `Backbone.normalization.feature_map_normalization: "sequence"` computes the normalization statistics over the frames of every window.
+The augmentations draw the same transformation for all the frames of a sequence, unless `Data.data_augmentation.independent_frames` draws the photometric ones frame by frame. `shuffle_frames` shuffles the frames of a training sequence, for sequences whose order carries no information (sets of photos). For such sequences, `TemporalModel.positional_embedding: False` removes the learned position of every frame from the transformer, which then treats a sequence as a set: shuffling its frames leaves the output of M2O and CMP unchanged and shuffles the per-frame outputs of M2M and SEL along with them. A causal transformer still sees the order through its attention mask. `Backbone.normalization.feature_map_normalization: "sequence"` computes the normalization statistics over the real frames of every sequence.
+
+`ClassificationHead.global_pooling` reduces the feature map of every frame to its frame vector: `average`, `max`, or `flatten`, which keeps all its values, so that the frame vector follows the image size.
 
 ### Sequence Classification (M2O)
-The sequence classifier predicts one class per sequence (many to one). Every window carries the class of its sequence, and counts as one sample in the metrics.
+The sequence classifier predicts one class per sequence (many to one). Every sequence counts as one sample in the metrics.
 
 **Data.**
 
@@ -628,13 +626,13 @@ The sequence classifier predicts one class per sequence (many to one). Every win
 
 **Configuration.** Copy `sequence_classification/configuration_example.yaml`. The task keys are `Data.sequence_settings`, `TemporalModel` (all 7 types) and `ClassificationHead`, with the evaluation keys of CLS.
 
-**Evaluation.** The metrics and files of CLS, computed on the windows.
+**Evaluation.** The metrics and files of CLS, computed on the sequences.
 
 <p align="center">
   <img src="README/sequence_classification_sample.png" width="80%" />
 </p>
 
-> **Screenshot placeholder** (`README/sequence_classification_sample.png`): a sample image of a sequence classification evaluation: the frame grid of a window captioned `true -> predicted probability`.
+> **Screenshot placeholder** (`README/sequence_classification_sample.png`): a sample image of a sequence classification evaluation: the frame grid of a sequence captioned `true -> predicted probability`.
 
 ### Sequence Labelling (M2M)
 The sequence labeller predicts one class per frame (many to many), the temporal module keeping one vector per frame. With `TemporalModel.causal: True` (transformer, temporal convolution), every frame only sees the frames before it, as in a live stream.
@@ -643,7 +641,7 @@ The sequence labeller predicts one class per frame (many to many), the temporal 
 
 ```json
 {
-  "categories": [{"id": 1, "name": "square"}, {"id": 2, "name": "circle"}],
+  "categories": [{"id": 1, "name": "no_change"}, {"id": 2, "name": "appearing_square"}],
   "sequences": [
     {"id": 1, "name": "sequence_0001", "frame_category_ids": [1, 1, 2],
      "frames": ["sequence_0001/000000.png", "sequence_0001/000001.png", "sequence_0001/000002.png"]}
@@ -653,9 +651,9 @@ The sequence labeller predicts one class per frame (many to many), the temporal 
 
 **Configuration.** Copy `sequence_labelling/configuration_example.yaml`. The keys are the ones of M2O, with the temporal types `gru`, `lstm`, `transformer` and `temporal_convolution` only, the poolings giving no output per frame.
 
-**Evaluation.** The metrics of CLS computed on the labelled frames, and the sequence exact match: the share of windows with every frame right.
+**Evaluation.** The metrics of CLS computed on the labelled frames, and the sequence exact match: the share of sequences with every frame right.
 
-The segment metrics score the events instead of the frames, a segment being a run of consecutive labelled frames of one class. The windows of every test sequence are first merged back into the whole sequence, the probabilities of a frame held by several windows being averaged, and an unlabelled frame ends a segment.
+The segment metrics score the events instead of the frames, a segment being a run of consecutive labelled frames of one class, computed on every whole test sequence, an unlabelled frame ending a segment.
 - Edit Score: 1 minus the number of segments to insert, remove or replace to turn the predicted order of segment classes into the true one, divided by the larger number of segments, averaged over the sequences. It is low when the prediction is fragmented, even with most frames right.
 - Segment F1@10, @25 and @50: every predicted segment, in order, is right when it overlaps the true segment of its class it overlaps most by at least 10, 25 or 50 % (intersection over union) and that true segment was not matched before. The F1 comes from the matches counted over all the sequences.
 
@@ -665,7 +663,7 @@ For example, a sequence true `A A A A A B B B B B` predicted `A A B A A B B A B 
   <img src="README/sequence_labelling_sample.png" width="80%" />
 </p>
 
-> **Screenshot placeholder** (`README/sequence_labelling_sample.png`): a sample image of a sequence labelling evaluation: the frame grid of a window, every frame captioned `true/predicted`, the wrong frames marked with `X`.
+> **Screenshot placeholder** (`README/sequence_labelling_sample.png`): a sample image of a sequence labelling evaluation: the frame grid of a sequence, every frame captioned `true/predicted`, the wrong frames marked with `X`.
 
 ### Sequence Comparison (CMP)
 The sequence comparator predicts one class per pair of a before and an after sequence, e.g. whether an object was lost between two visits. Both members go through the same backbone and temporal module, and `Fusion.type` combines them: `concatenation`, `difference` (the change between both members made explicit) or `cross_attention` (the frames of each member attend to the frames of the other member).
@@ -692,11 +690,11 @@ The sequence comparator predicts one class per pair of a before and an after seq
 }
 ```
 
-Each member gives one window of at most `sequence_length` frames: a longer member keeps `sequence_length` frames evenly spaced over its length, so there is no `window_stride`.
+Both members are read whole, and may hold different numbers of frames; a pair with a member longer than `maximum_sequence_length` is left out.
 
 **Converting a dataset.** A dataset described by one pair list file per split, `{"source": <folder of the frame folders>, "data": [{"before": <frame folder>, "after": <frame folder>, "label": <class name>, "sequence": <pair name>}]}`, is converted by `vision_training/data/sequence/pair_list_manifests.py`, `data/` being a symbolic link to the source folder. Set `pair_list_files` and `output_folder` in its main block, then run `uv run python -m vision_training.data.sequence.pair_list_manifests`.
 
-**Configuration.** Copy `sequence_comparison/configuration_example.yaml`. The task keys are the ones of M2O without `window_stride`, and `Fusion`. `Fusion.sequence_normalization_scope` sets whether the sequence normalization of the backbone normalizes every member on its own (`"member"`) or both together (`"pair"`).
+**Configuration.** Copy `sequence_comparison/configuration_example.yaml`. The task keys are the ones of M2O and `Fusion`. `Fusion.sequence_normalization_scope` sets whether the sequence normalization of the backbone normalizes every member on its own (`"member"`) or both together (`"pair"`).
 
 **Evaluation.** The metrics and files of CLS, computed on the pairs.
 
@@ -709,7 +707,7 @@ Each member gives one window of at most `sequence_length` frames: a longer membe
 ### Frame Selection (SEL)
 The frame selector chooses in every sequence the frames of every wanted class, the criterion of a choice being whatever the labels of the dataset encode (e.g. the sharpest view of each side of an object among the photos of a visit). Every class of the label mapping except the unselected one (`Selection.unselected_category`) is a wanted class, every sequence holds exactly `Selection.frames_per_class` frames of each, and its other frames are unselected.
 
-The model is the one of M2M, one class per frame, trained with the per-frame loss and a selection loss weighted by `Selection.selection_loss_weight`: for every wanted class, the softmax of its logit over the frames of the sequence is trained towards its true frames, so that the frames of a sequence compete for the class. Every sequence is one window holding it whole, so `Data.sequence_settings` only has `sequence_length`, at least the length of the longest sequence, and `batch_padding`.
+The model is the one of M2M, one class per frame, trained with the per-frame loss and a selection loss weighted by `Selection.selection_loss_weight`: for every wanted class, the softmax of its logit over the frames of the sequence is trained towards its true frames, so that the frames of a sequence compete for the class. Every sequence is fed whole, as in the other sequence tasks.
 
 **Decoding.** The probabilities of the frames are turned into a selection by one of two decodings:
 - `hungarian`: the optimal assignment, the most probable labelling of the whole sequence with every wanted class chosen `frames_per_class` times, every frame being chosen at most once.
@@ -730,9 +728,9 @@ For example, with two wanted classes A and B and three frames of probabilities (
 }
 ```
 
-`label_mapping.json` must map the unselected category. The frames of a category left out of the mapping become unselected frames, so that leaving a wanted class out of the mapping turns its frames into unselected ones. A sequence not holding exactly `frames_per_class` frames of every wanted class, or longer than `sequence_length`, stops the training at startup with the list of such sequences.
+`label_mapping.json` must map the unselected category. The frames of a category left out of the mapping become unselected frames, so that leaving a wanted class out of the mapping turns its frames into unselected ones. A sequence longer than `maximum_sequence_length` is left out with a warning, and a sequence not holding exactly `frames_per_class` frames of every wanted class stops the training at startup with the list of such sequences.
 
-**Configuration.** Copy `frame_selection/configuration_example.yaml`. The keys are the ones of M2M without `window_stride` and `short_sequences`, and `Selection` (`unselected_category`, `decoding`, `frames_per_class`, `selection_loss_weight`). The temporal types are the ones of M2M: a bidirectional GRU or LSTM, or a transformer or temporal convolution that is not causal, compares every frame with the whole sequence.
+**Configuration.** Copy `frame_selection/configuration_example.yaml`. The keys are the ones of M2M and `Selection` (`unselected_category`, `decoding`, `frames_per_class`, `selection_loss_weight`). The temporal types are the ones of M2M: a bidirectional GRU or LSTM, or a transformer or temporal convolution that is not causal, compares every frame with the whole sequence.
 
 **Evaluation.** Every test sequence is decoded by both decodings, and the report gives:
 - `Hungarian Selection Accuracy` and `Greedy Selection Accuracy`: the share of the true frames of the wanted classes chosen for their class. The one of `Selection.decoding` is the headline metric.
@@ -820,7 +818,7 @@ Backbone:
     learning_rate_multiplier: 0.1
 ```
 
-The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`, a source run written before `modules.residual_nets_v2` counting as False; for the classification head: `fully_connected` and `fully_connected_normalization`), which is checked before the training starts. The `batch_normalization_momentum` of every section changes no weight and may differ. A transformer with its positional embedding also needs the same `sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any window length. The region proposal heads need the same detection levels, the same `region_proposal` and number of anchors per position in every level and the same normalization, other anchor scales or ratios of the same counts being reported; the detection heads need the same detection levels, the same `detector` in every level, normalization and modules; the mask heads need the same detection levels, the same `mask_head` in every level, `mask_resolution`, `upsampling`, normalization and modules. An object detection run thus initialises an instance segmentation run, whose mask heads learn alone when the backbone, region proposal and detection heads are frozen. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen, prefixed by the letter of its section (e.g. `RPT` and `RFRZ` for the region proposal heads, [Run Names](#run-names)), and `SegmentationDecoder.pretrained.load_class_layers` adds `DCL` after `DPT`. The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
+The settings defining the layers of the component must be identical in both runs (for the backbone: `input_channels`, `convolutions`, `modules`, `normalization` and `last_max_pooling`, a source run written before `modules.residual_nets_v2` counting as False; for the classification head: `fully_connected` and `fully_connected_normalization`), which is checked before the training starts. The `batch_normalization_momentum` of every section changes no weight and may differ. A transformer with its positional embedding also needs the same `maximum_sequence_length`, its embedding holding one vector per frame; without it, the transformer moves between runs of any maximum sequence length. A classification head after a `flatten` pooling also needs the same image size, its input vector following the image size. The region proposal heads need the same detection levels, the same `region_proposal` and number of anchors per position in every level and the same normalization, other anchor scales or ratios of the same counts being reported; the detection heads need the same detection levels, the same `detector` in every level, normalization and modules; the mask heads need the same detection levels, the same `mask_head` in every level, `mask_resolution`, `upsampling`, normalization and modules. An object detection run thus initialises an instance segmentation run, whose mask heads learn alone when the backbone, region proposal and detection heads are frozen. The image size may differ. A run resuming from its own checkpoints does not load the pretrained component again. The run name marks a pretrained component with `PT`, and `FRZ` when it is frozen, prefixed by the letter of its section (e.g. `RPT` and `RFRZ` for the region proposal heads, [Run Names](#run-names)), and `SegmentationDecoder.pretrained.load_class_layers` adds `DCL` after `DPT`. The `learning_rate_multiplier` gives no token, so that it can change when the run is resumed.
 
 A component is loaded from the averaged weights of the source checkpoint when the source run kept a moving average of the weights ([Moving Average Of The Weights](#moving-average-of-the-weights)) and the new run has `Optimization.exponential_moving_average.activated` True, and from its trained weights otherwise. The console prints which weights initialised every component.
 
@@ -891,7 +889,7 @@ The models are written to `vision_training/deployment/triton/served_models/<mode
 | CMP | `sequence_comparator` | `before_images`, `after_images` [B, T, 3, S, S] | `class_probabilities` [B, K] |
 | SEL | `frame_selector` | `images` [B, T, 3, S, S] | `class_probabilities` [B, T, K] |
 
-S is `Data.image_settings.size`, K the number of classes, D the largest number of detections per image, M `MaskHead.mask_resolution`, T any number of frames from 1 to `sequence_length`, C the number of heatmap channels and N the number of keypoint candidates of every channel, `KeypointHead.inference.maximum_candidates` (at most the number of cells of the heatmaps). The inputs are float32 BGR images in [0, 255], resized and padded like the data loaders do (`keep_ratio`); the input normalization is part of the exported model.
+S is `Data.image_settings.size`, K the number of classes, D the largest number of detections per image, M `MaskHead.mask_resolution`, T any number of frames from 1 to `maximum_sequence_length` (the before and after members of CMP may differ), C the number of heatmap channels and N the number of keypoint candidates of every channel, `KeypointHead.inference.maximum_candidates` (at most the number of cells of the heatmaps). The inputs are float32 BGR images in [0, 255], resized and padded like the data loaders do (`keep_ratio`); the input normalization is part of the exported model.
 
 The outputs of SEG are at the network resolution: `restore_prediction_to_original_image` of `vision_training/data/preprocessing.py` brings a class map or the class probabilities back to the original image. A SEG run trained on tiles (`Data.tiling`) is exported the same way, its input being one tile: the client scales the image by `Data.tiling.scale`, then segments it with `segment_image_by_tiles` of `vision_training/models/segmentation/sliding_window.py`, given a function sending a batch of tiles to Triton and returning their `class_probabilities`.
 
@@ -926,7 +924,7 @@ docker compose up
 It serves every model of `served_models/`, on the ports 8000 (HTTP, health check with `curl localhost:8000/v2/health/ready`), 8001 (gRPC) and 8002 (metrics).
 
 ### Throughput Measurement
-`vision_training/deployment/run_inference.py` sends the images of `vision_training/deployment/inference_data/` to the model of a run, in this process and through Triton (TorchScript, then ONNX with TensorRT), and prints the throughput of each. For SEL, the local run decodes every sequence after the network and Triton is queried through the ensembles. Set the run folder in its main block, then run:
+`vision_training/deployment/run_inference.py` sends the images of `vision_training/deployment/inference_data/` to the model of a run, in this process and through Triton (TorchScript, then ONNX with TensorRT), and prints the throughput of each. The image tasks send one request per image; the sequence tasks send the whole folder as one sequence, at least 2 images and at most the `maximum_sequence_length` of the run, CMP taking its first half (rounded up) as the before member and the rest as the after member. For SEL, the local run decodes every sequence after the network and Triton is queried through the ensembles. Set the run folder in its main block, then run:
 
 ```bash
 uv run python -m vision_training.deployment.run_inference
@@ -973,8 +971,6 @@ The tables below list only the keys that are not in every task. Every other key 
 | `ClassificationHead` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
 | `TemporalModel` | | | | ✓ | ✓ | ✓ | | ✓ | | |
 | `Data.sequence_settings` | | | | ✓ | ✓ | ✓ | | ✓ | | |
-| `Data.sequence_settings.short_sequences` | | | | ✓ | ✓ | ✓ | | | | |
-| `Data.sequence_settings.window_stride` | | | | ✓ | ✓ | | | | | |
 | `Fusion` | | | | | | ✓ | | | | |
 | `SegmentationDecoder` | | | | | | | ✓ | | | |
 | `SegmentationLoss` | | | | | | | ✓ | | | |
@@ -999,9 +995,7 @@ The tables below list only the keys that are not in every task. Every other key 
 | INS | `MaskHead` |
 | DET, INS, CLS, M2O, M2M, CMP, SEL | `ExperimentConfiguration.evaluation.target_precision`, `error_dumps` |
 | CLS, M2O, M2M, CMP, SEL | `ClassificationHead`, `ExperimentConfiguration.evaluation.top_k`, `save_predictions` |
-| M2O, M2M, CMP, SEL | `TemporalModel`, `Data.sequence_settings` (`sequence_length`, `batch_padding`) |
-| M2O, M2M, CMP | `Data.sequence_settings.short_sequences` |
-| M2O, M2M | `Data.sequence_settings.window_stride` |
+| M2O, M2M, CMP, SEL | `TemporalModel`, `Data.sequence_settings.maximum_sequence_length` |
 | CMP | `Fusion` |
 | SEG | `SegmentationDecoder`, `SegmentationLoss`, `Data.tiling`, `ExperimentConfiguration.evaluation.save_predicted_masks`, `boundary_tolerance` |
 | SEL | `Selection` |
@@ -1018,7 +1012,7 @@ Some keys are in several tasks but do not accept the same values in each. The ch
 | `Data.data_augmentation.independent_frames` | `False` | `False` | `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` | `True` or `False` | `False` | `False` |
 | `Data.data_augmentation.shuffle_frames.activated` | `False` | `False` | `False` | `True` or `False` | `True` or `False` | `True` or `False` | `False` | `True` or `False` | `False` | `False` |
 | `Backbone.normalization.feature_map_normalization` | any except `sequence` | any except `sequence` | any except `sequence` | any | any | any | any except `sequence` | any | any except `sequence` | any except `sequence` |
-| `ClassificationHead.global_pooling` | | | `average`, `max` or `flatten` | `average` or `max` | `average` or `max` | `average` or `max` | | `average` or `max` | | |
+| `ClassificationHead.global_pooling` | | | `average`, `max` or `flatten` | `average`, `max` or `flatten` | `average`, `max` or `flatten` | `average`, `max` or `flatten` | | `average`, `max` or `flatten` | | |
 | `ClassificationHead.output_mode` | | | `multi_class` or `multi_label` | `multi_class` | `multi_class` | `multi_class` | | `multi_class` | | |
 | `TemporalModel.type` | | | | all 7 types | `gru`, `lstm`, `transformer`, `temporal_convolution` | all 7 types | | `gru`, `lstm`, `transformer`, `temporal_convolution` | | |
 | `TemporalModel.causal` | | | | `False` | `True` or `False` | `False` | | `True` or `False` | | |
@@ -1032,7 +1026,7 @@ For SEG, the keys of `SegmentationDecoder.convolutions` must be the backbone blo
 
 For DET, every level of `DetectionLevels` holds exactly `anchors`, `region_proposal` and `detector`; for INS, it also holds `mask_head`, whose `roi_align_pool_size` must not exceed `MaskHead.mask_resolution`.
 
-INS has the keys of DET and `MaskHead`. M2O and M2M have exactly the same keys. SEL has the keys of M2M without `window_stride` and `short_sequences`, and `Selection`. SSL has the keys of CLS without `ClassificationHead`, `top_k`, `target_precision`, `save_predictions` and `error_dumps`, and `ProjectionHead`, `Data.view_augmentation` and `number_neighbours`. KPT has the keys of SSL without `Data.view_augmentation`, `ProjectionHead` and `number_neighbours`, and `HRNet`, `KeypointHead`, `default_keypoint_sigma` and `keypoint_sigmas`. The number of blocks in `Backbone.convolutions` changes from one example to another, but this is a value, not a different key.
+INS has the keys of DET and `MaskHead`. M2O and M2M have exactly the same keys. SEL has the keys of M2M and `Selection`. SSL has the keys of CLS without `ClassificationHead`, `top_k`, `target_precision`, `save_predictions` and `error_dumps`, and `ProjectionHead`, `Data.view_augmentation` and `number_neighbours`. KPT has the keys of SSL without `Data.view_augmentation`, `ProjectionHead` and `number_neighbours`, and `HRNet`, `KeypointHead`, `default_keypoint_sigma` and `keypoint_sigmas`. The number of blocks in `Backbone.convolutions` changes from one example to another, but this is a value, not a different key.
 
 ### Evaluation Outputs
 Every evaluated checkpoint is reported in the console and in a block of `<run>/Results.txt` with the same layout: a header `Iteration <n> · <evaluated samples> · <date and time>`, the global metrics, the notes (e.g. the error images) and the tables of the task, the per-class table being sorted worst first. Its files are written in `<run>/Evaluation/Iteration_<n>/`, those of the moving average of the weights in `<run>/Evaluation/Iteration_<n>/EMA/`. `ExperimentConfiguration.evaluation.per_class_report` set to `False` keeps the global metrics only, for runs with many classes: the files written in every case keep the details.
@@ -1053,11 +1047,11 @@ Every evaluated checkpoint is reported in the console and in a block of `<run>/R
 | `Errors/<TRUE>-TO-<PREDICTED>/` | CLS (multi-class), M2O, M2M, CMP | with `error_dumps.activated` |
 | `Errors/<CLASS>/<sequence>.png` | SEL | with `error_dumps.activated` |
 | `Errors/FALSE-POSITIVE/<class>/`, `Errors/MISSED/<class>/`, `Errors/<TRUE>-TO-<PREDICTED>/`: the test images with errors, the boxes in error outlined with red dashes | DET, INS | with `error_dumps.activated` |
-| `Samples/<sample>.png` and its Test image `Samples/<sample>` (TensorBoard): the same test samples at every evaluation with their targets and predictions. CLS, M2O, CMP: the input (frame grid of the window, before member above after member for CMP) captioned `true -> predicted probability`, green when right and red when wrong. M2M: the frame grid, every frame captioned `true/predicted` with `X` on the wrong ones. SEL: the thumbnail grid of the whole sequence with the borders of the selection, and the probability heat map of the wanted classes. DET: ground truth boxes next to the detections above `Detector.inference.score_threshold`. INS: the same, with the masks of the objects painted under their boxes. SEG: input, true mask, predicted mask and error map. SSL: the image next to two random views of it, captioned with its class and the cosine similarity of the representations of both views. KPT: the ground truth objects with their keypoints next to the objects found above `KeypointHead.inference.object_score_threshold`, with the skeleton of their class, captioned with their class (and score) | all | with `number_sample_images` above 0, whatever `per_class_report` |
+| `Samples/<sample>.png` and its Test image `Samples/<sample>` (TensorBoard): the same test samples at every evaluation with their targets and predictions. CLS, M2O, CMP: the input (frame grid of the sequence, before member above after member for CMP) captioned `true -> predicted probability`, green when right and red when wrong. M2M: the frame grid, every frame captioned `true/predicted` with `X` on the wrong ones. SEL: the thumbnail grid of the whole sequence with the borders of the selection, and the probability heat map of the wanted classes. DET: ground truth boxes next to the detections above `Detector.inference.score_threshold`. INS: the same, with the masks of the objects painted under their boxes. SEG: input, true mask, predicted mask and error map. SSL: the image next to two random views of it, captioned with its class and the cosine similarity of the representations of both views. KPT: the ground truth objects with their keypoints next to the objects found above `KeypointHead.inference.object_score_threshold`, with the skeleton of their class, captioned with their class (and score) | all | with `number_sample_images` above 0, whatever `per_class_report` |
 | `Predicted_Masks/<image>.png`: class index of every pixel at the resolution of the metrics (network input, scaled image with `Data.tiling`, original image with `original_resolution`) | SEG | with `save_predicted_masks` |
 | `Evaluation/evaluation_summary.csv` (`scripts/evaluation/evaluate_checkpoint.py` with `iteration = "all"`) | all | per-class columns with `per_class_report` |
 
-The `number_sample_images` test samples are chosen once from the test split, so that the same samples are shown at every evaluation and after a resume. For CLS, M2O, M2M, CMP and SSL they are spread over the classes first, one per class in turn (a window of M2M counts for the class of most of its frames), then evenly over the samples of each class. For KPT they are spread over the classes the same way, one test object per class in turn. For DET, INS and SEG they are evenly spread over the test images, and for SEL, whose sequences all hold the same wanted classes, over the test sequences. A test split smaller than `number_sample_images` shows all its samples.
+The `number_sample_images` test samples are chosen once from the test split, so that the same samples are shown at every evaluation and after a resume. For CLS, M2O, M2M, CMP and SSL they are spread over the classes first, one per class in turn (a sequence of M2M counts for the class of most of its frames), then evenly over the samples of each class. For KPT they are spread over the classes the same way, one test object per class in turn. For DET, INS and SEG they are evenly spread over the test images, and for SEL, whose sequences all hold the same wanted classes, over the test sequences. A test split smaller than `number_sample_images` shows all its samples.
 
 ## Run Names
 A training run is saved in `<ExperimentConfiguration.experiment_folder>/<run name>`. The run name is built from the configuration by `vision_training/configuration_processing/run_name.py`: the same settings resume in the same folder, changed settings start a new folder.
@@ -1105,7 +1099,7 @@ The training settings that can change between two resumptions of a run give no t
 | Decoder | `AUX<level>.…` | `SegmentationDecoder.deep_supervision_weights` is not empty, its levels from the deepest one | | | | | | | ✓ | | | |
 | Decoder | `DPT`, then `DCL` with the class layers, then `DFRZ` when frozen | `SegmentationDecoder.pretrained`, `load_class_layers` is True | | | | | | | ✓ | | | |
 | Classes | `BIN` or `MC<classes>` | `Data.label_mapping.mode`: binary or multi_class, foreground classes of the label dictionary | ✓ | ✓ | | | | | ✓ | | | |
-| Window | `T<frames>` | `Data.sequence_settings.sequence_length` (frames per member for CMP) | | | | ✓ | ✓ | ✓ | | ✓ | | |
+| Sequence length | `T<frames>` | `Data.sequence_settings.maximum_sequence_length` (of a member for CMP) | | | | ✓ | ✓ | ✓ | | ✓ | | |
 | Temporal module | `MEAN`, `MAX`, `ATT<hidden size>` | `TemporalModel.type`: mean_pooling, max_pooling, attention_pooling | | | | ✓ | | ✓ | | | | |
 | Temporal module | `GRU<layers>x<hidden size>`, `LSTM<layers>x<hidden size>` | `TemporalModel.type`: gru, lstm | | | | ✓ | ✓ | ✓ | | ✓ | | |
 | Temporal module | `TRF<layers>x<hidden size>.<heads>` | `TemporalModel.type`: transformer | | | | ✓ | ✓ | ✓ | | ✓ | | |
@@ -1117,7 +1111,7 @@ The training settings that can change between two resumptions of a run give no t
 | Fusion | `FCAT`, `FDIF`, `FXA<heads>` | `Fusion.type`: concatenation, difference, cross_attention | | | | | | ✓ | | | | |
 | Fusion | `SNP` | `Fusion.sequence_normalization_scope` is pair, with the `SN` backbone | | | | | | ✓ | | | | |
 | Head | `HAVG.<fully connected>` or `HMAX.<fully connected>` | `ClassificationHead.global_pooling` average or max, `fully_connected` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
-| Head | `HFLAT.<fully connected>` | `ClassificationHead.global_pooling` flatten, `fully_connected` | | | ✓ | | | | | | | |
+| Head | `HFLAT.<fully connected>` | `ClassificationHead.global_pooling` flatten, `fully_connected` | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
 | Head | `HBN`, `HLN` | `ClassificationHead.fully_connected_normalization` is batch or layer | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
 | Head | `LS<rate>` | `ClassificationHead.label_smoothing` is above 0 | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |
 | Head | `CWB` | `ClassificationHead.class_weighting` is balanced | | | ✓ | ✓ | ✓ | ✓ | | ✓ | | |

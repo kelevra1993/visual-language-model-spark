@@ -463,9 +463,8 @@ def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, A
     model_configuration["Backbone"]["convolutions"] = {"1": [1, 16], "2": [2, 32], "3": [2, 32], "4": [2, 64],
                                                        "5": [2, 64]}
 
-    # Windows, temporal module, classification head and classes
-    model_configuration["Data"]["sequence_settings"] = {"sequence_length": 8, "window_stride": 8,
-                                                        "short_sequences": "pad"}
+    # Maximum sequence length, temporal module, classification head and classes
+    model_configuration["Data"]["sequence_settings"] = {"maximum_sequence_length": 8}
     model_configuration["TemporalModel"] = {"type": "gru", "hidden_size": 128, "number_layers": 1, "number_heads": 4,
                                             "kernel_size": 3, "dropout_rate": 0.0, "bidirectional": True,
                                             "causal": False, "positional_embedding": True,
@@ -485,15 +484,15 @@ def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, A
     return experiment_configuration, model_configuration
 
 
-def use_longer_windows(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+def use_longer_sequences(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
-    Cuts windows of 16 frames.
+    Keeps the sequences of up to 16 frames.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
         model_configuration (Dict[str, Any]): The model configuration, modified in place.
     """
-    model_configuration["Data"]["sequence_settings"]["sequence_length"] = 16
+    model_configuration["Data"]["sequence_settings"]["maximum_sequence_length"] = 16
 
 
 def use_deep_unidirectional_lstm(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
@@ -522,7 +521,7 @@ def use_causal_transformer(experiment_configuration: Dict[str, Any], model_confi
 
 def use_order_blind_transformer(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
-    Uses a transformer of 2 layers with 8 heads without positional embedding, treating a window as a set of frames.
+    Uses a transformer of 2 layers with 8 heads without positional embedding, treating a sequence as a set of frames.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
@@ -568,7 +567,7 @@ def use_mean_pooling(experiment_configuration: Dict[str, Any], model_configurati
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_run_name"), argvalues=[
     (None, SEQUENCE_REFERENCE_RUN_NAME),
-    (use_longer_windows, SEQUENCE_REFERENCE_RUN_NAME.replace("_T8_", "_T16_")),
+    (use_longer_sequences, SEQUENCE_REFERENCE_RUN_NAME.replace("_T8_", "_T16_")),
     (use_deep_unidirectional_lstm, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_LSTM3x64_")),
     (use_causal_transformer, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_TRF2x128.8-CAU_")),
     (use_order_blind_transformer, SEQUENCE_REFERENCE_RUN_NAME.replace("_GRU1x128-BI_", "_TRF2x128.8-NPE_")),
@@ -578,7 +577,7 @@ def use_mean_pooling(experiment_configuration: Dict[str, Any], model_configurati
 def test_sequence_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                             expected_run_name: str) -> None:
     """
-    Verifies the run names of the sequence classification task: the M2O task code, the window section, the temporal
+    Verifies the run names of the sequence classification task: the M2O task code, the sequence section, the temporal
     module section with the settings its type uses, then the classification head and classes sections.
 
     Args:
@@ -640,14 +639,13 @@ SEQUENCE_COMPARISON_REFERENCE_RUN_NAME = "CMP_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x
 def get_sequence_comparison_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
     Builds the sequence comparison reference settings from the sequence reference settings: the comparison task,
-    member windows without window stride, a mean pooling, the difference fusion and 2 classes.
+    a mean pooling, the difference fusion and 2 classes.
 
     Returns:
         Tuple[Dict[str, Any], Dict[str, Any]]: The experiment and model configurations of the reference settings.
     """
     experiment_configuration, model_configuration = get_sequence_reference_configurations()
     experiment_configuration["task"] = "sequence_comparison"
-    del model_configuration["Data"]["sequence_settings"]["window_stride"]
     model_configuration["TemporalModel"]["type"] = "mean_pooling"
     model_configuration["Fusion"] = {"type": "difference", "number_heads": 4, "dropout_rate": 0.0,
                                      "sequence_normalization_scope": "member"}
@@ -697,7 +695,7 @@ def use_cross_attention_with_dropout(experiment_configuration: Dict[str, Any],
 def test_sequence_comparison_run_names(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None] | None,
                                        expected_run_name: str) -> None:
     """
-    Verifies the run names of the sequence comparison task: the CMP task code, the member window section, the
+    Verifies the run names of the sequence comparison task: the CMP task code, the member length section, the
     temporal module section, the fusion section, then the classification head and classes sections.
 
     Args:
@@ -803,12 +801,12 @@ def test_dropout_rates_keep_run_name(head_dropout_rate: float, temporal_dropout_
 def test_sequence_augmentation_keeps_run_name(augmentation_activated: bool, shuffle_frames: bool,
                                               independent_frames: bool) -> None:
     """
-    Verifies that the sequence augmentations (frames of the windows shuffled, photometric augmentations drawn frame by
+    Verifies that the sequence augmentations (frames of the sequences shuffled, photometric augmentations drawn frame by
     frame) give no token, so that a sequence run can be resumed in its folder with other augmentation settings.
 
     Args:
         augmentation_activated (bool): Whether the data augmentation is on.
-        shuffle_frames (bool): Whether the frames of the windows are shuffled.
+        shuffle_frames (bool): Whether the frames of the sequences are shuffled.
         independent_frames (bool): Whether the photometric augmentations are drawn frame by frame.
     """
     experiment_configuration, model_configuration = get_sequence_reference_configurations()

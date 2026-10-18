@@ -1,9 +1,9 @@
 # Sequence Comparison Workflow
 
-This document follows one sequence comparison run (CMP: one class per pair of sequences, a before member and an after member) from `main()` to the evaluation of a checkpoint, to show which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation followed by a **real** output. The sequence comparison trainer is the sequence classification trainer with pairs instead of windows: the steps it shares with the sequence classification are explained in `sequence_classification_workflow.md`, and the steps shared by every task in `classification_workflow.md`; here they keep a short explanation and the real output of the comparison run, and the steps specific to the pairs (member windows, pair batches, member split, member fusion) are explained in full.
+This document follows one sequence comparison run (CMP: one class per pair of sequences, a before member and an after member) from `main()` to the evaluation of a checkpoint, to show which function runs when, what it receives, what it returns and who uses the result next. The **Call Tree Overview** gives the whole run on one page. Each stage then has one section, with one step per function: a short explanation followed by a **real** output. The sequence comparison trainer is the sequence classification trainer with pairs instead of single sequences: the steps it shares with the sequence classification are explained in `sequence_classification_workflow.md`, and the steps shared by every task in `classification_workflow.md`; here they keep a short explanation and the real output of the comparison run, and the steps specific to the pairs (member length limit, member padding, pair batches, member split, member fusion) are explained in full.
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training:
-- **Stages 1 and 2**: `configurations/sequence_comparison/configuration_synthetic_pairs.yaml` (synthetic object loss pairs, 2 classes `loss_of_object` and `same_number_of_objects`, members of 2 to 6 frames, member windows of 8 frames, 512 pixel frames, batch size 16, a mean pooling and a difference fusion), with the run folder redirected to a temporary folder. The dataset of `configuration_example.yaml` is not on this machine.
+- **Stages 1 and 2**: `configurations/sequence_comparison/configuration_synthetic_pairs.yaml` (synthetic object loss pairs, 2 classes `loss_of_object` and `same_number_of_objects`, members of 2 to 6 frames, a maximum sequence length of 50 frames per member, 512 pixel frames, batch size 16, a mean pooling and a difference fusion), with the run folder redirected to a temporary folder. The dataset of `configuration_example.yaml` is not on this machine.
 - **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `same_number_of_objects` for every test pair (2 classes: a loss near ln 2 = 0.693), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
 ## Table of Contents
@@ -36,8 +36,8 @@ main()
 │       ├── common checks                         experiment, data, backbone, optimization (see classification)
 │       └── check_sequence_comparison_configuration()
 │               ├── the data, head and evaluation checks of the classification
-│               ├── check_sequence_settings()             sequence_length, short_sequences, batch_padding (no
-│               │                                         window_stride: a member is one window)
+│               ├── check_sequence_settings()             maximum_sequence_length: a positive integer, the
+│               │                                         longest member a pair may have
 │               ├── check_temporal_model_configuration()  any pooling or ordered type, not causal
 │               └── check_fusion_configuration()          type, heads and dropout of the cross attention, the
 │                                                         frames sharing the sequence normalization ("member", "pair")
@@ -49,18 +49,17 @@ main()
 │   │
 │   └── BaseTrainer.__init__()
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter() / setup_training_paths()
-│       │       The run name adds the member window (T<frames>), the temporal module and the fusion (FCAT, FDIF,
+│       │       The run name adds the maximum sequence length (T<frames>), the temporal module and the fusion (FCAT, FDIF,
 │       │       FXA<heads>, SNP when both members share the sequence normalization) before the head and the classes.
 │       ├── build_dataloaders()
 │       │   └── get_sequence_dataloaders(label_type="pair")
-│       │       │   One SequencePairDataset per split, and with batch_padding "longest" the collate
-│       │       │   collate_longest_windows (members_per_sample=2).
+│       │       │   One SequencePairDataset per split, and the collate collate_padded_sequences
+│       │       │   (members_per_sample=2).
 │       │       │
-│       │       ├── SequencePairDataset.__init__() -> compute_member_frame_indices()
-│       │       │       Each member becomes one window of at most sequence_length frames: all its frames, or the
-│       │       │       middle frame of each of sequence_length equal parts of a longer member. The pairs of unmapped
-│       │       │       categories, with an empty member, or with a short member when short_sequences is "skip", are
-│       │       │       left out. Shuffled once.
+│       │       ├── SequencePairDataset.__init__()
+│       │       │       Every member is kept whole. The pairs with a member longer than maximum_sequence_length are
+│       │       │       left out with a red warning per pair and a total per split; the pairs of unmapped categories
+│       │       │       or with an empty member are left out with a note. Shuffled once.
 │       │       └── build_native_loader()
 │       ├── get_test_sample_classes() + choose_sample_identifiers()   the class of every test pair
 │       ├── build_model()
@@ -75,7 +74,7 @@ main()
 │       ├── initialise_pretrained_components()  Backbone, TemporalModel and ClassificationHead can come from other runs
 │       ├── build_optimizer() / get_tracked_metrics() + MetricTracker.__init__(counts_frames=True)
 │       ├── print_experiment_information() -> describe_split() -> count_split_pairs()
-│       │       "N pairs, F frames, P kept pairs of at most 2 x L frames"; an epoch is P pairs.
+│       │       "N pairs, F frames, K pairs of members of at most M frames"; an epoch is K pairs.
 │       ├── print_summary()                     adds the Member Fusion panel
 │       ├── view_input_batches() -> show_input_samples()   the before grid above the after grid
 │       └── restore_last_model()
@@ -85,15 +84,15 @@ main()
         ├── for each training_iteration:
         │   ├── save_model() + run_test_evaluation() when due                    -> [STAGE 4]
         │   ├── get_next_batch()
-        │   │   ├── SequencePairDataset.__getitem__() -> read_window_frames() for each member
-        │   │   │       The before window then the after window along the frame axis: [2 x sequence_length] frames.
-        │   │   └── collate_longest_windows(members_per_sample=2)
-        │   │           Cuts both windows of every pair to the longest member of the batch: [B, 2T, ...].
+        │   │   ├── SequencePairDataset.__getitem__() -> read_sequence_frames() for each member
+        │   │   │       The before member then the after member along the frame axis, both padded to the longer one.
+        │   │   └── collate_padded_sequences(members_per_sample=2)
+        │   │           Pads both members of every pair to the longest member of the batch: [B, 2T, ...].
         │   ├── MetricTracker.count_frames()     real frames of both members
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch() / augment_batch()   one augmentation draw per pair, for its 2T frames
         │   │   ├── forward_pass() -> split_pair_batch() -> SequenceComparator.forward()
-        │   │   │   ├── encode_members()                 both members as one batch of windows -> encode_frames()
+        │   │   │   ├── encode_members()                 both members as one batch of sequences -> encode_frames()
         │   │   │   ├── member_fusion.attend_across_members()   cross attention only
         │   │   │   ├── summarise_members()              the shared temporal module on both members as one batch
         │   │   │   ├── member_fusion.combine_member_vectors()
@@ -122,7 +121,7 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 The entry point is the same for every task (see `classification_workflow.md`, Step 1.1).
 
 ### Step 1.2 — `load_experiment_configuration()`
-The comparison has the `TemporalModel` and `Fusion` sections on top of the sections of the classification. Its `sequence_settings` have no `window_stride`, since every member is one window.
+The comparison has the `TemporalModel` and `Fusion` sections on top of the sections of the classification. Its `sequence_settings` hold only `maximum_sequence_length`, the most frames a member may have: every member is fed whole, and a pair with a longer member is left out.
 
 **Example: the sections and the settings of the pairs**
 ```text
@@ -152,7 +151,7 @@ dict: {1: 0, 2: 1}
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_sequence_comparison_configuration()`: the checks of the sequence classification without the window stride (Step 1.5 of `sequence_classification_workflow.md`), then `check_fusion_configuration()`: the fusion type, the heads and the dropout of the cross attention, the normalization scope, and, for the cross attention, frame vectors (as wide as the last backbone block) that can be split between its heads.
+The common checks run first, then `check_sequence_comparison_configuration()`: the checks of the sequence classification (Step 1.5 of `sequence_classification_workflow.md`), then `check_fusion_configuration()`: the fusion type, the heads and the dropout of the cross attention, the normalization scope, and, for the cross attention, frame vectors (as wide as the last backbone block) that can be split between its heads.
 
 **Example: output with `Fusion.type: "cross_attention"`, `number_heads: 3` and `sequence_normalization_scope: "frame"` in the YAML**
 ```text
@@ -175,14 +174,14 @@ get_trainer_class(task="sequence_comparison") -> <class 'vision_training.trainer
 
 ## Stage 2 — Trainer Initialization
 
-> The examples below are real outputs from building the trainer on `configurations/sequence_comparison/configuration_synthetic_pairs.yaml` (512 pixel frames, member windows of 8 frames, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.2 s on CPU.
+> The examples below are real outputs from building the trainer on `configurations/sequence_comparison/configuration_synthetic_pairs.yaml` (512 pixel frames, a maximum sequence length of 50 frames, batch size 16), with the run folder redirected to a temporary folder. The whole construction took 0.6 s on CPU.
 
 ### Step 2.1 — `SequenceComparisonTrainer.__init__()`
-The comparison trainer has no constructor of its own: it is the sequence classification trainer (`sequence_classification_workflow.md`, Step 2.1) with other class attributes. `LABEL_TYPE = "pair"` makes the loaders read pairs, and `MEMBERS_PER_SAMPLE = 2` tells the shared code that every sample holds two windows one after the other along its frame axis, the before window then the after window: the collate cuts both to the longest member of the batch (Step 3.5), the augmentation shuffles each on its own (Step 3.8) and the input viewer and the evaluation images draw both (Step 4.5). The losses, the metrics and the evaluation are those of the classification, a pair being classified as a whole.
+The comparison trainer has no constructor of its own: it is the sequence classification trainer (`sequence_classification_workflow.md`, Step 2.1) with other class attributes. `LABEL_TYPE = "pair"` makes the loaders read pairs, and `MEMBERS_PER_SAMPLE = 2` tells the shared code that every sample holds two members of the same length one after the other along its frame axis, the before member then the after member: the collate pads both to the longest member of the batch (Step 3.5), the augmentation shuffles each on its own (Step 3.8) and the input viewer and the evaluation images draw both (Step 4.5). The losses, the metrics and the evaluation are those of the classification, a pair being classified as a whole.
 
 **Example: the attributes after the construction**
 ```text
-self.sequence_settings          = {'sequence_length': 8, 'short_sequences': 'pad', 'batch_padding': 'longest'}
+self.sequence_settings          = {'maximum_sequence_length': 50}
 self.LABEL_TYPE                 = 'pair'
 self.MEMBERS_PER_SAMPLE         = 2
 self.top_k                      = 1
@@ -205,28 +204,28 @@ For Training We Will Be Using device: cpu
 ```
 
 ### Step 2.4 — `get_run_name()` → `build_run_name()`
-`build_sequence_comparison_sections()` gives the window (`T8`: frames per member window), the temporal module (`MEAN`, see `sequence_classification_workflow.md`, Step 2.4), then the fusion: `FCAT` (concatenation), `FDIF` (difference) or `FXA<heads>` (cross attention), followed by `SNP` when the backbone uses the `sequence` normalization over both members of a pair. The head and the classes end the name.
+`build_sequence_comparison_sections()` gives the maximum sequence length (`T50`: the most frames of a member), the temporal module (`MEAN`, see `sequence_classification_workflow.md`, Step 2.4), then the fusion: `FCAT` (concatenation), `FDIF` (difference) or `FXA<heads>` (cross attention), followed by `SNP` when the backbone uses the `sequence` normalization over both members of a pair. The head and the classes end the name.
 
 **Example output**
 ```text
-CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64_MC2
+CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2
 ```
 
 ### Step 2.5 — `DataAugmenter()`
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.5}
-6 of 16 types activated: random_left_right_flip, random_up_down_flip, random_90_rotation, brightness_contrast_saturation,
-                         random_noise, random_colour_augmentation
+3 of 16 types activated: random_left_right_flip, brightness_contrast_saturation, random_noise
 ```
 
 ### Step 2.6 — `setup_training_paths()`
 **Example: the run folder after this step**
 ```text
-CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64_MC2/
+CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2/
 ├── Tensorboard/
 ├── Weights/
-└── training_configuration.yaml    4,409 bytes
+├── data.json                      807,013 bytes      the frames of both members of every pair of the three splits
+└── training_configuration.yaml    28,121 bytes
 ```
 
 ### Step 2.7 — `build_dataloaders()`
@@ -238,40 +237,57 @@ class_names = ['loss_of_object', 'same_number_of_objects']
 ```
 
 ### Step 2.8 — `get_sequence_dataloaders()`
-With `label_type="pair"` every split gets a `SequencePairDataset` (Step 2.9), and with `batch_padding: "longest"` the collate is `collate_longest_windows()` with `members_per_sample=2`, which cuts both windows of every pair to the longest member of the batch.
+With `label_type="pair"` every split gets a `SequencePairDataset` (Step 2.9), and the collate is `collate_padded_sequences()` with `members_per_sample=2`, which pads both members of every pair to the longest member of the batch.
 
 **Example: size of the three splits**
 ```text
 train       2000 pairs -> 125 batches of 16 (one epoch = 125 iterations)
 validation   200 pairs ->  13 batches of 16
 test         200 pairs ->  13 batches of 16
-collate     functools.partial(<function collate_longest_windows>, members_per_sample=2)
+collate     functools.partial(<function collate_padded_sequences>, members_per_sample=2)
 ```
 
-### Step 2.9 — `SequencePairDataset.__init__()` → `compute_member_frame_indices()`
-It reads the manifest of the split: its `categories` and its `pairs`, each giving its `id`, its `name`, the ordered frames of its `before` and `after` members (paths relative to `data/`) and its `category_id`. A member is never cut into several windows: `compute_member_frame_indices()` keeps all the frames of a member that fits in `sequence_length` frames, and the middle frame of each of `sequence_length` equal parts of a longer member, so that the window covers the whole member in order. A pair is left out when its category is unmapped, when a member is empty, or, with `short_sequences: "skip"`, when a member is shorter than the window. The pairs are shuffled once and kept by identifier for the evaluation outputs.
+### Step 2.9 — `SequencePairDataset.__init__()`
+It reads the manifest of the split: its `categories` and its `pairs`, each giving its `id`, its `name`, the ordered frames of its `before` and `after` members (paths relative to `data/`) and its `category_id`. A member is never cut nor subsampled: every member is fed whole. A pair is left out when one of its members has more than `maximum_sequence_length` frames (a red warning names the pair, then a red total is given for the split), and when its category is unmapped or a member is empty (a yellow note gives their number and the link of the manifest). The kept pairs are numbered in the order of the manifest (`identifier`), shuffled once, and kept by identifier for the evaluation outputs.
 
-**Example: a manifest pair, and the frames kept for a member window of 8 frames**
+**Example: a manifest pair**
 ```text
 labels.json:  {'id': 1, 'name': 'train_000000', 'before': ['train_000000/before/000000.png', ... 5 frames],
                'after': ['train_000000/after/000000.png', ...], 'category_id': 2}
               (2000 pairs, members of 2 to 6 frames; 2 categories {'id': 1, 'name': 'loss_of_object'}, ...)
-compute_member_frame_indices( 3 frames) = [0, 1, 2]                    <- padded with 5 black frames
-compute_member_frame_indices( 8 frames) = [0, 1, 2, 3, 4, 5, 6, 7]
-compute_member_frame_indices(12 frames) = [0, 2, 3, 5, 6, 8, 9, 11]    <- the middle frame of 8 parts of 1.5 frames
-compute_member_frame_indices(20 frames) = [1, 3, 6, 8, 11, 13, 16, 18]
 ```
+With `maximum_sequence_length: 50`, every pair of the three splits is kept.
+
+**Example: the output with `maximum_sequence_length: 5` in the YAML** (the pairs with a member of 6 frames are left out; shortened)
+```text
+Pair 'train_000000' Of The Training Split Has A Member Of 6 Frames, More Than The Maximum Sequence Length (5): It Is Left Out Of The Training.
+Pair 'train_000001' Of The Training Split Has A Member Of 6 Frames, More Than The Maximum Sequence Length (5): It Is Left Out Of The Training.
+...
+720 Pairs Of The Training Split Have A Member Longer Than The Maximum Sequence Length (5) And Are Left Out Of The Training.
+Pair 'validation_000002' Of The Validation Split Has A Member Of 6 Frames, More Than The Maximum Sequence Length (5): It Is Left Out Of The Validation.
+...
+70 Pairs Of The Validation Split Have A Member Longer Than The Maximum Sequence Length (5) And Are Left Out Of The Validation.
+...
+67 Pairs Of The Test Split Have A Member Longer Than The Maximum Sequence Length (5) And Are Left Out Of The Test.
+...
+- Train Data Folder       : file:///home/.../sequence_data/synthetic_object_loss_pairs/train (2000 pairs, 16096 frames, 1280 pairs of members of at most 5 frames)
+- Validation Data Folder  : file:///home/.../sequence_data/synthetic_object_loss_pairs/validation (200 pairs, 1586 frames, 130 pairs of members of at most 5 frames)
+- Test Data Folder        : file:///home/.../sequence_data/synthetic_object_loss_pairs/test (200 pairs, 1590 frames, 133 pairs of members of at most 5 frames)
+- Iterations Per Epoch    : 80
+```
+The run name then holds `T5`, so that this run gets a folder of its own.
 
 **Example: the first pair after shuffling, and the sample the loader gets from it**
 ```text
-pair:       {'identifier': 1983, 'pair_identifier': 1984, 'name': 'train_001983',
-             'before': ['train_001983/before/000000.png', ... 4 frames], 'after': ['train_001983/after/000000.png', ... 3 frames], 'label': 1}
-dataset[0]: images (16, 3, 512, 512) torch.uint8       the before window (8 frames) then the after window (8 frames)
-            sequence_mask (16,) torch.bool [True, True, True, True, False, False, False, False,       <- 4 real before frames
-                                            True, True, True, False, False, False, False, False]      <- 3 real after frames
-            labels () torch.int64 1, sample_identifiers 1983
-get_sample_name(1983) = 'train_001983'
-describe_sample(1983) = {'pair': 'train_001983'}
+pair:       {'identifier': 1997, 'pair_identifier': 1998, 'name': 'train_001997',
+             'before': ['train_001997/before/000000.png', 'train_001997/before/000001.png'],
+             'after': ['train_001997/after/000000.png', 'train_001997/after/000001.png', 'train_001997/after/000002.png'], 'label': 1}
+dataset[0]: images (6, 3, 512, 512) torch.uint8        the before member then the after member, both padded to 3 frames (the longer member)
+            sequence_mask (6,) torch.bool [True, True, False,        <- 2 real before frames and 1 black padding frame
+                                           True, True, True]         <- 3 real after frames
+            labels () torch.int64 1, sample_identifiers 1997
+get_sample_name(1997) = 'train_001997'
+describe_sample(1997) = {'pair': 'train_001997'}
 get_class_counts()    = [992, 1008]
 ```
 
@@ -361,15 +377,15 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Pairs'
 ```
 
 ### Step 2.20 — `print_experiment_information()` (→ `describe_split()` → `count_split_pairs()`)
-`count_split_pairs()` counts the pairs, the frames of both members and the kept pairs of every split, choosing the member frames as the dataset does; the kept pairs are the samples of an epoch.
+`count_split_pairs()` counts the pairs, the frames of both members and the kept pairs of every split: those whose two members hold frames and have at most `maximum_sequence_length` frames, as the dataset keeps them (the category is not checked here). The kept pairs are the samples of an epoch.
 
 **Example output**
 ```text
-- Run Name                : CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64_MC2
+- Run Name                : CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2
 ...
-- Train Data Folder       : file:///home/.../sequence_data/synthetic_object_loss_pairs/train (2000 pairs, 16096 frames, 2000 kept pairs of at most 2 x 8 frames)
-- Validation Data Folder  : file:///home/.../sequence_data/synthetic_object_loss_pairs/validation (200 pairs, 1586 frames, 200 kept pairs of at most 2 x 8 frames)
-- Test Data Folder        : file:///home/.../sequence_data/synthetic_object_loss_pairs/test (200 pairs, 1590 frames, 200 kept pairs of at most 2 x 8 frames)
+- Train Data Folder       : file:///home/.../sequence_data/synthetic_object_loss_pairs/train (2000 pairs, 16096 frames, 2000 pairs of members of at most 50 frames)
+- Validation Data Folder  : file:///home/.../sequence_data/synthetic_object_loss_pairs/validation (200 pairs, 1586 frames, 200 pairs of members of at most 50 frames)
+- Test Data Folder        : file:///home/.../sequence_data/synthetic_object_loss_pairs/test (200 pairs, 1590 frames, 200 pairs of members of at most 50 frames)
 - Iterations Per Epoch    : 125
 - Batch Size              : 16
 - Save And Evaluate Every : 500 iterations
@@ -425,7 +441,7 @@ We Generate A New Model That Will Be Trained From Scratch.            -> start_i
 
 ## Stage 3 — Training Loop
 
-> The examples below are real outputs from a run on CPU of `configuration_synthetic_pairs.yaml` shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the error images and the MLflow tracking on. Its run name is `CMP_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64_MC2`; with batches of 4 pairs, an epoch is 500 iterations.
+> The examples below are real outputs from a run on CPU of `configuration_synthetic_pairs.yaml` shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the error images and the MLflow tracking on. Its run name is `CMP_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2`; with batches of 4 pairs, an epoch is 500 iterations.
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
 **Example: what happens at each iteration of the run**
@@ -460,10 +476,10 @@ mlflow_run_id: None in the checkpoints of iterations 3 and 6 (the MLflow run was
 ### Step 3.4 — `run_test_evaluation()`
 At iterations 6 and 12 (the final checkpoint), see Stage 4.
 
-### Step 3.5 — `get_next_batch()` → `SequencePairDataset.__getitem__()` + `collate_longest_windows()`
-`__getitem__()` reads the window of each member with `read_window_frames()` (Step 3.7 of `sequence_classification_workflow.md`) and concatenates them along the frame axis: the before window, then the after window, each of `sequence_length` frames with its real frames first. `collate_longest_windows(members_per_sample=2)` then cuts both windows of every pair to the number of real frames of the longest member of the batch, so that both members keep the same number of frames and can be split in two halves before the model.
+### Step 3.5 — `get_next_batch()` → `SequencePairDataset.__getitem__()` + `collate_padded_sequences()`
+`__getitem__()` reads all the frames of each member with `read_sequence_frames()` (see `sequence_classification_workflow.md`, Step 3.7), the shorter member getting black padding frames up to the length of the longer one, and concatenates them along the frame axis: the before member, then the after member, each with its real frames first. `collate_padded_sequences(members_per_sample=2)` then pads both members of every pair to the longest member of the batch (black frames, mask `False`), so that both members keep the same number of frames and can be split in two halves before the model.
 
-**Example: the first batch of the run** (the longest member of the batch has 5 frames, so every window is cut from 8 to 5 frames)
+**Example: the first batch of the run** (the longest member of the batch has 5 frames, so every member is padded to 5 frames)
 ```text
 images               [4, 10, 3, 64, 64] torch.uint8      [B, 2 x 5, C, H, W]
 sequence_mask        [4, 10] torch.bool
@@ -492,7 +508,7 @@ images [4, 10, 3, 64, 64] torch.uint8 -> torch.float32      first batch: classif
 ```
 
 ### Step 3.8 — `augment_batch()`
-The augmentation of the sequence classification (`sequence_classification_workflow.md`, Step 3.12): one draw per sample, so both members of a pair get the same crop, flip and colour change. `shuffle_frames()` shuffles each member window on its own (`get_window_length()` gives the frames of one member: `2T / MEMBERS_PER_SAMPLE`).
+The augmentation of the sequence classification (`sequence_classification_workflow.md`, Step 3.12): one draw per sample, so both members of a pair get the same crop, flip and colour change. `shuffle_frames()` shuffles the real frames of each member on its own (`get_member_length()` gives the frames of one member: `2T / MEMBERS_PER_SAMPLE`).
 
 **Example: which pairs of the first batch were changed** (`probability: 0.4`)
 ```text
@@ -517,7 +533,7 @@ classification_loss   0.7293 (scalar)                    <- close to ln 2 = 0.69
 ```
 
 ### Step 3.10 — `encode_members()` → `encode_frames()`
-With masks (training and evaluation), both members have the same number of frames, so they are stacked as one batch of `2B` windows and encoded together by `encode_frames()` (`sequence_classification_workflow.md`, Step 3.14): the batch normalization statistics are computed over the frames of both members, and the padding frames get zero vectors. With the `sequence` normalization and the `"pair"` scope, the before and after members of a pair form one normalization group. Without masks (deployment, every frame real), each member is encoded on its own, so the two members may have different numbers of frames.
+With masks (training and evaluation), both members have the same number of frames, so they are stacked as one batch of `2B` sequences and encoded together by `encode_frames()` (`sequence_classification_workflow.md`, Step 3.14): the batch normalization statistics are computed over the frames of both members, and the padding frames get zero vectors. With the `sequence` normalization and the `"pair"` scope, the before and after members of a pair form one normalization group. Without masks (deployment, every frame real), each member is encoded on its own, so the two members may have different numbers of frames.
 
 **Example: the first batch through the trained model**
 ```text
@@ -529,7 +545,7 @@ zero vectors per member: before [2, 3, 2, 0], after [1, 3, 1, 3]      <- the pad
 Only for `"cross_attention"`: the frames of each member attend to the real frames of the other member (both directions computed from the vectors before any update, with a residual connection and a layer normalization), then the padding frames are set back to zero vectors. With the difference fusion of this run, the vectors are returned unchanged.
 
 ### Step 3.12 — `summarise_members()`
-The shared temporal module summarises the two members as one batch of `2B` windows with their masks, then the result is split back into the before and after vectors.
+The shared temporal module summarises the two members as one batch of `2B` sequences with their masks, then the result is split back into the before and after vectors.
 
 **Example: the first batch** (masked mean of the real frames of every member)
 ```text
@@ -756,7 +772,7 @@ The same script for every task (see `classification_workflow.md`, Stage 5): set 
 ### Step 5.2 — trainer construction
 **Example: the split line of the launch information**
 ```text
-- Test Data Folder        : file:///.../test_reduced (40 pairs, 339 frames, 40 kept pairs of at most 2 x 8 frames)
+- Test Data Folder        : file:///.../test_reduced (40 pairs, 339 frames, 40 pairs of members of at most 50 frames)
 ```
 
 ### Step 5.3 — `get_checkpoint_iterations()`

@@ -1,7 +1,8 @@
 """
 Tests of SequencePairDataset of vision_training/data/sequence/sequence_pair_dataset.py for the sequence comparison task:
-the member frame indices, pairs read as the before then the after member, short or empty members left out, the pair
-counts, pair batches split into their members, and pair batches cut to their longest member by collate_longest_windows.
+pairs read as the before then the after member padded to the longer member, pairs with a member longer than the
+maximum sequence length or empty left out, the pair counts, pair batches split into their members, and pair batches
+padded to their longest member by collate_padded_sequences.
 """
 
 import json
@@ -15,9 +16,8 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 from typing import Any, Dict, List
 
-from vision_training.data.sequence.sequence_dataset import collate_longest_windows
-from vision_training.data.sequence.sequence_pair_dataset import (PAIR_MEMBERS, SequencePairDataset,
-                                                                 compute_member_frame_indices, split_pair_members)
+from vision_training.data.sequence.sequence_dataset import collate_padded_sequences
+from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset, split_pair_members
 from vision_training.data.split_description import count_split_pairs
 
 # Pixel value of the first frame of every member, the frame of index i holding the value plus i, so that the tests
@@ -58,32 +58,12 @@ def write_pair_split(split_folder: Path, pairs: List[Dict[str, Any]]) -> None:
     (split_folder / "labels.json").write_text(data=json.dumps(obj={"categories": categories, "pairs": manifest_pairs}))
 
 
-@pytest.mark.parametrize(argnames=("number_frames", "sequence_length", "short_sequences", "expected_indices"),
-                         argvalues=[(3, 4, "pad", [0, 1, 2]), (3, 4, "skip", []), (0, 4, "pad", []),
-                                    (4, 4, "skip", [0, 1, 2, 3]), (10, 4, "pad", [1, 3, 6, 8]),
-                                    (8, 4, "pad", [1, 3, 5, 7]), (6, 4, "pad", [0, 2, 3, 5]), (5, 1, "pad", [2])])
-def test_member_frame_indices(number_frames: int, sequence_length: int, short_sequences: str,
-                              expected_indices: List[int]) -> None:
-    """
-    Verifies the frames chosen for a member window: every frame of a member that fits, the middle frame of each of the
-    equal parts of a longer member, and none for an empty member or for a short member when short members are skipped.
-
-    Args:
-        number_frames (int): The number of frames of the member.
-        sequence_length (int): The maximum number of frames of a member window.
-        short_sequences (str): "pad" or "skip".
-        expected_indices (List[int]): The expected indices of the kept frames.
-    """
-    assert compute_member_frame_indices(number_frames=number_frames, sequence_length=sequence_length,
-                                        short_sequences=short_sequences) == expected_indices
-
-
 def test_pairs_are_read_as_before_then_after_members(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies the samples of the sequence pair dataset: the before window followed by the after window along the frame
-    axis, a longer member reduced to evenly spaced frames, a shorter one padded with black frames marked by the
-    sequence mask, the class of the pair, distinct identifiers naming the pairs, the class names, counts and the class
-    of every pair, and the pairs of unmapped categories left out with a warning.
+    Verifies the samples of the sequence pair dataset: the whole before member followed by the whole after member
+    along the frame axis, the shorter member padded with black frames to the longer one and marked by the sequence
+    mask, the class of the pair, distinct identifiers naming the pairs, the class names, counts and the class of every
+    pair, and the pairs of unmapped categories left out with a warning.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -93,88 +73,91 @@ def test_pairs_are_read_as_before_then_after_members(tmp_path: Path, capsys: pyt
         {"id": 1, "name": "pair_a", "category_id": 1, "before_frames": 6, "after_frames": 2},
         {"id": 2, "name": "pair_b", "category_id": 2, "before_frames": 4, "after_frames": 4},
         {"id": 3, "name": "pair_c", "category_id": 3, "before_frames": 2, "after_frames": 2}])
-    sequence_settings = {"sequence_length": 4, "short_sequences": "pad"}
     dataset = SequencePairDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                                   image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1},
-                                  sequence_settings=sequence_settings, shuffle=False)
+                                  sequence_settings={"maximum_sequence_length": 6}, split_name="Training",
+                                  shuffle=False)
 
     assert len(dataset) == 2
-    assert "1 pairs of unmapped categories" in capsys.readouterr().out
+    assert "1 pairs of unmapped categories or with an empty member left out" in capsys.readouterr().out
     assert dataset.class_names == {0: "loss_of_object", 1: "same_number_of_objects"}
     assert dataset.get_class_counts() == [1, 1]
     assert dataset.get_sample_class_indices() == {0: [0], 1: [1]}
 
-    # The before member keeps the middle frames of 4 equal parts (frames 0, 2, 3 and 5), the after member is padded
+    # Both members hold 6 frames, the after member being padded with 4 black frames
     first_sample = dataset[0]
-    assert first_sample["images"].shape == (8, 3, 16, 16) and first_sample["images"].dtype == torch.uint8
-    assert first_sample["images"][:, 0, 0, 0].tolist() == [1, 3, 4, 6, 101, 102, 0, 0]
-    assert first_sample["sequence_mask"].tolist() == [True] * 6 + [False] * 2
+    assert first_sample["images"].shape == (12, 3, 16, 16) and first_sample["images"].dtype == torch.uint8
+    assert first_sample["images"][:, 0, 0, 0].tolist() == [1, 2, 3, 4, 5, 6, 101, 102, 0, 0, 0, 0]
+    assert first_sample["sequence_mask"].tolist() == [True] * 8 + [False] * 4
     assert first_sample["labels"].dtype == torch.int64 and int(first_sample["labels"]) == 0
+    assert dataset[1]["images"].shape == (8, 3, 16, 16)
     assert [dataset[pair_index]["sample_identifiers"] for pair_index in range(2)] == [0, 1]
     assert dataset.describe_sample(sample_identifier=1) == {"pair": "pair_b"}
 
 
-def test_pairs_with_a_short_or_empty_member_are_left_out(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_pairs_with_a_long_or_empty_member_are_left_out(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies that a pair is left out when one of its members is shorter than the window and short members are skipped,
-    and always when one of its members is empty, a member window needing at least one real frame.
+    Verifies that a pair is left out with a red warning of its own and a total when one of its members is longer than
+    the maximum sequence length, and with the yellow warning when one of its members is empty, a member needing at
+    least one real frame.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the printed warnings.
     """
     write_pair_split(split_folder=tmp_path, pairs=[
-        {"id": 1, "name": "short", "category_id": 1, "before_frames": 4, "after_frames": 2},
+        {"id": 1, "name": "long", "category_id": 1, "before_frames": 2, "after_frames": 5},
         {"id": 2, "name": "empty", "category_id": 2, "before_frames": 0, "after_frames": 3},
-        {"id": 3, "name": "full", "category_id": 2, "before_frames": 5, "after_frames": 4}])
+        {"id": 3, "name": "full", "category_id": 2, "before_frames": 4, "after_frames": 4}])
+    dataset = SequencePairDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
+                                  image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1},
+                                  sequence_settings={"maximum_sequence_length": 4}, split_name="Validation",
+                                  shuffle=False)
 
-    # Short members skipped, then padded
-    datasets = {short_sequences: SequencePairDataset(
-        data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"), image_size=16,
-        keep_ratio=False, label_dictionary={1: 0, 2: 1},
-        sequence_settings={"sequence_length": 4, "short_sequences": short_sequences}, shuffle=False)
-        for short_sequences in ["skip", "pad"]}
-
-    assert len(datasets["skip"]) == 1 and len(datasets["pad"]) == 2
+    assert len(dataset) == 1 and dataset.get_sample_name(sample_identifier=0) == "full"
     printed_output = capsys.readouterr().out
-    assert ("2 pairs of unmapped categories, with an empty member or with a member shorter than 4 frames" in
-            printed_output)
-    assert "1 pairs of unmapped categories, with an empty member" in printed_output
+    assert ("Pair 'long' Of The Validation Split Has A Member Of 5 Frames, More Than The Maximum Sequence Length (4): "
+            "It Is Left Out Of The Validation." in printed_output)
+    assert ("1 Pairs Of The Validation Split Have A Member Longer Than The Maximum Sequence Length (4) And Are Left "
+            "Out Of The Validation." in printed_output)
+    assert "1 pairs of unmapped categories or with an empty member left out" in printed_output
 
 
 def test_split_description_counts_pairs(tmp_path: Path) -> None:
     """
     Verifies the split description of the comparison task: the pairs of the manifest, the frames of both members, and
-    the pairs kept as the dataset keeps them.
+    the pairs kept as the dataset keeps them, without an empty member nor a member longer than the maximum sequence
+    length.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
     write_pair_split(split_folder=tmp_path, pairs=[
-        {"id": 1, "name": "short", "category_id": 1, "before_frames": 4, "after_frames": 2},
+        {"id": 1, "name": "long", "category_id": 1, "before_frames": 2, "after_frames": 5},
         {"id": 2, "name": "empty", "category_id": 2, "before_frames": 0, "after_frames": 3},
-        {"id": 3, "name": "full", "category_id": 2, "before_frames": 5, "after_frames": 4}])
+        {"id": 3, "name": "full", "category_id": 2, "before_frames": 4, "after_frames": 4}])
 
-    for short_sequences, expected_kept_pairs in [("skip", 1), ("pad", 2)]:
+    for maximum_sequence_length, expected_kept_pairs in [(4, 1), (5, 2)]:
         assert count_split_pairs(split_data_folder=tmp_path, sequence_settings={
-            "sequence_length": 4, "short_sequences": short_sequences}) == (3, 18, expected_kept_pairs)
+            "maximum_sequence_length": maximum_sequence_length}) == (3, 18, expected_kept_pairs)
 
 
 def test_pair_batches_split_into_members(tmp_path: Path) -> None:
     """
-    Verifies that the default collate stacks the pairs into [B, 2T] batches, which split back into the before and
-    after members given to the comparison model, and that a batch whose frame axis cannot hold two members of the
-    same number of frames is refused.
+    Verifies that pairs of the same member length stack into [B, 2T] batches with the default collate, which split
+    back into the before and after members given to the comparison model, and that a batch whose frame axis cannot
+    hold two members of the same number of frames is refused.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
     write_pair_split(split_folder=tmp_path, pairs=[
-        {"id": 1, "name": "pair_a", "category_id": 1, "before_frames": 3, "after_frames": 2},
-        {"id": 2, "name": "pair_b", "category_id": 2, "before_frames": 4, "after_frames": 1}])
+        {"id": 1, "name": "pair_a", "category_id": 1, "before_frames": 4, "after_frames": 2},
+        {"id": 2, "name": "pair_b", "category_id": 2, "before_frames": 1, "after_frames": 4}])
     dataset = SequencePairDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                                   image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1},
-                                  sequence_settings={"sequence_length": 4, "short_sequences": "pad"}, shuffle=False)
+                                  sequence_settings={"maximum_sequence_length": 4}, split_name="Training",
+                                  shuffle=False)
     batch = next(iter(DataLoader(dataset=dataset, batch_size=2, shuffle=False)))
 
     before_images, after_images = split_pair_members(pair_tensor=batch["images"])
@@ -182,42 +165,36 @@ def test_pair_batches_split_into_members(tmp_path: Path) -> None:
 
     assert batch["images"].shape == (2, 8, 3, 16, 16)
     assert before_images.shape == after_images.shape == (2, 4, 3, 16, 16)
-    assert before_mask.tolist() == [[True, True, True, False], [True, True, True, True]]
-    assert after_mask.tolist() == [[True, True, False, False], [True, False, False, False]]
+    assert before_mask.tolist() == [[True, True, True, True], [True, False, False, False]]
+    assert after_mask.tolist() == [[True, True, False, False], [True, True, True, True]]
     assert after_images[:, 0, 0, 0, 0].tolist() == [101, 101]
     with pytest.raises(expected_exception=ValueError, match="got 7 frames per pair"):
         split_pair_members(pair_tensor=batch["images"][:, :7])
 
 
-def test_pair_batches_cut_to_their_longest_member(tmp_path: Path) -> None:
+def test_pair_batches_padded_to_their_longest_member(tmp_path: Path) -> None:
     """
-    Verifies that collate_longest_windows cuts both members of every pair of a batch to the longest member of the
-    batch: members of (3, 2) and (1, 4) real frames padded to 6 frames by the dataset give [B, 2 x 4] batches, whose
-    before and after members are the first 4 frames of the members of the default collate.
+    Verifies that collate_padded_sequences pads both members of every pair of a batch to the longest member of the
+    batch: pairs of (3, 2) and (1, 2) real frames, stored as members of 3 and 2 frames by the dataset, give
+    [B, 2 x 3] batches whose before and after members keep their real frames first.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
     """
     write_pair_split(split_folder=tmp_path, pairs=[
         {"id": 1, "name": "pair_a", "category_id": 1, "before_frames": 3, "after_frames": 2},
-        {"id": 2, "name": "pair_b", "category_id": 2, "before_frames": 1, "after_frames": 4}])
+        {"id": 2, "name": "pair_b", "category_id": 2, "before_frames": 1, "after_frames": 2}])
     dataset = SequencePairDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                                   image_size=16, keep_ratio=False, label_dictionary={1: 0, 2: 1},
-                                  sequence_settings={"sequence_length": 6, "short_sequences": "pad"}, shuffle=False)
+                                  sequence_settings={"maximum_sequence_length": 6}, split_name="Training",
+                                  shuffle=False)
+    batch = next(iter(DataLoader(dataset=dataset, batch_size=2, shuffle=False,
+                                 collate_fn=partial(collate_padded_sequences, members_per_sample=len(PAIR_MEMBERS)))))
 
-    # The same pairs batched by the default collate and by the collate of the longest member
-    padded_batch = next(iter(DataLoader(dataset=dataset, batch_size=2, shuffle=False)))
-    cut_batch = next(iter(DataLoader(dataset=dataset, batch_size=2, shuffle=False,
-                                     collate_fn=partial(collate_longest_windows,
-                                                        members_per_sample=len(PAIR_MEMBERS)))))
-
-    assert padded_batch["images"].shape == (2, 12, 3, 16, 16)
-    assert cut_batch["images"].shape == (2, 8, 3, 16, 16)
-    for key in ["images", "sequence_mask"]:
-        padded_members = split_pair_members(pair_tensor=padded_batch[key])
-        cut_members = split_pair_members(pair_tensor=cut_batch[key])
-        for padded_member, cut_member in zip(padded_members, cut_members):
-            assert torch.equal(input=cut_member, other=padded_member[:, :4])
-    before_mask, after_mask = split_pair_members(pair_tensor=cut_batch["sequence_mask"])
-    assert before_mask.sum(dim=1).tolist() == [3, 1] and after_mask.sum(dim=1).tolist() == [2, 4]
-    assert torch.equal(input=cut_batch["labels"], other=padded_batch["labels"])
+    assert batch["images"].shape == (2, 6, 3, 16, 16)
+    before_images, after_images = split_pair_members(pair_tensor=batch["images"])
+    before_mask, after_mask = split_pair_members(pair_tensor=batch["sequence_mask"])
+    assert before_mask.sum(dim=1).tolist() == [3, 1] and after_mask.sum(dim=1).tolist() == [2, 2]
+    assert before_images[1, :, 0, 0, 0].tolist() == [1, 0, 0]
+    assert after_images[1, :, 0, 0, 0].tolist() == [101, 102, 0]
+    assert batch["labels"].tolist() == [0, 1]
