@@ -14,10 +14,11 @@ Every launch keeps a moving average of its weights, and the settings are compare
 
 ## Fixed Settings
 
-- `batch_size`: 32 sequences
-- `number_iterations`: 5000 (160,000 sequences, about two thirds of an epoch)
+- `batch_size`: 64 sequences
+- `number_iterations`: 5000 (320,000 sequences, about 1.3 epochs of the 250,000 training sequences)
 - `weight_saving_iterations`: 500, the test evaluation running every 500 iterations from 500 to 5000 (10 tested models)
 - `intermediate_weight_saving_iterations`: 250, 10 more checkpoints saved without a test evaluation
+- `number_workers`: 2 per loader, `prefetch_batches`: 2, the expandable segments of the CUDA allocator turned on by the training launch (two launches side by side stay at about 55 Gigabytes of the 121 of the machine)
 - `information_dump`: 500, `validation_iteration_ratio`: 25
 - `maximum_sequence_length`: 50, every sequence fed whole, the sequences of a batch padded to the longest one
 - Backbone `{"1": [1, 32], "2": [2, 32], "3": [2, 32], "4": [4, 32], "5": [5, 32], "6": [5, 32]}`, residual blocks with squeeze and excite, input normalization

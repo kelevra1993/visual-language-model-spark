@@ -25,7 +25,7 @@ ExperimentConfiguration:
   test_data_folder: "/home/robert_kelevra/Data/sequence_data/synthetic_changing_shapes/test"
   # Number of sequences (of at most Data.sequence_settings.maximum_sequence_length frames, fed whole) processed in a
   # single forward/backward pass. A step runs the backbone on up to batch_size x maximum_sequence_length frames.
-  batch_size: 32
+  batch_size: 64
   # Frequency (in iterations) to log performance metrics.
   information_dump: 500
   # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
@@ -151,7 +151,7 @@ Data:
     # Number of worker processes reading and resizing the images. They stay alive between epochs and evaluations,
     # each decodes with a single OpenCV thread, and the training, validation and test loaders each have their own
     # workers. 8 workers already feed the GPU of the example models; 0 loads in the main process (debugging).
-    number_workers: 8
+    number_workers: 2
     # Number of batches prepared in advance by every worker.
     prefetch_batches: 2
   image_settings:
