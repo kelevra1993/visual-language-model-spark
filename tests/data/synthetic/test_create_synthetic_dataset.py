@@ -1,11 +1,11 @@
 """
 Tests of vision_training/data/synthetic/create_synthetic_dataset.py: the synthetic detection, instance segmentation,
-classification, semantic segmentation, sequence classification, sequence labelling, sequence comparison and frame
-selection datasets are valid, load with the datasets of the framework and follow their labels, the objects hidden by
-later ones being left out of the detection and instance segmentation labels. The shapes stay inside their square, keep
-the geometry that tells their class apart from the neighbouring classes (rhombus and square, parallelogram and
-rectangle, trapezoid and triangle, kite and rhombus, annulus and circle), every hollow shape is its filled shape
-with one hole cut inside it, and the shapes whose class is the label get the minimum size.
+classification, semantic segmentation, sequence classification, sequence labelling, sequence comparison, frame
+selection and self-supervised datasets are valid, load with the datasets of the framework and follow their labels,
+the objects hidden by later ones being left out of the detection and instance segmentation labels. The shapes stay
+inside their square, keep the geometry that tells their class apart from the neighbouring classes (rhombus and square,
+parallelogram and rectangle, trapezoid and triangle, kite and rhombus, annulus and circle), every hollow shape is its
+filled shape with one hole cut inside it, and the shapes whose class is the label get the minimum size.
 """
 
 import json
@@ -23,6 +23,7 @@ from vision_training.data.segmentation.segmentation_dataset import SegmentationD
 from vision_training.data.sequence.sequence_dataset import SequenceDataset
 from vision_training.data.synthetic import create_synthetic_dataset as synthetic_dataset_module
 from vision_training.data.synthetic.create_synthetic_dataset import (CHANGE_CATEGORIES,
+                                                                     COUNTED_SHAPES_MAXIMUM_OBJECTS,
                                                                      HOLLOW_DISTRACTOR_SHAPE_NAMES,
                                                                      HOLLOW_INNER_KEYPOINT_SHAPE_NAMES,
                                                                      HOLLOW_SHAPE_NAMES, KEYPOINT_CATEGORIES,
@@ -38,6 +39,7 @@ from vision_training.data.synthetic.create_synthetic_dataset import (CHANGE_CATE
                                                                      PARALLELOGRAM_SIDE_RATIO_RANGE,
                                                                      RHOMBUS_DIAGONAL_RATIO_RANGE,
                                                                      SELECTION_CATEGORIES, SHAPE_CATEGORIES,
+                                                                     SHAPE_COUNT_CATEGORIES,
                                                                      SHAPE_DRAWING_FUNCTIONS,
                                                                      TRAPEZOID_TOP_RATIO_RANGE,
                                                                      build_kite_vertices,
@@ -47,6 +49,7 @@ from vision_training.data.synthetic.create_synthetic_dataset import (CHANGE_CATE
                                                                      create_synthetic_dataset, draw_annulus_mask,
                                                                      draw_hollow_mask,
                                                                      draw_shapes_frame,
+                                                                     generate_counted_shapes_image,
                                                                      generate_shape_change_sequence,
                                                                      generate_image, get_mask_bounding_box,
                                                                      keep_visible_objects)
@@ -757,6 +760,82 @@ def count_frame_objects(frame: np.ndarray) -> int:
     object_mask = np.any(frame != colours[np.argmax(counts)], axis=-1).astype(np.uint8)
     number_components, _ = cv2.connectedComponents(image=object_mask, connectivity=8)
     return number_components - 1
+
+
+@pytest.mark.parametrize(argnames=("image_size", "expected_size_range"), argvalues=[
+    (512, (MINIMUM_SHAPE_SIZE, 102)), (IMAGE_SIZE, (51, 51))])
+def test_counted_shapes_get_the_sequence_labelling_size(monkeypatch: pytest.MonkeyPatch, image_size: int,
+                                                        expected_size_range: Tuple[int, int]) -> None:
+    """
+    Verifies that the shapes of the self-supervised images get the sizes of the sequence labelling frames, so that the
+    backbone they train sees the shapes of the frames it then initialises on.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture recording the shape descriptors drawn.
+        image_size (int): The side of the images.
+        expected_size_range (Tuple[int, int]): The expected smallest and largest shape sizes.
+    """
+    shape_descriptor_recorder = CallRecorder(function=synthetic_dataset_module.draw_shape_descriptor)
+    monkeypatch.setattr(target=synthetic_dataset_module, name="draw_shape_descriptor", value=shape_descriptor_recorder)
+    _, shape_names = generate_counted_shapes_image(image_size=image_size, maximum_objects=LABELLING_MINIMUM_OBJECTS,
+                                                   random_generator=np.random.default_rng(seed=0))
+
+    assert len(shape_descriptor_recorder.calls) == len(shape_names) == LABELLING_MINIMUM_OBJECTS
+    assert all((call["minimum_size"], call["maximum_size"]) == expected_size_range
+               for call in shape_descriptor_recorder.calls)
+
+
+@pytest.mark.parametrize(argnames="maximum_objects",
+                         argvalues=[LABELLING_MINIMUM_OBJECTS - 1, COUNTED_SHAPES_MAXIMUM_OBJECTS + 1])
+def test_counted_shapes_image_refuses_a_shape_count_outside_its_classes(maximum_objects: int) -> None:
+    """
+    Verifies that a self-supervised image is refused when its number of shapes could fall outside the shape count
+    classes of SHAPE_COUNT_CATEGORIES.
+
+    Args:
+        maximum_objects (int): The maximum number of shapes asked for, one outside the range of the classes.
+    """
+    with pytest.raises(expected_exception=ValueError, match="self-supervised images hold 5 to 10 shapes"):
+        generate_counted_shapes_image(image_size=512, maximum_objects=maximum_objects,
+                                      random_generator=np.random.default_rng(seed=0))
+
+
+def test_created_self_supervised_dataset_counts_its_shapes(tmp_path: Path) -> None:
+    """
+    Verifies the self-supervised mode of the generator: every image shows 5 to maximum_objects separate shapes, its
+    sample is labelled with its number of shapes and lists the category of every shape, the label mapping gives the 6
+    shape counts the classes 0 to 5, and the classification dataset read by the self-supervised trainer loads it.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    create_synthetic_dataset(output_folder=str(tmp_path), image_size=IMAGE_SIZE,
+                             split_sizes={"train": 12, "validation": 2, "test": 2}, maximum_objects=7,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="self_supervised")
+
+    labels = json.loads((tmp_path / "train" / "labels.json").read_text())
+    assert [category["name"] for category in labels["categories"]] == list(SHAPE_COUNT_CATEGORIES)
+    assert [category["name"] for category in labels["shape_categories"]] == list(SHAPE_CATEGORIES)
+    label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())
+    assert label_mapping == {str(class_index + 1): class_index for class_index in range(6)}
+
+    # Number of drawn shapes of every image equal to its label and to its list of shape categories
+    for sample in labels["samples"]:
+        object_count = count_frame_objects(frame=cv2.imread(filename=str(tmp_path / "train" / "data" /
+                                                                         sample["file_name"])))
+        assert LABELLING_MINIMUM_OBJECTS <= object_count <= 7
+        assert sample["category_id"] == SHAPE_COUNT_CATEGORIES[f"{object_count}_shapes"]
+        assert len(sample["shape_category_ids"]) == object_count
+        assert all(category_identifier in SHAPE_CATEGORIES.values()
+                   for category_identifier in sample["shape_category_ids"])
+
+    dataset = ClassificationDataset(data_directory=str(tmp_path / "train" / "data"),
+                                    labels_file=str(tmp_path / "train" / "labels.json"), image_size=IMAGE_SIZE,
+                                    keep_ratio=True, label_dictionary={int(category): class_index for category,
+                                                                       class_index in label_mapping.items()},
+                                    output_mode="multi_class")
+    assert dataset.class_names == dict(enumerate(SHAPE_COUNT_CATEGORIES))
+    assert sum(dataset.get_class_counts()) == 12
 
 
 def test_created_sequence_comparison_dataset_loses_an_object_in_the_after_member(tmp_path: Path) -> None:
