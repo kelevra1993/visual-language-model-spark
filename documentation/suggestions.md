@@ -60,6 +60,9 @@
 - [E. Mask R-CNN on the open audit items](#e-mask-r-cnn-on-the-open-audit-items)
 - [F. Reference: Mask R-CNN compared stage by stage](#f-reference-mask-r-cnn-compared-stage-by-stage)
 - [G. Keypoint detection](#g-keypoint-detection)
+- [H. Classification](#h-classification)
+- [I. Selection of training images by embedding clustering](#i-selection-of-training-images-by-embedding-clustering)
+- [J. Self-supervised counted shapes: tests left to run](#j-self-supervised-counted-shapes-tests-left-to-run)
 - [Suggested Order](#suggested-order)
 - [Repository Audit For Instance Segmentation](#repository-audit-for-instance-segmentation)
   - [Summary By Task](#summary-by-task)
@@ -342,6 +345,126 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
     maximum (DARK) estimates the peak within the cell. It could replace the shift in the eager and in the exported
     model, both sharing `extract_keypoint_candidates`. Cost and risk: small, the published gain being largest for small
     objects.
+
+## H. Classification
+18. **Decorrelation of the hidden features (Barlow Twins redundancy term)**: a loss term added to the cross entropy so
+    that the hidden features of the classification head carry different information. Every feature is standardised
+    over the batch, and the squared off-diagonal terms of the [D, D] correlation matrix of the features are added to the
+    loss with a weight. This is the redundancy reduction term of Barlow Twins (arXiv 2103.03230) without its invariance
+    term, which needs two augmented views of every image: with the single view of the supervised training, it is the
+    DeCov penalty (Cogswell et al., ICLR 2016, arXiv 1511.06068).
+    - **Literature:**
+      - DeCov penalises the off-diagonal covariance of the hidden activations of supervised networks, and reports a
+        smaller gap between the training and validation accuracy, often better than dropout.
+      - OrthoReg (Rodríguez et al., ICLR 2017, arXiv 1611.01967) decorrelates the convolution filters instead of the
+        activations.
+      - VCReg (arXiv 2306.13292) adds the variance and covariance terms of VICReg (arXiv 2105.04906) to the supervised
+        training, the main gain being the transfer to other tasks rather than the accuracy on the training task.
+      - Barlow Twins trained together with the cross entropy from scratch lowered the accuracy of a VQA model
+        (arXiv 2203.03727), the two losses having very different ranges. Training with the cross entropy first, then
+        fine-tuning with both, worked.
+    - **Measured redundancy:** correlation of the features of the large ImageNet run (`configuration_large_model.yaml`,
+      Iteration 115000, EMA weights) on two batches of 256 test images (mean of both batches), each layer compared with
+      independent Gaussian features of the same size, measured on 2026-10-18 with a temporary script:
+
+      | Features | Units | Mean \|r\| | % pairs \|r\| > 0.3 | Largest \|r\| | Effective rank | Directions for 90 % of the variance |
+      |---|---|---|---|---|---|---|
+      | Backbone channels (spatial mean) | 128 | 0.098 | 2.1 | 0.53 | 43 (Gaussian 85) | 59 (Gaussian 86) |
+      | Hidden layer 1, before its ReLU | 512 | 0.113 | 3.1 | 0.60 | 46 (Gaussian 171) | 61 (Gaussian 170) |
+      | Hidden layer 1, after its ReLU | 512 | 0.082 | 0.5 | 0.58 | 80 (Gaussian 171) | 124 (Gaussian 170) |
+      | Hidden layer 2, before its ReLU | 256 | 0.120 | 4.3 | 0.83 | 38 (Gaussian 128) | 44 (Gaussian 131) |
+      | Hidden layer 2, after its ReLU | 256 | 0.100 | 1.6 | 0.66 | 51 (Gaussian 128) | 75 (Gaussian 131) |
+
+      The independent features give a mean |r| of 0.050 (the sampling noise at N = 256) and no pair above 0.3. The
+      pairwise correlations are low, but the effective rank is too: 90 % of the variance of the 256 units of the second
+      hidden layer lie in 44 directions before its ReLU, against 131 for independent features. The redundancy comes from
+      many small correlations, which the off-diagonal sum penalises all together. One unit of the second hidden layer
+      never fires on these batches.
+    - **Implementation:** `compute_barlow_twins_loss` (`vision_training/losses/self_supervised_losses.py`) already
+      standardises the features in float32 and builds their cross-correlation. Given the same features as both views,
+      its diagonal is 1 (up to the epsilon) and its invariance term vanishes, so its off-diagonal term is the
+      decorrelation loss without a second function. `ImageClassifier.forward` would keep the features of the chosen
+      hidden layer and add a `decorrelation_loss` next to `classification_loss` when the labels are given, summed into
+      the total loss by `run_model_iteration` like every output ending in `_loss`, with its display name in the
+      `get_tracked_metrics` of the classification trainer and a `ClassificationHead.decorrelation` section (activated,
+      weight, hidden layer) with its check. The second hidden layer before its ReLU, where the redundancy is highest,
+      is the first candidate.
+    - **Batch size:** the correlation matrix of N images has a rank of at most N − 1, so the term cannot reach 0 with
+      more features than images: at the batch size of 256, the 512 units of the first hidden layer keep a floor, while
+      the 256 units of the second fit. The sampling noise alone also gives a sum of the squared off-diagonal terms of
+      about D(D − 1) / (N − 1), 256 for D = N = 256, below which the term only fits noise.
+    - **Experiment:** the classic model with and without the term, for the same number of iterations, compared on the
+      test top-1 and on the statistics above, with a weight giving the term about a tenth of the cross entropy at the
+      start, turned on after a warm-up of the cross entropy as in the VQA result.
+
+    Cost and risk: small to medium. The large run underfits (iterations 110000 to 115000: training accuracy 0.599 with
+    the augmentation and the dropout, validation accuracy 0.613), and the papers report regularisation-sized gains, so
+    the term may lower the top-1 as well as raise it. Decorrelated features also stay dependent in non-linear ways.
+
+## I. Selection of training images by embedding clustering
+The items below follow the first runs of `scripts/embedding/cluster_image_embeddings.py` on 2026-10-19: the ficha
+empty bins run at 512 pixels (`ficha-experiments-empty-bins`, iteration 200) embedding the 43,577 images of its
+training split (11,772 `empty_bin`, 31,805 `not_empty`, 61 videos and 874 single photos), with blocks 5 and 6 on a
+4 x 4 grid and the two hidden layers, clustered with HDBSCAN (`min_cluster_size` 10, `min_samples` 5, `eom`) on
+normalised vectors. The clusters follow the videos (every `not_empty` cluster holds a single video), and the outputs
+are in `ficha-experiments-empty-bins/embeddings/`.
+
+19. **Judging the subsets by training the smaller model**: every clustering writes three subsets of the same number of
+    images per category: the cluster representatives with the noise (`subset/`), images drawn at random
+    (`subset_random/`) and images evenly spaced in every video (`subset_evenly_spaced_per_group/`).
+    - **Sizes without PCA:** 3,615 images for block 5 (8.3 % of the split), 4,089 for block 6, 5,530 for the first
+      hidden layer and 6,579 for the second, the noise images being 49 % (block 5) to 78 % (second hidden layer) of the
+      cluster subset. The cluster subset of block 5 holds 1.5 % of training images misclassified by the run, against
+      0.7 % for the random subset and 1.4 % for the evenly spaced one.
+    - **Experiment:** the smaller model trained on the three subsets of one clustering with the same settings and
+      number of iterations, evaluated on the whole validation split (balanced accuracy, recall of every class), with a
+      few seeds, the subsets being small.
+    - **Comparing the layers:** the cluster subsets of the layers have different sizes, so they are compared at the
+      same size (fewer representatives per cluster, or a number of noise images drawn), or by the accuracy against the
+      subset size.
+    - Cost and risk: one training per subset; the result may depend on the clustering settings as much as on the layer.
+20. **The same selection on the compactor dataset**: the compactor run at 512 pixels (iteration 800,
+    `ficha-experiments-compactor-to-front`), whose errors gather in a few videos, embedded and clustered the same way,
+    then judged as in item 19.
+21. **Representatives of the large clusters**: the largest `not_empty` cluster of block 5 is the whole video
+    `video_t0180_2026-09-30_08-50-49` (2,666 frames). Its frames closest to the centre show the same full bin, while
+    its farthest frame shows a bin being tipped in, which the 5 representatives closest to the centre miss.
+    - **Options:** `cluster_selection_method: "leaf"` (smaller clusters, the moments of a video in clusters of their
+      own), representatives spread over the ranks of a cluster (the closest one, then images evenly spaced in distance
+      up to the farthest), or a number of representatives growing with the size of the cluster (e.g. its square root).
+    - Cost and risk: small for the script; each option is judged by the trainings of item 19.
+22. **Mosaics of the spread of a cluster**: the mosaic shows the images closest to the centre, which all look alike in
+    a large cluster. A second mosaic of images taken at evenly spaced ranks, from the closest to the farthest, would
+    show what a cluster gathers. Cost and risk: small.
+23. **Corrupted frames**: the noise of a trial on 3,000 training images showed frames with decoding artefacts (grey
+    images, green and cyan areas). They land in the noise, so in the cluster subset with `noise_selection = "all"`,
+    and in the training split. Reviewing the noise folders lists them, to remove them from the `labels.json` of the
+    dataset with a data script rather than with a filter in the framework, which stays independent of the datasets.
+    Cost and risk: small, a manual review of the noise mosaics and folders.
+
+## J. Self-supervised counted shapes: tests left to run
+The synthetic counted shapes dataset (`/home/robert_kelevra/Data/self_supervised_data/synthetic_counted_shapes`,
+500,000 training, 10,000 validation and 10,000 test images of 5 to 10 shapes at 512 pixels, drawn like the sequence
+labelling frames) and its two configurations (`self_supervised/configuration_counted_shapes_simclr.yaml` and
+`configuration_counted_shapes_barlow_twins.yaml`, the backbone and flattened feature map of
+`sequence_labelling/run-9.yaml`) are ready, but no run has been trained on them yet. The goal is to see whether the
+self-supervised backbone learns not only how many shapes an image holds but also which ones.
+
+24. **The two self-supervised trainings**: SimCLR and Barlow Twins trained until the k-NN accuracy of the shape count
+    (6 classes, `5_shapes` to `10_shapes`) stops rising, the input viewer checking the two views first.
+    - **Watch:** `Embedding Standard Deviation` staying away from 0 (no collapse), and the positive pair accuracy of
+      SimCLR not reaching 1 long before the k-NN accuracy rises, which would show a cue shared by the two views.
+25. **Probe of which shapes an image holds**: the k-NN evaluation only reads the shape count, the label of every
+    sample. The categories of its shapes are in `shape_category_ids` of `labels.json`, for a probe trained on the
+    frozen representation: a multi-label linear classifier of the 35 shape classes, its macro F1 against the same probe
+    on a backbone with random weights and on a supervised backbone.
+26. **Initialisation of sequence labelling**: the self-supervised backbone given to the sequence labelling runs of the
+    shape change experiment (`Backbone.pretrained`, the same architecture as `run-9.yaml`), against the same runs from
+    random weights, compared on the test Macro F1 of the averaged weights at the same number of iterations.
+27. **Strength of the views**: the crop keeps at least 80 % of the image area (`random_resized_crop.scale` [0.8, 1.0])
+    so that both views keep most of the shapes and mostly the same count, with flips and rotations of up to 180
+    degrees. A smaller crop scale (e.g. [0.5, 1.0]) makes the task harder but can change the number of shapes between
+    the two views; to compare on the probes of items 25 and 26 rather than on the k-NN accuracy of the count.
 
 ## Suggested Order
 1. **The loss weights (item 6)**, a small change, in the same experiment as audit L5.
