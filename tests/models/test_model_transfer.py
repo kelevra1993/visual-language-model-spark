@@ -19,7 +19,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from vision_training.data.data_record import CLASS_NAMES_RECORD_KEY, DATA_RECORD_FILE_NAME
+from vision_training.data.data_record import CLASS_NAMES_RECORD_KEY, CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME
 from vision_training.models.classification.image_classifier import ImageClassifier
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
@@ -28,7 +28,7 @@ from vision_training.models.model_transfer import (NORMALIZATION_LAYER_TYPES, TR
                                                    disable_pretrained_settings,
                                                    freeze_batch_normalization_statistics, freeze_component,
                                                    freeze_normalization_parameters, load_pretrained_component,
-                                                   load_segmentation_class_layers)
+                                                   load_segmentation_class_layers, read_source_class_names)
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.checkpointing import save_checkpoint
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY, NUMBER_UPDATES_KEY
@@ -97,9 +97,11 @@ def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: tor
                     optimizer=torch.optim.Adam(params=model.parameters()), metadata={"task": "classification"},
                     exponential_moving_average_state=exponential_moving_average_state)
 
-    # Class names of the data record written by BaseTrainer.save_data_record
+    # Classes of the data record written by BaseTrainer.save_data_record
     if class_names is not None:
-        (run_folder / DATA_RECORD_FILE_NAME).write_text(data=json.dumps(obj={CLASS_NAMES_RECORD_KEY: class_names}))
+        class_records = [{"class_index": class_index, "class_name": class_name, "category_ids": [class_index]}
+                         for class_index, class_name in enumerate(class_names)]
+        (run_folder / DATA_RECORD_FILE_NAME).write_text(data=json.dumps(obj={CLASSES_RECORD_KEY: class_records}))
 
 
 def point_to_source_run(configuration: Dict[str, Any], section_name: str, source_folder: Path) -> Dict[str, Any]:
@@ -1595,3 +1597,26 @@ def test_mask_heads_and_class_layers_transfers_are_disabled() -> None:
     assert instance_configuration["MaskHead"]["pretrained"] == NO_TRANSFER
     assert segmentation_configuration["SegmentationDecoder"]["pretrained"] == {**NO_TRANSFER,
                                                                                "load_class_layers": False}
+
+
+@pytest.mark.parametrize(argnames=["data_record", "expected_class_names"], argvalues=[
+    ({CLASSES_RECORD_KEY: [{"class_index": 0, "class_name": "cat", "category_ids": [1], "images": {"train": 3}},
+                           {"class_index": 1, "class_name": "dog", "category_ids": [2], "images": {"train": 5}}]},
+     ["cat", "dog"]),
+    ({CLASSES_RECORD_KEY: None}, None),
+    ({CLASS_NAMES_RECORD_KEY: ["cat", "dog"]}, ["cat", "dog"]),
+    ({"splits": {}}, None)])
+def test_source_class_names_of_every_record_format(tmp_path: Path, data_record: Dict[str, Any],
+                                                   expected_class_names: Optional[List[str]]) -> None:
+    """
+    Verifies that the class names of a source run are read from the counted classes of its data record, from the
+    class names of the records written before the classes were counted, and are None for a task without classes or a
+    record written before the class names.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        data_record (Dict[str, Any]): The 'data.json' of the source run.
+        expected_class_names (Optional[List[str]]): The class names read from it.
+    """
+    (tmp_path / DATA_RECORD_FILE_NAME).write_text(data=json.dumps(obj=data_record))
+    assert read_source_class_names(source_folder=tmp_path) == expected_class_names

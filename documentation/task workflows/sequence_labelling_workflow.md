@@ -49,7 +49,7 @@ main()
 │       │           One sample per whole sequence, each frame keeping the class of its category
 │       │           ('frame_category_ids'), -100 for an unmapped category; a sequence longer than
 │       │           maximum_sequence_length is left out with a warning.
-│       ├── save_data_record()                       data.json: class names, data folder, labels SHA-256, images
+│       ├── save_data_record()                       data.json: classes, data folder, labels SHA-256, images
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       The classes of the labelled frames of every test sequence: a sequence counts for its most frequent
 │       │       class.
@@ -237,7 +237,7 @@ M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71/
 ```
 
 ### Step 2.7 — `build_dataloaders()` → `get_sequence_dataloaders(label_type="frame")` + `save_data_record()`
-Every sequence is one sample, so a split gives as many samples as it has sequences (minus those longer than `maximum_sequence_length`, Step 2.8). Right after the loaders, `save_data_record()` writes `data.json` next to the configuration: the class names and, for every split, its data folder, the SHA-256 of its `labels.json` and its images, so that the data a model was trained on stays known. `analyse_training_data()` gives no file for this task.
+Every sequence is one sample, so a split gives as many samples as it has sequences (minus those longer than `maximum_sequence_length`, Step 2.8). Right after the loaders, `save_data_record()` writes `data.json` next to the configuration: the classes with their frames in every split and, for every split, its data folder, the SHA-256 of its `labels.json` and its images, so that the data a model was trained on stays known. `analyse_training_data()` gives no file for this task.
 
 **Example output**
 ```text

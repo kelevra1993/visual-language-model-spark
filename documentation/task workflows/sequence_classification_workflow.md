@@ -259,7 +259,7 @@ activated True   probability 0.4   independent_frames False   shuffle_frames {'a
 ```
 
 ### Step 2.6 — `setup_training_paths()`
-Besides the copy of the configuration, the run folder holds `data.json`, the record of the data of the run (the class names, and for every split its folder, the hash of its `labels.json` and its frames).
+Besides the copy of the configuration, the run folder holds `data.json`, the record of the data of the run (the classes with their sequences in every split, and for every split its folder, the hash of its `labels.json` and its frames).
 
 **Example: the run folder after this step**
 ```text

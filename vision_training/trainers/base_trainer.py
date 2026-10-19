@@ -30,8 +30,9 @@ from vision_training.configuration_processing.configuration_loader import load_c
 from vision_training.configuration_processing.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
-from vision_training.data.data_record import (CLASS_NAMES_RECORD_KEY, DATA_RECORD_FILE_NAME, DATA_RECORD_SPLITS,
-                                              DataRecordChanges, build_split_record, find_changed_splits)
+from vision_training.data.data_record import (CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME, DATA_RECORD_SPLITS,
+                                              DataRecordChanges, build_class_records, build_split_record,
+                                              find_changed_splits)
 from vision_training.evaluation.evaluation_report import report_evaluation_results
 from vision_training.evaluation.report_formatting import HEADER_SEPARATOR
 from vision_training.evaluation.sample_selection import choose_sample_identifiers
@@ -761,14 +762,14 @@ class BaseTrainer(ABC):
 
     def save_data_record(self, data_record_path: Path) -> Optional[DataRecordChanges]:
         """
-        Writes the record of the data of the run ('data.json') next to its configuration file: the class names of the
-        run (list_class_names, null for a task without them), then the data folder, the SHA-256 of the 'labels.json'
-        and the images of every split (record_split), so that the classes and the images a model was trained and
-        evaluated on stay known when the data folders change. A resumed run compares the data it is
-        launched with against the record saved by its previous start: an unchanged record is kept with its date, and a
-        changed one is kept as 'data_until_iteration_<n>.json', the data that trained the run up to the checkpoint of
-        iteration n it resumes from, before the new record replaces it. As for the configurations, a file of that name
-        is never replaced.
+        Writes the record of the data of the run ('data.json') next to its configuration file: the classes of the run
+        with their names (list_class_names), categories and counts in every split (build_class_records, null for a task
+        without class names), then the data folder, the SHA-256 of the 'labels.json' and the images of every split
+        (record_split), so that the classes and the images a model was trained and evaluated on stay known when the
+        data folders change. A resumed run compares the data it is launched with against the record saved by its
+        previous start: an unchanged record is kept with its date, and a changed one is kept as
+        'data_until_iteration_<n>.json', the data that trained the run up to the checkpoint of iteration n it resumes
+        from, before the new record replaces it. As for the configurations, a file of that name is never replaced.
 
         Args:
             data_record_path (Path): The record of the data in the run folder.
@@ -777,11 +778,17 @@ class BaseTrainer(ABC):
             Optional[DataRecordChanges]: The changed splits with the resumed iteration and the archived file, None for
                 a run that does not resume from a checkpoint or has no saved record.
         """
-        current_record = {"created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                          CLASS_NAMES_RECORD_KEY: self.list_class_names(),
-                          "splits": {split_name: self.record_split(
-                              split_data_folder=self.experiment_configuration[split_key])
-                              for split_name, split_key in DATA_RECORD_SPLITS.items()}}
+        split_data_folders = {split_name: self.experiment_configuration[split_key]
+                              for split_name, split_key in DATA_RECORD_SPLITS.items()}
+
+        # Classes of the run counted in the manifests of every split, null for a task without class names
+        class_names = self.list_class_names()
+        class_records = None if class_names is None else build_class_records(
+            class_names=class_names, label_dictionary=self.label_dictionary,
+            label_mode=self.data_configuration["label_mapping"]["mode"], split_data_folders=split_data_folders)
+        current_record = {"created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), CLASSES_RECORD_KEY: class_records,
+                          "splits": {split_name: self.record_split(split_data_folder=split_data_folder)
+                                     for split_name, split_data_folder in split_data_folders.items()}}
 
         # A resumed run compares its data with the record of its previous start, an unchanged record being kept
         data_record_changes = None

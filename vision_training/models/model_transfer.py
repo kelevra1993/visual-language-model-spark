@@ -17,7 +17,7 @@ from torch import nn
 from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.configuration_processing.configuration_loader import load_configuration
-from vision_training.data.data_record import CLASS_NAMES_RECORD_KEY, DATA_RECORD_FILE_NAME
+from vision_training.data.data_record import CLASS_NAMES_RECORD_KEY, CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME
 from vision_training.trainers.checkpointing import EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, get_checkpoint_path
 from vision_training.trainers.weight_averaging import AVERAGED_MODEL_STATE_KEY
 from vision_training.utilities.os_utilities import format_path_link, print_color, read_json
@@ -610,7 +610,8 @@ def read_source_class_names(source_folder: Path) -> Optional[List[str]]:
     """
     Reads the class names of a source run, in class index order, from the record of its data ('data.json' of its run
     folder), so that a run adding classes after those of its source run is checked to keep them first and in the same
-    order. The runs written before the class names were recorded have none.
+    order. The names are read from the 'classes' of the record, or from the 'class_names' of the records written
+    before the classes were counted; the runs written before the class names were recorded have none.
 
     Args:
         source_folder (Path): The run folder of the source run.
@@ -623,9 +624,14 @@ def read_source_class_names(source_folder: Path) -> Optional[List[str]]:
     if not data_record_path.is_file():
         return None
     data_record = read_json(path=str(data_record_path))
-    if CLASS_NAMES_RECORD_KEY not in data_record:
-        return None
-    return data_record[CLASS_NAMES_RECORD_KEY]
+
+    # Records with counted classes, then records with the class names only, then records without classes
+    if CLASSES_RECORD_KEY in data_record:
+        return None if data_record[CLASSES_RECORD_KEY] is None else [
+            class_record["class_name"] for class_record in data_record[CLASSES_RECORD_KEY]]
+    if CLASS_NAMES_RECORD_KEY in data_record:
+        return data_record[CLASS_NAMES_RECORD_KEY]
+    return None
 
 
 def find_class_layer(section_name: str, module_name: str) -> Optional[int]:

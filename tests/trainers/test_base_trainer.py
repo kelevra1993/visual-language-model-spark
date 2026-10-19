@@ -294,7 +294,7 @@ def test_run_records_its_data_and_keeps_the_previous_data(tmp_path: Path, capsys
     data_record_path = trainer.experiment_folder / "data.json"
     first_record = json.loads(s=data_record_path.read_text())
     assert trainer.data_record_changes is None
-    assert first_record["class_names"] is None
+    assert first_record["classes"] is None
     assert {split_name: split_record["images"] for split_name, split_record in first_record["splits"].items()} == {
         "train": [f"sample_{index}" for index in range(8)], "validation": [f"sample_{index}" for index in range(4)],
         "test": ["sample_0", "sample_1", "sample_2", "sample_3", "sample_0", "sample_1"]}

@@ -128,7 +128,7 @@ def test_self_supervised_training_saves_evaluates_and_resumes(tmp_path: Path, ca
     assert trainer.run_name.startswith("SSL_") and trainer.run_name.endswith(run_name_suffix)
     assert trainer.class_names == list(SHAPE_CATEGORIES)
     data_record = json.loads(s=(trainer.experiment_folder / "data.json").read_text())
-    assert data_record["class_names"] == list(SHAPE_CATEGORIES)
+    assert [class_record["class_name"] for class_record in data_record["classes"]] == list(SHAPE_CATEGORIES)
     with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
         trainer.run_training_loop()
     results = report_mock.call_args.kwargs["results"]
@@ -319,7 +319,7 @@ def test_dataset_without_labels_is_evaluated_on_its_representations(tmp_path: Pa
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4, head_settings={}))
     assert trainer.class_names == [] and len(trainer.train_dataloader.dataset) == 8
-    assert json.loads(s=(trainer.experiment_folder / "data.json").read_text())["class_names"] is None
+    assert json.loads(s=(trainer.experiment_folder / "data.json").read_text())["classes"] is None
     with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
         trainer.run_training_loop()
     results = report_mock.call_args.kwargs["results"]

@@ -1,7 +1,8 @@
 """
 Tests of vision_training/data/data_record.py, the record of the images of every split written by the base trainer in
-the run folder ('data.json'): the images of the four manifest formats, the record of a split with the SHA-256 of its
-labels file, and the splits found changed between two starts of a run.
+the run folder ('data.json'): the images of the four manifest formats, the classes counted in every manifest format
+with their categories, the record of a split with the SHA-256 of its labels file, and the splits found changed between
+two starts of a run.
 """
 
 import hashlib
@@ -11,7 +12,8 @@ import pytest
 from pathlib import Path
 from typing import Any, Dict, List
 
-from vision_training.data.data_record import build_split_record, find_changed_splits, list_manifest_images
+from vision_training.data.data_record import (build_class_records, build_split_record, count_manifest_classes,
+                                              find_changed_splits, list_manifest_images, map_categories_to_classes)
 
 
 @pytest.mark.parametrize(argnames=["labels", "expected_images"], argvalues=[
@@ -41,6 +43,80 @@ def test_unknown_manifest_format_fails_loudly() -> None:
     """
     with pytest.raises(expected_exception=ValueError, match=r"its keys are \['items'\]"):
         list_manifest_images(labels={"items": []})
+
+
+@pytest.mark.parametrize(argnames=["labels", "expected_counts"], argvalues=[
+    ({"images": [{"id": 1, "file_name": "a.png"}, {"id": 2, "file_name": "b.png"}],
+      "annotations": [{"image_id": 1, "category_id": 1}, {"image_id": 1, "category_id": 1},
+                      {"image_id": 2, "category_id": 2}, {"image_id": 2, "category_id": 9}]},
+     {"images": {0: 1, 1: 1}, "annotations": {0: 2, 1: 1}}),
+    ({"samples": [{"id": 1, "category_id": 1}, {"id": 2, "category_id": 1}, {"id": 3, "category_id": 9}]},
+     {"images": {0: 2}}),
+    ({"samples": [{"id": 1, "category_ids": [1, 2]}, {"id": 2, "category_ids": [2, 3]}, {"id": 3, "category_ids": []}]},
+     {"images": {0: 1, 1: 2}}),
+    ({"samples": [{"id": 1, "file_name": "1.png", "mask_file_name": "1.png"}]}, {}),
+    ({"sequences": [{"category_id": 1, "frames": ["0.png", "1.png"]}, {"category_id": 2, "frames": ["2.png"]}]},
+     {"sequences": {0: 1, 1: 1}}),
+    ({"sequences": [{"frame_category_ids": [1, 1, 9], "frames": ["0.png", "1.png", "2.png"]}]}, {"frames": {0: 2}}),
+    ({"pairs": [{"category_id": 2}, {"category_id": 2}, {"category_id": 1}]}, {"pairs": {0: 1, 1: 2}})])
+def test_classes_counted_in_every_manifest_format(labels: Dict[str, Any], expected_counts: Dict[str, Any]) -> None:
+    """
+    Verifies the counts of the classes in every manifest format, categories 1 and 2 being classes 0 and 1, category 3
+    merged into class 1 and category 9 unmapped: the images holding the class and its annotations for COCO, an image
+    counted once per class for the multi-label samples (categories 2 and 3 giving class 1 once), no count for the
+    segmentation samples whose classes are in the masks, the sequences and the frames of the sequences, and the pairs.
+
+    Args:
+        labels (Dict[str, Any]): The labels file of the split.
+        expected_counts (Dict[str, Any]): The number of units of every class index, by unit.
+    """
+    class_counts = count_manifest_classes(labels=labels, category_classes={1: 0, 2: 1, 3: 1})
+    assert {unit: dict(counts) for unit, counts in class_counts.items()} == expected_counts
+
+
+def test_binary_mode_maps_every_category_to_the_foreground() -> None:
+    """
+    Verifies that every manifest category is the foreground class in binary mode, and that the categories the label
+    dictionary does not map are left out in multi-class mode.
+    """
+    categories = [{"id": 1, "name": "car"}, {"id": 2, "name": "person"}]
+    assert map_categories_to_classes(categories=categories, label_dictionary={"background": 0, "foreground": 1},
+                                     label_mode="binary") == {1: 1, 2: 1}
+    assert map_categories_to_classes(categories=categories, label_dictionary={"background": 0, 2: 1},
+                                     label_mode="multi_class") == {2: 1}
+
+
+def test_class_records_count_every_split(tmp_path: Path) -> None:
+    """
+    Verifies the classes of the record of a detection run: the background first without category, the categories
+    merged into a class, the category named by a split other than the first, and a split without any object counted
+    as zero in every unit.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    split_labels = {
+        "train": {"categories": [{"id": 1, "name": "car"}, {"id": 2, "name": "truck"}],
+                  "images": [{"id": 1, "file_name": "1.png"}, {"id": 2, "file_name": "2.png"}],
+                  "annotations": [{"image_id": 1, "category_id": 1}, {"image_id": 1, "category_id": 2},
+                                  {"image_id": 2, "category_id": 1}]},
+        "validation": {"categories": [{"id": 3, "name": "person"}], "images": [{"id": 1, "file_name": "3.png"}],
+                       "annotations": [{"image_id": 1, "category_id": 3}]},
+        "test": {"categories": [], "images": [], "annotations": []}}
+    for split_name, labels in split_labels.items():
+        (tmp_path / split_name).mkdir()
+        (tmp_path / split_name / "labels.json").write_text(data=json.dumps(obj=labels))
+
+    class_records = build_class_records(
+        class_names=["background", "car+truck", "person"], label_dictionary={"background": 0, 1: 1, 2: 1, 3: 2},
+        label_mode="multi_class", split_data_folders={split_name: tmp_path / split_name for split_name in split_labels})
+    assert class_records == [
+        {"class_index": 0, "class_name": "background", "category_ids": [],
+         "images": {"train": 0, "validation": 0, "test": 0}, "annotations": {"train": 0, "validation": 0, "test": 0}},
+        {"class_index": 1, "class_name": "car+truck", "category_ids": [1, 2],
+         "images": {"train": 2, "validation": 0, "test": 0}, "annotations": {"train": 3, "validation": 0, "test": 0}},
+        {"class_index": 2, "class_name": "person", "category_ids": [3],
+         "images": {"train": 0, "validation": 1, "test": 0}, "annotations": {"train": 0, "validation": 1, "test": 0}}]
 
 
 def test_split_record_identifies_its_labels_file(tmp_path: Path) -> None:

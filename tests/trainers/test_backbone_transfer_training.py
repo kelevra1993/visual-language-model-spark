@@ -502,7 +502,8 @@ def test_averaged_run_of_9_classes_initialises_a_run_of_35_classes(tmp_path: Pat
                                             moving_average=True)
     source_trainer.run_training_loop()
     source_data_record = json.loads(s=(source_trainer.experiment_folder / "data.json").read_text())
-    assert source_data_record["class_names"] == list(SHAPE_CATEGORIES)[:9]
+    assert [class_record["class_name"] for class_record in source_data_record["classes"]] == \
+        list(SHAPE_CATEGORIES)[:9]
     averaged_state = torch.load(f=source_trainer.weights_directory / "Iteration_3" / "model_000003.pt",
                                 map_location="cpu",
                                 weights_only=True)[EXPONENTIAL_MOVING_AVERAGE_STATE_KEY][AVERAGED_MODEL_STATE_KEY]

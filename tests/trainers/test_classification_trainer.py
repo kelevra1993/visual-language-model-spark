@@ -119,10 +119,12 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     expected_class_weights = clamped_class_counts.sum() / (len(SHAPE_CATEGORIES) * clamped_class_counts)
     assert torch.allclose(input=trainer.model.class_weights.cpu(), other=expected_class_weights)
 
-    # Record of the data: the class names in class index order, and the images of every split, in the order of their
-    # labels file
+    # Record of the data: the classes in class index order with their training images counted as the dataset counts
+    # them, and the images of every split, in the order of their labels file
     data_record = json.loads(s=(trainer.experiment_folder / "data.json").read_text())
-    assert data_record["class_names"] == list(SHAPE_CATEGORIES)
+    assert [class_record["class_name"] for class_record in data_record["classes"]] == list(SHAPE_CATEGORIES)
+    assert [class_record["images"]["train"] for class_record in data_record["classes"]] == \
+        trainer.train_dataloader.dataset.get_class_counts()
     for split_name in ["train", "validation", "test"]:
         labels = json.loads(s=(dataset_folder / split_name / "labels.json").read_text())
         assert data_record["splits"][split_name]["images"] == [sample["file_name"] for sample in labels["samples"]]

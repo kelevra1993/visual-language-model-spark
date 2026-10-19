@@ -158,7 +158,7 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 <experiment_folder>/<run name>/
 ├── training_configuration.yaml        # Copy of the configuration of the last start of the run
 ├── training_configuration_until_iteration_<n>.yaml  # Configuration that trained the run up to iteration n, kept by a resume that changed it
-├── data.json                          # Class names, and data folder, SHA-256 of labels.json and images of every split
+├── data.json                          # Classes counted in every split, and data folder, SHA-256 of labels.json and images of every split
 ├── data_until_iteration_<n>.json      # Data that trained the run up to iteration n, kept by a resume whose data changed
 ├── anchor_recall.csv                  # Anchor recall of the training objects (DET, INS), written at every launch
 ├── Weights/
@@ -176,7 +176,27 @@ A run is saved in `<experiment_folder>/<run name>/`, the run name being built fr
 └── mlflow_run.json                    # MLflow run of the training, with the tracking on
 ```
 
-`data.json` records the data of the run: the class names in class index order (`class_names`, the background first for DET, INS and SEG), read by a run adding classes to this one ([Adding Classes](#adding-classes)), and for the train, validation and test splits, the absolute data folder, the SHA-256 of `labels.json` (identifying its images and labels exactly) and the list of its images in manifest order (the `file_name` of the COCO images and of the samples, the frames of the sequences and of both members of the pairs). It is written when the run starts, and sent to the `data` folder of the MLflow run with the tracking on. For ImageNet-1k it takes about 1.5 seconds and 70 MB.
+`data.json` records the data of the run: the classes in class index order (`classes`, the background first for DET, INS and SEG), whose names are read by a run adding classes to this one ([Adding Classes](#adding-classes)), and for the train, validation and test splits, the absolute data folder, the SHA-256 of `labels.json` (identifying its images and labels exactly) and the list of its images in manifest order (the `file_name` of the COCO images and of the samples, the frames of the sequences and of both members of the pairs). It is written when the run starts, and sent to the `data` folder of the MLflow run with the tracking on. For ImageNet-1k it takes about 1.5 seconds and 70 MB.
+
+Every class gives its index, its name, the manifest categories the label mapping maps to it (none for the background) and its count in every split, read from the `labels.json` of the split:
+
+```json
+"classes": [
+  {"class_index": 0, "class_name": "empty_bin", "category_ids": [1], "images": {"train": 11772, "validation": 5060, "test": 5060}},
+  {"class_index": 1, "class_name": "not_empty", "category_ids": [2], "images": {"train": 31805, "validation": 13642, "test": 13642}}
+]
+```
+
+| Task | Counts of a class |
+|---|---|
+| CLS, SSL | `images`: the images of the class; a multi-label image counts once for each of its classes, so the counts can add up to more than the images |
+| DET, INS, KPT | `images`: the images holding at least one object of the class; `annotations`: its objects |
+| SEG | None, the classes being in the masks |
+| M2O | `sequences`: the sequences of the class |
+| M2M, SEL | `frames`: the frames of the class; the frames of an unmapped category, which the frame selection gives to the unselected class, are not counted |
+| CMP | `pairs`: the pairs of the class |
+
+A task without class names (an SSL dataset without categories) writes `"classes": null`. The runs written before the classes were counted hold `class_names` instead, still read when they are a source run.
 
 A checkpoint is saved every `intermediate_weight_saving_iterations` iterations, and a checkpoint evaluated on the whole test split every `weight_saving_iterations` iterations. The files of an evaluation are listed in [Evaluation Outputs](#evaluation-outputs).
 
