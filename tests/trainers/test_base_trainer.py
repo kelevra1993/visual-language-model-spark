@@ -63,7 +63,7 @@ class EvaluationRecorder:
 def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_input_images: bool,
                         number_sample_images: int, configuration_text: str = "dummy: true\n",
                         moving_average_activated: bool = False, number_training_samples: int = 8,
-                        allow_data_change_on_resume: bool = False) -> DummyTrainer:
+                        allow_data_change_on_resume: bool = False, run_name: Optional[str] = None) -> DummyTrainer:
     """
     Builds the trainer of the dummy task in a temporary directory. Its test split has 6 samples but only 4 distinct
     ones, its last batch repeating the first two samples, which must be evaluated only once.
@@ -78,6 +78,8 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
         moving_average_activated (bool): Whether the run keeps a moving average of its weights, at a decay of 0.5.
         number_training_samples (int): The number of samples of the training split. Defaults to 8.
         allow_data_change_on_resume (bool): Whether the run may resume on changed labels. Defaults to False.
+        run_name (Optional[str]): The name of the run folder, as given by a standalone evaluation, None for the name
+            of the dummy trainer. Defaults to None.
 
     Returns:
         DummyTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
@@ -89,6 +91,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
     experiment_configuration["diagnosis_modes"]["view_input_images"] = view_input_images
     experiment_configuration["evaluation"]["number_sample_images"] = number_sample_images
     experiment_configuration["allow_data_change_on_resume"] = allow_data_change_on_resume
+    experiment_configuration["run_name"] = run_name
     model_configuration["Optimization"]["exponential_moving_average"] = {"activated": moving_average_activated,
                                                                          "decay": 0.5}
     datasets = {"train": DummyDataset(sample_identifiers=list(range(number_training_samples)), seed=0),

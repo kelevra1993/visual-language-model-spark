@@ -130,8 +130,11 @@ class BaseTrainer(ABC):
         print(f"For Training We Will Be Using device: {self.device}")
 
         # Every run trains in a folder named after its settings, inside the experiments root folder of the
-        # configuration, so that the same settings resume in the same folder and changed settings start a new one
-        self.run_name = self.get_run_name()
+        # configuration, so that the same settings resume in the same folder and changed settings start a new one. A
+        # standalone evaluation gives the name of the evaluated run folder instead ('run_name')
+        self.run_name = self.experiment_configuration["run_name"]
+        if self.run_name is None:
+            self.run_name = self.get_run_name()
         self.experiment_folder = self.experiment_configuration["experiment_folder"] / self.run_name
 
         # Basic training parameters

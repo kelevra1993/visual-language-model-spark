@@ -390,7 +390,7 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
         Tuple[Dict[str, Any], Dict[str, Any]]: The experiment and model configurations.
     """
     experiment_configuration = {"task": "dummy_task", "experiment_folder": experiment_folder,
-                                "tracking_root": experiment_folder,
+                                "tracking_root": experiment_folder, "run_name": None,
                                 "train_data_folder": Path("train"),
                                 "validation_data_folder": Path("validation"), "test_data_folder": Path("test"),
                                 "batch_size": 2, "information_dump": 2, "weight_saving_iterations": 4,

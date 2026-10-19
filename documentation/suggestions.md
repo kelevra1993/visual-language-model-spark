@@ -373,7 +373,7 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
 
 | Task | Findings |
 |---|---|
-| All tasks (training loop, backbone, data, configuration) | C1, C4, H4, H5, H6, M1, M2, M6, M7, M8, M9, M10, M15, M17, M19, M20, L13–L18 |
+| All tasks (training loop, backbone, data, configuration) | C1, C4, H4, H5, H6, M1, M2, M6, M7, M8, M9, M10, M15, M17, M20, L13–L18 |
 | DET | C3, H1, H2, H3, M3, M4, M12, M13, M14, M16, M21, L1, L2, L5, L6, L7, L8 |
 | INS | Everything DET has, plus M5 (RLE masks), L19, L22 |
 | CLS | C2, L3, L4, L9 |
@@ -765,17 +765,6 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
     scrambled sequences.
 - **Fix:** sort with a natural key (digit runs compared as integers), or refuse unpadded numbered names.
 
-#### M19. `evaluate_checkpoint.py` writes the evaluations of a fine-tuned run into the folder of a scratch run
-- **Where:** `scripts/evaluation/evaluate_checkpoint.py:50`: `disable_pretrained_settings` runs before the trainer
-  builds its run name.
-- **Effect (reproduced):**
-  - The output folder loses its `PT` / `HPT` / `RPT` tokens, so it is the folder of a scratch run of the same
-    architecture.
-  - `Results.txt` is appended to, and `Evaluation/Iteration_<n>/` and `evaluation_summary.csv` are overwritten between
-    the two runs.
-- **Fix:** name the output folder after the evaluated run folder (`output_folder / experiment_folder.name`), or build
-  the run name before disabling the transfers.
-
 #### M20. The periodic checkpoint `Iteration_k` holds k−1 steps while the final one holds k
 - **Where:** `base_trainer.py:1002-1009` saves before the step; `1091` saves after it.
 - **Effect (reproduced: Adam steps 1, 3 and 7 in `Iteration_2`, `_4` and `_8`):**
@@ -1041,7 +1030,7 @@ it; `int(float(...))` silently truncates non-integer counts; unknown or misspell
 4. **Architecture of the shared blocks** *(changes every task, checkpoints of channel-changing residual blocks no
    longer load strictly)*: H4 (projection shortcuts), M1 (SE on the branch), M2 (shortcut before the ReLU). Compare
    them on the synthetic datasets before adopting them.
-5. **Evaluation and deployment:** M15 and M16 (export check), M19 (evaluation folder), L3, L6
+5. **Evaluation and deployment:** M15 and M16 (export check), L3, L6
    and the statements of the last table.
 
 ## Foundation Models Data Downloader

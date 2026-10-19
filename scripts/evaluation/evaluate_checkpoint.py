@@ -14,12 +14,13 @@ from vision_training.models.model_transfer import disable_pretrained_settings
 from vision_training.trainers.checkpointing import get_checkpoint_iterations, get_last_checkpoint_iteration
 
 if __name__ == "__main__":
-    # Run name of the trained experiment whose configuration and checkpoints are evaluated, it is only read
-    run_name = "CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-CWB_MC1000"
-    experiment_folder = Path(__file__).absolute().parents[2] / "experiments" / run_name
+    # Run name of the trained experiment whose configuration and checkpoints are evaluated, it is only read, in the
+    # experiments root folder of its configuration ('experiment_folder')
+    run_name = "CLS_IN-KAR-512_SE-RES-BN-B1x64.2x64.2x64.16x128.20x128.20x128-PT_HFLAT.512.256-HLN-CWB_MC2"
+    experiment_folder = Path(__file__).absolute().parents[2] / "ficha-experiments-compactor-to-front" / run_name
     # Checkpoint iteration to evaluate, None for the last saved one, or "all" for every checkpoint of the registry
     # (the intermediate ones included, the last saved first), compared in 'Evaluation/evaluation_summary.csv'
-    iteration = "all"
+    iteration = 800
     # Labelled split evaluated instead of the test split of the experiment, None to keep the experiment's one
     test_data_folder = None
     # Batch size of the evaluation, which can be larger than the training one since no gradient is kept, None to
@@ -29,9 +30,13 @@ if __name__ == "__main__":
     # experiment and tagged with its training run ('evaluation_of'), True or False, None to keep the experiment's
     # 'tracking.activated'. The MLflow run of the training is never modified
     track_evaluation = None
+    # Largest number of error images saved for every pair of true and predicted classes, the first ones met, in
+    # 'Evaluation/Iteration_<n>/Errors/<TRUE>-TO-<PREDICTED>/', the error images being turned on. A number above the
+    # number of test samples saves every error. None keeps the experiment's 'evaluation.error_dumps' settings
+    maximum_error_images_per_class_pair = 100000
     # Root folder of the evaluations, kept apart from the experiment so that its files are untouched. Like a training
-    # run, Results.txt, Tensorboard/Test and the Evaluation folder are written in a subfolder of it named after the
-    # run settings
+    # run, Results.txt, Tensorboard/Test and the Evaluation folder are written in a subfolder of it with the name of
+    # the evaluated run folder
     output_folder = experiment_folder.parent / "evaluations"
 
     # Point the copied configuration to the output folder and to the evaluated split, its 'tracking_root' keeping the
@@ -40,12 +45,21 @@ if __name__ == "__main__":
     experiment_configuration, model_configuration = load_experiment_configuration(
         configuration_path=configuration_path)
     experiment_configuration["experiment_folder"] = output_folder
+    # The output subfolder keeps the name of the evaluated run folder, which the settings no longer give once the
+    # transfer of pretrained components is turned off below
+    experiment_configuration["run_name"] = experiment_folder.name
     if test_data_folder is not None:
         experiment_configuration["test_data_folder"] = test_data_folder
     if batch_size is not None:
         experiment_configuration["batch_size"] = batch_size
     if track_evaluation is not None:
         experiment_configuration["tracking"]["activated"] = track_evaluation
+    # Error images turned on with their own limit per pair of classes, e.g. to look at every error of a checkpoint, for
+    # the tasks saving their errors as images (an 'evaluation.error_dumps' section)
+    if maximum_error_images_per_class_pair is not None:
+        error_dumps_configuration = experiment_configuration["evaluation"]["error_dumps"]
+        error_dumps_configuration["activated"] = True
+        error_dumps_configuration["maximum_per_class_pair"] = maximum_error_images_per_class_pair
 
     # The weights come from the evaluated checkpoints, so the pretrained components the run started from are not loaded
     disable_pretrained_settings(model_configuration=model_configuration)

@@ -100,6 +100,36 @@ def describe_expected_best(summary_rows: List[Dict[str, str]], column_name: str)
     return f"{iterations_description} (Accuracy {best_value:.4f})"
 
 
+def test_evaluation_folder_keeps_the_name_of_the_evaluated_run(tmp_path: Path) -> None:
+    """
+    Verifies that a standalone evaluation writes into a folder with the name of the evaluated run folder, as
+    scripts/evaluation/evaluate_checkpoint.py gives it, and not with the name built from its settings, which lose the
+    tokens of the transfer of pretrained components once it is turned off: here the dummy trainer names its runs
+    'dummy_run' and the evaluated run folder is 'dummy_run-PT'.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=4, view_input_images=False,
+                                  number_sample_images=0, moving_average_activated=False)
+    trainer.run_training_loop()
+
+    # The trained run folder renamed as the run of a fine-tuned backbone, then evaluated from an evaluations folder
+    evaluated_folder = trainer.experiment_folder.rename(target=trainer.experiment_folder.parent / "dummy_run-PT")
+    (tmp_path / "evaluations").mkdir()
+    evaluation_trainer = build_dummy_trainer(temporary_directory=tmp_path / "evaluations", number_iterations=4,
+                                             view_input_images=False, number_sample_images=0,
+                                             moving_average_activated=False, run_name=evaluated_folder.name)
+    summary_path = evaluate_checkpoints(trainer=evaluation_trainer, experiment_folder=evaluated_folder,
+                                        iterations=[4])
+
+    output_folder = tmp_path / "evaluations" / "experiments" / "dummy_run-PT"
+    assert evaluation_trainer.run_name == "dummy_run-PT"
+    assert evaluation_trainer.experiment_folder == output_folder
+    assert summary_path == output_folder / "Evaluation" / "evaluation_summary.csv" and summary_path.exists()
+    assert not (tmp_path / "evaluations" / "experiments" / "dummy_run").exists()
+
+
 def test_tied_checkpoints_are_all_reported(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies that checkpoints sharing the best headline metric are all named in the best checkpoint line, in the

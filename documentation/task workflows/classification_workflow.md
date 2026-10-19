@@ -417,13 +417,15 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 │   Separate script, run on its own (python scripts/evaluation/evaluate_checkpoint.py): evaluates checkpoints of a
 │   trained run without training. Its settings are variables at the top of its main block (no command line): the run
 │   name, the iteration ("all" for every checkpoint from the last one, None for the last one, or an integer), an
-│   optional other labelled test folder, the evaluation batch size, whether the evaluation is tracked in MLflow, and
-│   the output folder.
+│   optional other labelled test folder, the evaluation batch size, whether the evaluation is tracked in MLflow, the
+│   maximum number of error images per pair of classes, and the output folder.
 │
 ├── load_experiment_configuration() + get_trainer_class() + trainer construction   (same as Stages 1-2)
-│       Loads training_configuration.yaml from the trained run, points experiment_folder to the output folder (and
-│       test_data_folder, batch_size and tracking.activated to the given values), turns off the transfer of pretrained
-│       components, then builds the same trainer as for a training. Its run folder is created in the output folder.
+│       Loads training_configuration.yaml from the trained run, points experiment_folder to the output folder and
+│       run_name to the name of the evaluated run folder (and test_data_folder, batch_size, tracking.activated and
+│       evaluation.error_dumps to the given values), turns off the transfer of pretrained components, then builds the
+│       same trainer as for a training. Its run folder, with the name of the evaluated run, is created in the output
+│       folder.
 ├── get_checkpoint_iterations() / get_last_checkpoint_iteration()
 │       Read Weights/full-checkpoint of the trained run: all the recorded iterations, evaluated from the last one
 │       ("all"), or only the last one (None). An integer iteration is used as given.
@@ -1550,19 +1552,20 @@ artifacts: evaluation/iteration_6/class_metrics.csv, class_thresholds.json, conf
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 This separate script evaluates checkpoints of a run that has already been trained (or is still training) without training anything: to compare several checkpoints, to pick the one to deploy, or to score a run on another labelled split. It is launched alone (`python scripts/evaluation/evaluate_checkpoint.py`) and has no command line: its settings are the variables at the top of its `__main__` block. The run folder is only read; everything the evaluation writes goes to a separate folder.
 
-**Example: the settings of the script** (`run_name` of the file names an ImageNet run, change it for another run)
+**Example: the settings of the script** (`run_name` and `experiment_folder` of the file name the last evaluated run, change them for another run)
 
 | Variable | Role |
 |---|---|
-| `run_name` | the trained run, `experiments/<run_name>`, with its `Weights/` and its `training_configuration.yaml` |
-| `iteration` | `"all"` (the default) for every checkpoint of the registry, the last saved first; `None` for the last checkpoint; an integer for one checkpoint |
+| `run_name` | the trained run, `<experiments>/<run_name>` (`experiment_folder`, `<experiments>` being the `experiment_folder` of its configuration file), with its `Weights/` and its `training_configuration.yaml` |
+| `iteration` | `"all"` for every checkpoint of the registry, the last saved first; `None` for the last checkpoint; an integer for one checkpoint |
 | `test_data_folder` | another labelled split to evaluate instead of the test split of the run, `None` to keep the test split of the run |
 | `batch_size` | batch size of the evaluation, `128` by default (no gradient is kept, so it can be larger than the training one), `None` to keep the one of the run |
 | `track_evaluation` | `True` or `False` to track the evaluation in an MLflow run of its own, `None` to keep `tracking.activated` of the run |
+| `maximum_error_images_per_class_pair` | turns the error images on with at most this number of images per pair of true and predicted classes, the first ones met, a number above the number of test samples saving every error; `None` to keep `evaluation.error_dumps` of the run |
 | `output_folder` | root of the evaluations, `experiments/evaluations` by default, kept apart so the trained run is untouched |
 
 ### Step 5.2 — `load_experiment_configuration()` + `get_trainer_class()` + trainer construction (same as Stages 1–2)
-The script loads `training_configuration.yaml` of the trained run, the copy that the training saved (Step 2.6), through the same loader as Stage 1 (conversion, label dictionary, checks). It then points `experiment_folder` to the output folder, sets `test_data_folder`, `batch_size` and `tracking.activated` when they are given, and calls `disable_pretrained_settings()`: the weights come from the evaluated checkpoint, so the source runs the training started from are neither loaded nor needed anymore. It builds the same trainer as for a training (Stage 2) with the same model architecture and the same sample images, which creates a run folder with the same run name inside the output folder. The trainer keeps a `DisabledTracker` until Step 5.4.
+The script loads `training_configuration.yaml` of the trained run, the copy that the training saved (Step 2.6), through the same loader as Stage 1 (conversion, label dictionary, checks). It then points `experiment_folder` to the output folder, sets `run_name` to the name of the evaluated run folder (the trainer otherwise builds the name from the settings, which lose the `PT` tokens once the transfer is turned off), sets `test_data_folder`, `batch_size`, `tracking.activated` and `evaluation.error_dumps` (turned on with `maximum_error_images_per_class_pair`) when they are given, and calls `disable_pretrained_settings()`: the weights come from the evaluated checkpoint, so the source runs the training started from are neither loaded nor needed anymore. It builds the same trainer as for a training (Stage 2) with the same model architecture and the same sample images, which creates a run folder with the same run name inside the output folder. The trainer keeps a `DisabledTracker` until Step 5.4.
 
 **Example output:** the construction prints the launch panel of Step 2.22 with the output folder. The saved configuration has `resume_training: True`, but the new run folder holds no weights, so no model is loaded here: the weights are loaded by Step 5.5.
 ```text

@@ -76,8 +76,8 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
     and model configurations. Archiving the yaml into the experiment folder is handled by the Trainer.
 
     This function extracts the 'ExperimentConfiguration' section, processes
-    its paths and types, and returns it alongside the rest of the configuration
-    parameters.
+    its paths and types, adds the 'tracking_root' and 'run_name' (None) runtime keys read by the trainer, and returns
+    it alongside the rest of the configuration parameters.
 
     Args:
         configuration_path (str | Path): Path to the consolidated YAML file.
@@ -110,6 +110,11 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
     # backend of the evaluated experiment
     if "experiment_folder" in experiment_configuration:
         experiment_configuration["tracking_root"] = experiment_configuration["experiment_folder"]
+
+    # Name of the run folder inside 'experiment_folder', None to name it after the run settings (build_run_name). A
+    # standalone evaluation gives the name of the evaluated run folder, so that its output folder keeps the name of
+    # the run, with the tokens of the settings it turns off (the transfer of pretrained components)
+    experiment_configuration["run_name"] = None
 
     # Convert numerics
     int_keys = ["information_dump", "weight_saving_iterations", "intermediate_weight_saving_iterations",

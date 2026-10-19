@@ -863,17 +863,18 @@ On the synthetic shapes, a classification run of 9 classes extended to 20 (stage
 
 ## Evaluating Checkpoints
 `scripts/evaluation/evaluate_checkpoint.py` evaluates the checkpoints of a trained run again, e.g. on another labelled split or with a larger batch size, without modifying the run folder. Set in its main block:
-- `run_name` and `experiment_folder`: the evaluated run, `<repository>/experiments/<run name>` by default.
+- `run_name` and `experiment_folder`: the evaluated run, `<experiments>/<run name>`, `<experiments>` being the `experiment_folder` of its configuration file.
 - `iteration`: `None` for the last checkpoint, an iteration, or `"all"` for every checkpoint, the last one first.
 - `test_data_folder`: another labelled split to evaluate, `None` for the test split of the run.
 - `batch_size`, and `track_evaluation` to send the evaluation to MLflow in a run of its own (`<run name>-evaluation`).
+- `maximum_error_images_per_class_pair`: turns the error images on with at most this number of images for every pair of true and predicted classes (`Evaluation/Iteration_<n>/Errors/<TRUE>-TO-<PREDICTED>/`), a number above the number of test samples saving every error, `None` to keep the `evaluation.error_dumps` settings of the run. Only for the tasks with an `evaluation.error_dumps` section.
 - `output_folder`: the root folder of the evaluations, `<experiments>/evaluations` by default.
 
 ```bash
 uv run python -m scripts.evaluation.evaluate_checkpoint
 ```
 
-The evaluation writes `Results.txt`, `Tensorboard/Test` and the `Evaluation/` folder in `<output_folder>/<run name>/`, as during the training. A run with the moving average of the weights on in its configuration is also evaluated on the averaged weights of its checkpoints, in `Tensorboard/Test_EMA` and `Evaluation/Iteration_<n>/EMA/`. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares the metrics of every checkpoint, those of the averaged weights in `ema_<scalar>` columns, and the best checkpoint is printed for the trained and the averaged weights, every tied iteration being listed when several checkpoints share the best value.
+The evaluation writes `Results.txt`, `Tensorboard/Test` and the `Evaluation/` folder in `<output_folder>/<run name>/`, as during the training, `<run name>` being the name of the evaluated run folder (`ExperimentConfiguration` gets `run_name`), so that a fine-tuned run keeps its `PT` tokens although the transfer of its pretrained components is turned off for the evaluation. A run with the moving average of the weights on in its configuration is also evaluated on the averaged weights of its checkpoints, in `Tensorboard/Test_EMA` and `Evaluation/Iteration_<n>/EMA/`. With `iteration = "all"`, `Evaluation/evaluation_summary.csv` compares the metrics of every checkpoint, those of the averaged weights in `ema_<scalar>` columns, and the best checkpoint is printed for the trained and the averaged weights, every tied iteration being listed when several checkpoints share the best value.
 
 ## Comparing Launches
 `scripts/evaluation/collect_experiment_results.py` gathers the test evaluations of the launches of a hyperparameter experiment into one CSV file. Every launch trains in its own `run_<n>` folder (the `experiment_folder` of its configuration file), a repeat launch of the same settings in a `run_<n><letters>` folder (`run_23b`, `run_23c`), and the script reads the test curve of its run folder (`Tensorboard/Test`) and the swept settings of its `training_configuration.yaml`. Set in its main block:
