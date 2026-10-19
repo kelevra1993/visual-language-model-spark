@@ -207,13 +207,16 @@ def get_variable_name(target_variable: Any, namespace: Optional[Dict[str, Any]] 
     return "Unknown_Variable"
 
 
-def get_image_paths(folder: Path) -> List[Path]:
+def get_image_paths(folder: Path, search_subfolders: bool = False) -> List[Path]:
     """
     Lists the images of a folder, e.g. the 'data' folder of a dataset split, to feed them to the deployed detector
-    in the inference client, or a class folder whose images are listed in a classification manifest.
+    in the inference client, a class folder whose images are listed in a classification manifest, or a folder of plain
+    images embedded by scripts/embedding/cluster_image_embeddings.py, searched with its subfolders.
 
     Args:
-        folder (Path): The folder holding the images, which is not searched recursively.
+        folder (Path): The folder holding the images.
+        search_subfolders (bool): Whether to also list the images of every subfolder, the links to folders being
+            followed. Defaults to False.
 
     Returns:
         List[Path]: The sorted image paths.
@@ -224,7 +227,14 @@ def get_image_paths(folder: Path) -> List[Path]:
     # Image file extensions listed by get_image_paths
     IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff"}
 
-    image_paths = sorted(path for path in folder.iterdir() if path.suffix.lower() in IMAGE_EXTENSIONS)
+    # The files of the folder, or of the folder and every subfolder, the linked folders included
+    if search_subfolders:
+        candidate_paths = [Path(current_folder) / file_name
+                           for current_folder, _, file_names in os.walk(top=folder, followlinks=True)
+                           for file_name in file_names]
+    else:
+        candidate_paths = list(folder.iterdir())
+    image_paths = sorted(path for path in candidate_paths if path.suffix.lower() in IMAGE_EXTENSIONS)
 
     # Fail loudly instead of running on nothing
     if len(image_paths) == 0:

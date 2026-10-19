@@ -78,3 +78,20 @@ def test_native_loader_without_workers() -> None:
     assert loader.prefetch_factor is None
     assert len(list(loader)) == 2
 
+
+def test_native_loader_keeps_the_sample_order_without_shuffle() -> None:
+    """
+    Verifies that a loader built with shuffle False gives the samples in their order at every pass, as the embedding
+    extraction of scripts/embedding/cluster_image_embeddings.py needs to write every batch to its rows, while the
+    default loader shuffles them.
+    """
+    dataset = torch.utils.data.TensorDataset(torch.arange(end=64))
+    ordered_loader = build_native_loader(dataset=dataset, batch_size=8, shuffle=False,
+                                         loading_configuration={"number_workers": 0, "prefetch_batches": 2})
+    for _ in range(2):
+        assert torch.cat(tensors=[batch[0] for batch in ordered_loader]).tolist() == list(range(64))
+
+    # The default loader shuffles, 64 samples left in their order by chance having a probability of 1 / 64!
+    shuffled_loader = build_native_loader(dataset=dataset, batch_size=8,
+                                          loading_configuration={"number_workers": 0, "prefetch_batches": 2})
+    assert torch.cat(tensors=[batch[0] for batch in shuffled_loader]).tolist() != list(range(64))

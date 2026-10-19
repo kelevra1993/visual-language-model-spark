@@ -517,16 +517,19 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[to
 
 
 def build_frame_grid(frames: torch.Tensor, sequence_mask: torch.Tensor, frame_captions: Optional[List[str]],
-                     number_columns: int) -> torch.Tensor:
+                     number_columns: int, first_frame_number: int = 0) -> torch.Tensor:
     """
     Lays out the real frames of a sequence in reading order on a grid, each numbered and optionally captioned (e.g.
-    with its class), so that the input viewer of the sequence trainers shows a whole sequence in one window.
+    with its class), so that the input viewer of the sequence trainers shows a whole sequence in one window, and the
+    mosaics of scripts/embedding/cluster_image_embeddings.py show the first images of a cluster numbered by their rank.
 
     Args:
         frames (torch.Tensor): The [T, 3, H, W] frames of the sequence, on CPU or GPU.
         sequence_mask (torch.Tensor): The [T] booleans, True for the real frames (padding frames are not shown).
         frame_captions (Optional[List[str]]): A text written on every frame, or None to only number them.
         number_columns (int): The number of frames per row of the grid.
+        first_frame_number (int): The number written on the first real frame, the next ones counting on from it.
+            Defaults to 0.
 
     Returns:
         torch.Tensor: The [3, rows x H, columns x W] uint8 grid, gray between the frames.
@@ -543,7 +546,8 @@ def build_frame_grid(frames: torch.Tensor, sequence_mask: torch.Tensor, frame_ca
         frame_numpy = real_frames[frame_index]
 
         # Number of the frame, followed by its caption when given
-        frame_text = str(frame_index) if frame_captions is None else f"{frame_index} {frame_captions[frame_index]}"
+        frame_number = first_frame_number + frame_index
+        frame_text = str(frame_number) if frame_captions is None else f"{frame_number} {frame_captions[frame_index]}"
         cv2.rectangle(img=frame_numpy, pt1=(0, 0), pt2=(min(frame_width - 1, 12 + 9 * len(frame_text)), 20),
                       color=(0, 0, 0), thickness=-1)
         cv2.putText(img=frame_numpy, text=frame_text, org=(4, 15), fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.45,

@@ -37,6 +37,10 @@
   - [Adding Classes](#adding-classes)
 - [Evaluating Checkpoints](#evaluating-checkpoints)
 - [Comparing Launches](#comparing-launches)
+- [Clustering Image Embeddings](#clustering-image-embeddings)
+  - [Stored Features And Relaunch](#stored-features-and-relaunch)
+  - [Clusters And Subsets](#clusters-and-subsets)
+  - [Group Pattern](#group-pattern)
 - [Deployment](#deployment)
   - [Export](#export)
   - [Triton Server](#triton-server)
@@ -916,6 +920,69 @@ uv run python -m scripts.evaluation.compare_best_evaluations
 
 A run not evaluated yet is printed in yellow and left out. A missing curve or count stops the script with the available ones.
 
+## Clustering Image Embeddings
+`scripts/embedding/cluster_image_embeddings.py` embeds the images of datasets with a trained run and clusters them, to choose diverse images from a dataset made of video frames, many of them nearly identical, e.g. to train a smaller model on them. It checks the settings, extracts the features of the asked layers (stored, a relaunch reusing them), then clusters every layer, every category of a classification split on its own. Set in its main block:
+- `experiment_folder`, `iteration` and `use_averaged_weights`: the embedding run and its checkpoint, a run of any task for the convolution blocks, a classification run for the fully connected layers.
+- `data_sources`, a list of:
+  - `"run"`: the train, validation and test splits of the `training_configuration.yaml` of the run;
+  - a configuration file (`.yaml`) of any task: its train, validation and test splits;
+  - a split folder of any task (`data/` and `labels.json`): its COCO images, samples, or frames of the sequences and of the pairs;
+  - a folder of plain images, with its subfolders.
+
+  A folder given twice, e.g. a test split that is the validation folder, is embedded once. The images are read with the preprocessing of the run (image size, padding to keep the ratio).
+- `convolution_block_indices` and `fully_connected_layer_indices`, counted from 1: the whole output of a block before its pooling (channels x height x width values per image), and the output of a hidden layer of the classification head after its ReLU, the class logits layer excluded. An asked layer outside the run stops the script before any inference with the valid range, e.g. `Convolution block 50 asked, the backbone has 6 blocks (1 to 6).`, and so does a block giving more than 32,768 values per image (`MAXIMUM_BLOCK_VALUES`), whose matrix and PCA would not fit in memory: on the runs at 512 pixels, block 6 (128 x 16 x 16 = 32,768) is allowed and block 5 (128 x 32 x 32 = 131,072, 16.7 Gigabytes for the 31,805 `not_empty` training images) refused.
+- `batch_size` and `number_workers` of the extraction.
+- `normalize_vectors`: True to divide every vector by its length, the distances then comparing which features are active rather than how strongly. `pca_dimensions`: the number of main directions of variation every layer is reduced to by a PCA before the clustering, the share of the variance they hold and the time of the PCA being printed; a layer with no more dimensions (or images) than that is clustered as it is. The vectors stay in float32.
+- `clustering_algorithm` and `clustering_parameters`:
+  - `"hdbscan"`: dense regions of any shape, the isolated images being noise; `min_cluster_size`, `min_samples` (None for `min_cluster_size`, higher giving more noise) and `cluster_selection_method` (`"eom"` for the most stable clusters, `"leaf"` for smaller, more uniform ones);
+  - `"dbscan"`: dense regions at a fixed distance; `eps` (at most 2 between normalised vectors) and `min_samples`;
+  - `"kmeans"`: `number_clusters` clusters per category, every image in one, the best of `number_initializations` runs.
+- `number_representatives_per_cluster` and `noise_selection` (`"all"`, `"none"` or a number of noise images drawn at random): the images of the cluster subset.
+- `group_pattern`: the regular expression giving the group of every image ([Group Pattern](#group-pattern)), None for no group.
+- `seed` of the draws and of k-means, `mosaic_grid_size` (images per row of a mosaic) and `output_root` (`<experiments>/embeddings` by default).
+
+```bash
+uv run python -m scripts.embedding.cluster_image_embeddings
+```
+
+On the 43,577 training images of the ficha empty bins dataset, embedded by its run at 512 pixels (iteration 200), the extraction of block 6 takes 13.5 minutes (53.7 Images Per Second, decoding the 1920 x 1080 frames), and the clustering of block 6 and of the two hidden layers at the default 200 PCA dimensions 12.7 minutes, the mosaics, links and subsets included. HDBSCAN builds its spanning tree on a single core, its time growing with the square of the number of images and with the number of dimensions: on the 31,805 `not_empty` images of block 6, 116 Seconds at 200 dimensions (86.1 % of the variance, PCA in 78 Seconds), 240 at 400 and 487 at 800 (PCA in 372 Seconds). The clusters at 200 dimensions agree with those at 800 with an adjusted Rand index of 0.812 to 0.827 for block 6 and 0.965 to 0.994 for the hidden layers. The table of every layer and setting is at the top of the script.
+
+### Stored Features And Relaunch
+The features of a source are stored in `<output_root>/<run name>/Iteration_<n>[_EMA]/<source>/`, `<source>` joining the last three components of its path (`empty_bin_classification_data-classification_dataset_v1-train`):
+- `images.csv`: the row of every image, its file name and its category;
+- one float32 matrix per layer, one row per image: `features_block_<b>.npy` and `features_fully_connected_<l>.npy`, and `predictions.npy` (most probable class and its probability) for a classification run;
+- `extraction.json`: what produced the features (the SHA-256 of the checkpoint, the weights, the image size and padding, the source folder, the SHA-256 of its `labels.json` or, for a folder of plain images, of the list of its images with their sizes and dates, the number of images) and the number of finished images of every layer.
+
+At a relaunch, the script compares `extraction.json` with its settings:
+- The same layers: the features are loaded without running the model, and only the clustering is computed again, e.g. with other clustering settings.
+- A new layer: the model runs for the missing layers only.
+- An interrupted extraction: it continues from its last finished batch.
+- Another checkpoint or changed images: the script stops, naming the changed entries, and nothing is overwritten; delete the folder or give another `output_root` to extract again.
+
+Every image is released from the page cache of Linux once read (extraction and mosaics), and the feature matrices of a source once it is clustered (`posix_fadvise` with `POSIX_FADV_DONTNEED`, no `sudo`, only the files of the script). On the unified memory of the DGX Spark, the cached frames (about 20 Gigabytes for the ficha train split) would otherwise take the memory of the GPU and stop another process from creating its CUDA context.
+
+### Clusters And Subsets
+Every layer is clustered in `<source>/clusters/<layer>/<clustering>/`, `<clustering>` naming the settings (`hdbscan_min_cluster_size_10_min_samples_5_cluster_selection_method_eom_normalized_pca_200`), the folder being written again at every launch. The categories of a classification split are clustered one by one, the other sources as a whole (category `all`).
+- `clusters.csv`: every image with its category, its cluster (-1 for the noise), its membership probability (HDBSCAN), its distance to the centre of its cluster, its rank (1 for the closest to the centre, the noise in the order of the names), why it is in the subset, its predicted class and probability, and its group.
+- `cluster_summary.csv`: every cluster with its images, its chosen images, its mean membership probability, its error rate (when the categories are classes of the run) and, with a group pattern, its number of groups, its largest group and the share of that group.
+- `<category>/cluster_<k>/` and `<category>/noise/`: links to the images named by their rank, and `<category>/cluster_<k>.jpg`, `<category>/noise.jpg`: mosaics of the first images, numbered by their rank.
+- Three subsets, of the same number of images per category, to compare by training the smaller model on each:
+  - `subset/`: the `number_representatives_per_cluster` images closest to the centre of every cluster, and the noise images of `noise_selection`;
+  - `subset_random/`: images drawn at random;
+  - `subset_evenly_spaced_per_group/`, with a group pattern: the images spread evenly over the groups, those of a group ordered by their names (digit runs compared as numbers, e.g. the time of a frame) and taken at the centres of equal segments of that order.
+
+Every subset lists its images in `selected_images.csv`, with why each is chosen. The subset of a classification, semantic segmentation or COCO split is a split to train on: `data` links to the images of the source, and `labels.json` keeps the chosen samples, or the chosen images with their annotations. The subset of a folder of plain images is a folder of links keeping the subfolders. The frames of sequences and pairs are only listed, being tied to their sequence.
+
+### Group Pattern
+`group_pattern` is a regular expression searched in the file name of every image, relative to the data folder of its source, e.g. to give the video a frame comes from. The group of an image is the first capturing group taking part in the match (the whole match for a pattern without capturing group), and the images it does not match form the group `(no group)`. The groups are counted in the cluster summary and spread the images of the baseline evenly spaced per group; nothing else depends on them. Any pattern fitting the file names of a dataset can be used:
+
+| Pattern | File Name | Group |
+|---|---|---|
+| `r"^(video_t\d+_[\d-]+_[\d-]+)_"` | `video_t0053_2026-09-25_05-51-30_0037018ms.jpg` | `video_t0053_2026-09-25_05-51-30` |
+| `r"^([^/]+)/"`, the subfolder of a folder of plain images | `camera_1/frame_0012.png` | `camera_1` |
+| `r"^(video_\d+)_\|^(camera_\d+)/"`, one group per alternative | `video_3_frame_1.png`, `camera_2/frame_1.png` | `video_3`, `camera_2` |
+| `r"video_\d+"`, without capturing group | `camera_2/video_7_frame_1.png` | `video_7` |
+
 ## Deployment
 
 ### Export
@@ -1257,7 +1324,7 @@ The tests are in `tests/`, in folders mirroring `vision_training/`. They include
 uv run pytest tests
 ```
 
-The checkpoint evaluation and launch comparison scripts are in `scripts/`, also in folders mirroring `vision_training/`.
+The checkpoint evaluation and launch comparison scripts are in `scripts/`, also in folders mirroring `vision_training/`, next to the image embedding clustering in `scripts/embedding/`; their tests are in `tests/scripts/`.
 
 ## Repository Structure
 
@@ -1291,7 +1358,10 @@ The checkpoint evaluation and launch comparison scripts are in `scripts/`, also 
 │   ├── tracking/                      # MLflow tracking
 │   ├── deployment/                    # Export, Triton configuration and server, frame selection decoder, throughput measurement
 │   └── utilities/                     # File, tensor, mask morphology and visualization helpers
-├── scripts/                           # Checkpoint evaluation and launch comparison scripts
+├── scripts/                           # Checkpoint evaluation, launch comparison and image embedding clustering scripts
+│   ├── data/                          # Random subset of the sequences of a split, without copying the frames
+│   ├── embedding/                     # Clustering of the image embeddings of a run, subsets of diverse images
+│   └── evaluation/                    # Checkpoint evaluation, launch comparison, best evaluations of runs
 └── tests/                             # Tests, mirroring vision_training/
 ```
 

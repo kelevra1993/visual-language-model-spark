@@ -7,9 +7,9 @@ is written in the given colour, the frame selection image draws the borders of t
 thumbnails above the probability heat map, the keypoint drawings colour every keypoint by the side its name gives, join
 the drawn keypoints by the skeleton in the colour of their class, leave the unlabelled keypoints, the predicted ones not
 found and the padding positions out, draw the occluded ones as rings and caption the objects, the keypoint sample grid
-lays out its ground truth and prediction panels between their caption and legend bars, and the input viewer
-wraps the lines of its information panels, places each image next to its panel, centres its windows on the screen and
-is skipped without a display.
+lays out its ground truth and prediction panels between their caption and legend bars, the frame grid numbers its
+frames from the given number, and the input viewer wraps the lines of its information panels, places each image next
+to its panel, centres its windows on the screen and is skipped without a display.
 """
 
 import cv2
@@ -29,7 +29,8 @@ from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, CORRECT
                                                      UNSELECTED_FRAME_BRIGHTNESS, VIEWER_TITLE_BAR_HEIGHT,
                                                      VIEWER_WINDOW_SPACING, WRONG_PREDICTION_COLOUR,
                                                      add_caption_bar, build_class_colours,
-                                                     build_detection_sample_grid, build_frame_selection_image,
+                                                     build_detection_sample_grid, build_frame_grid,
+                                                     build_frame_selection_image,
                                                      build_information_panel, build_keypoint_sample_grid,
                                                      build_segmentation_error_map, build_segmentation_sample_grid,
                                                      build_viewer_window, compute_window_positions,
@@ -424,6 +425,28 @@ def test_windows_are_centred_on_the_screen() -> None:
     # Unknown screen size: side by side from the top left, at their own size
     assert compute_window_positions(window_sizes=window_sizes, screen_size=None) == (
         [(0, VIEWER_TITLE_BAR_HEIGHT), (1276 + VIEWER_WINDOW_SPACING, VIEWER_TITLE_BAR_HEIGHT)], 1.0)
+
+
+def test_frame_grid_numbers_the_frames_from_the_given_number() -> None:
+    """
+    Verifies that the frames of a grid are numbered from 0 by default, as in the input viewer of the sequence trainers,
+    and from the given first number otherwise, as the ranks of the images of a cluster in the mosaics of the image
+    embedding clustering: the first cell of a grid numbered from 1 is the second cell of the same frames numbered from
+    0, the padding frames being left out.
+    """
+    frames = torch.full(size=(3, 3, 24, 32), fill_value=100, dtype=torch.uint8)
+    default_grid = build_frame_grid(frames=frames, sequence_mask=torch.tensor(data=[True, True, False]),
+                                    frame_captions=None, number_columns=2)
+    shifted_grid = build_frame_grid(frames=frames[:1], sequence_mask=torch.tensor(data=[True]), frame_captions=None,
+                                    number_columns=2, first_frame_number=1)
+
+    # Two columns of 32 pixel wide frames between gaps of 4 pixels, the padding frame not shown
+    assert default_grid.shape == shifted_grid.shape == (3, 24 + 2 * 4, 2 * 32 + 3 * 4)
+    assert torch.equal(input=default_grid, other=build_frame_grid(
+        frames=frames, sequence_mask=torch.tensor(data=[True, True, False]), frame_captions=None, number_columns=2,
+        first_frame_number=0))
+    assert torch.equal(input=shifted_grid[:, 4:28, 4:36], other=default_grid[:, 4:28, 40:72])
+    assert not torch.equal(input=shifted_grid[:, 4:28, 4:36], other=default_grid[:, 4:28, 4:36])
 
 
 def test_viewer_is_skipped_without_a_display(monkeypatch: pytest.MonkeyPatch) -> None:

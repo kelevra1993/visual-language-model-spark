@@ -20,13 +20,15 @@ from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, Se
 
 
 def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration: Dict[str, Any],
-                        collate_function: Optional[Callable] = None, drop_last: bool = False) -> DataLoader:
+                        collate_function: Optional[Callable] = None, drop_last: bool = False,
+                        shuffle: bool = True) -> DataLoader:
     """
     Builds the DataLoader of a Native dataset with the 'Data.loading' settings, shared by the loaders of every task:
-    shuffled samples, worker processes kept alive between epochs and evaluations (no restart at every pass), each
-    decoding with a single OpenCV thread, and batches copied to pinned memory for faster transfers to the GPU. With 0
-    workers, the samples are loaded in the main process, for debugging. The single OpenCV thread is set in this
-    process, which then also runs OpenCV on one thread.
+    shuffled samples (in their order for the embedding extraction of scripts/embedding/cluster_image_embeddings.py,
+    which writes every batch to its rows), worker processes kept alive between epochs and evaluations (no restart at
+    every pass), each decoding with a single OpenCV thread, and batches copied to pinned memory for faster transfers
+    to the GPU. With 0 workers, the samples are loaded in the main process, for debugging. The single OpenCV thread is
+    set in this process, which then also runs OpenCV on one thread.
 
     Args:
         dataset (Dataset): The Native dataset of the split.
@@ -35,6 +37,8 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
         collate_function (Optional[Callable]): The function batching the samples, None for the default one.
         drop_last (bool): Whether to leave out the last incomplete batch of every pass over the split, for the losses
             comparing the samples of a batch with each other (self-supervised task). Defaults to False.
+        shuffle (bool): Whether to shuffle the samples at every pass, False to read them in their order. Defaults to
+            True.
 
     Returns:
         DataLoader: The loader of the split.
@@ -47,7 +51,7 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
     # once OpenCV has run its thread pool in this process
     if use_workers:
         cv2.setNumThreads(nthreads=1)
-    return DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=number_workers,
+    return DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, num_workers=number_workers,
                       collate_fn=collate_function, pin_memory=True, drop_last=drop_last, persistent_workers=use_workers,
                       prefetch_factor=loading_configuration["prefetch_batches"] if use_workers else None)
 
