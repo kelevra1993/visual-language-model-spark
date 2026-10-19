@@ -2,10 +2,10 @@
 Tests of DataAugmenter of vision_training/data/augmentations.py: geometric augmentations moving and removing boxes,
 geometric augmentations moving the segmentation masks with nearest interpolation, geometric augmentations moving the
 instance masks and recomputing their boxes, photometric augmentations keeping boxes, masks and pixel range, images
-without boxes, shared or per-frame draws of the sequence frames, frame shuffling, the rejected inputs, the zoom-out, the
-translation by whole pixels with the removal of the objects it pushes out, the removal of the fragments of objects
-left by the crop, the keypoints moved without being renamed and unlabelled once out of the image, and the augmentation
-reports written in the information panels of the input viewer.
+without boxes, a single histogram equalization per image, shared or per-frame draws of the sequence frames, frame
+shuffling, the rejected inputs, the zoom-out, the translation by whole pixels with the removal of the objects it pushes
+out, the removal of the fragments of objects left by the crop, the keypoints moved without being renamed and
+unlabelled once out of the image, and the augmentation reports written in the information panels of the input viewer.
 """
 
 import random
@@ -15,9 +15,9 @@ import torch
 from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, GEOMETRIC_AUGMENTATION_TYPES,
-                                                 MAXIMUM_TRANSLATION_FRACTION, MINIMUM_CROP_FRACTION,
-                                                 PHOTOMETRIC_AUGMENTATION_TYPES)
+from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, EXCLUSIVE_EQUALIZATION_TYPES,
+                                                 GEOMETRIC_AUGMENTATION_TYPES, MAXIMUM_TRANSLATION_FRACTION,
+                                                 MINIMUM_CROP_FRACTION, PHOTOMETRIC_AUGMENTATION_TYPES)
 from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
 
 IMAGE_SIZE = 96
@@ -143,6 +143,34 @@ def test_photometric_augmentation_keeps_boxes_and_range(augmentation_type: str) 
     assert float(augmented_images.min()) >= 0.0 and float(augmented_images.max()) <= 255.0
     assert all(torch.equal(input=output, other=original) for output, original in zip(augmented_boxes, boxes))
     assert all(torch.equal(input=output, other=original) for output, original in zip(augmented_labels, labels))
+
+
+def test_a_single_histogram_equalization_is_applied_per_image() -> None:
+    """
+    Verifies that an image drawing several histogram equalizations (EXCLUSIVE_EQUALIZATION_TYPES) receives a single
+    one of them, chosen at random so that each of them is kept for some images, the other photometric types being
+    applied as before, and that an equalization drawn alone is applied.
+    """
+    random.seed(0)
+    torch.manual_seed(seed=0)
+    images = torch.rand(size=(32, 3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0
+
+    # The three equalizations and the noise all drawn for every image: one equalization kept next to the noise
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(
+        enabled_types=EXCLUSIVE_EQUALIZATION_TYPES + ["random_noise"]))
+    reports = augmenter.augment_batch(images=images)[-1]
+    kept_equalizations = set()
+    for report in reports:
+        applied_names = [type_name for type_name, _ in report["photometric_augmentations"][0]]
+        assert len(applied_names) == 2 and applied_names[-1] == "random_noise"
+        assert applied_names[0] in EXCLUSIVE_EQUALIZATION_TYPES
+        kept_equalizations.add(applied_names[0])
+    assert kept_equalizations == set(EXCLUSIVE_EQUALIZATION_TYPES)
+
+    # An equalization drawn alone is applied to every image
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["clahe_augment"]))
+    reports = augmenter.augment_batch(images=images)[-1]
+    assert all(report["photometric_augmentations"][0][0][0] == "clahe_augment" for report in reports)
 
 
 def test_images_without_boxes_for_classification() -> None:

@@ -2,7 +2,8 @@
 DataAugmenter, the random geometric and photometric augmentations applied on the device to the training batches of
 every task right before the forward pass, moving the bounding boxes of the object detector, the masks of the semantic
 segmentation, the instance masks of the instance segmentation and the keypoints of the keypoint detection with the
-images and handling the frame shuffling and per-frame draws of the sequence tasks.
+images and handling the frame shuffling and per-frame draws of the sequence tasks. Of the histogram equalizations drawn
+together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only one, chosen at random, is applied.
 Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
 common checks. Every augmented batch comes with a report of the types drawn for each sample and their values, which
 the 'view_input_images' diagnosis mode writes in the information panel next to every training image.
@@ -41,6 +42,11 @@ PHOTOMETRIC_AUGMENTATION_TYPES = ["brightness_contrast_saturation", "clahe_augme
                                   "gray_scale_augment", "random_colour_augmentation", "random_blur"]
 
 AUGMENTATION_TYPES = GEOMETRIC_AUGMENTATION_TYPES + PHOTOMETRIC_AUGMENTATION_TYPES
+
+# Histogram equalizations of which an image receives at most one, chosen at random among those drawn: an
+# equalization of the whole image after CLAHE stretches the one or two level steps CLAHE leaves between its tiles
+# on a flat background into visible blocks
+EXCLUSIVE_EQUALIZATION_TYPES = ["clahe_augment", "equalize_histogram_augment", "equalize_bgr_histogram_augment"]
 
 # Fixed augmentation strengths, documented in the data_augmentation section of the configuration file
 MINIMUM_CROP_FRACTION = 0.75
@@ -334,7 +340,8 @@ class DataAugmenter:
     def apply_photometric_augmentations(self, image: torch.Tensor) -> Tuple[torch.Tensor, List[Tuple[str, str]]]:
         """
         Applies every activated photometric augmentation type to an image, a sequence or one frame of a sequence, each
-        with its own probability and random parameters.
+        with its own probability and random parameters, a single one of the histogram equalizations drawn together
+        (EXCLUSIVE_EQUALIZATION_TYPES) being kept at random.
 
         Args:
             image (torch.Tensor): A float BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -343,11 +350,21 @@ class DataAugmenter:
             Tuple[torch.Tensor, List[Tuple[str, str]]]: The augmented image or sequence, and the applied types with
                 their drawn values, in order.
         """
+        # Draw every type, then keep one of the histogram equalizations drawn together, chosen at random
+        drawn_types = [augmentation_type for augmentation_type in PHOTOMETRIC_AUGMENTATION_TYPES
+                       if self.should_apply(augmentation_type=augmentation_type)]
+        drawn_equalizations = [augmentation_type for augmentation_type in drawn_types
+                               if augmentation_type in EXCLUSIVE_EQUALIZATION_TYPES]
+        if len(drawn_equalizations) > 1:
+            kept_equalization = random.choice(seq=drawn_equalizations)
+            drawn_types = [augmentation_type for augmentation_type in drawn_types
+                           if augmentation_type not in drawn_equalizations or augmentation_type == kept_equalization]
+
+        # Apply the kept types in the order of PHOTOMETRIC_AUGMENTATION_TYPES, recording their drawn values
         applied_types = []
-        for augmentation_type in PHOTOMETRIC_AUGMENTATION_TYPES:
-            if self.should_apply(augmentation_type=augmentation_type):
-                image, drawn_values = getattr(self, augmentation_type)(image=image)
-                applied_types.append((augmentation_type, drawn_values))
+        for augmentation_type in drawn_types:
+            image, drawn_values = getattr(self, augmentation_type)(image=image)
+            applied_types.append((augmentation_type, drawn_values))
         return image, applied_types
 
     def shuffle_frames(self, images: torch.Tensor, sequence_mask: torch.Tensor,
