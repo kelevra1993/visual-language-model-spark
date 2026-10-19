@@ -30,9 +30,9 @@ from vision_training.configuration_processing.configuration_loader import load_c
 from vision_training.configuration_processing.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
-from vision_training.data.data_record import (CLASSES_RECORD_KEY, DATA_RECORD_FILE_NAME, DATA_RECORD_SPLITS,
-                                              DataRecordChanges, build_class_records, build_split_record,
-                                              find_changed_splits)
+from vision_training.data.data_record import (CLASSES_RECORD_KEY, COMPARED_SPLIT_ENTRIES, DATA_RECORD_FILE_NAME,
+                                              DATA_RECORD_SPLITS, RELABELLED_SPLIT_ENTRIES, DataRecordChanges,
+                                              build_class_records, build_split_record, find_changed_splits)
 from vision_training.evaluation.evaluation_report import report_evaluation_results
 from vision_training.evaluation.report_formatting import HEADER_SEPARATOR
 from vision_training.evaluation.sample_selection import choose_sample_identifiers
@@ -163,6 +163,11 @@ class BaseTrainer(ABC):
         self.input_image_size = self.data_configuration["image_settings"]["size"]
         self.batch_size = self.experiment_configuration["batch_size"]
         self.resume_training = self.experiment_configuration["resume_training"]
+        self.allow_data_change_on_resume = self.experiment_configuration["allow_data_change_on_resume"]
+
+        # A resume on changed labels is refused before the run folder is touched, changed data asking for a new run
+        if not self.diagnosis_modes["view_input_images"]:
+            self.check_resumed_data()
 
         # Paths of the run folder, created with the copy of the configuration only for a training: the input viewer
         # exits without training, so it leaves no empty run folder and never overwrites the configuration of a run. A
@@ -771,6 +776,39 @@ class BaseTrainer(ABC):
         return ConfigurationChanges(resumed_iteration=resumed_iteration, changed_settings=changed_settings,
                                     archived_configuration_path=archived_configuration_path)
 
+    def check_resumed_data(self) -> None:
+        """
+        Refuses to resume a run on labels that changed since the record of its data ('data.json') was written, before
+        the copy of the configuration and the record are replaced, so that the run folder stays the one of the data
+        that trained it: changed data asks for a new run. 'ExperimentConfiguration.allow_data_change_on_resume' lets
+        the run resume anyway, save_data_record then keeping the previous record. A moved data folder holding the same
+        labels file resumes.
+
+        Raises:
+            ValueError: If the labels file of a split changed since the last start of a resumed run and the change is
+                not allowed.
+        """
+        data_record_path = self.experiment_folder / DATA_RECORD_FILE_NAME
+        resumed_iteration = get_last_checkpoint_iteration(weights_directory=self.experiment_folder / "Weights")
+        if not self.resume_training or self.allow_data_change_on_resume or not resumed_iteration or \
+                not data_record_path.is_file():
+            return
+
+        # Labels files of the splits compared with those of the saved record
+        current_splits = {split_name: self.record_split(split_data_folder=self.experiment_configuration[split_key])
+                          for split_name, split_key in DATA_RECORD_SPLITS.items()}
+        changed_splits = find_changed_splits(previous_record=read_json(path=str(data_record_path)),
+                                             current_record={"splits": current_splits},
+                                             compared_entries=RELABELLED_SPLIT_ENTRIES)
+        if changed_splits:
+            raise ValueError(f"The labels.json of the {', '.join(changed_splits)} split(s) changed since iteration "
+                             f"{resumed_iteration} of the run {format_path_link(path=self.experiment_folder)} (their "
+                             f"SHA-256 differs from {DATA_RECORD_FILE_NAME}): changed data needs a new run. Set "
+                             f"'ExperimentConfiguration.resume_training' to false to train from scratch, or "
+                             f"'ExperimentConfiguration.experiment_folder' to another folder, or set "
+                             f"'ExperimentConfiguration.allow_data_change_on_resume' to true to resume on the new "
+                             f"data.")
+
     def save_data_record(self, data_record_path: Path) -> Optional[DataRecordChanges]:
         """
         Writes the record of the data of the run ('data.json') next to its configuration file: the classes of the run
@@ -778,7 +816,8 @@ class BaseTrainer(ABC):
         without class names), then the data folder, the SHA-256 of the 'labels.json' and the images of every split
         (record_split), so that the classes and the images a model was trained and evaluated on stay known when the
         data folders change. A resumed run compares the data it is launched with against the record saved by its
-        previous start: an unchanged record is kept with its date, and a changed one is kept as
+        previous start: an unchanged record is kept with its date, and a changed one (a moved data folder, or changed
+        labels allowed by 'allow_data_change_on_resume', see check_resumed_data) is kept as
         'data_until_iteration_<n>.json', the data that trained the run up to the checkpoint of iteration n it resumes
         from, before the new record replaces it. As for the configurations, a file of that name is never replaced.
 
@@ -807,7 +846,7 @@ class BaseTrainer(ABC):
         resumed_iteration = get_last_checkpoint_iteration(weights_directory=self.weights_directory)
         if self.resume_training and resumed_iteration and data_record_path.is_file():
             changed_splits = find_changed_splits(previous_record=read_json(path=str(data_record_path)),
-                                                 current_record=current_record)
+                                                 current_record=current_record, compared_entries=COMPARED_SPLIT_ENTRIES)
             if not changed_splits:
                 return DataRecordChanges(resumed_iteration=resumed_iteration, changed_splits=[],
                                          archived_data_record_path=None)

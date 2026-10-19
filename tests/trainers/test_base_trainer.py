@@ -62,7 +62,8 @@ class EvaluationRecorder:
 
 def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_input_images: bool,
                         number_sample_images: int, configuration_text: str = "dummy: true\n",
-                        moving_average_activated: bool = False, number_training_samples: int = 8) -> DummyTrainer:
+                        moving_average_activated: bool = False, number_training_samples: int = 8,
+                        allow_data_change_on_resume: bool = False) -> DummyTrainer:
     """
     Builds the trainer of the dummy task in a temporary directory. Its test split has 6 samples but only 4 distinct
     ones, its last batch repeating the first two samples, which must be evaluated only once.
@@ -76,6 +77,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
             compared with the saved one when the run resumes.
         moving_average_activated (bool): Whether the run keeps a moving average of its weights, at a decay of 0.5.
         number_training_samples (int): The number of samples of the training split. Defaults to 8.
+        allow_data_change_on_resume (bool): Whether the run may resume on changed labels. Defaults to False.
 
     Returns:
         DummyTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
@@ -86,6 +88,7 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
         experiment_folder=temporary_directory / "experiments", number_iterations=number_iterations)
     experiment_configuration["diagnosis_modes"]["view_input_images"] = view_input_images
     experiment_configuration["evaluation"]["number_sample_images"] = number_sample_images
+    experiment_configuration["allow_data_change_on_resume"] = allow_data_change_on_resume
     model_configuration["Optimization"]["exponential_moving_average"] = {"activated": moving_average_activated,
                                                                          "decay": 0.5}
     datasets = {"train": DummyDataset(sample_identifiers=list(range(number_training_samples)), seed=0),
@@ -281,9 +284,10 @@ def test_resumed_run_reports_and_keeps_its_changed_configuration(tmp_path: Path,
 def test_run_records_its_data_and_keeps_the_previous_data(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the record of the data of a run ('data.json'): written by a new run with the images of every split and no
-    class names (the dummy task has none), kept with its date by a resume with the same data, kept as
-    'data_until_iteration_<n>.json' by a resume whose training split changed before the new record replaces it, and that
-    file kept by a second resume from the same checkpoint.
+    class names (the dummy task has none), kept with its date by a resume with the same data, a resume whose training
+    split changed refused with an error leaving the run folder untouched, kept as 'data_until_iteration_<n>.json' by
+    that resume once allowed ('allow_data_change_on_resume') before the new record replaces it, and that file kept by a
+    second allowed resume from the same checkpoint.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -309,9 +313,20 @@ def test_run_records_its_data_and_keeps_the_previous_data(tmp_path: Path, capsys
     assert json.loads(s=data_record_path.read_text()) == first_record
     assert "- Changed Data Splits     : None Since Iteration 2" in capsys.readouterr().out
 
-    # Resumed with fewer training samples: the first record is kept as the data that trained the run up to iteration 2
+    # Resumed with fewer training samples: refused before the configuration copy and the record are replaced
+    run_folder_files = {path: path.read_bytes() for path in trainer.experiment_folder.glob("*") if path.is_file()}
+    with pytest.raises(expected_exception=ValueError, match=r"labels.json of the train split\(s\) changed since "
+                                                            r"iteration 2 .* needs a new run"):
+        build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+                            number_sample_images=0, number_training_samples=6,
+                            configuration_text="dummy: true\nlearning_rate: 0.0001\n")
+    assert {path: path.read_bytes() for path in trainer.experiment_folder.glob("*") if path.is_file()} == \
+        run_folder_files
+
+    # The same resume once allowed: the first record is kept as the data that trained the run up to iteration 2
     changed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
-                                          number_sample_images=0, number_training_samples=6)
+                                          number_sample_images=0, number_training_samples=6,
+                                          allow_data_change_on_resume=True)
     archived_data_record_path = trainer.experiment_folder / "data_until_iteration_2.json"
     assert changed_trainer.data_record_changes == {"resumed_iteration": 2, "changed_splits": ["train"],
                                                    "archived_data_record_path": archived_data_record_path}
@@ -324,7 +339,7 @@ def test_run_records_its_data_and_keeps_the_previous_data(tmp_path: Path, capsys
 
     # Resumed again from the same checkpoint with other data: the record of the data up to it is kept
     build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
-                        number_sample_images=0, number_training_samples=4)
+                        number_sample_images=0, number_training_samples=4, allow_data_change_on_resume=True)
     assert json.loads(s=archived_data_record_path.read_text()) == first_record
     assert json.loads(s=data_record_path.read_text())["splits"]["train"]["number_images"] == 4
 

@@ -396,7 +396,7 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
                                 "batch_size": 2, "information_dump": 2, "weight_saving_iterations": 4,
                                 "intermediate_weight_saving_iterations": 2, "number_iterations": number_iterations,
                                 "validation_iteration_ratio": 2, "learning_rate": 0.01,
-                                "resume_training": True,
+                                "resume_training": True, "allow_data_change_on_resume": False,
                                 "evaluation": {"per_class_report": True, "number_sample_images": 0},
                                 "tracking": {"activated": False, "tracking_uri": None, "experiment_name": None,
                                              "log_artifacts": True},

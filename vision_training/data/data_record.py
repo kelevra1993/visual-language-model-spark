@@ -38,6 +38,10 @@ DATA_RECORD_SPLITS = {"train": "train_data_folder", "validation": "validation_da
 # Entries of a split compared between two starts of a run, the labels file giving its images and their labels
 COMPARED_SPLIT_ENTRIES = ["data_folder", "labels_sha256"]
 
+# Entries of a split whose change stops a resumed run unless 'ExperimentConfiguration.allow_data_change_on_resume' is
+# true, changed labels asking for a new run, while a moved data folder with the same labels file resumes
+RELABELLED_SPLIT_ENTRIES = ["labels_sha256"]
+
 
 class DataRecordChanges(TypedDict):
     """
@@ -249,15 +253,19 @@ def build_class_records(class_names: List[str], label_dictionary: Dict[Any, int]
     return class_records
 
 
-def find_changed_splits(previous_record: Dict[str, Any], current_record: Dict[str, Any]) -> List[str]:
+def find_changed_splits(previous_record: Dict[str, Any], current_record: Dict[str, Any],
+                        compared_entries: List[str]) -> List[str]:
     """
     Compares the record of the data saved by the previous start of a run with the record of the data it is resumed
-    with: a split changed when its data folder or the content of its labels file changed, or when the previous record
-    did not have it.
+    with: a split changed when one of its compared entries changed (its data folder or the content of its labels file
+    for the archive of the record, the content of its labels file for the refusal of a resume on changed labels), or
+    when the previous record did not have it.
 
     Args:
         previous_record (Dict[str, Any]): The record saved in the run folder by the previous start.
-        current_record (Dict[str, Any]): The record of the data the run is resumed with.
+        current_record (Dict[str, Any]): The record of the data the run is resumed with, at least its 'splits'.
+        compared_entries (List[str]): The entries of a split compared (COMPARED_SPLIT_ENTRIES or
+            RELABELLED_SPLIT_ENTRIES).
 
     Returns:
         List[str]: The names of the changed splits, in the order of the current record.
@@ -265,4 +273,4 @@ def find_changed_splits(previous_record: Dict[str, Any], current_record: Dict[st
     previous_splits = previous_record["splits"]
     return [split_name for split_name, current_split in current_record["splits"].items()
             if split_name not in previous_splits or
-            any(previous_splits[split_name][entry] != current_split[entry] for entry in COMPARED_SPLIT_ENTRIES)]
+            any(previous_splits[split_name][entry] != current_split[entry] for entry in compared_entries)]

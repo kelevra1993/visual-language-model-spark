@@ -12,8 +12,9 @@ import pytest
 from pathlib import Path
 from typing import Any, Dict, List
 
-from vision_training.data.data_record import (build_class_records, build_split_record, count_manifest_classes,
-                                              find_changed_splits, list_manifest_images, map_categories_to_classes)
+from vision_training.data.data_record import (COMPARED_SPLIT_ENTRIES, RELABELLED_SPLIT_ENTRIES, build_class_records,
+                                              build_split_record, count_manifest_classes, find_changed_splits,
+                                              list_manifest_images, map_categories_to_classes)
 
 
 @pytest.mark.parametrize(argnames=["labels", "expected_images"], argvalues=[
@@ -166,19 +167,25 @@ def test_split_record_identifies_its_labels_file(tmp_path: Path) -> None:
 def test_changed_splits_are_found() -> None:
     """
     Verifies that a split is changed when its labels file or its data folder changed, or when the previous record did
-    not have it, the date of the records and the lists of images being left out of the comparison.
+    not have it, the date of the records and the lists of images being left out of the comparison, and that only the
+    changed labels file and the new split refuse a resume, a moved data folder resuming.
     """
     previous_record = {"created": "2026-10-15 10:00:00", "splits": {
         "train": {"data_folder": "/data/train", "labels_sha256": "a", "number_images": 2, "images": ["1", "2"]},
         "validation": {"data_folder": "/data/validation", "labels_sha256": "b", "number_images": 1, "images": ["3"]}}}
     current_record = json.loads(s=json.dumps(obj=previous_record))
     current_record["created"] = "2026-10-16 10:00:00"
-    assert find_changed_splits(previous_record=previous_record, current_record=current_record) == []
+    assert find_changed_splits(previous_record=previous_record, current_record=current_record,
+                               compared_entries=COMPARED_SPLIT_ENTRIES) == []
 
     # A new labels file, a moved data folder and a split the previous record did not have
     current_record["splits"]["train"]["labels_sha256"] = "c"
     current_record["splits"]["validation"]["data_folder"] = "/other/validation"
     current_record["splits"]["test"] = {"data_folder": "/data/test", "labels_sha256": "d", "number_images": 0,
                                         "images": []}
-    assert find_changed_splits(previous_record=previous_record, current_record=current_record) == [
-        "train", "validation", "test"]
+    assert find_changed_splits(previous_record=previous_record, current_record=current_record,
+                               compared_entries=COMPARED_SPLIT_ENTRIES) == ["train", "validation", "test"]
+
+    # Only the new labels file and the new split refuse a resume, the moved data folder resuming
+    assert find_changed_splits(previous_record=previous_record, current_record=current_record,
+                               compared_entries=RELABELLED_SPLIT_ENTRIES) == ["train", "test"]

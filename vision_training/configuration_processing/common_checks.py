@@ -94,6 +94,7 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any], val
     # MLflow tracking with its artifacts
     errors += check_boolean_flags(configuration=configuration,
                                   key_paths=["ExperimentConfiguration.resume_training",
+                                             "ExperimentConfiguration.allow_data_change_on_resume",
                                              "ExperimentConfiguration.evaluation.per_class_report",
                                              "ExperimentConfiguration.diagnosis_modes.verbose",
                                              "ExperimentConfiguration.diagnosis_modes.compute_receptive_field",

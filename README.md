@@ -254,7 +254,7 @@ A resumed run compares the launched configuration with the `training_configurati
 
 When the configuration changed, the previous file is kept as `training_configuration_until_iteration_<n>.yaml`, the configuration that trained the run up to the checkpoint of iteration n it resumes from. A file of that name is never replaced, so a run resumed twice from the same checkpoint keeps the configuration that really trained it. An unchanged configuration prints `- Changed Settings        : None Since Iteration <n>` and keeps no file.
 
-The data is compared the same way: a split changed when its data folder or the SHA-256 of its `labels.json` differs from `data.json`. The previous record is then kept as `data_until_iteration_<n>.json` (never replaced either) and the new one written:
+The data is compared the same way, but changed labels need a new run: when the SHA-256 of the `labels.json` of a split differs from `data.json`, the resume stops with an error before anything in the run folder is replaced, asking to train from scratch (`resume_training: false`), to use another `experiment_folder`, or to set `ExperimentConfiguration.allow_data_change_on_resume: true`. Keeping track of the data a run is resumed on is up to the user; the switch is saved with the configuration, so an allowed change stays visible. With the switch, or when only the data folder moved, the previous record is kept as `data_until_iteration_<n>.json` (never replaced either) and the new one written:
 
 ```text
 - Previous Data Record    : file:///…/data_until_iteration_72500.json

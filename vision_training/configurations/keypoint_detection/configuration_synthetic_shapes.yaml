@@ -99,6 +99,10 @@ ExperimentConfiguration:
   learning_rate: 1.0e-3
   # Flag to attempt loading the most recent checkpoint to resume training.
   resume_training: true
+  # Flag to let a resumed run train on data whose labels.json changed since its last start, the previous data.json
+  # being kept as data_until_iteration_<n>.json. False stops such a resume with an error: changed data asks for a
+  # new run (resume_training false, or another experiment_folder). A moved data folder with the same labels resumes.
+  allow_data_change_on_resume: false
   diagnosis_modes:
       # Choice to print out everything about the model
       verbose: False
