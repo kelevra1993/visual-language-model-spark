@@ -89,6 +89,13 @@ HOLLOW_INNER_SIZE_RATIO_RANGE = (0.4, 0.6)
 HOLLOW_MINIMUM_WALL_PIXELS = 2
 HOLLOW_MAXIMUM_ATTEMPTS = 20
 
+# Smallest size of a hollow shape drawn in an image, the drawn size of a hollow class being raised to it. A drawing of
+# the hollow parallelogram, the worst of the fifteen hollow classes, leaves no hole inside the walls 91% of the time at
+# 8 pixels and 1.8% of the time at 16 pixels, so that its HOLLOW_MAXIMUM_ATTEMPTS drawings almost never all fail; none
+# of 400 drawings failed at 18 pixels
+HOLLOW_MINIMUM_SIZE = 16
+HOLLOW_CLASS_NAMES = [f"hollow_{shape_name}" for shape_name in HOLLOW_SHAPE_NAMES]
+
 # Keypoints of the hollow shapes: the hollow polygons and the hollow capsule also have a keypoint at every corner of
 # their hole, and the hollow ellipse has none, a distractor drawn among the objects of the keypoint images that is left
 # out of the keypoint label mapping, like the circle, the annulus and the ellipse, so that the keypoint detector must tell them
@@ -1411,8 +1418,9 @@ def draw_shape_descriptor(minimum_size: int, maximum_size: int, background_colou
     """
     Draws one synthetic object of random class (or of the given class), size and colour, its pixels drawn once on a
     canvas of their own so that the same object can be pasted at any position of an image or of the frames of a
-    sequence. Shared by the images of the detection, keypoint detection and classification datasets, the moving shape
-    of the sequence classification dataset, the objects of the comparison pairs and the shapes of the sequence
+    sequence. A hollow shape is drawn at HOLLOW_MINIMUM_SIZE at least, above maximum_size in the small images. Shared
+    by the images of the detection, keypoint detection and classification datasets, the moving shape of the
+    sequence classification dataset, the objects of the comparison pairs and the shapes of the sequence
     labelling frames, drawn again in every frame with their class kept. The objects of the keypoint images are drawn
     upright from the keypoint categories, with their keypoints, the limbs of each side of a stick figure getting a
     colour of their own.
@@ -1439,6 +1447,10 @@ def draw_shape_descriptor(minimum_size: int, maximum_size: int, background_colou
     if shape_name is None:
         shape_name = shape_names[int(random_generator.integers(low=0, high=len(shape_names)))]
     size = int(random_generator.integers(low=minimum_size, high=maximum_size + 1))
+
+    # A hollow shape needs room for its hole inside its walls, its size being raised above the range when it is smaller
+    if shape_name in HOLLOW_CLASS_NAMES:
+        size = max(size, HOLLOW_MINIMUM_SIZE)
 
     # Pixels of the shape centred on its own canvas, then a colour visible on the background
     mask = np.zeros(shape=(size + 1, size + 1), dtype=np.uint8)

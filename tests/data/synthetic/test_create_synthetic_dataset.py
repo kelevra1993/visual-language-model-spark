@@ -24,8 +24,9 @@ from vision_training.data.sequence.sequence_dataset import SequenceDataset
 from vision_training.data.synthetic import create_synthetic_dataset as synthetic_dataset_module
 from vision_training.data.synthetic.create_synthetic_dataset import (CHANGE_CATEGORIES,
                                                                      COUNTED_SHAPES_MAXIMUM_OBJECTS,
-                                                                     HOLLOW_DISTRACTOR_SHAPE_NAMES,
+                                                                     HOLLOW_CLASS_NAMES, HOLLOW_DISTRACTOR_SHAPE_NAMES,
                                                                      HOLLOW_INNER_KEYPOINT_SHAPE_NAMES,
+                                                                     HOLLOW_MINIMUM_SIZE,
                                                                      HOLLOW_SHAPE_NAMES, KEYPOINT_CATEGORIES,
                                                                      KEYPOINT_DRAWING_FUNCTIONS, KEYPOINT_NAMES,
                                                                      KITE_UPPER_RATIO_RANGE,
@@ -47,7 +48,7 @@ from vision_training.data.synthetic.create_synthetic_dataset import (CHANGE_CATE
                                                                      build_rhombus_vertices,
                                                                      build_trapezoid_vertices,
                                                                      create_synthetic_dataset, draw_annulus_mask,
-                                                                     draw_hollow_mask,
+                                                                     draw_hollow_mask, draw_shape_descriptor,
                                                                      draw_shapes_frame,
                                                                      generate_counted_shapes_image,
                                                                      generate_shape_change_sequence,
@@ -314,6 +315,32 @@ def test_hollow_shape_too_small_for_a_hole_raises() -> None:
         draw_hollow_mask(mask=mask, center_x=16, center_y=16, size=3, random_generator=np.random.default_rng(seed=0),
                          filled_drawing_function=SHAPE_DRAWING_FUNCTIONS["square"])
     assert not np.any(mask)
+
+
+@pytest.mark.parametrize(argnames="keypoints", argvalues=[False, True])
+def test_hollow_shapes_are_drawn_at_their_minimum_size(keypoints: bool) -> None:
+    """
+    Verifies that draw_shape_descriptor raises the size of every hollow class to HOLLOW_MINIMUM_SIZE when its range is
+    smaller, 8 pixels being the smallest shapes of the 64 pixel frames of the sequence classification and comparison,
+    where a hollow parallelogram leaves no hole in 16% of its drawings, so that the hole always fits inside the walls,
+    for the shapes and the keypoint objects, while a filled class keeps the size of its range.
+
+    Args:
+        keypoints (bool): Whether the objects are keypoint objects, drawn upright with their keypoints.
+    """
+    random_generator = np.random.default_rng(seed=0)
+    background_colour = np.zeros(shape=(3,), dtype=np.uint8)
+    for shape_name in HOLLOW_CLASS_NAMES:
+        for _ in range(20):
+            shape_descriptor = draw_shape_descriptor(minimum_size=8, maximum_size=8,
+                                                     background_colour=background_colour,
+                                                     random_generator=random_generator, keypoints=keypoints,
+                                                     shape_name=shape_name)
+            assert shape_descriptor["mask"].shape == (HOLLOW_MINIMUM_SIZE + 1, HOLLOW_MINIMUM_SIZE + 1)
+    filled_descriptor = draw_shape_descriptor(minimum_size=8, maximum_size=8, background_colour=background_colour,
+                                              random_generator=random_generator, keypoints=keypoints,
+                                              shape_name="parallelogram")
+    assert filled_descriptor["mask"].shape == (9, 9)
 
 
 @pytest.mark.parametrize(argnames="category_name", argvalues=list(KEYPOINT_CATEGORIES))
