@@ -111,36 +111,30 @@ def read_setting(configuration: Dict[str, Any], keys: Tuple[str, ...], configura
     return value
 
 
-def read_test_metric(test_folder: Path, metric: str) -> Dict[int, float]:
+def read_test_curves(test_folder: Path) -> Dict[str, Dict[int, float]]:
     """
-    Reads the test metric of a launch at every evaluated checkpoint from its Tensorboard/Test curves, written at full
-    precision by the trainer at every weight_saving_iterations checkpoint. A launch evaluated again at the same
+    Reads every test curve of a launch at every evaluated checkpoint from its Tensorboard/Test (or Test_EMA) folder,
+    written at full precision by the trainer at every weight_saving_iterations checkpoint: the global metrics and the
+    per-class ones ('Recall/<class name>'), compared between the launches of an experiment by collect_launches and
+    between the best evaluations of several runs by compare_best_evaluations.py. A launch evaluated again at the same
     iteration after a restart keeps its last evaluation.
 
     Args:
-        test_folder (Path): The Tensorboard/Test folder of the run folder.
-        metric (str): The name of the test curve, e.g. "Accuracy".
+        test_folder (Path): The Tensorboard/Test or Tensorboard/Test_EMA folder of the run folder.
 
     Returns:
-        Dict[int, float]: The metric at every evaluated iteration, empty before the first evaluation.
-
-    Raises:
-        ValueError: If the launch has test curves but none of that name.
+        Dict[str, Dict[int, float]]: The value at every evaluated iteration of every curve, empty before the first
+            evaluation.
     """
     # No test curve before the first evaluation of the launch
     if not test_folder.is_dir():
         return {}
     events = EventAccumulator(path=str(test_folder), size_guidance={"scalars": 0})
     events.Reload()
-    curve_names = events.Tags()["scalars"]
-    if not curve_names:
-        return {}
-    if metric not in curve_names:
-        raise ValueError(f"No {metric} test curve in {format_path_link(path=test_folder)}, available curves : "
-                         f"{', '.join(curve_names)}")
 
     # Later events of the same iteration overwrite the earlier ones
-    return {event.step: event.value for event in events.Scalars(tag=metric)}
+    return {curve_name: {event.step: event.value for event in events.Scalars(tag=curve_name)}
+            for curve_name in events.Tags()["scalars"]}
 
 
 def collect_launches(experiment_folder: Path, metric: str,
@@ -164,6 +158,7 @@ def collect_launches(experiment_folder: Path, metric: str,
 
     Raises:
         FileNotFoundError: If the experiment folder does not exist, e.g. before the first launch.
+        ValueError: If a launch has test curves but none of the metric.
     """
     # The experiment folder is created by the first launch writing into it
     if not experiment_folder.is_dir():
@@ -189,7 +184,12 @@ def collect_launches(experiment_folder: Path, metric: str,
             for evaluated_weights, test_folder_name in TEST_FOLDERS.items():
                 if evaluated_weights == "ema" and not settings["exponential_moving_average"]:
                     continue
-                evaluations = read_test_metric(test_folder=run_folder / "Tensorboard" / test_folder_name, metric=metric)
+                test_folder = run_folder / "Tensorboard" / test_folder_name
+                test_curves = read_test_curves(test_folder=test_folder)
+                if test_curves and metric not in test_curves:
+                    raise ValueError(f"No {metric} test curve in {format_path_link(path=test_folder)}, available "
+                                     f"curves : {', '.join(test_curves)}")
+                evaluations = test_curves[metric] if test_curves else {}
                 finished = configuration["ExperimentConfiguration"]["number_iterations"] in evaluations
                 launches.append({"launch": launch_folder.name, "evaluations": evaluations, "finished": finished,
                                  "settings": {**settings, EVALUATED_WEIGHTS_COLUMN: evaluated_weights},

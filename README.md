@@ -888,6 +888,32 @@ uv run python -m scripts.evaluation.collect_experiment_results
 
 The file has one row per launch, in launch order (every repeat launch right after its original one: `run_23`, `run_23b`, `run_23c`, `run_24`): the launch, the metric at every evaluated iteration, the mean of these values, the mean of the values at the last `number_last_evaluations` iterations evaluated in the experiment (`<metric>_last_<n>_mean`, which leaves out how fast a launch starts), `finished` (evaluated at its last iteration), the swept settings (`SWEPT_SETTINGS`: learning rate, augmentation, global pooling, residual connections and their pre-activation placement, squeeze and excitation, normalization of the fully connected head, batch normalization momentums of the backbone and of the head, feature map normalization, mixed precision, moving average of the weights, class weighting and dropout rate) and the run folder. The launches of the same settings, repeat launches included, are grouped and followed by a `mean` row averaging them. A launch still training has empty cells for the iterations not evaluated yet, so the file can be written again at any time.
 
+### Comparing The Best Evaluations Of Runs
+`scripts/evaluation/compare_best_evaluations.py` prints Markdown tables comparing the best test evaluation of trained runs, e.g. one dataset at two image sizes or two datasets with the same settings. For every run, the best evaluation is the one with the best value of a test curve over the trained weights (`Tensorboard/Test`) and the averaged weights (`Tensorboard/Test_EMA`). Set in its main block:
+- `experiment_folders`: experiment folders (every subfolder holding a `training_configuration.yaml` is a run) or run folders.
+- `best_metric` and `higher_is_better`: the test curve choosing the best evaluation, e.g. `"Balanced Accuracy"`, `"Macro F1"`.
+- `evaluated_weights`: `["trained", "ema"]`, or one of them; the best iteration ends with ` (EMA)` when the averaged weights win, and a tie keeps the first weights of the list, then the earliest iteration.
+- `columns`, in their order of appearance:
+  - `experiment`, `run`, `best_iteration`;
+  - a test curve at the best evaluation, `{class}` giving one column per class having the curve: `"Balanced Accuracy"`, `"Recall/{class}"`, `"F1/{class}"`;
+  - a setting of `training_configuration.yaml`: `"configuration:Data.image_settings.size"`, `"configuration:ExperimentConfiguration.learning_rate"`;
+  - a count of `data.json`: `"<split>_<unit>"` for the total of the split and `"<split>_<unit>/{class}"` per class, the split being `train`, `validation` or `test` and the unit `images`, `annotations`, `sequences`, `frames` or `pairs` ([Run Folder](#run-folder)). The runs written before the classes were counted are counted from the `labels.json` of their splits with their label mapping, after checking the SHA-256 of these files against `data.json`.
+- `column_titles`: the title of a column, `{class}` replaced by the class name, e.g. `{"Recall/{class}": "Recall {class}"}`; the other columns are titled by themselves.
+- `table_grouping`: `"run"` for one table per run, `"columns"` for one table gathering the runs of the same column titles (the same classes).
+- `number_decimals` of the curve values, and `output_path`, a Markdown file receiving the tables, `None` to only print them.
+
+```bash
+uv run python -m scripts.evaluation.compare_best_evaluations
+```
+
+```text
+| Image Size | Best Iteration | Balanced Accuracy | Recall empty_bin | Recall not_empty | Validation Images | Validation empty_bin | Validation not_empty | Train Images | Train empty_bin | Train not_empty |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 512 | 200 | 0.898 | 0.946 | 0.850 | 18,702 | 5,060 | 13,642 | 43,577 | 11,772 | 31,805 |
+```
+
+A run not evaluated yet is printed in yellow and left out. A missing curve or count stops the script with the available ones.
+
 ## Deployment
 
 ### Export
