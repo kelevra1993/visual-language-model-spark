@@ -191,9 +191,9 @@ Every class gives its index, its name, the manifest categories the label mapping
 |---|---|
 | CLS, SSL | `images`: the images of the class; a multi-label image counts once for each of its classes, so the counts can add up to more than the images |
 | DET, INS, KPT | `images`: the images holding at least one object of the class; `annotations`: its objects |
-| SEG | None, the classes being in the masks |
+| SEG | `images`: the masks holding the class, from the `category_ids` of every sample of `labels.json`; none for a manifest without them |
 | M2O | `sequences`: the sequences of the class |
-| M2M, SEL | `frames`: the frames of the class; the frames of an unmapped category, which the frame selection gives to the unselected class, are not counted |
+| M2M, SEL | `frames`: the frames of the class; the frame selection counts the frames of the categories its label mapping leaves out in the unselected class, as its loader does |
 | CMP | `pairs`: the pairs of the class |
 
 A task without class names (an SSL dataset without categories) writes `"classes": null`. The runs written before the classes were counted hold `class_names` instead, still read when they are a source run.
@@ -564,7 +564,7 @@ The sample images show the same test images at every evaluation: the ground trut
 ### Semantic Segmentation (SEG)
 The segmenter predicts the class of every pixel. The backbone is the encoder of a U-Net: the decoder upsamples its last feature map level by level, each level merging the skip connection of a backbone block.
 
-**Data.** Every split holds its images in `data/`, their masks in `masks/` and lists both in `labels.json`. A mask is a single-channel uint8 PNG of the size of its image, every pixel holding the category identifier of the image pixel: 0 for the background, 255 for the unlabelled pixels, ignored by the losses and the metrics.
+**Data.** Every split holds its images in `data/`, their masks in `masks/` and lists both in `labels.json`. A mask is a single-channel uint8 PNG of the size of its image, every pixel holding the category identifier of the image pixel: 0 for the background, 255 for the unlabelled pixels, ignored by the losses and the metrics. The optional `category_ids` of a sample list the categories present in its mask; the loader does not read them, `data.json` counts the masks of every class from them ([Run Folder](#run-folder)), and the synthetic generator writes them.
 
 ```text
 <split>/
@@ -578,7 +578,7 @@ The segmenter predicts the class of every pixel. The backbone is the encoder of 
 ```json
 {
   "categories": [{"id": 1, "name": "car"}, {"id": 2, "name": "road"}],
-  "samples": [{"id": 1, "file_name": "image_001.png", "mask_file_name": "image_001.png"}]
+  "samples": [{"id": 1, "file_name": "image_001.png", "mask_file_name": "image_001.png", "category_ids": [1, 2]}]
 }
 ```
 

@@ -1700,7 +1700,8 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
 
     Returns:
         List[Dict[str, Any]]: For every image, its 'index', 'file_name' and list of (category, box) 'objects', the
-            keypoint detection objects being (category, box, keypoints), and for the instance segmentation its
+            keypoint detection objects being (category, box, keypoints), for the semantic segmentation the
+            'mask_category_ids' of the categories visible in its mask, and for the instance segmentation its
             'segmentations', the uncompressed run length encoding of the visible part of every object, the box of every
             object being the box of that part (see keep_visible_objects).
     """
@@ -1715,10 +1716,13 @@ def generate_image_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
         file_name = f"{chunk['split_name']}_{image_index:06d}.png"
         cv2.imwrite(filename=os.path.join(chunk["data_folder"], file_name), img=image)
 
-        # The mask of a segmentation image is saved under the same name in the masks folder
+        image_record = {"index": image_index, "file_name": file_name, "objects": objects}
+
+        # The mask of a segmentation image is saved under the same name in the masks folder, with the categories
+        # visible in it, a shape hidden by the later shapes being absent from the mask
         if chunk["masks_folder"] is not None:
             cv2.imwrite(filename=os.path.join(chunk["masks_folder"], file_name), img=class_map)
-        image_record = {"index": image_index, "file_name": file_name, "objects": objects}
+            image_record["mask_category_ids"] = [int(value) for value in np.unique(class_map) if value > 0]
 
         # Detection, instance segmentation and keypoint detection: the objects hidden by the later objects are left
         # out, the instance segmentation keeping the visible part of every other object
@@ -1910,10 +1914,13 @@ def build_segmentation_labels(image_records: List[Dict[str, Any]], split_name: s
         Dict[str, Any], Dict[str, int]]:
     """
     Assembles the 'labels.json' manifest of a synthetic semantic segmentation split, read by the segmentation loader:
-    every image has its class mask under the same file name in the 'masks' folder.
+    every image has its class mask under the same file name in the 'masks' folder, and the 'category_ids' of the
+    categories visible in that mask, from which the record of the data of a run counts the masks of every class
+    (data_record.py).
 
     Args:
-        image_records (List[Dict[str, Any]]): The 'index', 'file_name' and (category, box) 'objects' of every image.
+        image_records (List[Dict[str, Any]]): The 'index', 'file_name', (category, box) 'objects' and
+            'mask_category_ids' of every image.
         split_name (str): The name of the split, written in the description.
 
     Returns:
@@ -1926,7 +1933,7 @@ def build_segmentation_labels(image_records: List[Dict[str, Any]], split_name: s
     samples = []
     for record in image_records:
         samples.append({"id": record["index"] + 1, "file_name": record["file_name"],
-                        "mask_file_name": record["file_name"]})
+                        "mask_file_name": record["file_name"], "category_ids": record["mask_category_ids"]})
         for category_identifier, _ in record["objects"]:
             class_counts[category_names[category_identifier]] += 1
 

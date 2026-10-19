@@ -103,26 +103,36 @@ def build_split_record(split_data_folder: str | Path) -> Dict[str, Any]:
             "images": images}
 
 
-def map_categories_to_classes(categories: List[Dict[str, Any]], label_dictionary: Dict[Any, int],
-                              label_mode: str) -> Dict[Any, int]:
+def map_categories_to_classes(categories: List[Dict[str, Any]], label_dictionary: Dict[Any, int], label_mode: str,
+                              unmapped_class_index: Optional[int]) -> Dict[Any, int]:
     """
     Gives the class index of every manifest category for the counts of the classes of the record of the data, the way
     the data loaders map them: through the label dictionary in multi-class mode, every category being the foreground
-    in binary mode. The categories the label dictionary does not map are left out, as the loaders leave them out.
+    in binary mode. The categories the label dictionary does not map are left out, as the loaders leave them out,
+    except for the frame selection, whose loader gives their frames to the unselected class.
 
     Args:
         categories (List[Dict[str, Any]]): The 'id' and 'name' of every category of the manifests of the run.
         label_dictionary (Dict[Any, int]): The class index of every raw category identifier.
         label_mode (str): The 'Data.label_mapping.mode' of the run, "binary" or "multi_class".
+        unmapped_class_index (Optional[int]): The class given to the categories the label dictionary does not map (the
+            unselected class of the frame selection), None to leave them out.
 
     Returns:
-        Dict[Any, int]: The class index of every mapped category identifier.
+        Dict[Any, int]: The class index of every counted category identifier.
     """
     # Binary mode: every category of the manifest is the foreground class
     if label_mode == "binary":
         return {category["id"]: label_dictionary["foreground"] for category in categories}
-    return {category["id"]: label_dictionary[category["id"]] for category in categories
-            if category["id"] in label_dictionary}
+
+    # Multi-class mode: the class of the label dictionary, or the class of the unmapped categories when there is one
+    category_classes = {}
+    for category in categories:
+        if category["id"] in label_dictionary:
+            category_classes[category["id"]] = label_dictionary[category["id"]]
+        elif unmapped_class_index is not None:
+            category_classes[category["id"]] = unmapped_class_index
+    return category_classes
 
 
 def count_manifest_classes(labels: Dict[str, Any], category_classes: Dict[Any, int]) -> Dict[str, Counter]:
@@ -132,9 +142,10 @@ def count_manifest_classes(labels: Dict[str, Any], category_classes: Dict[Any, i
     detection, instance segmentation and keypoints, the 'images' of the class for the samples of the classification
     and self-supervised tasks (once per class of an image for the multi-label classification), the 'sequences' of
     the class (sequence classification) and the 'frames' of the class (sequence labelling and frame selection) for the
-    sequences, and the 'pairs' of the class for the sequence comparison. A unit is only counted when the manifest
-    gives its categories, so that the samples of the semantic segmentation, whose classes are in the masks, and of an
-    unlabelled self-supervised dataset have no count.
+    sequences, and the 'pairs' of the class for the sequence comparison. The samples of the semantic segmentation
+    count the masks holding the class from the 'category_ids' of every sample. A unit is only counted when the
+    manifest gives its categories, so that a segmentation manifest without 'category_ids' and an unlabelled
+    self-supervised dataset have no count.
 
     Args:
         labels (Dict[str, Any]): The content of the 'labels.json' of the split.
@@ -154,7 +165,8 @@ def count_manifest_classes(labels: Dict[str, Any], category_classes: Dict[Any, i
         return {"images": Counter(class_index for _, class_index in set(annotation_classes)),
                 "annotations": Counter(class_index for _, class_index in annotation_classes)}
 
-    # Samples: the class of every image, or each of its classes once for the multi-label classification
+    # Samples: the class of every image, or each of its classes once for the multi-label classification and the masks
+    # of the semantic segmentation
     if "samples" in labels:
         if not any("category_id" in sample or "category_ids" in sample for sample in labels["samples"]):
             return {}
@@ -187,6 +199,7 @@ def count_manifest_classes(labels: Dict[str, Any], category_classes: Dict[Any, i
 
 
 def build_class_records(class_names: List[str], label_dictionary: Dict[Any, int], label_mode: str,
+                        unmapped_class_index: Optional[int],
                         split_data_folders: Dict[str, str | Path]) -> List[Dict[str, Any]]:
     """
     Describes the classes of a run for the record of its data ('classes' of 'data.json'): the index and name of every
@@ -198,6 +211,8 @@ def build_class_records(class_names: List[str], label_dictionary: Dict[Any, int]
         class_names (List[str]): The class names of the run, in class index order (BaseTrainer.list_class_names).
         label_dictionary (Dict[Any, int]): The class index of every raw category identifier.
         label_mode (str): The 'Data.label_mapping.mode' of the run, "binary" or "multi_class".
+        unmapped_class_index (Optional[int]): The class given to the categories the label dictionary does not map
+            (BaseTrainer.get_unmapped_class_index), None to leave them out.
         split_data_folders (Dict[str, str | Path]): The root folder of every split, containing a 'labels.json'.
 
     Returns:
@@ -213,7 +228,8 @@ def build_class_records(class_names: List[str], label_dictionary: Dict[Any, int]
         for category in labels["categories"]:
             merged_categories.setdefault(category["id"], category)
     category_classes = map_categories_to_classes(categories=list(merged_categories.values()),
-                                                 label_dictionary=label_dictionary, label_mode=label_mode)
+                                                 label_dictionary=label_dictionary, label_mode=label_mode,
+                                                 unmapped_class_index=unmapped_class_index)
 
     # Counts of every split, the units of all the splits being given to every split
     split_counts = {split_name: count_manifest_classes(labels=labels, category_classes=category_classes)

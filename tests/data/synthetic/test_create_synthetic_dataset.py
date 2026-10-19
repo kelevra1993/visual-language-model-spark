@@ -513,8 +513,9 @@ def test_created_segmentation_dataset_masks_match_the_shapes(tmp_path: Path) -> 
     """
     Verifies the segmentation mode of the generator: every image gets a single-channel mask of its size in 'masks/',
     whose labelled pixels are exactly the pixels of the drawn shapes (every pixel differing from the background
-    colour) with shape categories, a label mapping keeping the category identifiers as classes after the background
-    class 0, and the segmentation dataset loads it with its class names.
+    colour) with shape categories, the 'category_ids' of every sample being the categories visible in its mask, a label
+    mapping keeping the category identifiers as classes after the background class 0, and the segmentation dataset
+    loads it with its class names.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -537,6 +538,9 @@ def test_created_segmentation_dataset_masks_match_the_shapes(tmp_path: Path) -> 
         shape_pixels = np.any(image != colours[np.argmax(counts)], axis=-1)
         assert np.array_equal(mask > 0, shape_pixels)
         assert set(np.unique(mask[mask > 0]).tolist()) <= set(SHAPE_CATEGORIES.values())
+
+        # The categories of the sample are those visible in its mask, from which data.json counts the masks
+        assert sample["category_ids"] == np.unique(mask[mask > 0]).tolist()
 
     # The segmenter predicts the background as class 0: the 35 categories keep their identifiers as classes
     label_mapping = json.loads((tmp_path / "label_mapping.json").read_text())

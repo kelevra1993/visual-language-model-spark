@@ -109,6 +109,11 @@ def test_frame_selection_training_saves_evaluates_and_resumes(tmp_path: Path, ca
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5))
     assert trainer.run_name.startswith("SEL_") and trainer.run_name.endswith("_T6_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1")
     assert trainer.class_names == list(SELECTION_CATEGORIES) and trainer.unselected_class_index == 0
+
+    # Record of the data: the training frames of every class, unselected frames included, as the dataset counts them
+    data_record = json.loads(s=(trainer.experiment_folder / "data.json").read_text())
+    assert [class_record["frames"]["train"] for class_record in data_record["classes"]] == \
+        trainer.train_dataloader.dataset.get_class_counts()
     with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
         trainer.run_training_loop()
     results = report_mock.call_args.kwargs["results"]

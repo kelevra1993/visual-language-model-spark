@@ -98,6 +98,16 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
                                                              unselected_class_index=self.unselected_class_index)
         return loaders
 
+    def get_unmapped_class_index(self) -> Optional[int]:
+        """
+        Gives the unselected class, to which the loaders give the frames of the categories the label mapping does not
+        map, so that the record of the data counts them as unselected frames.
+
+        Returns:
+            Optional[int]: The class index of the unselected frames.
+        """
+        return self.unselected_class_index
+
     def build_model(self) -> TaskModel:
         """
         Builds the frame selector through the classification trainer (with the balanced class weights when asked),

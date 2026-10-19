@@ -318,7 +318,7 @@ test         200 samples ->  13 batches of 16
 ```
 
 ### Step 2.9 — `SegmentationDataset.__init__()` → `build_class_lookup_table()`
-It reads the manifest of the split: every sample gives its image file and its mask file, a single-channel `uint8` PNG of the size of its image whose every pixel holds the category of the image pixel (0 background, 255 unlabelled). It shuffles the samples once and keeps them by identifier for the evaluation outputs. `build_class_lookup_table()` prepares a table of 256 class indices, one per possible mask value, so that a whole mask is converted at once with `table[mask]`: 0 stays the background, 255 becomes the ignored index (-100), and every category becomes the class of the label dictionary (an unmapped category becomes background). No image is read here.
+It reads the manifest of the split: every sample gives its image file and its mask file, a single-channel `uint8` PNG of the size of its image whose every pixel holds the category of the image pixel (0 background, 255 unlabelled). The `category_ids` the generator now writes in every sample (the categories visible in its mask) are not read by the dataset, only by the record of the data (`data.json`). It shuffles the samples once and keeps them by identifier for the evaluation outputs. `build_class_lookup_table()` prepares a table of 256 class indices, one per possible mask value, so that a whole mask is converted at once with `table[mask]`: 0 stays the background, 255 becomes the ignored index (-100), and every category becomes the class of the label dictionary (an unmapped category becomes background). No image is read here.
 
 **Example: a manifest sample, and the first sample after shuffling**
 ```text

@@ -55,6 +55,8 @@ def test_unknown_manifest_format_fails_loudly() -> None:
     ({"samples": [{"id": 1, "category_ids": [1, 2]}, {"id": 2, "category_ids": [2, 3]}, {"id": 3, "category_ids": []}]},
      {"images": {0: 1, 1: 2}}),
     ({"samples": [{"id": 1, "file_name": "1.png", "mask_file_name": "1.png"}]}, {}),
+    ({"samples": [{"id": 1, "mask_file_name": "1.png", "category_ids": [1, 2]},
+                  {"id": 2, "mask_file_name": "2.png", "category_ids": [2]}]}, {"images": {0: 1, 1: 2}}),
     ({"sequences": [{"category_id": 1, "frames": ["0.png", "1.png"]}, {"category_id": 2, "frames": ["2.png"]}]},
      {"sequences": {0: 1, 1: 1}}),
     ({"sequences": [{"frame_category_ids": [1, 1, 9], "frames": ["0.png", "1.png", "2.png"]}]}, {"frames": {0: 2}}),
@@ -64,7 +66,8 @@ def test_classes_counted_in_every_manifest_format(labels: Dict[str, Any], expect
     Verifies the counts of the classes in every manifest format, categories 1 and 2 being classes 0 and 1, category 3
     merged into class 1 and category 9 unmapped: the images holding the class and its annotations for COCO, an image
     counted once per class for the multi-label samples (categories 2 and 3 giving class 1 once), no count for the
-    segmentation samples whose classes are in the masks, the sequences and the frames of the sequences, and the pairs.
+    segmentation samples without the categories of their masks and the masks of every class with them, the sequences
+    and the frames of the sequences, and the pairs.
 
     Args:
         labels (Dict[str, Any]): The labels file of the split.
@@ -81,9 +84,31 @@ def test_binary_mode_maps_every_category_to_the_foreground() -> None:
     """
     categories = [{"id": 1, "name": "car"}, {"id": 2, "name": "person"}]
     assert map_categories_to_classes(categories=categories, label_dictionary={"background": 0, "foreground": 1},
-                                     label_mode="binary") == {1: 1, 2: 1}
+                                     label_mode="binary", unmapped_class_index=None) == {1: 1, 2: 1}
     assert map_categories_to_classes(categories=categories, label_dictionary={"background": 0, 2: 1},
-                                     label_mode="multi_class") == {2: 1}
+                                     label_mode="multi_class", unmapped_class_index=None) == {2: 1}
+
+
+def test_unmapped_frames_are_counted_in_the_unselected_class(tmp_path: Path) -> None:
+    """
+    Verifies the classes of the record of a frame selection run whose label mapping leaves the star out: the loader
+    giving the star frames to the unselected class, the star category is listed and counted in the unselected class.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    labels = {"categories": [{"id": 1, "name": "unselected"}, {"id": 2, "name": "circle"},
+                             {"id": 3, "name": "triangle"}, {"id": 4, "name": "star"}],
+              "sequences": [{"frames": ["0.png", "1.png", "2.png", "3.png", "4.png", "5.png"],
+                             "frame_category_ids": [1, 2, 1, 3, 4, 1]}]}
+    (tmp_path / "train").mkdir()
+    (tmp_path / "train" / "labels.json").write_text(data=json.dumps(obj=labels))
+
+    class_records = build_class_records(class_names=["unselected", "circle", "triangle"],
+                                        label_dictionary={1: 0, 2: 1, 3: 2}, label_mode="multi_class",
+                                        unmapped_class_index=0, split_data_folders={"train": tmp_path / "train"})
+    assert [(class_record["category_ids"], class_record["frames"]) for class_record in class_records] == [
+        ([1, 4], {"train": 4}), ([2], {"train": 1}), ([3], {"train": 1})]
 
 
 def test_class_records_count_every_split(tmp_path: Path) -> None:
@@ -109,7 +134,8 @@ def test_class_records_count_every_split(tmp_path: Path) -> None:
 
     class_records = build_class_records(
         class_names=["background", "car+truck", "person"], label_dictionary={"background": 0, 1: 1, 2: 1, 3: 2},
-        label_mode="multi_class", split_data_folders={split_name: tmp_path / split_name for split_name in split_labels})
+        label_mode="multi_class", unmapped_class_index=None,
+        split_data_folders={split_name: tmp_path / split_name for split_name in split_labels})
     assert class_records == [
         {"class_index": 0, "class_name": "background", "category_ids": [],
          "images": {"train": 0, "validation": 0, "test": 0}, "annotations": {"train": 0, "validation": 0, "test": 0}},

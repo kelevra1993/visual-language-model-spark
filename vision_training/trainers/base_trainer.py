@@ -466,6 +466,17 @@ class BaseTrainer(ABC):
         """
         return None
 
+    def get_unmapped_class_index(self) -> Optional[int]:
+        """
+        Gives the class the loaders give to the categories the label mapping does not map, so that the counts of the
+        classes of the record of the data ('data.json', see save_data_record) are those the model trains on. Only the
+        frame selection gives them a class (its unselected class); the other tasks leave them out.
+
+        Returns:
+            Optional[int]: The class index of the unmapped categories, None when they are left out.
+        """
+        return None
+
     def analyse_training_data(self) -> Dict[str, Path]:
         """
         Analyses the training split against the built model at every launch of a training, before the first
@@ -785,7 +796,8 @@ class BaseTrainer(ABC):
         class_names = self.list_class_names()
         class_records = None if class_names is None else build_class_records(
             class_names=class_names, label_dictionary=self.label_dictionary,
-            label_mode=self.data_configuration["label_mapping"]["mode"], split_data_folders=split_data_folders)
+            label_mode=self.data_configuration["label_mapping"]["mode"],
+            unmapped_class_index=self.get_unmapped_class_index(), split_data_folders=split_data_folders)
         current_record = {"created": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), CLASSES_RECORD_KEY: class_records,
                           "splits": {split_name: self.record_split(split_data_folder=split_data_folder)
                                      for split_name, split_data_folder in split_data_folders.items()}}
