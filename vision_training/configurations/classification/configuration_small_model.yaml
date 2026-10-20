@@ -150,7 +150,7 @@ Data:
     # Number of worker processes reading and resizing the images. They stay alive between epochs and evaluations,
     # each decodes with a single OpenCV thread, and the training, validation and test loaders each have their own
     # workers. 8 workers already feed the GPU of the example models; 0 loads in the main process (debugging).
-    number_workers: 8
+    number_workers: 6
     # Number of batches prepared in advance by every worker.
     prefetch_batches: 2
   image_settings:
@@ -169,7 +169,7 @@ Data:
     activated: True
     # Probability that a training image is augmented at all. Each activated type below is then applied to that
     # image with its own probability. For image sequences, all frames of a sequence share the same augmentation.
-    probability: 0.4
+    probability: 0.3
     # Sequence tasks only (False for the image tasks): draws the photometric augmentations below frame by frame,
     # every frame of an augmented sequence getting its own brightness, noise, colour... while the geometric
     # augmentations stay the same for all its frames, a crop or a rotation per frame making the objects jump.
@@ -184,10 +184,10 @@ Data:
       random_crop: { activated: True, probability: 0.5 }
       # Random Zoom Out : image shrunk to 50% to 100% of each side (same aspect ratio) at a random position of a
       # black canvas of the input size, the objects then appearing smaller than in the dataset
-      random_zoom_out: { activated: False, probability: 0.3 }
+      random_zoom_out: { activated: True, probability: 0.5 }
       # Random Translation : shift along x, y or both (drawn at random) of up to 25% of the image width and
       # height, the uncovered border filled with black
-      random_translation: { activated: False, probability: 0.5 }
+      random_translation: { activated: True, probability: 0.5 }
       # Random Left to Right Flip (mirror)
       random_left_right_flip: { activated: True, probability: 0.5 }
       # Random Up to Down Flip
