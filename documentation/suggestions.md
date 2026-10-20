@@ -44,6 +44,8 @@
 > - a weight per loss of DET and INS in the total loss (`Optimization.loss_weights`, item 6, whose experiment is left);
 > - the decorrelation of the hidden features of the classification head (`ClassificationHead.decorrelation`, item 18,
 >   whose experiment is left);
+> - Barlow Twins and the contrastive loss (SimCLR, or SupCon with the classes) on a second view of every image, added
+>   to the classification loss (`ClassificationHead.view_losses`, item 18, whose experiment is left);
 > - the keypoint candidates placed within their cell by the parabola of the log-heatmap (item 17, whose measure on
 >   COCO is left);
 > - the objects without labelled keypoint left out of the keypoint heatmap loss
@@ -429,6 +431,38 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
     Cost and risk: small to medium. The large run underfits (iterations 110000 to 115000: training accuracy 0.599 with
     the augmentation and the dropout, validation accuracy 0.613), and the papers report regularisation-sized gains, so
     the term may lower the top-1 as well as raise it. Decorrelated features also stay dependent in non-linear ways.
+
+    - **Full Barlow Twins and the contrastive loss on two views, implemented, experiment left to run**
+      (`ClassificationHead.view_losses`): the invariance term needs a second view of every image, which the trainer now
+      draws on the device from the image before its data augmentation (`ViewAugmenter.draw_view`, with the
+      transformations of the self-supervised views). Both views go through the backbone in one pass and the head
+      classifies the images alone. Barlow Twins, with its invariance term, and a contrastive loss compare the final
+      feature maps of both views through a projector per loss, the maps being average pooled by default
+      (`view_losses.global_pooling`): a flattened map differs between two crops of an image, and gave a projector of 75
+      million parameters at 512 pixels. The contrastive loss is the InfoNCE of SimCLR with `positives: "views"`, or
+      SupCon (Khosla et al., NeurIPS 2020, arXiv 2004.11362, its L_out form) with `positives: "classes"`, every view of
+      an image of the same class being a positive too (`compute_info_nce_loss` given the labels). SupCon trains the
+      encoder with this loss first and a linear classifier after it; here it is added to the cross entropy. The
+      projectors are auxiliary heads of the trainer, kept outside the model with their own optimizers and saved in the
+      checkpoints under `auxiliary_heads_state`, so that a loss can be turned on, resized or turned off when a run
+      resumes, without run name token. The predictions and the exports are unchanged.
+    - **Measured scale:** at initialisation, on batches of 32 real training images (CPU, 2026-10-20, temporary
+      script), with an embedding of 2048 features for Barlow Twins and of 128 for the contrastive loss (temperature
+      0.1), every value unweighted with the norm of its gradient on the final feature maps of both views:
+
+      | Configuration | Cross entropy | Barlow Twins | Contrastive, views | Contrastive, classes |
+      |---|---|---|---|---|
+      | Synthetic shapes, 512 pixels, final map 128 x 16 x 16 | 2.21 (0.217) | 2432 (38.4) | 4.24 (0.170) | 6.38 (0.104) |
+      | ImageNet classic, 256 pixels, final map 64 x 8 x 8 | 6.97 (0.234) | 2043 (127.4) | 4.29 (0.375) | 4.26 (0.369) |
+
+      The gradient of Barlow Twins is 177 to 544 times the one of the cross entropy, and the gradient of the
+      contrastive loss 0.5 to 1.6 times, hence the default weights of 0.001 (a fifth to a half of the gradient of the
+      cross entropy) and 0.5 (a quarter to four fifths). The 32 ImageNet images hold 31 classes, so the classes add
+      almost no positive there.
+    - **Experiment:** the classic model with Barlow Twins, with the contrastive loss of the classes, and without view
+      loss, for the same number of iterations, compared on the test top-1, the view losses being turned on after a
+      warm-up of the cross entropy (a resume with them on), as in the VQA result above. The Diagonal Correlation and
+      the Positive Pair Accuracy should rise towards 1 as the views of an image come to agree.
 
 ## I. Selection of training images by embedding clustering
 The items below follow the first runs of `scripts/embedding/cluster_image_embeddings.py` on 2026-10-19: the ficha

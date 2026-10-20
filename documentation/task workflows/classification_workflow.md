@@ -72,6 +72,9 @@ main()
 │               ├── no sequence settings (frame shuffling, sequence normalization), since images have no frames
 │               ├── head:       global pooling (average/max/flatten), hidden layer sizes, dropout and label
 │               │               smoothing in [0, 1), output mode (multi_class/multi_label), class weighting
+│               ├── view losses: pooling, second view transformations, on/off flags, weights, off-diagonal weight
+│               │               and temperature > 0, positives ("classes" needs one class per image), projector
+│               │               layers, and batches of at least 2 images when a view loss is on
 │               └── evaluation: top_k > 0, target_precision in [0, 1], error images only in multi_class mode
 │
 ├── get_trainer_class(task)
@@ -84,8 +87,9 @@ main()
 ├── ClassificationTrainer(experiment_configuration, model_configuration, configuration_path)  [STAGE 2]
 │   │   Receives both dictionaries and the YAML path from main(). Before calling the shared constructor, it stores the
 │   │   classification settings that its hooks read later: output_mode and class_weighting (ClassificationHead), then
-│   │   top_k, target_precision, save_predictions and error_dumps (evaluation). TASK_NAME is "classification"; the base
-│   │   class refuses a configuration of another task.
+│   │   top_k, target_precision, save_predictions and error_dumps (evaluation). With a view loss on
+│   │   (ClassificationHead.view_losses), it also builds the ViewAugmenter of the second views and the pooling of the
+│   │   view losses. TASK_NAME is "classification"; the base class refuses a configuration of another task.
 │   │
 │   └── BaseTrainer.__init__()
 │       │   Does everything that does not depend on the task, in this order: read the settings, pick the device, name
@@ -197,9 +201,15 @@ main()
 │       │       parameter group at learning rate x learning_rate_multiplier. base_learning_rates keeps the starting rate
 │       │       of every group for the schedule. With Optimization.exponential_moving_average.activated, the
 │       │       ExponentialMovingAverage is then created: a copy of the model, never trained, averaging its weights.
+│       ├── build_auxiliary_heads() + create_optimizer()
+│       │       The projector of every view loss turned on, a ProjectionHead reading the final feature map pooled by
+│       │       view_losses.global_pooling, kept outside the model with its own optimizer (the optimizer, learning
+│       │       rate and weight decay of the run). Without view loss the dictionary is empty: nothing is built,
+│       │       trained or saved.
 │       ├── get_tracked_metrics() + MetricTracker.__init__()
 │       │       get_tracked_metrics returns {total_loss, classification_loss, accuracy} with their display names
-│       │       (with decorrelation_loss and hidden_feature_correlation when ClassificationHead.decorrelation is on).
+│       │       (with decorrelation_loss and hidden_feature_correlation when ClassificationHead.decorrelation is on,
+│       │       and the loss and batch metrics of every view loss turned on).
 │       │       MetricTracker stores them with batch_size, validation_iteration_ratio and the kind of sample ("Images"):
 │       │       it will average them over every console interval, print them with their changes and write them to
 │       │       TensorBoard.
@@ -215,11 +225,14 @@ main()
 │       │           images, 1000 categories'. The size of the training split gives the iterations per epoch.
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
 │       │       print_summary always runs: the input and output shape of every backbone block (traced with a dummy
-│       │       image), then the head panel. The two others are switched by diagnosis_modes.compute_receptive_field and
-│       │       compute_model_size: receptive field of every layer, and parameters and size of backbone, head and total.
+│       │       image), then the head panel, followed by the View Losses panel (pooling, second view crop, every loss
+│       │       with its projector) when a view loss is on. The two others are switched by
+│       │       diagnosis_modes.compute_receptive_field and compute_model_size: receptive field of every layer, and
+│       │       parameters and size of backbone, head and total.
 │       ├── view_input_batches()  (only with diagnosis_modes.view_input_images, then exits)
-│       │       Shows an augmented training image next to a validation image, each with its class. ENTER closes the
-│       │       viewer and exit() stops the program before any training; no run folder was created.
+│       │       Shows an augmented training image next to a validation image, each with its class, and the second
+│       │       view of the training image in a third window when a view loss is on. ENTER closes the viewer and
+│       │       exit() stops the program before any training; no run folder was created.
 │       └── restore_last_model()
 │           │   Only called when resume_training is true. Returns the iteration where the loop starts: 1 for a new run,
 │           │   or the last saved iteration + 1 after loading that checkpoint into the model and the optimizer.
@@ -230,7 +243,10 @@ main()
 │           └── load_model() -> load_checkpoint()
 │                   load_checkpoint reads Weights/Iteration_N/model_00000N.pt with torch.load, mapped to the current
 │                   device. load_model puts its model_state in the model and its optimizer_state in the optimizer,
-│                   and restores the moving average of the weights from its exponential_moving_average_state.
+│                   restores the moving average of the weights from its exponential_moving_average_state, and the
+│                   projectors of the view losses with their optimizers from its auxiliary_heads_state: a projector
+│                   missing from it (turned on at this resume) or resized starts from random weights, and a saved
+│                   projector the run no longer has is left out of the next checkpoints, each case being printed.
 │
 └── trainer.run_training_loop()  [STAGE 3]
     │   Runs the iterations (run_training_iterations) and closes the MLflow run whatever ends them: FINISHED, KILLED
@@ -264,8 +280,8 @@ main()
         │   │       Called when the iteration is a multiple of weight_saving_iterations (checkpoint + evaluation) or of
         │   │       intermediate_weight_saving_iterations (checkpoint only), except the last iteration. Writes
         │   │       Weights/Iteration_N/model_00000N.pt (model, optimizer, task, run name, MLflow run, transfer
-        │   │       sources, moving average of the weights when on) through a temporary file, then adds the
-        │   │       iteration to Weights/full-checkpoint.
+        │   │       sources, moving average of the weights when on, projectors of the view losses with their
+        │   │       optimizers when on) through a temporary file, then adds the iteration to Weights/full-checkpoint.
         │   ├── run_test_evaluation()   (every weight_saving_iterations)  -> [STAGE 4]
         │   │       Evaluates the checkpoint that was just saved on the whole test split, then its moving average
         │   │       of the weights when on. Not run for the first iteration of the run. See Stage 4.
@@ -282,8 +298,9 @@ main()
         │   │       Counts the real frames of the batch for the frame throughput of the sequence tasks; nothing for
         │   │       images.
         │   ├── set_training_mode()
-        │   │       model.train(): dropout is active and the batch normalization layers update their statistics.
-        │   │       Needed again after every evaluation and validation, which switch to model.eval().
+        │   │       model.train() and the projectors of the view losses: dropout is active and the batch normalization
+        │   │       layers update their statistics. Needed again after every evaluation and validation, which switch
+        │   │       to model.eval().
         │   ├── run_model_iteration()
         │   │   │   The same function runs a training batch and a validation batch: prepare, augment (training only),
         │   │   │   forward, losses, metrics, tracking. It returns the total loss, which the loop then back-propagates.
@@ -294,11 +311,15 @@ main()
         │   │   ├── augment_batch() -> DataAugmenter.augment_batch()
         │   │   │       Training only. Each image is augmented with probability Data.data_augmentation.probability: the
         │   │   │       geometric types first (crop, flips, rotations), then the photometric ones (brightness, CLAHE,
-        │   │   │       noise, blur...), each type with its own probability. The labels do not change.
+        │   │   │       noise, blur...), each type with its own probability. The labels do not change. With a view loss
+        │   │   │       on, the images before the augmentation are kept as view_source_images for the second views.
         │   │   ├── forward_pass() -> ImageClassifier.forward()
         │   │   │   │   Calls model(input_tensor=images, labels=labels), in bfloat16 when mixed_precision is on.
         │   │   │   │   Returns class_logits [B, K], class_probabilities [B, K] and classification_loss (a scalar,
-        │   │   │   │   since the labels are given).
+        │   │   │   │   since the labels are given). With a view loss on, the ViewAugmenter first draws a second view
+        │   │   │   │   of every image in float32 from view_source_images (from the images themselves for a validation
+        │   │   │   │   batch), both views go through the backbone in one pass, the head classifies the images alone,
+        │   │   │   │   and the final feature maps of both views are returned for compute_view_losses.
         │   │   │   │
         │   │   │   ├── Backbone.forward()
         │   │   │   │       Normalizes the pixels (x / 255 - 0.5 with input_normalization), then runs the image through
@@ -309,13 +330,19 @@ main()
         │   │   │   ├── convert_logits_to_probabilities()
         │   │   │   │       Softmax over the classes in "multi_class" mode (each row sums to 1), independent sigmoids
         │   │   │   │       in "multi_label" mode.
-        │   │   │   └── compute_classification_loss()
-        │   │   │           Cross entropy of the logits against the class indices (with the class weights and the
-        │   │   │           label smoothing), or binary cross entropy with logits against the multi-hot labels in
-        │   │   │           "multi_label" mode.
+        │   │   │   ├── compute_classification_loss()
+        │   │   │   │       Cross entropy of the logits against the class indices (with the class weights and the
+        │   │   │   │       label smoothing), or binary cross entropy with logits against the multi-hot labels in
+        │   │   │   │       "multi_label" mode.
+        │   │   │   └── compute_view_losses()   (with a view loss on)
+        │   │   │           Pools the final feature maps of both views (view_losses.global_pooling), runs every
+        │   │   │           projector on both views together, then compute_barlow_twins_loss and compute_info_nce_loss
+        │   │   │           (the classes of the images giving more positives with positives "classes"), each
+        │   │   │           multiplied by its weight and summed with the classification loss into the total loss.
         │   │   ├── compute_batch_metrics()
         │   │   │       Accuracy of the batch, from the logits already computed (no second forward pass): the share of
-        │   │   │       images whose highest logit is the true class.
+        │   │   │       images whose highest logit is the true class. With a view loss on, the Diagonal and
+        │   │   │       Off-Diagonal Correlation of Barlow Twins and the Positive Pair Accuracy are added.
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
         │   │           accumulate adds each tracked metric of the batch to the sums of the interval and counts the
         │   │           batch. log_to_tensorboard writes each metric of the batch at the current iteration.
@@ -324,8 +351,9 @@ main()
         │   ├── step_optimizer() -> compute_learning_rate_factor()
         │   │       Clips the gradient norm when Optimization.gradient_clipping_norm is set, sets the learning rate of
         │   │       every parameter group to base rate x factor(iteration) (warm-up, then constant or cosine), calls
-        │   │       optimizer.step(), updates the moving average of the weights when on, and writes the learning
-        │   │       rate to TensorBoard.
+        │   │       optimizer.step() and the step of the optimizer of every projector of the view losses (its
+        │   │       gradients clipped on their own), updates the moving average of the weights when on, and writes the
+        │   │       learning rate to TensorBoard.
         │   ├── validation pass: run_model_iteration() without augmentation
         │   │       Every validation_iteration_ratio iterations: model.eval(), no gradients, next validation batch,
         │   │       same run_model_iteration with apply_augmentation=False. Its metrics go to the validation trackers

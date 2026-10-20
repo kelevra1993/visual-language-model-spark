@@ -1,7 +1,8 @@
 """
 Tests of ImageClassifier and of the classification head of vision_training/models/classification: output shapes and
-probabilities, learning a tiny batch, the class weights buffer, the decorrelation loss of the hidden features of the
-head, the global pooling shapes and the head sized by the pooled or flattened feature map.
+probabilities, learning a tiny batch, the class weights buffer, the final feature maps of both views returned for the
+view losses, the decorrelation loss of the hidden features of the head, the global pooling shapes and the head sized by
+the pooled or flattened feature map.
 """
 
 import pytest
@@ -90,6 +91,37 @@ def test_class_weights_buffer_weights_the_loss() -> None:
                                                       weight=torch.tensor(data=[1.0, 2.0, 3.0]))
     assert torch.allclose(input=weighted_loss, other=expected_loss)
     assert "class_weights" in model.state_dict()
+
+
+def test_second_views_give_the_final_feature_maps_of_both_views() -> None:
+    """
+    Verifies that with second views, for the view losses of the trainer, the classifier returns the final feature maps
+    of the images and of their second views, while its logits and classification loss stay those of the images
+    classified alone, the head never reading the second views. The classifier is in evaluation mode, where every image
+    goes through the backbone independently of the others in its batch.
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    model = ImageClassifier(configuration=configuration, device=device, dtype=dtype)
+    model.eval()
+    images = torch.rand(size=(4, 3, 64, 64), generator=torch.Generator().manual_seed(3)) * 255.0
+    second_views = torch.rand(size=(4, 3, 64, 64), generator=torch.Generator().manual_seed(4)) * 255.0
+    labels = torch.tensor(data=[0, 1, 2, 1])
+
+    with torch.no_grad():
+        outputs = model(input_tensor=images, labels=labels)
+        view_outputs = model(input_tensor=images, labels=labels, second_view_tensor=second_views)
+        image_feature_map, _ = model.backbone(input_tensor=images)
+        second_view_feature_map, _ = model.backbone(input_tensor=second_views)
+
+    # The classification of the images is unchanged, the predictions without second views returning no feature map
+    assert "final_feature_map" not in outputs and "second_view_final_feature_map" not in outputs
+    assert torch.allclose(input=view_outputs["class_logits"], other=outputs["class_logits"], atol=1e-5)
+    assert torch.allclose(input=view_outputs["classification_loss"], other=outputs["classification_loss"], atol=1e-6)
+
+    # The final feature maps of both views, those of the backbone run on each view alone
+    assert view_outputs["final_feature_map"].shape == image_feature_map.shape == (4, 32, 8, 8)
+    assert torch.allclose(input=view_outputs["final_feature_map"], other=image_feature_map, atol=1e-5)
+    assert torch.allclose(input=view_outputs["second_view_final_feature_map"], other=second_view_feature_map, atol=1e-5)
 
 
 def build_decorrelated_classifier(activated: bool) -> ImageClassifier:

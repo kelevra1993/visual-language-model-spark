@@ -2,9 +2,11 @@
 ViewAugmenter, the random views of the self-supervised task: every image of a batch is transformed twice, on its
 device, by a random resized crop, flips, a rotation, a colour jitter, a grayscale conversion and a Gaussian blur, each
 drawn independently for every image and every view. The self-supervised model then pulls the two views of an image
-together. Built by the self-supervised trainer from the 'Data.view_augmentation' section, whose values are verified by
-configuration_processing/self_supervised_checks.py. The transformations drawn for every view, with their values, can
-also be described for the information panels of the 'view_input_images' diagnosis mode.
+together. Built by the self-supervised trainer from the 'Data.view_augmentation' section, and by the classification
+trainer from 'ClassificationHead.view_losses.view_augmentation' to draw the second view of every image of the view
+losses of the image classifier, both sections being verified by check_view_augmentation_configuration of
+configuration_processing/common_checks.py. The transformations drawn for every view, with their values, can also be
+described for the information panels of the 'view_input_images' diagnosis mode.
 """
 
 import warnings
@@ -147,8 +149,9 @@ class ViewAugmenter:
     """
     Draws the random views of the images of the self-supervised task on their device (usually the GPU), right before
     the forward pass of every training and validation batch: each image gets two views transformed independently, so
-    that the only thing the two views of an image share is its content. The views are computed in float32 whatever
-    the mixed precision of the forward pass, on float BGR images in [0, 255] like every batch of the framework.
+    that the only thing the two views of an image share is its content. The image classifier draws one view per image
+    with it, the second view of its view losses. The views are computed in float32 whatever the mixed precision of the
+    forward pass, on float BGR images in [0, 255] like every batch of the framework.
     """
 
     def __init__(self, view_augmentation_configuration: Dict[str, Any], image_size: int) -> None:
@@ -164,25 +167,29 @@ class ViewAugmenter:
 
     def draw_view(self, images: torch.Tensor) -> torch.Tensor:
         """
-        Draws one random view of every image of a batch. The kornia colour transformations expect RGB images in [0, 1],
-        so the BGR images are reversed and scaled before the transformations and brought back afterwards.
+        Draws one random view of every image of a batch, in float32 even within the bfloat16 autocast of a mixed
+        precision forward pass, so that the interpolations of the crops and rotations keep their precision: each of the
+        two views of the self-supervised task (create_views), and the second view of every image of the view losses of
+        the image classifier. The kornia colour transformations expect RGB images in [0, 1], so the BGR images are
+        reversed and scaled before the transformations and brought back afterwards.
 
         Args:
             images (torch.Tensor): The [B, 3, H, W] float BGR images in [0, 255].
 
         Returns:
-            torch.Tensor: The [B, 3, H, W] float BGR views in [0, 255].
+            torch.Tensor: The [B, 3, H, W] float32 BGR views in [0, 255].
         """
-        rgb_images = images.flip(dims=(1,)) / MAXIMUM_PIXEL_VALUE
-        rgb_views = self.transformations(input=rgb_images).clamp(min=0.0, max=1.0)
-        return rgb_views.flip(dims=(1,)) * MAXIMUM_PIXEL_VALUE
+        with torch.autocast(device_type=images.device.type, enabled=False):
+            rgb_images = images.to(dtype=torch.float32).flip(dims=(1,)) / MAXIMUM_PIXEL_VALUE
+            rgb_views = self.transformations(input=rgb_images).clamp(min=0.0, max=1.0)
+            return rgb_views.flip(dims=(1,)) * MAXIMUM_PIXEL_VALUE
 
     def create_views(self, images: torch.Tensor, describe_views: bool = False) -> Tuple[
                      torch.Tensor, torch.Tensor, Optional[List[List[List[str]]]]]:
         """
-        Draws the two views of every image of a batch, in float32 even within the bfloat16 autocast of a mixed
-        precision forward pass, so that the interpolations of the crops and rotations keep their precision. The input
-        viewer also asks for the transformations drawn for every view, written in its information panels.
+        Draws the two views of every image of a batch, each in float32 by draw_view even within the bfloat16 autocast
+        of a mixed precision forward pass. The input viewer also asks for the transformations drawn for every view,
+        written in its information panels.
 
         Args:
             images (torch.Tensor): The [B, 3, H, W] float BGR images in [0, 255].
@@ -194,15 +201,12 @@ class ViewAugmenter:
                 of the images, and the description lines of every image for each of the two views (None unless
                 describe_views).
         """
-        with torch.autocast(device_type=images.device.type, enabled=False):
-            float_images = images.to(dtype=torch.float32)
-
-            # Every view is described right after it is drawn, the second view overwriting the kornia parameters
-            view_descriptions = [] if describe_views else None
-            views = []
-            for view_index in range(2):
-                views.append(self.draw_view(images=float_images))
-                if describe_views:
-                    view_descriptions.append(describe_view_transformations(transformations=self.transformations,
-                                                                           number_images=images.shape[0]))
-            return views[0], views[1], view_descriptions
+        # Every view is described right after it is drawn, the second view overwriting the kornia parameters
+        view_descriptions = [] if describe_views else None
+        views = []
+        for view_index in range(2):
+            views.append(self.draw_view(images=images))
+            if describe_views:
+                view_descriptions.append(describe_view_transformations(transformations=self.transformations,
+                                                                       number_images=images.shape[0]))
+        return views[0], views[1], view_descriptions

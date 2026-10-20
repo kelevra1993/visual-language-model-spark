@@ -4,13 +4,17 @@ InfoNCE (SimCLR), where every view must find the view of its own image among all
 Twins, where the cross-correlation of the embedding features of both views must be the identity. Each loss comes with
 the batch metrics tracked by the trainer, and the standard deviation of the normalized embeddings watches the collapse
 of every method. Computed by the self-supervised model in float32, outside the bfloat16 autocast of mixed precision.
-The cross-correlation of Barlow Twins is also the correlation matrix of the decorrelation loss of the image classifier.
+Both losses are also the view losses of the image classifier (models/classification/view_losses.py), whose InfoNCE can
+take the classes of the images, every view of an image of the same class being then a positive too (SupCon). The
+cross-correlation of Barlow Twins is also the correlation matrix of the decorrelation loss of the image classifier.
 """
 
 import torch
 
 from torch.nn import functional as torch_functional
-from typing import Dict
+from typing import Dict, Optional
+
+from vision_training.core.contracts import IGNORED_LABEL_INDEX
 
 # Self-supervised methods of 'ProjectionHead.method'
 SELF_SUPERVISED_METHODS = ["simclr", "barlow_twins"]
@@ -20,21 +24,28 @@ SELF_SUPERVISED_METHODS = ["simclr", "barlow_twins"]
 BARLOW_TWINS_NORMALIZATION_EPSILON = 1e-5
 
 
-def compute_info_nce_loss(first_embeddings: torch.Tensor, second_embeddings: torch.Tensor,
-                          temperature: float) -> Dict[str, torch.Tensor]:
+def compute_info_nce_loss(first_embeddings: torch.Tensor, second_embeddings: torch.Tensor, temperature: float,
+                          labels: Optional[torch.Tensor] = None) -> Dict[str, torch.Tensor]:
     """
     Computes the InfoNCE loss of SimCLR on the embeddings of the two views of a batch of N images, the loss pulling
     the views of the same image together and pushing the views of different images apart. The 2N embeddings are L2
     normalized and compared by cosine similarity, divided by the temperature: every view i is a classification among
     the 2N - 1 other views (its own similarity being masked), whose right answer is the other view of its image, at
     index i + N for a first view and i - N for a second view. The cross-entropy of these 2N classifications is the
-    loss, log(2N - 1) for random embeddings. The share of views whose most similar view is their partner is tracked
-    as the positive pair accuracy.
+    loss, log(2N - 1) for random embeddings. Given the classes of the images, as the contrastive loss of the image
+    classifier with its positives "classes", every view of an image of the same class is a right answer too
+    (supervised contrastive learning, SupCon, Khosla et al. 2020, arXiv 2004.11362): the loss of a view averages the
+    cross-entropy of each of its positives (the L_out form of SupCon), an image without class (IGNORED_LABEL_INDEX)
+    keeping its other view as its only positive, so that images of different classes only give the loss of SimCLR.
+    The share of views whose most similar view is one of their positives is tracked as the positive pair accuracy.
 
     Args:
         first_embeddings (torch.Tensor): The [N, D] embeddings of the first views.
         second_embeddings (torch.Tensor): The [N, D] embeddings of the second views, in the order of the first ones.
         temperature (float): The temperature dividing the cosine similarities, e.g. 0.1.
+        labels (Optional[torch.Tensor]): The [N] class indices of the images, the views of the images of the same
+            class being positives too, or None for SimCLR, the other view of an image being its only positive.
+            Defaults to None.
 
     Returns:
         Dict[str, torch.Tensor]: The scalar 'info_nce_loss', and the 'positive_pair_accuracy' without gradient.
@@ -52,14 +63,30 @@ def compute_info_nce_loss(first_embeddings: torch.Tensor, second_embeddings: tor
         similarity_logits = similarity_logits.masked_fill(mask=self_similarity_mask, value=float("-inf"))
 
         # The partner of the first view i is the second view at i + N, and the partner of the second view i + N is
-        # the first view at i
+        # the first view at i, the only positive of a view without classes
         view_indices = torch.arange(end=number_images, device=embeddings.device)
         partner_indices = torch.cat(tensors=[view_indices + number_images, view_indices], dim=0)
-        info_nce_loss = torch_functional.cross_entropy(input=similarity_logits, target=partner_indices)
+        positive_mask = torch.zeros_like(input=self_similarity_mask)
+        positive_mask[torch.arange(end=2 * number_images, device=embeddings.device), partner_indices] = True
 
-        # Share of the views whose most similar view is their partner
+        # With the classes, every other view of an image of the same class is a positive too, except for the images
+        # without class
+        if labels is not None:
+            view_labels = torch.cat(tensors=[labels, labels], dim=0)
+            same_class_mask = ((view_labels[:, None] == view_labels[None, :]) &
+                               (view_labels[:, None] != IGNORED_LABEL_INDEX))
+            positive_mask = (positive_mask | same_class_mask) & ~self_similarity_mask
+
+        # Cross-entropy of every positive of a view, averaged over its positives, then over the 2N views: the
+        # cross-entropy of the partner alone without classes
+        log_probabilities = torch_functional.log_softmax(input=similarity_logits, dim=1)
+        positive_log_probabilities = log_probabilities.masked_fill(mask=~positive_mask, value=0.0).sum(dim=1)
+        info_nce_loss = -(positive_log_probabilities / positive_mask.sum(dim=1)).mean()
+
+        # Share of the views whose most similar view is one of their positives
         with torch.no_grad():
-            positive_pair_accuracy = (similarity_logits.argmax(dim=1) == partner_indices).float().mean()
+            most_similar_indices = similarity_logits.argmax(dim=1, keepdim=True)
+            positive_pair_accuracy = positive_mask.gather(dim=1, index=most_similar_indices).float().mean()
     return {"info_nce_loss": info_nce_loss, "positive_pair_accuracy": positive_pair_accuracy}
 
 

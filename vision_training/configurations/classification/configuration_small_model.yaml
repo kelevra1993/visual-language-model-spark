@@ -336,6 +336,79 @@ ClassificationHead:
     # Hidden layer whose features are decorrelated, counted from 1 in fully_connected, at most its number of layers
     # when activated.
     hidden_layer: 2
+  # View losses added to the classification loss in training and validation, comparing every image with a second
+  # random view of it: the image goes through the classifier as usual (with the data augmentation of a training
+  # image), and its second view, drawn on the GPU from the image before that augmentation with the transformations of
+  # view_augmentation, goes through the backbone with it. The final feature maps of both views are pooled into their
+  # representations (global_pooling), which the projector of every loss turned on maps to the embeddings the loss
+  # compares: fully connected layers trained with the classifier but kept outside it, never exported nor transferred,
+  # saved in the checkpoints with their own optimizer. The head classifies the images alone, so the predictions and
+  # the exports are unchanged. Every loss is multiplied by its weight and summed with the classification loss into the
+  # total loss, the weighted value being tracked. The view losses give no run name token and can be turned on or off
+  # when a run resumes: a projector turned on starts from random weights, one turned off is left out of the next
+  # checkpoints.
+  view_losses:
+    # Reduction of the final feature map of a view to its representation: "average" or "max" (global pooling, its
+    # channels), or "flatten" (its channels x height x width values, which keep where the features are but differ
+    # between two crops of an image, and make the first layer of every projector much larger).
+    global_pooling: "average"
+    # Random transformations of the second view, those of the views of the self-supervised task, applied to the image
+    # before the data augmentation of the classifier. The view losses teach the backbone to ignore what changes between
+    # the two views, so they must keep what defines the class of the image.
+    view_augmentation:
+      # Crop of a random area (fraction of the image area within scale) and aspect ratio (width / height within
+      # aspect_ratio), resized back to the input size. A crop missing the object of the class leaves nothing to match.
+      random_resized_crop: { scale: [0.2, 1.0], aspect_ratio: [0.75, 1.3333] }
+      # Mirror from left to right.
+      left_right_flip: { probability: 0.5 }
+      # Mirror from top to bottom, for images whose content keeps its meaning upside down.
+      up_down_flip: { probability: 0.0 }
+      # Rotation by a random angle within [-maximum_degrees, maximum_degrees], the uncovered corners filled with black.
+      rotation: { probability: 0.0, maximum_degrees: 0.0 }
+      # Brightness, contrast and saturation scaled by a random factor within [1 - strength, 1 + strength], and the hue
+      # shifted by up to hue (0.5 being half a turn of the hue circle), in a random order drawn for every batch.
+      colour_jitter: { probability: 0.8, brightness: 0.4, contrast: 0.4, saturation: 0.4, hue: 0.1 }
+      # Grayscale conversion, kept on three channels.
+      grayscale: { probability: 0.2 }
+      # Gaussian blur of an odd kernel_size, its sigma drawn within the sigma range.
+      gaussian_blur: { probability: 0.5, kernel_size: 9, sigma: [0.1, 2.0] }
+    # Barlow Twins: the cross-correlation matrix of the embedding features of both views, every feature normalized over
+    # the batch, pushed to the identity, every feature equal on both views (diagonal to 1) and the features decorrelated
+    # (off-diagonal to 0). Tracked as Barlow Twins Loss (weighted), Diagonal Correlation and Off-Diagonal Correlation.
+    # The sampling noise of the correlations of a batch of N images keeps the unweighted loss above about
+    # off_diagonal_weight x D x (D - 1) / N for an embedding of D features.
+    barlow_twins:
+      # Adds the Barlow Twins loss to the classification loss.
+      activated: False
+      # Weight of the Barlow Twins loss, above 0. Unweighted, it starts in the thousands for an embedding of 2048
+      # features, its gradient on the final feature map being 177 (synthetic shapes) to 544 (ImageNet) times the one
+      # of the classification loss at initialisation (batches of 32 images), a fifth to a half of it with 0.001.
+      weight: 0.001
+      # Weight of the off-diagonal terms (redundancy reduction) against the diagonal terms (invariance), above 0.
+      off_diagonal_weight: 0.005
+      # Units of the fully connected layers of the projector, the last one being the embedding size: every layer before
+      # it is linear, batch normalization, ReLU, the last one linear only. Barlow Twins improves with wide embeddings,
+      # the weights and the optimizer state of its projector being saved in every checkpoint.
+      projector: [2048, 2048, 2048]
+    # Contrastive loss, InfoNCE over the 2N views of a batch of N images: every view has to find its positives among
+    # the 2N - 1 other views by cosine similarity divided by the temperature. Tracked as Contrastive Loss (weighted)
+    # and Positive Pair Accuracy (share of the views whose most similar view is one of their positives).
+    contrastive:
+      # Adds the contrastive loss to the classification loss.
+      activated: False
+      # Weight of the contrastive loss, above 0. Unweighted, it starts at about log(2N - 1), its gradient on the final
+      # feature map being 0.5 (synthetic shapes) to 1.6 (ImageNet) times the one of the classification loss at
+      # initialisation (batches of 32 images), a quarter to four fifths of it with 0.5.
+      weight: 0.5
+      # Temperature dividing the cosine similarities, above 0, e.g. 0.1 to 0.5.
+      temperature: 0.1
+      # Positives of a view: "views" (the other view of its image only, SimCLR) or "classes" (also every view of an
+      # image of the same class, supervised contrastive learning, SupCon), "views" with output_mode "multi_label"
+      # when activated.
+      positives: "classes"
+      # Units of the fully connected layers of the projector, the last one being the embedding size, e.g. one hidden
+      # layer and a small embedding as in SimCLR.
+      projector: [2048, 128]
   # Classification head of another training run initialising this run instead of random weights. Its fully_connected
   # layers and fully_connected_normalization must be identical in both runs (the dropout rate and the batch
   # normalization momentum may differ), as well as the size of the vectors it reads. The classes of the source run, read

@@ -46,7 +46,8 @@ def save_classifier_run(run_folder: Path, keep_average: bool,
 
     save_checkpoint(weights_directory=run_folder / "Weights", iteration=3, model=classifier,
                     optimizer=torch.optim.Adam(params=classifier.parameters()), metadata={"task": "classification"},
-                    exponential_moving_average_state=moving_average.state_dict() if keep_average else None)
+                    exponential_moving_average_state=moving_average.state_dict() if keep_average else None,
+                    auxiliary_heads_state=None)
     checkpoint_path = get_checkpoint_file(weights_directory=run_folder / "Weights", iteration=3)
     loaded_configuration: Tuple[Dict[str, Any], Dict[str, Any]] = ({"task": "classification"}, configuration)
     monkeypatch.setattr(target=model_loading, name="load_experiment_configuration",

@@ -2,7 +2,8 @@
 Checks of the configuration sections shared by every task: ExperimentConfiguration, Data, Backbone, the 'pretrained'
 settings of the transferable components and Optimization. Run first by configuration_checker.py, before the checks
 of the task sections, and reused by the task checks (e.g. refusing the sequence settings for the image tasks, the
-error images settings of the classification-like and detection tasks, or the loss weights of the detection tasks).
+error images settings of the classification-like and detection tasks, the loss weights of the detection tasks, or the
+random views of the self-supervised task and of the view losses of the image classifier).
 """
 
 from typing import Any, Dict, List
@@ -24,6 +25,16 @@ IMAGE_CHANNELS = 3
 # Optimizers and learning rate schedules of the 'Optimization' section
 VALID_OPTIMIZERS = ["adam", "adamw", "sgd"]
 VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
+
+# Transformations of the random views drawn with a probability, under '<view augmentation>.<name>.probability'
+VIEW_TRANSFORMATIONS_WITH_PROBABILITY = ["left_right_flip", "up_down_flip", "rotation", "colour_jitter", "grayscale",
+                                         "gaussian_blur"]
+
+# Largest hue shift of the colour jitter of the random views, half a turn of the hue circle
+MAXIMUM_HUE_SHIFT = 0.5
+
+# Largest rotation angle of the random views, in degrees
+MAXIMUM_ROTATION_DEGREES = 180.0
 
 # Name of the component of every section whose 'pretrained' settings initialise it with the one of another run, used
 # in the messages
@@ -478,4 +489,90 @@ def check_loss_weights_configuration(model_configuration: Dict[str, Any], loss_n
               for loss_name, weight in loss_weights.items() if not is_number(value=weight) or weight < 0]
     if not errors and all(weight == 0 for weight in loss_weights.values()):
         errors.append("'Optimization.loss_weights' cannot all be 0, the model would have no loss.")
+    return errors
+
+
+def check_number_range(value: Any, key_path: str, minimum_value: float, maximum_value: float) -> List[str]:
+    """
+    Verifies that a [minimum, maximum] range of the random views (crop scale, aspect ratio, blur sigma) is a list of two
+    numbers in increasing order, strictly above the minimum value and at most the maximum value.
+
+    Args:
+        value (Any): The range read from the configuration.
+        key_path (str): The dotted key path of the range, used in the error message.
+        minimum_value (float): The value both bounds must be strictly above.
+        maximum_value (float): The value both bounds must not exceed.
+
+    Returns:
+        List[str]: A single error description if the range is invalid, otherwise an empty list.
+    """
+    if not isinstance(value, list) or len(value) != 2 or not all(is_number(value=bound) for bound in value) or \
+            not minimum_value < value[0] <= value[1] <= maximum_value:
+        return [f"'{key_path}' must be a list of two numbers [low, high] with {minimum_value:g} < low <= high <= "
+                f"{maximum_value:g}, got {value!r}."]
+    return []
+
+
+def check_view_augmentation_configuration(model_configuration: Dict[str, Any], key_prefix: str) -> List[str]:
+    """
+    Verifies a section of random views drawn by the ViewAugmenter (vision_training/data/view_augmentations.py): the two
+    views of every image of the self-supervised task ('Data.view_augmentation'), or the second view of every image of
+    the view losses of the image classifier ('ClassificationHead.view_losses.view_augmentation'). It checks the area and
+    aspect ratio ranges of the random resized crop, the probability of every other transformation, the largest
+    rotation angle, the strengths of the colour jitter and the kernel size and sigma range of the Gaussian blur, so
+    that kornia receives valid parameters.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model sections.
+        key_prefix (str): The dotted key path of the checked section, e.g. "Data.view_augmentation".
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+
+    # Area of the crop as a fraction of the image, and aspect ratio of the crop
+    errors += check_number_range(value=get_configuration_value(configuration=model_configuration,
+                                                               key_path=f"{key_prefix}.random_resized_crop.scale"),
+                                 key_path=f"{key_prefix}.random_resized_crop.scale", minimum_value=0.0,
+                                 maximum_value=1.0)
+    errors += check_number_range(value=get_configuration_value(
+                                     configuration=model_configuration,
+                                     key_path=f"{key_prefix}.random_resized_crop.aspect_ratio"),
+                                 key_path=f"{key_prefix}.random_resized_crop.aspect_ratio", minimum_value=0.0,
+                                 maximum_value=float("inf"))
+
+    # Probability of every transformation applied to a part of the views
+    for transformation_name in VIEW_TRANSFORMATIONS_WITH_PROBABILITY:
+        key_path = f"{key_prefix}.{transformation_name}.probability"
+        errors += check_probability_value(value=get_configuration_value(configuration=model_configuration,
+                                                                        key_path=key_path), key_path=key_path)
+
+    # Largest rotation angle, in either direction
+    maximum_degrees = get_configuration_value(configuration=model_configuration,
+                                              key_path=f"{key_prefix}.rotation.maximum_degrees")
+    if not is_number(value=maximum_degrees) or not 0.0 <= maximum_degrees <= MAXIMUM_ROTATION_DEGREES:
+        errors.append(f"'{key_prefix}.rotation.maximum_degrees' must be a number within [0, "
+                      f"{MAXIMUM_ROTATION_DEGREES:g}], got {maximum_degrees!r}.")
+
+    # Strengths of the colour jitter, the hue shift being at most half a turn
+    for strength_name in ["brightness", "contrast", "saturation"]:
+        key_path = f"{key_prefix}.colour_jitter.{strength_name}"
+        strength = get_configuration_value(configuration=model_configuration, key_path=key_path)
+        if not is_number(value=strength) or strength < 0.0:
+            errors.append(f"'{key_path}' must be a number >= 0, got {strength!r}.")
+    hue = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.colour_jitter.hue")
+    if not is_number(value=hue) or not 0.0 <= hue <= MAXIMUM_HUE_SHIFT:
+        errors.append(f"'{key_prefix}.colour_jitter.hue' must be a number within [0, {MAXIMUM_HUE_SHIFT:g}], "
+                      f"got {hue!r}.")
+
+    # Odd kernel of the Gaussian blur, centred on its pixel, and its range of sigmas
+    kernel_size = get_configuration_value(configuration=model_configuration,
+                                          key_path=f"{key_prefix}.gaussian_blur.kernel_size")
+    if isinstance(kernel_size, bool) or not isinstance(kernel_size, int) or kernel_size < 3 or kernel_size % 2 == 0:
+        errors.append(f"'{key_prefix}.gaussian_blur.kernel_size' must be an odd integer >= 3, got {kernel_size!r}.")
+    errors += check_number_range(value=get_configuration_value(configuration=model_configuration,
+                                                               key_path=f"{key_prefix}.gaussian_blur.sigma"),
+                                 key_path=f"{key_prefix}.gaussian_blur.sigma", minimum_value=0.0,
+                                 maximum_value=float("inf"))
     return errors

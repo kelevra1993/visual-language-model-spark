@@ -1,51 +1,21 @@
 """
 Checks of the configuration sections specific to the self-supervised task: the data settings (label mapping of the
-k-nearest neighbour evaluation, the views of 'Data.view_augmentation' replacing the data augmentation), the projection
-head with its method (SimCLR or Barlow Twins) and the evaluation settings. Run by configuration_checker.py for the
-self-supervised task.
+k-nearest neighbour evaluation, the views of 'Data.view_augmentation' replacing the data augmentation, checked by
+check_view_augmentation_configuration of common_checks.py, shared with the view losses of the image classifier), the
+projection head with its method (SimCLR or Barlow Twins) and the evaluation settings. Run by configuration_checker.py
+for the self-supervised task.
 """
 
 from typing import Any, Dict, List
 
 from vision_training.configuration_processing.classification_checks import (VALID_GLOBAL_POOLINGS,
                                                                             VALID_HEAD_NORMALIZATIONS)
-from vision_training.configuration_processing.common_checks import check_image_task_sequence_settings
+from vision_training.configuration_processing.common_checks import (check_image_task_sequence_settings,
+                                                                    check_view_augmentation_configuration)
 from vision_training.configuration_processing.configuration_values import (check_batch_normalization_momentum,
                                                                            check_positive_integers,
-                                                                           check_probability_value,
                                                                            get_configuration_value, is_number)
 from vision_training.losses.self_supervised_losses import SELF_SUPERVISED_METHODS
-
-# Transformations of the views drawn with a probability, under 'Data.view_augmentation.<name>.probability'
-VIEW_TRANSFORMATIONS_WITH_PROBABILITY = ["left_right_flip", "up_down_flip", "rotation", "colour_jitter", "grayscale",
-                                         "gaussian_blur"]
-
-# Largest hue shift of the colour jitter, half a turn of the hue circle
-MAXIMUM_HUE_SHIFT = 0.5
-
-# Largest rotation angle of the views, in degrees
-MAXIMUM_ROTATION_DEGREES = 180.0
-
-
-def check_number_range(value: Any, key_path: str, minimum_value: float, maximum_value: float) -> List[str]:
-    """
-    Verifies that a [minimum, maximum] range of the view augmentation (crop scale, aspect ratio, blur sigma) is a list
-    of two numbers in increasing order, strictly above the minimum value and at most the maximum value.
-
-    Args:
-        value (Any): The range read from the configuration.
-        key_path (str): The dotted key path of the range, used in the error message.
-        minimum_value (float): The value both bounds must be strictly above.
-        maximum_value (float): The value both bounds must not exceed.
-
-    Returns:
-        List[str]: A single error description if the range is invalid, otherwise an empty list.
-    """
-    if not isinstance(value, list) or len(value) != 2 or not all(is_number(value=bound) for bound in value) or \
-            not minimum_value < value[0] <= value[1] <= maximum_value:
-        return [f"'{key_path}' must be a list of two numbers [low, high] with {minimum_value:g} < low <= high <= "
-                f"{maximum_value:g}, got {value!r}."]
-    return []
 
 
 def check_self_supervised_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
@@ -78,69 +48,6 @@ def check_self_supervised_data_configuration(model_configuration: Dict[str, Any]
     if get_configuration_value(configuration=model_configuration, key_path="Data.data_augmentation.activated") is True:
         errors.append("'Data.data_augmentation.activated' must be False for the self-supervised task: the random views "
                       "of 'Data.view_augmentation' replace the data augmentation.")
-    return errors
-
-
-def check_view_augmentation_configuration(model_configuration: Dict[str, Any]) -> List[str]:
-    """
-    Verifies the 'Data.view_augmentation' section drawing the two views of every image: the area and aspect ratio
-    ranges of the random resized crop, the probability of every other transformation, the largest rotation angle, the
-    strengths of the colour jitter and the kernel size and sigma range of the Gaussian blur, so that kornia receives
-    valid parameters.
-
-    Args:
-        model_configuration (Dict[str, Any]): The processed model sections.
-
-    Returns:
-        List[str]: The description of every inconsistency found.
-    """
-    errors = []
-    key_prefix = "Data.view_augmentation"
-
-    # Area of the crop as a fraction of the image, and aspect ratio of the crop
-    errors += check_number_range(value=get_configuration_value(configuration=model_configuration,
-                                                               key_path=f"{key_prefix}.random_resized_crop.scale"),
-                                 key_path=f"{key_prefix}.random_resized_crop.scale", minimum_value=0.0,
-                                 maximum_value=1.0)
-    errors += check_number_range(value=get_configuration_value(
-                                     configuration=model_configuration,
-                                     key_path=f"{key_prefix}.random_resized_crop.aspect_ratio"),
-                                 key_path=f"{key_prefix}.random_resized_crop.aspect_ratio", minimum_value=0.0,
-                                 maximum_value=float("inf"))
-
-    # Probability of every transformation applied to a part of the views
-    for transformation_name in VIEW_TRANSFORMATIONS_WITH_PROBABILITY:
-        key_path = f"{key_prefix}.{transformation_name}.probability"
-        errors += check_probability_value(value=get_configuration_value(configuration=model_configuration,
-                                                                        key_path=key_path), key_path=key_path)
-
-    # Largest rotation angle, in either direction
-    maximum_degrees = get_configuration_value(configuration=model_configuration,
-                                              key_path=f"{key_prefix}.rotation.maximum_degrees")
-    if not is_number(value=maximum_degrees) or not 0.0 <= maximum_degrees <= MAXIMUM_ROTATION_DEGREES:
-        errors.append(f"'{key_prefix}.rotation.maximum_degrees' must be a number within [0, "
-                      f"{MAXIMUM_ROTATION_DEGREES:g}], got {maximum_degrees!r}.")
-
-    # Strengths of the colour jitter, the hue shift being at most half a turn
-    for strength_name in ["brightness", "contrast", "saturation"]:
-        key_path = f"{key_prefix}.colour_jitter.{strength_name}"
-        strength = get_configuration_value(configuration=model_configuration, key_path=key_path)
-        if not is_number(value=strength) or strength < 0.0:
-            errors.append(f"'{key_path}' must be a number >= 0, got {strength!r}.")
-    hue = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.colour_jitter.hue")
-    if not is_number(value=hue) or not 0.0 <= hue <= MAXIMUM_HUE_SHIFT:
-        errors.append(f"'{key_prefix}.colour_jitter.hue' must be a number within [0, {MAXIMUM_HUE_SHIFT:g}], "
-                      f"got {hue!r}.")
-
-    # Odd kernel of the Gaussian blur, centred on its pixel, and its range of sigmas
-    kernel_size = get_configuration_value(configuration=model_configuration,
-                                          key_path=f"{key_prefix}.gaussian_blur.kernel_size")
-    if isinstance(kernel_size, bool) or not isinstance(kernel_size, int) or kernel_size < 3 or kernel_size % 2 == 0:
-        errors.append(f"'{key_prefix}.gaussian_blur.kernel_size' must be an odd integer >= 3, got {kernel_size!r}.")
-    errors += check_number_range(value=get_configuration_value(configuration=model_configuration,
-                                                               key_path=f"{key_prefix}.gaussian_blur.sigma"),
-                                 key_path=f"{key_prefix}.gaussian_blur.sigma", minimum_value=0.0,
-                                 maximum_value=float("inf"))
     return errors
 
 
@@ -236,7 +143,8 @@ def check_self_supervised_configuration(experiment_configuration: Dict[str, Any]
     errors = []
     errors += check_self_supervised_data_configuration(model_configuration=model_configuration)
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
-    errors += check_view_augmentation_configuration(model_configuration=model_configuration)
+    errors += check_view_augmentation_configuration(model_configuration=model_configuration,
+                                                    key_prefix="Data.view_augmentation")
     errors += check_projection_head_configuration(model_configuration=model_configuration)
     errors += check_self_supervised_evaluation_configuration(experiment_configuration=experiment_configuration)
     return errors

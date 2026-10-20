@@ -2,9 +2,10 @@
 Tests of the ViewAugmenter of vision_training/data/view_augmentations.py, which draws the two random views of every
 image of the self-supervised trainer before the forward pass: the views keep the shape and the [0, 255] range of the
 BGR images, both views differ, every transformation turned off gives the image back, the BGR channels reach the RGB
-transformations of kornia in the right order, a seed gives the same views, the views stay in float32 under the
-bfloat16 autocast of mixed precision, they describe the transformations drawn for them in the information panels
-of the input viewer, and on the GPU they stay on the device and match the views drawn on the CPU from the same seed.
+transformations of kornia in the right order, a seed gives the same views, the views (and the single view drawn for the
+view losses of the image classifier) stay in float32 under the bfloat16 autocast of mixed precision, they describe the
+transformations drawn for them in the information panels of the input viewer, and on the GPU they stay on the device
+and match the views drawn on the CPU from the same seed.
 """
 
 import copy
@@ -127,14 +128,17 @@ def test_views_follow_the_seed() -> None:
 def test_views_stay_in_float32_under_mixed_precision() -> None:
     """
     Verifies that bfloat16 images within the bfloat16 autocast of a mixed precision forward pass give float32 views,
-    the interpolations of the crops and rotations keeping their precision.
+    the interpolations of the crops and rotations keeping their precision, for the two views of the self-supervised
+    task and for the single view drawn by draw_view, the second view of the view losses of the image classifier.
     """
     images = create_test_images(number_images=2).to(dtype=torch.bfloat16)
     view_augmenter = ViewAugmenter(view_augmentation_configuration=VIEW_AUGMENTATION_CONFIGURATION,
                                    image_size=IMAGE_SIZE)
     with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
         first_views, second_views, _ = view_augmenter.create_views(images=images)
+        single_views = view_augmenter.draw_view(images=images)
     assert first_views.dtype == torch.float32 and second_views.dtype == torch.float32
+    assert single_views.dtype == torch.float32 and single_views.shape == images.shape
 
 
 def test_views_describe_their_drawn_transformations() -> None:

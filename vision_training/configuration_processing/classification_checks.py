@@ -1,21 +1,24 @@
 """
 Checks of the configuration sections specific to the image classification task: the data settings (label mode,
 class weighting), the classification head (global pooling, hidden layers and their normalization, output mode,
-dropout, label smoothing), the decorrelation of its hidden features and the evaluation settings. Run by
-configuration_checker.py for the classification task and reused by the sequence task checks, except the decorrelation,
-a setting of the image classifier only.
+dropout, label smoothing), the decorrelation of its hidden features, its view losses (Barlow Twins and the contrastive
+loss on a second view of every image) and the evaluation settings. Run by configuration_checker.py for the
+classification task and reused by the sequence task checks, except the decorrelation and the view losses, settings of
+the image classifier only.
 """
 
 from typing import Any, Dict, List
 
 from vision_training.configuration_processing.common_checks import (check_error_dumps_configuration,
                                                                     check_image_task_sequence_settings,
-                                                                    check_pretrained_configuration)
+                                                                    check_pretrained_configuration,
+                                                                    check_view_augmentation_configuration)
 from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
                                                                            check_batch_normalization_momentum,
                                                                            check_boolean_flags, check_positive_integers,
                                                                            check_probability_value,
                                                                            get_configuration_value, is_number)
+from vision_training.models.classification.view_losses import CONTRASTIVE_POSITIVES, VIEW_LOSS_NAMES
 
 # Global pooling of the final feature map before the classification head (or the temporal module of the sequence
 # models), or its flattening
@@ -169,6 +172,79 @@ def check_classification_decorrelation_configuration(model_configuration: Dict[s
     return errors
 
 
+def check_classification_view_losses_configuration(experiment_configuration: Dict[str, Any],
+                                                   model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the 'ClassificationHead.view_losses' settings of the image classifier, which adds to its loss Barlow Twins
+    and a contrastive loss comparing every image with a second random view of it: the pooling giving the
+    representation of a view (one of the poolings of the head), the transformations of the second view (the checks of
+    the views of the self-supervised task), and for both losses the on/off flag, a weight above 0 and the layers of the
+    projector, positive integers ending with the embedding size, then the off-diagonal weight of Barlow Twins and the
+    temperature of the contrastive loss above 0, and its positives, "views" or "classes" (the classes needing one class
+    per image when the contrastive loss is on). A view loss on needs batches of at least two images, the losses
+    comparing the images of a batch with each other. The sequence tasks sharing the classification head have no such
+    setting.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration, giving the batch size.
+        model_configuration (Dict[str, Any]): The processed model sections.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    key_prefix = "ClassificationHead.view_losses"
+
+    # Pooling of the final feature map giving the representation of a view, then the transformations of the second view
+    errors = []
+    global_pooling = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.global_pooling")
+    if global_pooling not in VALID_GLOBAL_POOLINGS:
+        errors.append(f"'{key_prefix}.global_pooling' must be one of {VALID_GLOBAL_POOLINGS}, got {global_pooling!r}.")
+    errors += check_view_augmentation_configuration(model_configuration=model_configuration,
+                                                    key_prefix=f"{key_prefix}.view_augmentation")
+    errors += check_boolean_flags(configuration=model_configuration,
+                                  key_paths=[f"{key_prefix}.{loss_name}.activated" for loss_name in VIEW_LOSS_NAMES])
+
+    # Weights of both losses, the off-diagonal weight of Barlow Twins and the temperature of the contrastive loss
+    for key_path in [f"{key_prefix}.barlow_twins.weight", f"{key_prefix}.barlow_twins.off_diagonal_weight",
+                     f"{key_prefix}.contrastive.weight", f"{key_prefix}.contrastive.temperature"]:
+        value = get_configuration_value(configuration=model_configuration, key_path=key_path)
+        if not is_number(value=value) or value <= 0:
+            errors.append(f"'{key_path}' must be a number > 0, got {value!r}.")
+
+    # Layers of every projector, the last one giving the embedding compared by the loss
+    for loss_name in VIEW_LOSS_NAMES:
+        key_path = f"{key_prefix}.{loss_name}.projector"
+        projector = get_configuration_value(configuration=model_configuration, key_path=key_path)
+        if not isinstance(projector, list) or not projector or not all(
+                isinstance(units, int) and not isinstance(units, bool) and units >= 1 for units in projector):
+            errors.append(f"'{key_path}' must be a non-empty list of positive integers, the last one being the "
+                          f"embedding size, got {projector!r}.")
+
+    # Positives of the contrastive loss, the classes of the images needing one class per image when it is on
+    positives = get_configuration_value(configuration=model_configuration,
+                                        key_path=f"{key_prefix}.contrastive.positives")
+    output_mode = get_configuration_value(configuration=model_configuration, key_path="ClassificationHead.output_mode")
+    contrastive_activated = get_configuration_value(configuration=model_configuration,
+                                                    key_path=f"{key_prefix}.contrastive.activated")
+    if positives not in CONTRASTIVE_POSITIVES:
+        errors.append(f"'{key_prefix}.contrastive.positives' must be one of {CONTRASTIVE_POSITIVES}, "
+                      f"got {positives!r}.")
+    elif positives == "classes" and output_mode == "multi_label" and contrastive_activated is True:
+        errors.append(f"'{key_prefix}.contrastive.positives' must be 'views' with 'ClassificationHead.output_mode' "
+                      f"'multi_label' when '{key_prefix}.contrastive.activated' is True: an image with several "
+                      f"classes has no single class whose views are its positives.")
+
+    # Batches of at least two images when a view loss is on, the losses comparing the images of a batch
+    activated_losses = [loss_name for loss_name in VIEW_LOSS_NAMES if get_configuration_value(
+        configuration=model_configuration, key_path=f"{key_prefix}.{loss_name}.activated") is True]
+    batch_size = get_configuration_value(configuration={"ExperimentConfiguration": experiment_configuration},
+                                         key_path="ExperimentConfiguration.batch_size")
+    if activated_losses and isinstance(batch_size, int) and not isinstance(batch_size, bool) and batch_size == 1:
+        errors.append(f"'ExperimentConfiguration.batch_size' must be at least 2 with the view losses "
+                      f"{activated_losses} on: they compare the images of a batch with each other.")
+    return errors
+
+
 def check_classification_evaluation_configuration(experiment_configuration: Dict[str, Any],
                                                   model_configuration: Dict[str, Any]) -> List[str]:
     """
@@ -210,7 +286,8 @@ def check_classification_configuration(experiment_configuration: Dict[str, Any],
                                        model_configuration: Dict[str, Any]) -> List[str]:
     """
     Runs every check specific to the classification task: its data settings, without the sequence settings,
-    its classification head with the decorrelation of its hidden features, and its evaluation settings.
+    its classification head with the decorrelation of its hidden features and its view losses, and its evaluation
+    settings.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -224,6 +301,8 @@ def check_classification_configuration(experiment_configuration: Dict[str, Any],
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
     errors += check_classification_head_configuration(model_configuration=model_configuration)
     errors += check_classification_decorrelation_configuration(model_configuration=model_configuration)
+    errors += check_classification_view_losses_configuration(experiment_configuration=experiment_configuration,
+                                                             model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
     return errors

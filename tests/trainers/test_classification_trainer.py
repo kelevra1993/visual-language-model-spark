@@ -2,8 +2,9 @@
 Smoke tests of ClassificationTrainer of vision_training/trainers/classification_trainer.py on a synthetic dataset:
 multi-class and multi-label training save, evaluate and resume, with the report, the per-class metrics, the
 predictions file, the error images and the sample images checked, the per-class report, the predictions file and the
-sample images can be turned off, a head reading the flattened feature map trains, and the decorrelation of the hidden
-features turned on when a run resumes is tracked and summed into the total loss.
+sample images can be turned off, a head reading the flattened feature map trains, the decorrelation of the hidden
+features turned on when a run resumes is tracked and summed into the total loss, and the view losses turned on,
+resized and turned off when a run resumes are tracked, summed into the total loss and saved with their projectors.
 """
 
 import json
@@ -13,11 +14,12 @@ import yaml
 
 from pathlib import Path, PurePosixPath
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-from typing import Any, Dict
+from typing import Any, Dict, List
 from unittest.mock import patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
+from vision_training.trainers.checkpointing import AUXILIARY_HEADS_STATE_KEY, load_checkpoint
 from vision_training.trainers.classification_trainer import ClassificationTrainer
 from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
                                               check_sample_images, read_predictions_file, read_results_blocks)
@@ -356,5 +358,144 @@ def test_decorrelation_turned_on_when_a_run_resumes(tmp_path: Path, capsys: pyte
             assert total_losses[step] == pytest.approx(expected=classification_losses[step] + decorrelation_loss,
                                                        rel=1e-5)
     console_output = capsys.readouterr().out
+    assert "Error encountered during iteration" not in console_output
+    assert "Critical Error" not in console_output
+
+
+def build_view_losses_settings(barlow_twins_projector: List[int], contrastive_activated: bool) -> Dict[str, Any]:
+    """
+    Writes the 'ClassificationHead' settings of a smoke test turning Barlow Twins on, with the contrastive loss on or
+    off, from the view losses of the synthetic shapes configuration with small projectors.
+
+    Args:
+        barlow_twins_projector (List[int]): The layers of the Barlow Twins projector.
+        contrastive_activated (bool): Whether the contrastive loss is on, with the classes as positives.
+
+    Returns:
+        Dict[str, Any]: The 'view_losses' setting of the head.
+    """
+    view_losses = yaml.safe_load(stream=SYNTHETIC_CONFIGURATION_PATH.read_text())["ClassificationHead"]["view_losses"]
+    view_losses["barlow_twins"].update({"activated": True, "weight": 0.01, "projector": barlow_twins_projector})
+    view_losses["contrastive"].update({"activated": contrastive_activated, "positives": "classes",
+                                       "projector": [16, 8]})
+    return {"view_losses": view_losses}
+
+
+def test_view_losses_turned_on_resized_and_off_when_a_run_resumes(tmp_path: Path,
+                                                                  capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the view losses in a training. A run trained without them resumes in the same run folder (no run name
+    token) with Barlow Twins and the contrastive loss turned on, their projectors starting from random weights: its
+    training and validation batches track both weighted losses with the metrics of their methods, summed with the
+    classification loss into the total loss, and the trained projectors are saved in the checkpoints with their
+    optimizer states. Resumed again with the same settings, the projectors restart from their saved weights and
+    optimizer states. Resumed with a resized Barlow Twins projector and the contrastive loss off, the Barlow Twins
+    projector restarts from random weights and the contrastive projector is left out of the next checkpoints, and
+    resumed with every view loss off the run saves no auxiliary head. No iteration may fail.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 8, "test": 4}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+
+    # Warm-up of the classification loss alone, saved without auxiliary head
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings={},
+        evaluation_settings={}))
+    assert trainer.auxiliary_heads == {} and trainer.auxiliary_optimizers == {}
+    trainer.run_training_loop()
+    checkpoint = load_checkpoint(weights_directory=trainer.weights_directory, iteration=2, device=torch.device("cpu"))
+    assert AUXILIARY_HEADS_STATE_KEY not in checkpoint
+
+    # The same run resumed with both view losses, whose projectors start from random weights
+    view_losses_settings = build_view_losses_settings(barlow_twins_projector=[32, 32, 16], contrastive_activated=True)
+    resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4,
+        head_settings=view_losses_settings, evaluation_settings={}))
+    assert resumed_trainer.experiment_folder == trainer.experiment_folder and resumed_trainer.start_iteration == 3
+    assert ("ClassificationHead.view_losses.barlow_twins.activated", False, True) in \
+        resumed_trainer.configuration_changes["changed_settings"]
+    assert list(resumed_trainer.tracked_metrics_mapping.values()) == [
+        "Total Loss", "Classification Loss", "Barlow Twins Loss", "Diagonal Correlation", "Off-Diagonal Correlation",
+        "Contrastive Loss", "Positive Pair Accuracy", "Accuracy"]
+    console_output = capsys.readouterr().out
+    assert "Representation         : average pooling, 128 features" in console_output
+    for projector_title in ["Barlow Twins Projector", "Contrastive Projector"]:
+        assert (f"The Checkpoint Of Iteration 2 Holds No {projector_title}, It Starts From Random Weights."
+                in console_output)
+    initial_projector_states = {head_name: {key: value.detach().clone() for key, value in head.state_dict().items()}
+                                for head_name, head in resumed_trainer.auxiliary_heads.items()}
+    resumed_trainer.run_training_loop()
+
+    # Both weighted view losses are tracked with their metrics and summed with the classification loss
+    for split_name, expected_steps in [("Train", [3, 4, 5, 6]), ("Validation", [4, 6])]:
+        events = EventAccumulator(path=str(resumed_trainer.tensorboard_directory / split_name))
+        events.Reload()
+        scalars = {tag: {event.step: event.value for event in events.Scalars(tag=tag)}
+                   for tag in ["Total Loss", "Classification Loss", "Barlow Twins Loss", "Diagonal Correlation",
+                               "Contrastive Loss", "Positive Pair Accuracy"]}
+        assert sorted(scalars["Barlow Twins Loss"]) == sorted(scalars["Contrastive Loss"]) == expected_steps
+        for step in expected_steps:
+            assert scalars["Barlow Twins Loss"][step] > 0.0 and scalars["Contrastive Loss"][step] > 0.0
+            assert -1.0 <= scalars["Diagonal Correlation"][step] <= 1.0
+            assert 0.0 <= scalars["Positive Pair Accuracy"][step] <= 1.0
+            assert scalars["Total Loss"][step] == pytest.approx(
+                expected=scalars["Classification Loss"][step] + scalars["Barlow Twins Loss"][step] +
+                scalars["Contrastive Loss"][step], rel=1e-5)
+
+    # The trained projectors are saved with their optimizer states
+    checkpoint = load_checkpoint(weights_directory=trainer.weights_directory, iteration=6, device=torch.device("cpu"))
+    saved_heads = checkpoint[AUXILIARY_HEADS_STATE_KEY]
+    assert sorted(saved_heads) == ["barlow_twins_projector", "contrastive_projector"]
+    for head_name, saved_head in saved_heads.items():
+        assert saved_head["optimizer_state"]["state"]
+        assert any(not torch.equal(input=value, other=initial_projector_states[head_name][key].cpu())
+                   for key, value in saved_head["head_state"].items() if value.is_floating_point())
+
+    # Resumed with the same settings, the projectors restart from their saved weights and optimizer states
+    restarted_trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2,
+        head_settings=view_losses_settings, evaluation_settings={}))
+    console_output = capsys.readouterr().out
+    assert "It Starts From Random Weights" not in console_output and "Is No Longer Trained" not in console_output
+    for head_name, saved_head in saved_heads.items():
+        restored_state = restarted_trainer.auxiliary_heads[head_name].state_dict()
+        assert all(torch.equal(input=restored_state[key].cpu(), other=value)
+                   for key, value in saved_head["head_state"].items())
+        restored_optimizer_state = restarted_trainer.auxiliary_optimizers[head_name].state_dict()
+        assert restored_optimizer_state["state"].keys() == saved_head["optimizer_state"]["state"].keys()
+
+    # Resumed with a resized Barlow Twins projector and the contrastive loss off
+    resized_trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2,
+        head_settings=build_view_losses_settings(barlow_twins_projector=[32, 32, 24], contrastive_activated=False),
+        evaluation_settings={}))
+    console_output = capsys.readouterr().out
+    assert resized_trainer.experiment_folder == trainer.experiment_folder
+    assert ("The Barlow Twins Projector Of The Checkpoint Of Iteration 6 Has Other Layer Sizes, It Starts From Random "
+            "Weights." in console_output)
+    assert ("The Contrastive Projector Of The Checkpoint Of Iteration 6 Is No Longer Trained, It Is Left Out Of The "
+            "Next Checkpoints." in console_output)
+    resized_trainer.run_training_loop()
+    checkpoint = load_checkpoint(weights_directory=trainer.weights_directory, iteration=8, device=torch.device("cpu"))
+    assert list(checkpoint[AUXILIARY_HEADS_STATE_KEY]) == ["barlow_twins_projector"]
+    assert checkpoint[AUXILIARY_HEADS_STATE_KEY]["barlow_twins_projector"]["head_state"][
+        "embedding_layer.weight"].shape == (24, 32)
+
+    # Resumed with every view loss off, the run saves no auxiliary head
+    final_trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings={},
+        evaluation_settings={}))
+    assert final_trainer.auxiliary_heads == {}
+    assert "Barlow Twins Loss" not in final_trainer.tracked_metrics_mapping.values()
+    final_trainer.run_training_loop()
+    checkpoint = load_checkpoint(weights_directory=trainer.weights_directory, iteration=10, device=torch.device("cpu"))
+    assert AUXILIARY_HEADS_STATE_KEY not in checkpoint
+    console_output = capsys.readouterr().out
+    assert "The Barlow Twins Projector Of The Checkpoint Of Iteration 8 Is No Longer Trained" in console_output
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

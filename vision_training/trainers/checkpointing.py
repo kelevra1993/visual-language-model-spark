@@ -24,6 +24,10 @@ CHECKPOINT_REGISTRY_NAME = "full-checkpoint"
 # Key of the exponential moving average of the weights in the checkpoints of the runs that keep one
 EXPONENTIAL_MOVING_AVERAGE_STATE_KEY = "exponential_moving_average_state"
 
+# Key of the auxiliary heads trained with the model but outside it (e.g. the projectors of the view losses of the image
+# classifier), each with its weights and its optimizer state, in the checkpoints of the runs that have some
+AUXILIARY_HEADS_STATE_KEY = "auxiliary_heads_state"
+
 
 def get_checkpoint_file(weights_directory: Path, iteration: int) -> Path:
     """
@@ -113,10 +117,12 @@ def update_checkpoint_registry(weights_directory: Path, iteration: int) -> None:
 
 
 def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, optimizer: torch.optim.Optimizer,
-                    metadata: Dict[str, Any], exponential_moving_average_state: Optional[Dict[str, Any]]) -> Path:
+                    metadata: Dict[str, Any], exponential_moving_average_state: Optional[Dict[str, Any]],
+                    auxiliary_heads_state: Optional[Dict[str, Any]]) -> Path:
     """
     Persists the model weights and optimizer state of a training run, with the exponential moving average of its
-    weights when it keeps one, then records them in the checkpoint registry used to resume the training.
+    weights when it keeps one and its auxiliary heads when it has some, then records them in the checkpoint registry
+    used to resume the training.
 
     The save cannot be interrupted: Ctrl+C is ignored until both the weight file and the registry are written, since
     copying every GPU tensor to the CPU can take a few seconds and a second Ctrl+C during that time would otherwise
@@ -132,6 +138,8 @@ def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, o
         exponential_moving_average_state (Optional[Dict[str, Any]]): The state of the moving average of the weights
             (vision_training/trainers/weight_averaging.py), stored under EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, or None
             for a run without average.
+        auxiliary_heads_state (Optional[Dict[str, Any]]): The weights and optimizer state of every auxiliary head,
+            keyed by its name, stored under AUXILIARY_HEADS_STATE_KEY, or None for a run without auxiliary head.
 
     Returns:
         Path: The folder of the saved checkpoint.
@@ -143,12 +151,14 @@ def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, o
     # Ignore keyboard interrupts while saving, and restore the previous handler once the save is complete
     previous_interrupt_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
     try:
-        # Checkpoint content, with the moving average of the weights of the runs that keep one
+        # Checkpoint content, with the moving average of the weights and the auxiliary heads of the runs that have them
         checkpoint = {"iteration": iteration, "model_state": model.state_dict(),
                       "optimizer_state": optimizer.state_dict(), "format_version": CHECKPOINT_FORMAT_VERSION,
                       **metadata}
         if exponential_moving_average_state is not None:
             checkpoint[EXPONENTIAL_MOVING_AVERAGE_STATE_KEY] = exponential_moving_average_state
+        if auxiliary_heads_state is not None:
+            checkpoint[AUXILIARY_HEADS_STATE_KEY] = auxiliary_heads_state
 
         # Write to a temporary file, then atomically move it to its final name
         torch.save(obj=checkpoint, f=temporary_checkpoint_path)
@@ -173,7 +183,8 @@ def load_checkpoint(weights_directory: Path, iteration: int, device: torch.devic
 
     Returns:
         Dict[str, Any]: The checkpoint, with its 'model_state' and 'optimizer_state' (and, from format version 2, its
-            'task' and 'run_name', and the moving average of the weights of the runs that keep one).
+            'task' and 'run_name', the moving average of the weights of the runs that keep one, and the auxiliary heads
+            of the runs that have some).
     """
     return torch.load(f=get_checkpoint_file(weights_directory=weights_directory, iteration=iteration),
                       map_location=device, weights_only=True)

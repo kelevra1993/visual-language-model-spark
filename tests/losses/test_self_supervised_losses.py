@@ -3,7 +3,9 @@ Tests of the self-supervised losses of vision_training/losses/self_supervised_lo
 model computes on the embeddings of the two views of every image: InfoNCE against the cross-entropy written by hand,
 its value on identical and on random views, Barlow Twins on decorrelated and on collapsed embeddings, both losses in
 float32 under the bfloat16 autocast of mixed precision, and the standard deviation of the embeddings watching the
-collapse.
+collapse. InfoNCE given the classes of the images (SupCon, the contrastive loss of the image classifier) is checked
+against the cross-entropy written by hand, gives the loss of SimCLR when no two images share a class, and counts a view
+of the same class as a found positive.
 """
 
 import math
@@ -12,6 +14,7 @@ import torch
 
 from torch.nn import functional as torch_functional
 
+from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.losses.self_supervised_losses import (compute_barlow_twins_loss,
                                                            compute_embedding_standard_deviation,
                                                            compute_info_nce_loss)
@@ -62,6 +65,73 @@ def test_info_nce_loss_of_identical_and_random_views() -> None:
                                     second_embeddings=torch.randn(size=(8, 4096), generator=generator),
                                     temperature=1.0)
     assert float(outputs["info_nce_loss"]) == pytest.approx(expected=math.log(2 * 8 - 1), abs=0.02)
+
+
+def test_supervised_info_nce_loss_matches_the_cross_entropy_written_by_hand() -> None:
+    """
+    Verifies InfoNCE given the classes of 4 images (classes 0, 1, 0 and 2) against the cross-entropy written by hand:
+    every one of the 8 views is a classification among the 7 other views, whose right answers are the other view of its
+    image and, for the views of class 0, both views of the other image of class 0, the loss of a view averaging the
+    cross-entropy of its positives (3 for the views of class 0, 1 for the others).
+    """
+    generator = torch.Generator().manual_seed(5)
+    first_embeddings = torch.randn(size=(4, 6), generator=generator)
+    second_embeddings = torch.randn(size=(4, 6), generator=generator)
+    labels = torch.tensor(data=[0, 1, 0, 2])
+    temperature = 0.2
+
+    # Average cross-entropy of the positives of every view over the other views
+    embeddings = torch_functional.normalize(input=torch.cat(tensors=[first_embeddings, second_embeddings]), dim=1)
+    view_labels = torch.cat(tensors=[labels, labels]).tolist()
+    expected_losses, positive_counts = [], []
+    for view_index in range(8):
+        other_indices = [other_index for other_index in range(8) if other_index != view_index]
+        logits = torch.stack(tensors=[embeddings[view_index] @ embeddings[other_index] / temperature
+                                      for other_index in other_indices])
+        log_probabilities = torch.log_softmax(input=logits, dim=0)
+        positive_positions = [position for position, other_index in enumerate(other_indices)
+                              if view_labels[other_index] == view_labels[view_index]]
+        expected_losses.append(-log_probabilities[positive_positions].mean())
+        positive_counts.append(len(positive_positions))
+    assert positive_counts == [3, 1, 3, 1, 3, 1, 3, 1]
+
+    outputs = compute_info_nce_loss(first_embeddings=first_embeddings, second_embeddings=second_embeddings,
+                                    temperature=temperature, labels=labels)
+    assert torch.isclose(input=outputs["info_nce_loss"], other=torch.stack(tensors=expected_losses).mean(), atol=1e-6)
+
+
+def test_supervised_info_nce_loss_without_shared_classes_is_the_simclr_loss() -> None:
+    """
+    Verifies that the classes only add positives: images of different classes, or without class, give exactly the loss
+    and the positive pair accuracy of SimCLR, their other view being their only positive.
+    """
+    generator = torch.Generator().manual_seed(6)
+    first_embeddings = torch.randn(size=(5, 8), generator=generator)
+    second_embeddings = torch.randn(size=(5, 8), generator=generator)
+    simclr_outputs = compute_info_nce_loss(first_embeddings=first_embeddings, second_embeddings=second_embeddings,
+                                           temperature=0.1)
+    for labels in [torch.tensor(data=[4, 0, 2, 1, 3]), torch.full(size=(5,), fill_value=IGNORED_LABEL_INDEX)]:
+        outputs = compute_info_nce_loss(first_embeddings=first_embeddings, second_embeddings=second_embeddings,
+                                        temperature=0.1, labels=labels)
+        assert torch.isclose(input=outputs["info_nce_loss"], other=simclr_outputs["info_nce_loss"], atol=1e-6)
+        assert torch.equal(input=outputs["positive_pair_accuracy"], other=simclr_outputs["positive_pair_accuracy"])
+
+
+def test_supervised_positive_pair_accuracy_counts_the_views_of_the_same_class() -> None:
+    """
+    Verifies the positive pair accuracy given the classes: images 0 and 1 of the same class share an embedding, so the
+    most similar view of each of their views is a view of the other image, a positive with the classes and a negative
+    without them, while the views of images 2 and 3, orthogonal to every other image, find their partner either way.
+    """
+    embeddings = torch.tensor(data=[[1.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])
+    second_embeddings = embeddings + torch.tensor(data=[[0.0, 0.1, 0.0], [0.0, 0.0, 0.1], [0.0, 0.0, 0.0],
+                                                         [0.0, 0.0, 0.0]])
+    supervised_outputs = compute_info_nce_loss(first_embeddings=embeddings, second_embeddings=second_embeddings,
+                                               temperature=0.1, labels=torch.tensor(data=[7, 7, 1, 2]))
+    simclr_outputs = compute_info_nce_loss(first_embeddings=embeddings, second_embeddings=second_embeddings,
+                                           temperature=0.1)
+    assert float(supervised_outputs["positive_pair_accuracy"]) == 1.0
+    assert float(simclr_outputs["positive_pair_accuracy"]) < 1.0
 
 
 def test_barlow_twins_loss_of_decorrelated_and_collapsed_embeddings() -> None:

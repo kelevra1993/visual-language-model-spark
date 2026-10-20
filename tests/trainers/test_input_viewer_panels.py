@@ -2,7 +2,8 @@
 Tests of the information panels written by the trainers for the input viewer ('view_input_images'), the viewer itself
 being replaced by a recorder of its arguments: the object detection panels count the objects per class and name the
 objects removed by the augmentations, the panels of a pair of sequences give the real frames and the shuffled order of
-every member, the self-supervised panels describe the transformations drawn for each view, and the keypoint
+every member, the self-supervised panels describe the transformations drawn for each view, the classification panels
+add the second view of the view losses drawn from the image before its augmentation, and the keypoint
 panels count the objects per class and their keypoints by visibility, the flipped training image moving the keypoints
 without renaming them. The trainers are created without their datasets, only the attributes read by
 show_input_samples being set.
@@ -14,6 +15,7 @@ import torch
 
 from typing import Any, Dict, List
 
+import vision_training.trainers.classification_trainer as classification_trainer_module
 import vision_training.trainers.detection_trainer as detection_trainer_module
 import vision_training.trainers.keypoint_trainer as keypoint_trainer_module
 import vision_training.trainers.self_supervised_trainer as self_supervised_trainer_module
@@ -21,6 +23,7 @@ import vision_training.trainers.sequence_classification_trainer as sequence_clas
 from vision_training.data.augmentations import AUGMENTATION_TYPES, MAXIMUM_TRANSLATION_FRACTION, DataAugmenter
 from vision_training.data.view_augmentations import ViewAugmenter
 from vision_training.utilities.visualization import KEYPOINT_SIDE_COLOURS, build_class_colours
+from vision_training.trainers.classification_trainer import ClassificationTrainer
 from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.trainers.keypoint_trainer import KeypointTrainer
 from vision_training.trainers.self_supervised_trainer import SelfSupervisedTrainer
@@ -177,6 +180,45 @@ def test_self_supervised_panels_describe_the_transformations_of_each_view(monkey
     assert viewer_recorder.arguments["panel_lines"] == [
         ["Class : square", "", "View transformations",
          "  random_resized_crop : 32x32 pixels at x 0, y 0 (100 % of the area)"]] * 2
+
+
+def test_classification_panels_show_the_second_view_of_the_view_losses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies the panels of the classification input viewer with a view loss on: a third window shows the second view
+    of the training image with the transformations drawn for it, drawn from the image before the data augmentation, so
+    that a training image flipped by the augmentation keeps an unflipped second view when the view crops the whole
+    image without any other transformation.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the viewer.
+    """
+    trainer = ClassificationTrainer.__new__(ClassificationTrainer)
+    trainer.data_augmenter = build_augmenter(enabled_types=["random_left_right_flip"])
+    trainer.view_losses_activated = True
+    trainer.view_augmenter = ViewAugmenter(view_augmentation_configuration={
+        "random_resized_crop": {"scale": [1.0, 1.0], "aspect_ratio": [1.0, 1.0]},
+        "left_right_flip": {"probability": 0.0}, "up_down_flip": {"probability": 0.0},
+        "rotation": {"probability": 0.0, "maximum_degrees": 0.0},
+        "colour_jitter": {"probability": 0.0, "brightness": 0.4, "contrast": 0.4, "saturation": 0.4, "hue": 0.1},
+        "grayscale": {"probability": 0.0},
+        "gaussian_blur": {"probability": 0.0, "kernel_size": 5, "sigma": [0.1, 2.0]}}, image_size=32)
+    trainer.class_names, trainer.output_mode, trainer.input_image_size = ["circle", "square"], "multi_class", 32
+    viewer_recorder = ViewerRecorder()
+    monkeypatch.setattr(target=classification_trainer_module, name="view_input_data", value=viewer_recorder)
+
+    # A training batch flipped by the data augmentation, the images being kept before it for the second views
+    batch = {"images": torch.rand(size=(2, 3, 32, 32), generator=torch.Generator().manual_seed(0)) * 255.0,
+             "labels": torch.tensor(data=[0, 1])}
+    training_batch = trainer.augment_batch(batch=batch)
+    assert torch.equal(input=training_batch["images"][1], other=batch["images"][1].flip(dims=(2,)))
+    assert trainer.show_input_samples(training_batch=training_batch, validation_batch=batch, sample_index=1)
+
+    # The second view of the unflipped image in a third window, with the class and the transformations of the view
+    assert viewer_recorder.arguments["window_titles"] == ["Training", "Validation", "Second View"]
+    assert viewer_recorder.arguments["panel_lines"][2] == [
+        "Class : square", "", "View transformations",
+        "  random_resized_crop : 32x32 pixels at x 0, y 0 (100 % of the area)"]
+    assert torch.allclose(input=viewer_recorder.arguments["images"][2], other=batch["images"][1], atol=1e-2)
 
 
 def test_keypoint_panels_count_the_keypoints_of_the_flipped_image(monkeypatch: pytest.MonkeyPatch) -> None:

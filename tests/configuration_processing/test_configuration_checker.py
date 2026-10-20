@@ -739,6 +739,45 @@ def decorrelate_a_missing_hidden_layer(configuration: Dict[str, Any]) -> None:
     configuration["ClassificationHead"]["decorrelation"] = {"activated": True, "weight": 0.01, "hidden_layer": 2}
 
 
+def set_invalid_view_losses(configuration: Dict[str, Any]) -> None:
+    """
+    Writes an unknown pooling of the view losses and a crop of the second views from an empty area, the Barlow Twins
+    flag as a quoted string with weights of 0 and a projector layer of zero units, and a contrastive loss with a
+    negative temperature, unknown positives and an empty projector.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    view_losses = configuration["ClassificationHead"]["view_losses"]
+    view_losses["global_pooling"] = "median"
+    view_losses["view_augmentation"]["random_resized_crop"]["scale"] = [0.0, 1.0]
+    view_losses["barlow_twins"].update({"activated": "yes", "weight": 0, "off_diagonal_weight": 0, "projector": [0]})
+    view_losses["contrastive"].update({"temperature": -0.1, "positives": "images", "projector": []})
+
+
+def contrast_the_classes_of_multi_label_images(configuration: Dict[str, Any]) -> None:
+    """
+    Turns the contrastive loss on with the classes as positives, for images of several classes.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["output_mode"] = "multi_label"
+    configuration["ClassificationHead"]["view_losses"]["contrastive"].update({"activated": True,
+                                                                             "positives": "classes"})
+
+
+def compare_the_views_of_single_image_batches(configuration: Dict[str, Any]) -> None:
+    """
+    Turns Barlow Twins on with batches of a single image.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["batch_size"] = 1
+    configuration["ClassificationHead"]["view_losses"]["barlow_twins"]["activated"] = True
+
+
 @pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
                                                                    "configuration_synthetic_shapes.yaml"])
 def test_classification_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
@@ -784,6 +823,37 @@ def test_decorrelation_of_a_hidden_layer_is_accepted(tmp_path: Path) -> None:
                                                                           "hidden_layer": 2}
 
 
+def compare_the_max_pooled_views_with_both_losses(configuration: Dict[str, Any]) -> None:
+    """
+    Turns both view losses on, the contrastive loss with the other view of an image as its only positive, on the max
+    pooled final feature maps.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    view_losses = configuration["ClassificationHead"]["view_losses"]
+    view_losses["global_pooling"] = "max"
+    view_losses["barlow_twins"]["activated"] = True
+    view_losses["contrastive"].update({"activated": True, "positives": "views"})
+
+
+def test_view_losses_are_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that a classification configuration turning both view losses on passes the checks.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=compare_the_max_pooled_views_with_both_losses)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    view_losses = model_configuration["ClassificationHead"]["view_losses"]
+    assert (view_losses["global_pooling"], view_losses["barlow_twins"]["activated"],
+            view_losses["contrastive"]["activated"], view_losses["contrastive"]["positives"]) == ("max", True, True,
+                                                                                                 "views")
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_negative_number_workers, ["'Data.loading.number_workers' must be an integer >= 0, got -1."]),
     (use_binary_labels, ["'Data.label_mapping.mode' must be 'multi_class' for the classification tasks"]),
@@ -821,7 +891,30 @@ def test_decorrelation_of_a_hidden_layer_is_accepted(tmp_path: Path) -> None:
                                  "'ClassificationHead.decorrelation.hidden_layer' must be an integer >= 1, got 0."]),
     (decorrelate_a_missing_hidden_layer, ["'ClassificationHead.decorrelation.hidden_layer' must be at most the number "
                                           "of hidden layers of 'ClassificationHead.fully_connected' (1) when "
-                                          "'ClassificationHead.decorrelation.activated' is True, got 2."])])
+                                          "'ClassificationHead.decorrelation.activated' is True, got 2."]),
+    (set_invalid_view_losses, ["'ClassificationHead.view_losses.global_pooling' must be one of ['average', 'max', "
+                               "'flatten'], got 'median'.",
+                               "'ClassificationHead.view_losses.view_augmentation.random_resized_crop.scale' must be a "
+                               "list of two numbers [low, high] with 0 < low <= high <= 1, got [0.0, 1.0].",
+                               "'ClassificationHead.view_losses.barlow_twins.activated' must be True or False, got "
+                               "'yes'.",
+                               "'ClassificationHead.view_losses.barlow_twins.weight' must be a number > 0, got 0.",
+                               "'ClassificationHead.view_losses.barlow_twins.off_diagonal_weight' must be a number > "
+                               "0, got 0.",
+                               "'ClassificationHead.view_losses.contrastive.temperature' must be a number > 0, got "
+                               "-0.1.",
+                               "'ClassificationHead.view_losses.barlow_twins.projector' must be a non-empty list of "
+                               "positive integers, the last one being the embedding size, got [0].",
+                               "'ClassificationHead.view_losses.contrastive.projector' must be a non-empty list of "
+                               "positive integers, the last one being the embedding size, got [].",
+                               "'ClassificationHead.view_losses.contrastive.positives' must be one of ['views', "
+                               "'classes'], got 'images'."]),
+    (contrast_the_classes_of_multi_label_images, ["'ClassificationHead.view_losses.contrastive.positives' must be "
+                                                  "'views' with 'ClassificationHead.output_mode' 'multi_label' when "
+                                                  "'ClassificationHead.view_losses.contrastive.activated' is True"]),
+    (compare_the_views_of_single_image_batches, ["'ExperimentConfiguration.batch_size' must be at least 2 with the "
+                                                 "view losses ['barlow_twins'] on: they compare the images of a batch "
+                                                 "with each other."])])
 def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                modify_function: Callable[[Dict[str, Any]], None],
                                                                expected_messages: List[str]) -> None:
