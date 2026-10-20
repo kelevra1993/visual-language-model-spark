@@ -11,7 +11,7 @@ import torch
 from pathlib import Path
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationResults
 from vision_training.data.augmentations import AUGMENTATION_TYPES
@@ -100,9 +100,13 @@ class DummyModel(TaskModel):
             outputs.update({"first_loss": first_loss, "second_loss": 0.5 * first_loss})
         return outputs
 
-    def print_summary(self) -> None:
+    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
         """
         Prints nothing: the dummy model has no architecture worth summarising.
+
+        Args:
+            auxiliary_heads (Optional[Dict[str, nn.Module]]): Unused, the trainer of the task having no auxiliary
+                head; kept so that every task model prints its summary with the same arguments.
         """
 
     def get_size_components(self) -> Dict[str, nn.Module]:
@@ -403,8 +407,10 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
                                              "log_artifacts": True},
                                 "diagnosis_modes": {"verbose": False, "compute_receptive_field": False,
                                                     "compute_model_size": False, "view_input_images": False}}
-    # Every augmentation type listed but turned off, the dummy samples being used as they are
+    # Every augmentation type listed but turned off, the dummy samples being used as they are, the black-out grid
+    # within the side of the dummy images as the checks require
     augmentation_types = {name: {"activated": False, "probability": 0.0} for name in AUGMENTATION_TYPES}
+    augmentation_types["random_black_out"]["grid_size"] = DUMMY_IMAGE_SIZE
     model_configuration = {"Data": {"label_dictionary": {"negative": 0, "positive": 1},
                                     "image_settings": {"size": DUMMY_IMAGE_SIZE},
                                     "data_augmentation": {"activated": False, "probability": 0.0,

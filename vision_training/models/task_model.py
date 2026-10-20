@@ -1,15 +1,39 @@
 """
 Abstract base class of the model of every task (detector, image classifier, semantic segmenter, sequence models): the
 backbone stored in 'self.backbone' and the architecture diagnostics printed by the trainer at the start of a run
-(summary, receptive field and size of every component). Used by the model registry, the trainers, model loading and
-the exports.
+(summary, receptive field and size of every component, with the auxiliary heads the trainer keeps outside the model).
+Used by the model registry, the trainers, model loading and the exports.
 """
 
 from abc import ABC, abstractmethod
 from rich.console import Console
 from rich.panel import Panel
 from torch import nn
-from typing import Dict
+from typing import Dict, List, Optional, Tuple
+
+# Name of the last line of the model size summary when the trainer has auxiliary heads: the model with its auxiliary
+# heads, everything the training updates and saves in the checkpoints
+TOTAL_WITH_AUXILIARY_HEADS_NAME = "Total With Auxiliary Heads"
+
+
+def measure_modules(modules: List[nn.Module]) -> Tuple[int, int, int]:
+    """
+    Measures modules together for a line of the model size summary (TaskModel.print_model_size_summary): one component
+    of the model, an auxiliary head of the trainer, or the model with its auxiliary heads.
+
+    Args:
+        modules (List[nn.Module]): The modules measured together, without shared tensors between them.
+
+    Returns:
+        Tuple[int, int, int]: The number of parameters, the number of trainable parameters, and the bytes of the
+            parameters and buffers (e.g. batch normalization running statistics).
+    """
+    parameters = [parameter for module in modules for parameter in module.parameters()]
+    buffers = [buffer for module in modules for buffer in module.buffers()]
+    number_parameters = sum(parameter.numel() for parameter in parameters)
+    number_trainable_parameters = sum(parameter.numel() for parameter in parameters if parameter.requires_grad)
+    total_bytes = sum(tensor.numel() * tensor.element_size() for tensor in parameters + buffers)
+    return number_parameters, number_trainable_parameters, total_bytes
 
 
 class TaskModel(nn.Module, ABC):
@@ -25,10 +49,15 @@ class TaskModel(nn.Module, ABC):
     """
 
     @abstractmethod
-    def print_summary(self) -> None:
+    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
         """
         Prints the architecture summary of the model at the start of a training run, so that the user can check the
-        feature map sizes and head structures before the training starts.
+        feature map sizes and head structures before the training starts, with the auxiliary heads the trainer of the
+        task trains with the model (e.g. the projectors of the view losses of the image classifier).
+
+        Args:
+            auxiliary_heads (Optional[Dict[str, nn.Module]]): The auxiliary heads of the trainer keyed by name, built
+                by its build_auxiliary_heads, empty or None without any.
         """
 
     @abstractmethod
@@ -100,25 +129,36 @@ class TaskModel(nn.Module, ABC):
         panel = Panel(summary_text.rstrip("\n"), title="[bold]Backbone Receptive Field[/bold]", border_style="magenta")
         console.print(panel)
 
-    def print_model_size_summary(self) -> None:
+    def print_model_size_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
         """
-        Prints the parameter count and memory size of every component of the model.
+        Prints the parameter count and memory size of every component of the model, then of every auxiliary head of
+        the trainer and of the model with its auxiliary heads: the heads are trained and saved in the checkpoints with
+        the model, but never exported.
 
         This diagnostic (enabled by 'diagnosis_modes.compute_model_size') reports the size of every component given by
         get_size_components. Sizes include parameters and buffers (e.g. batch normalization running statistics) and
         are expressed in megabytes (1 MB = 1e6 bytes).
+
+        Args:
+            auxiliary_heads (Optional[Dict[str, nn.Module]]): The auxiliary heads of the trainer keyed by name (e.g.
+                'barlow_twins_projector', shown as 'Barlow Twins Projector'), empty or None without any.
         """
         console = Console(width=60)
 
+        # Modules measured on every line: the components of the model, then the auxiliary heads and the model with
+        # them, only when the trainer has auxiliary heads
+        measured_modules = {component_name: [component]
+                            for component_name, component in self.get_size_components().items()}
+        if auxiliary_heads:
+            for head_name, auxiliary_head in auxiliary_heads.items():
+                measured_modules[head_name.replace("_", " ").title()] = [auxiliary_head]
+            measured_modules[TOTAL_WITH_AUXILIARY_HEADS_NAME] = [self, *auxiliary_heads.values()]
+
         summary_text = ""
 
-        # Measure every component by summing the element counts and byte sizes of its tensors
-        for component_name, component in self.get_size_components().items():
-            number_parameters = sum(parameter.numel() for parameter in component.parameters())
-            number_trainable_parameters = sum(parameter.numel() for parameter in component.parameters()
-                                              if parameter.requires_grad)
-            total_bytes = (sum(parameter.numel() * parameter.element_size() for parameter in component.parameters())
-                           + sum(buffer.numel() * buffer.element_size() for buffer in component.buffers()))
+        # Measure every line by summing the element counts and byte sizes of the tensors of its modules
+        for component_name, modules in measured_modules.items():
+            number_parameters, number_trainable_parameters, total_bytes = measure_modules(modules=modules)
 
             summary_text += f"[bold]{component_name}[/bold]\n"
             summary_text += f"  - Parameters           : {number_parameters:,}\n"

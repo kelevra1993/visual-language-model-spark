@@ -3,8 +3,9 @@ Model of the image classification task: ImageClassifier chains the shared Backbo
 of the feature map) and the classification head, and returns the class logits, probabilities and losses: the
 classification loss, and the decorrelation loss of one hidden layer of the head when 'ClassificationHead.decorrelation'
 is on. Given a second view of every image, it also returns the final feature maps of both views, pooled and compared by
-the view losses of the classification trainer ('ClassificationHead.view_losses'). Registered in model_registry.py for
-the "classification" task and wrapped by inference_classifier.py for the exports.
+the view losses of the classification trainer ('ClassificationHead.view_losses'), whose projectors its architecture
+summary prints. Registered in model_registry.py for the "classification" task and wrapped by inference_classifier.py
+for the exports.
 """
 
 import torch
@@ -18,6 +19,7 @@ from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.classification.classification_head import (ClassificationHead, build_global_pooling,
                                                                        compute_pooled_features,
                                                                        print_classification_head_summary)
+from vision_training.models.classification.view_losses import print_view_losses_summary
 from vision_training.models.task_model import TaskModel
 
 
@@ -140,15 +142,25 @@ class ImageClassifier(TaskModel):
                             "second_view_final_feature_map": second_view_feature_map})
         return outputs
 
-    def print_summary(self) -> None:
+    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
         """
         Prints the backbone summary, then the classification head: pooling, size of the pooled or flattened vector,
-        hidden layers, dropout, output mode and number of classes.
+        hidden layers, dropout, output mode and number of classes, then the view losses turned on with their
+        projectors, trained with the classifier as the auxiliary heads of the classification trainer.
+
+        Args:
+            auxiliary_heads (Optional[Dict[str, nn.Module]]): The projector of every view loss turned on, built by
+                build_view_loss_projectors, empty or None when every view loss is off, which prints no view loss.
         """
         self.backbone.print_summary()
         print_classification_head_summary(head_configuration=self.head_configuration,
                                           input_features=self.classification_head.input_features,
                                           number_classes=self.number_classes)
+
+        # Self-supervised view losses and their projectors, only when one of them is on
+        if auxiliary_heads:
+            print_view_losses_summary(view_losses_configuration=self.head_configuration["view_losses"],
+                                      projectors=auxiliary_heads)
 
     def get_size_components(self) -> Dict[str, nn.Module]:
         """

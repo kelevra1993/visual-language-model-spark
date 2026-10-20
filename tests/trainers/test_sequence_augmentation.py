@@ -18,10 +18,11 @@ def build_shuffling_augmenter() -> DataAugmenter:
     Returns:
         DataAugmenter: The augmenter.
     """
+    types = {name: {"activated": False, "probability": 0.0} for name in AUGMENTATION_TYPES}
+    types["random_black_out"]["grid_size"] = 8
     return DataAugmenter(augmentation_configuration={
         "activated": True, "probability": 1.0, "independent_frames": False,
-        "shuffle_frames": {"activated": True, "probability": 1.0},
-        "types": {name: {"activated": False, "probability": 0.0} for name in AUGMENTATION_TYPES}})
+        "shuffle_frames": {"activated": True, "probability": 1.0}, "types": types})
 
 
 def test_frame_labels_follow_their_shuffled_frames() -> None:

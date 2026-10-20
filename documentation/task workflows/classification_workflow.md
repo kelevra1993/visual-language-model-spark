@@ -226,9 +226,10 @@ main()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
 │       │       print_summary always runs: the input and output shape of every backbone block (traced with a dummy
 │       │       image), then the head panel, followed by the View Losses panel (pooling, second view crop, every loss
-│       │       with its projector) when a view loss is on. The two others are switched by
-│       │       diagnosis_modes.compute_receptive_field and compute_model_size: receptive field of every layer, and
-│       │       parameters and size of backbone, head and total.
+│       │       with its projector) when a view loss is on, the trainer giving the classifier its projectors
+│       │       (auxiliary heads). The two others are switched by diagnosis_modes.compute_receptive_field and
+│       │       compute_model_size: receptive field of every layer, and parameters and size of backbone, head and
+│       │       total, then of every projector and of the classifier with its projectors when a view loss is on.
 │       ├── view_input_batches()  (only with diagnosis_modes.view_input_images, then exits)
 │       │       Shows an augmented training image next to a validation image, each with its class, and the second
 │       │       view of the training image in a third window when a view loss is on. ENTER closes the viewer and
@@ -929,7 +930,7 @@ iterations_per_epoch     = 4966
 ```
 
 ### Step 2.24 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-`print_summary()` always runs: for every backbone block, the input and output shape traced with a dummy image (as shown in Step 2.14), then a panel for the head. The two others are optional and switched by `diagnosis_modes.compute_receptive_field` and `diagnosis_modes.compute_model_size`: the receptive field of every layer (the area of the input image that one output value depends on), and the number of parameters and the size of the backbone, the head and the whole model.
+`print_summary(auxiliary_heads)` always runs: for every backbone block, the input and output shape traced with a dummy image (as shown in Step 2.14), then a panel for the head, and the View Losses panel when a view loss is on, from the projectors the trainer gives as its auxiliary heads. The two others are optional and switched by `diagnosis_modes.compute_receptive_field` and `diagnosis_modes.compute_model_size`: the receptive field of every layer (the area of the input image that one output value depends on), and the number of parameters and the size of the backbone, the head and the whole model, followed, when a view loss is on, by every projector and by `Total With Auxiliary Heads`, the classifier with its projectors: the projectors are trained and saved in the checkpoints, but never exported.
 
 **Example output: the head panel, the receptive field panel (shortened) and the size panel**
 ```text
@@ -967,6 +968,40 @@ iterations_per_epoch     = 4966
 │   - Parameters           : 3,232,744                     │
 │   - Trainable Parameters : 3,232,744                     │
 │   - Estimated Size       : 12.94 MB                      │
+╰──────────────────────────────────────────────────────────╯
+```
+
+**Example output: the View Losses panel and the end of the size panel with both view losses of `configuration_synthetic_shapes.yaml` on**
+```text
+╭──────────────────────────────── View Losses ─────────────────────────────────╮
+│ Representation         : average pooling, 128 features                       │
+│ Second View Crop       : 0.8 to 1 of the image area                          │
+│ Barlow Twins           : weight 0.004, off-diagonal weight 0.005             │
+│ Barlow Twins Projector : [512, 512], 329,728 parameters                      │
+│ Contrastive            : weight 0.5, temperature 0.1, positives classes      │
+│ Contrastive Projector  : [2048, 128], 530,560 parameters                     │
+╰──────────────────────────────────────────────────────────────────────────────╯
+╭─────────────────────── Model Size ───────────────────────╮
+│ ...                                                      │
+│ Total Model                                              │
+│   - Parameters           : 4,634,217                     │
+│   - Trainable Parameters : 4,634,217                     │
+│   - Estimated Size       : 18.54 MB                      │
+│                                                          │
+│ Barlow Twins Projector                                   │
+│   - Parameters           : 329,728                       │
+│   - Trainable Parameters : 329,728                       │
+│   - Estimated Size       : 1.32 MB                       │
+│                                                          │
+│ Contrastive Projector                                    │
+│   - Parameters           : 530,560                       │
+│   - Trainable Parameters : 530,560                       │
+│   - Estimated Size       : 2.14 MB                       │
+│                                                          │
+│ Total With Auxiliary Heads                               │
+│   - Parameters           : 5,494,505                     │
+│   - Trainable Parameters : 5,494,505                     │
+│   - Estimated Size       : 22.00 MB                      │
 ╰──────────────────────────────────────────────────────────╯
 ```
 

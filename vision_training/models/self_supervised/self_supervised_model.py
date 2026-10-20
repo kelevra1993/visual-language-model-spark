@@ -154,10 +154,14 @@ class SelfSupervisedModel(TaskModel):
         outputs["embedding_standard_deviation"] = compute_embedding_standard_deviation(embeddings=first_embeddings)
         return outputs
 
-    def print_summary(self) -> None:
+    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
         """
         Prints the backbone summary, then the projection head: pooling, size of the representation, layers,
         normalization, embedding size and self-supervised method.
+
+        Args:
+            auxiliary_heads (Optional[Dict[str, nn.Module]]): Unused, the trainer of the task having no auxiliary
+                head; kept so that every task model prints its summary with the same arguments.
         """
         self.backbone.print_summary()
         print_projection_head_summary(head_configuration=self.head_configuration,

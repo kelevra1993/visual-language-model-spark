@@ -4,8 +4,9 @@ every task right before the forward pass, moving the bounding boxes of the objec
 segmentation, the instance masks of the instance segmentation and the keypoints and ignored regions of the keypoint
 detection with the images and handling the frame shuffling and per-frame draws of the sequence tasks. Of the histogram
 equalizations drawn together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only one, chosen at random, is applied. The
-blend of the haze (apply_haze) and the black-out of the cells of a grid (apply_black_out) are shared with the RandomHaze
-and RandomBlackOut transformations of the self-supervised views. The line kernel of the motion blur is drawn on the
+blend of the haze (apply_haze) and the black-out of the cells of a grid (apply_black_out, described by
+describe_black_out) are shared with the RandomHaze and RandomBlackOut transformations of the self-supervised views, the
+grid size of each being set in its configuration section. The line kernel of the motion blur is drawn on the
 device (build_motion_blur_kernel), so that the host does not wait for the device at every image.
 Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
 common checks. Every augmented batch comes with a report of the types drawn for each sample and their values, which
@@ -75,7 +76,6 @@ MOTION_BLUR_ANGLE_RANGE = (0.0, 180.0)
 MOTION_BLUR_DIRECTION_RANGE = (-1.0, 1.0)
 HAZE_STRENGTH_RANGE = (0.2, 0.6)
 HAZE_AIRLIGHT_RANGE = (180.0, 255.0)
-BLACK_OUT_GRID_SIZE = 8
 BLACK_OUT_CELL_PROBABILITY = 0.2
 SHARPENING_SIGMA = 1.5
 SHARPENING_STRENGTH = 3.0
@@ -184,6 +184,23 @@ def apply_black_out(images: torch.Tensor, hidden_cells: torch.Tensor) -> torch.T
     return images * kept_pixels
 
 
+def describe_black_out(hidden_cells: torch.Tensor) -> str:
+    """
+    Writes the black-out drawn for one image, the number of hidden cells out of the cells of its grid, for the report
+    of the random_black_out type of DataAugmenter and for the description of the RandomBlackOut transformation of the
+    self-supervised views, both written in the information panels of the input viewer ('view_input_images').
+
+    Args:
+        hidden_cells (torch.Tensor): The boolean [rows, columns] grid of the hidden cells of the image.
+
+    Returns:
+        str: The description, e.g. '12 of the 64 cells of the 8x8 grid'.
+    """
+    number_rows, number_columns = hidden_cells.shape[-2], hidden_cells.shape[-1]
+    return (f"{int(hidden_cells.sum())} of the {number_rows * number_columns} cells of the {number_rows}x"
+            f"{number_columns} grid")
+
+
 def build_motion_blur_kernel(kernel_size: int, angle: float, direction: float, device: torch.device) -> torch.Tensor:
     """
     Draws the line kernel of the random_motion_blur type of DataAugmenter on the device of the images, from numbers
@@ -246,7 +263,7 @@ class DataAugmenter:
             augmentation_configuration (Dict[str, Any]): The section holding the global 'activated' flag, the
                 'probability' of augmenting an image, the 'independent_frames' flag and the 'shuffle_frames' settings
                 of the sequences and, for every augmentation type, its own 'activated' flag and 'probability' of
-                being applied to an augmented image.
+                being applied to an augmented image, with the 'grid_size' of random_black_out.
         """
         self.activated = augmentation_configuration["activated"]
         self.probability = augmentation_configuration["probability"]
@@ -260,6 +277,9 @@ class DataAugmenter:
         types_configuration = augmentation_configuration["types"]
         self.type_settings = {name: (types_configuration[name]["activated"], types_configuration[name]["probability"])
                               for name in AUGMENTATION_TYPES}
+
+        # Rows and columns of the grid of random_black_out, finer grids hiding smaller parts of the image
+        self.black_out_grid_size = types_configuration["random_black_out"]["grid_size"]
 
     def augment_batch(self, images: torch.Tensor, bounding_boxes: Optional[List[torch.Tensor]] = None,
                       labels: Optional[List[torch.Tensor]] = None, masks: Optional[torch.Tensor] = None,
@@ -1263,16 +1283,16 @@ class DataAugmenter:
         return (apply_haze(images=image, strength=strength, airlight=airlight),
                 f"strength {strength:.2f}, airlight {airlight:.0f} levels")
 
-    @staticmethod
-    def random_black_out(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+    def random_black_out(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
-        Cuts the image into an 8x8 grid and blacks out every cell with a probability of 0.2, the number of hidden
-        cells varying from image to image (Hide-and-Seek), so that the network learns from every region of the image
-        instead of the most telling one and copes with occluded parts of the scene. The boxes, masks and keypoints are
-        left unchanged, so an object can be hidden while keeping its label: the user chooses the tasks and datasets
-        it suits. Applied after the other photometric types, so that the cells stay black like the padding of the
-        data loaders. A sequence has the same cells blacked out on all its frames, unless its photometric types are
-        drawn frame by frame.
+        Cuts the image into a grid of 'types.random_black_out.grid_size' rows and columns (8 by default, chosen per
+        task after the size of the objects to hide) and blacks out every cell with a fixed probability of 0.2, the
+        number of hidden cells varying from image to image (Hide-and-Seek), so that the network learns from every
+        region of the image instead of the most telling one and copes with occluded parts of the scene. The boxes,
+        masks and keypoints are left unchanged, so an object can be hidden while keeping its label: the user chooses
+        the tasks and datasets it suits. Applied after the other photometric types, so that the cells stay black like
+        the padding of the data loaders. A sequence has the same cells blacked out on all its frames, unless its
+        photometric types are drawn frame by frame.
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -1282,9 +1302,8 @@ class DataAugmenter:
                 augmentation report.
         """
         # Draw every cell of the grid on its own, then black out the hidden ones on every channel and frame at once
+        grid_size = self.black_out_grid_size
         hidden_cells = torch.tensor(data=[random.random() < BLACK_OUT_CELL_PROBABILITY
-                                          for _ in range(BLACK_OUT_GRID_SIZE * BLACK_OUT_GRID_SIZE)]).view(
-                                    BLACK_OUT_GRID_SIZE, BLACK_OUT_GRID_SIZE)
+                                          for _ in range(grid_size * grid_size)]).view(grid_size, grid_size)
         return (apply_black_out(images=image, hidden_cells=hidden_cells),
-                f"{int(hidden_cells.sum())} of the {BLACK_OUT_GRID_SIZE * BLACK_OUT_GRID_SIZE} cells of an "
-                f"{BLACK_OUT_GRID_SIZE}x{BLACK_OUT_GRID_SIZE} grid")
+                describe_black_out(hidden_cells=hidden_cells))

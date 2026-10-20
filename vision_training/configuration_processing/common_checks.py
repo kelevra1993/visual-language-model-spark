@@ -164,9 +164,10 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any], val
 
 def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Verifies the 'Data' section: loading settings, label mapping mode and the input image size. The
-    image size must be a power of two so that every max pooling layer of the Backbone halves the feature maps exactly,
-    which keeps the anchor strides and the feature map sizes consistent across the detection levels.
+    Verifies the 'Data' section: loading settings, augmentation types with the grid of random_black_out, label
+    mapping mode and the input image size. The image size must be a power of two so that every max pooling layer of the
+    Backbone halves the feature maps exactly, which keeps the anchor strides and the feature map sizes consistent
+    across the detection levels.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Data' section.
@@ -224,6 +225,12 @@ def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     if isinstance(image_size, bool) or not isinstance(image_size, int) or image_size < 1 or \
             image_size & (image_size - 1) != 0:
         errors.append(f"'Data.image_settings.size' must be a power of two, got {image_size!r}.")
+
+    # Rows and columns of the grid of random_black_out, within the side of the network input
+    grid_size_key_path = "Data.data_augmentation.types.random_black_out.grid_size"
+    errors += check_black_out_grid_size(grid_size=get_configuration_value(configuration=model_configuration,
+                                                                          key_path=grid_size_key_path),
+                                        key_path=grid_size_key_path, image_size=image_size)
 
     return errors
 
@@ -564,6 +571,30 @@ def check_number_range(value: Any, key_path: str, minimum_value: float, maximum_
     return []
 
 
+def check_black_out_grid_size(grid_size: Any, key_path: str, image_size: Any) -> List[str]:
+    """
+    Verifies the number of rows and columns of the grid of a black-out, the random_black_out type of the data
+    augmentation of every task ('Data.data_augmentation.types.random_black_out.grid_size') or the black-out of the
+    random views ('<view augmentation>.black_out.grid_size'): an integer of at least 1, and at most the side of the
+    network input, so that every cell holds at least one pixel.
+
+    Args:
+        grid_size (Any): The grid size read from the configuration.
+        key_path (str): The dotted key path of the grid size, used in the error message.
+        image_size (Any): The side of the square network input, 'Data.image_settings.size', the upper bound being left
+            unchecked when it is not a positive integer (reported by check_data_configuration).
+
+    Returns:
+        List[str]: A single error description if the grid size is invalid, otherwise an empty list.
+    """
+    image_size_valid = not isinstance(image_size, bool) and isinstance(image_size, int) and image_size >= 1
+    if isinstance(grid_size, bool) or not isinstance(grid_size, int) or grid_size < 1 or \
+            (image_size_valid and grid_size > image_size):
+        return [f"'{key_path}' must be an integer within [1, 'Data.image_settings.size' ({image_size!r})], got "
+                f"{grid_size!r}: a grid finer than the image would hide cells holding no pixel."]
+    return []
+
+
 def check_crop_sides(scale: List[float], aspect_ratio: List[float], image_size: int, key_prefix: str) -> List[str]:
     """
     Verifies that every crop the random resized crop of the views can draw keeps sides of at least MINIMUM_CROP_SIDE
@@ -604,8 +635,8 @@ def check_view_augmentation_configuration(model_configuration: Dict[str, Any], k
     aspect ratio ranges of the random resized crop, the probability of every other transformation (a number, or a list
     of one per view), the largest rotation angle, the perspective distortion, the jigsaw grid, the strengths of the
     colour jitter, the kernel size and sigma range of the Gaussian blur, the kernel sizes and largest angle of the
-    motion blur, the standard deviation of the Gaussian noise and the ranges of VIEW_TRANSFORMATION_RANGES, so that
-    kornia receives valid parameters.
+    motion blur, the standard deviation of the Gaussian noise, the grid size of the black-out and the ranges of
+    VIEW_TRANSFORMATION_RANGES, so that kornia receives valid parameters.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -709,6 +740,11 @@ def check_view_augmentation_configuration(model_configuration: Dict[str, Any], k
     if not is_number(value=standard_deviation) or standard_deviation < 0.0:
         errors.append(f"'{key_prefix}.gaussian_noise.standard_deviation' must be a number >= 0, "
                       f"got {standard_deviation!r}.")
+
+    # Rows and columns of the grid of the black-out, within the side of the network input
+    errors += check_black_out_grid_size(grid_size=get_configuration_value(configuration=model_configuration,
+                                                                          key_path=f"{key_prefix}.black_out.grid_size"),
+                                        key_path=f"{key_prefix}.black_out.grid_size", image_size=image_size)
 
     # Ranges of the gamma, the haze, the linear illumination, the plasma shadow, the motion blur direction, the
     # solarization and the random erasing

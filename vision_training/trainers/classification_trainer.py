@@ -39,7 +39,7 @@ from vision_training.evaluation.evaluation_report import write_class_metrics_fil
 from vision_training.losses.classification_losses import compute_balanced_class_weights
 from vision_training.models.classification.classification_head import build_global_pooling, compute_pooled_features
 from vision_training.models.classification.view_losses import (VIEW_LOSS_NAMES, build_view_loss_projectors,
-                                                               compute_view_losses, print_view_losses_summary)
+                                                               compute_view_losses)
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
@@ -186,14 +186,6 @@ class ClassificationTrainer(BaseTrainer):
             global_pooling=self.view_losses_configuration["global_pooling"], backbone=self.model.backbone)
         return build_view_loss_projectors(view_losses_configuration=self.view_losses_configuration,
                                           input_features=representation_features, device=self.device, dtype=self.dtype)
-
-    def print_auxiliary_heads_summary(self) -> None:
-        """
-        Prints the view losses with their projectors after the summary of the classifier, when one of them is on.
-        """
-        if self.view_losses_activated:
-            print_view_losses_summary(view_losses_configuration=self.view_losses_configuration,
-                                      projectors=self.auxiliary_heads)
 
     def get_tracked_metrics(self) -> Dict[str, str]:
         """
