@@ -203,6 +203,10 @@ Data:
       # Geometric augmentations : the class of a shape, and which copy is the largest, do not change with them.
       # Random Crop : crop keeping 75% to 100% of each side (same aspect ratio), resized back to the input size
       random_crop: { activated: True, probability: 0.3 }
+      # Random Aspect Crop : crop keeping 75% to 100% of the width and, drawn on its own, 75% to 100% of the height,
+      # resized back to the input size, which stretches the content by x0.75 to x1.33 along one side (other camera
+      # proportions, suited to the images stretched without padding, keep_ratio False)
+      random_aspect_crop: { activated: False, probability: 0.3 }
       # Random Zoom Out : image shrunk to 50% to 100% of each side (same aspect ratio) at a random position of a
       # black canvas of the input size, the objects then appearing smaller than in the dataset
       random_zoom_out: { activated: False, probability: 0.3 }

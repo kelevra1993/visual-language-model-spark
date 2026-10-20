@@ -31,10 +31,12 @@ with warnings.catch_warnings():
     from kornia.enhance import equalize_clahe
 
 # Geometric augmentations, applied first, in this order. They move the bounding boxes and the masks along with the
-# image. random_zoom_out follows random_crop, so that a sample drawing both is cropped first and then shrunk, its two
+# image. random_aspect_crop, the crop changing the aspect ratio of the content, follows random_crop, which keeps it,
+# random_zoom_out follows both, so that a sample drawing a crop and the zoom-out is cropped first and then shrunk, its
 # draws being independent, and random_translation then shifts the result
-GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_zoom_out", "random_translation", "random_left_right_flip",
-                                "random_up_down_flip", "random_rotation", "random_90_rotation"]
+GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_aspect_crop", "random_zoom_out", "random_translation",
+                                "random_left_right_flip", "random_up_down_flip", "random_rotation",
+                                "random_90_rotation"]
 
 # Photometric augmentations, applied after the geometric ones, in this order. They never move the bounding boxes and
 # never change the masks. random_haze comes last, so that the equalizations and the sharpening drawn with it do not
@@ -52,6 +54,7 @@ EXCLUSIVE_EQUALIZATION_TYPES = ["clahe_augment", "equalize_histogram_augment", "
 
 # Fixed augmentation strengths, documented in the data_augmentation section of the configuration file
 MINIMUM_CROP_FRACTION = 0.75
+MINIMUM_ASPECT_CROP_FRACTION = 0.75
 MINIMUM_ZOOM_OUT_FRACTION = 0.5
 MAXIMUM_TRANSLATION_FRACTION = 0.25
 MAXIMUM_ROTATION_DEGREES = 5.0
@@ -605,6 +608,73 @@ class DataAugmenter:
         crop_height, crop_width = round(image_height * crop_fraction), round(image_width * crop_fraction)
         top, left = random.randint(0, image_height - crop_height), random.randint(0, image_width - crop_width)
 
+        cropped_image, cropped_boxes, cropped_mask = self.crop_and_resize(
+            image=image, bounding_boxes=bounding_boxes, mask=mask, top=top, left=left, crop_height=crop_height,
+            crop_width=crop_width)
+        drawn_values = f"{crop_fraction * 100:.0f} % of each side, at top {top} and left {left} pixels"
+        return (cropped_image, cropped_boxes, cropped_mask, (image_height * image_width) / (crop_height * crop_width),
+                drawn_values)
+
+    def random_aspect_crop(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
+                           mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
+                                                                  Optional[torch.Tensor], float, str]:
+        """
+        Crops a random region covering 75 to 100% of the width and, drawn on its own, 75 to 100% of the height, and
+        resizes it back to the original size, which zooms slightly into the image and stretches its content by x0.75
+        to x1.33 along one side: the network meets the objects with the proportions of another camera resolution,
+        field of view or framing, which suits the images stretched to the input size without padding ('keep_ratio'
+        False). Boxes, masks and keypoints follow exactly like those of 'random_crop'.
+
+        Args:
+            image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
+            bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes, or None.
+            mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
+
+        Returns:
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float, str]: The cropped image, boxes
+                and mask, the area scale of the objects (the product of the zooms of both sides, above 1) and the drawn
+                crop for the augmentation report.
+        """
+        image_height, image_width = image.shape[-2], image.shape[-1]
+
+        # Draw the kept share of the width and of the height independently, which changes the aspect ratio of the
+        # content, and a random position for the crop
+        width_fraction = random.uniform(MINIMUM_ASPECT_CROP_FRACTION, 1.0)
+        height_fraction = random.uniform(MINIMUM_ASPECT_CROP_FRACTION, 1.0)
+        crop_height, crop_width = round(image_height * height_fraction), round(image_width * width_fraction)
+        top, left = random.randint(0, image_height - crop_height), random.randint(0, image_width - crop_width)
+
+        cropped_image, cropped_boxes, cropped_mask = self.crop_and_resize(
+            image=image, bounding_boxes=bounding_boxes, mask=mask, top=top, left=left, crop_height=crop_height,
+            crop_width=crop_width)
+        drawn_values = (f"{width_fraction * 100:.0f} % of the width and {height_fraction * 100:.0f} % of the height, "
+                        f"at top {top} and left {left} pixels")
+        return (cropped_image, cropped_boxes, cropped_mask, (image_height * image_width) / (crop_height * crop_width),
+                drawn_values)
+
+    def crop_and_resize(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
+                        mask: Optional[torch.Tensor], top: int, left: int, crop_height: int,
+                        crop_width: int) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """
+        Cuts a region out of an image and resizes it back to the size of the image, moving the boxes and the mask with
+        it, shared by 'random_crop', whose region keeps the aspect ratio of the image, and 'random_aspect_crop', whose
+        region changes it. Boxes leaving the region, or keeping too small a share of their area inside it, are removed
+        afterwards by 'clean_bounding_boxes'.
+
+        Args:
+            image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
+            bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes, or None.
+            mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
+            top (int): The row of the top edge of the region, in pixels.
+            left (int): The column of the left edge of the region, in pixels.
+            crop_height (int): The height of the region, in pixels.
+            crop_width (int): The width of the region, in pixels.
+
+        Returns:
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]: The resized region of the image, and
+                the boxes and mask moved with it.
+        """
+        image_height, image_width = image.shape[-2], image.shape[-1]
         cropped_image = vision_functional.resized_crop(image, top=top, left=left, height=crop_height,
                                                        width=crop_width, size=[image_height, image_width],
                                                        antialias=True)
@@ -619,9 +689,7 @@ class DataAugmenter:
             cropped_mask = vision_functional.resized_crop(tv_tensors.Mask(mask), top=top, left=left,
                                                           height=crop_height, width=crop_width,
                                                           size=[image_height, image_width]).as_subclass(torch.Tensor)
-        drawn_values = f"{crop_fraction * 100:.0f} % of each side, at top {top} and left {left} pixels"
-        return (cropped_image, cropped_boxes, cropped_mask, (image_height * image_width) / (crop_height * crop_width),
-                drawn_values)
+        return cropped_image, cropped_boxes, cropped_mask
 
     def random_zoom_out(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                         mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],

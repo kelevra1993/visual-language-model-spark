@@ -215,7 +215,7 @@ CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_MEAN_FDIF_HAVG.64_MC2
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.5}
-4 of 17 types activated: random_left_right_flip, brightness_contrast_saturation, random_noise, random_haze
+4 of 18 types activated: random_left_right_flip, brightness_contrast_saturation, random_noise, random_haze
 ```
 
 ### Step 2.6 — `setup_training_paths()`

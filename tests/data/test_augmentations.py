@@ -5,12 +5,14 @@ instance masks and recomputing their boxes, photometric augmentations keeping bo
 without boxes, a single histogram equalization per image, the haze blending every image with its own grey airlight
 after the other photometric types, shared or per-frame draws of the sequence frames, frame shuffling, the rejected
 inputs, the zoom-out, the translation by whole pixels with the removal of the objects it pushes out, the removal of the
-fragments of objects left by the crop, the keypoints moved without being renamed and unlabelled once out of the image,
-the ignored regions of the keypoint detection moved with them as binary masks, and the augmentation reports written in
-the information panels of the input viewer.
+fragments of objects left by the crop, the aspect crop keeping independent shares of the width and of the height and
+stretching the image, its boxes and masks, the keypoints moved without being renamed and unlabelled once out of the
+image, the ignored regions of the keypoint detection moved with them as binary masks, and the augmentation reports
+written in the information panels of the input viewer.
 """
 
 import random
+import re
 import pytest
 import torch
 
@@ -19,8 +21,9 @@ from typing import Any, Dict, List
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, EXCLUSIVE_EQUALIZATION_TYPES,
                                                  GEOMETRIC_AUGMENTATION_TYPES, HAZE_AIRLIGHT_RANGE, HAZE_STRENGTH_RANGE,
-                                                 MAXIMUM_TRANSLATION_FRACTION, MINIMUM_CROP_FRACTION,
-                                                 NOISE_STANDARD_DEVIATION, PHOTOMETRIC_AUGMENTATION_TYPES)
+                                                 MAXIMUM_TRANSLATION_FRACTION, MINIMUM_ASPECT_CROP_FRACTION,
+                                                 MINIMUM_CROP_FRACTION, NOISE_STANDARD_DEVIATION,
+                                                 PHOTOMETRIC_AUGMENTATION_TYPES)
 from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
 
 IMAGE_SIZE = 96
@@ -28,7 +31,8 @@ IMAGE_SIZE = 96
 # Tolerance in pixels between the bright rectangle and its transformed box: exact pixel permutations must match
 # exactly, while resampling (crop resize, small rotation) blurs the rectangle edges by a pixel or two
 BOX_TOLERANCES = {"random_left_right_flip": 0.0, "random_up_down_flip": 0.0, "random_90_rotation": 0.0,
-                  "random_crop": 2.0, "random_zoom_out": 2.0, "random_translation": 0.0, "random_rotation": 2.5}
+                  "random_crop": 2.0, "random_aspect_crop": 2.0, "random_zoom_out": 2.0, "random_translation": 0.0,
+                  "random_rotation": 2.5}
 
 
 def build_configuration(enabled_types: List[str], probability: float = 1.0, independent_frames: bool = False,
@@ -687,6 +691,70 @@ def test_crop_removes_the_fragments_of_boxes_and_instance_masks(monkeypatch: pyt
     assert kept_labels[0].tolist() == [1] and kept_masks[0].shape == (1, IMAGE_SIZE, IMAGE_SIZE)
 
 
+def test_aspect_crop_keeps_independent_shares_of_the_width_and_the_height(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies the random_aspect_crop type: its default draws keep shares of the width and of the height within
+    [MINIMUM_ASPECT_CROP_FRACTION, 1] that differ for some images, given in the report, and a crop of the top left 75%
+    of the width and the whole height stretches the image, its box and its class mask along the width only, the area
+    scale of the objects being the product of the zooms of both sides, so that an instance mask left with a fifth of
+    its pixels at that scale is removed while the object inside the crop is kept.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): Fixes the shares of the width and of the height and the position of the crop.
+    """
+    random.seed(0)
+    torch.manual_seed(seed=0)
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_aspect_crop"]))
+
+    # Default draws: every share of the width and of the height lies within the range, and some images change their
+    # aspect ratio
+    reports = augmenter.augment_batch(images=torch.zeros(size=(32, 3, IMAGE_SIZE, IMAGE_SIZE)))[-1]
+    drawn_shares = []
+    for report in reports:
+        type_name, drawn_values = report["geometric_augmentations"][0]
+        report_match = re.fullmatch(pattern=r"(\d+) % of the width and (\d+) % of the height, at top \d+ and left \d+ "
+                                            r"pixels", string=drawn_values)
+        assert type_name == "random_aspect_crop" and report_match is not None
+        drawn_shares.append((int(report_match.group(1)), int(report_match.group(2))))
+    assert all(MINIMUM_ASPECT_CROP_FRACTION * 100 <= share <= 100 for shares in drawn_shares for share in shares)
+    assert any(width_share != height_share for width_share, height_share in drawn_shares)
+
+    # The left 72 of the 96 columns and every row, resized back: the columns stretch by 4/3 and the rows stay
+    drawn_fractions = iter([MINIMUM_ASPECT_CROP_FRACTION, 1.0])
+    monkeypatch.setattr(target=random, name="uniform", value=lambda low, high: next(drawn_fractions))
+    monkeypatch.setattr(target=random, name="randint", value=lambda low, high: 0)
+    box = [12.0, 24.0, 36.0, 72.0]
+    mask = torch.zeros(size=(IMAGE_SIZE, IMAGE_SIZE), dtype=torch.int64)
+    mask[24:72, 12:36] = 1
+    images, boxes, labels, masks, _, _, reports = augmenter.augment_batch(
+        images=create_rectangle_image(box=box).unsqueeze(dim=0), bounding_boxes=[torch.tensor(data=[box])],
+        labels=[torch.tensor(data=[1])], masks=mask.unsqueeze(dim=0))
+    stretched_box = [16.0, 24.0, 48.0, 72.0]
+    assert boxes[0].tolist() == [stretched_box] and labels[0].tolist() == [1]
+    assert torch.allclose(input=torch.tensor(data=get_bright_region_box(image=images[0])),
+                          other=torch.tensor(data=stretched_box), atol=1.0)
+    row_indices, column_indices = torch.nonzero(input=masks[0] == 1, as_tuple=True)
+    assert [int(column_indices.min()), int(row_indices.min()), int(column_indices.max()) + 1,
+            int(row_indices.max()) + 1] == [16, 24, 48, 72]
+    assert reports[0]["geometric_augmentations"] == [("random_aspect_crop",
+                                                      "75 % of the width and 100 % of the height, at top 0 and left 0 "
+                                                      "pixels")]
+
+    # Instance segmentation: the object with 6 of its 30 columns inside the crop keeps 8 stretched columns, a fifth of
+    # the pixels it would have at the area scale of 4/3, and is removed, the other one being kept with the box of its
+    # stretched mask, whose nearest resampling takes the output column j from the column floor(0.75 x j) of the crop
+    drawn_fractions = iter([MINIMUM_ASPECT_CROP_FRACTION, 1.0])
+    boxes = torch.tensor(data=[[66.0, 10.0, 96.0, 40.0], [10.0, 10.0, 40.0, 40.0]])
+    instance_masks = torch.zeros(size=(2, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
+    instance_masks[0, 10:40, 66:96] = 1
+    instance_masks[1, 10:40, 10:40] = 1
+    _, kept_boxes, kept_labels, _, kept_masks, _, _ = augmenter.augment_batch(
+        images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)), bounding_boxes=[boxes],
+        labels=[torch.tensor(data=[2, 1])], instance_masks=[instance_masks])
+    assert kept_labels[0].tolist() == [1] and kept_masks[0].shape == (1, IMAGE_SIZE, IMAGE_SIZE)
+    assert kept_boxes[0].tolist() == [[14.0, 10.0, 54.0, 40.0]]
+
+
 def test_reports_name_the_drawn_types_their_values_and_the_removed_objects(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     Verifies the augmentation report of a sample and its panel lines in the input viewer: the largest translation
@@ -762,8 +830,11 @@ def test_geometric_augmentation_moves_keypoints_with_the_image(augmentation_type
         augmentation_type (str): The geometric augmentation type under test.
     """
     augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[augmentation_type]))
-    box = [20.0, 30.0, 50.0, 70.0]
-    keypoints = torch.tensor(data=[[[35.0, 50.0, 2.0], [0.0, 0.0, 0.0]]])
+
+    # The rectangle lies within the central pixels 24 to 72 that every crop of at least 75% of a side keeps, so that a
+    # crop never cuts it and the centre of its bright region stays the true centre the keypoint is compared with
+    box = [24.0, 30.0, 54.0, 70.0]
+    keypoints = torch.tensor(data=[[[39.0, 50.0, 2.0], [0.0, 0.0, 0.0]]])
 
     for seed in range(5):
         random.seed(seed)
