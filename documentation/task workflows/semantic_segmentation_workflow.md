@@ -283,7 +283,7 @@ The same augmenter as the classification. Here the masks follow the images (Step
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4
-6 of 19 types activated: random_crop, random_left_right_flip, random_rotation, brightness_contrast_saturation,
+6 of 20 types activated: random_crop, random_left_right_flip, random_rotation, brightness_contrast_saturation,
                          random_noise, random_haze
 ```
 

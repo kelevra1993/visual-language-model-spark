@@ -5,12 +5,14 @@ segmentation, the instance masks of the instance segmentation and the keypoints 
 detection with the images and handling the frame shuffling and per-frame draws of the sequence tasks. Of the histogram
 equalizations drawn together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only one, chosen at random, is applied. The
 blend of the haze (apply_haze) and the black-out of the cells of a grid (apply_black_out) are shared with the RandomHaze
-and RandomBlackOut transformations of the self-supervised views.
+and RandomBlackOut transformations of the self-supervised views. The line kernel of the motion blur is drawn on the
+device (build_motion_blur_kernel), so that the host does not wait for the device at every image.
 Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
 common checks. Every augmented batch comes with a report of the types drawn for each sample and their values, which
 the 'view_input_images' diagnosis mode writes in the information panel next to every training image.
 """
 
+import math
 import random
 import warnings
 import torch
@@ -30,6 +32,7 @@ with warnings.catch_warnings():
     warnings.filterwarnings(action="ignore", message=r"`torch\.jit\.script` is deprecated", category=FutureWarning)
     from kornia.color import rgb_to_yuv, yuv_to_rgb
     from kornia.enhance import equalize_clahe
+    from kornia.filters import filter2d
 
 # Geometric augmentations, applied first, in this order. They move the bounding boxes and the masks along with the
 # image. random_aspect_crop, the crop changing the aspect ratio of the content, follows random_crop, which keeps it,
@@ -40,12 +43,13 @@ GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_aspect_crop", "random_zoo
                                 "random_90_rotation"]
 
 # Photometric augmentations, applied after the geometric ones, in this order. They never move the bounding boxes and
-# never change the masks. random_haze comes after the others, so that the equalizations and the sharpening drawn with it
-# do not restore the contrast it removes, and random_black_out last, so that its cells stay black
+# never change the masks. random_motion_blur follows random_blur, the two blurs smoothing the noise drawn before them,
+# random_haze comes after the others, so that the equalizations and the sharpening drawn with it do not restore the
+# contrast it removes, and random_black_out last, so that its cells stay black
 PHOTOMETRIC_AUGMENTATION_TYPES = ["brightness_contrast_saturation", "clahe_augment", "sharp_augment",
                                   "equalize_histogram_augment", "equalize_bgr_histogram_augment", "random_noise",
-                                  "gray_scale_augment", "random_colour_augmentation", "random_blur", "random_haze",
-                                  "random_black_out"]
+                                  "gray_scale_augment", "random_colour_augmentation", "random_blur",
+                                  "random_motion_blur", "random_haze", "random_black_out"]
 
 AUGMENTATION_TYPES = GEOMETRIC_AUGMENTATION_TYPES + PHOTOMETRIC_AUGMENTATION_TYPES
 
@@ -66,6 +70,9 @@ SATURATION_FACTOR_RANGE = (0.7, 1.0)
 NOISE_STANDARD_DEVIATION = 40.0
 BLUR_KERNEL_SIZE = 9
 BLUR_SIGMA = 2.5
+MOTION_BLUR_KERNEL_SIZE_RANGE = (5, 15)
+MOTION_BLUR_ANGLE_RANGE = (0.0, 180.0)
+MOTION_BLUR_DIRECTION_RANGE = (-1.0, 1.0)
 HAZE_STRENGTH_RANGE = (0.2, 0.6)
 HAZE_AIRLIGHT_RANGE = (180.0, 255.0)
 BLACK_OUT_GRID_SIZE = 8
@@ -175,6 +182,43 @@ def apply_black_out(images: torch.Tensor, hidden_cells: torch.Tensor) -> torch.T
     kept_rows = kept_cells.repeat_interleave(repeats=row_sizes, dim=-2, output_size=image_height)
     kept_pixels = kept_rows.repeat_interleave(repeats=column_sizes, dim=-1, output_size=image_width)
     return images * kept_pixels
+
+
+def build_motion_blur_kernel(kernel_size: int, angle: float, direction: float, device: torch.device) -> torch.Tensor:
+    """
+    Draws the line kernel of the random_motion_blur type of DataAugmenter on the device of the images, from numbers
+    only, the kernel of kornia's get_motion_kernel2d (equal within float rounding): a ramp of weights along a line
+    through the center of the kernel, rotated counter-clockwise on the displayed image with a nearest sampling, then
+    normalized. kornia builds it on the CPU and copies it to the device, which makes the host wait for the device
+    at every image, several milliseconds when other trainings share the GPU.
+
+    Args:
+        kernel_size (int): The odd side of the kernel, the length of the line in pixels.
+        angle (float): The angle of the line in degrees, counter-clockwise from the horizontal on the displayed
+            image.
+        direction (float): The lean of the blur along the line, within [-1, 1]: the weights ramp linearly along
+            the line, so that -1 trails the streak backward (to the left at an angle of 0), 1 forward, and 0
+            spreads it evenly.
+        device (torch.device): The device of the images to blur.
+
+    Returns:
+        torch.Tensor: The [1, kernel_size, kernel_size] kernel, its weights summing to 1.
+    """
+    # Coordinates of every kernel pixel from the center, the columns to the right and the rows downward
+    radius = kernel_size // 2
+    offsets = torch.arange(start=-radius, end=radius + 1, device=device, dtype=torch.float32)
+    rows, columns = torch.meshgrid(offsets, offsets, indexing="ij")
+
+    # Rotate every pixel back onto the horizontal line, rounded to the nearest pixel like the rotation of kornia
+    cosine, sine = math.cos(math.radians(angle)), math.sin(math.radians(angle))
+    along_line = torch.round(input=columns * cosine - rows * sine)
+    across_line = torch.round(input=columns * sine + rows * cosine)
+
+    # Ramp of weights from the backward end of the line to its forward end, kept on the line and normalized
+    backward_weight = (direction + 1.0) / 2.0
+    weights = backward_weight + (1.0 - 2.0 * backward_weight) * (along_line + radius) / (kernel_size - 1)
+    kernel = torch.where(condition=(across_line == 0.0) & (along_line.abs() <= radius), input=weights, other=0.0)
+    return (kernel / kernel.sum()).unsqueeze(dim=0)
 
 
 class DataAugmenter:
@@ -1165,6 +1209,39 @@ class DataAugmenter:
         blurred_image = vision_functional.gaussian_blur(image, kernel_size=[BLUR_KERNEL_SIZE, BLUR_KERNEL_SIZE],
                                                         sigma=[BLUR_SIGMA, BLUR_SIGMA])
         return blurred_image, f"{BLUR_KERNEL_SIZE}x{BLUR_KERNEL_SIZE} kernel, sigma {BLUR_SIGMA}"
+
+    @staticmethod
+    def random_motion_blur(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+        """
+        Smears the image along a straight line, the motion of the camera or of the objects during the exposure (a
+        conveyor belt, a vehicle, a shaking hand), so that the network learns to recognise objects whose edges are
+        streaked in one direction instead of softened in all of them like by random_blur: the line is an odd kernel
+        of 5 to 15 pixels at an angle of 0 to 180 degrees (counter-clockwise from the horizontal), the streak trailing
+        backward or forward along it with a direction of -1 to 1, 0 spreading it evenly, drawn on the device
+        (build_motion_blur_kernel). The borders are reflected so that the edges of the image do not darken. A sequence
+        receives the same blur on all its frames, unless its photometric types are drawn frame by frame.
+
+        Args:
+            image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
+
+        Returns:
+            Tuple[torch.Tensor, str]: The blurred image and the drawn kernel size, angle and direction for the
+                augmentation report.
+        """
+        # Draw an odd length of the line, its angle and the lean of its weights
+        kernel_size = random.randrange(start=MOTION_BLUR_KERNEL_SIZE_RANGE[0],
+                                       stop=MOTION_BLUR_KERNEL_SIZE_RANGE[1] + 1, step=2)
+        angle = random.uniform(*MOTION_BLUR_ANGLE_RANGE)
+        direction = random.uniform(*MOTION_BLUR_DIRECTION_RANGE)
+
+        # Draw the line on the device, then blur an image as a batch of one and the frames of a sequence as a batch
+        # sharing the kernel
+        kernel = build_motion_blur_kernel(kernel_size=kernel_size, angle=angle, direction=direction,
+                                          device=image.device)
+        images = image if image.dim() == 4 else image.unsqueeze(dim=0)
+        blurred_images = filter2d(input=images, kernel=kernel, border_type="reflect")
+        return (blurred_images.view_as(other=image),
+                f"kernel of {kernel_size} pixels, angle {angle:.0f} degrees, direction {direction:+.2f}")
 
     @staticmethod
     def random_haze(image: torch.Tensor) -> Tuple[torch.Tensor, str]:

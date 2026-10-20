@@ -2,14 +2,14 @@
 Tests of DataAugmenter of vision_training/data/augmentations.py: geometric augmentations moving and removing boxes,
 geometric augmentations moving the segmentation masks with nearest interpolation, geometric augmentations moving the
 instance masks and recomputing their boxes, photometric augmentations keeping boxes, masks and pixel range, images
-without boxes, a single histogram equalization per image, the haze blending every image with its own grey airlight
-after the other photometric types, the black-out hiding whole cells of an 8x8 grid drawn one by one, last, shared or
-per-frame draws of the sequence frames, frame shuffling, the rejected inputs, the zoom-out, the translation by whole
-pixels with the removal of the objects it pushes out, the removal of the fragments of objects left by the crop, the
-aspect crop keeping independent shares of the width and of the height and stretching the image, its boxes and masks,
-the keypoints moved without being renamed and unlabelled once out of the image, the ignored regions of the keypoint
-detection moved with them as binary masks, and the augmentation reports written in the information panels of the
-input viewer.
+without boxes, a single histogram equalization per image, the motion blur streaking a dot along the drawn angle with
+reflected borders, the haze blending every image with its own grey airlight after the other photometric types, the
+black-out hiding whole cells of an 8x8 grid drawn one by one, last, shared or per-frame draws of the sequence frames,
+frame shuffling, the rejected inputs, the zoom-out, the translation by whole pixels with the removal of the objects it
+pushes out, the removal of the fragments of objects left by the crop, the aspect crop keeping independent shares of the
+width and of the height and stretching the image, its boxes and masks, the keypoints moved without being renamed and
+unlabelled once out of the image, the ignored regions of the keypoint detection moved with them as binary masks, and the
+augmentation reports written in the information panels of the input viewer.
 """
 
 import random
@@ -17,6 +17,7 @@ import re
 import pytest
 import torch
 
+from kornia.filters import get_motion_kernel2d
 from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
@@ -24,8 +25,10 @@ from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPE
                                                  BLACK_OUT_GRID_SIZE, EXCLUSIVE_EQUALIZATION_TYPES,
                                                  GEOMETRIC_AUGMENTATION_TYPES, HAZE_AIRLIGHT_RANGE, HAZE_STRENGTH_RANGE,
                                                  MAXIMUM_TRANSLATION_FRACTION, MINIMUM_ASPECT_CROP_FRACTION,
-                                                 MINIMUM_CROP_FRACTION, NOISE_STANDARD_DEVIATION,
-                                                 PHOTOMETRIC_AUGMENTATION_TYPES)
+                                                 MINIMUM_CROP_FRACTION, MOTION_BLUR_ANGLE_RANGE,
+                                                 MOTION_BLUR_DIRECTION_RANGE, MOTION_BLUR_KERNEL_SIZE_RANGE,
+                                                 NOISE_STANDARD_DEVIATION, PHOTOMETRIC_AUGMENTATION_TYPES,
+                                                 build_motion_blur_kernel)
 from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
 
 IMAGE_SIZE = 96
@@ -180,6 +183,124 @@ def test_a_single_histogram_equalization_is_applied_per_image() -> None:
     augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["clahe_augment"]))
     reports = augmenter.augment_batch(images=images)[-1]
     assert all(report["photometric_augmentations"][0][0][0] == "clahe_augment" for report in reports)
+
+
+def test_motion_blur_streaks_the_image_along_the_drawn_angle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies the random_motion_blur type: a dot becomes a straight streak of the drawn odd length along the drawn
+    angle, counter-clockwise from the horizontal as the image is displayed, trailing backward with a direction of
+    -1, its intensity kept and a uniform image left uniform by the reflected borders; the line drawn on
+    the device is the kernel of kornia's get_motion_kernel2d; the kernel sizes, angles and directions are drawn within
+    their ranges and given in the report, the frames of a sequence share the same blur, and the motion blur comes after
+    random_blur and before random_haze.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture forcing the kernel size, the angle and the direction.
+    """
+    random.seed(0)
+    torch.manual_seed(seed=0)
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_motion_blur"]))
+    center = IMAGE_SIZE // 2
+
+    # The line drawn from numbers on the device is the kernel kornia builds on the CPU, for any draw
+    for _ in range(200):
+        kernel_size = random.randrange(start=MOTION_BLUR_KERNEL_SIZE_RANGE[0],
+                                       stop=MOTION_BLUR_KERNEL_SIZE_RANGE[1] + 1, step=2)
+        angle, direction = random.uniform(*MOTION_BLUR_ANGLE_RANGE), random.uniform(*MOTION_BLUR_DIRECTION_RANGE)
+        assert torch.allclose(input=build_motion_blur_kernel(kernel_size=kernel_size, angle=angle, direction=direction,
+                                                             device=torch.device("cpu")),
+                              other=get_motion_kernel2d(kernel_size=kernel_size, angle=angle, direction=direction),
+                              atol=1e-6)
+
+    # Dots in the middle of black images, blurred with their own kernel size, angle and direction
+    dot_images = torch.zeros(size=(64, 3, IMAGE_SIZE, IMAGE_SIZE))
+    dot_images[..., center, center] = 255.0
+    blurred_images, _, _, _, _, _, reports = augmenter.augment_batch(images=dot_images)
+    drawn_values = [re.fullmatch(pattern=r"kernel of (\d+) pixels, angle (\d+) degrees, direction ([+-]\d\.\d\d)",
+                                 string=report["photometric_augmentations"][0][0][1]) for report in reports]
+    assert all(report["photometric_augmentations"][0][0][0] == "random_motion_blur" for report in reports)
+    assert all(match is not None for match in drawn_values)
+    kernel_sizes = [int(match.group(1)) for match in drawn_values]
+    angles = [float(match.group(2)) for match in drawn_values]
+    directions = [float(match.group(3)) for match in drawn_values]
+    assert set(kernel_sizes) == set(range(MOTION_BLUR_KERNEL_SIZE_RANGE[0], MOTION_BLUR_KERNEL_SIZE_RANGE[1] + 1, 2))
+    assert all(MOTION_BLUR_ANGLE_RANGE[0] <= angle <= MOTION_BLUR_ANGLE_RANGE[1] for angle in angles)
+    assert all(MOTION_BLUR_DIRECTION_RANGE[0] <= direction <= MOTION_BLUR_DIRECTION_RANGE[1]
+               for direction in directions)
+    assert len(set(angles)) > 10 and len(set(directions)) > 10
+    assert torch.allclose(input=blurred_images.sum(dim=(1, 2, 3)), other=dot_images.sum(dim=(1, 2, 3)), rtol=1e-4)
+
+    # The longest kernel at an angle of 0 and a direction of -1 smears the dot along its row only, toward the left, the
+    # weights decreasing from the dot backward to the last pixel, which gets none
+    monkeypatch.setattr(target=random, name="randrange", value=lambda start, stop, step: stop - 1)
+    monkeypatch.setattr(target=random, name="uniform", value=lambda low, high: low)
+    blurred_images, _, _, _, _, _, reports = augmenter.augment_batch(images=dot_images[:1])
+    assert reports[0]["photometric_augmentations"][0] == [("random_motion_blur", (
+        f"kernel of {MOTION_BLUR_KERNEL_SIZE_RANGE[1]} pixels, angle 0 degrees, direction -1.00"))]
+    lit_rows, lit_columns = torch.nonzero(input=blurred_images[0, 0] > 0.0, as_tuple=True)
+    half_length = MOTION_BLUR_KERNEL_SIZE_RANGE[1] // 2
+    assert set(lit_rows.tolist()) == {center}
+    assert sorted(lit_columns.tolist()) == list(range(center - half_length, center + half_length))
+    streak = blurred_images[0, 0, center, center - half_length:center + half_length]
+    assert bool((streak[1:] < streak[:-1]).all())
+
+    # At 45 degrees the streak rises to the right on the displayed image, rows going down
+    drawn_uniform_values = iter([45.0, 0.0])
+    monkeypatch.setattr(target=random, name="uniform", value=lambda low, high: next(drawn_uniform_values))
+    blurred_images = augmenter.augment_batch(images=dot_images[:1])[0]
+    assert float(blurred_images[0, 0, center - 3, center + 3]) > 0.0
+    assert float(blurred_images[0, 0, center - 3, center - 3]) == 0.0
+
+    # The reflected borders leave a uniform image uniform instead of darkening its edges
+    monkeypatch.setattr(target=random, name="uniform", value=lambda low, high: high)
+    uniform_images = torch.full(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE), fill_value=200.0)
+    assert torch.allclose(input=augmenter.augment_batch(images=uniform_images)[0], other=uniform_images, atol=1e-3)
+
+    # A sequence of frames of different intensities is blurred with the same kernel on all its frames
+    sequences = torch.stack(tensors=[dot_images[0] * (frame_index + 1) / 4
+                                     for frame_index in range(4)]).unsqueeze(dim=0)
+    blurred_sequences = augmenter.augment_batch(images=sequences)[0]
+    assert all(torch.allclose(input=blurred_sequences[0, frame_index] / (frame_index + 1),
+                              other=blurred_sequences[0, 0], atol=1e-4) for frame_index in range(1, 4))
+
+    # Drawn with the Gaussian blur and the haze, the motion blur comes between them
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(
+        enabled_types=["random_blur", "random_motion_blur", "random_haze"]))
+    reports = augmenter.augment_batch(images=dot_images[:1])[-1]
+    assert [type_name for type_name, _ in reports[0]["photometric_augmentations"][0]] == [
+        "random_blur", "random_motion_blur", "random_haze"]
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The training batches are augmented on the GPU.")
+def test_motion_blur_on_the_gpu_never_makes_the_host_wait() -> None:
+    """
+    Verifies the random_motion_blur type on the GPU, where the training batches are augmented: its line kernel being
+    drawn on the device, blurring an image and a sequence never makes the host wait for the device, which the
+    synchronization debug mode of PyTorch turns into an error, and the same draws give the blur of the CPU.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_motion_blur"]))
+    images = torch.rand(size=(2, 3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0
+    sequences = torch.rand(size=(1, 3, 3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0
+    device_images, device_sequences = images.to(device="cuda"), sequences.to(device="cuda")
+    augmenter.augment_batch(images=device_images)
+    torch.cuda.synchronize()
+
+    # Blur on the GPU with every synchronization of the host turned into an error
+    random.seed(3)
+    torch.cuda.set_sync_debug_mode(debug_mode="error")
+    try:
+        gpu_images, _, _, _, _, _, gpu_reports = augmenter.augment_batch(images=device_images)
+        gpu_sequences = augmenter.augment_batch(images=device_sequences)[0]
+    finally:
+        torch.cuda.set_sync_debug_mode(debug_mode="default")
+
+    # The same draws on the CPU give the same blur and the same reports
+    random.seed(3)
+    cpu_images, _, _, _, _, _, cpu_reports = augmenter.augment_batch(images=images)
+    cpu_sequences = augmenter.augment_batch(images=sequences)[0]
+    assert gpu_reports == cpu_reports
+    assert torch.allclose(input=gpu_images.cpu(), other=cpu_images, atol=1e-3)
+    assert torch.allclose(input=gpu_sequences.cpu(), other=cpu_sequences, atol=1e-3)
 
 
 def test_haze_blends_every_image_with_a_uniform_grey_airlight(monkeypatch: pytest.MonkeyPatch) -> None:
