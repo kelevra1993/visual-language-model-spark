@@ -1743,7 +1743,7 @@ if __name__ == "__main__":
     # ficha runs at 512 pixels, 128 x 16 x 16, and not block 5, 128 x 32 x 32) and the hidden fully connected layers of
     # a classification head (their output after their ReLU, the class logits layer excluded)
     convolution_block_indices = [6]
-    fully_connected_layer_indices = [1, 2]
+    fully_connected_layer_indices = []
     # Images run together and loader worker processes reading them
     batch_size = 32
     number_workers = 2
@@ -1758,11 +1758,13 @@ if __name__ == "__main__":
     #   smallest cluster), min_samples (neighbours making an image dense, None for min_cluster_size, higher giving more
     #   noise) and cluster_selection_method ("eom" for the most stable clusters, "leaf" for smaller, more uniform ones)
     # - "dbscan": dense regions at a fixed distance eps between the prepared vectors (at most 2 between normalised
-    #   vectors), min_samples neighbours within eps making an image dense, the others being noise
+    #   vectors), min_samples neighbours within eps making an image dense, the others being noise; eps 0.16 lies
+    #   between the knees of the distance of every image to its 4th nearest neighbour on block 6 at PCA 200 of the
+    #   ficha empty bins train split, 0.192 for empty_bin and 0.142 for not_empty
     # - "kmeans": number_clusters clusters per category, every image in one, best of number_initializations runs
-    clustering_algorithm = "hdbscan"
+    clustering_algorithm = "dbscan"
     clustering_parameters = {"hdbscan": {"min_cluster_size": 10, "min_samples": 5, "cluster_selection_method": "eom"},
-                             "dbscan": {"eps": 0.2, "min_samples": 5},
+                             "dbscan": {"eps": 0.16, "min_samples": 5},
                              "kmeans": {"number_clusters": 200, "number_initializations": 3}}[clustering_algorithm]
     # Images of the cluster subset: the representatives of every cluster (its images closest to its centre) and the
     # noise images, "all", "none" or a number drawn at random. The random baseline and the baseline evenly spaced per
