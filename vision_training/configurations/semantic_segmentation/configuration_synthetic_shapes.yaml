@@ -46,10 +46,13 @@ ExperimentConfiguration:
   # <run folder>/Evaluation/Iteration_<iteration>/.
   evaluation:
     # Reports every class at every evaluation: the table of the classes (test pixels, IoU, Dice, boundary IoU,
-    # boundary F1, precision, recall, worst IoU first) in the console and Results.txt, their IoU / Dice / Boundary IoU /
-    # Boundary F1 / Precision / Recall Test scalars in TensorBoard, and the confusion matrix image (confusion_matrix.png
-    # and TensorBoard). False keeps the global metrics only, e.g. for many classes: class_metrics.csv and
-    # confusion_matrix.csv are saved either way.
+    # boundary F1, precision, recall, ROC AUC, average precision, worst IoU first) in the console and Results.txt,
+    # their IoU / Dice / Boundary IoU / Boundary F1 / Precision / Recall / ROC AUC / Average Precision Test scalars and
+    # the Macro ROC AUC and Macro Average Precision in TensorBoard, the confusion matrix image (confusion_matrix.png)
+    # and the ROC and precision-recall curves of the pixels of every class, one against the rest, from histograms of
+    # their probabilities in 10,000 bins (roc_curves.png and precision_recall_curves.png, one plot up to 10 classes and
+    # a grid of panels above), also in TensorBoard. False keeps the global metrics only, e.g. for many classes:
+    # class_metrics.csv and confusion_matrix.csv are saved either way.
     per_class_report: True
     # Number of test images drawn once and shown at every evaluation, each as a grid of its input, its ground truth
     # mask, its predicted mask and its error map (correct pixels of the classes in green, pixels given a wrong class in

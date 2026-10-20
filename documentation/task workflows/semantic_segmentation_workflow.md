@@ -150,7 +150,8 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   ├── accumulate_evaluation_batch()
 │   │       Adds compute_pixel_confusion_matrix() and compute_boundary_counts() of the batch (at the network
 │   │       resolution, or with original_resolution against every original mask after
-│   │       restore_prediction_to_original_image()), and with save_predicted_masks writes one class index PNG per image.
+│   │       restore_prediction_to_original_image()), with per_class_report compute_pixel_score_histograms() of the
+│   │       same pixels, and with save_predicted_masks writes one class index PNG per image.
 │   └── save_sample_images() -> build_sample_image()
 │           Four panels per fixed image: the input, the true mask and the predicted mask painted over it, the error
 │           map, with the pixel accuracy of the image and a legend of its classes.
@@ -158,9 +159,12 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   ├── compute_segmentation_metrics()       pixel accuracy, IoU and Dice of every class, mean IoU, mean Dice,
 │   │                                        frequency-weighted IoU, precision and recall
 │   ├── compute_boundary_metrics()           boundary IoU and boundary F1 of every class, and their means
+│   ├── compute_histogram_score_curves() + compute_macro_curve_metrics()   (only with per_class_report)
+│   │                                        ROC AUC and average precision of the pixels of every class, their means
 │   ├── build_segmentation_class_rows() + write_class_metrics_file()           class_metrics.csv
 │   ├── save_confusion_matrix_table()                                          confusion_matrix.csv (pixel counts)
 │   ├── save_confusion_matrix_image()   (only with per_class_report)          confusion_matrix.png (shares only)
+│   ├── save_score_curve_images()   (only with per_class_report)    roc_curves.png, precision_recall_curves.png
 │   └── build_segmentation_class_table() + build_segmentation_class_scalars()
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
@@ -769,7 +773,7 @@ class_probabilities   [4, 10, 64, 64] torch.float32
 ```
 
 ### Step 4.5 — `accumulate_evaluation_batch()` (→ `compute_pixel_confusion_matrix()` + `compute_boundary_counts()`)
-The predicted class map of every kept image (the argmax of its probabilities) is compared with its mask: at the network resolution (the padding and the unlabelled pixels being ignored), or with `original_resolution: True` with the original mask of every image, its probabilities being first cut out of the letterbox and resized back to the original size (`restore_prediction_to_original_image()`). The pixel confusion matrix and the boundary counts of the batch are added to the accumulator. `compute_boundary_counts()` counts, for every class, the intersection and the union of the bands within `boundary_tolerance` pixels of the true and predicted contours, the predicted edge pixels with those within the tolerance of a true edge, and the true edge pixels with those within the tolerance of a predicted edge. With `save_predicted_masks`, the class map of every image is written as a single-channel PNG named after the image.
+The predicted class map of every kept image (the argmax of its probabilities) is compared with its mask: at the network resolution (the padding and the unlabelled pixels being ignored), or with `original_resolution: True` with the original mask of every image, its probabilities being first cut out of the letterbox and resized back to the original size (`restore_prediction_to_original_image()`). The pixel confusion matrix and the boundary counts of the batch are added to the accumulator. `compute_boundary_counts()` counts, for every class, the intersection and the union of the bands within `boundary_tolerance` pixels of the true and predicted contours, the predicted edge pixels with those within the tolerance of a true edge, and the true edge pixels with those within the tolerance of a predicted edge. With `per_class_report`, `compute_pixel_score_histograms()` counts the same labelled pixels, class by class, in a histogram of 10,000 bins (`SCORE_HISTOGRAM_BINS`) of their probability of the class, the pixels of the class (positives) apart from the others (negatives), added to the `[K, 2, 10000]` `score_histograms` of the accumulator on the device: the probabilities of all the test pixels are far too many to keep for the ROC and precision-recall curves. With `save_predicted_masks`, the class map of every image is written as a single-channel PNG named after the image.
 
 **Example: the predicted masks of the checkpoint of iteration 6**
 ```text
@@ -835,7 +839,7 @@ Mean Boundary IoU 0.0195   Mean Boundary F1 0.0608
 ```
 
 ### Step 4.10 — `build_segmentation_class_rows()` + `write_class_metrics_file()`
-One row per class, in class index order, with its true pixels and all its metrics, written as `class_metrics.csv` at every evaluation, whatever `per_class_report`.
+One row per class, in class index order, with its true pixels and all its metrics, written as `class_metrics.csv` at every evaluation, whatever `per_class_report`. With `per_class_report`, `compute_histogram_score_curves()` first turns the histograms of Step 4.5 into the ROC and precision-recall curves of every class, one against the rest, the lower edge of every bin holding pixels being a threshold (the curves are exact at the bin edges, the pixels of a bin moving them together like tied scores): the ROC AUC and average precision of every class join its row as `roc_auc` and `average_precision`, and their means over the classes defining them (`compute_macro_curve_metrics()`) follow the headline metrics as `Macro ROC AUC` and `Macro Average Precision`. A class without pixels has neither, a class covering every labelled pixel no ROC AUC. The example below comes from a run made before the curves, without these two columns.
 
 **Example: `Evaluation/Iteration_12/class_metrics.csv`**
 ```text
@@ -849,13 +853,13 @@ class_index,class,pixels,iou,dice,boundary_iou,boundary_f1,precision,recall
 ```
 
 ### Step 4.11 — `save_confusion_matrix_table()` + `save_confusion_matrix_image()`
-The table is the pixel confusion matrix of Step 4.8 (`confusion_matrix.csv`, written whatever `per_class_report`). With `per_class_report`, the image is drawn like the one of the classification, titled `Pixel Confusion Matrix · Iteration N · Mean IoU ... · Pixel Accuracy ...`, its cells showing only the share of every true class, since the pixel counts are too large to print (`show_counts=False`).
+The table is the pixel confusion matrix of Step 4.8 (`confusion_matrix.csv`, written whatever `per_class_report`). With `per_class_report`, the image is drawn like the one of the classification, titled `Pixel Confusion Matrix · Iteration N · Mean IoU ... · Pixel Accuracy ...`, its cells showing only the share of every true class, since the pixel counts are too large to print (`show_counts=False`). `save_score_curve_images()` then draws the curves of Step 4.10 as for the classification (`classification_workflow.md`, Step 4.15), titled `ROC Curves · Pixels · Iteration N · Macro ROC AUC ...` and `Precision-Recall Curves · Pixels · Iteration N · Macro Average Precision ...`, without thresholds, and saves `roc_curves.png` and `precision_recall_curves.png`, also logged to TensorBoard and MLflow.
 
 ### Step 4.12 — the notes and the predicted masks
 The notes name what was scored: the number of labelled pixels and the resolution (`network resolution`, `original resolution of the images`, or `images scaled by <scale>, segmented tile by tile`), and the boundary tolerance. With `save_predicted_masks`, the `Predicted_Masks` folder and its number of images are added.
 
 ### Step 4.13 — `build_segmentation_class_table()` + `build_segmentation_class_scalars()`
-The per-class table sorts the classes by IoU, worst first; the per-class scalars are the 6 metrics of every class (`IoU/<class>`, `Dice/<class>`, `Boundary IoU/<class>`, `Boundary F1/<class>`, `Precision/<class>`, `Recall/<class>`): 60 scalars for 10 classes, shown only with `per_class_report`.
+The per-class table sorts the classes by IoU, worst first; the per-class scalars are the 6 metrics of every class (`IoU/<class>`, `Dice/<class>`, `Boundary IoU/<class>`, `Boundary F1/<class>`, `Precision/<class>`, `Recall/<class>`): 60 scalars for 10 classes, shown only with `per_class_report`, which also adds the `ROC AUC` and `Average Precision` columns and scalars of the classes defining them.
 
 ### Step 4.14 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)

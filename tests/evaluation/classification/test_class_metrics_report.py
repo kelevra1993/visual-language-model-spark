@@ -1,7 +1,8 @@
 """
 Tests of vision_training/evaluation/classification/class_metrics_report.py: the per-class rows of class_metrics.csv in
 class index order, the per-class table of the report (the target precision in its columns, no precision, recall nor F1
-for a class without samples, sorted by F1) and the per-class TensorBoard scalars.
+for a class without samples, sorted by F1), the per-class TensorBoard scalars, and the ROC AUC and average precision
+of the per-class report in the rows, table and scalars.
 """
 
 import pytest
@@ -51,3 +52,28 @@ def test_class_metric_scalars() -> None:
     assert list(class_scalars) == ["Precision/circle", "Recall/circle", "F1/circle", "Precision/square",
                                    "Recall/square", "F1/square"]
     assert class_scalars["F1/square"] == pytest.approx(expected=2 / 3)
+
+
+def test_curve_metrics_of_the_per_class_report() -> None:
+    """
+    Verifies the ROC AUC and average precision of the per-class report: their columns of class_metrics.csv after the
+    F1 and before the thresholds, their columns and legend in the table, and their scalars for the classes defining
+    them, a class without positive having none.
+    """
+    class_curves = [{"roc_auc": 0.9, "average_precision": 0.8}, {"roc_auc": None, "average_precision": 1.0},
+                    {"roc_auc": None, "average_precision": None}]
+    class_rows = build_class_metrics_rows(class_names=CLASS_NAMES, metrics=METRICS, class_thresholds=CLASS_THRESHOLDS,
+                                          class_curves=class_curves)
+    assert list(class_rows[0]) == ["class_index", "class", "samples", "precision", "recall", "f1", "roc_auc",
+                                   "average_precision", "threshold_at_target_precision", "recall_at_target_precision"]
+
+    # Table: both columns between the F1 and the thresholds, "—" for the undefined ones
+    table = build_class_metrics_table(class_rows=class_rows, target_precision=0.99, support_column="Samples")
+    assert table["columns"] == ["Class", "Samples", "Precision", "Recall", "F1", "ROC AUC", "Average\nPrecision",
+                                "Threshold\n@ P0.99", "Recall\n@ P0.99"]
+    assert table["rows"][1][5:7] == [None, 1.0] and "no negative for the ROC AUC" in table["legend"]
+
+    # Scalars of the classes defining every metric
+    class_scalars = build_class_metric_scalars(class_names=CLASS_NAMES, metrics=METRICS, class_curves=class_curves)
+    assert [tag for tag in class_scalars if tag.startswith(("ROC AUC/", "Average Precision/"))] == [
+        "ROC AUC/circle", "Average Precision/circle", "Average Precision/square"]

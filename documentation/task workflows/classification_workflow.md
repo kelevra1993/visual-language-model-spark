@@ -422,24 +422,35 @@ run_test_evaluation(iteration)  [STAGE 4]
 │   │       For each class (one against the rest), finds the lowest probability threshold whose precision stays at or
 │   │       above target_precision, with the recall kept at that threshold, or None when no threshold reaches it. Saved
 │   │       in class_thresholds.json.
+│   ├── compute_class_score_curves() + compute_macro_curve_metrics()   (only with per_class_report)
+│   │       For each class (one against the rest), counts the positive and negative images at every distinct
+│   │       probability and gives its ROC curve and ROC AUC, its precision-recall curve and average precision (as
+│   │       scikit-learn computes them) and the point of its threshold; their means over the classes defining them are
+│   │       the Macro ROC AUC and Macro Average Precision headline metrics.
 │   ├── build_class_metrics_rows() + write_class_metrics_file()
-│   │       Merges the per-class metrics and thresholds into one row per class, in class index order, and writes
-│   │       class_metrics.csv. Written at every evaluation, whatever per_class_report.
+│   │       Merges the per-class metrics, curve metrics (with per_class_report) and thresholds into one row per class,
+│   │       in class index order, and writes class_metrics.csv. Written at every evaluation, whatever per_class_report.
 │   ├── save_confusion_matrix_image()   (only with per_class_report)
 │   │       Draws the confusion matrix with matplotlib (counts, shares, recall column, precision row, colour bar) and
 │   │       saves confusion_matrix.png. The same image is later sent to TensorBoard.
+│   ├── save_score_curve_images()   (only with per_class_report)
+│   │       Draws the ROC and precision-recall curves of every class (one plot up to 10 classes, a grid of panels
+│   │       above, the thresholds marked) and saves roc_curves.png and precision_recall_curves.png. The same images are
+│   │       later sent to TensorBoard.
 │   ├── write_predictions_file()   (only with save_predictions)
 │   │       Writes predictions.csv: one row per test image with its file name, true class, predicted class, whether it
 │   │       is correct and the probability of every class.
 │   └── build_class_metrics_table() + build_class_metric_scalars()
 │           Prepare what is displayed: the per-class table (columns, rows, sort by F1, legend) and the per-class
-│           TensorBoard scalars Precision/<class>, Recall/<class>, F1/<class>.
+│           TensorBoard scalars Precision/<class>, Recall/<class>, F1/<class> (and with per_class_report
+│           ROC AUC/<class>, Average Precision/<class>).
 └── report_evaluation()
     │
     ├── report_evaluation_results()
-    │       Writes the global scalars, the sample images (and with per_class_report the class scalars and the confusion
-    │       matrix image) to Tensorboard/Test, builds the report block, appends its plain text to Results.txt, prints
-    │       the coloured version in the console and prints the links of the files written by the evaluation.
+    │       Writes the global scalars, the sample images (and with per_class_report the class scalars, the confusion
+    │       matrix image and the curve images) to Tensorboard/Test, builds the report block, appends its plain text to
+    │       Results.txt, prints the coloured version in the console and prints the links of the files written by the
+    │       evaluation.
     └── track_evaluation()
             With MLflow tracking: sends the global scalars (and with per_class_report the class scalars), the best
             value so far of the headline metric, and the small evaluation files to the MLflow run.
@@ -1471,6 +1482,8 @@ A deployment can ask for a prediction to be trusted only above a probability thr
 ### Step 4.14 — `build_class_metrics_rows()` + `write_class_metrics_file()`
 `build_class_metrics_rows()` merges, for every class, its support, precision, recall, F1 and its threshold and recall at the target precision into one row, in class index order. `write_class_metrics_file()` saves them as `class_metrics.csv`, with 6 decimals and an empty cell for a missing value. It is written at every evaluation, whatever `per_class_report`, so that the details of all the classes (a 1000 class run included) stay on the disk even when they are not displayed.
 
+With `per_class_report`, `compute_class_score_curves()` first scores every class one against the rest from the probabilities of the test images: the images are counted, positive or negative, at every distinct probability of the class, from the highest down, every probability being a threshold, which gives the ROC curve (false and true positive rates) with its trapezoidal area, the ROC AUC, and the step-wise precision-recall curve with its average precision (the precision of every threshold weighted by the recall it adds), as scikit-learn computes them. A class without image has neither, a class made of every image no ROC AUC. Their means over the classes defining them, `compute_macro_curve_metrics()`, are the `Macro ROC AUC` and `Macro Average Precision` headline metrics, placed after the other headline metrics and before the extra metrics of the task, and the rows then hold `roc_auc` and `average_precision` after `f1`. The example below comes from a run made before the curves, without these two columns.
+
 **Example: `Evaluation/Iteration_6/class_metrics.csv`**
 ```text
 class_index,class,samples,precision,recall,f1,threshold_at_target_precision,recall_at_target_precision
@@ -1483,8 +1496,10 @@ class_index,class,samples,precision,recall,f1,threshold_at_target_precision,reca
 ...
 ```
 
-### Step 4.15 — `save_confusion_matrix_image()`   (only with `per_class_report`)
-This draws the matrix with matplotlib and saves it as `confusion_matrix.png`; the same image array is returned to be logged to TensorBoard (Step 4.18). Rows are the true classes and columns the predicted ones. Each cell shows its count and its share of the true class, with a colour from white (0%) to dark blue (100%); a column on the right gives the recall of each class, a row at the bottom the precision of each class (grey for a class that is never predicted), and the corner the accuracy. The numbers and the class names disappear for many classes (counts and shares up to 20 classes, counts up to 40, names up to 60), which is why it depends on `per_class_report`.
+### Step 4.15 — `save_confusion_matrix_image()` + `save_score_curve_images()`   (only with `per_class_report`)
+`save_score_curve_images()` draws the curves of Step 4.14 and saves them as `roc_curves.png` and `precision_recall_curves.png`, the same image arrays being returned to be logged to TensorBoard as `ROC Curves` and `Precision Recall Curves` (Step 4.18) and to MLflow (Step 4.19). Up to 10 classes, every class is a curve of its own colour on a single plot, its ROC AUC or average precision in the legend; above, every class has a small panel titled with its metric, 10 panels per row at most, and above 100 classes only the 100 classes with the lowest metric are drawn. The ROC curves come with the chance diagonal; the precision-recall curves with a dotted line at `target_precision` and a point at the recall and precision of the threshold of Step 4.13 on every class having one. The titles give the iteration and the macro mean.
+
+`save_confusion_matrix_image()` draws the matrix with matplotlib and saves it as `confusion_matrix.png`; the same image array is returned to be logged to TensorBoard (Step 4.18). Rows are the true classes and columns the predicted ones. Each cell shows its count and its share of the true class, with a colour from white (0%) to dark blue (100%); a column on the right gives the recall of each class, a row at the bottom the precision of each class (grey for a class that is never predicted), and the corner the accuracy. The numbers and the class names disappear for many classes (counts and shares up to 20 classes, counts up to 40, names up to 60), which is why it depends on `per_class_report`.
 
 **Example: `Evaluation/Iteration_12/confusion_matrix.png`** (1192 x 1155 pixels)
 ```text
@@ -1508,7 +1523,7 @@ test_000662.png,plus_sign,triangle,0,0.111758,0.105057,0.116420, ... ,0.115801
 ```
 
 ### Step 4.17 — `build_class_metrics_table()` + `build_class_metric_scalars()`
-These prepare what is displayed, without displaying it. `build_class_metrics_table()` returns the per-class table: the columns, one row per class, the sort column (F1, worst first, ties in class order, a class without test sample last and shown with a dash), and the legend. `build_class_metric_scalars()` returns one TensorBoard scalar per class and metric. Both are marked as per-class outputs: the reporter shows them only with `per_class_report`.
+These prepare what is displayed, without displaying it. `build_class_metrics_table()` returns the per-class table: the columns (with `per_class_report`, `ROC AUC` and `Average Precision` after the F1), one row per class, the sort column (F1, worst first, ties in class order, a class without test sample last and shown with a dash), and the legend. `build_class_metric_scalars()` returns one TensorBoard scalar per class and metric, with `per_class_report` also `ROC AUC/<class>` and `Average Precision/<class>` for the classes defining them (the example below predates them). Both are marked as per-class outputs: the reporter shows them only with `per_class_report`.
 
 **Example: the per-class scalars of the 9 classes**
 ```text
@@ -1516,7 +1531,7 @@ Precision/square, Recall/square, F1/square, Precision/circle, ... , F1/octagon  
 ```
 
 ### Step 4.18 — `report_evaluation()` → `report_evaluation_results()`
-This shows the results in four places. The scalars (the global metrics, and with `per_class_report` the per-class scalars) are written to `Tensorboard/Test` at the iteration of the checkpoint, with the sample images and, with `per_class_report`, the confusion matrix image. The report block (header, global metrics, notes and tables) is appended as plain text to `Results.txt`, which accumulates one block per evaluation. The same block is printed in colour in the console, followed by the links of the files written by the evaluation. With `per_class_report: False`, the block stops after the global metrics and the notes, and the per-class scalars, the table and the image are left out; `class_metrics.csv`, `class_thresholds.json` and `confusion_matrix.csv` are still written. `report_evaluation()` then sends the evaluation to MLflow (Step 4.19).
+This shows the results in four places. The scalars (the global metrics, and with `per_class_report` the per-class scalars) are written to `Tensorboard/Test` at the iteration of the checkpoint, with the sample images and, with `per_class_report`, the confusion matrix image and the ROC and precision-recall curve images. The report block (header, global metrics, notes and tables) is appended as plain text to `Results.txt`, which accumulates one block per evaluation. The same block is printed in colour in the console, followed by the links of the files written by the evaluation. With `per_class_report: False`, the block stops after the global metrics and the notes, and the per-class scalars, the table and the image are left out; `class_metrics.csv`, `class_thresholds.json` and `confusion_matrix.csv` are still written. `report_evaluation()` then sends the evaluation to MLflow (Step 4.19).
 
 **Example output: the block of iteration 6** (the same text, without the links, is appended to `Results.txt`)
 ```text

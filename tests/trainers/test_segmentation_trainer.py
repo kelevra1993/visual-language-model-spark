@@ -157,10 +157,11 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
         (4, f"{NUMBER_TEST_IMAGES} Test Images")]
     assert list(results["metrics"]) == ["Mean IoU", "Mean Dice", "Mean Boundary IoU", "Mean Boundary F1",
-                                        "Pixel Accuracy", "Frequency Weighted IoU"]
+                                        "Pixel Accuracy", "Frequency Weighted IoU", "Macro ROC AUC",
+                                        "Macro Average Precision"]
     assert all(0.0 <= metric_value <= 1.0 for metric_value in results["metrics"].values())
     assert results["headline_metric"] == "Mean IoU" and "Per Class Metrics" in results_blocks[0]["text"]
-    assert list(results["images"]) == ["Confusion Matrix"]
+    assert list(results["images"]) == ["Confusion Matrix", "ROC Curves", "Precision Recall Curves"]
     assert results["notes"][:2] == [f"Labelled Pixels : {NUMBER_TEST_IMAGES * SMOKE_IMAGE_SIZE * SMOKE_IMAGE_SIZE} at "
                                     f"the network resolution, the padding and the unlabelled pixels being ignored",
                                     "Boundary Tolerance : 2 pixels"]
@@ -176,11 +177,12 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     # Files of the evaluated checkpoint: per-class metrics of the 10 classes summing to the labelled pixels
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir()) == [
-        "Predicted_Masks", "Samples", "class_metrics.csv", "confusion_matrix.csv", "confusion_matrix.png"]
+        "Predicted_Masks", "Samples", "class_metrics.csv", "confusion_matrix.csv", "confusion_matrix.png",
+        "precision_recall_curves.png", "roc_curves.png"]
     with open(file=evaluation_folder / "class_metrics.csv", mode="r", newline="") as class_metrics_file:
         class_rows = list(csv.DictReader(f=class_metrics_file))
     assert list(class_rows[0]) == ["class_index", "class", "pixels", "iou", "dice", "boundary_iou", "boundary_f1",
-                                   "precision", "recall"]
+                                   "precision", "recall", "roc_auc", "average_precision"]
     assert [row["class"] for row in class_rows] == trainer.class_names
     assert sum(int(row["pixels"]) for row in class_rows) == NUMBER_TEST_IMAGES * SMOKE_IMAGE_SIZE * SMOKE_IMAGE_SIZE
     assert all(row["iou"] == "" for row in class_rows if row["pixels"] == "0")
@@ -195,11 +197,12 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     assert int(predicted_mask.max()) < len(trainer.class_names)
     assert len(list((evaluation_folder / "Samples").glob("*.png"))) == 2
 
-    # TensorBoard of the test evaluations: the global and per-class scalars, the confusion matrix and the sample grids
+    # TensorBoard of the test evaluations: the global and per-class scalars, the confusion matrix, the ROC and
+    # precision-recall curves and the sample grids
     test_events = EventAccumulator(path=str(trainer.tensorboard_directory / "Test"))
     test_events.Reload()
     assert set(results["metrics"]) <= set(test_events.Tags()["scalars"])
-    assert sorted(test_events.Tags()["images"]) == sorted(["Confusion Matrix"] + list(results["sample_images"]))
+    assert sorted(test_events.Tags()["images"]) == sorted(list(results["images"]) + list(results["sample_images"]))
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights, the class
     # pixel counts being read back from the run folder

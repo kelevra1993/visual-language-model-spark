@@ -146,17 +146,23 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     # Report of the evaluated checkpoint: its block in Results.txt with the per-class table, and its per-class outputs
     results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "6 Test Images")]
-    assert list(results["metrics"]) == ["Accuracy", "Balanced Accuracy", "Macro F1", "Top-2 Accuracy"]
-    assert "Per Class Metrics" in results_blocks[0]["text"]
-    assert list(results["images"]) == ["Confusion Matrix"] and results["images"]["Confusion Matrix"].ndim == 3
-    assert len(results["class_scalars"]) == 3 * len(trainer.class_names)
+    assert list(results["metrics"]) == ["Accuracy", "Balanced Accuracy", "Macro F1", "Top-2 Accuracy",
+                                        "Macro ROC AUC", "Macro Average Precision"]
+    assert all(0.0 <= results["metrics"][metric_name] <= 1.0
+               for metric_name in ["Macro ROC AUC", "Macro Average Precision"])
+    assert "Per Class Metrics" in results_blocks[0]["text"] and "ROC AUC" in results_blocks[0]["text"]
+    assert list(results["images"]) == ["Confusion Matrix", "ROC Curves", "Precision Recall Curves"]
+    assert all(image.ndim == 3 for image in results["images"].values())
 
-    # Files of the evaluated checkpoint
+    # Files of the evaluated checkpoint, the per-class scalars of the curves following the defined metrics of the file
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir() if path.name != "Errors") == [
         "Samples", "class_metrics.csv", "class_thresholds.json", "confusion_matrix.csv", "confusion_matrix.png",
-        "predictions.csv"]
-    check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=6)
+        "precision_recall_curves.png", "predictions.csv", "roc_curves.png"]
+    class_rows = check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names,
+                                          number_samples=6, per_class_report=True)
+    assert len(results["class_scalars"]) == 3 * len(trainer.class_names) + sum(
+        row[metric_key] != "" for row in class_rows for metric_key in ["roc_auc", "average_precision"])
     rows = check_predictions_file(evaluation_folder=evaluation_folder, reported_accuracy=results["metrics"]["Accuracy"],
                                   expected_rows=6, class_names=trainer.class_names, identification_columns=["sample"])
     assert all(row["sample"].endswith(".png") for row in rows)
@@ -194,8 +200,9 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
     """
     Verifies the multi-label mode of the classification trainer on the synthetic dataset rewritten as a multi-label
     one (every sample listing its single category in 'category_ids'): the training runs, and the evaluation reports
-    the multi-label metrics, with the positives of every class in its per-class table, and saves the per-class metrics
-    and the class thresholds without confusion matrix.
+    the multi-label metrics and the macro means of the curves, with the positives of every class in its per-class
+    table, and saves the per-class metrics, the class thresholds and the ROC and precision-recall curves without
+    confusion matrix.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -224,11 +231,14 @@ def test_multi_label_classification_training(tmp_path: Path, capsys: pytest.Capt
 
     results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "4 Test Images")]
-    assert list(results["metrics"]) == ["Subset Accuracy", "Micro F1", "Macro F1"]
-    assert results["tables"][0]["columns"][1] == "Positives" and results["images"] == {}
+    assert list(results["metrics"]) == ["Subset Accuracy", "Micro F1", "Macro F1", "Macro ROC AUC",
+                                        "Macro Average Precision"]
+    assert results["tables"][0]["columns"][1] == "Positives"
+    assert list(results["images"]) == ["ROC Curves", "Precision Recall Curves"]
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
-    assert sorted(path.name for path in evaluation_folder.iterdir()) == ["Samples", "class_metrics.csv",
-                                                                         "class_thresholds.json", "predictions.csv"]
+    assert sorted(path.name for path in evaluation_folder.iterdir()) == [
+        "Samples", "class_metrics.csv", "class_thresholds.json", "precision_recall_curves.png", "predictions.csv",
+        "roc_curves.png"]
     multi_label_rows = read_predictions_file(evaluation_folder=evaluation_folder)
     assert len(multi_label_rows) == 4
     assert list(multi_label_rows[0])[:4] == ["sample", "true_classes", "predicted_classes", "correct"]
@@ -249,8 +259,9 @@ def test_predictions_file_per_class_report_and_sample_images_can_be_turned_off(t
     """
     Verifies that the evaluation writes no predictions file when 'evaluation.save_predictions' is False, for the large
     test sets whose file would be too big, that 'evaluation.per_class_report' False keeps the global metrics only:
-    no per-class table in Results.txt, no per-class scalar nor confusion matrix image in TensorBoard and no
-    confusion_matrix.png, while class_metrics.csv and confusion_matrix.csv are still saved, and that
+    no per-class table in Results.txt, no per-class scalar, curve metric, confusion matrix nor curve image in
+    TensorBoard and no confusion_matrix.png nor curve image, while class_metrics.csv (without the curve columns) and
+    confusion_matrix.csv are still saved, and that
     'evaluation.number_sample_images' 0 draws no sample image.
 
     Args:
@@ -269,6 +280,8 @@ def test_predictions_file_per_class_report_and_sample_images_can_be_turned_off(t
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir()) == ["class_metrics.csv", "class_thresholds.json",
                                                                          "confusion_matrix.csv"]
+    check_class_metrics_file(evaluation_folder=evaluation_folder, class_names=trainer.class_names, number_samples=4,
+                             per_class_report=False)
 
     # The report keeps the global metrics only
     results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")

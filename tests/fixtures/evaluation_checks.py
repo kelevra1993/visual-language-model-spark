@@ -44,23 +44,31 @@ def read_results_blocks(results_path: Path) -> List[Dict[str, Any]]:
     return blocks
 
 
-def check_class_metrics_file(evaluation_folder: Path, class_names: List[str], number_samples: int) -> None:
+def check_class_metrics_file(evaluation_folder: Path, class_names: List[str], number_samples: int,
+                             per_class_report: bool) -> List[Dict[str, str]]:
     """
     Verifies the per-class metrics file of a classification-like evaluation: one row per class in class index order,
-    with the columns of the report, the samples of the classes summing to the evaluated samples (or labelled frames).
+    with the columns of the report (the ROC AUC and average precision with the per-class report), the samples of the
+    classes summing to the evaluated samples (or labelled frames).
 
     Args:
         evaluation_folder (Path): The evaluation folder of the checkpoint.
         class_names (List[str]): The class names of the run, in class index order.
         number_samples (int): The number of evaluated samples, or of labelled frames for the sequence labelling task.
+        per_class_report (bool): Whether the evaluation ran with the per-class report, adding the curve columns.
+
+    Returns:
+        List[Dict[str, str]]: The rows of 'class_metrics.csv', keyed by column name.
     """
     with open(file=evaluation_folder / "class_metrics.csv", mode="r", newline="") as class_metrics_file:
         rows = list(csv.DictReader(f=class_metrics_file))
     assert [row["class"] for row in rows] == class_names
     assert [row["class_index"] for row in rows] == [str(class_index) for class_index in range(len(class_names))]
-    assert list(rows[0]) == ["class_index", "class", "samples", "precision", "recall", "f1",
-                             "threshold_at_target_precision", "recall_at_target_precision"]
+    curve_columns = ["roc_auc", "average_precision"] if per_class_report else []
+    assert list(rows[0]) == ["class_index", "class", "samples", "precision", "recall", "f1"] + curve_columns + [
+        "threshold_at_target_precision", "recall_at_target_precision"]
     assert sum(int(row["samples"]) for row in rows) == number_samples
+    return rows
 
 
 def read_predictions_file(evaluation_folder: Path) -> List[Dict[str, str]]:

@@ -2,9 +2,9 @@
 Trainer of the image classification task: the data loaders of the 'labels.json' manifests, the classifier, the
 accuracy tracked on every batch, the view losses comparing every image with a second random view of it (Barlow Twins
 and the contrastive loss, their projectors trained as auxiliary heads of the general trainer), and the evaluation of
-the checkpoints on the test split (classification metrics, per-class metrics, confusion matrix, class thresholds, error
-images and the predictions file). Registered for the classification task and extended by the sequence classification
-trainer.
+the checkpoints on the test split (classification metrics, per-class metrics, confusion matrix, class thresholds, ROC
+and precision-recall curves with the per-class report, error images and the predictions file). Registered for the
+classification task and extended by the sequence classification trainer.
 """
 
 import csv
@@ -31,6 +31,9 @@ from vision_training.evaluation.classification.class_metrics_report import (buil
                                                                              build_class_metrics_table)
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
+from vision_training.evaluation.classification.score_curves import (compute_class_score_curves,
+                                                                     compute_macro_curve_metrics,
+                                                                     save_score_curve_images)
 from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.losses.classification_losses import compute_balanced_class_weights
@@ -635,7 +638,10 @@ class ClassificationTrainer(BaseTrainer):
         report, worst F1 first) and the per-class scalars. The threshold of every class reaching the target precision,
         the metrics of every class, the confusion matrix table (multi-class mode) and, when asked, the predictions of
         every sample are saved in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever
-        the per-class report; the confusion matrix image only with it, also logged to TensorBoard.
+        the per-class report. Only with it, the confusion matrix image (multi-class mode) and the ROC and
+        precision-recall curves of every class, one against the rest, are saved and logged to TensorBoard, the curves
+        adding the macro ROC AUC and average precision to the headline metrics and the ROC AUC and average precision
+        of every class to its metrics.
 
         Args:
             accumulator (Dict[str, Any]): The class probabilities and labels of the test split.
@@ -677,9 +683,6 @@ class ClassificationTrainer(BaseTrainer):
             positive_masks = labels >= 0.5
             support_column = "Positives"
 
-        # Extra metrics of the task, e.g. the sequence exact match of the sequence labelling task
-        headline_metrics.update(self.compute_extra_headline_metrics(accumulator=accumulator))
-
         # Threshold of every class reaching the target precision, saved for the deployment of the checkpoint
         class_thresholds = find_class_thresholds(probabilities=probabilities, positive_masks=positive_masks,
                                                  target_precision=self.target_precision)
@@ -691,9 +694,20 @@ class ClassificationTrainer(BaseTrainer):
                         for class_name, class_threshold in zip(self.class_names, class_thresholds)}}, indent=4))
         files["Class Thresholds"] = thresholds_path
 
+        # ROC and precision-recall curves of every class with the per-class report, their macro means following the
+        # headline metrics, the thresholds being marked on the precision-recall curves
+        class_curves = None
+        if self.per_class_report:
+            class_curves = compute_class_score_curves(probabilities=probabilities, positive_masks=positive_masks,
+                                                      class_thresholds=class_thresholds)
+            headline_metrics.update(compute_macro_curve_metrics(class_curves=class_curves))
+
+        # Extra metrics of the task, e.g. the sequence exact match of the sequence labelling task
+        headline_metrics.update(self.compute_extra_headline_metrics(accumulator=accumulator))
+
         # Metrics of every class, saved whatever the per-class report so that they stay available for many classes
         class_rows = build_class_metrics_rows(class_names=self.class_names, metrics=metrics,
-                                              class_thresholds=class_thresholds)
+                                              class_thresholds=class_thresholds, class_curves=class_curves)
         files["Class Metrics"] = write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)
 
         # Confusion matrix image of the per-class report, saved and logged to TensorBoard
@@ -702,6 +716,14 @@ class ClassificationTrainer(BaseTrainer):
                 confusion_matrix=confusion_matrix, class_names=self.class_names, output_folder=evaluation_folder,
                 title=f"Confusion Matrix · Iteration {iteration} · Accuracy {metrics['accuracy']:.4f} · Balanced "
                       f"Accuracy {metrics['balanced_accuracy']:.4f}")
+
+        # ROC and precision-recall curve images of the per-class report, saved and logged to TensorBoard
+        if class_curves is not None:
+            curve_files, curve_images = save_score_curve_images(
+                class_curves=class_curves, class_names=self.class_names, output_folder=evaluation_folder,
+                title_suffix=f" · Iteration {iteration}", target_precision=self.target_precision)
+            files.update(curve_files)
+            images.update(curve_images)
 
         # Predictions of every evaluated sample, when asked
         if self.save_predictions:
@@ -722,7 +744,8 @@ class ClassificationTrainer(BaseTrainer):
                 "tables": [build_class_metrics_table(class_rows=class_rows, target_precision=self.target_precision,
                                                      support_column=support_column)],
                 "scalars": dict(headline_metrics),
-                "class_scalars": build_class_metric_scalars(class_names=self.class_names, metrics=metrics),
+                "class_scalars": build_class_metric_scalars(class_names=self.class_names, metrics=metrics,
+                                                            class_curves=class_curves),
                 "images": images, "files": files,
                 "headline_metric": "Accuracy" if self.output_mode == "multi_class" else "Subset Accuracy"}
 
