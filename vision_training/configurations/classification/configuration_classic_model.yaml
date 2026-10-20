@@ -381,16 +381,18 @@ ClassificationHead:
     barlow_twins:
       # Adds the Barlow Twins loss to the classification loss.
       activated: False
-      # Weight of the Barlow Twins loss, above 0. Unweighted, it starts in the thousands for an embedding of 2048
-      # features, its gradient on the final feature map being 177 (synthetic shapes) to 544 (ImageNet) times the one
-      # of the classification loss at initialisation (batches of 32 images), a fifth to a half of it with 0.001.
-      weight: 0.001
+      # Weight of the Barlow Twins loss, above 0. Unweighted, it starts at about 300 for an embedding of 512 features,
+      # its gradient on the final feature map being about 30 (synthetic shapes) to 150 (ImageNet) times the one of the
+      # classification loss at initialisation (batches of 32 images), an eighth to three fifths of it with 0.004. A
+      # wider embedding raises it: 177 to 544 times with [2048, 2048, 2048], for a weight of 0.001.
+      weight: 0.004
       # Weight of the off-diagonal terms (redundancy reduction) against the diagonal terms (invariance), above 0.
       off_diagonal_weight: 0.005
       # Units of the fully connected layers of the projector, the last one being the embedding size: every layer before
       # it is linear, batch normalization, ReLU, the last one linear only. Barlow Twins improves with wide embeddings,
-      # the weights and the optimizer state of its projector being saved in every checkpoint.
-      projector: [2048, 2048, 2048]
+      # but the weights and the optimizer state of its projector are saved in every checkpoint, about 4 MB for
+      # [512, 512] and about 100 MB for [2048, 2048, 2048].
+      projector: [512, 512]
     # Contrastive loss, InfoNCE over the 2N views of a batch of N images: every view has to find its positives among
     # the 2N - 1 other views by cosine similarity divided by the temperature. Tracked as Contrastive Loss (weighted)
     # and Positive Pair Accuracy (share of the views whose most similar view is one of their positives).

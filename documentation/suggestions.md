@@ -456,9 +456,24 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
       | ImageNet classic, 256 pixels, final map 64 x 8 x 8 | 6.97 (0.234) | 2043 (127.4) | 4.29 (0.375) | 4.26 (0.369) |
 
       The gradient of Barlow Twins is 177 to 544 times the one of the cross entropy, and the gradient of the
-      contrastive loss 0.5 to 1.6 times, hence the default weights of 0.001 (a fifth to a half of the gradient of the
+      contrastive loss 0.5 to 1.6 times, hence the weights of 0.001 (a fifth to a half of the gradient of the
       cross entropy) and 0.5 (a quarter to four fifths). The 32 ImageNet images hold 31 classes, so the classes add
       almost no positive there.
+    - **Smaller Barlow Twins projector:** the default projector of Barlow Twins became `[512, 512]` on 2026-10-20, an
+      embedding of 512 features: 0.33 million parameters, about 4 MB per checkpoint with its optimizer state, against
+      8.67 million and 104 MB for `[2048, 2048, 2048]` (17 million instead of 75 million with the flattened map of the
+      synthetic shapes). On the same batches, every projector rebuilt with three seeds, the unweighted Barlow Twins
+      loss with the norm of its gradient (this new run of the measurement above giving 191 and 556 times the cross
+      entropy instead of 177 and 544 for `[2048, 2048, 2048]`):
+
+      | Configuration | Cross entropy | `[2048, 2048, 2048]` | `[512, 512]` |
+      |---|---|---|---|
+      | Synthetic shapes, 512 pixels | 2.20 (0.255) | 2843 to 2956 (47.8 to 50.8) | 282 to 313 (6.98 to 8.44) |
+      | ImageNet classic, 256 pixels | 7.17 (0.235) | 1951 to 1997 (126.7 to 131.7) | 311 to 331 (34.3 to 36.1) |
+
+      The smaller embedding divides the gradient of Barlow Twins by 4 to 6, from 188 to 560 times the one of the cross
+      entropy to 27 to 154 times, hence its default weight of 0.004 (an eighth to three fifths of the gradient of the
+      cross entropy, 0.001 leaving it at 0.03 to 0.15).
     - **Experiment:** the classic model with Barlow Twins, with the contrastive loss of the classes, and without view
       loss, for the same number of iterations, compared on the test top-1, the view losses being turned on after a
       warm-up of the cross entropy (a resume with them on), as in the VQA result above. The Diagonal Correlation and
