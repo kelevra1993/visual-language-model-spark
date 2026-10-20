@@ -1,8 +1,9 @@
 """
 Tests of vision_training/evaluation/segmentation/segmentation_metrics.py and segmentation_report.py: the pixel confusion
-matrix leaves the ignored pixels out, the metrics computed from a known confusion matrix match the values computed by
-hand with the absent classes left out of the means, and the per-class rows, table and scalars give no metric to a
-class without pixels.
+matrix and the histograms of the pixel probabilities leave the ignored pixels out, the metrics computed from a known
+confusion matrix match the values computed by hand with the absent classes left out of the means, the per-class rows,
+table and scalars give no metric to a class without pixels, and the ROC AUC and average precision of the per-class
+report join them.
 """
 
 import pytest
@@ -10,6 +11,7 @@ import torch
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.evaluation.segmentation.segmentation_metrics import (compute_pixel_confusion_matrix,
+                                                                          compute_pixel_score_histograms,
                                                                           compute_segmentation_metrics)
 from vision_training.evaluation.segmentation.segmentation_report import (build_segmentation_class_rows,
                                                                          build_segmentation_class_scalars,
@@ -26,6 +28,43 @@ def test_pixel_confusion_matrix_leaves_out_the_ignored_pixels() -> None:
 
     confusion_matrix = compute_pixel_confusion_matrix(class_maps=class_maps, masks=masks, number_classes=3)
     assert confusion_matrix.tolist() == [[1, 0, 0], [0, 0, 1], [0, 0, 1]]
+
+
+def test_pixel_score_histograms_count_the_labelled_pixels() -> None:
+    """
+    Verifies the histograms of the pixel probabilities of the curves: every labelled pixel is counted in the bin of its
+    probability of every class, as a positive of its class and a negative of the others, a probability of 1 in the
+    last bin, the ignored pixel being left out.
+    """
+    masks = torch.tensor(data=[[[0, 1], [IGNORED_LABEL_INDEX, 1]]])
+    class_probabilities = torch.tensor(data=[[[[1.0, 0.0], [0.7, 0.5]], [[0.0, 1.0], [0.3, 0.5]]]])
+
+    score_histograms = compute_pixel_score_histograms(class_probabilities=class_probabilities, masks=masks,
+                                                      number_bins=4)
+    assert score_histograms.tolist() == [[[1, 0, 1, 0], [0, 0, 0, 1]], [[1, 0, 0, 0], [0, 0, 1, 1]]]
+
+
+def test_curve_metrics_join_the_class_rows_table_and_scalars() -> None:
+    """
+    Verifies the ROC AUC and average precision of the per-class report of the segmentation: their columns of
+    class_metrics.csv and of the table after the recall, with their legend, and their scalars for the classes defining
+    them.
+    """
+    metrics = compute_segmentation_metrics(confusion_matrix=torch.tensor(data=[[7, 0, 1], [1, 3, 0], [0, 0, 0]]))
+    metrics.update({"boundary_iou": [0.5, None, None], "boundary_f1": [0.6, None, None]})
+    class_curves = [{"roc_auc": 0.95, "average_precision": 0.9}, {"roc_auc": 0.8, "average_precision": 0.7},
+                    {"roc_auc": None, "average_precision": None}]
+    class_rows = build_segmentation_class_rows(class_names=["background", "circle", "square"], metrics=metrics,
+                                               class_curves=class_curves)
+    assert list(class_rows[0])[-3:] == ["recall", "roc_auc", "average_precision"]
+
+    table = build_segmentation_class_table(class_rows=class_rows)
+    assert table["columns"][-3:] == ["Recall", "ROC AUC", "Average Precision"]
+    assert table["rows"][1][-2:] == [0.8, 0.7] and "no pixel of another class for the ROC AUC" in table["legend"]
+
+    class_scalars = build_segmentation_class_scalars(class_rows=class_rows)
+    assert [tag for tag in class_scalars if tag.startswith(("ROC AUC/", "Average Precision/"))] == [
+        "ROC AUC/background", "Average Precision/background", "ROC AUC/circle", "Average Precision/circle"]
 
 
 def test_metrics_of_a_known_confusion_matrix() -> None:

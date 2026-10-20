@@ -3,8 +3,9 @@ Trainer of the semantic segmentation task: the data loaders of the images and th
 U-Net segmenter with the balanced class weights of its cross entropy, the augmentation of the masks with the images,
 the pixel accuracy and mean IoU tracked on every batch, and the evaluation of the checkpoints on the test split, the
 test images being segmented tile by tile when the run trains on tiles and scored at the network or at their original
-resolution (pixel confusion matrix, boundary counts, global and per-class metrics, sample grids of fixed test images
-and the predicted masks). Registered for the semantic_segmentation task.
+resolution (pixel confusion matrix, boundary counts, global and per-class metrics, with the per-class report the ROC
+and precision-recall curves of the pixels of every class, sample grids of fixed test images and the predicted masks).
+Registered for the semantic_segmentation task.
 """
 
 import json
@@ -22,10 +23,15 @@ from vision_training.data.preprocessing import restore_prediction_to_original_im
 from vision_training.data.split_description import count_split_samples
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
+from vision_training.evaluation.classification.score_curves import (compute_histogram_score_curves,
+                                                                     compute_macro_curve_metrics,
+                                                                     save_score_curve_images)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.evaluation.segmentation.boundary_metrics import (BOUNDARY_COUNT_COLUMNS, compute_boundary_counts,
                                                                       compute_boundary_metrics)
-from vision_training.evaluation.segmentation.segmentation_metrics import (compute_pixel_confusion_matrix,
+from vision_training.evaluation.segmentation.segmentation_metrics import (SCORE_HISTOGRAM_BINS,
+                                                                          compute_pixel_confusion_matrix,
+                                                                          compute_pixel_score_histograms,
                                                                           compute_segmentation_metrics)
 from vision_training.evaluation.segmentation.segmentation_report import (build_segmentation_class_rows,
                                                                          build_segmentation_class_scalars,
@@ -326,30 +332,39 @@ class SegmentationTrainer(BaseTrainer):
     def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """
         Creates the pixel confusion matrix and the boundary counts filled on the device during the evaluation of the
-        test split, with the folder of the predicted masks of the checkpoint.
+        test split, with the per-class report the histograms of the pixel probabilities of the ROC and precision-recall
+        curves, and the folder of the predicted masks of the checkpoint.
 
         Args:
             iteration (int): The training iteration of the evaluated checkpoint, which names its evaluation folder.
 
         Returns:
-            Dict[str, Any]: The empty [K, K] 'confusion_matrix' and [K, 6] 'boundary_counts', the 'number_images'
-                evaluated and the 'predicted_masks_folder'.
+            Dict[str, Any]: The empty [K, K] 'confusion_matrix' and [K, 6] 'boundary_counts', with the per-class report
+                the empty [K, 2, SCORE_HISTOGRAM_BINS] 'score_histograms', the 'number_images' evaluated and the
+                'predicted_masks_folder'.
         """
         evaluation_folder = self.get_evaluation_folder(iteration=iteration)
         number_classes = len(self.class_names)
-        return {"confusion_matrix": torch.zeros(size=(number_classes, number_classes), dtype=torch.int64,
-                                                device=self.device),
-                "boundary_counts": torch.zeros(size=(number_classes, len(BOUNDARY_COUNT_COLUMNS)), dtype=torch.int64,
-                                               device=self.device),
-                "number_images": 0, "predicted_masks_folder": evaluation_folder / "Predicted_Masks"}
+        accumulator = {"confusion_matrix": torch.zeros(size=(number_classes, number_classes), dtype=torch.int64,
+                                                       device=self.device),
+                       "boundary_counts": torch.zeros(size=(number_classes, len(BOUNDARY_COUNT_COLUMNS)),
+                                                      dtype=torch.int64, device=self.device),
+                       "number_images": 0, "predicted_masks_folder": evaluation_folder / "Predicted_Masks"}
+
+        # Histograms of the pixel probabilities of every class, only for the curves of the per-class report
+        if self.per_class_report:
+            accumulator["score_histograms"] = torch.zeros(size=(number_classes, 2, SCORE_HISTOGRAM_BINS),
+                                                          dtype=torch.int64, device=self.device)
+        return accumulator
 
     def accumulate_evaluation_batch(self, accumulator: Dict[str, Any], batch: Dict[str, Any],
                                     predictions: Dict[str, Any], sample_indices: List[int]) -> None:
         """
         Adds the labelled pixels of the kept images of a test batch to the confusion matrix and to the boundary
-        counts, on the device, then, when asked, saves the predicted mask of every image. The predictions are compared
-        with the masks of the batch (network input, or scaled image with tiling), or with 'original_resolution' with
-        the original mask of every image, its probabilities being restored to the original image first.
+        counts, with the per-class report their probabilities to the histograms of the curves, on the device, then,
+        when asked, saves the predicted mask of every image. The predictions are compared with the masks of the batch
+        (network input, or scaled image with tiling), or with 'original_resolution' with the original mask of every
+        image, its probabilities being restored to the original image first.
 
         Args:
             accumulator (Dict[str, Any]): The evaluation accumulator, modified in place.
@@ -374,9 +389,21 @@ class SegmentationTrainer(BaseTrainer):
                     not self.tiling_configuration["activated"])
                 evaluated_groups.append((restored_probabilities.argmax(dim=0, keepdim=True),
                                          original_mask.unsqueeze(dim=0).to(device=self.device)))
+
+                # Probabilities of the pixels of the image for the curves, before they are let go
+                if self.per_class_report:
+                    accumulator["score_histograms"] += compute_pixel_score_histograms(
+                        class_probabilities=restored_probabilities.unsqueeze(dim=0),
+                        masks=evaluated_groups[-1][1], number_bins=SCORE_HISTOGRAM_BINS)
         else:
             evaluated_groups = [(predictions["class_probabilities"][sample_indices].argmax(dim=1),
                                  batch["masks"][sample_indices])]
+
+            # Probabilities of the pixels of the batch for the curves
+            if self.per_class_report:
+                accumulator["score_histograms"] += compute_pixel_score_histograms(
+                    class_probabilities=predictions["class_probabilities"][sample_indices],
+                    masks=batch["masks"][sample_indices], number_bins=SCORE_HISTOGRAM_BINS)
 
         # Pixel confusion matrix and boundary counts of the labelled pixels
         for class_maps, masks in evaluated_groups:
@@ -439,13 +466,17 @@ class SegmentationTrainer(BaseTrainer):
         Computes the segmentation and boundary metrics of the labelled pixels of the test split and organises them for
         the report: the headline metrics, the evaluated pixels, their resolution, the boundary tolerance and the saved
         images as notes, the per-class table (shown with the per-class report, worst IoU first) and the per-class
-        scalars. The metrics of every class and the pixel
-        confusion matrix table are saved in the evaluation folder of the checkpoint, '<run>/Evaluation/Iteration_<n>/',
-        whatever the per-class report; the confusion matrix image only with it, also logged to TensorBoard, with the
-        shares of every true class in its cells, the pixel counts being too large to print.
+        scalars. The metrics of every class and the pixel confusion matrix table are saved in the evaluation folder of
+        the checkpoint, '<run>/Evaluation/Iteration_<n>/', whatever the per-class report; the confusion matrix image
+        only with it, also logged to TensorBoard, with the shares of every true class in its cells, the pixel counts
+        being too large to print. With the per-class report, the ROC and precision-recall curves of the pixels of every
+        class, one against the rest, come from the histograms of their probabilities, add the macro ROC AUC and average
+        precision to the headline metrics and the ROC AUC and average precision of every class to its metrics, and are
+        saved and logged to TensorBoard.
 
         Args:
-            accumulator (Dict[str, Any]): The pixel confusion matrix and the predicted masks folder of the test split.
+            accumulator (Dict[str, Any]): The pixel confusion matrix, the boundary counts, with the per-class report the
+                histograms of the pixel probabilities, and the predicted masks folder of the test split.
             iteration (int): The training iteration of the evaluated checkpoint.
 
         Returns:
@@ -462,8 +493,16 @@ class SegmentationTrainer(BaseTrainer):
                             "Pixel Accuracy": metrics["pixel_accuracy"],
                             "Frequency Weighted IoU": metrics["frequency_weighted_iou"]}
 
+        # ROC and precision-recall curves of the pixels of every class with the per-class report, from the histograms
+        # of their probabilities, their macro means following the headline metrics
+        class_curves = None
+        if self.per_class_report:
+            class_curves = compute_histogram_score_curves(score_histograms=accumulator["score_histograms"].cpu())
+            headline_metrics.update(compute_macro_curve_metrics(class_curves=class_curves))
+
         # Metrics of every class and pixel confusion matrix, saved whatever the per-class report
-        class_rows = build_segmentation_class_rows(class_names=self.class_names, metrics=metrics)
+        class_rows = build_segmentation_class_rows(class_names=self.class_names, metrics=metrics,
+                                                   class_curves=class_curves)
         files = {"Class Metrics": write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder),
                  "Confusion Matrix Table": save_confusion_matrix_table(confusion_matrix=confusion_matrix,
                                                                        class_names=self.class_names,
@@ -476,6 +515,13 @@ class SegmentationTrainer(BaseTrainer):
                 confusion_matrix=confusion_matrix, class_names=self.class_names, output_folder=evaluation_folder,
                 title=f"Pixel Confusion Matrix · Iteration {iteration} · Mean IoU {metrics['mean_iou']:.4f} · Pixel "
                       f"Accuracy {metrics['pixel_accuracy']:.4f}", show_counts=False)
+
+            # ROC and precision-recall curves of the pixels, saved and logged to TensorBoard
+            curve_files, curve_images = save_score_curve_images(
+                class_curves=class_curves, class_names=self.class_names, output_folder=evaluation_folder,
+                title_suffix=f" · Pixels · Iteration {iteration}")
+            files.update(curve_files)
+            images.update(curve_images)
 
         # Evaluated pixels and their resolution, the boundary tolerance, and the folder of the predicted masks
         if self.original_resolution:

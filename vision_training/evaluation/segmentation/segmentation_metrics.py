@@ -2,7 +2,9 @@
 Metrics of the semantic segmentation task, computed from the confusion matrix of the labelled pixels (rows true
 classes, columns predicted classes): the pixel accuracy, the IoU and Dice of every class with their means over the
 classes present, the frequency-weighted IoU, and the precision and recall of every class. Used by the segmentation
-trainer on every training and validation batch and on the whole test split of an evaluated checkpoint.
+trainer on every training and validation batch and on the whole test split of an evaluated checkpoint, which also
+counts, with the per-class report, the probabilities of the labelled pixels in histograms giving the ROC and
+precision-recall curves of every class (score_curves.py).
 """
 
 import torch
@@ -12,6 +14,10 @@ from typing import Any, Dict
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix)
+
+# Number of bins of equal width over [0, 1] of the histograms of the pixel probabilities, every bin edge being a
+# threshold of the ROC and precision-recall curves of the segmentation (every 0.0001 of probability)
+SCORE_HISTOGRAM_BINS = 10000
 
 
 def compute_pixel_confusion_matrix(class_maps: torch.Tensor, masks: torch.Tensor, number_classes: int) -> torch.Tensor:
@@ -31,6 +37,40 @@ def compute_pixel_confusion_matrix(class_maps: torch.Tensor, masks: torch.Tensor
     labelled_pixels = masks != IGNORED_LABEL_INDEX
     return compute_confusion_matrix(predicted_labels=class_maps[labelled_pixels], labels=masks[labelled_pixels],
                                     number_classes=number_classes)
+
+
+def compute_pixel_score_histograms(class_probabilities: torch.Tensor, masks: torch.Tensor,
+                                   number_bins: int) -> torch.Tensor:
+    """
+    Counts the labelled pixels of a batch in histograms of their class probabilities, on the device of the masks, for
+    the ROC and precision-recall curves of the per-class report (compute_histogram_score_curves): for every class, the
+    probabilities of the class of the pixels of the other classes (negatives) and of the pixels of the class
+    (positives), the ignored pixels (padding, unlabelled) being left out like in the confusion matrix. The segmentation
+    trainer adds up the histograms of every test batch on the device, the probabilities of all the pixels being far
+    too many to keep. The classes are counted one by one so that no [pixels, classes] copy is made.
+
+    Args:
+        class_probabilities (torch.Tensor): The [B, K, H, W] class probabilities of every pixel.
+        masks (torch.Tensor): The [B, H, W] true class index of every pixel, IGNORED_LABEL_INDEX on the ignored ones.
+        number_bins (int): The number of bins of equal width over [0, 1], a probability of 1 falling in the last one.
+
+    Returns:
+        torch.Tensor: The [K, 2, number_bins] int64 histograms, the negatives first and the positives second.
+    """
+    labelled_pixels = masks != IGNORED_LABEL_INDEX
+    pixel_labels = masks[labelled_pixels]
+    number_classes = class_probabilities.shape[1]
+    histograms = torch.zeros(size=(number_classes, 2, number_bins), dtype=torch.int64, device=masks.device)
+    for class_index in range(number_classes):
+        # Bin of the probability of the class of every labelled pixel, and whether the pixel is of the class
+        pixel_bins = (class_probabilities[:, class_index][labelled_pixels].to(dtype=torch.float32) *
+                      number_bins).long().clamp(min=0, max=number_bins - 1)
+        is_positive = (pixel_labels == class_index).long()
+
+        # Negatives in the first histogram and positives in the second, counted together
+        histograms[class_index] = torch.bincount(input=is_positive * number_bins + pixel_bins,
+                                                 minlength=2 * number_bins).view(2, number_bins)
+    return histograms
 
 
 def compute_segmentation_metrics(confusion_matrix: torch.Tensor) -> Dict[str, Any]:
