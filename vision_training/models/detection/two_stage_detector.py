@@ -759,13 +759,17 @@ class TwoStageDetector(TaskModel):
                 "aggregated_detections_dictionary": aggregated_detections_dictionary,
                 "model_output_dictionary": model_output_dictionary}
 
-    def print_summary(self) -> None:
+    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
         """
         Prints a structural summary of the overarching TwoStageDetector architecture.
         
         This method delegates to the underlying Backbone to print its layer-by-layer 
         spatial dimension summary, then prints the Region Proposal summary, and finally 
         the Detection summary, ensuring the structural integrity of the visual pipeline.
+
+        Args:
+            auxiliary_heads (Optional[Dict[str, nn.Module]]): Unused, the trainer of the task having no auxiliary
+                head; kept so that every task model prints its summary with the same arguments.
         """
         self.backbone.print_summary()
         self.print_region_proposal_summary()

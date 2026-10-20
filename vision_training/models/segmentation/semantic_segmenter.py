@@ -183,11 +183,15 @@ class SemanticSegmenter(TaskModel):
                                                                               edge_weights=edge_weights)
         return losses
 
-    def print_summary(self) -> None:
+    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
         """
         Prints the backbone summary, then the decoder and the head: for every level, the resolution and channels of
         the upsampled features, of the skip connection and of the level output, and the classes of the head, so that
         the user can check that the last level is at the input resolution.
+
+        Args:
+            auxiliary_heads (Optional[Dict[str, nn.Module]]): Unused, the trainer of the task having no auxiliary
+                head; kept so that every task model prints its summary with the same arguments.
         """
         self.backbone.print_summary()
 

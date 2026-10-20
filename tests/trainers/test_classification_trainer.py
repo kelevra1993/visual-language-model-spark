@@ -22,6 +22,7 @@ import vision_training.trainers.classification_trainer as classification_trainer
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.data.view_augmentations import ViewAugmenter
+from vision_training.models.task_model import TOTAL_WITH_AUXILIARY_HEADS_NAME
 from vision_training.trainers.checkpointing import AUXILIARY_HEADS_STATE_KEY, load_checkpoint
 from vision_training.trainers.classification_trainer import ClassificationTrainer
 from tests.data.test_view_augmentations import build_identity_configuration
@@ -408,7 +409,9 @@ def test_view_losses_turned_on_resized_and_off_when_a_run_resumes(tmp_path: Path
     optimizer states. Resumed again with the same settings, the projectors restart from their saved weights and
     optimizer states. Resumed with a resized Barlow Twins projector and the contrastive loss off, the Barlow Twins
     projector restarts from random weights and the contrastive projector is left out of the next checkpoints, and
-    resumed with every view loss off the run saves no auxiliary head. No iteration may fail.
+    resumed with every view loss off the run saves no auxiliary head. The summaries at the start of a run name the
+    projectors only when a view loss is on: the View Losses panel under the classification head, and in the model
+    size every projector and the classifier with its projectors. No iteration may fail.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -424,6 +427,11 @@ def test_view_losses_turned_on_resized_and_off_when_a_run_resumes(tmp_path: Path
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings={},
         evaluation_settings={}))
     assert trainer.auxiliary_heads == {} and trainer.auxiliary_optimizers == {}
+
+    # Without view loss, neither the architecture summary nor the model size names a projector
+    warm_up_output = capsys.readouterr().out
+    assert "Total Model" in warm_up_output
+    assert "View Losses" not in warm_up_output and TOTAL_WITH_AUXILIARY_HEADS_NAME not in warm_up_output
     trainer.run_training_loop()
     checkpoint = load_checkpoint(weights_directory=trainer.weights_directory, iteration=2, device=torch.device("cpu"))
     assert AUXILIARY_HEADS_STATE_KEY not in checkpoint
@@ -441,6 +449,14 @@ def test_view_losses_turned_on_resized_and_off_when_a_run_resumes(tmp_path: Path
         "Contrastive Loss", "Positive Pair Accuracy", "Accuracy"]
     console_output = capsys.readouterr().out
     assert "Representation         : average pooling, 128 features" in console_output
+
+    # The View Losses panel follows the classification head, and the model size gives every projector after the
+    # classifier, then the classifier with its projectors
+    model_size_output = console_output[console_output.index("Model Size"):]
+    assert console_output.index("Classification Head") < console_output.index("View Losses") < \
+        console_output.index("Model Size")
+    assert model_size_output.index("Total Model") < model_size_output.index("Barlow Twins Projector") < \
+        model_size_output.index("Contrastive Projector") < model_size_output.index(TOTAL_WITH_AUXILIARY_HEADS_NAME)
     for projector_title in ["Barlow Twins Projector", "Contrastive Projector"]:
         assert (f"The Checkpoint Of Iteration 2 Holds No {projector_title}, It Starts From Random Weights."
                 in console_output)

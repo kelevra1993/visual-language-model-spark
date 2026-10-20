@@ -1,18 +1,22 @@
 """
 Tests of ImageClassifier and of the classification head of vision_training/models/classification: output shapes and
 probabilities, learning a tiny batch, the class weights buffer, the final feature maps of both views returned for the
-view losses, the decorrelation loss of the hidden features of the head, the global pooling shapes and the head sized by
-the pooled or flattened feature map.
+view losses, the decorrelation loss of the hidden features of the head, the global pooling shapes, the head sized by
+the pooled or flattened feature map, and the summaries printing the projectors of the view losses.
 """
 
 import pytest
 import torch
 
-from typing import List
+from typing import Dict, List
 
-from vision_training.models.classification.classification_head import ClassificationHead, build_global_pooling
+from vision_training.models.classification.classification_head import (ClassificationHead, build_global_pooling,
+                                                                       compute_pooled_features)
 from vision_training.models.classification.image_classifier import ImageClassifier
+from vision_training.models.classification.view_losses import build_view_loss_projectors
+from vision_training.models.task_model import TOTAL_WITH_AUXILIARY_HEADS_NAME
 from tests.fixtures.configuration_fixtures import get_classification_model_configuration
+from tests.models.classification.test_view_losses import build_view_losses_configuration
 
 
 @pytest.mark.parametrize(argnames="output_mode", argvalues=["multi_class", "multi_label"])
@@ -273,3 +277,77 @@ def test_head_input_follows_the_pooled_feature_map(global_pooling: str, image_si
     assert outputs["class_logits"].shape == (2, 3)
     if global_pooling == "flatten":
         assert final_feature_map[0].numel() == expected_features
+
+
+def read_model_size_parameters(summary: str) -> Dict[str, int]:
+    """
+    Reads the number of parameters of every line of the Model Size panel printed by print_model_size_summary, the
+    other panels of the output being skipped.
+
+    Args:
+        summary (str): The captured console output holding the panel.
+
+    Returns:
+        Dict[str, int]: The number of parameters of every line of the panel, in its order.
+    """
+    parameters = {}
+    component_name = None
+    inside_panel = False
+
+    # Walk the lines of the panel, its line names followed by their parameter counts
+    for line in summary.splitlines():
+        if "Model Size" in line:
+            inside_panel = True
+            continue
+        if not inside_panel:
+            continue
+        if line.startswith("╰"):
+            break
+        text = line.strip("│ ")
+        if text.startswith("- Parameters"):
+            parameters[component_name] = int(text.split(":")[1].replace(",", ""))
+        elif text and not text.startswith("-"):
+            component_name = text
+    return parameters
+
+
+def test_summaries_print_the_view_loss_projectors_given_as_auxiliary_heads(capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the summaries of the classifier with the projectors of its view losses, the auxiliary heads of the
+    classification trainer: without them, the architecture summary ends with the classification head and the model
+    size lists the classifier only; with them, the View Losses panel follows the head, and the model size lists every
+    projector after the classifier, then the classifier with its projectors, whose parameters add up.
+
+    Args:
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output.
+    """
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    configuration["ClassificationHead"]["view_losses"] = build_view_losses_configuration(
+        barlow_twins_activated=True, contrastive_activated=True, positives="views")
+    model = ImageClassifier(configuration=configuration, device=device, dtype=dtype)
+    projectors = build_view_loss_projectors(
+        view_losses_configuration=configuration["ClassificationHead"]["view_losses"],
+        input_features=compute_pooled_features(global_pooling="average", backbone=model.backbone), device=device,
+        dtype=dtype)
+
+    # Without projectors, the head is printed alone and the model size gives the classifier only
+    model.print_summary()
+    model.print_model_size_summary()
+    summary = capsys.readouterr().out
+    assert "Classification Head" in summary and "View Losses" not in summary
+    assert list(read_model_size_parameters(summary=summary)) == ["Backbone", "Classification Head", "Total Model"]
+
+    # With them, the View Losses panel follows the head, and every projector and the total join the model size
+    model.print_summary(auxiliary_heads=projectors)
+    model.print_model_size_summary(auxiliary_heads=projectors)
+    summary = capsys.readouterr().out
+    assert summary.index("Classification Head") < summary.index("View Losses") < summary.index("Model Size")
+    assert "Barlow Twins Projector : [32, 32, 16]" in summary and "Contrastive Projector  : [8]" in summary
+    parameters = read_model_size_parameters(summary=summary)
+    assert list(parameters) == ["Backbone", "Classification Head", "Total Model", "Barlow Twins Projector",
+                                "Contrastive Projector", TOTAL_WITH_AUXILIARY_HEADS_NAME]
+    assert parameters["Barlow Twins Projector"] == sum(
+        parameter.numel() for parameter in projectors["barlow_twins_projector"].parameters())
+    assert parameters[TOTAL_WITH_AUXILIARY_HEADS_NAME] == (parameters["Total Model"] +
+                                                           parameters["Barlow Twins Projector"] +
+                                                           parameters["Contrastive Projector"])

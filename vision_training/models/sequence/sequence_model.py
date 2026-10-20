@@ -106,9 +106,13 @@ class SequenceFrameModel(TaskModel):
                 "class_probabilities": convert_logits_to_probabilities(class_logits=class_logits,
                                                                        output_mode=self.output_mode)}
 
-    def print_summary(self) -> None:
+    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
         """
         Prints the backbone summary, then the temporal module and the classification head.
+
+        Args:
+            auxiliary_heads (Optional[Dict[str, nn.Module]]): Unused, the trainer of the task having no auxiliary
+                head; kept so that every task model prints its summary with the same arguments.
         """
         self.backbone.print_summary()
         print_sequence_module_summary(title="Temporal Module", module_configuration=self.temporal_configuration,

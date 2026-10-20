@@ -11,7 +11,7 @@ import torch
 from pathlib import Path
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from vision_training.core.contracts import EvaluationResults
 from vision_training.data.augmentations import AUGMENTATION_TYPES
@@ -100,9 +100,13 @@ class DummyModel(TaskModel):
             outputs.update({"first_loss": first_loss, "second_loss": 0.5 * first_loss})
         return outputs
 
-    def print_summary(self) -> None:
+    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
         """
         Prints nothing: the dummy model has no architecture worth summarising.
+
+        Args:
+            auxiliary_heads (Optional[Dict[str, nn.Module]]): Unused, the trainer of the task having no auxiliary
+                head; kept so that every task model prints its summary with the same arguments.
         """
 
     def get_size_components(self) -> Dict[str, nn.Module]:

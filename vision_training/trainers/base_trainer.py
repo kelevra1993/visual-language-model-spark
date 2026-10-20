@@ -259,14 +259,14 @@ class BaseTrainer(ABC):
         # Print experiment information to user so that they can know everything about the experiment
         # as well as input and output shapes of the model.
         self.print_experiment_information()
-        self.model.print_summary()
-        self.print_auxiliary_heads_summary()
+        self.model.print_summary(auxiliary_heads=self.auxiliary_heads)
 
-        # Optional architecture diagnostics, printed before training continues
+        # Optional architecture diagnostics, printed before training continues, the model size counting the auxiliary
+        # heads trained with the model
         if self.diagnosis_modes["compute_receptive_field"]:
             self.model.print_receptive_field_summary()
         if self.diagnosis_modes["compute_model_size"]:
-            self.model.print_model_size_summary()
+            self.model.print_model_size_summary(auxiliary_heads=self.auxiliary_heads)
 
         # Optional viewer of the training and validation samples fed to the network, the program exits once it is closed
         # without having created the run folder
@@ -340,12 +340,6 @@ class BaseTrainer(ABC):
                 empty by default.
         """
         return {}
-
-    def print_auxiliary_heads_summary(self) -> None:
-        """
-        Prints the auxiliary heads of the task in the architecture summary at the start of a run, after the model.
-        Nothing by default.
-        """
 
     @abstractmethod
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
