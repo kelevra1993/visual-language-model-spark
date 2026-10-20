@@ -274,7 +274,7 @@ The `DataAugmenter` of the other tasks is built but stays off (`Data.data_augmen
 - `draw_view(images, view_index)` flips the BGR images to RGB, scales them to [0, 1], applies the chain of the view, clamps the result and converts it back to BGR in [0, 255].
 - `create_views(images, describe_views=False)` runs in float32, with the autocast off, draws the first view with the first chain and the second view with the second chain, and returns `(first_views, second_views, descriptions)`, the descriptions (`describe_view_transformations()`) being `None` unless asked for by the input viewer.
 
-**Example: the attributes of both augmenters (the two chains differ by the probabilities of the Gaussian blur and the solarization)**
+**Example: the attributes of both augmenters (the two chains differ by the probabilities of the Gaussian blur, the solarization and the black-out)**
 ```text
 DataAugmenter: {'activated': False, 'probability': 0.4, 'independent_frames': False, 'shuffle_frames_activated': False, ...}
 ViewAugmenter.view_transformations[0]: Sequential(
@@ -294,13 +294,16 @@ ViewAugmenter.view_transformations[0]: Sequential(
   (13): RandomMotionBlur(kernel_size=(3, 11), angle=180.0, direction=(-1.0, 1.0), p=0.1, ..., border_type=constant, resample=nearest)
   (14): RandomSolarize(thresholds=(0.5, 0.5), additions=(0.0, 0.0), p=0.0, ...)
   (15): RandomGaussianNoise(p=0.2, ..., mean=0.0, std=0.03)
-  (16): RandomErasing(scale=(0.02, 0.15), resize_to=(0.3, 3.3), value=0.0, p=0.25, ...)
+  (16): RandomBlackOut(p=0.0, ...)
+  (17): RandomErasing(scale=(0.02, 0.15), resize_to=(0.3, 3.3), value=0.0, p=0.25, ...)
 )
 ViewAugmenter.view_transformations[1]: Sequential(
   ...
   (12): RandomGaussianBlur(sigma=(0.1, 2.0), p=0.1, ..., kernel_size=(9, 9), separable=True, border_type=reflect)
   ...
   (14): RandomSolarize(thresholds=(0.5, 0.5), additions=(0.0, 0.0), p=0.2, ...)
+  ...
+  (16): RandomBlackOut(p=0.3, ...)
   ...
 )
 ```

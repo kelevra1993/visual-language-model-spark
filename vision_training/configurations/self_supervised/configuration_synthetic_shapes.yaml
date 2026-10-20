@@ -294,6 +294,9 @@ Data:
     # the 255 levels), after both blurs which would smooth it away. Drawn on the GPU, so its views differ between
     # devices for the same seed.
     gaussian_noise: { probability: 0.2, standard_deviation: 0.03 }
+    # Black-out of the cells of an 8x8 grid, every cell blacked out with a probability of 0.2, as the
+    # random_black_out type of the data augmentation, last with the random erasing so that the cells stay black.
+    black_out: { probability: [0.0, 0.3] }
     # Random erasing, an occlusion: a rectangle covering a fraction of the image drawn within scale, of aspect ratio
     # drawn within aspect_ratio, filled with black, last so that the erased area stays plainly filled.
     random_erasing: { probability: 0.25, scale: [0.02, 0.15], aspect_ratio: [0.3, 3.3] }
