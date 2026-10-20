@@ -47,6 +47,8 @@ main()
 │               │               per view), rotation degrees, perspective distortion, jigsaw grid, colour jitter
 │               │               strengths, hue shift, blur kernels, sigma and angle, noise, and the ranges of the
 │               │               gamma, haze, illumination, plasma shadow, blur direction, solarization and erasing
+│               ├── grouped:    Data.grouped_batches: activated flag, block_key a string, batch_key null or a string,
+│               │               images_per_block >= 2, dividing the batch size when the section is on
 │               ├── head:       check_projection_head_configuration(): pooling, layers, normalization, method
 │               │               (simclr or barlow_twins) and its temperature or off-diagonal weight
 │               └── batch:      batch size of at least 2, number_neighbours > 0
@@ -70,8 +72,12 @@ main()
 │       │   └── get_classification_dataloaders(self_supervised=True)
 │       │       ├── ClassificationDataset.__init__(output_mode="multi_class", keep_unlabelled_samples=True)
 │       │       │       Same dataset as the classification; an image without a mapped category is kept, label -1.
+│       │       ├── build_grouped_batch_sampler()
+│       │       │       With Data.grouped_batches on, the GroupedBatchSampler of the training and validation splits
+│       │       │       whose samples hold its keys: batches of blocks of images sharing an attribute of their groups.
 │       │       └── build_native_loader()
-│       │               drop_last for the training and validation loaders, so that every batch has batch_size images.
+│       │               drop_last for the training and validation loaders, so that every batch has batch_size images,
+│       │               or the GroupedBatchSampler in place of the batch size, the shuffling and drop_last.
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       The 8 fixed test images of the sample images, spread over the classes.
 │       ├── build_model()
@@ -200,6 +206,7 @@ label_dictionary: {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8}
 The common checks, then `check_self_supervised_configuration()` (in `vision_training/configuration_processing/self_supervised_checks.py`):
 - **data**: `multi_class` label mode, classes 0 to K-1, `Data.data_augmentation` off, since the random views replace it, and no sequence settings (`check_image_task_sequence_settings()`).
 - **views**: the `random_resized_crop` scale is a list `[low, high]` with `0 < low <= high <= 1` and a valid aspect ratio, every probability is in [0, 1] or a list of two of them `[first view, second view]`, the rotation `maximum_degrees` is at most `MAXIMUM_ROTATION_DEGREES`, the perspective `distortion_scale` is in [0, 1], the jigsaw `grid` holds at least two pieces and divides the input size, the colour jitter strengths are not negative and the hue shift at most `MAXIMUM_HUE_SHIFT`, the Gaussian blur kernel and sigma are valid, the motion blur kernel sizes are odd and at least 3 and its `maximum_angle` at most `MAXIMUM_MOTION_BLUR_DEGREES`, the noise `standard_deviation` is not negative, and the ranges of `VIEW_TRANSFORMATION_RANGES` (gamma, haze, linear illumination, plasma shadow, motion blur direction, solarization, random erasing) are within the bounds kornia accepts.
+- **grouped batches**: `check_grouped_batches_configuration()`: `Data.grouped_batches.activated` is True or False, `block_key` a non-empty string, `batch_key` null or a non-empty string, and `images_per_block` an integer of at least 2 that divides the batch size when the section is on.
 - **head**: `check_projection_head_configuration()`: pooling, layers, normalization, the method (`simclr` or `barlow_twins`) and its settings.
 - **batch and evaluation**: a batch size of at least 2, and `number_neighbours` above 0.
 
@@ -319,6 +326,8 @@ class_names: ['square', 'circle', 'triangle', 'rectangle', 'pentagon', 'hexagon'
 ### Step 2.8 — `get_classification_dataloaders(self_supervised=True)`
 The loaders of the classification (in `vision_training/data/loaders.py`), with three differences: the output mode is always `multi_class` (there is no `ClassificationHead` section), the datasets keep the images without a mapped category (Step 2.9), and the training and validation loaders drop their last incomplete batch, so that every batch of the losses has `batch_size` images. The test loader keeps every image.
 
+With `Data.grouped_batches` on, `build_grouped_batch_sampler()` (in `vision_training/data/grouped_batch_sampler.py`) builds the `GroupedBatchSampler` of the training and validation splits from the `groups` of their samples, given to `build_native_loader()` (Step 2.10). The sampler rebuilds the batches at every pass: the images grouped by (batch value, block value) are shuffled and cut into blocks of `images_per_block`, the blocks of every batch value are joined into full batches, and the images left over are shuffled into full random batches, the last incomplete one being dropped, so that a pass still gives `floor(N / batch_size)` batches and the iterations per epoch do not change. A split whose samples hold none of the keys keeps random batches with a yellow warning, and a split where only some samples hold them stops the launch with the number of samples missing each key.
+
 **Example: the three splits**
 
 | Split | Images | Batches | drop_last |
@@ -327,23 +336,34 @@ The loaders of the classification (in `vision_training/data/loaders.py`), with t
 | validation | 50000 | 390 | True |
 | test | 50000 | 391 | False |
 
+**Example output: grouped batches of a training split of 10 images in two cameras, with batches of 4 images and blocks of 2, and a validation split without groups**
+```text
+Grouped batches of the 'train_data_folder' split : block key 'camera' (2 values), 2 grouped and 0 leftover batches per pass
+No sample of the 'validation_data_folder' split holds the keys ['camera'] of 'Data.grouped_batches': its batches stay random.
+```
+
 ### Step 2.9 — `ClassificationDataset.__init__()`
-The dataset of the classification (in `vision_training/data/classification/classification_dataset.py`), with `keep_unlabelled_samples=True`: an image without a mapped category is kept with the label -1 (`IGNORED_LABEL_INDEX`) instead of being dropped, and a yellow line counts them (see Step 5.6). It shuffles the manifest once, so the first kept sample is not the first of the file.
+The dataset of the classification (in `vision_training/data/classification/classification_dataset.py`), with `keep_unlabelled_samples=True`: an image without a mapped category is kept with the label -1 (`IGNORED_LABEL_INDEX`) instead of being dropped, and a yellow line counts them (see Step 5.6). Every record also keeps the optional `groups` of its sample, an empty dictionary without them, read by the grouped batches (Step 2.8). It shuffles the manifest once, so the first kept sample is not the first of the file.
 
 **Example: the manifest, the first kept sample and `dataset[0]`**
 ```text
 manifest keys: ['info', 'categories', 'samples']   500000 samples, 9 categories
 manifest sample:  {'id': 1, 'file_name': 'train_000000.png', 'category_id': 6}
-first kept:       {'identifier': 145458, 'file_name': 'train_145457.png', 'class_indices': [5]}
+first kept:       {'identifier': 145458, 'file_name': 'train_145457.png', 'class_indices': [5], 'groups': {}}
 dataset[0]:       images [3, 256, 256] torch.uint8 in [14, 231]   labels () torch.int64 = 5   sample_identifiers 145458
 ```
 
 ### Step 2.10 — `build_native_loader()`
-Same torch DataLoader as the classification.
+Same torch DataLoader as the classification. With grouped batches, the DataLoader receives the `GroupedBatchSampler` as its `batch_sampler` instead of the batch size, the shuffling and `drop_last`, which it refuses next to a batch sampler: it then reads `batch_size None` and `drop_last False`, its length being the number of batches of the sampler.
 
 **Example: the training loader**
 ```text
 len 3906   batch_size 128   num_workers 2   prefetch_factor 2   pin_memory True   persistent_workers True   drop_last True
+```
+
+**Example: a training loader of grouped batches (10 images in two cameras, batches of 4 images, blocks of 2)**
+```text
+len 2   batch_size None   num_workers 2   prefetch_factor 2   pin_memory True   persistent_workers True   drop_last False   batch_sampler GroupedBatchSampler
 ```
 
 ### Step 2.11 — `get_test_sample_classes()` + `choose_sample_identifiers()`

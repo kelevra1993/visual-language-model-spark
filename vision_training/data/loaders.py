@@ -9,11 +9,12 @@ import os
 import cv2
 
 from functools import partial
-from typing import Any, Callable, Dict, Optional, Tuple
-from torch.utils.data import DataLoader, Dataset
+from typing import Any, Callable, Dict, List, Optional, Tuple
+from torch.utils.data import DataLoader, Dataset, Sampler
 
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function
+from vision_training.data.grouped_batch_sampler import build_grouped_batch_sampler
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_padded_sequences
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset
@@ -21,14 +22,15 @@ from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, Se
 
 def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration: Dict[str, Any],
                         collate_function: Optional[Callable] = None, drop_last: bool = False,
-                        shuffle: bool = True) -> DataLoader:
+                        shuffle: bool = True, batch_sampler: Optional[Sampler[List[int]]] = None) -> DataLoader:
     """
     Builds the DataLoader of a Native dataset with the 'Data.loading' settings, shared by the loaders of every task:
     shuffled samples (in their order for the embedding extraction of scripts/embedding/cluster_image_embeddings.py,
-    which writes every batch to its rows), worker processes kept alive between epochs and evaluations (no restart at
-    every pass), each decoding with a single OpenCV thread, and batches copied to pinned memory for faster transfers
-    to the GPU. With 0 workers, the samples are loaded in the main process, for debugging. The single OpenCV thread is
-    set in this process, which then also runs OpenCV on one thread.
+    which writes every batch to its rows), or the batches of a batch sampler (the grouped batches of the
+    self-supervised task), worker processes kept alive between epochs and evaluations (no restart at every pass), each
+    decoding with a single OpenCV thread, and batches copied to pinned memory for faster transfers to the GPU. With 0
+    workers, the samples are loaded in the main process, for debugging. The single OpenCV thread is set in this
+    process, which then also runs OpenCV on one thread.
 
     Args:
         dataset (Dataset): The Native dataset of the split.
@@ -39,6 +41,9 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
             comparing the samples of a batch with each other (self-supervised task). Defaults to False.
         shuffle (bool): Whether to shuffle the samples at every pass, False to read them in their order. Defaults to
             True.
+        batch_sampler (Optional[Sampler[List[int]]]): The sampler giving the dataset indices of every batch, given to
+            the DataLoader instead of the batch size, the shuffling and drop_last, or None for batches of batch_size
+            samples. Defaults to None.
 
     Returns:
         DataLoader: The loader of the split.
@@ -51,9 +56,15 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
     # once OpenCV has run its thread pool in this process
     if use_workers:
         cv2.setNumThreads(nthreads=1)
-    return DataLoader(dataset=dataset, batch_size=batch_size, shuffle=shuffle, num_workers=number_workers,
-                      collate_fn=collate_function, pin_memory=True, drop_last=drop_last, persistent_workers=use_workers,
-                      prefetch_factor=loading_configuration["prefetch_batches"] if use_workers else None)
+
+    # The batches of a batch sampler replace the batch size, the shuffling and the last incomplete batch setting, which
+    # the DataLoader refuses next to it
+    batching_arguments = {"batch_sampler": batch_sampler} if batch_sampler is not None else {
+        "batch_size": batch_size, "shuffle": shuffle, "drop_last": drop_last}
+    return DataLoader(dataset=dataset, num_workers=number_workers, collate_fn=collate_function, pin_memory=True,
+                      persistent_workers=use_workers,
+                      prefetch_factor=loading_configuration["prefetch_batches"] if use_workers else None,
+                      **batching_arguments)
 
 
 def get_detection_dataloader(split_name: str, split_data_folder: str, model_configuration: Dict[str, Any],
@@ -197,7 +208,8 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
     self-supervised task reads the same layout: every image is kept, labelled or not, the labels of the test images
     only serving its k-nearest neighbour evaluation, and the training and validation loaders leave out the last
     incomplete batch of every pass, since its losses compare the views of the images of a batch with each other (a
-    batch of a single image would give a loss without gradient).
+    batch of a single image would give a loss without gradient). With 'Data.grouped_batches' on, their batches gather
+    blocks of images sharing an attribute of their "groups" (GroupedBatchSampler), the hard negatives of each other.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
@@ -211,7 +223,8 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
         Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
 
     Raises:
-        ValueError: If a self-supervised training or validation split holds fewer images than a batch.
+        ValueError: If a self-supervised training or validation split holds fewer images than a batch, or if only some
+            of its samples hold the keys of 'Data.grouped_batches' when the grouped batches are on.
     """
     data_configuration = model_configuration["Data"]
     output_mode = "multi_class" if self_supervised else model_configuration["ClassificationHead"]["output_mode"]
@@ -232,8 +245,15 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
         if drop_last and len(dataset) < batch_size:
             raise ValueError(f"The '{split_key}' split holds {len(dataset)} images, fewer than the batch size "
                              f"{batch_size}: the self-supervised training and validation batches must be full.")
+
+        # Batches grouped by the attributes of the images for the self-supervised training and validation splits, when
+        # 'Data.grouped_batches' is on and the split has groups, random batches otherwise
+        batch_sampler = build_grouped_batch_sampler(
+            samples=dataset.samples, grouped_batches_configuration=data_configuration["grouped_batches"],
+            batch_size=batch_size, split_name=split_key) if drop_last else None
         loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
-                                           loading_configuration=data_configuration["loading"], drop_last=drop_last))
+                                           loading_configuration=data_configuration["loading"], drop_last=drop_last,
+                                           batch_sampler=batch_sampler))
 
     return loaders[0], loaders[1], loaders[2]
 

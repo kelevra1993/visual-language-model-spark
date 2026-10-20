@@ -28,7 +28,9 @@ class ClassificationDataset(Dataset):
     Dataset of the classification task, read with OpenCV on the CPU (Native loader).
 
     A split is a folder holding its images in 'data/' and a 'labels.json' manifest listing the 'categories' and the
-    'samples', each sample giving its 'file_name' and its 'category_id' (multi-class) or 'category_ids' (multi-label).
+    'samples', each sample giving its 'file_name' and its 'category_id' (multi-class) or 'category_ids' (multi-label),
+    and optionally its 'groups', a dictionary of named attributes (e.g. {"camera": "c042"}) kept in its sample record
+    for the grouped batches of the self-supervised task.
     The images are resized and padded exactly like the detection loaders, and the raw categories are converted to the
     class indices of the label dictionary; samples whose category is not mapped are left out, unless the unlabelled
     samples are kept (self-supervised task), the label of a multi-class sample without a single mapped category (none,
@@ -81,8 +83,15 @@ class ClassificationDataset(Dataset):
                 if not keep_unlabelled_samples:
                     continue
                 class_indices = []
+
+            # Optional named attributes of the sample (camera, scene, device...), which the grouped batches of the
+            # self-supervised task read, empty for a sample without them
+            groups = sample["groups"] if "groups" in sample else {}
+            if not isinstance(groups, dict):
+                raise ValueError(f"The 'groups' of the sample {sample['id']} of {labels_file} must be a dictionary of "
+                                 f"named attributes, got {groups!r}.")
             self.samples.append({"identifier": sample["id"], "file_name": sample["file_name"],
-                                 "class_indices": class_indices})
+                                 "class_indices": class_indices, "groups": groups})
 
         # Report the samples without mapped category, left out or kept without class
         if number_unlabelled_samples and keep_unlabelled_samples:

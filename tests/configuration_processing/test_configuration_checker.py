@@ -2189,6 +2189,28 @@ def set_invalid_harder_view_transformations(configuration: Dict[str, Any]) -> No
     view_augmentation["random_erasing"]["scale"] = [0.02, 1.5]
 
 
+def set_invalid_grouped_batches(configuration: Dict[str, Any]) -> None:
+    """
+    Turns the grouped batches on with a block key that is not a string, an empty batch key and blocks of 3 images,
+    which do not divide the batch of 128 images.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    configuration["Data"]["grouped_batches"].update({"activated": True, "block_key": 3, "batch_key": "",
+                                                     "images_per_block": 3})
+
+
+def set_single_image_grouped_blocks(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a quoted flag for the grouped batches, read as a string, and blocks of a single image.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    configuration["Data"]["grouped_batches"].update({"activated": "False", "images_per_block": 1})
+
+
 def set_single_piece_jigsaw(configuration: Dict[str, Any]) -> None:
     """
     Sets a jigsaw grid of a single piece, for which kornia keeps drawing a permutation differing from the identity
@@ -2274,6 +2296,13 @@ def set_invalid_self_supervised_evaluation(configuration: Dict[str, Any]) -> Non
     (set_single_piece_jigsaw, ["'Data.view_augmentation.jigsaw.grid' must be a list of two integers [rows, columns] "
                                ">= 1, giving at least two pieces, that divide 'Data.image_settings.size' (256), got "
                                "[1, 1]."]),
+    (set_invalid_grouped_batches, ["'Data.grouped_batches.block_key' must be a non-empty string, got 3.",
+                                   "'Data.grouped_batches.batch_key' must be null or a non-empty string, got ''.",
+                                   "'Data.grouped_batches.images_per_block' (3) must divide "
+                                   "'ExperimentConfiguration.batch_size' (128) when the grouped batches are on: a "
+                                   "batch holds a whole number of blocks."]),
+    (set_single_image_grouped_blocks, ["'Data.grouped_batches.activated' must be True or False, got 'False'.",
+                                       "'Data.grouped_batches.images_per_block' must be an integer >= 2, got 1."]),
     (set_invalid_self_supervised_evaluation, ["'ExperimentConfiguration.evaluation.number_neighbours' must be an "
                                               "integer >= 1, got 0.",
                                               "'ExperimentConfiguration.batch_size' must be at least 2 for the "

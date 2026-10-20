@@ -143,7 +143,9 @@ def test_self_supervised_loaders_keep_full_batches(tmp_path: Path) -> None:
                              for sample_identifier in range(1, number_samples + 1)])
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name) for split_name in split_sizes}
     model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
-                                    "loading": {"number_workers": 0, "prefetch_batches": 2}}}
+                                    "loading": {"number_workers": 0, "prefetch_batches": 2},
+                                    "grouped_batches": {"activated": False, "block_key": "camera",
+                                                        "images_per_block": 2, "batch_key": None}}}
 
     # Batches of 2 images: 2 full training batches, 1 full validation batch, and the 3 test images in 2 batches
     training_loader, validation_loader, test_loader = get_classification_dataloaders(

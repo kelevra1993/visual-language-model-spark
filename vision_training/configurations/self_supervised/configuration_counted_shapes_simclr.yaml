@@ -154,6 +154,26 @@ Data:
     mode: "multi_class"
     # Path to a JSON file mapping raw dataset category IDs to sequential model class IDs.
     mapping_file_path: "/home/robert_kelevra/Data/self_supervised_data/synthetic_counted_shapes/label_mapping.json"
+  # Grouped batches (hard negatives): the training and validation batches gather blocks of images sharing an
+  # attribute of the optional "groups" dictionary of their sample in labels.json, such as
+  # {"camera": "c042", "site": "s3"}, so that the negatives of an image (the other images of its batch) include many
+  # images of the same camera, scene or device type, which the views must still tell apart. Rebuilt at every pass:
+  # the images of every (batch value, block value) are shuffled and cut into blocks of images_per_block, the blocks
+  # of every batch value are joined into full batches, and the images left over are shuffled into full random
+  # batches. A split whose samples hold none of the keys keeps random batches (with a warning), and a split where
+  # only some samples hold them stops the launch. The test split, encoded image by image for the k-NN evaluation, is
+  # not grouped. The section gives no run name token and can change when a run resumes.
+  grouped_batches:
+    # Turns the grouped batches on, the batches being random otherwise.
+    activated: False
+    # Attribute shared by the images of a block.
+    block_key: "camera"
+    # Number of images of a block, an integer >= 2 dividing the batch size: a batch holds batch_size / images_per_block
+    # blocks.
+    images_per_block: 32
+    # Attribute shared by every image of a batch (e.g. "site", its blocks then coming from cameras of the same site),
+    # or null for blocks of any value in the same batch.
+    batch_key: null
   data_augmentation:
     # Global switch to enable or disable all data augmentation. Must be False for the self-supervised task: the two
     # random views of Data.view_augmentation replace it. The types below are kept so that the section has the same

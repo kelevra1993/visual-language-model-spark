@@ -41,7 +41,8 @@ UNLABELLED_EVALUATION_METRICS = ["Effective Rank", "Representation Standard Devi
 
 
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int,
-                              head_settings: Dict[str, Any], moving_average_activated: bool = False) -> Path:
+                              head_settings: Dict[str, Any], moving_average_activated: bool = False,
+                              grouped_batches_activated: bool = False) -> Path:
     """
     Writes a copy of the synthetic shapes self-supervised configuration adapted to a quick training smoke test: the
     generated dataset, 64 pixel images, batches of 4 images, a small projection head and a saving schedule that
@@ -54,6 +55,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
         head_settings (Dict[str, Any]): The 'ProjectionHead' settings replaced for the test.
         moving_average_activated (bool): Whether the run keeps a moving average of its weights, evaluated next to the
             trained weights. Defaults to False.
+        grouped_batches_activated (bool): Whether the batches gather blocks of 2 images of the same camera, from the
+            "groups" of the samples. Defaults to False.
 
     Returns:
         Path: The path of the written configuration file.
@@ -76,6 +79,10 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
     configuration["ProjectionHead"].update({"fully_connected": [32, 16], **head_settings})
     configuration["Optimization"]["exponential_moving_average"]["activated"] = moving_average_activated
+
+    # Grouped batches of two blocks of 2 images of one camera when asked for
+    configuration["Data"]["grouped_batches"].update({"activated": grouped_batches_activated, "block_key": "camera",
+                                                     "images_per_block": 2, "batch_key": None})
 
     configuration_path = temporary_directory / f"configuration_{number_iterations}_iterations.yaml"
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))
@@ -359,7 +366,9 @@ def test_class_names_come_from_the_categories_of_every_split(tmp_path: Path) -> 
                                   for split_name in split_categories},
         model_configuration={"Data": {"image_settings": {"size": 32, "keep_ratio": True},
                                       "label_dictionary": {1: 0, 5: 1},
-                                      "loading": {"number_workers": 0, "prefetch_batches": 2}}}, batch_size=2)
+                                      "loading": {"number_workers": 0, "prefetch_batches": 2},
+                                      "grouped_batches": {"activated": False, "block_key": "camera",
+                                                          "images_per_block": 2, "batch_key": None}}}, batch_size=2)
     SelfSupervisedTrainer.build_dataloaders(self=trainer)
     assert trainer.class_names == ["circle", "triangle"]
 
@@ -387,3 +396,58 @@ def test_iterations_per_epoch_leave_out_the_last_incomplete_batch(tmp_path: Path
     assert trainer.iterations_per_epoch == 2
     assert "- Iterations Per Epoch    : 2\x1b" in capsys.readouterr().out
     assert trainer.build_tracking_parameters()["Derived"]["iterations_per_epoch"] == 2
+
+
+def test_training_on_grouped_batches(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies a short self-supervised training on grouped batches: the training and validation samples of the synthetic
+    dataset get a camera in their "groups", alternating between two cameras, the grouped batches of both splits are
+    reported at launch, every training batch is made of two blocks of 2 images of one camera, the training loader
+    keeps the iterations per epoch of the random batches (10 images in batches of 4 give 2 batches, the images left
+    over being dropped), and the training saves without a failed iteration.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 10, "validation": 4, "test": 6}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+
+    # Two cameras alternating over the samples of the training and validation splits
+    training_cameras = {}
+    for split_name in ["train", "validation"]:
+        labels_path = dataset_folder / split_name / "labels.json"
+        labels = json.loads(s=labels_path.read_text())
+        for sample_index, sample in enumerate(labels["samples"]):
+            sample["groups"] = {"camera": f"camera_{sample_index % 2}"}
+            if split_name == "train":
+                training_cameras[sample["id"]] = sample["groups"]["camera"]
+        labels_path.write_text(data=json.dumps(obj=labels))
+
+    # Grouped batches of both splits reported at launch, the training loader keeping the iterations per epoch
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=3,
+        head_settings={"method": "simclr"}, grouped_batches_activated=True))
+    launch_output = capsys.readouterr().out
+    assert ("Grouped batches of the 'train_data_folder' split : block key 'camera' (2 values), 2 grouped and 0 "
+            "leftover batches per pass") in launch_output
+    assert ("Grouped batches of the 'validation_data_folder' split : block key 'camera' (2 values), 1 grouped and 0 "
+            "leftover batches per pass") in launch_output
+    assert len(trainer.train_dataloader) == trainer.iterations_per_epoch == 2
+
+    # Every training batch made of two blocks of 2 images of one camera
+    for batch in trainer.train_dataloader:
+        identifiers = batch["sample_identifiers"].tolist()
+        assert len(identifiers) == 4
+        assert all(training_cameras[identifiers[start]] == training_cameras[identifiers[start + 1]]
+                   for start in [0, 2])
+
+    # The training runs, validates and saves without a failed iteration
+    trainer.run_training_loop()
+    assert sorted(path.name for path in trainer.weights_directory.glob("Iteration_*")) == ["Iteration_2",
+                                                                                         "Iteration_3"]
+    console_output = capsys.readouterr().out
+    assert "Error encountered during iteration" not in console_output
+    assert "Critical Error" not in console_output
