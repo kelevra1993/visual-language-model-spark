@@ -26,15 +26,41 @@ IMAGE_CHANNELS = 3
 VALID_OPTIMIZERS = ["adam", "adamw", "sgd"]
 VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
 
-# Transformations of the random views drawn with a probability, under '<view augmentation>.<name>.probability'
-VIEW_TRANSFORMATIONS_WITH_PROBABILITY = ["left_right_flip", "up_down_flip", "rotation", "colour_jitter", "grayscale",
-                                         "gaussian_blur"]
+# Transformations of the random views drawn with a probability, under '<view augmentation>.<name>.probability', a
+# number or a list [first view, second view]
+VIEW_TRANSFORMATIONS_WITH_PROBABILITY = ["left_right_flip", "up_down_flip", "rotation", "perspective", "jigsaw",
+                                         "colour_jitter", "grayscale", "gamma", "haze", "linear_illumination",
+                                         "plasma_shadow", "gaussian_blur", "motion_blur", "solarize", "gaussian_noise",
+                                         "random_erasing"]
 
 # Largest hue shift of the colour jitter of the random views, half a turn of the hue circle
 MAXIMUM_HUE_SHIFT = 0.5
 
 # Largest rotation angle of the random views, in degrees
 MAXIMUM_ROTATION_DEGREES = 180.0
+
+# Largest angle of the line of the motion blur of the random views in either direction, in degrees, covering every
+# direction of the blur since its direction setting weights either end of the line
+MAXIMUM_MOTION_BLUR_DEGREES = 180.0
+
+# Largest value added to or removed from the solarized pixels of the random views, in RGB images in [0, 1]
+MAXIMUM_SOLARIZE_ADDITION = 0.5
+
+# Ranges [low, high] of the random views verified by check_number_range, under '<view augmentation>.<key>': the value
+# both bounds must be above, whether they may equal it, and the value they must not exceed. The gamma is positive, the
+# haze share and airlight intensity, the gain of the linear illumination, the plasma shade quantity and roughness and
+# the solarization threshold lie in [0, 1], the plasma shade intensity in [-1, 0] (darkening the image), the motion
+# blur direction in [-1, 1] (-1 and 1 weighting one end of the blur line only), and the erased rectangles cover a
+# fraction (0, 1] of the image with a positive aspect ratio
+VIEW_TRANSFORMATION_RANGES = [("gamma.gamma", 0.0, False, float("inf")), ("haze.strength", 0.0, True, 1.0),
+                              ("haze.airlight", 0.0, True, 1.0), ("linear_illumination.gain", 0.0, True, 1.0),
+                              ("plasma_shadow.shade_intensity", -1.0, True, 0.0),
+                              ("plasma_shadow.shade_quantity", 0.0, True, 1.0),
+                              ("plasma_shadow.roughness", 0.0, True, 1.0), ("motion_blur.direction", -1.0, True, 1.0),
+                              ("solarize.threshold", 0.0, True, 1.0),
+                              ("solarize.addition", -MAXIMUM_SOLARIZE_ADDITION, True, MAXIMUM_SOLARIZE_ADDITION),
+                              ("random_erasing.scale", 0.0, False, 1.0),
+                              ("random_erasing.aspect_ratio", 0.0, False, float("inf"))]
 
 # Name of the component of every section whose 'pretrained' settings initialise it with the one of another run, used
 # in the messages
@@ -492,24 +518,29 @@ def check_loss_weights_configuration(model_configuration: Dict[str, Any], loss_n
     return errors
 
 
-def check_number_range(value: Any, key_path: str, minimum_value: float, maximum_value: float) -> List[str]:
+def check_number_range(value: Any, key_path: str, minimum_value: float, maximum_value: float,
+                       minimum_included: bool = False) -> List[str]:
     """
-    Verifies that a [minimum, maximum] range of the random views (crop scale, aspect ratio, blur sigma) is a list of two
-    numbers in increasing order, strictly above the minimum value and at most the maximum value.
+    Verifies that a [minimum, maximum] range of the random views (crop scale, aspect ratio, blur sigma, haze strength,
+    solarization threshold...) is a list of two numbers in increasing order, above the minimum value (strictly unless
+    the minimum is included) and at most the maximum value.
 
     Args:
         value (Any): The range read from the configuration.
         key_path (str): The dotted key path of the range, used in the error message.
-        minimum_value (float): The value both bounds must be strictly above.
+        minimum_value (float): The value both bounds must be above.
         maximum_value (float): The value both bounds must not exceed.
+        minimum_included (bool): Whether the bounds may equal the minimum value. Defaults to False.
 
     Returns:
         List[str]: A single error description if the range is invalid, otherwise an empty list.
     """
+    lower_comparison = "<=" if minimum_included else "<"
     if not isinstance(value, list) or len(value) != 2 or not all(is_number(value=bound) for bound in value) or \
-            not minimum_value < value[0] <= value[1] <= maximum_value:
-        return [f"'{key_path}' must be a list of two numbers [low, high] with {minimum_value:g} < low <= high <= "
-                f"{maximum_value:g}, got {value!r}."]
+            not (minimum_value <= value[0] if minimum_included else minimum_value < value[0]) or \
+            not value[0] <= value[1] <= maximum_value:
+        return [f"'{key_path}' must be a list of two numbers [low, high] with {minimum_value:g} {lower_comparison} low "
+                f"<= high <= {maximum_value:g}, got {value!r}."]
     return []
 
 
@@ -518,9 +549,11 @@ def check_view_augmentation_configuration(model_configuration: Dict[str, Any], k
     Verifies a section of random views drawn by the ViewAugmenter (vision_training/data/view_augmentations.py): the two
     views of every image of the self-supervised task ('Data.view_augmentation'), or the second view of every image of
     the view losses of the image classifier ('ClassificationHead.view_losses.view_augmentation'). It checks the area and
-    aspect ratio ranges of the random resized crop, the probability of every other transformation, the largest
-    rotation angle, the strengths of the colour jitter and the kernel size and sigma range of the Gaussian blur, so
-    that kornia receives valid parameters.
+    aspect ratio ranges of the random resized crop, the probability of every other transformation (a number, or a list
+    of one per view), the largest rotation angle, the perspective distortion, the jigsaw grid, the strengths of the
+    colour jitter, the kernel size and sigma range of the Gaussian blur, the kernel sizes and largest angle of the
+    motion blur, the standard deviation of the Gaussian noise and the ranges of VIEW_TRANSFORMATION_RANGES, so that
+    kornia receives valid parameters.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -542,11 +575,12 @@ def check_view_augmentation_configuration(model_configuration: Dict[str, Any], k
                                  key_path=f"{key_prefix}.random_resized_crop.aspect_ratio", minimum_value=0.0,
                                  maximum_value=float("inf"))
 
-    # Probability of every transformation applied to a part of the views
+    # Probability of every transformation applied to a part of the views, the same for both views or one per view
     for transformation_name in VIEW_TRANSFORMATIONS_WITH_PROBABILITY:
         key_path = f"{key_prefix}.{transformation_name}.probability"
         errors += check_probability_value(value=get_configuration_value(configuration=model_configuration,
-                                                                        key_path=key_path), key_path=key_path)
+                                                                        key_path=key_path), key_path=key_path,
+                                          per_view=True)
 
     # Largest rotation angle, in either direction
     maximum_degrees = get_configuration_value(configuration=model_configuration,
@@ -554,6 +588,23 @@ def check_view_augmentation_configuration(model_configuration: Dict[str, Any], k
     if not is_number(value=maximum_degrees) or not 0.0 <= maximum_degrees <= MAXIMUM_ROTATION_DEGREES:
         errors.append(f"'{key_prefix}.rotation.maximum_degrees' must be a number within [0, "
                       f"{MAXIMUM_ROTATION_DEGREES:g}], got {maximum_degrees!r}.")
+
+    # Distortion of the perspective, the largest move of a corner as a fraction of half the image side
+    distortion_scale = get_configuration_value(configuration=model_configuration,
+                                               key_path=f"{key_prefix}.perspective.distortion_scale")
+    if not is_number(value=distortion_scale) or not 0.0 <= distortion_scale <= 1.0:
+        errors.append(f"'{key_prefix}.perspective.distortion_scale' must be a number within [0, 1], "
+                      f"got {distortion_scale!r}.")
+
+    # Jigsaw grid, [rows, columns] of pieces dividing the side of the network input, with at least two pieces since
+    # kornia otherwise keeps drawing a permutation that differs from the identity forever
+    grid = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.jigsaw.grid")
+    image_size = get_configuration_value(configuration=model_configuration, key_path="Data.image_settings.size")
+    if not isinstance(grid, list) or len(grid) != 2 or \
+            any(isinstance(count, bool) or not isinstance(count, int) or count < 1 for count in grid) or \
+            grid[0] * grid[1] < 2 or (is_number(value=image_size) and any(image_size % count != 0 for count in grid)):
+        errors.append(f"'{key_prefix}.jigsaw.grid' must be a list of two integers [rows, columns] >= 1, giving at "
+                      f"least two pieces, that divide 'Data.image_settings.size' ({image_size!r}), got {grid!r}.")
 
     # Strengths of the colour jitter, the hue shift being at most half a turn
     for strength_name in ["brightness", "contrast", "saturation"]:
@@ -575,4 +626,34 @@ def check_view_augmentation_configuration(model_configuration: Dict[str, Any], k
                                                                key_path=f"{key_prefix}.gaussian_blur.sigma"),
                                  key_path=f"{key_prefix}.gaussian_blur.sigma", minimum_value=0.0,
                                  maximum_value=float("inf"))
+
+    # Odd kernel sizes of the motion blur, drawn between the two, and the largest angle of its line in either direction
+    motion_kernel_sizes = get_configuration_value(configuration=model_configuration,
+                                                  key_path=f"{key_prefix}.motion_blur.kernel_size")
+    if not isinstance(motion_kernel_sizes, list) or len(motion_kernel_sizes) != 2 or \
+            any(isinstance(size, bool) or not isinstance(size, int) or size < 3 or size % 2 == 0
+                for size in motion_kernel_sizes) or motion_kernel_sizes[0] > motion_kernel_sizes[1]:
+        errors.append(f"'{key_prefix}.motion_blur.kernel_size' must be a list of two odd integers [low, high] with "
+                      f"3 <= low <= high, got {motion_kernel_sizes!r}.")
+    maximum_angle = get_configuration_value(configuration=model_configuration,
+                                            key_path=f"{key_prefix}.motion_blur.maximum_angle")
+    if not is_number(value=maximum_angle) or not 0.0 <= maximum_angle <= MAXIMUM_MOTION_BLUR_DEGREES:
+        errors.append(f"'{key_prefix}.motion_blur.maximum_angle' must be a number within [0, "
+                      f"{MAXIMUM_MOTION_BLUR_DEGREES:g}], got {maximum_angle!r}.")
+
+    # Standard deviation of the Gaussian noise, in RGB images in [0, 1]
+    standard_deviation = get_configuration_value(configuration=model_configuration,
+                                                 key_path=f"{key_prefix}.gaussian_noise.standard_deviation")
+    if not is_number(value=standard_deviation) or standard_deviation < 0.0:
+        errors.append(f"'{key_prefix}.gaussian_noise.standard_deviation' must be a number >= 0, "
+                      f"got {standard_deviation!r}.")
+
+    # Ranges of the gamma, the haze, the linear illumination, the plasma shadow, the motion blur direction, the
+    # solarization and the random erasing
+    for range_key, minimum_value, minimum_included, maximum_value in VIEW_TRANSFORMATION_RANGES:
+        key_path = f"{key_prefix}.{range_key}"
+        errors += check_number_range(value=get_configuration_value(configuration=model_configuration,
+                                                                   key_path=key_path),
+                                     key_path=key_path, minimum_value=minimum_value, maximum_value=maximum_value,
+                                     minimum_included=minimum_included)
     return errors

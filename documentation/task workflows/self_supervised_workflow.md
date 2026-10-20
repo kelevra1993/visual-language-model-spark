@@ -43,8 +43,10 @@ main()
 │       └── check_self_supervised_configuration()
 │               ├── data:       multi_class label mode, classes 0..K-1, Data.data_augmentation off (the views replace it)
 │               ├── no sequence settings (check_image_task_sequence_settings)
-│               ├── views:      random_resized_crop scale in (0, 1] and aspect ratio, probabilities in [0, 1], rotation
-│               │               degrees, colour jitter strengths, hue shift, Gaussian blur kernel and sigma
+│               ├── views:      random_resized_crop scale in (0, 1] and aspect ratio, probabilities in [0, 1] (or one
+│               │               per view), rotation degrees, perspective distortion, jigsaw grid, colour jitter
+│               │               strengths, hue shift, blur kernels, sigma and angle, noise, and the ranges of the
+│               │               gamma, haze, illumination, plasma shadow, blur direction, solarization and erasing
 │               ├── head:       check_projection_head_configuration(): pooling, layers, normalization, method
 │               │               (simclr or barlow_twins) and its temperature or off-diagonal weight
 │               └── batch:      batch size of at least 2, number_neighbours > 0
@@ -197,7 +199,7 @@ label_dictionary: {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8}
 ### Step 1.5 — `check_configuration()`
 The common checks, then `check_self_supervised_configuration()` (in `vision_training/configuration_processing/self_supervised_checks.py`):
 - **data**: `multi_class` label mode, classes 0 to K-1, `Data.data_augmentation` off, since the random views replace it, and no sequence settings (`check_image_task_sequence_settings()`).
-- **views**: the `random_resized_crop` scale is a list `[low, high]` with `0 < low <= high <= 1` and a valid aspect ratio, every probability is in [0, 1], the rotation `maximum_degrees` is at most `MAXIMUM_ROTATION_DEGREES`, the colour jitter strengths are not negative and the hue shift at most `MAXIMUM_HUE_SHIFT`, the Gaussian blur kernel and sigma are valid.
+- **views**: the `random_resized_crop` scale is a list `[low, high]` with `0 < low <= high <= 1` and a valid aspect ratio, every probability is in [0, 1] or a list of two of them `[first view, second view]`, the rotation `maximum_degrees` is at most `MAXIMUM_ROTATION_DEGREES`, the perspective `distortion_scale` is in [0, 1], the jigsaw `grid` holds at least two pieces and divides the input size, the colour jitter strengths are not negative and the hue shift at most `MAXIMUM_HUE_SHIFT`, the Gaussian blur kernel and sigma are valid, the motion blur kernel sizes are odd and at least 3 and its `maximum_angle` at most `MAXIMUM_MOTION_BLUR_DEGREES`, the noise `standard_deviation` is not negative, and the ranges of `VIEW_TRANSFORMATION_RANGES` (gamma, haze, linear illumination, plasma shadow, motion blur direction, solarization, random erasing) are within the bounds kornia accepts.
 - **head**: `check_projection_head_configuration()`: pooling, layers, normalization, the method (`simclr` or `barlow_twins`) and its settings.
 - **batch and evaluation**: a batch size of at least 2, and `number_neighbours` above 0.
 
@@ -259,24 +261,41 @@ SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR
 ```
 
 ### Step 2.5 — `DataAugmenter()` and `ViewAugmenter()`
-The `DataAugmenter` of the other tasks is built but stays off (`Data.data_augmentation.activated: False`, enforced by Step 1.5). The `ViewAugmenter` (in `vision_training/data/view_augmentations.py`) holds one Kornia chain built by `build_view_transformations()`, drawn independently for every image and every view:
-- `draw_view()` flips the BGR images to RGB, scales them to [0, 1], applies the chain, clamps the result and converts it back to BGR in [0, 255].
-- `create_views(images, describe_views=False)` runs in float32, with the autocast off, and returns `(first_views, second_views, descriptions)`, the descriptions (`describe_view_transformations()`) being `None` unless asked for by the input viewer.
+The `DataAugmenter` of the other tasks is built but stays off (`Data.data_augmentation.activated: False`, enforced by Step 1.5). The `ViewAugmenter` (in `vision_training/data/view_augmentations.py`) holds one Kornia chain per view in `view_transformations`, built by `build_view_transformations(view_index)` with the probabilities of that view (a probability given as `[first view, second view]` differs between the two chains), every transformation being drawn independently for every image. The haze is `RandomHaze`, a Kornia intensity transformation of the module, since Kornia has none:
+- `draw_view(images, view_index)` flips the BGR images to RGB, scales them to [0, 1], applies the chain of the view, clamps the result and converts it back to BGR in [0, 255].
+- `create_views(images, describe_views=False)` runs in float32, with the autocast off, draws the first view with the first chain and the second view with the second chain, and returns `(first_views, second_views, descriptions)`, the descriptions (`describe_view_transformations()`) being `None` unless asked for by the input viewer.
 
-**Example: the attributes of both augmenters**
+**Example: the attributes of both augmenters (the two chains differ by the probabilities of the Gaussian blur and the solarization)**
 ```text
 DataAugmenter: {'activated': False, 'probability': 0.4, 'independent_frames': False, 'shuffle_frames_activated': False, ...}
-ViewAugmenter.transformations: Sequential(
+ViewAugmenter.view_transformations[0]: Sequential(
   (0): RandomResizedCrop(scale=(0.6, 1.0), resize_to=(0.75, 1.3333), output_size=(256, 256), p=1.0, ..., resample=bilinear)
   (1): RandomHorizontalFlip(p=0.5, ...)
   (2): RandomVerticalFlip(p=0.5, ...)
   (3): RandomRotation(degrees=180.0, p=0.5, ..., resample=bilinear)
-  (4): ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1, p=0.8, ...)
-  (5): RandomGrayscale(p=0.2, ...)
-  (6): RandomGaussianBlur(sigma=(0.1, 2.0), p=0.5, ..., kernel_size=(9, 9), separable=True, border_type=reflect)
+  (4): RandomPerspective(distortion_scale=0.2, p=0.5, ..., resample=bilinear)
+  (5): RandomJigsaw(grid=(2, 2), p=0.0, ...)
+  (6): ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1, p=0.8, ...)
+  (7): RandomGrayscale(p=0.2, ...)
+  (8): RandomGamma(gamma_factor=(0.7, 1.5), gain_factor=(1.0, 1.0), p=0.3, ...)
+  (9): RandomHaze(strength=(0.0, 0.5), airlight=(0.6, 1.0), p=0.3, ...)
+  (10): RandomLinearIllumination(gain=(0.05, 0.25), sign=(-1.0, 1.0), p=0.3, ...)
+  (11): RandomPlasmaShadow(roughness=(0.1, 0.7), shade_intensity=(-0.5, 0.0), shade_quantity=(0.0, 0.5), p=0.2, ...)
+  (12): RandomGaussianBlur(sigma=(0.1, 2.0), p=1.0, ..., kernel_size=(9, 9), separable=True, border_type=reflect)
+  (13): RandomMotionBlur(kernel_size=(3, 9), angle=180.0, direction=(-1.0, 1.0), p=0.1, ..., border_type=constant, resample=nearest)
+  (14): RandomSolarize(thresholds=(0.5, 0.5), additions=(0.0, 0.0), p=0.0, ...)
+  (15): RandomGaussianNoise(p=0.2, ..., mean=0.0, std=0.03)
+  (16): RandomErasing(scale=(0.02, 0.15), resize_to=(0.3, 3.3), value=0.0, p=0.25, ...)
+)
+ViewAugmenter.view_transformations[1]: Sequential(
+  ...
+  (12): RandomGaussianBlur(sigma=(0.1, 2.0), p=0.1, ..., kernel_size=(9, 9), separable=True, border_type=reflect)
+  ...
+  (14): RandomSolarize(thresholds=(0.5, 0.5), additions=(0.0, 0.0), p=0.2, ...)
+  ...
 )
 ```
-(Kornia prints the aspect ratio range of the crop under the name `resize_to`.)
+(Kornia prints the aspect ratio range of the crop and of the erased rectangles under the name `resize_to`.)
 
 ### Step 2.6 — `setup_training_paths()`
 Creates the run folder, copies the YAML file into it and writes the data record. The copy is a file copy, so it holds the file as written, not the values changed in memory after loading.
@@ -579,26 +598,36 @@ labels  [8] torch.int64              -> [8] torch.int64
 Returns the batch unchanged: the views are drawn in `forward_pass()` (Step 3.12), so that the validation batches, which skip `augment_batch()`, get random views too.
 
 ### Step 3.12 — `forward_pass()` → `ViewAugmenter.create_views()`
-`forward_pass()` draws two random views of every image, then calls `SelfSupervisedModel.forward(input_tensor=first_views, second_view_tensor=second_views)`. Every transformation is drawn independently for each image and each view, so the two views of an image differ in crop, flips, rotation, colours and blur.
+`forward_pass()` draws two random views of every image, then calls `SelfSupervisedModel.forward(input_tensor=first_views, second_view_tensor=second_views)`. Every transformation is drawn independently for each image and each view, so the two views of an image differ in crop, geometry, colours, lighting, blur, noise and erasing, the first view being nearly always blurred and only the second one solarized.
 
 **Example: the views of the first batch and the transformations drawn for two images**
 ```text
 first_views, second_views: [8, 3, 64, 64] torch.float32 in [0, 255]
 
-image 0, view 1: random_resized_crop : 50x60 pixels at x 0, y 4 (73 % of the area)
+image 0, view 1: random_resized_crop : 56x61 pixels at x 7, y 0 (83 % of the area)
+                 perspective : corners moved by up to 5.5 pixels
+                 colour_jitter : brightness x0.66, contrast x1.23, saturation x1.28, hue +24.8 degrees
+                 gamma : gamma 1.09
+                 linear_illumination : gradient up to +0.09
+                 gaussian_blur : sigma 0.42
+                 motion_blur : kernel 5, angle +141.8 degrees, direction +0.58
+                 random_erasing : 21x19 pixels at x 13, y 4
+image 0, view 2: random_resized_crop : 61x46 pixels at x 2, y 12 (69 % of the area)
+                 up_down_flip
+                 colour_jitter : brightness x0.77, contrast x1.01, saturation x1.18, hue -15.4 degrees
+                 gamma : gamma 1.14
+                 gaussian_noise
+                 random_erasing : 16x14 pixels at x 10, y 42
+image 1, view 1: random_resized_crop : 59x51 pixels at x 5, y 12 (73 % of the area)
                  left_right_flip
                  up_down_flip
                  grayscale
-                 gaussian_blur : sigma 0.13
-image 0, view 2: random_resized_crop : 51x54 pixels at x 3, y 3 (67 % of the area)
-                 left_right_flip
-                 colour_jitter : brightness x1.36, contrast x1.19, saturation x1.19, hue +16.0 degrees
-image 1, view 1: random_resized_crop : 50x55 pixels at x 8, y 4 (67 % of the area)
-                 up_down_flip
-                 colour_jitter : brightness x1.38, contrast x0.83, saturation x0.61, hue +21.8 degrees
-image 1, view 2: random_resized_crop : 51x50 pixels at x 11, y 6 (62 % of the area)
-                 rotation : +156.6 degrees
-                 gaussian_blur : sigma 0.39
+                 linear_illumination : gradient up to -0.24
+                 gaussian_blur : sigma 0.71
+image 1, view 2: random_resized_crop : 60x63 pixels at x 4, y 0 (92 % of the area)
+                 haze : strength 0.33, airlight 0.79
+                 solarize : threshold 0.50, addition +0.00
+                 random_erasing : 22x8 pixels at x 5, y 16
 ```
 
 ### Step 3.13 — `SelfSupervisedModel.forward()` → `encode()`

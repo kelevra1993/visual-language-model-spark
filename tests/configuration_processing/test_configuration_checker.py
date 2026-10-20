@@ -2164,6 +2164,42 @@ def set_invalid_view_augmentation(configuration: Dict[str, Any]) -> None:
     view_augmentation["gaussian_blur"].update({"kernel_size": 4, "sigma": [0.5]})
 
 
+def set_invalid_harder_view_transformations(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a probability per view for three views, a second view probability above 1, a perspective distortion above 1,
+    a jigsaw grid of 3 rows not dividing the 256 pixels of the input, a gamma range reaching 0, a haze strength and a
+    linear illumination gain above 1, a brightening plasma shadow, an even motion blur kernel, a motion blur angle
+    beyond half a turn and a direction below -1, a solarization threshold above 1 and an addition below -0.5, a
+    negative noise and an erased area above the image.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    view_augmentation = configuration["Data"]["view_augmentation"]
+    view_augmentation["gaussian_blur"]["probability"] = [1.0, 0.1, 0.5]
+    view_augmentation["solarize"].update({"probability": [0.0, 1.2], "threshold": [0.5, 1.5], "addition": [-0.6, 0.0]})
+    view_augmentation["perspective"]["distortion_scale"] = 1.2
+    view_augmentation["jigsaw"]["grid"] = [3, 2]
+    view_augmentation["gamma"]["gamma"] = [0.0, 1.5]
+    view_augmentation["haze"]["strength"] = [0.0, 1.5]
+    view_augmentation["linear_illumination"]["gain"] = [0.05, 1.25]
+    view_augmentation["plasma_shadow"]["shade_intensity"] = [-0.5, 0.5]
+    view_augmentation["motion_blur"].update({"kernel_size": [4, 9], "maximum_angle": 200.0, "direction": [-1.5, 1.0]})
+    view_augmentation["gaussian_noise"]["standard_deviation"] = -0.03
+    view_augmentation["random_erasing"]["scale"] = [0.02, 1.5]
+
+
+def set_single_piece_jigsaw(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a jigsaw grid of a single piece, for which kornia keeps drawing a permutation differing from the identity
+    forever.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    configuration["Data"]["view_augmentation"]["jigsaw"]["grid"] = [1, 1]
+
+
 def set_invalid_self_supervised_evaluation(configuration: Dict[str, Any]) -> None:
     """
     Sets no neighbour for the k-nearest neighbour evaluation and batches of a single image, whose views the losses
@@ -2207,6 +2243,37 @@ def set_invalid_self_supervised_evaluation(configuration: Dict[str, Any]) -> Non
                                      "got 4.",
                                      "'Data.view_augmentation.gaussian_blur.sigma' must be a list of two numbers "
                                      "[low, high] with 0 < low <= high <= inf, got [0.5]."]),
+    (set_invalid_harder_view_transformations, [
+        "'Data.view_augmentation.gaussian_blur.probability' must be a probability within [0, 1] or a list of two of "
+        "them [first view, second view], got [1.0, 0.1, 0.5].",
+        "'Data.view_augmentation.solarize.probability' must be a probability within [0, 1] or a list of two of them "
+        "[first view, second view], got [0.0, 1.2].",
+        "'Data.view_augmentation.perspective.distortion_scale' must be a number within [0, 1], got 1.2.",
+        "'Data.view_augmentation.jigsaw.grid' must be a list of two integers [rows, columns] >= 1, giving at least two "
+        "pieces, that divide 'Data.image_settings.size' (256), got [3, 2].",
+        "'Data.view_augmentation.motion_blur.kernel_size' must be a list of two odd integers [low, high] with 3 <= low "
+        "<= high, got [4, 9].",
+        "'Data.view_augmentation.motion_blur.maximum_angle' must be a number within [0, 180], got 200.0.",
+        "'Data.view_augmentation.gaussian_noise.standard_deviation' must be a number >= 0, got -0.03.",
+        "'Data.view_augmentation.gamma.gamma' must be a list of two numbers [low, high] with 0 < low <= high <= inf, "
+        "got [0.0, 1.5].",
+        "'Data.view_augmentation.haze.strength' must be a list of two numbers [low, high] with 0 <= low <= high <= 1, "
+        "got [0.0, 1.5].",
+        "'Data.view_augmentation.linear_illumination.gain' must be a list of two numbers [low, high] with 0 <= low <= "
+        "high <= 1, got [0.05, 1.25].",
+        "'Data.view_augmentation.plasma_shadow.shade_intensity' must be a list of two numbers [low, high] with -1 <= "
+        "low <= high <= 0, got [-0.5, 0.5].",
+        "'Data.view_augmentation.motion_blur.direction' must be a list of two numbers [low, high] with -1 <= low <= "
+        "high <= 1, got [-1.5, 1.0].",
+        "'Data.view_augmentation.solarize.threshold' must be a list of two numbers [low, high] with 0 <= low <= high "
+        "<= 1, got [0.5, 1.5].",
+        "'Data.view_augmentation.solarize.addition' must be a list of two numbers [low, high] with -0.5 <= low <= "
+        "high <= 0.5, got [-0.6, 0.0].",
+        "'Data.view_augmentation.random_erasing.scale' must be a list of two numbers [low, high] with 0 < low <= high "
+        "<= 1, got [0.02, 1.5]."]),
+    (set_single_piece_jigsaw, ["'Data.view_augmentation.jigsaw.grid' must be a list of two integers [rows, columns] "
+                               ">= 1, giving at least two pieces, that divide 'Data.image_settings.size' (256), got "
+                               "[1, 1]."]),
     (set_invalid_self_supervised_evaluation, ["'ExperimentConfiguration.evaluation.number_neighbours' must be an "
                                               "integer >= 1, got 0.",
                                               "'ExperimentConfiguration.batch_size' must be at least 2 for the "

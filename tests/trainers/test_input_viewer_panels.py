@@ -20,6 +20,7 @@ import vision_training.trainers.detection_trainer as detection_trainer_module
 import vision_training.trainers.keypoint_trainer as keypoint_trainer_module
 import vision_training.trainers.self_supervised_trainer as self_supervised_trainer_module
 import vision_training.trainers.sequence_classification_trainer as sequence_classification_trainer_module
+from tests.data.test_view_augmentations import build_identity_configuration
 from vision_training.data.augmentations import AUGMENTATION_TYPES, MAXIMUM_TRANSLATION_FRACTION, DataAugmenter
 from vision_training.data.view_augmentations import ViewAugmenter
 from vision_training.utilities.visualization import KEYPOINT_SIDE_COLOURS, build_class_colours
@@ -162,13 +163,8 @@ def test_self_supervised_panels_describe_the_transformations_of_each_view(monkey
         monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the viewer.
     """
     trainer = SelfSupervisedTrainer.__new__(SelfSupervisedTrainer)
-    trainer.view_augmenter = ViewAugmenter(view_augmentation_configuration={
-        "random_resized_crop": {"scale": [1.0, 1.0], "aspect_ratio": [1.0, 1.0]},
-        "left_right_flip": {"probability": 0.0}, "up_down_flip": {"probability": 0.0},
-        "rotation": {"probability": 0.0, "maximum_degrees": 180.0},
-        "colour_jitter": {"probability": 0.0, "brightness": 0.4, "contrast": 0.4, "saturation": 0.4, "hue": 0.1},
-        "grayscale": {"probability": 0.0},
-        "gaussian_blur": {"probability": 0.0, "kernel_size": 5, "sigma": [0.1, 2.0]}}, image_size=32)
+    trainer.view_augmenter = ViewAugmenter(view_augmentation_configuration=build_identity_configuration(),
+                                           image_size=32)
     trainer.class_names, trainer.input_image_size = ["circle", "square"], 32
     viewer_recorder = ViewerRecorder()
     monkeypatch.setattr(target=self_supervised_trainer_module, name="view_input_data", value=viewer_recorder)
@@ -195,13 +191,8 @@ def test_classification_panels_show_the_second_view_of_the_view_losses(monkeypat
     trainer = ClassificationTrainer.__new__(ClassificationTrainer)
     trainer.data_augmenter = build_augmenter(enabled_types=["random_left_right_flip"])
     trainer.view_losses_activated = True
-    trainer.view_augmenter = ViewAugmenter(view_augmentation_configuration={
-        "random_resized_crop": {"scale": [1.0, 1.0], "aspect_ratio": [1.0, 1.0]},
-        "left_right_flip": {"probability": 0.0}, "up_down_flip": {"probability": 0.0},
-        "rotation": {"probability": 0.0, "maximum_degrees": 0.0},
-        "colour_jitter": {"probability": 0.0, "brightness": 0.4, "contrast": 0.4, "saturation": 0.4, "hue": 0.1},
-        "grayscale": {"probability": 0.0},
-        "gaussian_blur": {"probability": 0.0, "kernel_size": 5, "sigma": [0.1, 2.0]}}, image_size=32)
+    trainer.view_augmenter = ViewAugmenter(view_augmentation_configuration=build_identity_configuration(),
+                                           image_size=32)
     trainer.class_names, trainer.output_mode, trainer.input_image_size = ["circle", "square"], "multi_class", 32
     viewer_recorder = ViewerRecorder()
     monkeypatch.setattr(target=classification_trainer_module, name="view_input_data", value=viewer_recorder)

@@ -126,20 +126,28 @@ def check_positive_integers(configuration: Dict[str, Any], key_paths: List[str],
     return errors
 
 
-def check_probability_value(value: Any, key_path: str) -> List[str]:
+def check_probability_value(value: Any, key_path: str, per_view: bool = False) -> List[str]:
     """
     Verifies that a probability read from the configuration (e.g. of applying a data augmentation) is a number
-    within [0, 1].
+    within [0, 1]. The probabilities of the random views of the self-supervised task and of the view losses of the
+    image classifier may also be given per view, as a list [first view, second view] of two such numbers.
 
     Args:
         value (Any): The probability read from the configuration.
         key_path (str): The dotted key path of the value, used in the error message.
+        per_view (bool): Whether a list of two probabilities, one per view, is accepted. Defaults to False.
 
     Returns:
         List[str]: A single error description if the value is invalid, otherwise an empty list.
     """
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0.0 <= value <= 1.0:
-        return [f"'{key_path}' must be a probability within [0, 1], got {value!r}."]
+    # A list of two probabilities given per view is checked as two single probabilities, the message naming the lists
+    # when the value is one
+    probabilities = value if per_view and isinstance(value, list) and len(value) == 2 else [value]
+    if any(isinstance(probability, bool) or not isinstance(probability, (int, float)) or
+           not 0.0 <= probability <= 1.0 for probability in probabilities):
+        accepted_lists = " or a list of two of them [first view, second view]" if per_view and \
+            isinstance(value, list) else ""
+        return [f"'{key_path}' must be a probability within [0, 1]{accepted_lists}, got {value!r}."]
     return []
 
 

@@ -542,7 +542,10 @@ self-supervised backbone learns not only how many shapes an image holds but also
 27. **Strength of the views**: the crop keeps at least 80 % of the image area (`random_resized_crop.scale` [0.8, 1.0])
     so that both views keep most of the shapes and mostly the same count, with flips and rotations of up to 180
     degrees. A smaller crop scale (e.g. [0.5, 1.0]) makes the task harder but can change the number of shapes between
-    the two views; to compare on the probes of items 25 and 26 rather than on the k-NN accuracy of the count.
+    the two views; to compare on the probes of items 25 and 26 rather than on the k-NN accuracy of the count. The
+    harder views of 2026-10-20 add, among others, a random erasing of 2 to 15 % of the image (probability 0.25) and a
+    plasma shadow darkening parts of it (probability 0.2), which can also hide a shape of one view and change its
+    count: to compare with `random_erasing.probability` and `plasma_shadow.probability` at 0 on the same probes.
 
 ## Suggested Order
 1. **The experiment of the loss weights (item 6)**, implemented, together with audit L5.

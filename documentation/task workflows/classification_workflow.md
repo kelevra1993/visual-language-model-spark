@@ -317,9 +317,11 @@ main()
         │   │   │   │   Calls model(input_tensor=images, labels=labels), in bfloat16 when mixed_precision is on.
         │   │   │   │   Returns class_logits [B, K], class_probabilities [B, K] and classification_loss (a scalar,
         │   │   │   │   since the labels are given). With a view loss on, the ViewAugmenter first draws a second view
-        │   │   │   │   of every image in float32 from view_source_images (from the images themselves for a validation
-        │   │   │   │   batch), both views go through the backbone in one pass, the head classifies the images alone,
-        │   │   │   │   and the final feature maps of both views are returned for compute_view_losses.
+        │   │   │   │   of every image in float32 with the chain of the second view (draw_view with SECOND_VIEW_INDEX,
+        │   │   │   │   the second value of a probability given per view) from view_source_images (from the images
+        │   │   │   │   themselves for a validation batch), both views go through the backbone in one pass, the head
+        │   │   │   │   classifies the images alone, and the final feature maps of both views are returned for
+        │   │   │   │   compute_view_losses.
         │   │   │   │
         │   │   │   ├── Backbone.forward()
         │   │   │   │       Normalizes the pixels (x / 255 - 0.5 with input_normalization), then runs the image through

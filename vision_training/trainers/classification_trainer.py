@@ -21,7 +21,7 @@ from vision_training.core.contracts import (LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_
                                             EvaluationResults)
 from vision_training.data.loaders import get_classification_dataloaders
 from vision_training.data.split_description import count_split_samples
-from vision_training.data.view_augmentations import ViewAugmenter, describe_view_transformations
+from vision_training.data.view_augmentations import SECOND_VIEW_INDEX, ViewAugmenter, describe_view_transformations
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix,
                                                                               compute_multi_label_metrics,
@@ -288,9 +288,10 @@ class ClassificationTrainer(BaseTrainer):
         if not self.view_losses_activated:
             return self.model(input_tensor=batch["images"], labels=batch["labels"])
 
-        # Second view of every image, drawn from the image before the data augmentation of a training batch
+        # Second view of every image, drawn by the chain of the second view from the image before the data augmentation
+        # of a training batch
         source_images = batch[VIEW_SOURCE_IMAGES_KEY] if VIEW_SOURCE_IMAGES_KEY in batch else batch["images"]
-        second_views = self.view_augmenter.draw_view(images=source_images)
+        second_views = self.view_augmenter.draw_view(images=source_images, view_index=SECOND_VIEW_INDEX)
         model_outputs = self.model(input_tensor=batch["images"], labels=batch["labels"],
                                    second_view_tensor=second_views)
 
@@ -765,9 +766,10 @@ class ClassificationTrainer(BaseTrainer):
         # drawn parameters
         if self.view_losses_activated:
             second_view = self.view_augmenter.draw_view(
-                images=training_batch[VIEW_SOURCE_IMAGES_KEY][sample_index:sample_index + 1])
-            view_description = describe_view_transformations(transformations=self.view_augmenter.transformations,
-                                                             number_images=1)[0]
+                images=training_batch[VIEW_SOURCE_IMAGES_KEY][sample_index:sample_index + 1],
+                view_index=SECOND_VIEW_INDEX)
+            view_description = describe_view_transformations(
+                transformations=self.view_augmenter.view_transformations[SECOND_VIEW_INDEX], number_images=1)[0]
             images.append(second_view[0])
             window_titles.append("Second View")
             panel_lines.append([panel_lines[0][0], "", "View transformations"] +

@@ -3,8 +3,9 @@ Smoke tests of ClassificationTrainer of vision_training/trainers/classification_
 multi-class and multi-label training save, evaluate and resume, with the report, the per-class metrics, the
 predictions file, the error images and the sample images checked, the per-class report, the predictions file and the
 sample images can be turned off, a head reading the flattened feature map trains, the decorrelation of the hidden
-features turned on when a run resumes is tracked and summed into the total loss, and the view losses turned on,
-resized and turned off when a run resumes are tracked, summed into the total loss and saved with their projectors.
+features turned on when a run resumes is tracked and summed into the total loss, the view losses turned on, resized
+and turned off when a run resumes are tracked, summed into the total loss and saved with their projectors, and their
+second views are drawn with the probabilities of the second view.
 """
 
 import json
@@ -17,10 +18,13 @@ from tensorboard.backend.event_processing.event_accumulator import EventAccumula
 from typing import Any, Dict, List
 from unittest.mock import patch
 
+import vision_training.trainers.classification_trainer as classification_trainer_module
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
+from vision_training.data.view_augmentations import ViewAugmenter
 from vision_training.trainers.checkpointing import AUXILIARY_HEADS_STATE_KEY, load_checkpoint
 from vision_training.trainers.classification_trainer import ClassificationTrainer
+from tests.data.test_view_augmentations import build_identity_configuration
 from tests.fixtures.evaluation_checks import (check_class_metrics_file, check_error_images, check_predictions_file,
                                               check_sample_images, read_predictions_file, read_results_blocks)
 
@@ -499,3 +503,73 @@ def test_view_losses_turned_on_resized_and_off_when_a_run_resumes(tmp_path: Path
     assert "The Barlow Twins Projector Of The Checkpoint Of Iteration 8 Is No Longer Trained" in console_output
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+class SecondViewRecorder:
+    """
+    Stands in for the image classifier in forward_pass, keeping the second views it receives and giving the images
+    and their second views back as the final feature maps of both views.
+    """
+
+    def __init__(self) -> None:
+        """
+        Starts without any second view received.
+        """
+        self.second_views = None
+
+    def __call__(self, input_tensor: torch.Tensor, labels: torch.Tensor,
+                 second_view_tensor: torch.Tensor) -> Dict[str, torch.Tensor]:
+        """
+        Keeps the second views of the call, as the classifier receives them.
+
+        Args:
+            input_tensor (torch.Tensor): The images of the batch.
+            labels (torch.Tensor): The labels of the batch, unused.
+            second_view_tensor (torch.Tensor): The second views of the images.
+
+        Returns:
+            Dict[str, torch.Tensor]: The images and the second views as the final feature maps of both views.
+        """
+        self.second_views = second_view_tensor
+        return {"final_feature_map": input_tensor, "second_view_final_feature_map": second_view_tensor}
+
+
+def skip_view_losses(**view_losses_arguments: Any) -> Dict[str, torch.Tensor]:
+    """
+    Stands in for compute_view_losses in forward_pass, the test reading the second views only.
+
+    Args:
+        **view_losses_arguments (Any): The arguments of compute_view_losses, unused.
+
+    Returns:
+        Dict[str, torch.Tensor]: No view loss.
+    """
+    return {}
+
+
+def test_view_losses_draw_the_second_view_with_its_probabilities(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies that the second views of the view losses are drawn by the chain of the second view, a probability given
+    per view taking its second value: with a grayscale conversion of probability [0, 1] and every other transformation
+    off, every second view received by the classifier is gray, where the chain of the first view would leave the
+    images unchanged.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing compute_view_losses.
+    """
+    view_augmentation_configuration = build_identity_configuration()
+    view_augmentation_configuration["grayscale"]["probability"] = [0.0, 1.0]
+    trainer = ClassificationTrainer.__new__(ClassificationTrainer)
+    trainer.view_losses_activated = True
+    trainer.view_augmenter = ViewAugmenter(view_augmentation_configuration=view_augmentation_configuration,
+                                           image_size=32)
+    trainer.model = SecondViewRecorder()
+    trainer.view_pooling, trainer.auxiliary_heads, trainer.view_losses_configuration = None, {}, {}
+    monkeypatch.setattr(target=classification_trainer_module, name="compute_view_losses", value=skip_view_losses)
+
+    # Gray second views of random colour images
+    images = torch.rand(size=(2, 3, 32, 32), generator=torch.Generator().manual_seed(0)) * 255.0
+    trainer.forward_pass(batch={"images": images, "labels": torch.tensor(data=[0, 1])})
+    second_views = trainer.model.second_views
+    assert torch.allclose(input=second_views, other=second_views[:, :1].expand_as(other=second_views), atol=1e-3)
+    assert not torch.allclose(input=second_views, other=images, atol=1.0)

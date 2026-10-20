@@ -1260,7 +1260,8 @@ def test_self_supervised_run_names(head_settings: Dict[str, Any], label_dictiona
     """
     Verifies the sections of a self-supervised run: the projection head (pooling, layers and the normalization of its
     hidden layers), then the method with the setting changing its loss, the classes of the k-nearest neighbour
-    evaluation, a dataset without labels and the view augmentation giving no token.
+    evaluation, a dataset without labels, and the view augmentation, with its probabilities given per view, giving no
+    token.
 
     Args:
         head_settings (Dict[str, Any]): The 'ProjectionHead' settings replaced for the test.
@@ -1271,6 +1272,7 @@ def test_self_supervised_run_names(head_settings: Dict[str, Any], label_dictiona
     model_configuration["ProjectionHead"].update(head_settings)
     model_configuration["Data"]["label_dictionary"] = label_dictionary
     model_configuration["Data"]["view_augmentation"]["rotation"]["probability"] = 0.0
+    model_configuration["Data"]["view_augmentation"]["solarize"]["probability"] = [0.0, 0.5]
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == SELF_SUPERVISED_REFERENCE_RUN_NAME.replace(
         "_PAVG.512.128-PBN_SIMCLR-T0.2", expected_sections)
