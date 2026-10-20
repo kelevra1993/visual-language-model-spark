@@ -4,7 +4,8 @@ every task right before the forward pass, moving the bounding boxes of the objec
 segmentation, the instance masks of the instance segmentation and the keypoints and ignored regions of the keypoint
 detection with the images and handling the frame shuffling and per-frame draws of the sequence tasks. Of the histogram
 equalizations drawn together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only one, chosen at random, is applied. The
-blend of the haze (apply_haze) is shared with the RandomHaze transformation of the self-supervised views.
+blend of the haze (apply_haze) and the black-out of the cells of a grid (apply_black_out) are shared with the RandomHaze
+and RandomBlackOut transformations of the self-supervised views.
 Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
 common checks. Every augmented batch comes with a report of the types drawn for each sample and their values, which
 the 'view_input_images' diagnosis mode writes in the information panel next to every training image.
@@ -139,6 +140,41 @@ def apply_haze(images: torch.Tensor, strength: Union[float, torch.Tensor],
         torch.Tensor: The hazy images, of the shape of the input.
     """
     return images * (1.0 - strength) + strength * airlight
+
+
+def apply_black_out(images: torch.Tensor, hidden_cells: torch.Tensor) -> torch.Tensor:
+    """
+    Blacks out the hidden cells of a grid laid over images, an occlusion that makes a network learn from every region
+    of an image instead of the most telling one. Shared by the random_black_out type of DataAugmenter, one grid for an
+    image or a sequence, and by the RandomBlackOut transformation of the self-supervised views (view_augmentations.py),
+    one grid per image of a batch.
+
+    Args:
+        images (torch.Tensor): The images [..., H, W] to black out.
+        hidden_cells (torch.Tensor): The boolean [..., rows, columns] grid of the hidden cells, broadcast over the
+            leading dimensions of the images: a single [rows, columns] grid, or a [B, 1, rows, columns] grid per image
+            of a [B, C, H, W] batch.
+
+    Returns:
+        torch.Tensor: The images with their hidden cells at 0, of the shape of the input.
+    """
+    image_height, image_width = images.shape[-2], images.shape[-1]
+    number_rows, number_columns = hidden_cells.shape[-2], hidden_cells.shape[-1]
+
+    # Heights and widths of the cells, their edges rounded when a side is not a multiple of the grid size
+    row_edges = [round(index * image_height / number_rows) for index in range(number_rows + 1)]
+    column_edges = [round(index * image_width / number_columns) for index in range(number_columns + 1)]
+    row_sizes = torch.tensor(data=[end - start for start, end in zip(row_edges[:-1], row_edges[1:])],
+                             device=images.device)
+    column_sizes = torch.tensor(data=[end - start for start, end in zip(column_edges[:-1], column_edges[1:])],
+                                device=images.device)
+
+    # Spread the kept cells over the pixels and zero the hidden ones, the output sizes being given so that the device
+    # does not wait for the host to read them
+    kept_cells = (~hidden_cells).to(device=images.device, dtype=images.dtype)
+    kept_rows = kept_cells.repeat_interleave(repeats=row_sizes, dim=-2, output_size=image_height)
+    kept_pixels = kept_rows.repeat_interleave(repeats=column_sizes, dim=-1, output_size=image_width)
+    return images * kept_pixels
 
 
 class DataAugmenter:
@@ -1168,26 +1204,10 @@ class DataAugmenter:
             Tuple[torch.Tensor, str]: The image with its hidden cells at 0, and the number of hidden cells for the
                 augmentation report.
         """
-        image_height, image_width = image.shape[-2], image.shape[-1]
-
-        # Draw every cell of the grid on its own
-        hidden_cells = [random.random() < BLACK_OUT_CELL_PROBABILITY
-                        for _ in range(BLACK_OUT_GRID_SIZE * BLACK_OUT_GRID_SIZE)]
-
-        # Heights and widths of the cells, their edges rounded when a side is not a multiple of the grid size
-        row_edges = [round(index * image_height / BLACK_OUT_GRID_SIZE) for index in range(BLACK_OUT_GRID_SIZE + 1)]
-        column_edges = [round(index * image_width / BLACK_OUT_GRID_SIZE) for index in range(BLACK_OUT_GRID_SIZE + 1)]
-        row_sizes = torch.tensor(data=[end - start for start, end in zip(row_edges[:-1], row_edges[1:])],
-                                 device=image.device)
-        column_sizes = torch.tensor(data=[end - start for start, end in zip(column_edges[:-1], column_edges[1:])],
-                                    device=image.device)
-
-        # Spread the kept cells over the pixels and zero the hidden ones on every channel and frame at once, the output
-        # sizes being given so that the device does not wait for the host to read them
-        kept_cells = torch.tensor(data=[not hidden for hidden in hidden_cells], dtype=image.dtype,
-                                  device=image.device).view(BLACK_OUT_GRID_SIZE, BLACK_OUT_GRID_SIZE)
-        kept_rows = kept_cells.repeat_interleave(repeats=row_sizes, dim=0, output_size=image_height)
-        kept_pixels = kept_rows.repeat_interleave(repeats=column_sizes, dim=1, output_size=image_width)
-        return (image * kept_pixels,
-                f"{sum(hidden_cells)} of the {BLACK_OUT_GRID_SIZE * BLACK_OUT_GRID_SIZE} cells of an "
+        # Draw every cell of the grid on its own, then black out the hidden ones on every channel and frame at once
+        hidden_cells = torch.tensor(data=[random.random() < BLACK_OUT_CELL_PROBABILITY
+                                          for _ in range(BLACK_OUT_GRID_SIZE * BLACK_OUT_GRID_SIZE)]).view(
+                                    BLACK_OUT_GRID_SIZE, BLACK_OUT_GRID_SIZE)
+        return (apply_black_out(images=image, hidden_cells=hidden_cells),
+                f"{int(hidden_cells.sum())} of the {BLACK_OUT_GRID_SIZE * BLACK_OUT_GRID_SIZE} cells of an "
                 f"{BLACK_OUT_GRID_SIZE}x{BLACK_OUT_GRID_SIZE} grid")

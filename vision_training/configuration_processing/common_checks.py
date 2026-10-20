@@ -33,7 +33,7 @@ VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
 VIEW_TRANSFORMATIONS_WITH_PROBABILITY = ["left_right_flip", "up_down_flip", "rotation", "perspective", "jigsaw",
                                          "colour_jitter", "grayscale", "gamma", "haze", "linear_illumination",
                                          "plasma_shadow", "gaussian_blur", "motion_blur", "solarize", "gaussian_noise",
-                                         "random_erasing"]
+                                         "black_out", "random_erasing"]
 
 # Largest hue shift of the colour jitter of the random views, half a turn of the hue circle
 MAXIMUM_HUE_SHIFT = 0.5

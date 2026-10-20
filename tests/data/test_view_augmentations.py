@@ -5,9 +5,9 @@ BGR images, both views differ, every transformation turned off gives the image b
 transformations of kornia in the right order, a seed gives the same views, the views (and the single view drawn for the
 view losses of the image classifier) stay in float32 under the bfloat16 autocast of mixed precision, the chain of every
 view follows the order of the transformations and takes the probabilities of its view, the haze blends the images with
-their airlight, the random erasing leaves a plain rectangle after the noise, the views describe the transformations
-drawn for them in the information panels of the input viewer, and on the GPU they stay on the device and match the
-views drawn on the CPU from the same seed.
+their airlight, the black-out hides whole cells drawn for every image, the random erasing leaves a plain rectangle
+after the noise, the views describe the transformations drawn for them in the information panels of the input viewer,
+and on the GPU they stay on the device and match the views drawn on the CPU from the same seed.
 """
 
 import copy
@@ -18,6 +18,7 @@ import torch
 from kornia.filters import motion_blur
 from typing import Any, Dict
 
+from vision_training.data.augmentations import BLACK_OUT_CELL_PROBABILITY, BLACK_OUT_GRID_SIZE
 from vision_training.data.view_augmentations import SECOND_VIEW_INDEX, VIEW_TRANSFORMATION_NAMES, ViewAugmenter
 
 # Side of the square images of the tests
@@ -29,8 +30,8 @@ IMAGE_SIZE = 32
 GPU_VIEWS_TOLERANCE = 0.01
 
 # View augmentation of the self-supervised configurations (with the crop of the synthetic shapes one and a smaller
-# Gaussian blur kernel), the jigsaw turned on so that every transformation is drawn, the Gaussian blur and the
-# solarization having a probability per view
+# Gaussian blur kernel), the jigsaw turned on so that every transformation is drawn, the Gaussian blur, the
+# solarization and the black-out having a probability per view
 VIEW_AUGMENTATION_CONFIGURATION = {
     "random_resized_crop": {"scale": [0.6, 1.0], "aspect_ratio": [0.75, 1.3333]},
     "left_right_flip": {"probability": 0.5}, "up_down_flip": {"probability": 0.5},
@@ -45,16 +46,17 @@ VIEW_AUGMENTATION_CONFIGURATION = {
     "gaussian_blur": {"probability": [1.0, 0.1], "kernel_size": 5, "sigma": [0.1, 2.0]},
     "motion_blur": {"probability": 0.1, "kernel_size": [3, 9], "maximum_angle": 180.0, "direction": [-1.0, 1.0]},
     "solarize": {"probability": [0.0, 0.2], "threshold": [0.5, 0.5], "addition": [0.0, 0.0]},
-    "gaussian_noise": {"probability": 0.2, "standard_deviation": 0.03},
+    "gaussian_noise": {"probability": 0.2, "standard_deviation": 0.03}, "black_out": {"probability": [0.0, 0.3]},
     "random_erasing": {"probability": 0.25, "scale": [0.02, 0.15], "aspect_ratio": [0.3, 3.3]}}
 
 # Classes of the kornia transformations of the chain of every view, in the order of VIEW_TRANSFORMATION_NAMES: the crop
-# and the geometric transformations first, the photometric ones, the Gaussian noise after both blurs and the random
-# erasing last
+# and the geometric transformations first, the photometric ones, the Gaussian noise after both blurs, and the black-out
+# and the random erasing last
 VIEW_TRANSFORMATION_CLASSES = ["RandomResizedCrop", "RandomHorizontalFlip", "RandomVerticalFlip", "RandomRotation",
                                "RandomPerspective", "RandomJigsaw", "ColorJitter", "RandomGrayscale", "RandomGamma",
                                "RandomHaze", "RandomLinearIllumination", "RandomPlasmaShadow", "RandomGaussianBlur",
-                               "RandomMotionBlur", "RandomSolarize", "RandomGaussianNoise", "RandomErasing"]
+                               "RandomMotionBlur", "RandomSolarize", "RandomGaussianNoise", "RandomBlackOut",
+                               "RandomErasing"]
 
 
 def build_identity_configuration() -> Dict[str, Any]:
@@ -195,6 +197,7 @@ def test_probabilities_given_per_view_apply_to_their_view() -> None:
                      for index, transformation_name in enumerate(VIEW_TRANSFORMATION_NAMES)}
     assert probabilities["gaussian_blur"] == [1.0, 0.1] and probabilities["solarize"] == [0.0, 0.2]
     assert probabilities["rotation"] == [0.5, 0.5] and probabilities["random_erasing"] == [0.25, 0.25]
+    assert probabilities["black_out"] == [0.0, 0.3]
 
     # A grayscale conversion drawn on the first view only
     configuration = build_identity_configuration()
@@ -269,6 +272,46 @@ def test_random_erasing_leaves_a_plain_rectangle_after_the_noise() -> None:
             assert 5.0 < float(view[:, ~erased_pixels].std()) < 10.0
 
 
+def test_black_out_hides_whole_cells_drawn_for_every_image_of_its_view() -> None:
+    """
+    Verifies the black-out of the views on the second view only (probability [0, 1]): the first view is the image, the
+    second view of every image keeps whole cells of the 8x8 grid either black or untouched, cells being drawn for
+    every image with a share close to BLACK_OUT_CELL_PROBABILITY, the black cells being those of the parameters drawn
+    for the image and given by its description, the noise drawn before never reaching them, and the single view of the
+    view losses of the image classifier is blacked out as well.
+    """
+    configuration = build_identity_configuration()
+    configuration["black_out"]["probability"] = [0.0, 1.0]
+    configuration["gaussian_noise"] = {"probability": 1.0, "standard_deviation": 0.03}
+    view_augmenter = ViewAugmenter(view_augmentation_configuration=configuration, image_size=IMAGE_SIZE)
+    grey_images = torch.full(size=(16, 3, IMAGE_SIZE, IMAGE_SIZE), fill_value=128.0)
+    torch.manual_seed(seed=0)
+    first_views, second_views, view_descriptions = view_augmenter.create_views(images=grey_images,
+                                                                              describe_views=True)
+
+    # The first view carries the noise only, without a black pixel
+    assert bool((first_views > 0.0).all()) and all(lines[-1] == "gaussian_noise" for lines in view_descriptions[0])
+
+    # Every cell of the second view is wholly black or wholly kept, as drawn for its image and described
+    cell_size = IMAGE_SIZE // BLACK_OUT_GRID_SIZE
+    black_pixels = (second_views == 0.0).all(dim=1)
+    cells = black_pixels.reshape(16, BLACK_OUT_GRID_SIZE, cell_size, BLACK_OUT_GRID_SIZE, cell_size)
+    hidden_cells = cells.all(dim=4).all(dim=2)
+    assert torch.equal(input=cells.any(dim=4).any(dim=2), other=hidden_cells)
+    black_out_transformation = view_augmenter.view_transformations[SECOND_VIEW_INDEX][
+        VIEW_TRANSFORMATION_NAMES.index("black_out")]
+    assert torch.equal(input=hidden_cells, other=black_out_transformation._params["hidden_cells"])
+    assert [lines[-1] for lines in view_descriptions[SECOND_VIEW_INDEX]] == [
+        f"black_out : {int(image_cells.sum())} of the 64 cells of an 8x8 grid" for image_cells in hidden_cells]
+
+    # The grids differ between the images and their share of hidden cells is the probability
+    assert len({tuple(image_cells.flatten().tolist()) for image_cells in hidden_cells}) == 16
+    assert abs(float(hidden_cells.float().mean()) - BLACK_OUT_CELL_PROBABILITY) < 0.06
+
+    # The single view of the view losses of the image classifier, the second one, is blacked out too
+    assert bool((view_augmenter.draw_view(images=grey_images, view_index=SECOND_VIEW_INDEX) == 0.0).any())
+
+
 def test_every_transformation_describes_its_drawn_values() -> None:
     """
     Verifies the description of every transformation drawn for a view, every one of them being drawn for every image:
@@ -296,6 +339,7 @@ def test_every_transformation_describes_its_drawn_values() -> None:
                          r"gaussian_blur : sigma \d\.\d\d",
                          r"motion_blur : kernel [3579], angle [+-]\d+\.\d degrees, direction [+-]\d\.\d\d",
                          r"solarize : threshold 0\.50, addition \+0\.00", "gaussian_noise",
+                         r"black_out : \d+ of the 64 cells of an 8x8 grid",
                          r"random_erasing : \d+x\d+ pixels at x \d+, y \d+"]
     for image_lines in [lines for view_lines in view_descriptions for lines in view_lines]:
         assert len(image_lines) == len(expected_patterns)

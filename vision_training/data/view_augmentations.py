@@ -2,9 +2,9 @@
 ViewAugmenter, the random views of the self-supervised task: every image of a batch is transformed twice, on its
 device, by a random resized crop, flips, a rotation, a perspective distortion, a jigsaw of its pieces, a colour jitter,
 a grayscale conversion, a gamma, a haze, a linear illumination, a plasma shadow, a Gaussian blur, a motion blur, a
-solarization, a Gaussian noise and a random erasing, each drawn independently for every image and every view (but the
-kernel size of the motion blur, drawn once per batch by kornia), with probabilities that may differ between the first
-and the second view (the asymmetric views of BYOL and Barlow Twins).
+solarization, a Gaussian noise, a black-out of the cells of a grid and a random erasing, each drawn independently for
+every image and every view (but the kernel size of the motion blur, drawn once per batch by kornia), with
+probabilities that may differ between the first and the second view (the asymmetric views of BYOL and Barlow Twins).
 The self-supervised model then pulls the two views of an image together. Built by the self-supervised trainer from the
 'Data.view_augmentation' section, and by the classification trainer from
 'ClassificationHead.view_losses.view_augmentation' to draw the second view of every image of the view losses of the
@@ -19,7 +19,8 @@ import torch
 from torch import nn
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from vision_training.data.augmentations import apply_haze
+from vision_training.data.augmentations import (BLACK_OUT_CELL_PROBABILITY, BLACK_OUT_GRID_SIZE, apply_black_out,
+                                                 apply_haze)
 
 # kornia decorates some of its functions with torch.jit.script when it is imported, which recent PyTorch versions
 # report as deprecated; the notice is harmless and cannot be fixed on our side, so it is silenced for this import only
@@ -35,7 +36,7 @@ MAXIMUM_PIXEL_VALUE = 255.0
 # keys name them, used to describe the drawn views
 VIEW_TRANSFORMATION_NAMES = ["random_resized_crop", "left_right_flip", "up_down_flip", "rotation", "perspective",
                              "jigsaw", "colour_jitter", "grayscale", "gamma", "haze", "linear_illumination",
-                             "plasma_shadow", "gaussian_blur", "motion_blur", "solarize", "gaussian_noise",
+                             "plasma_shadow", "gaussian_blur", "motion_blur", "solarize", "gaussian_noise", "black_out",
                              "random_erasing"]
 
 # Number of views drawn for every image of the self-supervised task, each with its own chain of transformations; the
@@ -88,6 +89,56 @@ class RandomHaze(kornia_augmentation.IntensityAugmentationBase2D):
         return apply_haze(images=input, strength=strength, airlight=airlight)
 
 
+class RandomBlackOut(kornia_augmentation.IntensityAugmentationBase2D):
+    """
+    Black-out of the views, which kornia does not provide: every view drawn for it is cut into an 8x8 grid whose every
+    cell is blacked out with a probability of 0.2, by apply_black_out, the black-out of the random_black_out type of the
+    data augmentation of the other tasks (augmentations.py), so that the backbone learns to match views missing parts
+    of the scene. The hidden cells of every image are drawn on the CPU by the random generator of PyTorch, like the
+    parameters of the kornia transformations, so that a seed gives the same black-out on every device and the hidden
+    cells can be described.
+    """
+
+    def __init__(self, probability: float) -> None:
+        """
+        Builds the black-out transformation of a chain of view transformations.
+
+        Args:
+            probability (float): The probability of blacking out cells of an image.
+        """
+        super().__init__(p=probability, same_on_batch=False, keepdim=False)
+
+    def generate_parameters(self, batch_shape: Tuple[int, ...]) -> Dict[str, torch.Tensor]:
+        """
+        Draws the hidden cells of every image the black-out applies to, called by kornia with the number of these
+        images.
+
+        Args:
+            batch_shape (Tuple[int, ...]): The shape of the images drawn for the black-out, their number first.
+
+        Returns:
+            Dict[str, torch.Tensor]: The boolean [N, rows, columns] grids of the hidden cells, under 'hidden_cells'.
+        """
+        return {"hidden_cells": torch.rand(size=(batch_shape[0], BLACK_OUT_GRID_SIZE, BLACK_OUT_GRID_SIZE))
+                < BLACK_OUT_CELL_PROBABILITY}
+
+    def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor], flags: Dict[str, Any],
+                        transform: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """
+        Blacks out the hidden cells of the images drawn for the black-out, called by kornia on these images only.
+
+        Args:
+            input (torch.Tensor): The [B, 3, H, W] RGB images in [0, 1] drawn for the black-out.
+            params (Dict[str, torch.Tensor]): The 'hidden_cells' grid drawn for every one of them.
+            flags (Dict[str, Any]): The flags of the kornia transformation, unused.
+            transform (Optional[torch.Tensor]): The transformation matrix of kornia, unused.
+
+        Returns:
+            torch.Tensor: The images with their hidden cells at 0.
+        """
+        return apply_black_out(images=input, hidden_cells=params["hidden_cells"].unsqueeze(dim=1))
+
+
 def get_view_probability(probability: Union[float, List[float]], view_index: int) -> float:
     """
     Reads the probability of a transformation for one of the two views when its chain is built: a number applies to
@@ -111,14 +162,14 @@ def build_view_transformations(view_augmentation_configuration: Dict[str, Any], 
     trainer, or the second view of the view losses of the image classifier. The random resized crop, always applied,
     comes first, then the geometric transformations (flips, rotation, perspective, jigsaw), the photometric ones
     (colour jitter, grayscale, gamma, haze, linear illumination, plasma shadow), the Gaussian and motion blurs, the
-    solarization, the Gaussian noise after both blurs so that they do not smooth it away, and the random erasing last
-    so that the erased rectangles stay plainly filled, each with its probability for this view. The kornia
-    transformations draw the parameters of every image of the batch independently, on the CPU with the random generator
-    of PyTorch (the same seed giving the same views on every device), then transform the images on their device; the
-    plasma shadow and the Gaussian noise draw their fractal map and their noise on the device, the only transformations
-    whose views differ between devices for the same seed. The order of the four colour jitter changes and the kernel
-    size of the motion blur, an odd size of 'motion_blur.kernel_size' with both bounds included, are drawn once per
-    batch, the angle and direction of the motion blur staying drawn for every image.
+    solarization, the Gaussian noise after both blurs so that they do not smooth it away, and the black-out of grid
+    cells and the random erasing last so that the occluded areas stay plainly black, each with its probability for this
+    view. The kornia transformations draw the parameters of every image of the batch independently, on the CPU with the
+    random generator of PyTorch (the same seed giving the same views on every device), then transform the images on
+    their device; the plasma shadow and the Gaussian noise draw their fractal map and their noise on the device, the
+    only transformations whose views differ between devices for the same seed. The order of the four colour jitter
+    changes and the kernel size of the motion blur, an odd size of 'motion_blur.kernel_size' with both bounds
+    included, are drawn once per batch, the angle and direction of the motion blur staying drawn for every image.
 
     Args:
         view_augmentation_configuration (Dict[str, Any]): The 'Data.view_augmentation' section.
@@ -178,9 +229,10 @@ def build_view_transformations(view_augmentation_configuration: Dict[str, Any], 
                             shade_quantity=tuple(plasma_shadow_configuration["shade_quantity"]),
                             p=probabilities["plasma_shadow"])]
 
-    # Blurs, then the solarization, the noise after both blurs and the erasing of a rectangle last. kornia draws the
-    # motion blur kernel size as 2 * int(Uniform(low // 2, high // 2)) + 1, which never reaches the upper bound, so the
-    # upper bound is passed raised by 2 to draw every odd size of [low, high], both bounds included
+    # Blurs, then the solarization, the noise after both blurs, and the black-out of grid cells and the erasing of a
+    # rectangle last, so that the occluded areas stay plainly black. kornia draws the motion blur kernel size as
+    # 2 * int(Uniform(low // 2, high // 2)) + 1, which never reaches the upper bound, so the upper bound is passed
+    # raised by 2 to draw every odd size of [low, high], both bounds included
     motion_kernel_sizes = motion_blur_configuration["kernel_size"]
     transformations += [kornia_augmentation.RandomGaussianBlur(
                             kernel_size=(blur_kernel_size, blur_kernel_size), p=probabilities["gaussian_blur"],
@@ -195,6 +247,7 @@ def build_view_transformations(view_augmentation_configuration: Dict[str, Any], 
                         kornia_augmentation.RandomGaussianNoise(
                             mean=0.0, std=view_augmentation_configuration["gaussian_noise"]["standard_deviation"],
                             p=probabilities["gaussian_noise"]),
+                        RandomBlackOut(probability=probabilities["black_out"]),
                         kornia_augmentation.RandomErasing(scale=tuple(erasing_configuration["scale"]),
                                                           ratio=tuple(erasing_configuration["aspect_ratio"]),
                                                           value=ERASING_FILL_VALUE, p=probabilities["random_erasing"])]
@@ -266,6 +319,9 @@ def describe_view_parameters(transformation_name: str, parameters: Dict[str, tor
     if transformation_name == "solarize":
         return (f"threshold {float(image_values['thresholds']):.2f}, "
                 f"addition {float(image_values['additions']):+.2f}")
+    if transformation_name == "black_out":
+        return (f"{int(image_values['hidden_cells'].sum())} of the {BLACK_OUT_GRID_SIZE * BLACK_OUT_GRID_SIZE} cells "
+                f"of an {BLACK_OUT_GRID_SIZE}x{BLACK_OUT_GRID_SIZE} grid")
     if transformation_name == "random_erasing":
         return (f"{round(float(image_values['widths']))}x{round(float(image_values['heights']))} pixels at x "
                 f"{round(float(image_values['xs']))}, y {round(float(image_values['ys']))}")
