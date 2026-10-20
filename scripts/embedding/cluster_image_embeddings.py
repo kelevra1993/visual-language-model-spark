@@ -14,9 +14,10 @@ them. The settings are the variables of the main block, and the script runs thre
   stored yet, continues an interrupted extraction, and refuses the features of another checkpoint or of changed images.
 - Clustering of every layer of every source, per category for the classification manifests: the vectors normalised to
   length 1, reduced with PCA, clustered with HDBSCAN, DBSCAN or k-means of scikit-learn, and written in
-  'clusters/<layer>/<clustering>/' as CSV files, a folder of links and a mosaic per cluster, and the subset of the
-  representatives of every cluster with the noise images, next to a random subset and a subset evenly spaced in the
-  groups of the images (e.g. the frames of every video) of the same size, ready to train the smaller model on each.
+  'clusters/<layer>/<clustering>/' as CSV files, a folder of links and a mosaic per cluster, and the images kept by
+  the clustering (the representatives of every cluster with the isolated images, in no cluster), next to as many
+  images kept at random and evenly spaced in the groups of the images (e.g. the frames of every video), ready to
+  train the smaller model on each. A table of the kept images of every source is printed at the end of the run.
 Every image read (extraction, mosaics) and every feature matrix of a clustered source is released from the page cache
 of Linux, which would otherwise fill the memory the GPU shares on the DGX Spark and stop other processes from starting.
 
@@ -26,31 +27,31 @@ empty_bin and 31,805 not_empty frames of 1920 x 1080 pixels) embedded by its cla
 Second, bound by the decoding of the frames). HDBSCAN (min_cluster_size 10, min_samples 5, eom) builds its spanning
 tree on a single core over all the pairs of images, its time growing with the square of the number of images and with
 the number of dimensions: about 0.6 Seconds per dimension for 31,805 images, 4 times more for twice the images. The
-three layers at PCA 200 took 12.7 minutes, the mosaics, links and subsets included. Times are in Seconds, a dash
+three layers at PCA 200 took 12.7 minutes, the mosaics, links and kept images included. Times are in Seconds, a dash
 marking a layer clustered as it is, with fewer values than asked (512 for fully_connected_1, 256 for
 fully_connected_2), and the agreement is the adjusted Rand index against the clustering at PCA 800 (1 for the same
 clusters, the large clusters weighing the most). PCA 100 and 50 were not measured.
 
-| Layer             | Category  | PCA | Variance | PCA Time | HDBSCAN Time | Clusters | Noise  | Subset | Agreement |
-|-------------------|-----------|-----|----------|----------|--------------|----------|--------|--------|-----------|
-| block_6           | empty_bin | 800 | 95.1 %   | 81       | 61           | 66       | 5.5 %  | 975    | 1.000     |
-| block_6           | empty_bin | 400 | 92.6 %   | 44       | 28           | 80       | 6.4 %  | 1,151  | 0.832     |
-| block_6           | empty_bin | 200 | 89.8 %   | 28       | 14           | 84       | 6.1 %  | 1,133  | 0.812     |
-| block_6           | not_empty | 800 | 93.4 %   | 372      | 487          | 358      | 5.4 %  | 3,513  | 1.000     |
-| block_6           | not_empty | 400 | 90.3 %   | 85       | 240          | 329      | 3.8 %  | 2,856  | 0.863     |
-| block_6           | not_empty | 200 | 86.1 %   | 78       | 116          | 319      | 4.3 %  | 2,967  | 0.827     |
-| fully_connected_1 | empty_bin | 800 | -        | -        | 38           | 54       | 9.2 %  | 1,354  | 1.000     |
-| fully_connected_1 | empty_bin | 400 | 100.0 %  | 1        | 29           | 54       | 9.1 %  | 1,345  | 0.998     |
-| fully_connected_1 | empty_bin | 200 | 99.9 %   | 3        | 16           | 54       | 9.2 %  | 1,356  | 0.985     |
-| fully_connected_1 | not_empty | 800 | -        | -        | 358          | 254      | 9.1 %  | 4,176  | 1.000     |
-| fully_connected_1 | not_empty | 400 | 100.0 %  | 2        | 233          | 255      | 9.2 %  | 4,201  | 0.995     |
-| fully_connected_1 | not_empty | 200 | 99.8 %   | 3        | 116          | 249      | 8.7 %  | 4,006  | 0.965     |
-| fully_connected_2 | empty_bin | 800 | -        | -        | 17           | 50       | 10.7 % | 1,515  | 1.000     |
-| fully_connected_2 | empty_bin | 400 | -        | -        | 17           | 50       | 10.7 % | 1,515  | 1.000     |
-| fully_connected_2 | empty_bin | 200 | 100.0 %  | < 1      | 16           | 49       | 10.6 % | 1,489  | 0.993     |
-| fully_connected_2 | not_empty | 800 | -        | -        | 151          | 244      | 12.1 % | 5,064  | 1.000     |
-| fully_connected_2 | not_empty | 400 | -        | -        | 150          | 244      | 12.1 % | 5,064  | 1.000     |
-| fully_connected_2 | not_empty | 200 | 100.0 %  | < 1      | 126          | 245      | 12.1 % | 5,061  | 0.994     |
+| Layer             | Category  | PCA | Variance | PCA Time | HDBSCAN Time | Clusters | Isolated | Kept  | Agreement |
+|-------------------|-----------|-----|----------|----------|--------------|----------|----------|-------|-----------|
+| block_6           | empty_bin | 800 | 95.1 %   | 81       | 61           | 66       | 5.5 %    | 975   | 1.000     |
+| block_6           | empty_bin | 400 | 92.6 %   | 44       | 28           | 80       | 6.4 %    | 1,151 | 0.832     |
+| block_6           | empty_bin | 200 | 89.8 %   | 28       | 14           | 84       | 6.1 %    | 1,133 | 0.812     |
+| block_6           | not_empty | 800 | 93.4 %   | 372      | 487          | 358      | 5.4 %    | 3,513 | 1.000     |
+| block_6           | not_empty | 400 | 90.3 %   | 85       | 240          | 329      | 3.8 %    | 2,856 | 0.863     |
+| block_6           | not_empty | 200 | 86.1 %   | 78       | 116          | 319      | 4.3 %    | 2,967 | 0.827     |
+| fully_connected_1 | empty_bin | 800 | -        | -        | 38           | 54       | 9.2 %    | 1,354 | 1.000     |
+| fully_connected_1 | empty_bin | 400 | 100.0 %  | 1        | 29           | 54       | 9.1 %    | 1,345 | 0.998     |
+| fully_connected_1 | empty_bin | 200 | 99.9 %   | 3        | 16           | 54       | 9.2 %    | 1,356 | 0.985     |
+| fully_connected_1 | not_empty | 800 | -        | -        | 358          | 254      | 9.1 %    | 4,176 | 1.000     |
+| fully_connected_1 | not_empty | 400 | 100.0 %  | 2        | 233          | 255      | 9.2 %    | 4,201 | 0.995     |
+| fully_connected_1 | not_empty | 200 | 99.8 %   | 3        | 116          | 249      | 8.7 %    | 4,006 | 0.965     |
+| fully_connected_2 | empty_bin | 800 | -        | -        | 17           | 50       | 10.7 %   | 1,515 | 1.000     |
+| fully_connected_2 | empty_bin | 400 | -        | -        | 17           | 50       | 10.7 %   | 1,515 | 1.000     |
+| fully_connected_2 | empty_bin | 200 | 100.0 %  | < 1      | 16           | 49       | 10.6 %   | 1,489 | 0.993     |
+| fully_connected_2 | not_empty | 800 | -        | -        | 151          | 244      | 12.1 %   | 5,064 | 1.000     |
+| fully_connected_2 | not_empty | 400 | -        | -        | 150          | 244      | 12.1 %   | 5,064 | 1.000     |
+| fully_connected_2 | not_empty | 200 | 100.0 %  | < 1      | 126          | 245      | 12.1 %   | 5,061 | 0.994     |
 """
 
 import csv
@@ -76,9 +77,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.configuration_processing.configuration_loader import (load_configuration,
                                                                            load_experiment_configuration)
+from vision_training.core.contracts import EvaluationTable
 from vision_training.data.data_record import list_manifest_images
 from vision_training.data.loaders import build_native_loader
 from vision_training.data.preprocessing import preprocess_image
+from vision_training.evaluation.report_formatting import build_table_renderables, print_report
 from vision_training.losses.classification_losses import convert_logits_to_probabilities
 from vision_training.models.components.sequence_normalization import SequenceBatchNormalization
 from vision_training.models.model_loading import load_trained_model
@@ -126,11 +129,11 @@ CLUSTERING_PARAMETERS = {"hdbscan": ["min_cluster_size", "min_samples", "cluster
 # Ways HDBSCAN selects its clusters in its cluster tree: the most stable ones, or the leaves (smaller, more uniform)
 HDBSCAN_SELECTION_METHODS = ["eom", "leaf"]
 
-# Noise images kept in the subset, besides a number of noise images drawn at random
-NOISE_SELECTIONS = ["all", "none"]
+# Isolated images kept with the cluster representatives, besides a number of isolated images drawn at random
+ISOLATED_IMAGE_SELECTIONS = ["all", "none"]
 
-# Cluster label of the images in no cluster
-NOISE_CLUSTER = -1
+# Cluster label of the isolated images, in no cluster (the noise of scikit-learn)
+ISOLATED_CLUSTER = -1
 
 # Category of every image of a source without one category per image, clustered as a whole
 ALL_IMAGES_CATEGORY = "all"
@@ -138,13 +141,21 @@ ALL_IMAGES_CATEGORY = "all"
 # Group of the images the group pattern does not match
 NO_GROUP = "(no group)"
 
-# Subsets written next to every clustering: the cluster representatives and the two baselines of the same size
-CLUSTER_SUBSET_FOLDER_NAME = "subset"
-RANDOM_SUBSET_FOLDER_NAME = "subset_random"
-GROUP_SUBSET_FOLDER_NAME = "subset_evenly_spaced_per_group"
+# Kept images written next to every clustering: the images kept by the clustering (cluster representatives and
+# isolated images) and the two baselines keeping as many images per category
+KEPT_BY_CLUSTERING_FOLDER_NAME = "kept_images_by_clustering"
+KEPT_AT_RANDOM_FOLDER_NAME = "kept_images_at_random"
+KEPT_EVENLY_SPACED_FOLDER_NAME = "kept_images_evenly_spaced_per_group"
 
-# File listing the chosen images of a subset, whatever the format of its source
-SELECTED_IMAGES_FILE_NAME = "selected_images.csv"
+# File listing the kept images of a folder of kept images with why each is kept, whatever the format of its source
+KEPT_IMAGES_FILE_NAME = "kept_images.csv"
+
+# Name of the folder and of the mosaic of the isolated images, and reason of a kept isolated image
+ISOLATED_IMAGES_NAME = "isolated_images"
+ISOLATED_IMAGE_REASON = "isolated image"
+
+# Category of the row of a layer summing its categories in the table of the kept images
+TOTAL_CATEGORY = "total"
 
 # Height of an image in the mosaics of the clusters, in pixels, its width following the ratio of the first image of
 # the cluster within a quarter and four times the height
@@ -310,19 +321,19 @@ def check_layer_requests(embedder: Dict[str, Any], convolution_block_indices: Li
 
 def check_clustering_settings(clustering_algorithm: str, clustering_parameters: Dict[str, Any],
                               pca_dimensions: int, number_representatives_per_cluster: int,
-                              noise_selection: str | int, group_pattern: Optional[str],
+                              isolated_image_selection: str | int, group_pattern: Optional[str],
                               mosaic_grid_size: int) -> None:
     """
     Verifies the clustering and selection settings before any inference, so that a wrong value does not stop the
     script after a long extraction: the algorithm and its parameters, the PCA dimensions, the representatives and
-    noise images of the subset, the group pattern and the mosaic grid.
+    isolated images kept by the clustering, the group pattern and the mosaic grid.
 
     Args:
         clustering_algorithm (str): "hdbscan", "dbscan" or "kmeans".
         clustering_parameters (Dict[str, Any]): The parameters of the algorithm (see CLUSTERING_PARAMETERS).
         pca_dimensions (int): The number of PCA dimensions every layer is reduced to.
-        number_representatives_per_cluster (int): The images of every cluster kept in the subset.
-        noise_selection (str | int): "all", "none" or the number of noise images drawn for the subset.
+        number_representatives_per_cluster (int): The images of every cluster kept.
+        isolated_image_selection (str | int): "all", "none" or the number of isolated images drawn to be kept.
         group_pattern (Optional[str]): The regular expression giving the group of an image, or None.
         mosaic_grid_size (int): The number of images per row of the mosaic of a cluster, and its maximum number of rows.
 
@@ -366,15 +377,16 @@ def check_clustering_settings(clustering_algorithm: str, clustering_parameters: 
             if not is_positive_integer(value=clustering_parameters[name]):
                 errors.append(f"{name} must be a positive integer, got {clustering_parameters[name]!r}.")
 
-    # The reduction, the subset, the groups and the mosaics
+    # The reduction, the kept images, the groups and the mosaics
     if not is_positive_integer(value=pca_dimensions):
         errors.append(f"pca_dimensions must be a positive integer, got {pca_dimensions!r}.")
     if not is_positive_integer(value=number_representatives_per_cluster):
         errors.append(f"number_representatives_per_cluster must be a positive integer, got "
                       f"{number_representatives_per_cluster!r}.")
-    if noise_selection not in NOISE_SELECTIONS and not is_positive_integer(value=noise_selection):
-        errors.append(f"noise_selection must be one of {NOISE_SELECTIONS} or a positive integer, got "
-                      f"{noise_selection!r}.")
+    if isolated_image_selection not in ISOLATED_IMAGE_SELECTIONS and \
+            not is_positive_integer(value=isolated_image_selection):
+        errors.append(f"isolated_image_selection must be one of {ISOLATED_IMAGE_SELECTIONS} or a positive integer, "
+                      f"got {isolated_image_selection!r}.")
     if group_pattern is not None:
         try:
             re.compile(pattern=group_pattern)
@@ -990,9 +1002,9 @@ def prepare_vectors(vectors: np.ndarray, normalize_vectors: bool, pca_dimensions
 def cluster_vectors(vectors: np.ndarray, clustering_algorithm: str, clustering_parameters: Dict[str, Any],
                     seed: int) -> Tuple[np.ndarray, Optional[np.ndarray]]:
     """
-    Clusters the prepared vectors of one category with HDBSCAN (dense regions of any shape, the isolated images
-    being noise), DBSCAN (dense regions at a fixed distance, the others being noise) or k-means (a given number of
-    clusters, every image in one).
+    Clusters the prepared vectors of one category with HDBSCAN (dense regions of any shape, the images in none of them
+    being isolated), DBSCAN (dense regions at a fixed distance, the others being isolated) or k-means (a given number
+    of clusters, every image in one).
 
     Args:
         vectors (np.ndarray): The [N, D] prepared vectors.
@@ -1001,19 +1013,19 @@ def cluster_vectors(vectors: np.ndarray, clustering_algorithm: str, clustering_p
         seed (int): The seed of k-means.
 
     Returns:
-        Tuple[np.ndarray, Optional[np.ndarray]]: The [N] cluster of every vector (NOISE_CLUSTER for noise), and the
-            [N] membership probability of HDBSCAN (None for the other algorithms).
+        Tuple[np.ndarray, Optional[np.ndarray]]: The [N] cluster of every vector (ISOLATED_CLUSTER for the isolated
+            images), and the [N] membership probability of HDBSCAN (None for the other algorithms).
 
     Raises:
         ValueError: If k-means asks more clusters than there are images.
     """
     number_vectors = vectors.shape[0]
     if clustering_algorithm == "hdbscan":
-        # Fewer images than a cluster needs: all of them are noise, which HDBSCAN refuses to compute
+        # Fewer images than a cluster needs: all of them are isolated, which HDBSCAN refuses to compute
         minimum_samples = clustering_parameters["min_samples"] if clustering_parameters["min_samples"] is not None \
             else clustering_parameters["min_cluster_size"]
         if number_vectors < max(clustering_parameters["min_cluster_size"], minimum_samples):
-            return np.full(shape=number_vectors, fill_value=NOISE_CLUSTER), np.zeros(shape=number_vectors)
+            return np.full(shape=number_vectors, fill_value=ISOLATED_CLUSTER), np.zeros(shape=number_vectors)
         clustering = HDBSCAN(min_cluster_size=clustering_parameters["min_cluster_size"],
                              min_samples=clustering_parameters["min_samples"],
                              cluster_selection_method=clustering_parameters["cluster_selection_method"], copy=True,
@@ -1044,10 +1056,10 @@ def compute_centre_distances(vectors: np.ndarray, labels: np.ndarray) -> np.ndar
         labels (np.ndarray): The [N] cluster of every vector.
 
     Returns:
-        np.ndarray: The [N] distances, NaN for the noise images.
+        np.ndarray: The [N] distances, NaN for the isolated images.
     """
     distances = np.full(shape=labels.shape[0], fill_value=np.nan)
-    for cluster in np.unique(labels[labels != NOISE_CLUSTER]):
+    for cluster in np.unique(labels[labels != ISOLATED_CLUSTER]):
         is_member = labels == cluster
         distances[is_member] = np.linalg.norm(vectors[is_member] - vectors[is_member].mean(axis=0), axis=1)
     return distances
@@ -1056,7 +1068,7 @@ def compute_centre_distances(vectors: np.ndarray, labels: np.ndarray) -> np.ndar
 def natural_sort_key(name: str) -> List[Any]:
     """
     Gives the sort key of a file name comparing its digit runs as numbers, so that 'frame_10' comes after 'frame_9',
-    for the time order of the images of a group and the order of the noise images.
+    for the time order of the images of a group and the order of the isolated images.
 
     Args:
         name (str): The file name.
@@ -1069,7 +1081,7 @@ def natural_sort_key(name: str) -> List[Any]:
 
 def rank_cluster_members(labels: np.ndarray, distances: np.ndarray, file_names: List[str]) -> np.ndarray:
     """
-    Ranks the images of every cluster from 1, the closest to its centre first, and the noise images in the order of
+    Ranks the images of every cluster from 1, the closest to its centre first, and the isolated images in the order of
     their names, the rank ordering the links and the mosaic of a cluster and choosing its representatives.
 
     Args:
@@ -1078,12 +1090,12 @@ def rank_cluster_members(labels: np.ndarray, distances: np.ndarray, file_names: 
         file_names (List[str]): The [N] file names.
 
     Returns:
-        np.ndarray: The [N] rank of every image in its cluster or in the noise.
+        np.ndarray: The [N] rank of every image in its cluster or among the isolated images.
     """
     ranks = np.zeros(shape=labels.shape[0], dtype=int)
     for cluster in np.unique(labels):
         member_positions = np.flatnonzero(labels == cluster)
-        if cluster == NOISE_CLUSTER:
+        if cluster == ISOLATED_CLUSTER:
             ordered_positions = np.array([position for _, position in sorted(
                 (natural_sort_key(name=file_names[position]), position) for position in member_positions)])
         else:
@@ -1092,48 +1104,49 @@ def rank_cluster_members(labels: np.ndarray, distances: np.ndarray, file_names: 
     return ranks
 
 
-def select_cluster_representatives(labels: np.ndarray, ranks: np.ndarray, number_representatives_per_cluster: int,
-                                   noise_selection: str | int, random_generator: np.random.Generator) -> Dict[int, str]:
+def select_kept_images_by_clustering(labels: np.ndarray, ranks: np.ndarray, number_representatives_per_cluster: int,
+                                     isolated_image_selection: str | int,
+                                     random_generator: np.random.Generator) -> Dict[int, str]:
     """
-    Chooses the images of the cluster subset of one category: the representatives of every cluster (its images
-    closest to its centre) and the noise images, all of them, none, or a number drawn at random, the noise holding
-    the rare images that resemble no other.
+    Keeps the images of one category that the clustering chooses: the representatives of every cluster (its images
+    closest to its centre) and the isolated images, all of them, none, or a number drawn at random, the isolated
+    images being the rare images that resemble no other.
 
     Args:
         labels (np.ndarray): The [N] cluster of every image.
         ranks (np.ndarray): The [N] rank of every image in its cluster.
         number_representatives_per_cluster (int): The images kept per cluster.
-        noise_selection (str | int): "all", "none" or the number of noise images drawn.
+        isolated_image_selection (str | int): "all", "none" or the number of isolated images drawn.
         random_generator (np.random.Generator): The generator of the draw.
 
     Returns:
-        Dict[int, str]: The position of every chosen image among the images of the category, with why it is chosen.
+        Dict[int, str]: The position of every kept image among the images of the category, with why it is kept.
     """
-    selection = {}
+    kept_images = {}
 
     # The images of every cluster closest to its centre
-    for position in np.flatnonzero((labels != NOISE_CLUSTER) & (ranks <= number_representatives_per_cluster)):
-        selection[int(position)] = f"representative of cluster {labels[position]}, rank {ranks[position]}"
+    for position in np.flatnonzero((labels != ISOLATED_CLUSTER) & (ranks <= number_representatives_per_cluster)):
+        kept_images[int(position)] = f"representative of cluster {labels[position]}, rank {ranks[position]}"
 
-    # The noise images, all, none or drawn
-    noise_positions = np.flatnonzero(labels == NOISE_CLUSTER)
-    if noise_selection == "all":
-        chosen_noise_positions = noise_positions
-    elif noise_selection == "none":
-        chosen_noise_positions = noise_positions[:0]
+    # The isolated images, all, none or drawn
+    isolated_positions = np.flatnonzero(labels == ISOLATED_CLUSTER)
+    if isolated_image_selection == "all":
+        kept_isolated_positions = isolated_positions
+    elif isolated_image_selection == "none":
+        kept_isolated_positions = isolated_positions[:0]
     else:
-        chosen_noise_positions = random_generator.choice(noise_positions, size=min(noise_selection,
-                                                                                   len(noise_positions)),
-                                                         replace=False)
-    for position in chosen_noise_positions:
-        selection[int(position)] = "noise"
-    return selection
+        kept_isolated_positions = random_generator.choice(isolated_positions,
+                                                          size=min(isolated_image_selection, len(isolated_positions)),
+                                                          replace=False)
+    for position in kept_isolated_positions:
+        kept_images[int(position)] = ISOLATED_IMAGE_REASON
+    return kept_images
 
 
 def select_random_baseline(number_images: int, budget: int, random_generator: np.random.Generator) -> np.ndarray:
     """
-    Draws the images of the random baseline of one category, as many as its cluster subset, to tell whether the
-    clustering chooses better images than chance.
+    Draws the images of one category kept at random, as many as the clustering keeps, to tell whether the clustering
+    keeps better images than chance.
 
     Args:
         number_images (int): The number of images of the category.
@@ -1209,19 +1222,19 @@ def allocate_budget_over_groups(group_sizes: Dict[str, int], budget: int) -> Dic
 def select_evenly_spaced_per_group(file_names: List[str], groups: List[str], budget: int) -> Tuple[np.ndarray,
                                                                                                     List[str]]:
     """
-    Chooses the images of the baseline evenly spaced per group of one category, as many as its cluster subset, the
-    simple selection the clustering should beat: the budget spread evenly over the groups, the images of a group
-    ordered by their file names (digit runs compared as numbers, the time order of names carrying the time of the
-    frame) and taken at the centres of equal segments of that order.
+    Keeps the images of one category evenly spaced per group, as many as the clustering keeps, the simple selection
+    the clustering should beat: the budget spread evenly over the groups, the images of a group ordered by their file
+    names (digit runs compared as numbers, the time order of names carrying the time of the frame) and taken at the
+    centres of equal segments of that order.
 
     Args:
         file_names (List[str]): The file names of the images of the category.
         groups (List[str]): Their groups.
-        budget (int): The number of images to choose.
+        budget (int): The number of images to keep.
 
     Returns:
-        Tuple[np.ndarray, List[str]]: The sorted positions of the chosen images among the images of the category, and
-            the group of every chosen image in the same order.
+        Tuple[np.ndarray, List[str]]: The sorted positions of the kept images among the images of the category, and
+            the group of every kept image in the same order.
     """
     positions_by_group = {}
     for position, group in enumerate(groups):
@@ -1231,17 +1244,17 @@ def select_evenly_spaced_per_group(file_names: List[str], groups: List[str], bud
                                              budget=budget)
 
     # The images of every group in the order of their names, taken at the centres of equal segments
-    chosen_positions = []
+    kept_positions = []
     for group, positions in positions_by_group.items():
-        number_chosen = allocation[group]
-        if number_chosen == 0:
+        number_kept = allocation[group]
+        if number_kept == 0:
             continue
         ordered_positions = [position for _, position in sorted((natural_sort_key(name=file_names[position]),
                                                                  position) for position in positions)]
-        segment_centres = ((np.arange(stop=number_chosen) + 0.5) * len(ordered_positions) / number_chosen).astype(int)
-        chosen_positions += [ordered_positions[index] for index in segment_centres]
-    chosen_positions = np.sort(np.array(chosen_positions, dtype=int))
-    return chosen_positions, [groups[position] for position in chosen_positions]
+        segment_centres = ((np.arange(stop=number_kept) + 0.5) * len(ordered_positions) / number_kept).astype(int)
+        kept_positions += [ordered_positions[index] for index in segment_centres]
+    kept_positions = np.sort(np.array(kept_positions, dtype=int))
+    return kept_positions, [groups[position] for position in kept_positions]
 
 
 def build_clustering_name(clustering_algorithm: str, clustering_parameters: Dict[str, Any], normalize_vectors: bool,
@@ -1336,8 +1349,8 @@ def build_mosaic(image_paths: List[Path], grid_size: int, caption: str) -> np.nd
 
 def link_image(link_path: Path, image_path: Path) -> None:
     """
-    Points a link of a cluster folder or of a subset of plain images to an image of the source, so that the clusters
-    and the subsets are browsed without copying any image.
+    Points a link of a cluster folder or of the kept images of a folder of plain images to an image of the source, so
+    that the clusters and the kept images are browsed without copying any image.
 
     Args:
         link_path (Path): The path of the link, its folder being created.
@@ -1360,59 +1373,61 @@ def sanitize_folder_name(name: str) -> str:
     return re.sub(pattern=r"[\\/]", repl="_", string=name) or "_"
 
 
-def write_subset(subset_folder: Path, source: Dict[str, Any], source_images: Dict[str, Any],
-                 selected_rows: Dict[int, str]) -> None:
+def write_kept_images(kept_images_folder: Path, source: Dict[str, Any], source_images: Dict[str, Any],
+                      kept_rows: Dict[int, str]) -> None:
     """
-    Writes a subset of the images of a source: 'selected_images.csv' listing every chosen image with why it is
-    chosen, and, when every image of the source is an independent sample, the subset ready to train: a 'data' link to
-    the images of the source and a 'labels.json' keeping the chosen samples (classification, semantic segmentation)
-    or the chosen COCO images with their annotations, or links to the chosen images for a folder of plain images. The
-    frames of sequences and pairs are only listed, being tied to their sequence.
+    Writes the kept images of a source: 'kept_images.csv' listing every kept image with why it is kept, and, when
+    every image of the source is an independent sample (a split of the run or of a configuration file, or a split
+    folder), a split ready to train on: a 'data' link to the images of the source and a 'labels.json' holding the
+    kept samples (classification, semantic segmentation) or the kept COCO images with their annotations. A folder of
+    plain images, without labels, gets links to its kept images instead, and the frames of sequences and pairs are
+    only listed, being tied to their sequence.
 
     Args:
-        subset_folder (Path): The folder of the subset, created.
+        kept_images_folder (Path): The folder of the kept images, created.
         source (Dict[str, Any]): The data source.
         source_images (Dict[str, Any]): The images of the source given by list_source_images.
-        selected_rows (Dict[int, str]): The row of every chosen image with why it is chosen.
+        kept_rows (Dict[int, str]): The row of every kept image with why it is kept.
     """
-    subset_folder.mkdir(parents=True)
+    kept_images_folder.mkdir(parents=True)
     file_names = source_images["file_names"]
-    write_csv(path=subset_folder / SELECTED_IMAGES_FILE_NAME, field_names=["row", "image", "category", "reason"],
+    write_csv(path=kept_images_folder / KEPT_IMAGES_FILE_NAME, field_names=["row", "image", "category", "reason"],
               rows=[{"row": row, "image": file_names[row],
                      "category": "" if source_images["categories"] is None else source_images["categories"][row],
-                     "reason": selected_rows[row]} for row in sorted(selected_rows)])
+                     "reason": kept_rows[row]} for row in sorted(kept_rows)])
 
     # A folder of plain images: links keeping the subfolders of the images
     manifest = source_images["manifest"]
     if manifest is None:
-        for row in sorted(selected_rows):
-            link_image(link_path=subset_folder / file_names[row], image_path=source["data_folder"] / file_names[row])
+        for row in sorted(kept_rows):
+            link_image(link_path=kept_images_folder / file_names[row],
+                       image_path=source["data_folder"] / file_names[row])
         return
 
-    # The chosen COCO images with their annotations, or the chosen samples, in the order list_manifest_images reads
-    # the manifest formats, the other entries kept
-    selected_names = {file_names[row] for row in selected_rows}
+    # The kept COCO images with their annotations, or the kept samples, in the order list_manifest_images reads the
+    # manifest formats, the other entries kept
+    kept_names = {file_names[row] for row in kept_rows}
     if "images" in manifest:
-        kept_images = [image for image in manifest["images"] if image["file_name"] in selected_names]
-        kept_image_identifiers = {image["id"] for image in kept_images}
-        subset_manifest = {**manifest, "images": kept_images,
-                           "annotations": [annotation for annotation in manifest["annotations"]
-                                           if annotation["image_id"] in kept_image_identifiers]}
+        kept_manifest_images = [image for image in manifest["images"] if image["file_name"] in kept_names]
+        kept_image_identifiers = {image["id"] for image in kept_manifest_images}
+        kept_manifest = {**manifest, "images": kept_manifest_images,
+                         "annotations": [annotation for annotation in manifest["annotations"]
+                                         if annotation["image_id"] in kept_image_identifiers]}
     elif "samples" in manifest:
-        subset_manifest = {**manifest, "samples": [sample for sample in manifest["samples"]
-                                                   if sample["file_name"] in selected_names]}
+        kept_manifest = {**manifest, "samples": [sample for sample in manifest["samples"]
+                                                 if sample["file_name"] in kept_names]}
     else:
         return
-    link_folder(link_path=subset_folder / "data", target_folder=source["data_folder"])
-    (subset_folder / "labels.json").write_text(data=json.dumps(subset_manifest), encoding="utf-8")
+    link_folder(link_path=kept_images_folder / "data", target_folder=source["data_folder"])
+    (kept_images_folder / "labels.json").write_text(data=json.dumps(kept_manifest), encoding="utf-8")
 
 
 def write_cluster_folders(clustering_folder: Path, source: Dict[str, Any], source_images: Dict[str, Any],
                           ordered_cluster_rows: Dict[Tuple[str, int], np.ndarray], mosaic_grid_size: int) -> None:
     """
     Writes, for every cluster of every category, a folder of links to its images named by their rank
-    ('<category>/cluster_<k>/<rank>_<image>', the noise in '<category>/noise/') and a mosaic of its first images
-    ('<category>/cluster_<k>.jpg'), to look at what every cluster gathers.
+    ('<category>/cluster_<k>/<rank>_<image>', the isolated images in '<category>/isolated_images/') and a mosaic of its
+    first images ('<category>/cluster_<k>.jpg'), to look at what every cluster gathers.
 
     Args:
         clustering_folder (Path): The folder of the clustering.
@@ -1426,7 +1441,7 @@ def write_cluster_folders(clustering_folder: Path, source: Dict[str, Any], sourc
     for (category, cluster), rows in tqdm(iterable=ordered_cluster_rows.items(), desc="Writing the clusters",
                                           unit="cluster"):
         category_folder = clustering_folder / sanitize_folder_name(name=category)
-        cluster_name = "noise" if cluster == NOISE_CLUSTER else f"cluster_{cluster:04d}"
+        cluster_name = ISOLATED_IMAGES_NAME if cluster == ISOLATED_CLUSTER else f"cluster_{cluster:04d}"
 
         # Links named by rank, the subfolders of an image folder flattened into the name
         for rank, row in enumerate(rows, start=1):
@@ -1443,17 +1458,18 @@ def cluster_layer(features: np.ndarray, layer_key: str, source: Dict[str, Any], 
                   predictions: Optional[np.ndarray], class_names: Optional[List[str]], groups: Optional[List[str]],
                   clustering_folder: Path, clustering_algorithm: str, clustering_parameters: Dict[str, Any],
                   normalize_vectors: bool, pca_dimensions: int, number_representatives_per_cluster: int,
-                  noise_selection: str | int, seed: int, mosaic_grid_size: int) -> List[Dict[str, Any]]:
+                  isolated_image_selection: str | int, seed: int, mosaic_grid_size: int) -> List[Dict[str, Any]]:
     """
     Clusters the features of one layer of a source, per category when the source gives one per image, and writes the
     clustering folder, replaced when it exists:
-    - 'clusters.csv': every image with its category, cluster, membership probability (HDBSCAN), distance to the
-      centre of its cluster, rank, choice, predicted class and group.
-    - 'cluster_summary.csv': every cluster with its images, its chosen images, its mean membership probability, its
+    - 'clusters.csv': every image with its category, cluster (ISOLATED_CLUSTER for the isolated images), membership
+      probability (HDBSCAN), distance to the centre of its cluster, rank, reason to be kept (empty when it is not),
+      predicted class and group.
+    - 'cluster_summary.csv': every cluster with its images, its kept images, its mean membership probability, its
       error rate (when the embedding run classifies the categories of the source) and its groups.
     - The folders of links and the mosaics of the clusters (write_cluster_folders).
-    - The cluster subset and the random and evenly spaced per group baselines of the same size (write_subset), the
-      last one only with a group pattern.
+    - The images kept by the clustering, at random and evenly spaced per group, as many per category
+      (write_kept_images), the last ones only with a group pattern.
 
     Args:
         features (np.ndarray): The [number of images, D] features of the layer.
@@ -1469,14 +1485,15 @@ def cluster_layer(features: np.ndarray, layer_key: str, source: Dict[str, Any], 
         clustering_parameters (Dict[str, Any]): The parameters of the algorithm.
         normalize_vectors (bool): Whether to divide every vector by its length.
         pca_dimensions (int): The number of PCA dimensions every layer is reduced to.
-        number_representatives_per_cluster (int): The images kept per cluster in the subset.
-        noise_selection (str | int): "all", "none" or the number of noise images drawn for the subset.
+        number_representatives_per_cluster (int): The images kept per cluster.
+        isolated_image_selection (str | int): "all", "none" or the number of isolated images drawn to be kept.
         seed (int): The seed of the draws and of the clustering.
         mosaic_grid_size (int): The number of images per row of a mosaic, and its maximum number of rows.
 
     Returns:
-        List[Dict[str, Any]]: The summary of every category: its images, clusters, noise images, chosen images,
-            clustered dimensions, kept variance, and times of the PCA and of the clustering of the vectors.
+        List[Dict[str, Any]]: The summary of every category: its initial images, image clusters, isolated images,
+            kept representatives, kept isolated images and kept images, clustered dimensions, kept variance, and
+            times of the PCA and of the clustering of the vectors.
     """
     if clustering_folder.exists():
         shutil.rmtree(path=clustering_folder)
@@ -1499,7 +1516,8 @@ def cluster_layer(features: np.ndarray, layer_key: str, source: Dict[str, Any], 
     summary_rows = []
     category_summaries = []
     ordered_cluster_rows = {}
-    subsets = {CLUSTER_SUBSET_FOLDER_NAME: {}, RANDOM_SUBSET_FOLDER_NAME: {}, GROUP_SUBSET_FOLDER_NAME: {}}
+    kept_rows_by_folder = {KEPT_BY_CLUSTERING_FOLDER_NAME: {}, KEPT_AT_RANDOM_FOLDER_NAME: {},
+                           KEPT_EVENLY_SPACED_FOLDER_NAME: {}}
     for category_position, category in enumerate(sorted(set(categories))):
         category_rows = np.flatnonzero(category_array == category)
         category_file_names = [file_names[row] for row in category_rows]
@@ -1516,22 +1534,24 @@ def cluster_layer(features: np.ndarray, layer_key: str, source: Dict[str, Any], 
         distances = compute_centre_distances(vectors=prepared_vectors, labels=labels)
         ranks = rank_cluster_members(labels=labels, distances=distances, file_names=category_file_names)
 
-        # The cluster subset, then the two baselines of the same size, every draw seeded per category
+        # The images kept by the clustering, then as many kept at random and evenly spaced per group, every draw seeded
+        # per category
         random_generator = np.random.default_rng(seed=[seed, category_position])
-        representatives = select_cluster_representatives(
+        kept_by_clustering = select_kept_images_by_clustering(
             labels=labels, ranks=ranks, number_representatives_per_cluster=number_representatives_per_cluster,
-            noise_selection=noise_selection, random_generator=random_generator)
-        subsets[CLUSTER_SUBSET_FOLDER_NAME].update({int(category_rows[position]): reason
-                                                    for position, reason in representatives.items()})
-        budget = len(representatives)
+            isolated_image_selection=isolated_image_selection, random_generator=random_generator)
+        kept_rows_by_folder[KEPT_BY_CLUSTERING_FOLDER_NAME].update({int(category_rows[position]): reason
+                                                                    for position, reason in kept_by_clustering.items()})
+        budget = len(kept_by_clustering)
         for position in select_random_baseline(number_images=len(category_rows), budget=budget,
                                                random_generator=random_generator):
-            subsets[RANDOM_SUBSET_FOLDER_NAME][int(category_rows[position])] = "random"
+            kept_rows_by_folder[KEPT_AT_RANDOM_FOLDER_NAME][int(category_rows[position])] = "random"
         if groups is not None:
-            group_positions, chosen_groups = select_evenly_spaced_per_group(
+            group_positions, kept_groups = select_evenly_spaced_per_group(
                 file_names=category_file_names, groups=[groups[row] for row in category_rows], budget=budget)
-            for position, group in zip(group_positions, chosen_groups):
-                subsets[GROUP_SUBSET_FOLDER_NAME][int(category_rows[position])] = f"evenly spaced in {group}"
+            for position, group in zip(group_positions, kept_groups):
+                kept_rows_by_folder[KEPT_EVENLY_SPACED_FOLDER_NAME][int(category_rows[position])] = \
+                    f"evenly spaced in {group}"
 
         # Every image with its cluster, and every cluster with its rows in rank order
         for position, row in enumerate(category_rows):
@@ -1539,7 +1559,7 @@ def cluster_layer(features: np.ndarray, layer_key: str, source: Dict[str, Any], 
                 "row": int(row), "image": file_names[row], "category": category, "cluster": int(labels[position]),
                 "probability": "" if probabilities is None else f"{probabilities[position]:.4f}",
                 "distance_to_centre": "" if np.isnan(distances[position]) else f"{distances[position]:.6f}",
-                "rank": int(ranks[position]), "selected": representatives.get(position, ""),
+                "rank": int(ranks[position]), "kept_reason": kept_by_clustering.get(position, ""),
                 "predicted_class": "" if predicted_names is None else predicted_names[row],
                 "predicted_probability": "" if predictions is None else f"{predictions[row, 1]:.4f}",
                 "group": "" if groups is None else groups[row]}
@@ -1548,10 +1568,10 @@ def cluster_layer(features: np.ndarray, layer_key: str, source: Dict[str, Any], 
             ordered_cluster_rows[(category, int(cluster))] = category_rows[member_positions[np.argsort(
                 ranks[member_positions])]]
 
-            # The summary of the cluster: its choices, its probability, its errors and its groups
+            # The summary of the cluster: its kept images, its probability, its errors and its groups
             member_rows = category_rows[member_positions]
             summary_row = {"category": category, "cluster": int(cluster), "images": len(member_positions),
-                           "selected": sum(position in representatives for position in member_positions),
+                           "kept_images": sum(position in kept_by_clustering for position in member_positions),
                            "mean_probability": "" if probabilities is None else
                            f"{probabilities[member_positions].mean():.4f}",
                            "error_rate": "", "groups": "", "largest_group": "", "largest_group_share": ""}
@@ -1565,11 +1585,14 @@ def cluster_layer(features: np.ndarray, layer_key: str, source: Dict[str, Any], 
                                     "largest_group_share": f"{largest_group_share:.4f}"})
             summary_rows.append(summary_row)
 
-        # The summary of the category for the console
-        number_noise = int((labels == NOISE_CLUSTER).sum())
-        category_summaries.append({"layer": layer_key, "category": category, "images": len(category_rows),
-                                   "clusters": len(set(labels.tolist()) - {NOISE_CLUSTER}), "noise": number_noise,
-                                   "selected": budget, "dimensions": preparation["dimensions"],
+        # The summary of the category for the console and the table of the kept images
+        kept_isolated_images = int(sum(labels[position] == ISOLATED_CLUSTER for position in kept_by_clustering))
+        category_summaries.append({"layer": layer_key, "category": category, "initial_images": len(category_rows),
+                                   "image_clusters": len(set(labels.tolist()) - {ISOLATED_CLUSTER}),
+                                   "isolated_images": int((labels == ISOLATED_CLUSTER).sum()),
+                                   "kept_representatives": budget - kept_isolated_images,
+                                   "kept_isolated_images": kept_isolated_images, "kept_images": budget,
+                                   "dimensions": preparation["dimensions"],
                                    "kept_variance": preparation["kept_variance"],
                                    "zero_vectors": preparation["zero_vectors"],
                                    "pca_seconds": preparation["pca_seconds"],
@@ -1578,28 +1601,28 @@ def cluster_layer(features: np.ndarray, layer_key: str, source: Dict[str, Any], 
     # The tables of the images and of the clusters
     write_csv(path=clustering_folder / "clusters.csv",
               field_names=["row", "image", "category", "cluster", "probability", "distance_to_centre", "rank",
-                           "selected", "predicted_class", "predicted_probability", "group"],
+                           "kept_reason", "predicted_class", "predicted_probability", "group"],
               rows=[image_rows[row] for row in sorted(image_rows)])
     write_csv(path=clustering_folder / "cluster_summary.csv",
-              field_names=["category", "cluster", "images", "selected", "mean_probability", "error_rate", "groups",
+              field_names=["category", "cluster", "images", "kept_images", "mean_probability", "error_rate", "groups",
                            "largest_group", "largest_group_share"], rows=summary_rows)
 
-    # The links and mosaics of the clusters, then the three subsets
+    # The links and mosaics of the clusters, then the three folders of kept images
     write_cluster_folders(clustering_folder=clustering_folder, source=source, source_images=source_images,
                           ordered_cluster_rows=ordered_cluster_rows, mosaic_grid_size=mosaic_grid_size)
-    for subset_name, selected_rows in subsets.items():
-        if subset_name == GROUP_SUBSET_FOLDER_NAME and groups is None:
+    for folder_name, kept_rows in kept_rows_by_folder.items():
+        if folder_name == KEPT_EVENLY_SPACED_FOLDER_NAME and groups is None:
             continue
-        write_subset(subset_folder=clustering_folder / subset_name, source=source, source_images=source_images,
-                     selected_rows=selected_rows)
+        write_kept_images(kept_images_folder=clustering_folder / folder_name, source=source,
+                          source_images=source_images, kept_rows=kept_rows)
     return category_summaries
 
 
 def print_category_summaries(category_summaries: List[Dict[str, Any]], clustering_folder: Path) -> None:
     """
-    Prints the summary of every category of a clustering, to compare settings at a glance: images, clusters, noise
-    images and their share, chosen images, clustered dimensions with the variance kept by the PCA and its time (or
-    the vectors clustered as they are when the PCA had nothing to reduce), and the time of the clustering.
+    Prints the summary of every category of a clustering, to compare settings at a glance: initial images, image
+    clusters, isolated images and their share, kept images, clustered dimensions with the variance kept by the PCA and
+    its time (or the vectors clustered as they are when the PCA had nothing to reduce), and the time of the clustering.
 
     Args:
         category_summaries (List[Dict[str, Any]]): The summaries given by cluster_layer.
@@ -1611,12 +1634,70 @@ def print_category_summaries(category_summaries: List[Dict[str, Any]], clusterin
             if summary["kept_variance"] is None else \
             f" ({100 * summary['kept_variance']:.1f} % of the variance, PCA in {summary['pca_seconds']:.1f} Seconds)"
         zero_text = "" if summary["zero_vectors"] == 0 else f", {summary['zero_vectors']} zero vectors"
+        isolated_share = 100 * summary["isolated_images"] / summary["initial_images"]
         print_color(color="blue", indent=1,
-                    output=f"{summary['layer']} - {summary['category']}: {summary['images']} images, "
-                           f"{summary['clusters']} clusters, {summary['noise']} noise images "
-                           f"({100 * summary['noise'] / summary['images']:.1f} %), {summary['selected']} chosen, "
+                    output=f"{summary['layer']} - {summary['category']}: {summary['initial_images']} initial images, "
+                           f"{summary['image_clusters']} image clusters, {summary['isolated_images']} isolated "
+                           f"images ({isolated_share:.1f} %), {summary['kept_images']} kept images, "
                            f"{summary['dimensions']} dimensions{variance_text}{zero_text}, clustered in "
                            f"{summary['clustering_seconds']:.1f} Seconds")
+
+
+def build_kept_images_table(source: Dict[str, Any], clustering_name: str,
+                            category_summaries: List[Dict[str, Any]]) -> EvaluationTable:
+    """
+    Builds the table of the kept images of one source, printed at the end of the run so that what every layer keeps
+    for the training of the smaller model is read at once: for every layer and category, the initial images, the
+    image clusters, the isolated images (in no cluster) with their share of the initial images, the kept
+    representatives and kept isolated images, and the kept images with their share of the initial images, a layer
+    with several categories ending with their total.
+
+    Args:
+        source (Dict[str, Any]): The data source, its name and roles titling the table.
+        clustering_name (str): The folder name of the clustering, naming its settings.
+        category_summaries (List[Dict[str, Any]]): The summaries given by cluster_layer for every layer of the source.
+
+    Returns:
+        EvaluationTable: The table, laid out as the tables of the evaluation reports.
+    """
+    count_keys = ["initial_images", "image_clusters", "isolated_images", "kept_representatives",
+                  "kept_isolated_images", "kept_images"]
+    rows = []
+    for layer_key in dict.fromkeys(summary["layer"] for summary in category_summaries):
+        # The categories of the layer, followed by their total when there are several
+        layer_summaries = [summary for summary in category_summaries if summary["layer"] == layer_key]
+        if len(layer_summaries) > 1:
+            layer_summaries.append({"layer": layer_key, "category": TOTAL_CATEGORY,
+                                    **{key: sum(summary[key] for summary in layer_summaries) for key in count_keys}})
+
+        # Counts with thousands separators and shares of the initial images, every category having images
+        for summary in layer_summaries:
+            initial_images = summary["initial_images"]
+            rows.append([summary["layer"], summary["category"], f"{initial_images:,}",
+                         f"{summary['image_clusters']:,}", f"{summary['isolated_images']:,}",
+                         f"{100 * summary['isolated_images'] / initial_images:.1f} %",
+                         f"{summary['kept_representatives']:,}", f"{summary['kept_isolated_images']:,}",
+                         f"{summary['kept_images']:,}", f"{100 * summary['kept_images'] / initial_images:.1f} %"])
+    return {"title": f"Kept Images · {source['name']} ({', '.join(source['roles'])})\nClustering {clustering_name}",
+            "columns": ["Layer", "Category", "Initial\nImages", "Image\nClusters", "Isolated\nImages",
+                        "Isolated\nShare", "Kept\nRepresentatives", "Kept Isolated\nImages", "Kept\nImages",
+                        "Kept\nShare"],
+            "rows": rows, "sort_column": None, "per_class": False,
+            "legend": "Isolated images: in no cluster, too far from every other image. Kept images: the "
+                      "representatives closest to the centre of every cluster and the kept isolated images, as many "
+                      "being kept at random and evenly spaced per group. Shares of the initial images."}
+
+
+def print_kept_images_tables(source_tables: List[EvaluationTable]) -> None:
+    """
+    Prints the table of the kept images of every source at the end of the run, after the logs of the extractions and
+    of the clusterings, with the layout of the tables of the evaluation reports.
+
+    Args:
+        source_tables (List[EvaluationTable]): The tables given by build_kept_images_table, one per source.
+    """
+    for table in source_tables:
+        print_report(renderables=build_table_renderables(table=table))
 
 
 def embed_and_cluster_sources(experiment_folder: Path, iteration: int, use_averaged_weights: bool,
@@ -1624,13 +1705,13 @@ def embed_and_cluster_sources(experiment_folder: Path, iteration: int, use_avera
                               fully_connected_layer_indices: List[int], batch_size: int, number_workers: int,
                               normalize_vectors: bool, pca_dimensions: int,
                               clustering_algorithm: str, clustering_parameters: Dict[str, Any],
-                              number_representatives_per_cluster: int, noise_selection: str | int,
+                              number_representatives_per_cluster: int, isolated_image_selection: str | int,
                               group_pattern: Optional[str], seed: int, mosaic_grid_size: int, output_root: Path,
                               device: torch.device) -> List[Path]:
     """
     Runs the three steps of the script with the settings of its main block: the checks of the layers and of the
     clustering settings, the extraction of every data source (loaded when stored), and the clustering of every layer
-    of every source.
+    of every source, ending with the table of the kept images of every source.
 
     Args:
         experiment_folder (Path): The run folder of the embedding run.
@@ -1645,8 +1726,8 @@ def embed_and_cluster_sources(experiment_folder: Path, iteration: int, use_avera
         pca_dimensions (int): The number of PCA dimensions every layer is reduced to.
         clustering_algorithm (str): "hdbscan", "dbscan" or "kmeans".
         clustering_parameters (Dict[str, Any]): The parameters of the algorithm.
-        number_representatives_per_cluster (int): The images kept per cluster in the subset.
-        noise_selection (str | int): "all", "none" or the number of noise images drawn for the subset.
+        number_representatives_per_cluster (int): The images kept per cluster.
+        isolated_image_selection (str | int): "all", "none" or the number of isolated images drawn to be kept.
         group_pattern (Optional[str]): The regular expression giving the group of an image, or None.
         seed (int): The seed of the draws and of the clustering.
         mosaic_grid_size (int): The number of images per row of a mosaic, and its maximum number of rows.
@@ -1660,7 +1741,7 @@ def embed_and_cluster_sources(experiment_folder: Path, iteration: int, use_avera
     check_clustering_settings(clustering_algorithm=clustering_algorithm, clustering_parameters=clustering_parameters,
                               pca_dimensions=pca_dimensions,
                               number_representatives_per_cluster=number_representatives_per_cluster,
-                              noise_selection=noise_selection, group_pattern=group_pattern,
+                              isolated_image_selection=isolated_image_selection, group_pattern=group_pattern,
                               mosaic_grid_size=mosaic_grid_size)
     embedder = load_embedder(experiment_folder=experiment_folder, iteration=iteration,
                              use_averaged_weights=use_averaged_weights, device=device)
@@ -1681,6 +1762,7 @@ def embed_and_cluster_sources(experiment_folder: Path, iteration: int, use_avera
     images_of_sources = [list_source_images(source=source) for source in sources]
 
     clustering_folders = []
+    kept_images_tables = []
     for source, source_images in zip(sources, images_of_sources):
         # The categories and groups of the images of the source, and the features of every asked layer
         number_categories = "no" if source_images["categories"] is None else len(set(source_images["categories"]))
@@ -1699,7 +1781,8 @@ def embed_and_cluster_sources(experiment_folder: Path, iteration: int, use_avera
                                           extraction_folder=extraction_folder, batch_size=batch_size,
                                           number_workers=number_workers)
 
-        # Every layer clustered on its own
+        # Every layer clustered on its own, the summaries of its categories gathered for the table of the source
+        source_summaries = []
         for layer_key in [*block_requests, *fully_connected_requests]:
             clustering_folder = extraction_folder / "clusters" / layer_key / clustering_name
             category_summaries = cluster_layer(
@@ -1709,9 +1792,12 @@ def embed_and_cluster_sources(experiment_folder: Path, iteration: int, use_avera
                 clustering_algorithm=clustering_algorithm, clustering_parameters=clustering_parameters,
                 normalize_vectors=normalize_vectors, pca_dimensions=pca_dimensions,
                 number_representatives_per_cluster=number_representatives_per_cluster,
-                noise_selection=noise_selection, seed=seed, mosaic_grid_size=mosaic_grid_size)
+                isolated_image_selection=isolated_image_selection, seed=seed, mosaic_grid_size=mosaic_grid_size)
             print_category_summaries(category_summaries=category_summaries, clustering_folder=clustering_folder)
             clustering_folders.append(clustering_folder)
+            source_summaries += category_summaries
+        kept_images_tables.append(build_kept_images_table(source=source, clustering_name=clustering_name,
+                                                          category_summaries=source_summaries))
 
         # The feature matrices of the source released from the page cache once clustered, their mappings closed first
         output_paths = [get_output_path(extraction_folder=extraction_folder, output_key=output_key)
@@ -1719,6 +1805,9 @@ def embed_and_cluster_sources(experiment_folder: Path, iteration: int, use_avera
         del outputs
         for output_path in output_paths:
             release_file_from_page_cache(path=output_path)
+
+    # The kept images of every source, once every source is clustered
+    print_kept_images_tables(source_tables=kept_images_tables)
     return clustering_folders
 
 
@@ -1754,11 +1843,12 @@ if __name__ == "__main__":
     normalize_vectors = True
     pca_dimensions = 200
     # Clustering algorithm and its parameters, every category of a classification manifest clustered on its own:
-    # - "hdbscan": dense regions of any shape, the isolated images being noise; min_cluster_size (images of the
-    #   smallest cluster), min_samples (neighbours making an image dense, None for min_cluster_size, higher giving more
-    #   noise) and cluster_selection_method ("eom" for the most stable clusters, "leaf" for smaller, more uniform ones)
+    # - "hdbscan": dense regions of any shape, the images in none of them being isolated; min_cluster_size (images of
+    #   the smallest cluster), min_samples (neighbours making an image dense, None for min_cluster_size, higher giving
+    #   more isolated images) and cluster_selection_method ("eom" for the most stable clusters, "leaf" for smaller,
+    #   more uniform ones)
     # - "dbscan": dense regions at a fixed distance eps between the prepared vectors (at most 2 between normalised
-    #   vectors), min_samples neighbours within eps making an image dense, the others being noise; eps 0.16 lies
+    #   vectors), min_samples neighbours within eps making an image dense, the others being isolated; eps 0.16 lies
     #   between the knees of the distance of every image to its 4th nearest neighbour on block 6 at PCA 200 of the
     #   ficha empty bins train split, 0.192 for empty_bin and 0.142 for not_empty
     # - "kmeans": number_clusters clusters per category, every image in one, best of number_initializations runs
@@ -1766,11 +1856,11 @@ if __name__ == "__main__":
     clustering_parameters = {"hdbscan": {"min_cluster_size": 10, "min_samples": 5, "cluster_selection_method": "eom"},
                              "dbscan": {"eps": 0.16, "min_samples": 5},
                              "kmeans": {"number_clusters": 200, "number_initializations": 3}}[clustering_algorithm]
-    # Images of the cluster subset: the representatives of every cluster (its images closest to its centre) and the
-    # noise images, "all", "none" or a number drawn at random. The random baseline and the baseline evenly spaced per
-    # group take as many images per category
+    # Images kept by the clustering: the representatives of every cluster (its images closest to its centre) and the
+    # isolated images, in no cluster, "all", "none" or a number drawn at random. As many images per category are kept
+    # at random and evenly spaced per group, the baselines of the clustering
     number_representatives_per_cluster = 5
-    noise_selection = "all"
+    isolated_image_selection = "all"
     # Regular expression giving the group of every image, searched in its file name relative to its data folder: the
     # first capturing group taking part in the match (the whole match without capturing group), the images it does not
     # match forming the group "(no group)". Any pattern fits the file names of a dataset, e.g.
@@ -1780,7 +1870,7 @@ if __name__ == "__main__":
     # spreads its images evenly over the groups, the images of a group ordered by their names (digit runs compared as
     # numbers). None for no group and no such baseline
     group_pattern = r"^(video_t\d+_[\d-]+_[\d-]+)_"
-    # Seed of the draws (noise images, random baseline) and of k-means
+    # Seed of the draws (isolated images, images kept at random) and of k-means
     seed = 0
     # Images per row of the mosaic of a cluster, which shows at most as many rows, the images closest to the centre
     # first
@@ -1796,5 +1886,5 @@ if __name__ == "__main__":
                               pca_dimensions=pca_dimensions, clustering_algorithm=clustering_algorithm,
                               clustering_parameters=clustering_parameters,
                               number_representatives_per_cluster=number_representatives_per_cluster,
-                              noise_selection=noise_selection, group_pattern=group_pattern, seed=seed,
+                              isolated_image_selection=isolated_image_selection, group_pattern=group_pattern, seed=seed,
                               mosaic_grid_size=mosaic_grid_size, output_root=output_root, device=get_device())

@@ -4,9 +4,10 @@ trained run to pick diverse representatives of video frames: the checks of the a
 settings, the features of the asked layers in the row order of the images, the relaunch that loads the stored features
 and computes only the missing layers, the extraction continued after an interruption, the refusal of the features of
 another checkpoint or of changed images, the data sources, the images of every manifest format, the three clustering
-algorithms, the representatives and baselines, the release of the files read from the page cache, and the clusters,
-mosaics and subsets written for classification splits, COCO splits and folders of plain images. The embedding run is
-a classification run trained 2 iterations on the synthetic shapes.
+algorithms, the images kept by the clustering and by the baselines, the release of the files read from the page
+cache, the clusters, mosaics and kept images written for classification splits, COCO splits and folders of plain
+images, and the table of the kept images printed at the end of a run. The embedding run is a classification run
+trained 2 iterations on the synthetic shapes.
 """
 
 import csv
@@ -28,22 +29,23 @@ from torch import nn
 from typing import Any, Dict, List, Optional
 from unittest.mock import patch
 
-from scripts.embedding.cluster_image_embeddings import (ALL_IMAGES_CATEGORY, CLUSTER_SUBSET_FOLDER_NAME,
-                                                        EXTRACTION_RECORD_FILE_NAME, FINGERPRINT_KEYS,
-                                                        GROUP_SUBSET_FOLDER_NAME, IMAGES_FILE_NAME,
-                                                        MOSAIC_THUMBNAIL_HEIGHT, NO_GROUP, NOISE_CLUSTER,
-                                                        PREDICTIONS_OUTPUT, RANDOM_SUBSET_FOLDER_NAME,
-                                                        SELECTED_IMAGES_FILE_NAME, allocate_budget_over_groups,
-                                                        build_layer_requests, check_clustering_settings,
-                                                        build_mosaic, check_layer_requests, cluster_vectors,
-                                                        compute_batch_outputs,
+from scripts.embedding.cluster_image_embeddings import (ALL_IMAGES_CATEGORY, EXTRACTION_RECORD_FILE_NAME,
+                                                        FINGERPRINT_KEYS, IMAGES_FILE_NAME, ISOLATED_CLUSTER,
+                                                        ISOLATED_IMAGE_REASON, ISOLATED_IMAGES_NAME,
+                                                        KEPT_AT_RANDOM_FOLDER_NAME, KEPT_BY_CLUSTERING_FOLDER_NAME,
+                                                        KEPT_EVENLY_SPACED_FOLDER_NAME, KEPT_IMAGES_FILE_NAME,
+                                                        MOSAIC_THUMBNAIL_HEIGHT, NO_GROUP, PREDICTIONS_OUTPUT,
+                                                        TOTAL_CATEGORY, allocate_budget_over_groups,
+                                                        build_kept_images_table, build_layer_requests,
+                                                        check_clustering_settings, build_mosaic, check_layer_requests,
+                                                        cluster_vectors, compute_batch_outputs,
                                                         describe_source_folder, embed_and_cluster_sources,
                                                         extract_source_features, find_image_groups,
                                                         list_source_images, load_embedder, natural_sort_key,
                                                         prepare_vectors, rank_cluster_members,
                                                         release_file_from_page_cache, resolve_data_sources,
-                                                        select_cluster_representatives,
-                                                        select_evenly_spaced_per_group, select_random_baseline)
+                                                        select_evenly_spaced_per_group,
+                                                        select_kept_images_by_clustering, select_random_baseline)
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.preprocessing import preprocess_image
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
@@ -302,7 +304,7 @@ def write_video_split(split_folder: Path, category_names: List[str], number_vide
 def run_embedding_script(embedding_run: Dict[str, Path], data_sources: List[str | Path], output_root: Path,
                          clustering_algorithm: str, clustering_parameters: Dict[str, Any],
                          group_pattern: Optional[str], number_representatives_per_cluster: int = 2,
-                         noise_selection: str | int = "all") -> List[Path]:
+                         isolated_image_selection: str | int = "all") -> List[Path]:
     """
     Runs the whole script on the embedding run with the whole output of block 4 (64 x 8 x 8 values) and the first
     hidden layer (32 values), normalised vectors reduced to 8 PCA dimensions when there are more than 8 images, and
@@ -316,7 +318,7 @@ def run_embedding_script(embedding_run: Dict[str, Path], data_sources: List[str 
         clustering_parameters (Dict[str, Any]): Its parameters.
         group_pattern (Optional[str]): The regular expression giving the group of an image.
         number_representatives_per_cluster (int): The images kept per cluster. Defaults to 2.
-        noise_selection (str | int): The noise images kept. Defaults to "all".
+        isolated_image_selection (str | int): The isolated images kept. Defaults to "all".
 
     Returns:
         List[Path]: The folder of every clustering.
@@ -329,7 +331,8 @@ def run_embedding_script(embedding_run: Dict[str, Path], data_sources: List[str 
                                      clustering_algorithm=clustering_algorithm,
                                      clustering_parameters=clustering_parameters,
                                      number_representatives_per_cluster=number_representatives_per_cluster,
-                                     noise_selection=noise_selection, group_pattern=group_pattern, seed=0,
+                                     isolated_image_selection=isolated_image_selection, group_pattern=group_pattern,
+                                     seed=0,
                                      mosaic_grid_size=3, output_root=output_root, device=get_device())
 
 
@@ -382,10 +385,10 @@ def test_clustering_settings_are_checked() -> None:
     """
     Verifies that the valid settings of the three algorithms are accepted and that every invalid clustering or
     selection setting is listed before any inference: an unknown algorithm, missing parameters, out of range values,
-    the PCA dimensions, the representatives, the noise selection, the group pattern and the mosaic grid.
+    the PCA dimensions, the representatives, the isolated image selection, the group pattern and the mosaic grid.
     """
-    valid_settings = {"pca_dimensions": 100, "number_representatives_per_cluster": 1, "noise_selection": "all",
-                      "group_pattern": VIDEO_GROUP_PATTERN, "mosaic_grid_size": 1}
+    valid_settings = {"pca_dimensions": 100, "number_representatives_per_cluster": 1,
+                      "isolated_image_selection": "all", "group_pattern": VIDEO_GROUP_PATTERN, "mosaic_grid_size": 1}
     for clustering_algorithm, clustering_parameters in [("hdbscan", {**HDBSCAN_PARAMETERS, "min_samples": None}),
                                                         ("dbscan", {"eps": 0.5, "min_samples": 1}),
                                                         ("kmeans", {"number_clusters": 2,
@@ -394,7 +397,7 @@ def test_clustering_settings_are_checked() -> None:
                                   clustering_parameters=clustering_parameters, **valid_settings)
     check_clustering_settings(clustering_algorithm="kmeans",
                               clustering_parameters={"number_clusters": 2, "number_initializations": 1},
-                              pca_dimensions=10, number_representatives_per_cluster=3, noise_selection=4,
+                              pca_dimensions=10, number_representatives_per_cluster=3, isolated_image_selection=4,
                               group_pattern=None, mosaic_grid_size=6)
 
     # Every invalid value of one call listed
@@ -402,15 +405,15 @@ def test_clustering_settings_are_checked() -> None:
         check_clustering_settings(clustering_algorithm="hdbscan",
                                   clustering_parameters={"min_cluster_size": 1, "min_samples": 0,
                                                          "cluster_selection_method": "best"},
-                                  pca_dimensions=0, number_representatives_per_cluster=0, noise_selection="some",
-                                  group_pattern="video_(", mosaic_grid_size=True)
+                                  pca_dimensions=0, number_representatives_per_cluster=0,
+                                  isolated_image_selection="some", group_pattern="video_(", mosaic_grid_size=True)
     assert str(error_information.value).splitlines()[:8] == [
         "Invalid clustering settings:", "- min_cluster_size must be an integer of at least 2, got 1.",
         "- min_samples must be a positive integer or None, got 0.",
         "- cluster_selection_method must be one of ['eom', 'leaf'], got 'best'.",
         "- pca_dimensions must be a positive integer, got 0.",
         "- number_representatives_per_cluster must be a positive integer, got 0.",
-        "- noise_selection must be one of ['all', 'none'] or a positive integer, got 'some'.",
+        "- isolated_image_selection must be one of ['all', 'none'] or a positive integer, got 'some'.",
         "- group_pattern is not a valid regular expression: missing ), unterminated subpattern at position 6."]
     assert str(error_information.value).splitlines()[8] == "- mosaic_grid_size must be a positive integer, got True."
 
@@ -730,8 +733,9 @@ def test_images_of_every_manifest_format_and_of_plain_folders_are_listed(tmp_pat
 def test_clustering_algorithms_separate_distinct_groups() -> None:
     """
     Verifies on three distant groups of vectors and two isolated vectors that HDBSCAN and DBSCAN give one cluster per
-    group and leave the isolated vectors as noise, that k-means gives one cluster per group, that HDBSCAN gives noise
-    only when there are fewer images than a cluster needs, and that k-means refuses more clusters than images.
+    group and leave the isolated vectors in no cluster, that k-means gives one cluster per group, that HDBSCAN leaves
+    every image isolated only when there are fewer images than a cluster needs, and that k-means refuses more clusters
+    than images.
     """
     random_generator = np.random.default_rng(seed=0)
     group_centres = 10 * np.eye(N=3, M=8)
@@ -746,8 +750,8 @@ def test_clustering_algorithms_separate_distinct_groups() -> None:
                                                 clustering_parameters=clustering_parameters, seed=0)
         group_labels = [set(labels[group_index * 20:(group_index + 1) * 20].tolist()) for group_index in range(3)]
         assert all(len(labels_of_group) == 1 for labels_of_group in group_labels)
-        assert len(set.union(*group_labels) - {NOISE_CLUSTER}) == 3
-        assert labels[60:].tolist() == [NOISE_CLUSTER, NOISE_CLUSTER]
+        assert len(set.union(*group_labels) - {ISOLATED_CLUSTER}) == 3
+        assert labels[60:].tolist() == [ISOLATED_CLUSTER, ISOLATED_CLUSTER]
         assert (probabilities is not None) == (clustering_algorithm == "hdbscan")
 
     # k-means puts every vector in one of the asked clusters
@@ -762,7 +766,7 @@ def test_clustering_algorithms_separate_distinct_groups() -> None:
     labels, probabilities = cluster_vectors(vectors=grouped_vectors[:4], clustering_algorithm="hdbscan",
                                             clustering_parameters={"min_cluster_size": 5, "min_samples": None,
                                                                    "cluster_selection_method": "eom"}, seed=0)
-    assert labels.tolist() == 4 * [NOISE_CLUSTER] and probabilities.tolist() == 4 * [0.0]
+    assert labels.tolist() == 4 * [ISOLATED_CLUSTER] and probabilities.tolist() == 4 * [0.0]
     with pytest.raises(expected_exception=ValueError, match="k-means asks 5 clusters for 4 images"):
         cluster_vectors(vectors=grouped_vectors[:4], clustering_algorithm="kmeans",
                         clustering_parameters={"number_clusters": 5, "number_initializations": 1}, seed=0)
@@ -798,33 +802,36 @@ def test_vectors_are_normalised_and_reduced() -> None:
         assert preparation["dimensions"] == 10 and preparation["kept_variance"] is preparation["pca_seconds"] is None
 
 
-def test_representatives_and_baselines_are_chosen() -> None:
+def test_representatives_and_baselines_are_kept() -> None:
     """
-    Verifies the choices of the subsets: the images of every cluster ranked by their distance to its centre and the
-    noise images by their names, the representatives closest to the centres with all, none or some noise images, the
-    random baseline, the budget spread evenly over the groups, the images evenly spaced in the name order of every
-    group, and the groups given by a pattern with or without capturing group or with alternatives, including the
-    documented ficha pattern.
+    Verifies the images kept by the clustering and by the baselines: the images of every cluster ranked by their
+    distance to its centre and the isolated images by their names, the representatives closest to the centres with
+    all, none or some isolated images, the images kept at random, the budget spread evenly over the groups, the images
+    evenly spaced in the name order of every group, and the groups given by a pattern with or without capturing group
+    or with alternatives, including the documented ficha pattern.
     """
-    # Two clusters and three noise images, whose names are ordered with their digit runs compared as numbers
-    labels = np.array([0, 0, 0, 1, 1, NOISE_CLUSTER, NOISE_CLUSTER, NOISE_CLUSTER])
+    # Two clusters and three isolated images, whose names are ordered with their digit runs compared as numbers
+    labels = np.array([0, 0, 0, 1, 1, ISOLATED_CLUSTER, ISOLATED_CLUSTER, ISOLATED_CLUSTER])
     distances = np.array([0.3, 0.1, 0.2, 0.5, 0.4, np.nan, np.nan, np.nan])
-    file_names = ["a_1.png", "a_2.png", "a_3.png", "b_1.png", "b_2.png", "noise_10.png", "noise_9.png", "noise_1.png"]
+    file_names = ["a_1.png", "a_2.png", "a_3.png", "b_1.png", "b_2.png", "isolated_10.png", "isolated_9.png",
+                  "isolated_1.png"]
     ranks = rank_cluster_members(labels=labels, distances=distances, file_names=file_names)
     assert ranks.tolist() == [3, 1, 2, 2, 1, 3, 2, 1]
-    assert sorted(file_names[5:], key=natural_sort_key) == ["noise_1.png", "noise_9.png", "noise_10.png"]
+    assert sorted(file_names[5:], key=natural_sort_key) == ["isolated_1.png", "isolated_9.png", "isolated_10.png"]
 
     random_generator = np.random.default_rng(seed=0)
-    assert select_cluster_representatives(labels=labels, ranks=ranks, number_representatives_per_cluster=2,
-                                          noise_selection="all", random_generator=random_generator) == {
+    assert select_kept_images_by_clustering(labels=labels, ranks=ranks, number_representatives_per_cluster=2,
+                                            isolated_image_selection="all", random_generator=random_generator) == {
         1: "representative of cluster 0, rank 1", 2: "representative of cluster 0, rank 2",
-        3: "representative of cluster 1, rank 2", 4: "representative of cluster 1, rank 1", 5: "noise", 6: "noise",
-        7: "noise"}
-    assert sorted(select_cluster_representatives(labels=labels, ranks=ranks, number_representatives_per_cluster=1,
-                                                 noise_selection="none", random_generator=random_generator)) == [1, 4]
-    drawn_selection = select_cluster_representatives(labels=labels, ranks=ranks, number_representatives_per_cluster=1,
-                                                     noise_selection=2, random_generator=random_generator)
-    assert len(drawn_selection) == 4 and len({5, 6, 7} & set(drawn_selection)) == 2
+        3: "representative of cluster 1, rank 2", 4: "representative of cluster 1, rank 1", 5: ISOLATED_IMAGE_REASON,
+        6: ISOLATED_IMAGE_REASON, 7: ISOLATED_IMAGE_REASON}
+    assert sorted(select_kept_images_by_clustering(labels=labels, ranks=ranks, number_representatives_per_cluster=1,
+                                                   isolated_image_selection="none",
+                                                   random_generator=random_generator)) == [1, 4]
+    drawn_kept_images = select_kept_images_by_clustering(labels=labels, ranks=ranks,
+                                                         number_representatives_per_cluster=1,
+                                                         isolated_image_selection=2, random_generator=random_generator)
+    assert len(drawn_kept_images) == 4 and len({5, 6, 7} & set(drawn_kept_images)) == 2
     random_positions = select_random_baseline(number_images=8, budget=5, random_generator=random_generator)
     assert len(set(random_positions.tolist())) == 5 and random_positions.tolist() == sorted(random_positions.tolist())
     assert 0 <= random_positions.min() and random_positions.max() < 8
@@ -845,16 +852,16 @@ def test_representatives_and_baselines_are_chosen() -> None:
     with pytest.raises(expected_exception=ValueError, match="7 images asked from groups holding 6 images"):
         allocate_budget_over_groups(group_sizes={"a": 3, "b": 3}, budget=7)
 
-    # Twenty frames of a video in shuffled manifest order and two frames of another, six images chosen
+    # Twenty frames of a video in shuffled manifest order and two frames of another, six images kept
     frame_names = [f"video_a_frame_{index}.png" for index in random_generator.permutation(np.arange(1, 21))]
     frame_names += ["video_b_frame_2.png", "video_b_frame_1.png"]
     frame_groups = find_image_groups(file_names=frame_names, group_pattern=r"^(video_[a-z])_frame")
-    chosen_positions, chosen_groups = select_evenly_spaced_per_group(file_names=frame_names, groups=frame_groups,
-                                                                     budget=6)
-    assert sorted(frame_names[position] for position in chosen_positions) == sorted(
+    kept_positions, kept_groups = select_evenly_spaced_per_group(file_names=frame_names, groups=frame_groups,
+                                                                 budget=6)
+    assert sorted(frame_names[position] for position in kept_positions) == sorted(
         [f"video_a_frame_{index}.png" for index in [3, 8, 13, 18]] + ["video_b_frame_1.png", "video_b_frame_2.png"])
-    assert chosen_positions.tolist() == sorted(chosen_positions.tolist())
-    assert chosen_groups == [frame_groups[position] for position in chosen_positions]
+    assert kept_positions.tolist() == sorted(kept_positions.tolist())
+    assert kept_groups == [frame_groups[position] for position in kept_positions]
 
     # The groups of a pattern with and without capturing group, the ficha example, and no pattern
     assert find_image_groups(file_names=["video_1_frame_3.png", "video_12_frame_1.png", "other.png"],
@@ -926,14 +933,15 @@ def test_mosaics_keep_the_ratio_of_the_images(tmp_path: Path) -> None:
         build_mosaic(image_paths=[tmp_path / "broken.jpg"], grid_size=2, caption="cluster")
 
 
-def test_clustering_writes_clusters_links_mosaics_and_subsets(embedding_run: Dict[str, Path], tmp_path: Path,
-                                                              capsys: pytest.CaptureFixture) -> None:
+def test_clustering_writes_clusters_links_mosaics_and_kept_images(embedding_run: Dict[str, Path], tmp_path: Path,
+                                                                  capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the whole script on a classification split of near duplicate video frames, the case it is made for:
     every category clustered on its own, every cluster holding the frames of a single video, the tables of the images
-    and of the clusters with the error rates of the shape categories, the links and mosaics of every cluster, and the
-    cluster subset, the random subset and the subset evenly spaced over the videos, of the same size per category and
-    ready to train. A relaunch reuses the features and replaces the clustering folder.
+    and of the clusters with the error rates of the shape categories, the links and mosaics of every cluster, the
+    images kept by the clustering, at random and evenly spaced over the videos, as many per category and ready to
+    train, and the table of the kept images printed at the end of the run. A relaunch reuses the features and replaces
+    the clustering folder.
 
     Args:
         embedding_run (Dict[str, Path]): The embedding run of the module.
@@ -964,9 +972,19 @@ def test_clustering_writes_clusters_links_mosaics_and_subsets(embedding_run: Dic
     # clustering
     for layer_key in ["block_4", "fully_connected_1"]:
         for category_name in category_names:
-            assert re.search(pattern=rf"{layer_key} - {category_name}: 18 images, .* 8 dimensions \(\d+\.\d % of the "
-                                     rf"variance, PCA in \d+\.\d Seconds\), clustered in \d+\.\d Seconds",
+            assert re.search(pattern=rf"{layer_key} - {category_name}: 18 initial images, \d+ image clusters, \d+ "
+                                     rf"isolated images \(\d+\.\d %\), \d+ kept images, 8 dimensions \(\d+\.\d % of "
+                                     rf"the variance, PCA in \d+\.\d Seconds\), clustered in \d+\.\d Seconds",
                              string=console_output)
+
+    # The table of the kept images of the source printed once every layer is clustered, every layer with its
+    # categories of 18 images and their total of 36
+    assert "Kept Images · videos-dataset-train (folder)" in console_output
+    assert console_output.index(f"Clustering {clustering_name}") > console_output.rindex("Clustering written")
+    for layer_key in ["block_4", "fully_connected_1"]:
+        for category_name in category_names:
+            assert re.search(pattern=rf"{layer_key}\s+{category_name}\s+18\s", string=console_output)
+        assert re.search(pattern=rf"{layer_key}\s+{TOTAL_CATEGORY}\s+36\s", string=console_output)
 
     # Every frame released from the page cache after its extraction and after every mosaic showing it (at most 9 per
     # cluster), and the feature matrices once the source is clustered
@@ -989,55 +1007,58 @@ def test_clustering_writes_clusters_links_mosaics_and_subsets(embedding_run: Dic
 
     # Every cluster holds the frames of a single video, and every category is clustered on its own
     summary_rows = read_csv_rows(path=clustering_folder / "cluster_summary.csv")
-    clustered_rows = [row for row in summary_rows if int(row["cluster"]) != NOISE_CLUSTER]
+    clustered_rows = [row for row in summary_rows if int(row["cluster"]) != ISOLATED_CLUSTER]
     assert clustered_rows and all(row["largest_group_share"] == "1.0000" and row["groups"] == "1"
                                   for row in clustered_rows)
     for category_name in category_names:
         category_summary_rows = [row for row in summary_rows if row["category"] == category_name]
         assert sum(int(row["images"]) for row in category_summary_rows) == 18
         assert all(row["largest_group"].startswith(f"video_{category_name}_") for row in category_summary_rows
-                   if int(row["cluster"]) != NOISE_CLUSTER)
+                   if int(row["cluster"]) != ISOLATED_CLUSTER)
         assert all(0.0 <= float(row["error_rate"]) <= 1.0 for row in category_summary_rows)
 
     # Links named by rank to the images of every cluster, and a mosaic per cluster of at most 3 rows of 3 images
     # under its caption, the 64 x 48 frames in cells of their ratio separated by the 4 pixel gaps of the frame grid
     for row in image_rows:
-        cluster_name = "noise" if int(row["cluster"]) == NOISE_CLUSTER else f"cluster_{int(row['cluster']):04d}"
+        cluster_name = ISOLATED_IMAGES_NAME if int(row["cluster"]) == ISOLATED_CLUSTER else \
+            f"cluster_{int(row['cluster']):04d}"
         link_path = clustering_folder / row["category"] / cluster_name / f"{int(row['rank']):05d}_{row['image']}"
         assert link_path.is_symlink()
         assert link_path.resolve() == (split_folder / "data" / row["image"]).resolve()
     cell_width = round(MOSAIC_THUMBNAIL_HEIGHT * 48 / 64)
     for row in summary_rows:
-        cluster_name = "noise" if int(row["cluster"]) == NOISE_CLUSTER else f"cluster_{int(row['cluster']):04d}"
+        cluster_name = ISOLATED_IMAGES_NAME if int(row["cluster"]) == ISOLATED_CLUSTER else \
+            f"cluster_{int(row['cluster']):04d}"
         mosaic = cv2.imread(filename=str(clustering_folder / row["category"] / f"{cluster_name}.jpg"))
         number_rows = (min(int(row["images"]), 9) + 2) // 3
         assert mosaic.shape[0] == CAPTION_BAR_HEIGHT + number_rows * (MOSAIC_THUMBNAIL_HEIGHT + 4) + 4
         assert mosaic.shape[1] >= 3 * (cell_width + 4) + 4
 
-    # The cluster subset holds the representatives and the noise, the baselines as many images per category
-    selected_rows = {int(row["row"]): row["selected"] for row in image_rows if row["selected"]}
-    assert all(int(row["rank"]) <= 2 for row in image_rows if row["selected"].startswith("representative"))
-    assert all(row["selected"] == "noise" for row in image_rows if int(row["cluster"]) == NOISE_CLUSTER)
-    subset_counts = {}
-    for subset_name in [CLUSTER_SUBSET_FOLDER_NAME, RANDOM_SUBSET_FOLDER_NAME, GROUP_SUBSET_FOLDER_NAME]:
-        subset_folder = clustering_folder / subset_name
-        subset_rows = read_csv_rows(path=subset_folder / SELECTED_IMAGES_FILE_NAME)
-        subset_manifest = json.loads(s=(subset_folder / "labels.json").read_text())
-        assert [sample["file_name"] for sample in subset_manifest["samples"]] == [row["image"] for row in subset_rows]
-        assert subset_manifest["categories"] == manifest["categories"]
-        assert (subset_folder / "data").resolve() == (split_folder / "data").resolve()
-        subset_counts[subset_name] = sorted((category_name, sum(row["category"] == category_name
-                                                                for row in subset_rows))
-                                            for category_name in category_names)
-        if subset_name == CLUSTER_SUBSET_FOLDER_NAME:
-            assert {int(row["row"]): row["reason"] for row in subset_rows} == selected_rows
-        if subset_name == GROUP_SUBSET_FOLDER_NAME:
+    # The clustering keeps the representatives and the isolated images, the baselines as many images per category,
+    # every folder of kept images being a split with the kept samples
+    kept_reasons = {int(row["row"]): row["kept_reason"] for row in image_rows if row["kept_reason"]}
+    assert all(int(row["rank"]) <= 2 for row in image_rows if row["kept_reason"].startswith("representative"))
+    assert all(row["kept_reason"] == ISOLATED_IMAGE_REASON for row in image_rows
+               if int(row["cluster"]) == ISOLATED_CLUSTER)
+    kept_counts = {}
+    for folder_name in [KEPT_BY_CLUSTERING_FOLDER_NAME, KEPT_AT_RANDOM_FOLDER_NAME, KEPT_EVENLY_SPACED_FOLDER_NAME]:
+        kept_images_folder = clustering_folder / folder_name
+        kept_rows = read_csv_rows(path=kept_images_folder / KEPT_IMAGES_FILE_NAME)
+        kept_manifest = json.loads(s=(kept_images_folder / "labels.json").read_text())
+        assert [sample["file_name"] for sample in kept_manifest["samples"]] == [row["image"] for row in kept_rows]
+        assert kept_manifest["categories"] == manifest["categories"]
+        assert (kept_images_folder / "data").resolve() == (split_folder / "data").resolve()
+        kept_counts[folder_name] = sorted((category_name, sum(row["category"] == category_name for row in kept_rows))
+                                          for category_name in category_names)
+        if folder_name == KEPT_BY_CLUSTERING_FOLDER_NAME:
+            assert {int(row["row"]): row["reason"] for row in kept_rows} == kept_reasons
+        if folder_name == KEPT_EVENLY_SPACED_FOLDER_NAME:
             for category_name in category_names:
                 video_counts = [sum(row["reason"] == f"evenly spaced in video_{category_name}_{video_index}"
-                                    for row in subset_rows) for video_index in range(3)]
+                                    for row in kept_rows) for video_index in range(3)]
                 assert max(video_counts) - min(video_counts) <= 1
-    assert subset_counts[RANDOM_SUBSET_FOLDER_NAME] == subset_counts[CLUSTER_SUBSET_FOLDER_NAME] == \
-        subset_counts[GROUP_SUBSET_FOLDER_NAME]
+    assert kept_counts[KEPT_AT_RANDOM_FOLDER_NAME] == kept_counts[KEPT_BY_CLUSTERING_FOLDER_NAME] == \
+        kept_counts[KEPT_EVENLY_SPACED_FOLDER_NAME]
 
     # A relaunch reuses the features and writes the clustering folder again
     (clustering_folder / "stale_file.txt").write_text(data="left by a previous launch")
@@ -1050,11 +1071,11 @@ def test_clustering_writes_clusters_links_mosaics_and_subsets(embedding_run: Dic
     assert read_csv_rows(path=clustering_folder / "clusters.csv") == image_rows
 
 
-def test_subsets_of_plain_image_folders_and_coco_splits(embedding_run: Dict[str, Path], tmp_path: Path) -> None:
+def test_kept_images_of_plain_image_folders_and_coco_splits(embedding_run: Dict[str, Path], tmp_path: Path) -> None:
     """
-    Verifies the subsets of the sources without one category per image, clustered as a whole with k-means: links to
-    the chosen images keeping the subfolders of a folder of plain images, with the baseline evenly spaced over its
-    subfolders, and the chosen COCO images of a split with their annotations only.
+    Verifies the kept images of the sources without one category per image, clustered as a whole with k-means: links
+    to the kept images keeping the subfolders of a folder of plain images, without labels.json, with the baseline
+    evenly spaced over its subfolders, and the kept COCO images of a split with their annotations only.
 
     Args:
         embedding_run (Dict[str, Path]): The embedding run of the module.
@@ -1086,31 +1107,61 @@ def test_subsets_of_plain_image_folders_and_coco_splits(embedding_run: Dict[str,
     assert [folder.parts[-4] for folder in clustering_folders] == 2 * ["plain-camera-images"] + \
         2 * ["coco-dataset-train"]
 
-    # The folder of plain images: one category, two clusters, links to the chosen images in their subfolders
+    # The folder of plain images: one category, two clusters, links to the kept images in their subfolders
     plain_clustering_folder = clustering_folders[0]
     image_rows = read_csv_rows(path=plain_clustering_folder / "clusters.csv")
     assert {row["category"] for row in image_rows} == {ALL_IMAGES_CATEGORY}
     assert {row["predicted_class"] for row in image_rows} <= set(SHAPE_CATEGORIES)
     assert len({row["cluster"] for row in image_rows}) == 2
-    subset_rows = read_csv_rows(path=plain_clustering_folder / CLUSTER_SUBSET_FOLDER_NAME / SELECTED_IMAGES_FILE_NAME)
-    assert len(subset_rows) == 2
-    for row in subset_rows:
-        link_path = plain_clustering_folder / CLUSTER_SUBSET_FOLDER_NAME / row["image"]
+    kept_rows = read_csv_rows(path=plain_clustering_folder / KEPT_BY_CLUSTERING_FOLDER_NAME / KEPT_IMAGES_FILE_NAME)
+    assert len(kept_rows) == 2
+    for row in kept_rows:
+        link_path = plain_clustering_folder / KEPT_BY_CLUSTERING_FOLDER_NAME / row["image"]
         assert row["image"].startswith("camera_") and link_path.is_symlink()
         assert link_path.resolve() == (image_folder / row["image"]).resolve()
-    assert not (plain_clustering_folder / CLUSTER_SUBSET_FOLDER_NAME / "labels.json").exists()
-    group_rows = read_csv_rows(path=plain_clustering_folder / GROUP_SUBSET_FOLDER_NAME / SELECTED_IMAGES_FILE_NAME)
+    assert not (plain_clustering_folder / KEPT_BY_CLUSTERING_FOLDER_NAME / "labels.json").exists()
+    group_rows = read_csv_rows(path=plain_clustering_folder / KEPT_EVENLY_SPACED_FOLDER_NAME / KEPT_IMAGES_FILE_NAME)
     assert sorted(row["reason"] for row in group_rows) == ["evenly spaced in camera_0", "evenly spaced in camera_1"]
 
-    # The COCO split: the chosen images with their two annotations each, the categories kept, and its images, which the
+    # The COCO split: the kept images with their two annotations each, the categories kept, and its images, which the
     # pattern does not match, forming a single group for the baseline evenly spaced per group
     coco_clustering_folder = clustering_folders[2]
-    subset_manifest = json.loads(s=(coco_clustering_folder / CLUSTER_SUBSET_FOLDER_NAME / "labels.json").read_text())
-    subset_rows = read_csv_rows(path=coco_clustering_folder / CLUSTER_SUBSET_FOLDER_NAME / SELECTED_IMAGES_FILE_NAME)
-    assert [image["file_name"] for image in subset_manifest["images"]] == [row["image"] for row in subset_rows]
-    kept_identifiers = {image["id"] for image in subset_manifest["images"]}
-    assert len(kept_identifiers) == 2 and subset_manifest["categories"] == coco_manifest["categories"]
-    assert sorted(annotation["image_id"] for annotation in subset_manifest["annotations"]) == sorted(
+    kept_manifest = json.loads(s=(coco_clustering_folder / KEPT_BY_CLUSTERING_FOLDER_NAME / "labels.json").read_text())
+    kept_rows = read_csv_rows(path=coco_clustering_folder / KEPT_BY_CLUSTERING_FOLDER_NAME / KEPT_IMAGES_FILE_NAME)
+    assert [image["file_name"] for image in kept_manifest["images"]] == [row["image"] for row in kept_rows]
+    kept_identifiers = {image["id"] for image in kept_manifest["images"]}
+    assert len(kept_identifiers) == 2 and kept_manifest["categories"] == coco_manifest["categories"]
+    assert sorted(annotation["image_id"] for annotation in kept_manifest["annotations"]) == sorted(
         2 * list(kept_identifiers))
-    group_rows = read_csv_rows(path=coco_clustering_folder / GROUP_SUBSET_FOLDER_NAME / SELECTED_IMAGES_FILE_NAME)
+    group_rows = read_csv_rows(path=coco_clustering_folder / KEPT_EVENLY_SPACED_FOLDER_NAME / KEPT_IMAGES_FILE_NAME)
     assert [row["reason"] for row in group_rows] == 2 * [f"evenly spaced in {NO_GROUP}"]
+
+
+def test_kept_images_table_gives_every_layer_and_category_with_their_total() -> None:
+    """
+    Verifies the table of the kept images printed at the end of a run: its title naming the source, its roles and the
+    clustering, one row per layer and category with the counts written with thousands separators and the shares of the
+    initial images, a total row after the categories of a layer that has several, and none after a single category.
+    """
+    source = {"name": "dataset-classification-train", "roles": ["validation", "test"]}
+    summaries = [{"layer": "block_6", "category": "empty_bin", "initial_images": 11772, "image_clusters": 96,
+                  "isolated_images": 1573, "kept_representatives": 476, "kept_isolated_images": 1573,
+                  "kept_images": 2049},
+                 {"layer": "block_6", "category": "not_empty", "initial_images": 31805, "image_clusters": 310,
+                  "isolated_images": 2600, "kept_representatives": 1547, "kept_isolated_images": 1000,
+                  "kept_images": 2547},
+                 {"layer": "fully_connected_1", "category": "all", "initial_images": 8, "image_clusters": 2,
+                  "isolated_images": 0, "kept_representatives": 2, "kept_isolated_images": 0, "kept_images": 2}]
+    table = build_kept_images_table(source=source, clustering_name="dbscan_eps_0.16_min_samples_5_normalized_pca_200",
+                                    category_summaries=summaries)
+    assert table["title"] == ("Kept Images · dataset-classification-train (validation, test)\n"
+                              "Clustering dbscan_eps_0.16_min_samples_5_normalized_pca_200")
+    assert table["columns"] == ["Layer", "Category", "Initial\nImages", "Image\nClusters", "Isolated\nImages",
+                                "Isolated\nShare", "Kept\nRepresentatives", "Kept Isolated\nImages", "Kept\nImages",
+                                "Kept\nShare"]
+    assert table["rows"] == [
+        ["block_6", "empty_bin", "11,772", "96", "1,573", "13.4 %", "476", "1,573", "2,049", "17.4 %"],
+        ["block_6", "not_empty", "31,805", "310", "2,600", "8.2 %", "1,547", "1,000", "2,547", "8.0 %"],
+        ["block_6", TOTAL_CATEGORY, "43,577", "406", "4,173", "9.6 %", "2,023", "2,573", "4,596", "10.5 %"],
+        ["fully_connected_1", "all", "8", "2", "0", "0.0 %", "2", "0", "2", "25.0 %"]]
+    assert table["sort_column"] is None and not table["per_class"] and table["legend"]

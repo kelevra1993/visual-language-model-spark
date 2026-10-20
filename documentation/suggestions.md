@@ -487,20 +487,26 @@ training split (11,772 `empty_bin`, 31,805 `not_empty`, 61 videos and 874 single
 normalised vectors. The clusters follow the videos (every `not_empty` cluster holds a single video), and the outputs
 are in `ficha-experiments-empty-bins/embeddings/`.
 
-19. **Judging the subsets by training the smaller model**: every clustering writes three subsets of the same number of
-    images per category: the cluster representatives with the noise (`subset/`), images drawn at random
-    (`subset_random/`) and images evenly spaced in every video (`subset_evenly_spaced_per_group/`).
+19. **Judging the kept images by training the smaller model**: every clustering writes three folders of kept images,
+    of the same number of images per category: the cluster representatives with the isolated images, in no cluster
+    (`kept_images_by_clustering/`), images drawn at random (`kept_images_at_random/`) and images evenly spaced in every
+    video (`kept_images_evenly_spaced_per_group/`).
     - **Sizes without PCA:** 3,615 images for block 5 (8.3 % of the split), 4,089 for block 6, 5,530 for the first
-      hidden layer and 6,579 for the second, the noise images being 49 % (block 5) to 78 % (second hidden layer) of the
-      cluster subset. The cluster subset of block 5 holds 1.5 % of training images misclassified by the run, against
-      0.7 % for the random subset and 1.4 % for the evenly spaced one.
-    - **Experiment:** the smaller model trained on the three subsets of one clustering with the same settings and
-      number of iterations, evaluated on the whole validation split (balanced accuracy, recall of every class), with a
-      few seeds, the subsets being small.
-    - **Comparing the layers:** the cluster subsets of the layers have different sizes, so they are compared at the
-      same size (fewer representatives per cluster, or a number of noise images drawn), or by the accuracy against the
-      subset size.
-    - Cost and risk: one training per subset; the result may depend on the clustering settings as much as on the layer.
+      hidden layer and 6,579 for the second, the isolated images being 49 % (block 5) to 78 % (second hidden layer) of
+      the images kept by the clustering. The images kept by the clustering of block 5 hold 1.5 % of training images
+      misclassified by the run, against 0.7 % for the images kept at random and 1.4 % for the evenly spaced ones.
+    - **DBSCAN of 2026-10-20** (block 6, PCA 200, `eps` 0.16, `min_samples` 5, 5 representatives per cluster): 6,196
+      of the 43,577 training images kept (2,049 `empty_bin`, 4,147 `not_empty`, 67 % of them isolated images), and
+      5,831 of the 18,702 validation images, the validation images being isolated 2 to 3 times more often, `eps`
+      being measured on the training images.
+    - **Experiment:** the smaller model trained on the three folders of kept images of one clustering with the same
+      settings and number of iterations, evaluated on the whole validation split (balanced accuracy, recall of every
+      class), with a few seeds, the kept images being few.
+    - **Comparing the layers:** the layers keep different numbers of images, so they are compared at the same number
+      (fewer representatives per cluster, or a number of isolated images drawn), or by the accuracy against the number
+      of kept images.
+    - Cost and risk: one training per folder of kept images; the result may depend on the clustering settings as much
+      as on the layer.
 20. **The same selection on the compactor dataset**: the compactor run at 512 pixels (iteration 800,
     `ficha-experiments-compactor-to-front`), whose errors gather in a few videos, embedded and clustered the same way,
     then judged as in item 19.
@@ -514,11 +520,12 @@ are in `ficha-experiments-empty-bins/embeddings/`.
 22. **Mosaics of the spread of a cluster**: the mosaic shows the images closest to the centre, which all look alike in
     a large cluster. A second mosaic of images taken at evenly spaced ranks, from the closest to the farthest, would
     show what a cluster gathers. Cost and risk: small.
-23. **Corrupted frames**: the noise of a trial on 3,000 training images showed frames with decoding artefacts (grey
-    images, green and cyan areas). They land in the noise, so in the cluster subset with `noise_selection = "all"`,
-    and in the training split. Reviewing the noise folders lists them, to remove them from the `labels.json` of the
-    dataset with a data script rather than with a filter in the framework, which stays independent of the datasets.
-    Cost and risk: small, a manual review of the noise mosaics and folders.
+23. **Corrupted frames**: the isolated images of a trial on 3,000 training images showed frames with decoding
+    artefacts (grey images, green and cyan areas). They are isolated, so kept by the clustering with
+    `isolated_image_selection = "all"`, and in the training split. Reviewing the isolated image folders lists them, to
+    remove them from the `labels.json` of the dataset with a data script rather than with a filter in the framework,
+    which stays independent of the datasets. Cost and risk: small, a manual review of the isolated image mosaics and
+    folders.
 
 ## J. Self-supervised counted shapes: tests left to run
 The synthetic counted shapes dataset (`/home/robert_kelevra/Data/self_supervised_data/synthetic_counted_shapes`,
