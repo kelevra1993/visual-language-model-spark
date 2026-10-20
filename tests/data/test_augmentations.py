@@ -4,7 +4,7 @@ geometric augmentations moving the segmentation masks with nearest interpolation
 instance masks and recomputing their boxes, photometric augmentations keeping boxes, masks and pixel range, images
 without boxes, a single histogram equalization per image, the motion blur streaking a dot along the drawn angle with
 reflected borders, the haze blending every image with its own grey airlight after the other photometric types, the
-black-out hiding whole cells of an 8x8 grid drawn one by one, last, shared or per-frame draws of the sequence frames,
+black-out hiding whole cells of a set grid drawn one by one, last, shared or per-frame draws of the sequence frames,
 frame shuffling, the rejected inputs, the zoom-out, the translation by whole pixels with the removal of the objects it
 pushes out, the removal of the fragments of objects left by the crop, the aspect crop keeping independent shares of the
 width and of the height and stretching the image, its boxes and masks, the keypoints moved without being renamed and
@@ -22,8 +22,8 @@ from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, BLACK_OUT_CELL_PROBABILITY,
-                                                 BLACK_OUT_GRID_SIZE, EXCLUSIVE_EQUALIZATION_TYPES,
-                                                 GEOMETRIC_AUGMENTATION_TYPES, HAZE_AIRLIGHT_RANGE, HAZE_STRENGTH_RANGE,
+                                                 EXCLUSIVE_EQUALIZATION_TYPES, GEOMETRIC_AUGMENTATION_TYPES,
+                                                 HAZE_AIRLIGHT_RANGE, HAZE_STRENGTH_RANGE,
                                                  MAXIMUM_TRANSLATION_FRACTION, MINIMUM_ASPECT_CROP_FRACTION,
                                                  MINIMUM_CROP_FRACTION, MOTION_BLUR_ANGLE_RANGE,
                                                  MOTION_BLUR_DIRECTION_RANGE, MOTION_BLUR_KERNEL_SIZE_RANGE,
@@ -33,6 +33,9 @@ from vision_training.data.detection.coco_masks import compute_mask_bounding_boxe
 
 IMAGE_SIZE = 96
 
+# Grid size of random_black_out in the configurations of the repository
+DEFAULT_BLACK_OUT_GRID_SIZE = 8
+
 # Tolerance in pixels between the bright rectangle and its transformed box: exact pixel permutations must match
 # exactly, while resampling (crop resize, small rotation) blurs the rectangle edges by a pixel or two
 BOX_TOLERANCES = {"random_left_right_flip": 0.0, "random_up_down_flip": 0.0, "random_90_rotation": 0.0,
@@ -41,7 +44,8 @@ BOX_TOLERANCES = {"random_left_right_flip": 0.0, "random_up_down_flip": 0.0, "ra
 
 
 def build_configuration(enabled_types: List[str], probability: float = 1.0, independent_frames: bool = False,
-                        shuffle_probability: float = 0.0) -> Dict[str, Any]:
+                        shuffle_probability: float = 0.0,
+                        black_out_grid_size: int = DEFAULT_BLACK_OUT_GRID_SIZE) -> Dict[str, Any]:
     """
     Builds a 'Data.data_augmentation' configuration forcing the given augmentation types, so that each test
     controls exactly which transformations are applied.
@@ -52,13 +56,17 @@ def build_configuration(enabled_types: List[str], probability: float = 1.0, inde
         independent_frames (bool): Whether the photometric types are drawn frame by frame. Defaults to False.
         shuffle_probability (float): The probability of shuffling the frames of a sequence, 0 turning the shuffling
             off. Defaults to 0.0.
+        black_out_grid_size (int): The rows and columns of the grid of random_black_out. Defaults to
+            DEFAULT_BLACK_OUT_GRID_SIZE.
 
     Returns:
         Dict[str, Any]: The augmentation configuration.
     """
+    types = {name: {"activated": name in enabled_types, "probability": 1.0} for name in AUGMENTATION_TYPES}
+    types["random_black_out"]["grid_size"] = black_out_grid_size
     return {"activated": True, "probability": probability, "independent_frames": independent_frames,
             "shuffle_frames": {"activated": shuffle_probability > 0.0, "probability": shuffle_probability},
-            "types": {name: {"activated": name in enabled_types, "probability": 1.0} for name in AUGMENTATION_TYPES}}
+            "types": types}
 
 
 def create_rectangle_image(box: List[float]) -> torch.Tensor:
@@ -354,25 +362,27 @@ def test_haze_blends_every_image_with_a_uniform_grey_airlight(monkeypatch: pytes
     assert abs(float(hazy_images.std()) - NOISE_STANDARD_DEVIATION * (1.0 - largest_strength)) < 1.0
 
 
-def test_black_out_hides_whole_cells_of_an_8x8_grid_drawn_one_by_one(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_black_out_hides_whole_cells_of_the_configured_grid_drawn_one_by_one(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    Verifies the random_black_out type: it hides whole cells of an 8x8 grid, each drawn on its own with
-    BLACK_OUT_CELL_PROBABILITY so that their number varies between images and is given in the report, covers the whole
-    image when a side is not a multiple of the grid size, hides the same cells on every frame of a sequence, and keeps
-    its cells black after the haze drawn with it.
+    Verifies the random_black_out type: it hides whole cells of the grid of 'grid_size' rows and columns (4x4 here,
+    8x8 by default), each drawn on its own with BLACK_OUT_CELL_PROBABILITY so that their number varies between images
+    and is given in the report, covers the whole image when a side is not a multiple of the grid size, hides the same
+    cells on every frame of a sequence, and keeps its cells black after the haze drawn with it.
 
     Args:
         monkeypatch (pytest.MonkeyPatch): The pytest fixture drawing every cell as hidden.
     """
     random.seed(0)
     torch.manual_seed(seed=0)
-    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_black_out"]))
+    grid_size = 4
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_black_out"],
+                                                                             black_out_grid_size=grid_size))
 
-    # Grey images of 96 pixels, cut into cells of 12 pixels: every cell is either hidden or left untouched
+    # Grey images of 96 pixels, cut into cells of 24 pixels: every cell is either hidden or left untouched
     images = torch.full(size=(64, 3, IMAGE_SIZE, IMAGE_SIZE), fill_value=200.0)
     hidden_images, _, _, _, _, _, reports = augmenter.augment_batch(images=images)
-    cell_size = IMAGE_SIZE // BLACK_OUT_GRID_SIZE
-    cells = hidden_images.reshape(64, 3, BLACK_OUT_GRID_SIZE, cell_size, BLACK_OUT_GRID_SIZE, cell_size)
+    cell_size = IMAGE_SIZE // grid_size
+    cells = hidden_images.reshape(64, 3, grid_size, cell_size, grid_size, cell_size)
     hidden_cells = (cells == 0.0).all(dim=5).all(dim=3).all(dim=1)
     untouched_cells = (cells == 200.0).all(dim=5).all(dim=3).all(dim=1)
     assert bool((hidden_cells | untouched_cells).all())
@@ -380,7 +390,7 @@ def test_black_out_hides_whole_cells_of_an_8x8_grid_drawn_one_by_one(monkeypatch
     # The number of hidden cells varies between images, is given in the report, and their share is the probability
     hidden_counts = hidden_cells.flatten(start_dim=1).sum(dim=1).tolist()
     assert [report["photometric_augmentations"][0] for report in reports] == [
-        [("random_black_out", f"{count} of the 64 cells of an 8x8 grid")] for count in hidden_counts]
+        [("random_black_out", f"{count} of the 16 cells of the 4x4 grid")] for count in hidden_counts]
     assert len(set(hidden_counts)) > 1
     assert abs(float(hidden_cells.float().mean()) - BLACK_OUT_CELL_PROBABILITY) < 0.04
 
@@ -402,13 +412,14 @@ def test_black_out_hides_whole_cells_of_an_8x8_grid_drawn_one_by_one(monkeypatch
     hidden_pixels = hazy_images == 0.0
     assert bool(hidden_pixels.any()) and bool((hazy_images[~hidden_pixels] != 200.0).all())
 
-    # With every cell drawn as hidden, the cells of rounded edges cover a whole image of 100 x 75 pixels
+    # With every cell of the default grid drawn as hidden, the cells of rounded edges cover a whole image of 100 x 75
+    # pixels
     monkeypatch.setattr(target=random, name="random", value=lambda: 0.0)
     augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_black_out"]))
     hidden_images, _, _, _, _, _, reports = augmenter.augment_batch(images=torch.full(size=(1, 3, 100, 75),
                                                                                         fill_value=200.0))
     assert bool((hidden_images == 0.0).all())
-    assert reports[0]["photometric_augmentations"] == [[("random_black_out", "64 of the 64 cells of an 8x8 grid")]]
+    assert reports[0]["photometric_augmentations"] == [[("random_black_out", "64 of the 64 cells of the 8x8 grid")]]
 
 
 def test_images_without_boxes_for_classification() -> None:

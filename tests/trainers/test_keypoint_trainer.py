@@ -279,11 +279,12 @@ def test_ignored_regions_go_from_the_loader_to_the_heatmap_loss(tmp_path: Path) 
     prepared_batch = trainer.prepare_batch(batch=training_batch)
     flipped_regions = prepared_batch["ignored_regions"].flip(dims=[2])
     assert not torch.equal(input=flipped_regions, other=prepared_batch["ignored_regions"])
+    augmentation_types = {name: {"activated": name == "random_left_right_flip", "probability": 1.0}
+                          for name in AUGMENTATION_TYPES}
+    augmentation_types["random_black_out"]["grid_size"] = 8
     trainer.data_augmenter = DataAugmenter(augmentation_configuration={
         "activated": True, "probability": 1.0, "independent_frames": False,
-        "shuffle_frames": {"activated": False, "probability": 0.0},
-        "types": {name: {"activated": name == "random_left_right_flip", "probability": 1.0}
-                  for name in AUGMENTATION_TYPES}})
+        "shuffle_frames": {"activated": False, "probability": 0.0}, "types": augmentation_types})
     augmented_batch = trainer.augment_batch(batch=prepared_batch)
     assert torch.equal(input=augmented_batch["ignored_regions"], other=flipped_regions)
 

@@ -18,7 +18,7 @@ import torch
 from kornia.filters import motion_blur
 from typing import Any, Dict
 
-from vision_training.data.augmentations import BLACK_OUT_CELL_PROBABILITY, BLACK_OUT_GRID_SIZE
+from vision_training.data.augmentations import BLACK_OUT_CELL_PROBABILITY
 from vision_training.data.view_augmentations import SECOND_VIEW_INDEX, VIEW_TRANSFORMATION_NAMES, ViewAugmenter
 
 # Side of the square images of the tests
@@ -46,7 +46,8 @@ VIEW_AUGMENTATION_CONFIGURATION = {
     "gaussian_blur": {"probability": [1.0, 0.1], "kernel_size": 5, "sigma": [0.1, 2.0]},
     "motion_blur": {"probability": 0.1, "kernel_size": [3, 9], "maximum_angle": 180.0, "direction": [-1.0, 1.0]},
     "solarize": {"probability": [0.0, 0.2], "threshold": [0.5, 0.5], "addition": [0.0, 0.0]},
-    "gaussian_noise": {"probability": 0.2, "standard_deviation": 0.03}, "black_out": {"probability": [0.0, 0.3]},
+    "gaussian_noise": {"probability": 0.2, "standard_deviation": 0.03},
+    "black_out": {"probability": [0.0, 0.3], "grid_size": 8},
     "random_erasing": {"probability": 0.25, "scale": [0.02, 0.15], "aspect_ratio": [0.3, 3.3]}}
 
 # Classes of the kornia transformations of the chain of every view, in the order of VIEW_TRANSFORMATION_NAMES: the crop
@@ -275,13 +276,15 @@ def test_random_erasing_leaves_a_plain_rectangle_after_the_noise() -> None:
 def test_black_out_hides_whole_cells_drawn_for_every_image_of_its_view() -> None:
     """
     Verifies the black-out of the views on the second view only (probability [0, 1]): the first view is the image, the
-    second view of every image keeps whole cells of the 8x8 grid either black or untouched, cells being drawn for
-    every image with a share close to BLACK_OUT_CELL_PROBABILITY, the black cells being those of the parameters drawn
-    for the image and given by its description, the noise drawn before never reaching them, and the single view of the
-    view losses of the image classifier is blacked out as well.
+    second view of every image keeps whole cells of the grid of 'grid_size' rows and columns (4x4 here, 8x8 in the
+    configurations) either black or untouched, cells being drawn for every image with a share close to
+    BLACK_OUT_CELL_PROBABILITY, the black cells being those of the parameters drawn for the image and given by its
+    description, the noise drawn before never reaching them, and the single view of the view losses of the image
+    classifier is blacked out as well.
     """
+    grid_size = 4
     configuration = build_identity_configuration()
-    configuration["black_out"]["probability"] = [0.0, 1.0]
+    configuration["black_out"] = {"probability": [0.0, 1.0], "grid_size": grid_size}
     configuration["gaussian_noise"] = {"probability": 1.0, "standard_deviation": 0.03}
     view_augmenter = ViewAugmenter(view_augmentation_configuration=configuration, image_size=IMAGE_SIZE)
     grey_images = torch.full(size=(16, 3, IMAGE_SIZE, IMAGE_SIZE), fill_value=128.0)
@@ -293,16 +296,16 @@ def test_black_out_hides_whole_cells_drawn_for_every_image_of_its_view() -> None
     assert bool((first_views > 0.0).all()) and all(lines[-1] == "gaussian_noise" for lines in view_descriptions[0])
 
     # Every cell of the second view is wholly black or wholly kept, as drawn for its image and described
-    cell_size = IMAGE_SIZE // BLACK_OUT_GRID_SIZE
+    cell_size = IMAGE_SIZE // grid_size
     black_pixels = (second_views == 0.0).all(dim=1)
-    cells = black_pixels.reshape(16, BLACK_OUT_GRID_SIZE, cell_size, BLACK_OUT_GRID_SIZE, cell_size)
+    cells = black_pixels.reshape(16, grid_size, cell_size, grid_size, cell_size)
     hidden_cells = cells.all(dim=4).all(dim=2)
     assert torch.equal(input=cells.any(dim=4).any(dim=2), other=hidden_cells)
     black_out_transformation = view_augmenter.view_transformations[SECOND_VIEW_INDEX][
         VIEW_TRANSFORMATION_NAMES.index("black_out")]
     assert torch.equal(input=hidden_cells, other=black_out_transformation._params["hidden_cells"])
     assert [lines[-1] for lines in view_descriptions[SECOND_VIEW_INDEX]] == [
-        f"black_out : {int(image_cells.sum())} of the 64 cells of an 8x8 grid" for image_cells in hidden_cells]
+        f"black_out : {int(image_cells.sum())} of the 16 cells of the 4x4 grid" for image_cells in hidden_cells]
 
     # The grids differ between the images and their share of hidden cells is the probability
     assert len({tuple(image_cells.flatten().tolist()) for image_cells in hidden_cells}) == 16
@@ -339,7 +342,7 @@ def test_every_transformation_describes_its_drawn_values() -> None:
                          r"gaussian_blur : sigma \d\.\d\d",
                          r"motion_blur : kernel [3579], angle [+-]\d+\.\d degrees, direction [+-]\d\.\d\d",
                          r"solarize : threshold 0\.50, addition \+0\.00", "gaussian_noise",
-                         r"black_out : \d+ of the 64 cells of an 8x8 grid",
+                         r"black_out : \d+ of the 64 cells of the 8x8 grid",
                          r"random_erasing : \d+x\d+ pixels at x \d+, y \d+"]
     for image_lines in [lines for view_lines in view_descriptions for lines in view_lines]:
         assert len(image_lines) == len(expected_patterns)

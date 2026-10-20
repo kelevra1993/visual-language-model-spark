@@ -73,10 +73,12 @@ def build_augmenter(enabled_types: List[str], shuffle_probability: float = 0.0) 
     Returns:
         DataAugmenter: The augmenter.
     """
+    types = {name: {"activated": name in enabled_types, "probability": 1.0} for name in AUGMENTATION_TYPES}
+    types["random_black_out"]["grid_size"] = 8
     return DataAugmenter(augmentation_configuration={
         "activated": True, "probability": 1.0, "independent_frames": False,
         "shuffle_frames": {"activated": shuffle_probability > 0.0, "probability": shuffle_probability},
-        "types": {name: {"activated": name in enabled_types, "probability": 1.0} for name in AUGMENTATION_TYPES}})
+        "types": types})
 
 
 def test_detection_panels_count_the_objects_and_name_the_removed_ones(monkeypatch: pytest.MonkeyPatch) -> None:

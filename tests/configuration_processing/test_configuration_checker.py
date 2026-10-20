@@ -391,8 +391,21 @@ def zero_every_loss_weight(configuration: Dict[str, Any]) -> None:
     loss_weights.update({loss_name: 0 for loss_name in loss_weights})
 
 
+def set_empty_black_out_grid(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a grid of 0 rows and columns for the random_black_out type of the data augmentation.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["Data"]["data_augmentation"]["types"]["random_black_out"]["grid_size"] = 0
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_invalid_loading, ["'Data.loading.prefetch_batches' must be an integer >= 1, got 0."]),
+    (set_empty_black_out_grid, ["'Data.data_augmentation.types.random_black_out.grid_size' must be an integer within "
+                                "[1, 'Data.image_settings.size' (1024)], got 0: a grid finer than the image would "
+                                "hide cells holding no pixel."]),
     (set_pre_activation_without_residual_shortcuts, ["'Backbone.modules.residual_nets_v2' must be False when "
                                                      "'Backbone.modules.residual_nets' is False"]),
     (set_invalid_batch_normalization_momentums, ["'Backbone.normalization.batch_normalization_momentum' must be a "
@@ -2238,6 +2251,16 @@ def set_single_piece_jigsaw(configuration: Dict[str, Any]) -> None:
     configuration["Data"]["view_augmentation"]["jigsaw"]["grid"] = [1, 1]
 
 
+def set_black_out_grid_finer_than_the_views(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a black-out grid of 300 rows and columns on views of 256 pixels, whose cells would hold no pixel.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    configuration["Data"]["view_augmentation"]["black_out"]["grid_size"] = 300
+
+
 def set_invalid_self_supervised_evaluation(configuration: Dict[str, Any]) -> None:
     """
     Sets no neighbour for the k-nearest neighbour evaluation and batches of a single image, whose views the losses
@@ -2321,6 +2344,9 @@ def set_invalid_self_supervised_evaluation(configuration: Dict[str, Any]) -> Non
     (set_single_piece_jigsaw, ["'Data.view_augmentation.jigsaw.grid' must be a list of two integers [rows, columns] "
                                ">= 1, giving at least two pieces, that divide 'Data.image_settings.size' (256), got "
                                "[1, 1]."]),
+    (set_black_out_grid_finer_than_the_views, ["'Data.view_augmentation.black_out.grid_size' must be an integer "
+                                               "within [1, 'Data.image_settings.size' (256)], got 300: a grid finer "
+                                               "than the image would hide cells holding no pixel."]),
     (set_invalid_grouped_batches, ["'Data.grouped_batches.block_key' must be a non-empty string, got 3.",
                                    "'Data.grouped_batches.batch_key' must be null or a non-empty string, got ''.",
                                    "'Data.grouped_batches.images_per_block' (3) must divide "

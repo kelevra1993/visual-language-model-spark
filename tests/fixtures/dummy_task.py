@@ -407,8 +407,10 @@ def build_dummy_configurations(experiment_folder: Path, number_iterations: int) 
                                              "log_artifacts": True},
                                 "diagnosis_modes": {"verbose": False, "compute_receptive_field": False,
                                                     "compute_model_size": False, "view_input_images": False}}
-    # Every augmentation type listed but turned off, the dummy samples being used as they are
+    # Every augmentation type listed but turned off, the dummy samples being used as they are, the black-out grid
+    # within the side of the dummy images as the checks require
     augmentation_types = {name: {"activated": False, "probability": 0.0} for name in AUGMENTATION_TYPES}
+    augmentation_types["random_black_out"]["grid_size"] = DUMMY_IMAGE_SIZE
     model_configuration = {"Data": {"label_dictionary": {"negative": 0, "positive": 1},
                                     "image_settings": {"size": DUMMY_IMAGE_SIZE},
                                     "data_augmentation": {"activated": False, "probability": 0.0,

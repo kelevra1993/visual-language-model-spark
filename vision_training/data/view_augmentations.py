@@ -19,8 +19,8 @@ import torch
 from torch import nn
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from vision_training.data.augmentations import (BLACK_OUT_CELL_PROBABILITY, BLACK_OUT_GRID_SIZE, apply_black_out,
-                                                 apply_haze)
+from vision_training.data.augmentations import (BLACK_OUT_CELL_PROBABILITY, apply_black_out, apply_haze,
+                                                 describe_black_out)
 
 # kornia decorates some of its functions with torch.jit.script when it is imported, which recent PyTorch versions
 # report as deprecated; the notice is harmless and cannot be fixed on our side, so it is silenced for this import only
@@ -91,22 +91,24 @@ class RandomHaze(kornia_augmentation.IntensityAugmentationBase2D):
 
 class RandomBlackOut(kornia_augmentation.IntensityAugmentationBase2D):
     """
-    Black-out of the views, which kornia does not provide: every view drawn for it is cut into an 8x8 grid whose every
-    cell is blacked out with a probability of 0.2, by apply_black_out, the black-out of the random_black_out type of the
-    data augmentation of the other tasks (augmentations.py), so that the backbone learns to match views missing parts
-    of the scene. The hidden cells of every image are drawn on the CPU by the random generator of PyTorch, like the
-    parameters of the kornia transformations, so that a seed gives the same black-out on every device and the hidden
-    cells can be described.
+    Black-out of the views, which kornia does not provide: every view drawn for it is cut into a grid of 'grid_size'
+    rows and columns whose every cell is blacked out with a fixed probability of 0.2, by apply_black_out, the black-out
+    of the random_black_out type of the data augmentation of the other tasks (augmentations.py), so that the backbone
+    learns to match views missing parts of the scene. The hidden cells of every image are drawn on the CPU by the
+    random generator of PyTorch, like the parameters of the kornia transformations, so that a seed gives the same
+    black-out on every device and the hidden cells can be described.
     """
 
-    def __init__(self, probability: float) -> None:
+    def __init__(self, probability: float, grid_size: int) -> None:
         """
         Builds the black-out transformation of a chain of view transformations.
 
         Args:
             probability (float): The probability of blacking out cells of an image.
+            grid_size (int): The number of rows and columns of the grid, 'black_out.grid_size'.
         """
         super().__init__(p=probability, same_on_batch=False, keepdim=False)
+        self.grid_size = grid_size
 
     def generate_parameters(self, batch_shape: Tuple[int, ...]) -> Dict[str, torch.Tensor]:
         """
@@ -119,7 +121,7 @@ class RandomBlackOut(kornia_augmentation.IntensityAugmentationBase2D):
         Returns:
             Dict[str, torch.Tensor]: The boolean [N, rows, columns] grids of the hidden cells, under 'hidden_cells'.
         """
-        return {"hidden_cells": torch.rand(size=(batch_shape[0], BLACK_OUT_GRID_SIZE, BLACK_OUT_GRID_SIZE))
+        return {"hidden_cells": torch.rand(size=(batch_shape[0], self.grid_size, self.grid_size))
                 < BLACK_OUT_CELL_PROBABILITY}
 
     def apply_transform(self, input: torch.Tensor, params: Dict[str, torch.Tensor], flags: Dict[str, Any],
@@ -247,7 +249,8 @@ def build_view_transformations(view_augmentation_configuration: Dict[str, Any], 
                         kornia_augmentation.RandomGaussianNoise(
                             mean=0.0, std=view_augmentation_configuration["gaussian_noise"]["standard_deviation"],
                             p=probabilities["gaussian_noise"]),
-                        RandomBlackOut(probability=probabilities["black_out"]),
+                        RandomBlackOut(probability=probabilities["black_out"],
+                                       grid_size=view_augmentation_configuration["black_out"]["grid_size"]),
                         kornia_augmentation.RandomErasing(scale=tuple(erasing_configuration["scale"]),
                                                           ratio=tuple(erasing_configuration["aspect_ratio"]),
                                                           value=ERASING_FILL_VALUE, p=probabilities["random_erasing"])]
@@ -320,8 +323,7 @@ def describe_view_parameters(transformation_name: str, parameters: Dict[str, tor
         return (f"threshold {float(image_values['thresholds']):.2f}, "
                 f"addition {float(image_values['additions']):+.2f}")
     if transformation_name == "black_out":
-        return (f"{int(image_values['hidden_cells'].sum())} of the {BLACK_OUT_GRID_SIZE * BLACK_OUT_GRID_SIZE} cells "
-                f"of an {BLACK_OUT_GRID_SIZE}x{BLACK_OUT_GRID_SIZE} grid")
+        return describe_black_out(hidden_cells=image_values["hidden_cells"])
     if transformation_name == "random_erasing":
         return (f"{round(float(image_values['widths']))}x{round(float(image_values['heights']))} pixels at x "
                 f"{round(float(image_values['xs']))}, y {round(float(image_values['ys']))}")
