@@ -1,8 +1,9 @@
 """
 Smoke test of InstanceSegmentationTrainer of vision_training/trainers/instance_segmentation_trainer.py on a synthetic
 instance segmentation dataset: training with the geometric augmentations moving the masks saves checkpoints,
-evaluates the box and mask average precisions with its sample images, and resumes. The detections and objects of a
-test image are also checked at the original resolution of the image (evaluation.original_resolution).
+evaluates the box and mask average precisions with its sample images, and resumes. The weights of the losses in the
+total loss (Optimization.loss_weights) are checked on a training batch, and the detections and objects of a test image
+at the original resolution of the image (evaluation.original_resolution).
 """
 
 import csv
@@ -12,6 +13,7 @@ import yaml
 
 from pathlib import Path
 from typing import Any, Dict, Tuple
+from unittest.mock import patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
@@ -229,6 +231,47 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_loss_weights_weight_the_total_loss(tmp_path: Path) -> None:
+    """
+    Verifies 'Optimization.loss_weights' on a training batch of the instance segmenter: the total loss minimised by the
+    training is the sum of the five losses of the model, each multiplied by its weight, while the tracked losses
+    written to TensorBoard stay unweighted next to the weighted total loss.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 2, "validation": 2, "test": 2}, maximum_objects=4,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="instance_segmentation")
+    loss_weights = {"region_proposal_classification_loss": 2.0, "region_proposal_localisation_loss": 0.5,
+                    "detection_classification_loss": 1.0, "detection_regression_loss": 3.0, "mask_loss": 0.25}
+
+    # Configuration of the smoke test with weights of every loss differing from 1
+    configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                                   number_iterations=1, original_resolution=False)
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["Optimization"]["loss_weights"] = loss_weights
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+    trainer = build_trainer(configuration_path=configuration_path)
+    assert trainer.loss_weights == loss_weights
+
+    # One training batch, its metrics captured where they are written to TensorBoard
+    batch = next(iter(trainer.train_dataloader))
+    with patch.object(target=trainer.metric_tracker, attribute="log_to_tensorboard") as tensorboard_mock:
+        total_loss, model_outputs = trainer.run_model_iteration(batch=batch, writer=None, iteration=1,
+                                                                tracker_dictionary=None, apply_augmentation=False)
+    logged_metrics = tensorboard_mock.call_args.kwargs["metric_dictionary"]
+
+    expected_total_loss = sum(weight * model_outputs[loss_name] for loss_name, weight in loss_weights.items())
+    assert sorted(loss_name for loss_name in model_outputs if loss_name.endswith("_loss")) == sorted(loss_weights)
+    assert torch.allclose(input=total_loss, other=expected_total_loss)
+    assert not torch.allclose(input=total_loss, other=sum(model_outputs[loss_name] for loss_name in loss_weights))
+    assert torch.equal(input=logged_metrics["total_loss"], other=total_loss)
+    for loss_name in loss_weights:
+        assert torch.equal(input=logged_metrics[loss_name], other=model_outputs[loss_name])
 
 
 def build_original_resolution_test_image() -> Tuple[Dict[str, Any], Dict[str, Any]]:

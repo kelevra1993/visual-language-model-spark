@@ -358,6 +358,39 @@ def set_pre_activation_without_residual_shortcuts(configuration: Dict[str, Any])
     configuration["Backbone"]["modules"].update({"residual_nets": False, "residual_nets_v2": True})
 
 
+def add_mask_loss_weight(configuration: Dict[str, Any]) -> None:
+    """
+    Gives a weight to the mask loss, which only the instance segmenter has, in an object detection configuration.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["Optimization"]["loss_weights"]["mask_loss"] = 1.0
+
+
+def set_invalid_loss_weights(configuration: Dict[str, Any]) -> None:
+    """
+    Sets a negative weight of the classification loss of the region proposals and writes the weight of the box loss of
+    the detection heads as text.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    configuration["Optimization"]["loss_weights"].update({"region_proposal_classification_loss": -1.0,
+                                                          "detection_regression_loss": "high"})
+
+
+def zero_every_loss_weight(configuration: Dict[str, Any]) -> None:
+    """
+    Sets the weight of every loss of the detector to 0.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    loss_weights = configuration["Optimization"]["loss_weights"]
+    loss_weights.update({loss_name: 0 for loss_name in loss_weights})
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_invalid_loading, ["'Data.loading.prefetch_batches' must be an integer >= 1, got 0."]),
     (set_pre_activation_without_residual_shortcuts, ["'Backbone.modules.residual_nets_v2' must be False when "
@@ -421,7 +454,15 @@ def set_pre_activation_without_residual_shortcuts(configuration: Dict[str, Any])
                             "'ExperimentConfiguration.tracking.tracking_uri' must be null or a non-empty string, "
                             "got ' '.",
                             "'ExperimentConfiguration.tracking.experiment_name' must be null or a non-empty string, "
-                            "got 12."])])
+                            "got 12."]),
+    (add_mask_loss_weight, ["'Optimization.loss_weights' must give the weight of exactly the losses "
+                            "['region_proposal_classification_loss', 'region_proposal_localisation_loss', "
+                            "'detection_classification_loss', 'detection_regression_loss'], got"]),
+    (set_invalid_loss_weights, ["'Optimization.loss_weights.region_proposal_classification_loss' must be a number "
+                                ">= 0, got -1.0.",
+                                "'Optimization.loss_weights.detection_regression_loss' must be a number >= 0, got "
+                                "'high'."]),
+    (zero_every_loss_weight, ["'Optimization.loss_weights' cannot all be 0, the model would have no loss."])])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                 expected_messages: List[str]) -> None:
@@ -1846,6 +1887,16 @@ def freeze_random_mask_heads(configuration: Dict[str, Any]) -> None:
     configuration["MaskHead"]["pretrained"].update({"freeze": True, "learning_rate_multiplier": 0})
 
 
+def remove_mask_loss_weight(configuration: Dict[str, Any]) -> None:
+    """
+    Leaves the mask loss of the instance segmenter without weight.
+
+    Args:
+        configuration (Dict[str, Any]): The raw instance segmentation configuration, modified in place.
+    """
+    del configuration["Optimization"]["loss_weights"]["mask_loss"]
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (freeze_random_mask_heads, ["'MaskHead.pretrained.freeze' must be False when "
                                 "'MaskHead.pretrained.experiment_folder' is null: only a transferred mask heads can "
@@ -1869,7 +1920,10 @@ def freeze_random_mask_heads(configuration: Dict[str, Any]) -> None:
                              "'MaskHead.modules.residual_nets' must be True or False, got 'yes'.",
                              "'MaskHead.inference.mask_threshold' must be a probability within [0, 1], got 1.5."]),
     (write_original_resolution_as_number, ["'ExperimentConfiguration.evaluation.original_resolution' must be True or "
-                                           "False, got 1."])])
+                                           "False, got 1."]),
+    (remove_mask_loss_weight, ["'Optimization.loss_weights' must give the weight of exactly the losses "
+                               "['region_proposal_classification_loss', 'region_proposal_localisation_loss', "
+                               "'detection_classification_loss', 'detection_regression_loss', 'mask_loss'], got"])])
 def test_inconsistent_instance_segmentation_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:

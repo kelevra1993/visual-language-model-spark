@@ -176,6 +176,16 @@ class DetectionTrainer(BaseTrainer):
                 "detection_classification_loss": "Detection Classification Loss",
                 "detection_regression_loss": "Detection Regression Loss"}
 
+    def get_loss_weights(self) -> Optional[Dict[str, float]]:
+        """
+        Gives the weight of every loss of the detector in the total loss, 'Optimization.loss_weights': the four losses
+        of the region proposal and detection heads, and the mask loss of the instance segmentation, which inherits it.
+
+        Returns:
+            Optional[Dict[str, float]]: The weight of every loss output of the model.
+        """
+        return self.optimization_configuration["loss_weights"]
+
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
         """
         Counts the images and annotations of a COCO split from its labels.json.

@@ -1,8 +1,9 @@
 """
 Checks of the configuration sections specific to the object detection task: the detection levels (anchors, region
 proposal and detection heads of every level), the region proposal network, the detector heads, the proposal and anchor
-sampling and the evaluation settings. Run by configuration_checker.py for the object_detection task, and by
-instance_segmentation_checks.py for the instance segmentation task, which adds its mask heads to the detector.
+sampling, the weights of the losses and the evaluation settings. Run by configuration_checker.py for the
+object_detection task, and by instance_segmentation_checks.py for the instance segmentation task, which adds its mask
+heads to the detector.
 """
 
 import math
@@ -11,6 +12,7 @@ from typing import Any, Dict, List
 
 from vision_training.configuration_processing.common_checks import (check_error_dumps_configuration,
                                                                     check_image_task_sequence_settings,
+                                                                    check_loss_weights_configuration,
                                                                     check_pretrained_configuration)
 from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
                                                                            check_batch_normalization_momentum,
@@ -26,6 +28,12 @@ from vision_training.utilities.os_utilities import print_color
 # level ('mask_head', checked by instance_segmentation_checks.py)
 DETECTION_LEVEL_COMPONENTS = ["anchors", "region_proposal", "detector"]
 MASK_HEAD_LEVEL_COMPONENT = "mask_head"
+
+# Loss outputs of the two-stage detector, summed into the total loss with the weights of 'Optimization.loss_weights',
+# the instance segmentation adding the loss of its mask heads
+DETECTION_LOSS_NAMES = ["region_proposal_classification_loss", "region_proposal_localisation_loss",
+                        "detection_classification_loss", "detection_regression_loss"]
+MASK_LOSS_NAME = "mask_loss"
 
 
 def check_convolution_layers(convolutions: Any, key_path: str, inception: Any) -> List[str]:
@@ -390,7 +398,8 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
                                   model_configuration: Dict[str, Any]) -> List[str]:
     """
     Runs every check specific to the object detection task: its evaluation settings, its data settings without the
-    sequence settings, its detection levels (anchors and heads of every level), region proposal and detector sections.
+    sequence settings, its detection levels (anchors and heads of every level), region proposal and detector sections,
+    and the weights of its losses, with the mask loss for the instance segmentation, which runs these checks too.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -405,4 +414,9 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
     errors += check_detection_levels(model_configuration=model_configuration)
     errors += check_region_proposal_configuration(model_configuration=model_configuration)
     errors += check_detector_configuration(model_configuration=model_configuration)
+
+    # Weight of every loss of the task, the instance segmentation (whose configuration has a MaskHead) adding its mask
+    # loss
+    loss_names = DETECTION_LOSS_NAMES + ([MASK_LOSS_NAME] if "MaskHead" in model_configuration else [])
+    errors += check_loss_weights_configuration(model_configuration=model_configuration, loss_names=loss_names)
     return errors

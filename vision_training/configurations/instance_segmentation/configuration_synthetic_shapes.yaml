@@ -164,6 +164,21 @@ Optimization:
     activated: True
     # Fraction of the average kept at every update, strictly between 0 and 1.
     decay: 0.9998
+  # Weight of every loss of the detector in the total loss minimised by the training, e.g. above 1 on the mask loss when
+  # the masks lag behind the boxes. The losses are tracked unweighted, the total loss weighted. Numbers >= 0, not all
+  # 0, a loss at 0 leaving the layers only it trains unchanged. They give no run name token and can change when a run
+  # resumes.
+  loss_weights:
+    # Objectness of the sampled anchors of the region proposal heads.
+    region_proposal_classification_loss: 1.0
+    # Box offsets of the positive anchors of the region proposal heads.
+    region_proposal_localisation_loss: 1.0
+    # Class of the sampled proposals of the detection heads, background included.
+    detection_classification_loss: 1.0
+    # Box offsets of the positive proposals of the detection heads.
+    detection_regression_loss: 1.0
+    # Masks of the positive proposals of the mask heads.
+    mask_loss: 1.0
 
 Data:
   loading:

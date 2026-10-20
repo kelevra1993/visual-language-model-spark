@@ -561,7 +561,7 @@ images: changed per sample [False, False]
 ```
 
 ### Step 3.9 — `forward_pass()` → `TwoStageDetector.forward(ground_truth_bounding_boxes=..., ground_truth_labels=...)`
-With the ground truth, the detector samples its training targets and returns its four losses (Steps 3.10 to 3.18). The total loss is their sum.
+With the ground truth, the detector samples its training targets and returns its four losses (Steps 3.10 to 3.18). The total loss is their sum, each multiplied by its weight in `Optimization.loss_weights` (`get_loss_weights()`, 1 in the shipped configurations).
 
 **Example: the dictionary returned at iteration 1**
 ```text
@@ -666,7 +666,7 @@ losses: classification 1.0863   regression 1.4856
 ```
 
 ### Step 3.19 — `compute_batch_metrics()` + `MetricTracker.accumulate()` + `log_to_tensorboard()`
-The detection has no batch metric (`{}`): the four losses and their sum are the tracked metrics.
+The detection has no batch metric (`{}`): the four losses, unweighted, and their weighted sum are the tracked metrics.
 
 **Example: the Train curves**
 ```text

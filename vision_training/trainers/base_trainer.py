@@ -233,6 +233,9 @@ class BaseTrainer(ABC):
         # Learning rate of every parameter group before the schedule, which multiplies it at every step
         self.base_learning_rates = [parameter_group["lr"] for parameter_group in self.optimizer.param_groups]
 
+        # Weight of every loss of the model in the total loss, None when every loss counts once
+        self.loss_weights = self.get_loss_weights()
+
         # Metric tracking of the losses and batch metrics chosen by the task
         self.tracked_metrics_mapping = self.get_tracked_metrics()
         self.metric_tracker = MetricTracker(tracked_metrics_mapping=self.tracked_metrics_mapping,
@@ -298,6 +301,17 @@ class BaseTrainer(ABC):
         Returns:
             Dict[str, str]: The display name of every tracked metric key.
         """
+
+    def get_loss_weights(self) -> Optional[Dict[str, float]]:
+        """
+        Gives the weight of every loss of the model in the total loss of run_model_iteration, keyed by the name of the
+        loss output, read once when the trainer is built. Every loss counts once by default; the object detection and
+        instance segmentation trainers read 'Optimization.loss_weights'.
+
+        Returns:
+            Optional[Dict[str, float]]: The weight of every loss output, or None when every loss counts once.
+        """
+        return None
 
     @abstractmethod
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
@@ -1555,7 +1569,8 @@ class BaseTrainer(ABC):
         """
         Executes one forward pass of the model on a training or validation batch, the same for every task: the batch
         is prepared (and augmented for training), the model returns its losses, which are summed into the total loss,
-        and the tracked metrics are accumulated and written to TensorBoard.
+        each multiplied by its weight when the task weights its losses (get_loss_weights), and the tracked metrics are
+        accumulated and written to TensorBoard, the losses unweighted and the total loss weighted.
 
         Args:
             batch (Dict[str, Any]): The batch dictionary yielded by a loader.
@@ -1582,9 +1597,11 @@ class BaseTrainer(ABC):
         with torch.autocast(device_type=self.device.type, dtype=torch.bfloat16, enabled=self.mixed_precision):
             model_outputs = self.forward_pass(batch=batch)
 
-        # Extract all the losses of the model, and sum them into the total loss used for backpropagation
+        # Extract all the losses of the model, and sum them into the total loss used for backpropagation, each
+        # multiplied by its weight when the task weights its losses
         metric_dictionary = {key: value for key, value in model_outputs.items() if key.endswith(LOSS_KEY_SUFFIX)}
-        total_loss = sum(metric_dictionary.values())
+        total_loss = sum(loss_value if self.loss_weights is None else self.loss_weights[loss_key] * loss_value
+                         for loss_key, loss_value in metric_dictionary.items())
 
         # Insert the total loss and the batch metrics of the task into the tracked metrics
         metric_dictionary["total_loss"] = total_loss

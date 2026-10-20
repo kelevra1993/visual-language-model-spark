@@ -1,8 +1,8 @@
 """
 Checks of the configuration sections shared by every task: ExperimentConfiguration, Data, Backbone, the 'pretrained'
 settings of the transferable components and Optimization. Run first by configuration_checker.py, before the checks
-of the task sections, and reused by the task checks (e.g. refusing the sequence settings for the image tasks, or the
-error images settings of the classification-like and detection tasks).
+of the task sections, and reused by the task checks (e.g. refusing the sequence settings for the image tasks, the
+error images settings of the classification-like and detection tasks, or the loss weights of the detection tasks).
 """
 
 from typing import Any, Dict, List
@@ -11,7 +11,7 @@ from vision_training.configuration_processing.configuration_values import (BACKB
                                                                            check_batch_normalization_momentum,
                                                                            check_boolean_flags, check_positive_integers,
                                                                            check_probability_value,
-                                                                           get_configuration_value)
+                                                                           get_configuration_value, is_number)
 from vision_training.data.augmentations import AUGMENTATION_TYPES
 
 
@@ -400,7 +400,8 @@ def check_optimization_configuration(model_configuration: Dict[str, Any]) -> Lis
     Verifies the 'Optimization' section shared by every task: the optimizer, its weight decay, the learning rate
     schedule (warm-up, cosine decay and its minimum), the gradient clipping, the mixed precision flag, which runs
     the forward passes in bfloat16 on top of the float32 weights of every model, the starting weights of the model and
-    the moving average of its weights, whose decay must be strictly between 0 and 1.
+    the moving average of its weights, whose decay must be strictly between 0 and 1. The loss weights of the object
+    detection and instance segmentation are checked with their task (check_loss_weights_configuration).
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Optimization' section.
@@ -450,4 +451,31 @@ def check_optimization_configuration(model_configuration: Dict[str, Any]) -> Lis
     if isinstance(decay, bool) or not isinstance(decay, (int, float)) or not 0 < decay < 1:
         errors.append(f"'Optimization.exponential_moving_average.decay' must be strictly between 0 and 1, "
                       f"got {decay!r}.")
+    return errors
+
+
+def check_loss_weights_configuration(model_configuration: Dict[str, Any], loss_names: List[str]) -> List[str]:
+    """
+    Verifies 'Optimization.loss_weights', the weight of every loss of the model in the total loss of the training,
+    read by the trainers of the tasks weighting their losses (object detection and instance segmentation): exactly one
+    weight per loss of the model, keyed by the name of its output, every weight a number >= 0 (0 leaving the layers
+    only that loss trains unchanged), and not all 0.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model sections.
+        loss_names (List[str]): The names of the loss outputs of the model of the task.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    loss_weights = get_configuration_value(configuration=model_configuration, key_path="Optimization.loss_weights")
+    if not isinstance(loss_weights, dict) or sorted(loss_weights) != sorted(loss_names):
+        return [f"'Optimization.loss_weights' must give the weight of exactly the losses {loss_names}, "
+                f"got {loss_weights!r}."]
+
+    # Non-negative weights, at least one of them above 0 so that the model has a loss
+    errors = [f"'Optimization.loss_weights.{loss_name}' must be a number >= 0, got {weight!r}."
+              for loss_name, weight in loss_weights.items() if not is_number(value=weight) or weight < 0]
+    if not errors and all(weight == 0 for weight in loss_weights.values()):
+        errors.append("'Optimization.loss_weights' cannot all be 0, the model would have no loss.")
     return errors
