@@ -225,6 +225,9 @@ Data:
       random_colour_augmentation: { activated: False, probability: 0.5 }
       # Random Image Blurring : 9x9 Gaussian kernel with sigma 2.5
       random_blur: { activated: True, probability: 0.5 }
+      # Random Haze : blend with a uniform grey airlight of 180 to 255 intensity levels taking 20% to 60% of every
+      # pixel, the fog or condensation of a camera lowering the contrast (applied after the other photometric types)
+      random_haze: { activated: True, probability: 0.3 }
   # Random views of the self-supervised task: every training and validation image is transformed twice, on the GPU right
   # before the forward pass, each view drawing its own crop, flips, rotation, perspective, jigsaw, colour and lighting
   # changes, blurs, solarization, noise and erasing, and the loss pulls the two views of an image together. The backbone

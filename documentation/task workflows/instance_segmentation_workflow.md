@@ -250,7 +250,7 @@ INS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RB
 ```
 
 ### Step 2.5 — `DataAugmenter()`
-The same augmenter as the detection; with instance masks, the geometric augmentations move the masks with the image (Step 3.8). This configuration turns every type off.
+The same augmenter as the detection; with instance masks, the geometric augmentations move the masks with the image (Step 3.8). This configuration turns every type off except `random_haze`, a photometric type that never changes the masks.
 
 ### Step 2.6 — `setup_training_paths()`
 **Example: the run folder at the end of the construction**

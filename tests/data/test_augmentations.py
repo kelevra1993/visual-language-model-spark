@@ -2,11 +2,12 @@
 Tests of DataAugmenter of vision_training/data/augmentations.py: geometric augmentations moving and removing boxes,
 geometric augmentations moving the segmentation masks with nearest interpolation, geometric augmentations moving the
 instance masks and recomputing their boxes, photometric augmentations keeping boxes, masks and pixel range, images
-without boxes, a single histogram equalization per image, shared or per-frame draws of the sequence frames, frame
-shuffling, the rejected inputs, the zoom-out, the translation by whole pixels with the removal of the objects it pushes
-out, the removal of the fragments of objects left by the crop, the keypoints moved without being renamed and
-unlabelled once out of the image, the ignored regions of the keypoint detection moved with them as binary masks, and the
-augmentation reports written in the information panels of the input viewer.
+without boxes, a single histogram equalization per image, the haze blending every image with its own grey airlight
+after the other photometric types, shared or per-frame draws of the sequence frames, frame shuffling, the rejected
+inputs, the zoom-out, the translation by whole pixels with the removal of the objects it pushes out, the removal of the
+fragments of objects left by the crop, the keypoints moved without being renamed and unlabelled once out of the image,
+the ignored regions of the keypoint detection moved with them as binary masks, and the augmentation reports written in
+the information panels of the input viewer.
 """
 
 import random
@@ -17,8 +18,9 @@ from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, EXCLUSIVE_EQUALIZATION_TYPES,
-                                                 GEOMETRIC_AUGMENTATION_TYPES, MAXIMUM_TRANSLATION_FRACTION,
-                                                 MINIMUM_CROP_FRACTION, PHOTOMETRIC_AUGMENTATION_TYPES)
+                                                 GEOMETRIC_AUGMENTATION_TYPES, HAZE_AIRLIGHT_RANGE, HAZE_STRENGTH_RANGE,
+                                                 MAXIMUM_TRANSLATION_FRACTION, MINIMUM_CROP_FRACTION,
+                                                 NOISE_STANDARD_DEVIATION, PHOTOMETRIC_AUGMENTATION_TYPES)
 from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
 
 IMAGE_SIZE = 96
@@ -172,6 +174,57 @@ def test_a_single_histogram_equalization_is_applied_per_image() -> None:
     augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["clahe_augment"]))
     reports = augmenter.augment_batch(images=images)[-1]
     assert all(report["photometric_augmentations"][0][0][0] == "clahe_augment" for report in reports)
+
+
+def test_haze_blends_every_image_with_a_uniform_grey_airlight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies the random_haze type: every image is blended with its own uniform grey airlight, whose strength and
+    intensity are drawn within HAZE_STRENGTH_RANGE and HAZE_AIRLIGHT_RANGE and given in the report, and the haze is
+    applied after the other photometric types, so that the noise drawn with it is veiled too.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture forcing the largest strength and airlight.
+    """
+    random.seed(0)
+    torch.manual_seed(seed=0)
+
+    # Images half black and half white, from which the drawn strength and airlight of every image are measured back
+    images = torch.zeros(size=(32, 3, IMAGE_SIZE, IMAGE_SIZE))
+    images[..., IMAGE_SIZE // 2:] = 255.0
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_haze"]))
+    hazy_images, _, _, _, _, _, reports = augmenter.augment_batch(images=images)
+
+    # The black pixels become strength x airlight and the white ones 255 x (1 - strength) + strength x airlight
+    black_values, white_values = hazy_images[..., 0], hazy_images[..., -1]
+    assert torch.equal(input=black_values, other=black_values[:, :1, :1].expand_as(black_values))
+    strengths = 1.0 - (white_values[:, 0, 0] - black_values[:, 0, 0]) / 255.0
+    airlights = black_values[:, 0, 0] / strengths
+    assert float(strengths.min()) >= HAZE_STRENGTH_RANGE[0] - 1e-4
+    assert float(strengths.max()) <= HAZE_STRENGTH_RANGE[1] + 1e-4
+    assert float(airlights.min()) >= HAZE_AIRLIGHT_RANGE[0] - 1e-2
+    assert float(airlights.max()) <= HAZE_AIRLIGHT_RANGE[1] + 1e-2
+    assert float(strengths.std()) > 0.0 and float(airlights.std()) > 0.0
+
+    # The report gives the values measured on the image
+    type_name, drawn_values = reports[0]["photometric_augmentations"][0][0]
+    assert type_name == "random_haze"
+    assert drawn_values == f"strength {float(strengths[0]):.2f}, airlight {float(airlights[0]):.0f} levels"
+
+    # With the largest strength and airlight, the noise drawn with the haze comes first and is veiled by it: its
+    # standard deviation of 40 levels shrinks by 1 - strength around the hazy grey 100 x (1 - strength) + strength x 255
+    monkeypatch.setattr(target=random, name="uniform", value=lambda low, high: high)
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(
+        enabled_types=["random_noise", "random_haze"]))
+    hazy_images, _, _, _, _, _, reports = augmenter.augment_batch(images=torch.full(
+        size=(1, 3, IMAGE_SIZE, IMAGE_SIZE), fill_value=100.0))
+    assert [type_name for type_name, _ in reports[0]["photometric_augmentations"][0]] == ["random_noise",
+                                                                                          "random_haze"]
+    assert reports[0]["photometric_augmentations"][0][1][1] == (
+        f"strength {HAZE_STRENGTH_RANGE[1]:.2f}, airlight {HAZE_AIRLIGHT_RANGE[1]:.0f} levels")
+    largest_strength = HAZE_STRENGTH_RANGE[1]
+    expected_mean = 100.0 * (1.0 - largest_strength) + largest_strength * HAZE_AIRLIGHT_RANGE[1]
+    assert abs(float(hazy_images.mean()) - expected_mean) < 1.0
+    assert abs(float(hazy_images.std()) - NOISE_STANDARD_DEVIATION * (1.0 - largest_strength)) < 1.0
 
 
 def test_images_without_boxes_for_classification() -> None:

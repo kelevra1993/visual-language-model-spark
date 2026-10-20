@@ -18,6 +18,8 @@ import torch
 from torch import nn
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from vision_training.data.augmentations import apply_haze
+
 # kornia decorates some of its functions with torch.jit.script when it is imported, which recent PyTorch versions
 # report as deprecated; the notice is harmless and cannot be fixed on our side, so it is silenced for this import only
 with warnings.catch_warnings():
@@ -47,8 +49,9 @@ ERASING_FILL_VALUE = 0.0
 class RandomHaze(kornia_augmentation.IntensityAugmentationBase2D):
     """
     Haze of the views, the fog, condensation or low contrast of a camera, which kornia does not provide: every hazy
-    image is blended with a uniform airlight, view * (1 - strength) + strength * airlight. The strength and the airlight
-    of every image are drawn on the CPU by the random generator of PyTorch, like the parameters of the kornia
+    image is blended with a uniform airlight, view * (1 - strength) + strength * airlight, by apply_haze, the blend
+    of the random_haze type of the data augmentation of the other tasks (augmentations.py). The strength and the
+    airlight of every image are drawn on the CPU by the random generator of PyTorch, like the parameters of the kornia
     transformations, so that a seed gives the same haze on every device and the drawn values can be described.
     """
 
@@ -81,7 +84,7 @@ class RandomHaze(kornia_augmentation.IntensityAugmentationBase2D):
         """
         strength = params["strength"].to(input).view(-1, 1, 1, 1)
         airlight = params["airlight"].to(input).view(-1, 1, 1, 1)
-        return input * (1.0 - strength) + strength * airlight
+        return apply_haze(images=input, strength=strength, airlight=airlight)
 
 
 def get_view_probability(probability: Union[float, List[float]], view_index: int) -> float:

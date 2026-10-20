@@ -3,7 +3,8 @@ DataAugmenter, the random geometric and photometric augmentations applied on the
 every task right before the forward pass, moving the bounding boxes of the object detector, the masks of the semantic
 segmentation, the instance masks of the instance segmentation and the keypoints and ignored regions of the keypoint
 detection with the images and handling the frame shuffling and per-frame draws of the sequence tasks. Of the histogram
-equalizations drawn together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only one, chosen at random, is applied.
+equalizations drawn together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only one, chosen at random, is applied. The
+blend of the haze (apply_haze) is shared with the RandomHaze transformation of the self-supervised views.
 Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
 common checks. Every augmented batch comes with a report of the types drawn for each sample and their values, which
 the 'view_input_images' diagnosis mode writes in the information panel next to every training image.
@@ -13,7 +14,7 @@ import random
 import warnings
 import torch
 
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 from torch.nn import functional as torch_functional
 from torchvision import tv_tensors
 from torchvision.transforms.v2 import functional as vision_functional
@@ -36,10 +37,11 @@ GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_zoom_out", "random_transl
                                 "random_up_down_flip", "random_rotation", "random_90_rotation"]
 
 # Photometric augmentations, applied after the geometric ones, in this order. They never move the bounding boxes and
-# never change the masks
+# never change the masks. random_haze comes last, so that the equalizations and the sharpening drawn with it do not
+# restore the contrast it removes
 PHOTOMETRIC_AUGMENTATION_TYPES = ["brightness_contrast_saturation", "clahe_augment", "sharp_augment",
                                   "equalize_histogram_augment", "equalize_bgr_histogram_augment", "random_noise",
-                                  "gray_scale_augment", "random_colour_augmentation", "random_blur"]
+                                  "gray_scale_augment", "random_colour_augmentation", "random_blur", "random_haze"]
 
 AUGMENTATION_TYPES = GEOMETRIC_AUGMENTATION_TYPES + PHOTOMETRIC_AUGMENTATION_TYPES
 
@@ -59,6 +61,8 @@ SATURATION_FACTOR_RANGE = (0.7, 1.0)
 NOISE_STANDARD_DEVIATION = 40.0
 BLUR_KERNEL_SIZE = 9
 BLUR_SIGMA = 2.5
+HAZE_STRENGTH_RANGE = (0.2, 0.6)
+HAZE_AIRLIGHT_RANGE = (180.0, 255.0)
 SHARPENING_SIGMA = 1.5
 SHARPENING_STRENGTH = 3.0
 CLAHE_CLIP_LIMIT = 2.0
@@ -107,6 +111,28 @@ def create_empty_report() -> AugmentationReport:
     """
     return {"augmented": False, "geometric_augmentations": [], "photometric_augmentations": [],
             "removed_labels": None}
+
+
+def apply_haze(images: torch.Tensor, strength: Union[float, torch.Tensor],
+               airlight: Union[float, torch.Tensor]) -> torch.Tensor:
+    """
+    Hazes images, the fog, condensation or dirt on the lens of a camera: every pixel is blended with a uniform
+    airlight, images * (1 - strength) + strength * airlight, which lowers the contrast and lifts the dark areas towards
+    the airlight. Shared by the random_haze type of DataAugmenter, on the BGR training images in [0, 255], and by the
+    RandomHaze transformation of the self-supervised views (view_augmentations.py), on RGB images in [0, 1], the
+    airlight being given in the range of the images; a grey airlight is the same in both channel orders.
+
+    Args:
+        images (torch.Tensor): The images or sequences to haze, of any shape.
+        strength (Union[float, torch.Tensor]): The share of the airlight in every pixel, within [0, 1], a number or a
+            tensor broadcast over the images (one value per image of a batch).
+        airlight (Union[float, torch.Tensor]): The intensity of the airlight, in the range of the images, a number or
+            a tensor broadcast over the images.
+
+    Returns:
+        torch.Tensor: The hazy images, of the shape of the input.
+    """
+    return images * (1.0 - strength) + strength * airlight
 
 
 class DataAugmenter:
@@ -1032,3 +1058,23 @@ class DataAugmenter:
         blurred_image = vision_functional.gaussian_blur(image, kernel_size=[BLUR_KERNEL_SIZE, BLUR_KERNEL_SIZE],
                                                         sigma=[BLUR_SIGMA, BLUR_SIGMA])
         return blurred_image, f"{BLUR_KERNEL_SIZE}x{BLUR_KERNEL_SIZE} kernel, sigma {BLUR_SIGMA}"
+
+    @staticmethod
+    def random_haze(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+        """
+        Veils the image with a haze, the fog, condensation or dirt on the lens of a camera, so that the network learns
+        to find objects whose contrast with their background is low: the image is blended with a uniform grey
+        airlight of 180 to 255 intensity levels taking 20% to 60% of every pixel (apply_haze). A sequence receives
+        the same haze on all its frames, unless its photometric types are drawn frame by frame.
+
+        Args:
+            image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
+
+        Returns:
+            Tuple[torch.Tensor, str]: The hazy image in [0, 255] and the drawn strength and airlight for the
+                augmentation report.
+        """
+        strength = random.uniform(*HAZE_STRENGTH_RANGE)
+        airlight = random.uniform(*HAZE_AIRLIGHT_RANGE)
+        return (apply_haze(images=image, strength=strength, airlight=airlight),
+                f"strength {strength:.2f}, airlight {airlight:.0f} levels")

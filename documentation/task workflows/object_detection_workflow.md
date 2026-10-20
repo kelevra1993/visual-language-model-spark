@@ -238,12 +238,12 @@ DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_R
 ```
 
 ### Step 2.5 — `DataAugmenter()`
-The same augmenter as the classification; the geometric augmentations move the boxes and drop those leaving the image (Step 3.8). This configuration turns every type off.
+The same augmenter as the classification; the geometric augmentations move the boxes and drop those leaving the image (Step 3.8). This configuration turns every type off except `random_haze`, a photometric type that never moves the boxes.
 
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4
-0 of 16 types activated: []
+1 of 17 types activated: random_haze
 ```
 
 ### Step 2.6 — `setup_training_paths()`
@@ -553,7 +553,7 @@ images [2, 3, 512, 512] torch.uint8 -> torch.float32     bounding_boxes: float32
 ```
 
 ### Step 3.8 — `augment_batch()` → `DataAugmenter.augment_batch(bounding_boxes=..., labels=...)`
-The geometric augmentations move the boxes with the image, and `clean_bounding_boxes()` clips them to the image and drops with their labels the boxes left narrower or shorter than 1 pixel or with less than 25 % of their moved area inside the image (`MINIMUM_VISIBLE_AREA_FRACTION`), the fragments a crop or a rotation cuts at the border. This configuration turns every type off, so nothing changes.
+The geometric augmentations move the boxes with the image, and `clean_bounding_boxes()` clips them to the image and drops with their labels the boxes left narrower or shorter than 1 pixel or with less than 25 % of their moved area inside the image (`MINIMUM_VISIBLE_AREA_FRACTION`), the fragments a crop or a rotation cuts at the border. This configuration turns every geometric type off, so the boxes never move; only `random_haze` can veil an image.
 
 **Example output**
 ```text
