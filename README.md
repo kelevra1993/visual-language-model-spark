@@ -39,7 +39,7 @@
 - [Comparing Launches](#comparing-launches)
 - [Clustering Image Embeddings](#clustering-image-embeddings)
   - [Stored Features And Relaunch](#stored-features-and-relaunch)
-  - [Clusters And Subsets](#clusters-and-subsets)
+  - [Clusters And Kept Images](#clusters-and-kept-images)
   - [Group Pattern](#group-pattern)
 - [Deployment](#deployment)
   - [Export](#export)
@@ -962,10 +962,10 @@ A run not evaluated yet is printed in yellow and left out. A missing curve or co
 - `batch_size` and `number_workers` of the extraction.
 - `normalize_vectors`: True to divide every vector by its length, the distances then comparing which features are active rather than how strongly. `pca_dimensions`: the number of main directions of variation every layer is reduced to by a PCA before the clustering, the share of the variance they hold and the time of the PCA being printed; a layer with no more dimensions (or images) than that is clustered as it is. The vectors stay in float32.
 - `clustering_algorithm` and `clustering_parameters`:
-  - `"hdbscan"`: dense regions of any shape, the isolated images being noise; `min_cluster_size`, `min_samples` (None for `min_cluster_size`, higher giving more noise) and `cluster_selection_method` (`"eom"` for the most stable clusters, `"leaf"` for smaller, more uniform ones);
-  - `"dbscan"`: dense regions at a fixed distance; `eps` (at most 2 between normalised vectors) and `min_samples`;
+  - `"hdbscan"`: dense regions of any shape, the images in none of them being isolated images; `min_cluster_size`, `min_samples` (None for `min_cluster_size`, higher giving more isolated images) and `cluster_selection_method` (`"eom"` for the most stable clusters, `"leaf"` for smaller, more uniform ones);
+  - `"dbscan"`: dense regions at a fixed distance, the other images being isolated; `eps` (at most 2 between normalised vectors) and `min_samples`;
   - `"kmeans"`: `number_clusters` clusters per category, every image in one, the best of `number_initializations` runs.
-- `number_representatives_per_cluster` and `noise_selection` (`"all"`, `"none"` or a number of noise images drawn at random): the images of the cluster subset.
+- `number_representatives_per_cluster` and `isolated_image_selection` (`"all"`, `"none"` or a number of isolated images drawn at random): the images kept by the clustering.
 - `group_pattern`: the regular expression giving the group of every image ([Group Pattern](#group-pattern)), None for no group.
 - `seed` of the draws and of k-means, `mosaic_grid_size` (images per row of a mosaic) and `output_root` (`<experiments>/embeddings` by default).
 
@@ -989,17 +989,19 @@ At a relaunch, the script compares `extraction.json` with its settings:
 
 Every image is released from the page cache of Linux once read (extraction and mosaics), and the feature matrices of a source once it is clustered (`posix_fadvise` with `POSIX_FADV_DONTNEED`, no `sudo`, only the files of the script). On the unified memory of the DGX Spark, the cached frames (about 20 Gigabytes for the ficha train split) would otherwise take the memory of the GPU and stop another process from creating its CUDA context.
 
-### Clusters And Subsets
-Every layer is clustered in `<source>/clusters/<layer>/<clustering>/`, `<clustering>` naming the settings (`hdbscan_min_cluster_size_10_min_samples_5_cluster_selection_method_eom_normalized_pca_200`), the folder being written again at every launch. The categories of a classification split are clustered one by one, the other sources as a whole (category `all`).
-- `clusters.csv`: every image with its category, its cluster (-1 for the noise), its membership probability (HDBSCAN), its distance to the centre of its cluster, its rank (1 for the closest to the centre, the noise in the order of the names), why it is in the subset, its predicted class and probability, and its group.
-- `cluster_summary.csv`: every cluster with its images, its chosen images, its mean membership probability, its error rate (when the categories are classes of the run) and, with a group pattern, its number of groups, its largest group and the share of that group.
-- `<category>/cluster_<k>/` and `<category>/noise/`: links to the images named by their rank, and `<category>/cluster_<k>.jpg`, `<category>/noise.jpg`: mosaics of the first images, numbered by their rank.
-- Three subsets, of the same number of images per category, to compare by training the smaller model on each:
-  - `subset/`: the `number_representatives_per_cluster` images closest to the centre of every cluster, and the noise images of `noise_selection`;
-  - `subset_random/`: images drawn at random;
-  - `subset_evenly_spaced_per_group/`, with a group pattern: the images spread evenly over the groups, those of a group ordered by their names (digit runs compared as numbers, e.g. the time of a frame) and taken at the centres of equal segments of that order.
+### Clusters And Kept Images
+Every layer is clustered in `<source>/clusters/<layer>/<clustering>/`, `<clustering>` naming the settings (`hdbscan_min_cluster_size_10_min_samples_5_cluster_selection_method_eom_normalized_pca_200`), the folder being written again at every launch. The categories of a classification split are clustered one by one, the other sources as a whole (category `all`). The isolated images are the images in no cluster, too far from every other image (the noise of scikit-learn).
+- `clusters.csv`: every image with its category, its cluster (-1 for the isolated images), its membership probability (HDBSCAN), its distance to the centre of its cluster, its rank (1 for the closest to the centre, the isolated images in the order of the names), `kept_reason` (why the clustering keeps it, empty when it does not), its predicted class and probability, and its group.
+- `cluster_summary.csv`: every cluster with its images, its kept images, its mean membership probability, its error rate (when the categories are classes of the run) and, with a group pattern, its number of groups, its largest group and the share of that group.
+- `<category>/cluster_<k>/` and `<category>/isolated_images/`: links to the images named by their rank, and `<category>/cluster_<k>.jpg`, `<category>/isolated_images.jpg`: mosaics of the first images, numbered by their rank.
+- Three folders of kept images, of the same number of images per category, to compare by training the smaller model on each:
+  - `kept_images_by_clustering/`: the `number_representatives_per_cluster` images closest to the centre of every cluster, and the isolated images of `isolated_image_selection`;
+  - `kept_images_at_random/`: images drawn at random;
+  - `kept_images_evenly_spaced_per_group/`, with a group pattern: the images spread evenly over the groups, those of a group ordered by their names (digit runs compared as numbers, e.g. the time of a frame) and taken at the centres of equal segments of that order.
 
-Every subset lists its images in `selected_images.csv`, with why each is chosen. The subset of a classification, semantic segmentation or COCO split is a split to train on: `data` links to the images of the source, and `labels.json` keeps the chosen samples, or the chosen images with their annotations. The subset of a folder of plain images is a folder of links keeping the subfolders. The frames of sequences and pairs are only listed, being tied to their sequence.
+Every folder of kept images lists its images in `kept_images.csv`, with why each is kept. The kept images of a split of the run or of a configuration file, or of a split folder (classification, semantic segmentation or COCO), form a split to train on: `data` links to the images of the source, and `labels.json` holds the kept samples, or the kept images with their annotations. The kept images of a folder of plain images, without labels, are a folder of links keeping the subfolders. The frames of sequences and pairs are only listed, being tied to their sequence.
+
+At the end of the run, a table of the kept images is printed for every source, one row per layer and category, and a total row per layer with several categories: `Initial Images`, `Image Clusters`, `Isolated Images` and `Isolated Share` (of the initial images), `Kept Representatives`, `Kept Isolated Images`, and `Kept Images` with `Kept Share` (of the initial images).
 
 ### Group Pattern
 `group_pattern` is a regular expression searched in the file name of every image, relative to the data folder of its source, e.g. to give the video a frame comes from. The group of an image is the first capturing group taking part in the match (the whole match for a pattern without capturing group), and the images it does not match form the group `(no group)`. The groups are counted in the cluster summary and spread the images of the baseline evenly spaced per group; nothing else depends on them. Any pattern fitting the file names of a dataset can be used:
@@ -1393,7 +1395,7 @@ The checkpoint evaluation and launch comparison scripts are in `scripts/`, also 
 │   └── utilities/                     # File, tensor, mask morphology and visualization helpers
 ├── scripts/                           # Checkpoint evaluation, launch comparison and image embedding clustering scripts
 │   ├── data/                          # Random subset of the sequences of a split, without copying the frames
-│   ├── embedding/                     # Clustering of the image embeddings of a run, subsets of diverse images
+│   ├── embedding/                     # Clustering of the image embeddings of a run, kept diverse images
 │   └── evaluation/                    # Checkpoint evaluation, launch comparison, best evaluations of runs
 └── tests/                             # Tests, mirroring vision_training/
 ```
