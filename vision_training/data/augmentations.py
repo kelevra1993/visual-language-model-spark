@@ -39,11 +39,12 @@ GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_aspect_crop", "random_zoo
                                 "random_90_rotation"]
 
 # Photometric augmentations, applied after the geometric ones, in this order. They never move the bounding boxes and
-# never change the masks. random_haze comes last, so that the equalizations and the sharpening drawn with it do not
-# restore the contrast it removes
+# never change the masks. random_haze comes after the others, so that the equalizations and the sharpening drawn with it
+# do not restore the contrast it removes, and random_black_out last, so that its cells stay black
 PHOTOMETRIC_AUGMENTATION_TYPES = ["brightness_contrast_saturation", "clahe_augment", "sharp_augment",
                                   "equalize_histogram_augment", "equalize_bgr_histogram_augment", "random_noise",
-                                  "gray_scale_augment", "random_colour_augmentation", "random_blur", "random_haze"]
+                                  "gray_scale_augment", "random_colour_augmentation", "random_blur", "random_haze",
+                                  "random_black_out"]
 
 AUGMENTATION_TYPES = GEOMETRIC_AUGMENTATION_TYPES + PHOTOMETRIC_AUGMENTATION_TYPES
 
@@ -66,6 +67,8 @@ BLUR_KERNEL_SIZE = 9
 BLUR_SIGMA = 2.5
 HAZE_STRENGTH_RANGE = (0.2, 0.6)
 HAZE_AIRLIGHT_RANGE = (180.0, 255.0)
+BLACK_OUT_GRID_SIZE = 8
+BLACK_OUT_CELL_PROBABILITY = 0.2
 SHARPENING_SIGMA = 1.5
 SHARPENING_STRENGTH = 3.0
 CLAHE_CLIP_LIMIT = 2.0
@@ -1146,3 +1149,45 @@ class DataAugmenter:
         airlight = random.uniform(*HAZE_AIRLIGHT_RANGE)
         return (apply_haze(images=image, strength=strength, airlight=airlight),
                 f"strength {strength:.2f}, airlight {airlight:.0f} levels")
+
+    @staticmethod
+    def random_black_out(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+        """
+        Cuts the image into an 8x8 grid and blacks out every cell with a probability of 0.2, the number of hidden
+        cells varying from image to image (Hide-and-Seek), so that the network learns from every region of the image
+        instead of the most telling one and copes with occluded parts of the scene. The boxes, masks and keypoints are
+        left unchanged, so an object can be hidden while keeping its label: the user chooses the tasks and datasets
+        it suits. Applied after the other photometric types, so that the cells stay black like the padding of the
+        data loaders. A sequence has the same cells blacked out on all its frames, unless its photometric types are
+        drawn frame by frame.
+
+        Args:
+            image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
+
+        Returns:
+            Tuple[torch.Tensor, str]: The image with its hidden cells at 0, and the number of hidden cells for the
+                augmentation report.
+        """
+        image_height, image_width = image.shape[-2], image.shape[-1]
+
+        # Draw every cell of the grid on its own
+        hidden_cells = [random.random() < BLACK_OUT_CELL_PROBABILITY
+                        for _ in range(BLACK_OUT_GRID_SIZE * BLACK_OUT_GRID_SIZE)]
+
+        # Heights and widths of the cells, their edges rounded when a side is not a multiple of the grid size
+        row_edges = [round(index * image_height / BLACK_OUT_GRID_SIZE) for index in range(BLACK_OUT_GRID_SIZE + 1)]
+        column_edges = [round(index * image_width / BLACK_OUT_GRID_SIZE) for index in range(BLACK_OUT_GRID_SIZE + 1)]
+        row_sizes = torch.tensor(data=[end - start for start, end in zip(row_edges[:-1], row_edges[1:])],
+                                 device=image.device)
+        column_sizes = torch.tensor(data=[end - start for start, end in zip(column_edges[:-1], column_edges[1:])],
+                                    device=image.device)
+
+        # Spread the kept cells over the pixels and zero the hidden ones on every channel and frame at once, the output
+        # sizes being given so that the device does not wait for the host to read them
+        kept_cells = torch.tensor(data=[not hidden for hidden in hidden_cells], dtype=image.dtype,
+                                  device=image.device).view(BLACK_OUT_GRID_SIZE, BLACK_OUT_GRID_SIZE)
+        kept_rows = kept_cells.repeat_interleave(repeats=row_sizes, dim=0, output_size=image_height)
+        kept_pixels = kept_rows.repeat_interleave(repeats=column_sizes, dim=1, output_size=image_width)
+        return (image * kept_pixels,
+                f"{sum(hidden_cells)} of the {BLACK_OUT_GRID_SIZE * BLACK_OUT_GRID_SIZE} cells of an "
+                f"{BLACK_OUT_GRID_SIZE}x{BLACK_OUT_GRID_SIZE} grid")

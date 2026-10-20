@@ -245,6 +245,9 @@ Data:
       # Random Haze : blend with a uniform grey airlight of 180 to 255 intensity levels taking 20% to 60% of every
       # pixel, the fog or condensation of a camera lowering the contrast (applied after the other photometric types)
       random_haze: { activated: True, probability: 0.3 }
+      # Random Black Out : image cut into an 8x8 grid, every cell blacked out with a probability of 0.2 (applied
+      # last); the boxes, masks and keypoints are left unchanged, so an object can be hidden while keeping its label
+      random_black_out: { activated: False, probability: 0.3 }
 
 Backbone:
   # Number of input channels of the initial convolution block: must be 3, the loaders giving BGR images
