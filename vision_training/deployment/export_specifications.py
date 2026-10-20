@@ -275,9 +275,10 @@ def compare_keypoints(reference: Sequence[np.ndarray], candidate: Sequence[np.nd
     pairs at the same position must agree within their tolerance, and almost every candidate must have a pair at the
     same position with the same tag. The candidates are paired by position and not by rank because a cell tied with a
     neighbour up to the rounding of the export may become a local maximum in one runtime only, which inserts a
-    candidate and shifts the ranks of the following ones, or may move its position by the quarter cell shift. The
-    candidates of zero score are suppressed cells filling the channels of fewer positive maxima than candidates, all
-    tied, whose positions and tags depend on the order of the top-k of the runtime, and are never paired.
+    candidate and shifts the ranks of the following ones, or may move it within its cell when the neighbours of a
+    flat peak differ by a rounding. The candidates of zero score are suppressed cells filling the channels of fewer
+    positive maxima than candidates, all tied, whose positions and tags depend on the order of the top-k of the
+    runtime, and are never paired.
 
     Args:
         reference (Sequence[np.ndarray]): The eager [B, C, N, 2] candidate positions, [B, C, N] candidate scores and

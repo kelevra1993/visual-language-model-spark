@@ -2,15 +2,21 @@
 Targets of the bottom-up keypoint detector (HigherHRNet), built on the device by the keypoint trainer for every
 training and validation batch from the keypoints of the objects of the whole images: the Gaussian heatmap of every
 keypoint channel at every stride of the heatmap outputs of models/keypoints/keypoint_detector.py (4, and 2 with the
-higher resolution branch), and the cell of the tag map read by every labelled keypoint for the associative embedding
-(pull and push) losses of losses/keypoint_losses.py. All the coordinates are continuous pixel coordinates (the centre
-of the first pixel at 0.5), the convention of the datasets and of the augmentations.
+higher resolution branch), the cell of the tag map read by every labelled keypoint for the associative embedding
+(pull and push) losses of losses/keypoint_losses.py, and the cells of every stride the heatmap loss leaves out, those
+of the objects without labelled keypoint ('KeypointHead.ignore_unlabelled_objects'). All the coordinates are continuous
+pixel coordinates (the centre of the first pixel at 0.5), the convention of the datasets and of the augmentations.
 """
 
 import math
 import torch
 
-from typing import Any, Dict, List
+from torch.nn import functional as torch_functional
+from typing import Any, Dict, List, Optional
+
+# Smallest share of the pixels of a heatmap cell lying in the ignored regions for the cell to be left out of the
+# heatmap loss, the rule of HigherHRNet, whose mask of the ignored objects is resized to the heatmap and thresholded
+IGNORED_CELL_FRACTION = 0.5
 
 
 def draw_gaussian_heatmaps(points: torch.Tensor, map_indices: torch.Tensor, number_maps: int, heatmap_height: int,
@@ -65,13 +71,16 @@ def draw_gaussian_heatmaps(points: torch.Tensor, map_indices: torch.Tensor, numb
 
 def build_keypoint_targets(keypoints: List[torch.Tensor], labels: List[torch.Tensor], channel_table: torch.Tensor,
                            number_channels: int, image_height: int, image_width: int, heatmap_strides: List[int],
-                           tag_stride: int, heatmap_sigma: float) -> Dict[str, Any]:
+                           tag_stride: int, heatmap_sigma: float,
+                           ignored_regions: Optional[torch.Tensor] = None) -> Dict[str, Any]:
     """
     Builds the training targets of the bottom-up keypoint detector for a batch of whole images, on the device of the
     channel table: the objects of every image are padded to the most objects of an image, every keypoint is assigned
     the heatmap channel of its class and keypoint (build_keypoint_channel_table), and a keypoint is trained when it is
     labelled (visibility above 0), its class has this keypoint and it lies inside the image. Its Gaussian is drawn at
-    every heatmap stride, and its tag is read at the cell of its channel containing it in the tag map.
+    every heatmap stride, and its tag is read at the cell of its channel containing it in the tag map. With the
+    ignored regions, the cells of every stride whose pixels lie at least IGNORED_CELL_FRACTION in them are the cells
+    the heatmap loss leaves out.
 
     Args:
         keypoints (List[torch.Tensor]): One [N_i, K, 3] tensor per image of the (x, y, visibility) keypoints of its
@@ -85,13 +94,19 @@ def build_keypoint_targets(keypoints: List[torch.Tensor], labels: List[torch.Ten
         heatmap_strides (List[int]): The image pixels per cell of every heatmap output, e.g. [4, 2].
         tag_stride (int): The image pixels per cell of the tag maps, 4.
         heatmap_sigma (float): The standard deviation of the Gaussians in heatmap cells, the same at every stride.
+        ignored_regions (Optional[torch.Tensor]): The [B, H, W] uint8 pixels of the objects without labelled keypoint,
+            1 where the heatmap loss learns nothing, or None to train every cell. Defaults to None.
 
     Returns:
         Dict[str, Any]: The 'heatmaps', one [B, C, H / stride, W / stride] float32 tensor per stride; the
             'tag_indices' [B, M, K] int64 flat index of every keypoint in the [C x H / tag_stride x W / tag_stride]
-            tag map of its image (0 when not trained); the 'tag_valid' [B, M, K] booleans of the trained keypoints; and
+            tag map of its image (0 when not trained); the 'tag_valid' [B, M, K] booleans of the trained keypoints;
             the 'object_labels' [B, M] int64 class of every object (0 for the padding objects), M being the most
-            objects of an image (at least 1).
+            objects of an image (at least 1); and the 'ignored_cells', one [B, 1, H / stride, W / stride] boolean
+            tensor per stride, shared by the channels, or None without ignored regions.
+
+    Raises:
+        ValueError: If the ignored regions do not have the size of the images.
     """
     device = channel_table.device
     batch_size = len(keypoints)
@@ -135,4 +150,16 @@ def build_keypoint_targets(keypoints: List[torch.Tensor], labels: List[torch.Ten
     tag_indices = ((channels.clamp(min=0) * tag_height + tag_rows.clamp(min=0, max=tag_height - 1)) * tag_width +
                    tag_columns.clamp(min=0, max=tag_width - 1))
     tag_indices = torch.where(valid, tag_indices, torch.zeros_like(input=tag_indices))
-    return {"heatmaps": heatmaps, "tag_indices": tag_indices, "tag_valid": valid, "object_labels": object_labels}
+
+    # Cells of every stride lying mostly in the ignored regions, the share of their ignored pixels being their average
+    ignored_cells = None
+    if ignored_regions is not None:
+        if tuple(ignored_regions.shape) != (batch_size, image_height, image_width):
+            raise ValueError(f"The ignored regions must have the shape {(batch_size, image_height, image_width)} of "
+                             f"the images, got {tuple(ignored_regions.shape)}.")
+        ignored_pixels = ignored_regions.to(device=device, dtype=torch.float32)[:, None]
+        ignored_cells = [torch_functional.avg_pool2d(input=ignored_pixels, kernel_size=heatmap_stride,
+                                                     stride=heatmap_stride) >= IGNORED_CELL_FRACTION
+                         for heatmap_stride in heatmap_strides]
+    return {"heatmaps": heatmaps, "tag_indices": tag_indices, "tag_valid": valid, "object_labels": object_labels,
+            "ignored_cells": ignored_cells}

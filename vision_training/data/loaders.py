@@ -59,7 +59,7 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
 def get_detection_dataloader(split_name: str, split_data_folder: str, model_configuration: Dict[str, Any],
                              batch_size: int, load_instance_masks: bool = False,
                              load_original_instances: bool = False, load_keypoints: bool = False,
-                             maximum_keypoints: int = 0) -> DataLoader:
+                             maximum_keypoints: int = 0, load_ignored_regions: bool = False) -> DataLoader:
     """
     Instantiates the DataLoader feeding one COCO split (Train, Validation or Test) to the object detection, instance
     segmentation or keypoint detection trainer: the CocoDetectionDataset decodes the images with OpenCV and resizes
@@ -80,6 +80,8 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
         load_keypoints (bool): Whether the samples carry the keypoints of every object (keypoint detection), the
             objects without any labelled keypoint being left out. Defaults to False.
         maximum_keypoints (int): The most keypoints of a class, with load_keypoints. Defaults to 0.
+        load_ignored_regions (bool): Whether the samples of the keypoint detection also carry the pixels of the
+            objects left out for having no labelled keypoint, which the heatmap loss leaves out. Defaults to False.
 
     Returns:
         DataLoader: The configured loader for the requested split.
@@ -98,7 +100,8 @@ def get_detection_dataloader(split_name: str, split_data_folder: str, model_conf
                                    label_dictionary=data_configuration["label_dictionary"],
                                    load_instance_masks=load_instance_masks,
                                    load_original_instances=load_original_instances,
-                                   load_keypoints=load_keypoints, maximum_keypoints=maximum_keypoints)
+                                   load_keypoints=load_keypoints, maximum_keypoints=maximum_keypoints,
+                                   load_ignored_regions=load_ignored_regions)
     return build_native_loader(dataset=dataset, batch_size=batch_size,
                                loading_configuration=data_configuration["loading"], collate_function=collate_function)
 
@@ -153,12 +156,15 @@ def get_keypoint_dataloaders(experiment_configuration: Dict[str, Any], model_con
     'labels.json' of every split like the object detection: every sample is one whole image resized on the CPU
     workers, with the boxes, classes and keypoints of all its objects, the keypoints being padded to the most keypoints
     of a class and kept as per-image lists by the collate. Every split leaves out the objects without any labelled
-    keypoint, which give no heatmap nor tag target and cannot be scored.
+    keypoint, which give no heatmap nor tag target and cannot be scored. With 'KeypointHead.ignore_unlabelled_objects',
+    the training and validation samples also carry the pixels of these objects, left out of their heatmap loss; the
+    test split computes no loss and does not read them.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
         model_configuration (Dict[str, Any]): The model configuration, giving the image settings, the label dictionary,
-            the keypoint categories injected by the configuration loader and the loading settings.
+            the keypoint categories injected by the configuration loader, the loading settings and the
+            'KeypointHead.ignore_unlabelled_objects' setting.
         batch_size (int): The number of images of a batch.
 
     Returns:
@@ -166,15 +172,18 @@ def get_keypoint_dataloaders(experiment_configuration: Dict[str, Any], model_con
     """
     maximum_keypoints = max(len(definition["keypoints"])
                             for definition in model_configuration["Data"]["keypoint_categories"].values())
+    ignore_unlabelled_objects = model_configuration["KeypointHead"]["ignore_unlabelled_objects"]
     loaders = []
 
-    # Build the loader of every split with the same settings
+    # Build the loader of every split with the same settings, the ignored regions only where a loss is computed
     for split_name, split_key in [("Train", "train_data_folder"), ("Validation", "validation_data_folder"),
                                   ("Test", "test_data_folder")]:
+        load_ignored_regions = ignore_unlabelled_objects and split_name != "Test"
         loaders.append(get_detection_dataloader(split_name=split_name,
                                                 split_data_folder=str(experiment_configuration[split_key]),
                                                 model_configuration=model_configuration, batch_size=batch_size,
-                                                load_keypoints=True, maximum_keypoints=maximum_keypoints))
+                                                load_keypoints=True, maximum_keypoints=maximum_keypoints,
+                                                load_ignored_regions=load_ignored_regions))
 
     return loaders[0], loaders[1], loaders[2]
 

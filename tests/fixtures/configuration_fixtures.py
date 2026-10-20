@@ -252,7 +252,7 @@ def get_keypoint_model_configuration(higher_resolution: bool = False,
                               'normalization': {'feature_map_normalization': 'batch',
                                                 'batch_normalization_momentum': 0.1}}
     configuration['KeypointHead'] = {'higher_resolution': higher_resolution, 'hidden_width': hidden_width,
-                                     'heatmap_sigma': 2.0,
+                                     'heatmap_sigma': 2.0, 'ignore_unlabelled_objects': False,
                                      'tag_pull_weight': 0.001, 'tag_push_weight': 0.001,
                                      'inference': {'maximum_candidates': 5, 'keypoint_threshold': 0.1,
                                                    'tag_threshold': 1.0, 'object_score_threshold': 0.2}}

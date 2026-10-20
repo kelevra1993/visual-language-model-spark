@@ -1401,13 +1401,16 @@ def change_keypoint_training_settings(experiment_configuration: Dict[str, Any],
                                       model_configuration: Dict[str, Any]) -> None:
     """
     Changes the settings of the keypoint detection that can change between two resumptions of a run: the heatmap
-    sigma, the tag loss weights, the grouping settings and the keypoint sigmas of the evaluation.
+    sigma, the ignored regions of the heatmap loss, the tag loss weights, the grouping settings and the keypoint
+    sigmas of the evaluation.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration, modified in place.
         model_configuration (Dict[str, Any]): The processed model configuration, modified in place.
     """
-    model_configuration["KeypointHead"].update({"heatmap_sigma": 3.0, "tag_pull_weight": 0.1, "tag_push_weight": 0.1})
+    model_configuration["KeypointHead"].update({"heatmap_sigma": 3.0, "tag_pull_weight": 0.1, "tag_push_weight": 0.1,
+                                                "ignore_unlabelled_objects": not model_configuration["KeypointHead"][
+                                                    "ignore_unlabelled_objects"]})
     model_configuration["KeypointHead"]["inference"].update({"maximum_candidates": 10, "keypoint_threshold": 0.2,
                                                               "tag_threshold": 2.0, "object_score_threshold": 0.5})
     experiment_configuration["evaluation"]["keypoint_sigmas"] = {}

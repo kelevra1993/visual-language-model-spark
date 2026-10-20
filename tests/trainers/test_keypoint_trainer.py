@@ -2,10 +2,13 @@
 Smoke test of KeypointTrainer of vision_training/trainers/keypoint_trainer.py on a generated synthetic keypoint
 dataset, on the CPU: training on the whole images saves checkpoints, evaluates the objects found in the test images
 with the object keypoint similarity (the average precision tables, the matched objects, PCK and mean OKS, the
-per-class and per-keypoint tables, their CSV files and the sample images) and resumes from its last checkpoint.
+per-class and per-keypoint tables, their CSV files and the sample images) and resumes from its last checkpoint. With
+'KeypointHead.ignore_unlabelled_objects', the ignored regions of an object without labelled keypoint go from the
+training loader through the augmentation to the heatmap loss.
 """
 
 import csv
+import json
 import pytest
 import torch
 import yaml
@@ -14,6 +17,7 @@ from pathlib import Path
 from typing import Dict, List
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
+from vision_training.data.augmentations import AUGMENTATION_TYPES, DataAugmenter
 from vision_training.data.synthetic.create_synthetic_dataset import create_synthetic_dataset
 from vision_training.evaluation.keypoints.object_keypoint_similarity import CORRECT_KEYPOINTS_NAME
 from vision_training.trainers.keypoint_trainer import KeypointTrainer
@@ -30,7 +34,8 @@ SMOKE_IMAGE_SIZE = 128
 SMOKE_NUMBER_SAMPLE_IMAGES = 30
 
 
-def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int) -> Path:
+def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int,
+                              ignore_unlabelled_objects: bool = False) -> Path:
     """
     Writes a copy of the synthetic keypoint configuration adapted to a quick training smoke test: the generated
     dataset, 128 pixel images, batches of 2 images, a saving schedule that triggers an intermediate save, a save with
@@ -41,6 +46,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
         temporary_directory (Path): The pytest temporary directory receiving the configuration and the experiments.
         dataset_folder (Path): The root folder of the generated synthetic dataset.
         number_iterations (int): The number of training iterations of the run.
+        ignore_unlabelled_objects (bool): Whether the heatmap loss leaves out the objects without labelled keypoint
+            ('KeypointHead.ignore_unlabelled_objects'). Defaults to False.
 
     Returns:
         Path: The path of the written configuration file.
@@ -66,6 +73,9 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
     configuration["Data"]["loading"]["number_workers"] = 2
     configuration["Data"]["label_mapping"]["mapping_file_path"] = str(dataset_folder / "label_mapping.json")
+
+    # Leave the objects without labelled keypoint out of the heatmap loss when asked
+    configuration["KeypointHead"]["ignore_unlabelled_objects"] = ignore_unlabelled_objects
 
     configuration_path = temporary_directory / f"configuration_{number_iterations}_iterations.yaml"
     configuration_path.write_text(data=yaml.safe_dump(data=configuration))
@@ -216,3 +226,76 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     console_output = first_run_output + capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_ignored_regions_go_from_the_loader_to_the_heatmap_loss(tmp_path: Path) -> None:
+    """
+    Verifies the path of the ignored regions through the trainer with 'KeypointHead.ignore_unlabelled_objects': a
+    training object of a category with keypoints, none of them labelled, drawn by the polygon of its box, gives the
+    [B, S, S] uint8 ignored regions of the training batch, the validation batches carrying regions too and the test
+    batches, which compute no loss, none; the augmentation moves the regions as the binary mask of the augmenter, a
+    left-right flip of every image flipping them; and the forward pass gives the heatmap loss of the model with the
+    regions, below the loss without them.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    dataset_folder = tmp_path / "synthetic_keypoints"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 2, "validation": 2, "test": 2}, maximum_objects=2,
+                             minimum_frames=1, maximum_frames=1, number_workers=1, task="keypoint_detection")
+
+    # Every training and validation object is drawn by the polygon of its box, the generated shapes having no
+    # segmentation, and the first training object becomes an object of a category with keypoints, none labelled,
+    # drawn by the right triangle of the top left half of its box, which a left-right flip always changes
+    for split_name in ["train", "validation"]:
+        labels_path = dataset_folder / split_name / "labels.json"
+        labels = json.loads(s=labels_path.read_text())
+        for annotation in labels["annotations"]:
+            left, top, width, height = annotation["bbox"]
+            annotation["segmentation"] = [[left, top, left + width, top, left + width, top + height, left,
+                                           top + height]]
+        if split_name == "train":
+            keypoint_category = next(category for category in labels["categories"] if len(category["keypoints"]) > 0)
+            left, top, width, height = labels["annotations"][0]["bbox"]
+            labels["annotations"][0].update({"category_id": keypoint_category["id"], "num_keypoints": 0,
+                                             "keypoints": [0] * (3 * len(keypoint_category["keypoints"])),
+                                             "segmentation": [[left, top, left + width, top, left, top + height]]})
+        labels_path.write_text(data=json.dumps(obj=labels))
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=1,
+        ignore_unlabelled_objects=True))
+
+    # The training batch of the two images carries the binary regions, the validation batches too, the test ones none
+    training_batch = next(iter(trainer.train_dataloader))
+    ignored_regions = training_batch["ignored_regions"]
+    assert ignored_regions.shape == (2, SMOKE_IMAGE_SIZE, SMOKE_IMAGE_SIZE) and ignored_regions.dtype == torch.uint8
+    assert set(ignored_regions.unique().tolist()) == {0, 1}
+    validation_regions = next(iter(trainer.validation_dataloader))["ignored_regions"]
+    assert validation_regions.shape == (2, SMOKE_IMAGE_SIZE, SMOKE_IMAGE_SIZE)
+    assert "ignored_regions" not in next(iter(trainer.test_dataloader))
+
+    # The augmentation moves the regions as the binary mask of the augmenter, here a left-right flip of every image
+    prepared_batch = trainer.prepare_batch(batch=training_batch)
+    flipped_regions = prepared_batch["ignored_regions"].flip(dims=[2])
+    assert not torch.equal(input=flipped_regions, other=prepared_batch["ignored_regions"])
+    trainer.data_augmenter = DataAugmenter(augmentation_configuration={
+        "activated": True, "probability": 1.0, "independent_frames": False,
+        "shuffle_frames": {"activated": False, "probability": 0.0},
+        "types": {name: {"activated": name == "random_left_right_flip", "probability": 1.0}
+                  for name in AUGMENTATION_TYPES}})
+    augmented_batch = trainer.augment_batch(batch=prepared_batch)
+    assert torch.equal(input=augmented_batch["ignored_regions"], other=flipped_regions)
+
+    # The forward pass gives the heatmap loss of the model with the regions, which leave out some of its terms
+    with torch.no_grad():
+        outputs = trainer.forward_pass(batch=prepared_batch)
+        regions_outputs = trainer.model(input_tensor=prepared_batch["images"],
+                                        ground_truth_keypoints=prepared_batch["keypoints"],
+                                        ground_truth_labels=prepared_batch["labels"],
+                                        ignored_regions=prepared_batch["ignored_regions"])
+        every_cell_outputs = trainer.model(input_tensor=prepared_batch["images"],
+                                           ground_truth_keypoints=prepared_batch["keypoints"],
+                                           ground_truth_labels=prepared_batch["labels"])
+    assert torch.allclose(input=outputs["heatmap_loss"], other=regions_outputs["heatmap_loss"])
+    assert outputs["heatmap_loss"].item() < every_cell_outputs["heatmap_loss"].item()

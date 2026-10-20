@@ -6,9 +6,10 @@ giving, for every keypoint of every class (the union of the keypoints of the cla
 1/4 of the image, plus, with the higher resolution branch, a second heatmap at 1/2 of the image, every heatmap being
 the sigmoid of a predicted logit, the probability of a keypoint at every cell. Trained with the focal heatmap loss and
 the associative embedding losses of losses/keypoint_losses.py on the targets of data/keypoints/heatmap_targets.py, it
-gives at inference the keypoint candidates of every channel (local maxima of the averaged heatmaps with their score
-and tag), grouped into objects by models/keypoints/keypoint_grouping.py. Registered in model_registry.py for the
-"keypoint_detection" task and wrapped by inference_keypoint_detector.py for the exports.
+gives at inference the keypoint candidates of every channel (local maxima of the averaged heatmaps placed within their
+cell by the log-heatmap, with their score and tag), grouped into objects by models/keypoints/keypoint_grouping.py.
+Registered in model_registry.py for the "keypoint_detection" task and wrapped by inference_keypoint_detector.py for the
+exports.
 """
 
 import math
@@ -31,8 +32,13 @@ from vision_training.models.task_model import TaskModel
 # the tag maps
 HEATMAP_STRIDE = 4
 
-# Shift of a decoded keypoint towards the higher of its two neighbouring cells, in heatmap cells
-SUBPIXEL_SHIFT = 0.25
+# Lowest heatmap value taken by the logarithm of the peak refinement, the heatmaps being probabilities that can be 0
+LOG_HEATMAP_EPSILON = 1e-10
+
+# Largest move of a keypoint candidate from the centre of its cell, in heatmap cells: the vertex of the parabola through
+# a local maximum and its two neighbours lies within half a cell of it, the bound only holding back the zero-score
+# candidates that are not local maxima
+MAXIMUM_PEAK_OFFSET = 0.5
 
 # Standard deviation of the initial weights of the last convolution of the heatmap and tag heads, small so that the
 # first heatmaps and tags are the same at every cell
@@ -104,6 +110,40 @@ def gather_heatmap_values(flat_heatmaps: torch.Tensor, rows: torch.Tensor, colum
     return flat_heatmaps.gather(dim=2, index=flat_indices)
 
 
+def compute_peak_offsets(centre_values: torch.Tensor, next_values: torch.Tensor,
+                         previous_values: torch.Tensor) -> torch.Tensor:
+    """
+    Places the keypoint candidates of extract_keypoint_candidates within their cell along one axis, at the vertex of
+    the parabola through the log-heatmap at the candidate cell and at its two neighbours: the second order Taylor
+    expansion of the log-heatmap around its maximum of DARK ("Distribution-Aware Coordinate Representation for Human
+    Pose Estimation" https://arxiv.org/abs/1910.06278), taken along each axis, which is exact for a round Gaussian peak.
+    With a and b the drops of the log-heatmap from the cell to its next and previous neighbours, the offset is
+    (b - a) / (2 (a + b)), towards the higher neighbour and within half a cell at a local maximum (both drops >= 0),
+    and 0 on a flat cell. DARK also uses the cross derivative, which can push the offset out of the cell, and blurs
+    the heatmaps first, which brought the peaks of a trained synthetic run no closer to their keypoints.
+
+    Args:
+        centre_values (torch.Tensor): The [B, C, N] heatmap values of the candidate cells.
+        next_values (torch.Tensor): The [B, C, N] heatmap values of their next neighbours along the axis.
+        previous_values (torch.Tensor): The [B, C, N] heatmap values of their previous neighbours along the axis.
+
+    Returns:
+        torch.Tensor: The [B, C, N] offsets in heatmap cells, positive towards the next neighbour, within
+            [-MAXIMUM_PEAK_OFFSET, MAXIMUM_PEAK_OFFSET].
+    """
+    # Drops of the log-heatmap from the candidate cell to its two neighbours
+    log_centre_values = torch.log(input=centre_values.clamp(min=LOG_HEATMAP_EPSILON))
+    next_drops = log_centre_values - torch.log(input=next_values.clamp(min=LOG_HEATMAP_EPSILON))
+    previous_drops = log_centre_values - torch.log(input=previous_values.clamp(min=LOG_HEATMAP_EPSILON))
+
+    # Vertex of the parabola, none on a flat cell, bounded for the zero-score candidates that are not local maxima
+    total_drops = next_drops + previous_drops
+    safe_total_drops = torch.where(total_drops > 0.0, total_drops, torch.ones_like(input=total_drops))
+    offsets = torch.where(total_drops > 0.0, (previous_drops - next_drops) / (2.0 * safe_total_drops),
+                          torch.zeros_like(input=total_drops))
+    return offsets.clamp(min=-MAXIMUM_PEAK_OFFSET, max=MAXIMUM_PEAK_OFFSET)
+
+
 def extract_keypoint_candidates(heatmaps: torch.Tensor, tags: torch.Tensor,
                                 higher_resolution_heatmaps: Optional[torch.Tensor],
                                 maximum_candidates: int) -> Dict[str, torch.Tensor]:
@@ -112,10 +152,10 @@ def extract_keypoint_candidates(heatmaps: torch.Tensor, tags: torch.Tensor,
     their grouping into objects (keypoint_grouping.py). With the higher resolution branch, the quarter resolution
     heatmaps and tags are upsampled bilinearly to half the image resolution and the heatmaps averaged with the higher
     resolution ones. The candidates of a channel are its local maxima over a 3x3 window, the maximum_candidates highest
-    ones kept, each shifted by a quarter of a cell towards the higher of its two neighbours along each axis (no shift on
-    the border), brought back to image pixels with the centre of cell j at (j + 0.5) x stride, the convention of
-    build_keypoint_targets. Its score is the value of its cell and its tag the tag of its channel at its cell. It is
-    computed in float32.
+    ones kept, each placed within its cell along each axis at the vertex of the parabola through the log-heatmap at its
+    cell and at its two neighbours (compute_peak_offsets, no move on the border), brought back to image pixels with the
+    centre of cell j at (j + 0.5) x stride, the convention of build_keypoint_targets. Its score is the value of its cell
+    and its tag the tag of its channel at its cell. It is computed in float32.
 
     Args:
         heatmaps (torch.Tensor): The [B, C, h, w] heatmaps at a quarter of the image resolution.
@@ -155,26 +195,29 @@ def extract_keypoint_candidates(heatmaps: torch.Tensor, tags: torch.Tensor,
     columns = flat_indices % heatmap_width
     rows = torch.div(flat_indices, heatmap_width, rounding_mode="floor")
 
-    # Differences between the two neighbours along each axis, read on the heatmaps before the suppression, giving the
-    # direction of the quarter cell shift
-    horizontal_difference = (gather_heatmap_values(flat_heatmaps=flat_heatmaps, rows=rows, columns=columns + 1,
-                                                   heatmap_height=heatmap_height, heatmap_width=heatmap_width) -
-                             gather_heatmap_values(flat_heatmaps=flat_heatmaps, rows=rows, columns=columns - 1,
-                                                   heatmap_height=heatmap_height, heatmap_width=heatmap_width))
-    vertical_difference = (gather_heatmap_values(flat_heatmaps=flat_heatmaps, rows=rows + 1, columns=columns,
-                                                 heatmap_height=heatmap_height, heatmap_width=heatmap_width) -
-                           gather_heatmap_values(flat_heatmaps=flat_heatmaps, rows=rows - 1, columns=columns,
-                                                 heatmap_height=heatmap_height, heatmap_width=heatmap_width))
+    # Offsets of every candidate within its cell along each axis, from the values of its cell and of its two neighbours
+    # read on the heatmaps before the suppression
+    centre_values = flat_heatmaps.gather(dim=2, index=flat_indices)
+    offset_x = compute_peak_offsets(
+        centre_values=centre_values,
+        next_values=gather_heatmap_values(flat_heatmaps=flat_heatmaps, rows=rows, columns=columns + 1,
+                                          heatmap_height=heatmap_height, heatmap_width=heatmap_width),
+        previous_values=gather_heatmap_values(flat_heatmaps=flat_heatmaps, rows=rows, columns=columns - 1,
+                                              heatmap_height=heatmap_height, heatmap_width=heatmap_width))
+    offset_y = compute_peak_offsets(
+        centre_values=centre_values,
+        next_values=gather_heatmap_values(flat_heatmaps=flat_heatmaps, rows=rows + 1, columns=columns,
+                                          heatmap_height=heatmap_height, heatmap_width=heatmap_width),
+        previous_values=gather_heatmap_values(flat_heatmaps=flat_heatmaps, rows=rows - 1, columns=columns,
+                                              heatmap_height=heatmap_height, heatmap_width=heatmap_width))
 
-    # The candidates on the border of the heatmap have a single neighbour along that axis and are not shifted
+    # The candidates on the border of the heatmap have a single neighbour along that axis and are not moved
     horizontal_inside = ((columns > 0) & (columns < heatmap_width - 1)).to(dtype=torch.float32)
     vertical_inside = ((rows > 0) & (rows < heatmap_height - 1)).to(dtype=torch.float32)
-    shift_x = SUBPIXEL_SHIFT * torch.sign(horizontal_difference) * horizontal_inside
-    shift_y = SUBPIXEL_SHIFT * torch.sign(vertical_difference) * vertical_inside
 
-    # Shifted cell indices brought back to image pixels, and the tag of every candidate at its cell
-    candidate_x = (columns.to(dtype=torch.float32) + shift_x + 0.5) * heatmap_stride
-    candidate_y = (rows.to(dtype=torch.float32) + shift_y + 0.5) * heatmap_stride
+    # Moved cell indices brought back to image pixels, and the tag of every candidate at its cell
+    candidate_x = (columns.to(dtype=torch.float32) + offset_x * horizontal_inside + 0.5) * heatmap_stride
+    candidate_y = (rows.to(dtype=torch.float32) + offset_y * vertical_inside + 0.5) * heatmap_stride
     candidate_tags = tags.reshape(batch_size, number_channels, -1).gather(dim=2, index=flat_indices)
     return {"candidate_positions": torch.stack(tensors=(candidate_x, candidate_y), dim=3),
             "candidate_scores": candidate_scores, "candidate_tags": candidate_tags}
@@ -190,8 +233,9 @@ class KeypointDetector(TaskModel):
 
     Outputs: 'heatmaps' (the sigmoid of the heatmap logits) and 'tags' [B, C, H / 4, W / 4], with the higher resolution
     branch 'higher_resolution_heatmaps' [B, C, H / 2, W / 2]; with the ground truth, the 'heatmap_loss' (computed on
-    the logits), 'tag_pull_loss' and 'tag_push_loss'; without it, the keypoint candidates of every channel of
-    extract_keypoint_candidates ('candidate_positions', 'candidate_scores', 'candidate_tags').
+    the logits, without the cells of the ignored regions), 'tag_pull_loss' and 'tag_push_loss'; without it, the
+    keypoint candidates of every channel of extract_keypoint_candidates ('candidate_positions', 'candidate_scores',
+    'candidate_tags').
     """
 
     def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
@@ -266,12 +310,13 @@ class KeypointDetector(TaskModel):
             nn.init.constant_(tensor=prediction_head[-1].bias[:self.number_channels], val=prior_logit)
 
     def forward(self, input_tensor: torch.Tensor, ground_truth_keypoints: Optional[List[torch.Tensor]] = None,
-                ground_truth_labels: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
+                ground_truth_labels: Optional[List[torch.Tensor]] = None,
+                ignored_regions: Optional[torch.Tensor] = None) -> Dict[str, Any]:
         """
         Predicts the heatmaps and tags of a batch of whole images, the heatmaps being the sigmoid of the predicted
         logits. With the ground truth, builds the targets on the device and returns the heatmap loss of the logits
-        (summed over the strides) and the weighted tag losses; without it, extracts the keypoint candidates of every
-        channel.
+        (summed over the strides, leaving out the cells of the ignored regions) and the weighted tag losses; without
+        it, extracts the keypoint candidates of every channel.
 
         Args:
             input_tensor (torch.Tensor): The [B, 3, H, W] float BGR images in [0, 255].
@@ -279,6 +324,9 @@ class KeypointDetector(TaskModel):
                 visibility) keypoints of its objects in image pixels, or None.
             ground_truth_labels (Optional[List[torch.Tensor]]): One [N_i] int64 tensor per image of the class of its
                 objects, or None.
+            ignored_regions (Optional[torch.Tensor]): The [B, H, W] uint8 pixels of the objects without labelled
+                keypoint, left out of the heatmap loss ('KeypointHead.ignore_unlabelled_objects'), or None to train
+                every cell. Unused without the ground truth. Defaults to None.
 
         Returns:
             Dict[str, Any]: The 'heatmaps' and 'tags' (and 'higher_resolution_heatmaps'), plus the three losses with
@@ -313,11 +361,15 @@ class KeypointDetector(TaskModel):
                                          channel_table=self.channel_table, number_channels=self.number_channels,
                                          image_height=image_height, image_width=image_width,
                                          heatmap_strides=heatmap_strides, tag_stride=HEATMAP_STRIDE,
-                                         heatmap_sigma=self.heatmap_sigma)
+                                         heatmap_sigma=self.heatmap_sigma, ignored_regions=ignored_regions)
+
+        # Heatmap loss of every stride, without the cells of the ignored regions when there are some
+        ignored_cells = targets["ignored_cells"] if ignored_regions is not None else [None] * len(heatmap_logits)
         outputs["heatmap_loss"] = sum(compute_heatmap_loss(predicted_logits=stride_logits,
-                                                           target_heatmaps=target_heatmaps)
-                                      for stride_logits, target_heatmaps in zip(heatmap_logits, targets["heatmaps"],
-                                                                                strict=True))
+                                                           target_heatmaps=target_heatmaps,
+                                                           ignored_cells=stride_ignored_cells)
+                                      for stride_logits, target_heatmaps, stride_ignored_cells
+                                      in zip(heatmap_logits, targets["heatmaps"], ignored_cells, strict=True))
         pull_loss, push_loss = compute_tag_losses(tag_maps=outputs["tags"], tag_indices=targets["tag_indices"],
                                                   tag_valid=targets["tag_valid"],
                                                   object_labels=targets["object_labels"])

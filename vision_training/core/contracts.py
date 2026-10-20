@@ -172,8 +172,12 @@ class KeypointBatch(DetectionBatch):
     """
     Batch of the keypoint detection task, on the device: the detection batch of the whole images with the keypoints of
     every object, one [N_i, K, 3] float tensor of (x, y, visibility) per image in the order of its boxes and labels, in
-    continuous image pixels (the first pixel centre at 0.5), padded to the most keypoints of a class. A training batch
-    also holds the DataAugmenter 'augmentation_reports' of its images, for the input viewer.
+    continuous image pixels (the first pixel centre at 0.5), padded to the most keypoints of a class. With
+    'KeypointHead.ignore_unlabelled_objects', the training and validation batches hold the [B, H, W] uint8
+    'ignored_regions', 1 on the pixels of the objects left out for having no labelled keypoint, which the heatmap loss
+    leaves out. A training batch also holds the DataAugmenter 'augmentation_reports' of its images, for the input
+    viewer.
     """
     keypoints: List[torch.Tensor]
+    ignored_regions: NotRequired[torch.Tensor]
     augmentation_reports: NotRequired[List[Dict[str, Any]]]

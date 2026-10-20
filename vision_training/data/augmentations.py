@@ -1,9 +1,9 @@
 """
 DataAugmenter, the random geometric and photometric augmentations applied on the device to the training batches of
 every task right before the forward pass, moving the bounding boxes of the object detector, the masks of the semantic
-segmentation, the instance masks of the instance segmentation and the keypoints of the keypoint detection with the
-images and handling the frame shuffling and per-frame draws of the sequence tasks. Of the histogram equalizations drawn
-together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only one, chosen at random, is applied.
+segmentation, the instance masks of the instance segmentation and the keypoints and ignored regions of the keypoint
+detection with the images and handling the frame shuffling and per-frame draws of the sequence tasks. Of the histogram
+equalizations drawn together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only one, chosen at random, is applied.
 Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
 common checks. Every augmented batch comes with a report of the types drawn for each sample and their values, which
 the 'view_input_images' diagnosis mode writes in the information panel next to every training image.
@@ -117,8 +117,8 @@ class DataAugmenter:
     moved, clipped and filtered together with the geometric augmentations, the semantic segmenter passes the class
     masks of its images, moved with nearest interpolation so that every pixel keeps a class, the instance segmenter
     passes the binary mask of every object with its boxes, the boxes then becoming the tight boxes of the moved masks,
-    the keypoint detector passes the keypoints of every object with its boxes, moved without being renamed, while a
-    classifier simply omits them.
+    the keypoint detector passes the keypoints of every object with its boxes, moved without being renamed, and as its
+    masks the binary regions its heatmap loss leaves out, while a classifier simply omits them.
     Images are float BGR tensors in the [0, 255] range, either single images [B, C, H, W] or sequences
     [B, T, C, H, W] for the sequence networks, in which case every frame of a sequence receives exactly the same
     random augmentation so that the sequence stays coherent, unless the photometric types are drawn frame by frame
@@ -164,8 +164,10 @@ class DataAugmenter:
             bounding_boxes (Optional[List[torch.Tensor]]): Per-image [N, 4] boxes in absolute [x1, y1, x2, y2]
                 pixel coordinates, or None for networks without boxes. Defaults to None.
             labels (Optional[List[torch.Tensor]]): Per-image [N] labels matching the boxes. Defaults to None.
-            masks (Optional[torch.Tensor]): The [B, H, W] int64 class index of every pixel of the images, or None
-                for networks without masks. Defaults to None.
+            masks (Optional[torch.Tensor]): The [B, H, W] int64 class index of every pixel of the images, filled with
+                the ignored label where a geometric type uncovers the image, or the [B, H, W] uint8 binary regions the
+                keypoint detector leaves out of its heatmap loss, filled with 0, or None for networks without masks.
+                Defaults to None.
             instance_masks (Optional[List[torch.Tensor]]): Per-image [N, H, W] uint8 binary masks matching the boxes
                 (instance segmentation), or None. Defaults to None.
             keypoints (Optional[List[torch.Tensor]]): Per-image [N, K, 3] float keypoints (x, y, visibility) of the
@@ -255,7 +257,8 @@ class DataAugmenter:
             image (torch.Tensor): A float BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
             bounding_boxes (Optional[torch.Tensor]): The [N, 4] absolute [x1, y1, x2, y2] boxes, or None.
             labels (Optional[torch.Tensor]): The [N] labels of the boxes, or None.
-            mask (Optional[torch.Tensor]): The [H, W] int64 class index of every pixel, or None.
+            mask (Optional[torch.Tensor]): The [H, W] int64 class index of every pixel, the [H, W] uint8 binary
+                regions the keypoint detector leaves out of its heatmap loss, or None.
             instance_masks (Optional[torch.Tensor]): The [N, H, W] uint8 binary masks of the boxes, or None. Defaults
                 to None.
             keypoints (Optional[torch.Tensor]): The [N, K, 3] float keypoints (x, y, visibility) of the objects of the

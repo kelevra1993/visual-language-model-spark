@@ -6,10 +6,12 @@ Gaussian centred on the keypoint, a keypoint on the border of two cells peaking 
 kept where two Gaussians of one heatmap overlap) and build_keypoint_targets
 (the channel of every keypoint given by the class of its object, the untrained keypoints left out: unlabelled, outside
 the image or on the padding positions of a class with fewer keypoints, the heatmaps at every stride, the tag cell of
-every keypoint, the objects padded to the most objects of an image, and a batch without object).
+every keypoint, the objects padded to the most objects of an image, a batch without object, and the ignored cells of
+every stride, at least half covered by the ignored regions).
 """
 
 import math
+import pytest
 import torch
 
 from vision_training.data.keypoints.heatmap_targets import build_keypoint_targets, draw_gaussian_heatmaps
@@ -128,3 +130,44 @@ def test_batch_without_objects_gives_empty_targets() -> None:
                                      image_width=32, heatmap_strides=[4], tag_stride=4, heatmap_sigma=2.0)
     assert targets["heatmaps"][0].shape == (2, 7, 8, 8) and not targets["heatmaps"][0].any()
     assert targets["object_labels"].tolist() == [[0], [0]] and not targets["tag_valid"].any()
+    assert targets["ignored_cells"] is None
+
+
+def test_ignored_cells_are_the_cells_mostly_in_the_ignored_regions() -> None:
+    """
+    Verifies the ignored cells of every stride: a cell is left out of the heatmap loss when at least half of its
+    pixels lie in the ignored regions, its share being the average of its pixels, at the strides 4 and 2 of a 16 x 16
+    image whose first 6 columns are ignored, the second image having no ignored pixel; and that regions of another
+    size than the images are refused.
+    """
+    ignored_regions = torch.zeros(size=(2, 16, 16), dtype=torch.uint8)
+    ignored_regions[0, :, :6] = 1
+    targets = build_keypoint_targets(keypoints=[torch.zeros(size=(0, 4, 3)), torch.zeros(size=(0, 4, 3))],
+                                     labels=[torch.zeros(size=(0,), dtype=torch.int64)] * 2,
+                                     channel_table=CHANNEL_TABLE, number_channels=NUMBER_CHANNELS, image_height=16,
+                                     image_width=16, heatmap_strides=[4, 2], tag_stride=4, heatmap_sigma=1.0,
+                                     ignored_regions=ignored_regions)
+    stride_4_cells, stride_2_cells = targets["ignored_cells"]
+    assert stride_4_cells.shape == (2, 1, 4, 4) and stride_2_cells.shape == (2, 1, 8, 8)
+    assert stride_4_cells.dtype == torch.bool and stride_2_cells.dtype == torch.bool
+
+    # Columns 0 to 3 are ignored at stride 4, columns 4 and 5 being half of the second cell, and 6 at stride 2
+    assert stride_4_cells[0, 0].tolist() == [[True, True, False, False]] * 4
+    assert stride_2_cells[0, 0].tolist() == [[True, True, True, False, False, False, False, False]] * 8
+    assert not stride_4_cells[1].any() and not stride_2_cells[1].any()
+
+    # A cell with a quarter of its pixels ignored stays trained
+    quarter_regions = torch.zeros(size=(1, 16, 16), dtype=torch.uint8)
+    quarter_regions[0, :, 3] = 1
+    quarter_targets = build_keypoint_targets(keypoints=[torch.zeros(size=(0, 4, 3))],
+                                             labels=[torch.zeros(size=(0,), dtype=torch.int64)],
+                                             channel_table=CHANNEL_TABLE, number_channels=NUMBER_CHANNELS,
+                                             image_height=16, image_width=16, heatmap_strides=[4], tag_stride=4,
+                                             heatmap_sigma=1.0, ignored_regions=quarter_regions)
+    assert not quarter_targets["ignored_cells"][0].any()
+    with pytest.raises(expected_exception=ValueError, match="must have the shape"):
+        build_keypoint_targets(keypoints=[torch.zeros(size=(0, 4, 3))], labels=[torch.zeros(size=(0,),
+                                                                                            dtype=torch.int64)],
+                               channel_table=CHANNEL_TABLE, number_channels=NUMBER_CHANNELS, image_height=16,
+                               image_width=16, heatmap_strides=[4], tag_stride=4, heatmap_sigma=1.0,
+                               ignored_regions=torch.zeros(size=(1, 8, 8), dtype=torch.uint8))

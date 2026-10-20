@@ -365,9 +365,9 @@ HRNet:
 # at a quarter of the image resolution, one heatmap and one tag map per keypoint of every class (243 of each for the 33
 # synthetic classes). The heatmaps are the sigmoid of the predicted logits, their targets Gaussians centred on the
 # keypoints of all the objects of the image with the cell containing every keypoint at 1, every channel being trained
-# in every image (towards zero without keypoint). The keypoints found are the local maxima of the heatmaps, moved
-# by a quarter of a cell towards their higher neighbours, their score the value of their cell, grouped into objects by
-# their tags.
+# in every image (towards zero without keypoint). The keypoints found are the local maxima of the heatmaps, placed
+# within their cell at the peak of the parabola through the log-heatmap at their cell and its neighbours, their score
+# the value of their cell, grouped into objects by their tags.
 KeypointHead:
   # Adds the higher resolution branch of HigherHRNet: the features of the highest resolution branch and the heatmaps
   # and tags predicted from them are upsampled by a transposed convolution to half the image resolution, refined by
@@ -389,6 +389,14 @@ KeypointHead:
   # Standard deviation of the target Gaussians in heatmap cells (a quarter of the image pixels, half with the higher
   # resolution branch), the same at both resolutions, 2 in HigherHRNet.
   heatmap_sigma: 2.0
+  # Leaves the pixels of the objects left out of the labels for having no labelled keypoint out of the heatmap loss,
+  # as HigherHRNet does with the COCO crowds and the persons without keypoints: the heatmap cells at least half covered
+  # by these objects are left out at both resolutions and in every channel, so that the heatmaps learn neither
+  # keypoints nor their absence there, the keypoint cells of the labelled objects staying trained. The pixels come from
+  # the 'segmentation' of these objects, which every one of them must then have, for the training and validation
+  # splits. The synthetic shapes have no 'segmentation', so their few shapes without labelled keypoint stay trained
+  # towards 0. No run name token.
+  ignore_unlabelled_objects: False
   # Weights of the tag losses next to the heatmap loss, the focal loss of CornerNet (paper "CornerNet: Detecting
   # Objects as Paired Keypoints" https://arxiv.org/abs/1808.01244) summed over the cells of every channel and divided
   # by the number of keypoints: -(1 - p)^2 log(p) on the cells at 1, -(1 - target)^4 p^2 log(1 - p) on the others, so

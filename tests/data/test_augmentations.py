@@ -5,7 +5,8 @@ instance masks and recomputing their boxes, photometric augmentations keeping bo
 without boxes, a single histogram equalization per image, shared or per-frame draws of the sequence frames, frame
 shuffling, the rejected inputs, the zoom-out, the translation by whole pixels with the removal of the objects it pushes
 out, the removal of the fragments of objects left by the crop, the keypoints moved without being renamed and
-unlabelled once out of the image, and the augmentation reports written in the information panels of the input viewer.
+unlabelled once out of the image, the ignored regions of the keypoint detection moved with them as binary masks, and the
+augmentation reports written in the information panels of the input viewer.
 """
 
 import random
@@ -726,6 +727,41 @@ def test_geometric_augmentation_moves_keypoints_with_the_image(augmentation_type
                               atol=BOX_TOLERANCES[augmentation_type] + 1e-4)
         assert moved_keypoints[0][0, 0, 2] == 2.0 and moved_keypoints[0][0, 1].tolist() == [0.0, 0.0, 0.0]
         assert boxes[0].shape == (1, 4)
+
+
+@pytest.mark.parametrize(argnames="augmentation_type", argvalues=GEOMETRIC_AUGMENTATION_TYPES)
+def test_geometric_augmentation_moves_the_ignored_regions_with_the_keypoints(augmentation_type: str) -> None:
+    """
+    Verifies that every geometric augmentation moves the ignored regions of the keypoint detection, given as the
+    binary masks of the augmenter together with the boxes and keypoints of the objects, with the image: the region
+    drawn on the rectangle follows it and stays binary uint8, the border uncovered by a zoom-out, a translation or a
+    rotation being left out of it.
+
+    Args:
+        augmentation_type (str): The geometric augmentation type under test.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[augmentation_type]))
+    box = [20.0, 30.0, 50.0, 70.0]
+    ignored_regions = torch.zeros(size=(1, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
+    ignored_regions[0, 30:70, 20:50] = 1
+    keypoints = torch.tensor(data=[[[35.0, 50.0, 2.0], [0.0, 0.0, 0.0]]])
+
+    for seed in range(5):
+        random.seed(seed)
+        torch.manual_seed(seed=seed)
+        images, _, _, moved_regions, _, moved_keypoints, _ = augmenter.augment_batch(
+            images=create_rectangle_image(box=box).unsqueeze(dim=0), bounding_boxes=[torch.tensor(data=[box])],
+            labels=[torch.tensor(data=[1])], masks=ignored_regions, keypoints=[keypoints])
+
+        # The region stays binary on the moved rectangle, nothing else being ignored
+        assert moved_regions.shape == (1, IMAGE_SIZE, IMAGE_SIZE) and moved_regions.dtype == torch.uint8
+        assert set(moved_regions.unique().tolist()) <= {0, 1} and moved_keypoints[0].shape == (1, 2, 3)
+        row_indices, column_indices = torch.nonzero(input=moved_regions[0], as_tuple=True)
+        region_box = [float(column_indices.min()), float(row_indices.min()), float(column_indices.max()) + 1.0,
+                      float(row_indices.max()) + 1.0]
+        assert torch.allclose(input=torch.tensor(data=region_box),
+                              other=torch.tensor(data=get_bright_region_box(image=images[0])),
+                              atol=BOX_TOLERANCES[augmentation_type])
 
 
 def test_flip_keeps_the_keypoint_names() -> None:

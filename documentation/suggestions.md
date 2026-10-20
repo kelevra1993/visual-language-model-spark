@@ -40,7 +40,14 @@
 > - box regression weights of both stages kept at (1, 1, 1, 1) (`BOX_REGRESSION_WEIGHTS`, the first part of item 6),
 >   the (10, 10, 5, 5) of torchvision giving about 2.5 times lower box and mask mAP@0.5 on the synthetic shapes;
 > - INS evaluation at the original resolution of the test images (`evaluation.original_resolution`) and mean
->   average recall of the boxes and masks by object size, for DET and INS (item 12), not compared with pycocotools.
+>   average recall of the boxes and masks by object size, for DET and INS (item 12), not compared with pycocotools;
+> - a weight per loss of DET and INS in the total loss (`Optimization.loss_weights`, item 6, whose experiment is left);
+> - the decorrelation of the hidden features of the classification head (`ClassificationHead.decorrelation`, item 18,
+>   whose experiment is left);
+> - the keypoint candidates placed within their cell by the parabola of the log-heatmap (item 17, whose measure on
+>   COCO is left);
+> - the objects without labelled keypoint left out of the keypoint heatmap loss
+>   (`KeypointHead.ignore_unlabelled_objects`, item 16, whose experiment is left).
 >
 > Dropped without being implemented:
 > - the masked proposal padding of the training;
@@ -128,17 +135,17 @@
      features themselves are fine enough;
    - a boundary refinement in the style of PointRend, predicting the uncertain border points again from finer
      features.
-6. **A weight per loss**:
+6. **The weights of the losses, experiment left to run** (`Optimization.loss_weights`, implemented):
    - **Mask R-CNN:** `LOSS_WEIGHTS` multiplies each of the five losses (`config.py:189-195`, `model.py:2172-2174`).
-   - **Here:** the five losses are summed with weight 1. The box regression targets of both stages keep the fixed
+   - **Here:** `Optimization.loss_weights` multiplies each of the four losses of DET and the five of INS in the total
+     loss, the tracked losses staying unweighted. Every configuration file keeps the weights at 1, never tuned. The box
+     regression targets of both stages keep the fixed
      weights (1, 1, 1, 1) of `BOX_REGRESSION_WEIGHTS`: the (10, 10, 5, 5) equivalent to the [0.1, 0.1, 0.2, 0.2] of
      Mask R-CNN gave about 2.5 times lower box and mask mAP@0.5 on the synthetic shapes.
    - **Why it can help:** it lets the mask loss be raised when the masks lag behind the boxes, or the box losses be
      balanced against the classification.
-   - **Change:** an `Optimization.loss_weights` dictionary keyed by the tracked loss names. The loss weights do not
-     change what a checkpoint computes, so they need no run name token, like the learning rate.
-   - **Cost and risk:** small. It interacts with audit L5 (dividing by the positives or by the sampled count), so
-     both belong in the same experiment.
+   - **Experiment:** together with audit L5 (dividing by the positives or by the sampled count), which also moves the
+     balance of the losses. The weights give no run name token, so every launch needs its own run_<n> folder.
    - **Measure:** box and mask mAP@0.75 / @[0.5:0.95] on the synthetic shapes, against the weights of 1.
 7. **One mask head shared by the levels**:
    - **Mask R-CNN:** `build_fpn_mask_graph` is built once (`model.py:956-1005`) and receives the RoIs of every level
@@ -285,7 +292,7 @@ average recall by object size and the recall of the anchors and of the proposals
 | Crowds | Kept with a negative class id, kept out of the negatives, ignored by pycocotools (audit M12). | Ordinary objects, learnt and scored like the others. |
 | Objects lost by the resizing | Skipped at original resolution when under 1 pixel (`coco.py:248-250`). Masks emptied by the resize are dropped from the training targets (`model.py:1263-1265`). The evaluation keeps them, since it runs on the original images. | INS masks emptied by the resize are dropped from the training and validation targets, and from the test ground truth unless `evaluation.original_resolution` keeps them, so that they count as missed. |
 | Augmentation | imgaug pipeline with a list of mask-safe augmenters (flips, crop-and-pad, Affine, PiecewiseAffine; `model.py:1232-1259`). COCO uses horizontal flips only, nucleus flips, 90° rotations, brightness and blur. | `DataAugmenter` on the GPU: crop, zoom-out, flips, ±5° and 90° rotations, nine photometric types, masks moved and boxes recomputed, fragments of objects removed. |
-| Optimisation | SGD momentum 0.9, learning rate 0.001. Each gradient tensor clipped at norm 5 (Keras `clipnorm`). L2 1e-4 except the BN scales and offsets. Weight per loss (`config.py:177-211`, `model.py:2153-2199`). | Adam / AdamW / SGD Nesterov, warm-up, cosine, optional global-norm clipping. One weight decay for every parameter (audit M10). Losses summed with weight 1 (item 6). |
+| Optimisation | SGD momentum 0.9, learning rate 0.001. Each gradient tensor clipped at norm 5 (Keras `clipnorm`). L2 1e-4 except the BN scales and offsets. Weight per loss (`config.py:177-211`, `model.py:2153-2199`). | Adam / AdamW / SGD Nesterov, warm-up, cosine, optional global-norm clipping. One weight decay for every parameter (audit M10). One weight per loss (`Optimization.loss_weights`), 1 in every configuration file (item 6). |
 | Training schedule | Stages selected by layer regular expressions: `heads`, `3+`, `4+`, `5+`, `all` (`model.py:2313-2322`, `coco.py:498-521`). | One stage per run. A loaded component can be frozen whole or given a learning rate multiplier; a schedule needs successive runs. |
 | Batch normalization | `TRAIN_BN: False` by default: the stored statistics are used and never updated (batches of 2). | Trained, with a configurable momentum. `layer` normalization is available for small batches. |
 | Evaluation | `compute_ap` with mask IoU and COCO matching (`utils.py:656-751`). COCO sample: pycocotools `COCOeval` for boxes and masks at the original resolution (`coco.py:342-385`). | Own mAP (area, 11 and 101 points) at 0.5, 0.75 and 0.5:0.95 with VOC matching (kept, audit L6), mean average recall, both by object size, box and mask results per class, proposal recall, at every checkpoint, at the network resolution or, for INS, at the original resolution (`evaluation.original_resolution`). |
@@ -319,7 +326,7 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
 | Weight decay | 1e-4, BN parameters excluded | 0 | Audit M10 |
 | Gradient clipping | Norm 5 per gradient tensor | None | Mask R-CNN always clips, and its README suspects that clipping is what keeps the higher learning rate of the paper stable. `gradient_clipping_norm: 5.0` is a cheap first INS experiment. |
 | Batch | 2 images per GPU, BN frozen | 40, BN trained | |
-| Loss weights | 1 each, configurable | 1 each, fixed | Item 6 |
+| Loss weights | 1 each, configurable | 1 each, configurable (`Optimization.loss_weights`) | Same; item 6 tunes them |
 
 ## G. Keypoint detection
 14. **Keypoint names next to the exported model**: the export of a KPT run writes no channel names. The clients
@@ -328,26 +335,48 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
     training data cannot name the channels. `export_model.py` could write a `keypoint_channels.json` (class, keypoint
     name and skeleton of every channel) next to the exported files, read by the clients instead of the training labels.
     Cost and risk: small.
-15. **Mixed precision for the COCO training**: `configuration_example.yaml` trains in float32
-    (`mixed_precision: False`), and a 3000 iteration run on the synthetic shapes with a W16 network and 243 heatmap
-    channels processed about 16.5 images per second, the W32 network of the COCO configuration not being timed. The
-    bfloat16 autocast used by the other tasks could be tried on a short run, the heatmap, tag and candidate
-    computations being in float32 already. Cost and risk: small, the OKS AP of a short run in both precisions telling
-    whether the heatmaps or the tags lose accuracy.
-16. **Ignored regions**: the objects left out of the labels (the COCO crowds and the persons without any labelled
-    keypoint) stay in the images, where the heatmaps learn to find no keypoint on persons that are there. HigherHRNet
-    masks their pixels out of the heatmap loss. The `segmentation` of these annotations could give a [h, w] weight map
-    per image, zero on their pixels, multiplying the focal terms of the cells in `compute_heatmap_loss` at both strides.
-    Cost and risk: medium, the dataset keeping the masks of objects it removes today.
-17. **Finer peaks**: `extract_keypoint_candidates` shifts every local maximum by a quarter of a cell towards the
-    higher neighbour, an error of up to a quarter of a cell (half a pixel at stride 2 with the higher resolution branch,
-    1 pixel at stride 4 without it) and of an eighth on average. A Taylor expansion of the log-heatmap around the
-    maximum (DARK) estimates the peak within the cell. It could replace the shift in the eager and in the exported
-    model, both sharing `extract_keypoint_candidates`. Cost and risk: small, the published gain being largest for small
-    objects.
+15. **Mixed precision for the COCO training, checked on the CPU, experiment left to run**: `configuration_example.yaml`
+    trains in float32 (`mixed_precision: False`), and a 3000 iteration run on the synthetic shapes with a W16 network
+    and 243 heatmap channels processed about 16.5 images per second, the W32 network of the COCO configuration not
+    being timed. Under the bfloat16 autocast used by the other tasks, the network predicts its heatmap logits and tags
+    in bfloat16, and the heatmap and tag losses and the candidates are computed from them in float32. On the CPU, the
+    untrained detector of the tests gives a heatmap loss within 0.06 % of float32 (5 seeds, with and without the
+    higher resolution branch) and a finite gradient for every parameter, at a cosine similarity of 0.9996 to the
+    float32 gradient (`test_detector_trains_under_the_bfloat16_autocast`). The tags are rounded to 8 significant bits,
+    within about 0.004 of a tag near 1, which bounds how close the pull loss brings the tags of an object, far below
+    the `tag_threshold` of 1.0 of the grouping.
+    - **Left:** the OKS AP and the images per second of a short COCO run in each precision, on the GPU.
+16. **Ignored regions, implemented, experiment left to run** (`KeypointHead.ignore_unlabelled_objects`): the objects
+    left out of the labels (the COCO crowds and the persons without any labelled keypoint) stayed in the images, where
+    the heatmaps learned to find no keypoint on persons that are there. With the setting, as in HigherHRNet, the
+    dataset unites the masks of these objects, read from their `segmentation`, into the ignored regions of the
+    training and validation images, which the augmentation moves with the image, and the heatmap loss leaves out the
+    cells at least half covered by them, at both strides and in every channel, the keypoint cells of the labelled
+    persons inside them staying trained. On in the COCO `configuration_example.yaml`, off in the synthetic one, whose
+    shapes have no `segmentation`.
+    - **Left:** the OKS AP of a COCO run with and without the setting, the crowds and the unlabelled persons being
+      4652 of the 11004 persons of the validation split.
+17. **Finer peaks, implemented, measure on COCO left to run** (`compute_peak_offsets`): `extract_keypoint_candidates`
+    moved every local maximum a quarter of a cell towards its higher neighbour. It now places every candidate within
+    its cell, along each axis, at the vertex of the parabola through the log-heatmap at its cell and at its two
+    neighbours, in the eager and the exported models: the Taylor expansion of DARK without its cross derivative,
+    exact for a round Gaussian peak and always within half a cell.
+    - **Measured** on 200 test images of the synthetic run (`keypoint_focal_synthetic`, iteration 6000, moving
+      average, stride 2, 4290 matched keypoints): the mean error per axis is 0.363 pixel instead of 0.458 on the
+      coordinates off the pixel centres (-21 %), and 0.293 instead of 0.127 on the pixel centres. At stride 2 a pixel
+      centre lies a quarter of a cell from a cell centre, where the quarter shift was exact. 59 % of the synthetic
+      coordinates are pixel centres, so the mean distance over all the synthetic keypoints rises from 0.43 to 0.50
+      pixel, while the resized COCO coordinates are continuous.
+    - **Variants measured** (off and on the pixel centres): DARK with its Gaussian modulation 0.392 and 0.300, the
+      modulation moving the peaks of the focal loss heatmaps further; with the cross derivative 0.370 and 0.310; the
+      logit of the heatmap instead of its log 0.354 and 0.262, which no longer moves a peak at exactly 1 (a target
+      heatmap, or a peak saturated by a reduced precision export); a parabola on the heatmap values 0.358 and 0.272.
+    - **Left:** the OKS AP of a COCO run decoded both ways, the published gain of DARK being largest for small
+      objects.
 
 ## H. Classification
-18. **Decorrelation of the hidden features (Barlow Twins redundancy term)**: a loss term added to the cross entropy so
+18. **Decorrelation of the hidden features (Barlow Twins redundancy term), experiment left to run**
+    (`ClassificationHead.decorrelation`, implemented): a loss term added to the cross entropy so
     that the hidden features of the classification head carry different information. Every feature is standardised
     over the batch, and the squared off-diagonal terms of the [D, D] correlation matrix of the features are added to the
     loss with a weight. This is the redundancy reduction term of Barlow Twins (arXiv 2103.03230) without its invariance
@@ -380,15 +409,15 @@ synthetic shapes configuration uses the same values at 512 pixels, with smaller 
       hidden layer lie in 44 directions before its ReLU, against 131 for independent features. The redundancy comes from
       many small correlations, which the off-diagonal sum penalises all together. One unit of the second hidden layer
       never fires on these batches.
-    - **Implementation:** `compute_barlow_twins_loss` (`vision_training/losses/self_supervised_losses.py`) already
-      standardises the features in float32 and builds their cross-correlation. Given the same features as both views,
-      its diagonal is 1 (up to the epsilon) and its invariance term vanishes, so its off-diagonal term is the
-      decorrelation loss without a second function. `ImageClassifier.forward` would keep the features of the chosen
-      hidden layer and add a `decorrelation_loss` next to `classification_loss` when the labels are given, summed into
-      the total loss by `run_model_iteration` like every output ending in `_loss`, with its display name in the
-      `get_tracked_metrics` of the classification trainer and a `ClassificationHead.decorrelation` section (activated,
-      weight, hidden layer) with its check. The second hidden layer before its ReLU, where the redundancy is highest,
-      is the first candidate.
+    - **Implemented:** `ClassificationHead.decorrelation` (`activated`, `weight`, `hidden_layer`), off in every
+      configuration file. With the labels, `ImageClassifier.forward` keeps the features of the chosen hidden layer as
+      its ReLU receives them (`ClassificationHead.compute_logits`) and adds `decorrelation_loss`, summed into the total
+      loss, with the tracked `hidden_feature_correlation` (`compute_decorrelation_loss`). The standardisation and
+      correlation of Barlow Twins moved to `compute_feature_cross_correlation`, shared by both losses: Barlow Twins
+      itself was not called with the same features as both views, since its invariance term does not vanish for a
+      feature varying less than its epsilon, and would be tracked unweighted inside the decorrelation loss. The setting
+      gives no run name token, so the warm-up of the cross entropy is a run resumed with it turned on. The second
+      hidden layer before its ReLU, where the redundancy is highest, is the first candidate.
     - **Batch size:** the correlation matrix of N images has a rank of at most N − 1, so the term cannot reach 0 with
       more features than images: at the batch size of 256, the 512 units of the first hidden layer keep a floor, while
       the 256 units of the second fit. The sampling noise alone also gives a sum of the squared off-diagonal terms of
@@ -467,7 +496,7 @@ self-supervised backbone learns not only how many shapes an image holds but also
     the two views; to compare on the probes of items 25 and 26 rather than on the k-NN accuracy of the count.
 
 ## Suggested Order
-1. **The loss weights (item 6)**, a small change, in the same experiment as audit L5.
+1. **The experiment of the loss weights (item 6)**, implemented, together with audit L5.
 2. **The FPN with a finer level (item 1), the level by box size (item 2), the shared mask head (item 7) and the
    sharper masks (item 5).** Together they close the main architectural gap for the masks, guided by the AP of the
    small objects and the proposal recall of every level, before any tuning of the anchors or of the proposal counts.

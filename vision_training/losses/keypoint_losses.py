@@ -1,16 +1,17 @@
 """
 Losses of the bottom-up keypoint detection task (HigherHRNet), used by the keypoint detector
 (models/keypoints/keypoint_detector.py) on the targets of data/keypoints/heatmap_targets.py: the focal loss of the
-predicted heatmaps against the target Gaussian heatmaps at every stride (CornerNet, CenterNet), and the associative
-embedding losses of the tags, which pull the tags of the keypoints of an object towards their mean and push apart the
-mean tags of the objects of the same class in the same image, so that the keypoints can be grouped into objects by
-their tags. The base trainer adds their 'heatmap_loss', 'tag_pull_loss' and 'tag_push_loss' to the total loss.
+predicted heatmaps against the target Gaussian heatmaps at every stride (CornerNet, CenterNet), which can leave out
+the cells of the objects without labelled keypoint, and the associative embedding losses of the tags, which pull the
+tags of the keypoints of an object towards their mean and push apart the mean tags of the objects of the same class in
+the same image, so that the keypoints can be grouped into objects by their tags. The base trainer adds their
+'heatmap_loss', 'tag_pull_loss' and 'tag_push_loss' to the total loss.
 """
 
 import torch
 
 from torch.nn import functional as torch_functional
-from typing import Tuple
+from typing import Optional, Tuple
 
 # Exponent of the focal loss lowering the weight of the cells already predicted well, 2 in CornerNet and CenterNet
 FOCAL_EXPONENT = 2.0
@@ -19,7 +20,8 @@ FOCAL_EXPONENT = 2.0
 PENALTY_REDUCTION_EXPONENT = 4.0
 
 
-def compute_heatmap_loss(predicted_logits: torch.Tensor, target_heatmaps: torch.Tensor) -> torch.Tensor:
+def compute_heatmap_loss(predicted_logits: torch.Tensor, target_heatmaps: torch.Tensor,
+                         ignored_cells: Optional[torch.Tensor] = None) -> torch.Tensor:
     """
     Computes the heatmap loss of the keypoint detector at one stride, the penalty-reduced focal loss of CornerNet
     ("CornerNet: Detecting Objects as Paired Keypoints" https://arxiv.org/abs/1808.01244) and CenterNet ("Objects as
@@ -28,14 +30,18 @@ def compute_heatmap_loss(predicted_logits: torch.Tensor, target_heatmaps: torch.
     the cells near a keypoint being penalised less and the cells already near 0 hardly at all. The sum over the cells
     and channels of all the images is divided by the number of cells at 1, the trained keypoints, so that neither the
     number of channels nor the size of the heatmaps dilutes the keypoints among the many empty cells (a batch without
-    keypoint being divided by 1). Every channel is trained in every image, the channels without keypoint towards 0. It
-    is computed in float32 from the logits, log(p) and log(1 - p) being the log-sigmoids of the logit and of its
-    opposite.
+    keypoint being divided by 1). Every channel is trained in every image, the channels without keypoint towards 0,
+    except on the ignored cells (the objects without labelled keypoint, such as the COCO crowds), whose terms are left
+    out in every channel: the heatmaps learn neither keypoints nor their absence there. A keypoint cell lying in an
+    ignored region stays trained, its keypoint being labelled. It is computed in float32 from the logits, log(p) and
+    log(1 - p) being the log-sigmoids of the logit and of its opposite.
 
     Args:
         predicted_logits (torch.Tensor): The [B, C, h, w] predicted heatmap logits, before the sigmoid.
         target_heatmaps (torch.Tensor): The [B, C, h, w] target Gaussian heatmaps of build_keypoint_targets, 1 at the
             cell of every keypoint.
+        ignored_cells (Optional[torch.Tensor]): The [B, 1, h, w] booleans of the cells left out of the loss in every
+            channel (the 'ignored_cells' of build_keypoint_targets), or None to train every cell. Defaults to None.
 
     Returns:
         torch.Tensor: The scalar loss.
@@ -49,6 +55,10 @@ def compute_heatmap_loss(predicted_logits: torch.Tensor, target_heatmaps: torch.
     positive_losses = -(1.0 - probabilities) ** FOCAL_EXPONENT * torch_functional.logsigmoid(logits)
     negative_losses = (-(1.0 - targets) ** PENALTY_REDUCTION_EXPONENT * probabilities ** FOCAL_EXPONENT *
                        torch_functional.logsigmoid(-logits))
+
+    # The other cells of the ignored regions give no loss, the keypoint cells staying trained
+    if ignored_cells is not None:
+        negative_losses = torch.where(ignored_cells, torch.zeros_like(input=negative_losses), negative_losses)
     cell_losses = torch.where(positive_cells, positive_losses, negative_losses)
 
     # Sum over every cell, normalised by the number of keypoint cells

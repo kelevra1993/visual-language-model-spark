@@ -4,9 +4,10 @@ instance segmentation task: every object, the crowd annotations included, gets i
 the order of its box, the objects whose mask vanishes are removed with their box and label, an annotation without
 segmentation is refused, the collate function keeps the masks as a list, the object detection samples stay without
 masks, the instance segmentation boxes come from the masks without any 'bbox', the selection of the objects of an
-image maps the categories, keeps the crowd annotations and leaves out the background, and the test samples of the
+image maps the categories, keeps the crowd annotations and leaves out the background, the test samples of the
 evaluation at the original resolution carry the masks and boxes of their objects at that resolution, every object with
-a pixel in the original image kept at both resolutions.
+a pixel in the original image kept at both resolutions, and the keypoint samples carry as ignored regions the masks of
+the objects of a category with keypoints left out for having no labelled keypoint.
 """
 
 import json
@@ -16,21 +17,25 @@ import pytest
 import torch
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from vision_training.data.detection.coco_dataset import CocoDetectionDataset, collate_function, select_image_objects
-from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes, encode_run_length_encoding
+from vision_training.data.detection.coco_masks import (build_instance_mask, compute_mask_bounding_boxes,
+                                                       encode_run_length_encoding)
 
 IMAGE_WIDTH, IMAGE_HEIGHT = 40, 20
 
 
-def write_split(folder: Path, annotations: List[Dict[str, Any]]) -> Path:
+def write_split(folder: Path, annotations: List[Dict[str, Any]],
+                categories: Optional[List[Dict[str, Any]]] = None) -> Path:
     """
     Writes a one-image COCO split (a black 40 x 20 image and the given annotations) in the layout read by the dataset.
 
     Args:
         folder (Path): The folder of the split.
         annotations (List[Dict[str, Any]]): The annotations of the image, whose 'image_id' is 1.
+        categories (Optional[List[Dict[str, Any]]]): The categories of the split, or None for the categories 1 and 2
+            without keypoints. Defaults to None.
 
     Returns:
         Path: The 'labels.json' file of the split.
@@ -39,10 +44,11 @@ def write_split(folder: Path, annotations: List[Dict[str, Any]]) -> Path:
     cv2.imwrite(filename=str(folder / "data" / "image.png"), img=np.zeros(shape=(IMAGE_HEIGHT, IMAGE_WIDTH, 3),
                                                                            dtype=np.uint8))
     labels_file = folder / "labels.json"
+    if categories is None:
+        categories = [{"id": 1, "name": "first"}, {"id": 2, "name": "second"}]
     labels_file.write_text(json.dumps({"images": [{"id": 1, "file_name": "image.png", "width": IMAGE_WIDTH,
                                                    "height": IMAGE_HEIGHT}],
-                                       "annotations": annotations,
-                                       "categories": [{"id": 1, "name": "first"}, {"id": 2, "name": "second"}]}))
+                                       "annotations": annotations, "categories": categories}))
     return labels_file
 
 
@@ -264,3 +270,67 @@ def test_original_instances_keep_every_object_at_both_resolutions(tmp_path: Path
         CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file), image_size=10,
                              keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1, 2: 2},
                              load_instance_masks=False, load_original_instances=True)
+
+
+def test_ignored_regions_are_the_objects_without_labelled_keypoint(tmp_path: Path) -> None:
+    """
+    Verifies the ignored regions of the keypoint detection: the union, at the network resolution, of the masks of the
+    objects of a category with keypoints that have no labelled keypoint (a person drawn by a polygon and a crowd by a
+    run length encoding), while the labelled person and the object of a category without keypoints are not ignored;
+    that only the labelled person is kept with its keypoints; that the collate stacks the regions of the images; that
+    the samples carry no regions without the setting; and that a removed person without segmentation, or the regions
+    without the keypoints, are refused.
+    """
+    categories = [{"id": 1, "name": "person", "keypoints": ["head", "foot"]}, {"id": 2, "name": "box"}]
+    crowd_mask = np.zeros(shape=(IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8)
+    crowd_mask[4:16, 26:34] = 1
+    annotations = [
+        {"id": 1, "image_id": 1, "category_id": 1, "iscrowd": 0, "bbox": [2, 2, 8, 8], "num_keypoints": 2,
+         "keypoints": [4, 4, 2, 8, 8, 2], "segmentation": [[2, 2, 10, 2, 10, 10, 2, 10]]},
+        {"id": 2, "image_id": 1, "category_id": 1, "iscrowd": 0, "bbox": [14, 2, 8, 10], "num_keypoints": 0,
+         "keypoints": [0, 0, 0, 0, 0, 0], "segmentation": [[14, 2, 22, 2, 22, 12, 14, 12]]},
+        {"id": 3, "image_id": 1, "category_id": 1, "iscrowd": 1, "bbox": [26, 4, 8, 12], "num_keypoints": 0,
+         "keypoints": [0, 0, 0, 0, 0, 0], "segmentation": encode_run_length_encoding(mask=crowd_mask)},
+        {"id": 4, "image_id": 1, "category_id": 2, "iscrowd": 0, "bbox": [30, 16, 8, 3], "keypoints": [],
+         "segmentation": [[30, 16, 38, 16, 38, 19, 30, 19]]}]
+    labels_file = write_split(folder=tmp_path, annotations=annotations, categories=categories)
+    dataset = CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file), image_size=80,
+                                   keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1, 2: 2},
+                                   load_keypoints=True, maximum_keypoints=2, load_ignored_regions=True, shuffle=False)
+    sample = dataset[0]
+
+    # Only the labelled person is kept, and the regions are those of the unlabelled person and of the crowd
+    object_masks = [torch.from_numpy(build_instance_mask(segmentation=annotation["segmentation"],
+                                                         image_width=IMAGE_WIDTH, image_height=IMAGE_HEIGHT,
+                                                         image_size=80, keep_ratio=True))
+                    for annotation in annotations]
+    assert sample["labels"].tolist() == [1] and sample["keypoints"].shape == (1, 2, 3)
+    assert sample["ignored_regions"].dtype == torch.uint8 and sample["ignored_regions"].shape == (80, 80)
+    assert torch.equal(input=sample["ignored_regions"], other=torch.maximum(object_masks[1], object_masks[2]))
+    assert all(bool(object_mask.any()) for object_mask in object_masks)
+    assert not (sample["ignored_regions"] * (object_masks[0] + object_masks[3])).any()
+
+    # The collate stacks the regions of the images, and the samples have none without the setting
+    assert collate_function(batch=[sample, sample])["ignored_regions"].shape == (2, 80, 80)
+    plain_dataset = CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file),
+                                         image_size=80, keep_ratio=True, label_mode="multi_class",
+                                         label_dictionary={1: 1, 2: 2}, load_keypoints=True, maximum_keypoints=2,
+                                         shuffle=False)
+    assert "ignored_regions" not in plain_dataset[0]
+
+    # A removed person needs its segmentation, and the regions need the keypoints
+    unsegmented_annotations = [{key: value for key, value in annotation.items() if key != "segmentation"}
+                               if annotation["id"] == 2 else annotation for annotation in annotations]
+    unsegmented_labels_file = write_split(folder=tmp_path / "unsegmented", annotations=unsegmented_annotations,
+                                          categories=categories)
+    unsegmented_dataset = CocoDetectionDataset(data_directory=str(tmp_path / "unsegmented" / "data"),
+                                               labels_file=str(unsegmented_labels_file), image_size=80,
+                                               keep_ratio=True, label_mode="multi_class",
+                                               label_dictionary={1: 1, 2: 2}, load_keypoints=True,
+                                               maximum_keypoints=2, load_ignored_regions=True, shuffle=False)
+    with pytest.raises(expected_exception=ValueError, match="has no labelled keypoint and no 'segmentation'"):
+        unsegmented_dataset.__getitem__(_index=0)
+    with pytest.raises(expected_exception=ValueError, match="needs load_keypoints"):
+        CocoDetectionDataset(data_directory=str(tmp_path / "data"), labels_file=str(labels_file), image_size=80,
+                             keep_ratio=True, label_mode="multi_class", label_dictionary={1: 1, 2: 2},
+                             load_ignored_regions=True)

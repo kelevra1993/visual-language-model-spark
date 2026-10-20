@@ -2248,13 +2248,15 @@ def set_image_size_not_matching_the_branches(configuration: Dict[str, Any]) -> N
 
 def set_invalid_keypoint_head(configuration: Dict[str, Any]) -> None:
     """
-    Sets a higher resolution branch flag written as text, a negative hidden width, a negative tag pull weight, no
-    keypoint candidate, a keypoint threshold of 1, a zero tag threshold and an object score threshold above 1.
+    Sets a higher resolution branch flag and an ignored regions flag written as text, a negative hidden width, a
+    negative tag pull weight, no keypoint candidate, a keypoint threshold of 1, a zero tag threshold and an object
+    score threshold above 1.
 
     Args:
         configuration (Dict[str, Any]): The raw keypoint detection configuration, modified in place.
     """
-    configuration["KeypointHead"].update({"higher_resolution": "yes", "hidden_width": -1, "tag_pull_weight": -0.1})
+    configuration["KeypointHead"].update({"higher_resolution": "yes", "ignore_unlabelled_objects": "no",
+                                          "hidden_width": -1, "tag_pull_weight": -0.1})
     configuration["KeypointHead"]["inference"].update({"maximum_candidates": 0, "keypoint_threshold": 1.0,
                                                        "tag_threshold": 0, "object_score_threshold": 1.5})
 
@@ -2321,6 +2323,7 @@ def remove_training_labels(configuration: Dict[str, Any]) -> None:
                                                 "stride of the lowest resolution branch of the 3 stages of "
                                                 "'HRNet.modules_per_stage'."]),
     (set_invalid_keypoint_head, ["'KeypointHead.higher_resolution' must be True or False, got 'yes'.",
+                                 "'KeypointHead.ignore_unlabelled_objects' must be True or False, got 'no'.",
                                  "'KeypointHead.hidden_width' must be an integer >= 0, got -1.",
                                  "'KeypointHead.tag_pull_weight' must be a number >= 0, got -0.1.",
                                  "'KeypointHead.inference.maximum_candidates' must be an integer >= 1, got 0.",

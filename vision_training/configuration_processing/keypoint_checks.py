@@ -2,9 +2,9 @@
 Checks of the configuration sections specific to the keypoint detection task: the keypoint definitions of the 'Data'
 section read from the training split, the Backbone stem ending at a quarter of the image, the 'HRNet' section with the
 image size its lowest resolution branch divides, the 'KeypointHead' section (higher resolution branch, hidden width,
-tag loss weights and grouping settings), and the object keypoint similarity settings of the evaluation. Run by
-configuration_checker.py for the keypoint_detection task. The geometric augmentations of 'Data.data_augmentation' are
-all allowed, the augmenter moving the keypoints with the image.
+ignored regions, tag loss weights and grouping settings), and the object keypoint similarity settings of the
+evaluation. Run by configuration_checker.py for the keypoint_detection task. The geometric augmentations of
+'Data.data_augmentation' are all allowed, the augmenter moving the keypoints with the image.
 """
 
 from typing import Any, Dict, List
@@ -135,9 +135,9 @@ def check_keypoint_head_configuration(model_configuration: Dict[str, Any]) -> Li
     """
     Verifies the 'KeypointHead' section of the bottom-up keypoint detector: the higher resolution branch flag, the
     width of the hidden convolution of the heads, the standard deviation of the target Gaussians in heatmap cells, the
-    weights of the tag pull and push losses, the grouping settings of 'KeypointHead.inference' used by the evaluation,
-    the sample images and the deployment, and the 'pretrained' settings initialising the head with the one of another
-    run.
+    flag leaving the objects without labelled keypoint out of the heatmap loss, the weights of the tag pull and push
+    losses, the grouping settings of 'KeypointHead.inference' used by the evaluation, the sample images and the
+    deployment, and the 'pretrained' settings initialising the head with the one of another run.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'KeypointHead' section.
@@ -145,7 +145,8 @@ def check_keypoint_head_configuration(model_configuration: Dict[str, Any]) -> Li
     Returns:
         List[str]: The description of every inconsistency found.
     """
-    errors = check_boolean_flags(configuration=model_configuration, key_paths=["KeypointHead.higher_resolution"])
+    errors = check_boolean_flags(configuration=model_configuration,
+                                 key_paths=["KeypointHead.higher_resolution", "KeypointHead.ignore_unlabelled_objects"])
 
     # Width of the hidden convolution of the heads, 0 for the 1x1 predictions read on the features
     errors += check_positive_integers(configuration=model_configuration, key_paths=["KeypointHead.hidden_width"],

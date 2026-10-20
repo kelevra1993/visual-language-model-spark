@@ -2,9 +2,10 @@
 Tests of vision_training/losses/keypoint_losses.py, the losses of the bottom-up keypoint detector: compute_heatmap_loss,
 the focal loss of the heatmap logits, on a hand-computed case, divided by the number of keypoint cells whatever the
 number of images, channels and empty cells, close to 0 for confident right predictions, trained towards 0 on the empty
-channels and computed in float32; and compute_tag_losses, the associative embedding pull and push losses, on a
-hand-computed image of three objects (two of the same class, which push each other apart, and one of another class,
-which pushes nothing) next to an image without object, the untrained keypoints giving neither loss nor gradient.
+channels, computed in float32 and leaving out the ignored cells but their keypoint cells; and compute_tag_losses, the
+associative embedding pull and push losses, on a hand-computed image of three objects (two of the same class, which
+push each other apart, and one of another class, which pushes nothing) next to an image without object, the untrained
+keypoints giving neither loss nor gradient.
 """
 
 import math
@@ -63,6 +64,31 @@ def test_heatmap_loss_is_divided_by_the_number_of_keypoints() -> None:
     assert math.isclose(empty_loss.item(), 4.0 * 0.25 * math.log(2.0), rel_tol=1e-6)
     empty_loss.backward()
     assert bool((empty_logits.grad > 0.0).all())
+
+
+def test_heatmap_loss_leaves_out_the_ignored_cells() -> None:
+    """
+    Verifies that the ignored cells give no focal term and no gradient in every channel, while a keypoint cell lying
+    in them stays trained: of the 2 x 2 heatmap of the hand-computed case at the probability 0.5, with every cell but
+    the last one ignored, only the keypoint cell and the last empty cell count, in both channels sharing the ignored
+    cells; and that no ignored cell gives the loss of every cell.
+    """
+    target_heatmaps = torch.tensor(data=[[[[1.0, 0.5], [0.0, 0.0]], [[0.0, 0.0], [0.0, 0.0]]]])
+    logits = torch.zeros(size=(1, 2, 2, 2), requires_grad=True)
+    ignored_cells = torch.tensor(data=[[[[True, True], [True, False]]]])
+    loss = compute_heatmap_loss(predicted_logits=logits, target_heatmaps=target_heatmaps, ignored_cells=ignored_cells)
+    assert math.isclose(loss.item(), (0.25 + 0.25 + 0.25) * math.log(2.0), rel_tol=1e-6)
+
+    # Only the keypoint cell and the last cell of every channel receive a gradient
+    loss.backward()
+    assert (logits.grad != 0.0).tolist() == [[[[True, False], [False, True]], [[False, False], [False, True]]]]
+
+    # Without any ignored cell, the loss is that of every cell
+    unignored_loss = compute_heatmap_loss(predicted_logits=logits.detach(), target_heatmaps=target_heatmaps,
+                                          ignored_cells=torch.zeros(size=(1, 1, 2, 2), dtype=torch.bool))
+    assert math.isclose(unignored_loss.item(), compute_heatmap_loss(predicted_logits=logits.detach(),
+                                                                    target_heatmaps=target_heatmaps).item(),
+                        rel_tol=1e-6)
 
 
 def test_tag_losses_match_a_hand_computed_case() -> None:

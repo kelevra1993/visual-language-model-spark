@@ -150,7 +150,8 @@ class KeypointTrainer(BaseTrainer):
     def prepare_batch(self, batch: Dict[str, Any]) -> KeypointBatch:
         """
         Moves the images (in the precision of the model) and the per-image boxes, classes and keypoints of a keypoint
-        batch to the device, the targets of the losses being built from them by the model.
+        batch to the device, the targets of the losses being built from them by the model, with the ignored regions
+        of the training and validation batches when the loaders give them ('KeypointHead.ignore_unlabelled_objects').
 
         Args:
             batch (Dict[str, Any]): The batch dictionary yielded by a keypoint loader.
@@ -158,38 +159,51 @@ class KeypointTrainer(BaseTrainer):
         Returns:
             KeypointBatch: The batch ready for the keypoint detector.
         """
-        return {"images": batch["images"].to(device=self.device, dtype=self.dtype),
-                "bounding_boxes": [box_tensor.to(device=self.device, dtype=torch.float32)
-                                   for box_tensor in batch["bounding_boxes"]],
-                "labels": [label_tensor.to(device=self.device, dtype=torch.int64) for label_tensor in batch["labels"]],
-                "keypoints": [keypoint_tensor.to(device=self.device, dtype=torch.float32)
-                              for keypoint_tensor in batch["keypoints"]],
-                "sample_identifiers": batch["sample_identifiers"]}
+        prepared_batch = {"images": batch["images"].to(device=self.device, dtype=self.dtype),
+                          "bounding_boxes": [box_tensor.to(device=self.device, dtype=torch.float32)
+                                             for box_tensor in batch["bounding_boxes"]],
+                          "labels": [label_tensor.to(device=self.device, dtype=torch.int64)
+                                     for label_tensor in batch["labels"]],
+                          "keypoints": [keypoint_tensor.to(device=self.device, dtype=torch.float32)
+                                        for keypoint_tensor in batch["keypoints"]],
+                          "sample_identifiers": batch["sample_identifiers"]}
+
+        # The binary regions of the objects without labelled keypoint, kept in uint8 like the instance masks
+        if "ignored_regions" in batch:
+            prepared_batch["ignored_regions"] = batch["ignored_regions"].to(device=self.device)
+        return prepared_batch
 
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
         Randomly augments the training images, every geometric type moving the boxes and the keypoints of their objects
         without renaming them, the keypoints leaving the image becoming unlabelled and an object being dropped with its
         box and label when less than MINIMUM_VISIBLE_AREA_FRACTION of its box and none of its labelled keypoints stay
-        inside the image.
+        inside the image. The ignored regions, when the batch has them, move with the image as the binary mask of the
+        augmenter, the uncovered border being kept in the loss.
 
         Args:
             batch (Dict[str, Any]): The training batch.
 
         Returns:
-            Dict[str, Any]: The batch with its augmented images, boxes, labels and keypoints, and the
+            Dict[str, Any]: The batch with its augmented images, boxes, labels, keypoints and ignored regions, and the
                 'augmentation_reports' of its images for the input viewer.
         """
-        images, bounding_boxes, labels, _, _, keypoints, augmentation_reports = self.data_augmenter.augment_batch(
-            images=batch["images"], bounding_boxes=batch["bounding_boxes"], labels=batch["labels"],
-            keypoints=batch["keypoints"])
-        return {**batch, "images": images, "bounding_boxes": bounding_boxes, "labels": labels, "keypoints": keypoints,
-                "augmentation_reports": augmentation_reports}
+        ignored_regions = batch["ignored_regions"] if "ignored_regions" in batch else None
+        images, bounding_boxes, labels, ignored_regions, _, keypoints, augmentation_reports = \
+            self.data_augmenter.augment_batch(images=batch["images"], bounding_boxes=batch["bounding_boxes"],
+                                              labels=batch["labels"], masks=ignored_regions,
+                                              keypoints=batch["keypoints"])
+        augmented_batch = {**batch, "images": images, "bounding_boxes": bounding_boxes, "labels": labels,
+                           "keypoints": keypoints, "augmentation_reports": augmentation_reports}
+        if ignored_regions is not None:
+            augmented_batch["ignored_regions"] = ignored_regions
+        return augmented_batch
 
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
         Runs the keypoint detector with the keypoints and classes of the objects of every image, so that it builds its
-        heatmap and tag targets and returns its three losses.
+        heatmap and tag targets and returns its three losses, the heatmap loss leaving out the ignored regions when the
+        batch has them.
 
         Args:
             batch (Dict[str, Any]): The prepared batch.
@@ -198,7 +212,8 @@ class KeypointTrainer(BaseTrainer):
             Dict[str, Any]: The detector outputs, with its 'heatmap_loss', 'tag_pull_loss' and 'tag_push_loss'.
         """
         return self.model(input_tensor=batch["images"], ground_truth_keypoints=batch["keypoints"],
-                          ground_truth_labels=batch["labels"])
+                          ground_truth_labels=batch["labels"],
+                          ignored_regions=batch["ignored_regions"] if "ignored_regions" in batch else None)
 
     def predict_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
