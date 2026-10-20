@@ -224,7 +224,8 @@ M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.5}
-5 of 16 types activated: random_crop, random_left_right_flip, random_rotation, brightness_contrast_saturation, random_noise
+6 of 17 types activated: random_crop, random_left_right_flip, random_rotation, brightness_contrast_saturation, random_noise,
+                         random_haze
 ```
 
 ### Step 2.6 — `setup_training_paths()`
