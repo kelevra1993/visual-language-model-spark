@@ -116,7 +116,8 @@ def get_classification_model_configuration(output_mode: str) -> Tuple[Dict[str, 
                                             'fully_connected_normalization': 'none',
                                             'batch_normalization_momentum': 0.1, 'dropout_rate': 0.0,
                                             'output_mode': output_mode, 'label_smoothing': 0.0,
-                                            'class_weighting': 'none'},
+                                            'class_weighting': 'none',
+                                            'decorrelation': {'activated': False, 'weight': 0.001, 'hidden_layer': 1}},
                      'Optimization': {'exponential_moving_average': {'activated': False, 'decay': 0.9998}}}
     device = torch.device(device="cpu")
     dtype = torch.float32

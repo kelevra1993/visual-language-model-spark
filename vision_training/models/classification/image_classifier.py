@@ -1,7 +1,9 @@
 """
 Model of the image classification task: ImageClassifier chains the shared Backbone, a global pooling (or the flattening
-of the feature map) and the classification head, and returns the class logits, probabilities and loss. Registered in
-model_registry.py for the "classification" task and wrapped by inference_classifier.py for the exports.
+of the feature map) and the classification head, and returns the class logits, probabilities and losses: the
+classification loss, and the decorrelation loss of one hidden layer of the head when 'ClassificationHead.decorrelation'
+is on. Registered in model_registry.py for the "classification" task and wrapped by inference_classifier.py for the
+exports.
 """
 
 import torch
@@ -9,7 +11,8 @@ import torch
 from torch import nn
 from typing import Any, Dict, Optional
 
-from vision_training.losses.classification_losses import compute_classification_loss, convert_logits_to_probabilities
+from vision_training.losses.classification_losses import (compute_classification_loss, compute_decorrelation_loss,
+                                                          convert_logits_to_probabilities)
 from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.classification.classification_head import (ClassificationHead, build_global_pooling,
                                                                        compute_pooled_features,
@@ -24,7 +27,8 @@ class ImageClassifier(TaskModel):
     classification head gives the logits of the classes. It predicts one class per image (softmax) or any number of
     classes (sigmoid), depending on 'ClassificationHead.output_mode'.
 
-    Outputs: 'class_logits' [B, K] and 'class_probabilities' [B, K], plus 'classification_loss' when labels are given.
+    Outputs: 'class_logits' [B, K] and 'class_probabilities' [B, K], plus 'classification_loss' when labels are given,
+    and 'decorrelation_loss' with the tracked 'hidden_feature_correlation' when the decorrelation is also on.
     """
 
     def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
@@ -45,6 +49,9 @@ class ImageClassifier(TaskModel):
         self.head_configuration = configuration["ClassificationHead"]
         self.output_mode = self.head_configuration["output_mode"]
         self.label_smoothing = self.head_configuration["label_smoothing"]
+
+        # Decorrelation of the features of one hidden layer of the head, added to the loss when the labels are given
+        self.decorrelation_configuration = self.head_configuration["decorrelation"]
         self.number_classes = len(set(configuration["Data"]["label_dictionary"].values()))
 
         # Shared feature extractor, whose final feature map gives the number of features of the pooled vector: its
@@ -72,17 +79,28 @@ class ImageClassifier(TaskModel):
 
     def forward(self, input_tensor: torch.Tensor, labels: Optional[torch.Tensor] = None) -> Dict[str, Any]:
         """
-        Classifies a batch of images, and computes the classification loss when the labels are given.
+        Classifies a batch of images, and computes the classification loss when the labels are given, with the
+        decorrelation loss of the features of one hidden layer of the head when 'ClassificationHead.decorrelation' is
+        on (training and validation batches; the predictions without labels never compute it).
 
         Args:
             input_tensor (torch.Tensor): The [B, 3, H, W] float BGR images in [0, 255].
             labels (Optional[torch.Tensor]): The [B] class indices or [B, K] multi-hot targets, or None.
 
         Returns:
-            Dict[str, Any]: The 'class_logits' and 'class_probabilities' [B, K], plus 'classification_loss' with labels.
+            Dict[str, Any]: The 'class_logits' and 'class_probabilities' [B, K], plus 'classification_loss' with labels,
+                and 'decorrelation_loss' and 'hidden_feature_correlation' with labels and the decorrelation on.
         """
         final_feature_map, _ = self.backbone(input_tensor=input_tensor)
-        class_logits = self.classification_head(features=self.global_pooling(input=final_feature_map))
+        pooled_features = self.global_pooling(input=final_feature_map)
+
+        # Keep the features of the decorrelated hidden layer, before its ReLU, only when its loss is computed
+        decorrelation_on = labels is not None and self.decorrelation_configuration["activated"]
+        if decorrelation_on:
+            class_logits, hidden_features = self.classification_head.compute_logits(
+                features=pooled_features, kept_hidden_layer=self.decorrelation_configuration["hidden_layer"])
+        else:
+            class_logits = self.classification_head(features=pooled_features)
 
         outputs = {"class_logits": class_logits,
                    "class_probabilities": convert_logits_to_probabilities(class_logits=class_logits,
@@ -92,6 +110,11 @@ class ImageClassifier(TaskModel):
                                                                          output_mode=self.output_mode,
                                                                          label_smoothing=self.label_smoothing,
                                                                          class_weights=self.class_weights)
+
+        # Decorrelation loss of the kept hidden features, summed into the total loss with the classification loss
+        if decorrelation_on:
+            outputs.update(compute_decorrelation_loss(hidden_features=hidden_features,
+                                                      weight=self.decorrelation_configuration["weight"]))
         return outputs
 
     def print_summary(self) -> None:

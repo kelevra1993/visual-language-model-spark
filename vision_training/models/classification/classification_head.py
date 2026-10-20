@@ -9,7 +9,7 @@ import torch
 from rich.console import Console
 from rich.panel import Panel
 from torch import nn
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.models.backbones.backbone import Backbone
 from vision_training.models.components.fully_connected_block import build_fully_connected_block
@@ -128,18 +128,38 @@ class ClassificationHead(nn.Module):
         self.classifier = nn.Linear(in_features=fully_connected[-1] if fully_connected else input_features,
                                     out_features=number_classes, device=device, dtype=dtype)
 
-    def compute_logits(self, features: torch.Tensor) -> torch.Tensor:
+    def compute_logits(self, features: torch.Tensor,
+                       kept_hidden_layer: Optional[int]) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
         Runs the hidden layers, the dropout and the class logits layer on feature vectors, the computation of the head
-        once the vectors it classifies are chosen.
+        once the vectors it classifies are chosen. It can also keep the features of one hidden layer as its ReLU
+        receives them (after its normalization), which the image classifier decorrelates
+        ('ClassificationHead.decorrelation').
 
         Args:
             features (torch.Tensor): The [..., input_features] feature vectors.
+            kept_hidden_layer (Optional[int]): The hidden layer whose features are kept, counted from 1 in
+                'fully_connected', or None to keep none.
 
         Returns:
-            torch.Tensor: The [..., number_classes] class logits.
+            Tuple[torch.Tensor, Optional[torch.Tensor]]: The [..., number_classes] class logits, and the [..., units]
+                features of the kept hidden layer before its ReLU (None when no layer is kept).
         """
-        return self.classifier(input=self.dropout(input=self.fully_connected_block(input=features)))
+        # Every hidden layer in one call when no features are kept
+        if kept_hidden_layer is None:
+            return self.classifier(input=self.dropout(input=self.fully_connected_block(input=features))), None
+
+        # Layer by layer otherwise, every hidden layer ending with its ReLU, whose input is copied for the kept layer
+        # since the ReLU overwrites it in place
+        kept_features = None
+        hidden_layer_number = 0
+        for layer in self.fully_connected_block:
+            if isinstance(layer, nn.ReLU):
+                hidden_layer_number += 1
+                if hidden_layer_number == kept_hidden_layer:
+                    kept_features = features.clone()
+            features = layer(features)
+        return self.classifier(input=self.dropout(input=features)), kept_features
 
     def forward(self, features: torch.Tensor, feature_mask: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
@@ -159,10 +179,11 @@ class ClassificationHead(nn.Module):
         """
         # Every vector goes through the head when no batch statistics are computed or when every vector is real
         if self.fully_connected_normalization != "batch" or feature_mask is None:
-            return self.compute_logits(features=features)
+            class_logits, _ = self.compute_logits(features=features, kept_hidden_layer=None)
+            return class_logits
 
         # Classify the real vectors only, then place their logits back among the zero logits of the padding vectors
-        real_logits = self.compute_logits(features=features[feature_mask])
+        real_logits, _ = self.compute_logits(features=features[feature_mask], kept_hidden_layer=None)
         class_logits = real_logits.new_zeros(size=(*feature_mask.shape, real_logits.shape[-1]))
         class_logits[feature_mask] = real_logits
         return class_logits

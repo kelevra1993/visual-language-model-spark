@@ -324,6 +324,23 @@ ClassificationHead:
   # Weighting of the classes in the loss: "none" (every sample weighs the same) or "balanced" (every class weighs the
   # same, the weights being inversely proportional to the number of training samples of each class).
   class_weighting: "balanced"
+  # Decorrelation of the hidden features of the head, added to the classification loss in training and validation:
+  # the features of one hidden layer, taken before its ReLU (after its normalization), are normalized over the batch,
+  # and the squared off-diagonal terms of their correlation matrix are summed and multiplied by the weight (the
+  # redundancy reduction term of Barlow Twins without its invariance term, the DeCov penalty). The correlation matrix
+  # of a batch of N images has a rank of at most N - 1, so the sum keeps a floor with more units than images, and the
+  # sampling noise alone gives about units x (units - 1) / (N - 1). Tracked as Decorrelation Loss and Hidden Feature
+  # Correlation (mean absolute correlation of two different units). It gives no run name token and can be turned on
+  # when a run resumes, e.g. after a warm-up of the classification loss.
+  decorrelation:
+    # Adds the decorrelation loss to the classification loss.
+    activated: False
+    # Weight of the sum of the squared off-diagonal correlations, above 0, e.g. giving the term about a tenth of the
+    # classification loss when it is turned on.
+    weight: 0.001
+    # Hidden layer whose features are decorrelated, counted from 1 in fully_connected, at most its number of layers
+    # when activated.
+    hidden_layer: 2
   # Classification head of another training run initialising this run instead of random weights. Its fully_connected
   # layers and fully_connected_normalization must be identical in both runs (the dropout rate and the batch
   # normalization momentum may differ), as well as the size of the vectors it reads. The classes of the source run, read

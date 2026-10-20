@@ -65,7 +65,8 @@ def get_classifier_configuration(detection_configuration: Dict[str, Any]) -> Dic
             "ClassificationHead": {"global_pooling": "average", "fully_connected": [],
                                    "fully_connected_normalization": "none", "batch_normalization_momentum": 0.1,
                                    "dropout_rate": 0.0, "output_mode": "multi_class", "label_smoothing": 0.0,
-                                   "class_weighting": "none"},
+                                   "class_weighting": "none",
+                                   "decorrelation": {"activated": False, "weight": 0.001, "hidden_layer": 1}},
             "Optimization": {"exponential_moving_average": {"activated": False, "decay": 0.9998}}}
 
 

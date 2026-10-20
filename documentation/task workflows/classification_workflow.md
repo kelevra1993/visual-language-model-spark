@@ -198,7 +198,8 @@ main()
 │       │       of every group for the schedule. With Optimization.exponential_moving_average.activated, the
 │       │       ExponentialMovingAverage is then created: a copy of the model, never trained, averaging its weights.
 │       ├── get_tracked_metrics() + MetricTracker.__init__()
-│       │       get_tracked_metrics returns {total_loss, classification_loss, accuracy} with their display names.
+│       │       get_tracked_metrics returns {total_loss, classification_loss, accuracy} with their display names
+│       │       (with decorrelation_loss and hidden_feature_correlation when ClassificationHead.decorrelation is on).
 │       │       MetricTracker stores them with batch_size, validation_iteration_ratio and the kind of sample ("Images"):
 │       │       it will average them over every console interval, print them with their changes and write them to
 │       │       TensorBoard.
@@ -1085,7 +1086,7 @@ n01440764_10029  original (375, 500, 3) -> (256, 256, 3)   image rows 32 to 223
 This calls `model.train()` before every training step: dropout is active, and the batch normalization layers use the statistics of the current batch and update their running averages. It is needed at every iteration because the evaluation (Step 3.7) and the validation (Step 3.23) switch the model to `eval()`, where dropout is off and the batch normalization uses its running averages. The batch normalization of a frozen transferred component stays in `eval()` so that its statistics remain those of its source run.
 
 ### Step 3.11 — `run_model_iteration()`
-One function runs a training batch and a validation batch, the only difference being `apply_augmentation`. It prepares the batch (3.12), augments it for training (3.13), runs the forward pass (3.14 to 3.18, in `bfloat16` if `mixed_precision` is on), sums every output whose key ends with `_loss` into the total loss, adds the batch metrics (3.19), then accumulates and logs the metrics (3.20). It returns the total loss, which the loop back-propagates for the training batch, and the model outputs.
+One function runs a training batch and a validation batch, the only difference being `apply_augmentation`. It prepares the batch (3.12), augments it for training (3.13), runs the forward pass (3.14 to 3.18, in `bfloat16` if `mixed_precision` is on), sums every output whose key ends with `_loss` into the total loss (the classification loss, with the decorrelation loss of Step 3.18 when it is on), adds the batch metrics (3.19), then accumulates and logs the metrics (3.20). It returns the total loss, which the loop back-propagates for the training batch, and the model outputs.
 
 **Example: what the first training batch of the run gave**
 ```text
@@ -1146,6 +1147,8 @@ class_logits.argmax(dim=-1)        = [2, 2, 2, 2, 2, 0, 2, 8]     <- predicted c
 
 ### Step 3.18 — `compute_classification_loss()`
 This measures how wrong the logits are, as one number to minimize. In `multi_class` mode it is the cross entropy against the class indices, weighted by `class_weights` (Step 2.18) and softened by `label_smoothing`. In `multi_label` mode it is the binary cross entropy with logits against the multi-hot labels. A model that gives every class the same probability has a cross entropy of ln K, which is the starting point of a training.
+
+With `ClassificationHead.decorrelation` on (off in this run), Step 3.16 runs the head through `ClassificationHead.compute_logits(kept_hidden_layer=...)`, which also returns a copy of the features of the decorrelated hidden layer as its ReLU receives them, and `compute_decorrelation_loss()` adds `decorrelation_loss`, the weight times the squared off-diagonal correlations of these features over the batch, and `hidden_feature_correlation`, their mean absolute correlation, tracked by Step 3.19.
 
 **Example output** (9 classes, an untrained network)
 ```text

@@ -2,8 +2,9 @@
 Tests of the hidden fully connected layers of vision_training/models/components/fully_connected_block.py and of their
 batch or layer normalization in the classification head: the layers and weight names with and without normalization,
 the batch normalization of vectors of any leading shape, the padding vectors left out of the batch statistics, the
-layer normalization of every vector on its own, and the momentum of the batch normalization layers of the backbone and
-of the head built from the configuration.
+layer normalization of every vector on its own, the features of a hidden layer kept before its ReLU for the
+decorrelation loss, and the momentum of the batch normalization layers of the backbone and of the head built from the
+configuration.
 """
 
 import pytest
@@ -91,7 +92,7 @@ def test_padding_vectors_take_no_part_in_the_head_statistics() -> None:
     padded_vectors = frame_vectors.clone()
     padded_vectors[~frame_mask] = 1000.0
     class_logits = head(features=padded_vectors, feature_mask=frame_mask)
-    real_logits = head.compute_logits(features=frame_vectors[frame_mask])
+    real_logits, _ = head.compute_logits(features=frame_vectors[frame_mask], kept_hidden_layer=None)
 
     assert class_logits.shape == (2, 4, 3)
     assert torch.allclose(input=class_logits[frame_mask], other=real_logits, atol=1e-6)
@@ -131,6 +132,38 @@ def test_layer_normalization_normalizes_every_vector_alone() -> None:
     evaluation_logits = head(features=feature_vectors)
     assert torch.allclose(input=batch_logits[:1], other=alone_logits, atol=1e-6)
     assert torch.allclose(input=batch_logits, other=evaluation_logits, atol=1e-6)
+
+
+@pytest.mark.parametrize(argnames="normalization", argvalues=["none", "batch", "layer"])
+def test_head_keeps_the_features_of_a_hidden_layer_before_its_relu(normalization: str) -> None:
+    """
+    Verifies that the classification head keeps the features of the asked hidden layer as its ReLU receives them,
+    after the normalization of the layer, for the decorrelation loss of the image classifier: they equal the output of
+    the layers before that ReLU, keep their negative values although the in-place ReLU then runs, and the logits are
+    those of the head keeping no features.
+
+    Args:
+        normalization (str): The normalization of the hidden layers, "none", "batch" or "layer".
+    """
+    torch.manual_seed(seed=0)
+    head = ClassificationHead(input_features=6, fully_connected=[8, 5], fully_connected_normalization=normalization,
+                              batch_normalization_momentum=0.1, dropout_rate=0.0, number_classes=3, device=DEVICE,
+                              dtype=DTYPE)
+    head.eval()
+    feature_vectors = torch.randn(size=(7, 6))
+    reference_logits, no_kept_features = head.compute_logits(features=feature_vectors, kept_hidden_layer=None)
+    assert no_kept_features is None
+
+    # Every hidden layer ends with its ReLU: the kept features are the output of the layers before it
+    relu_indices = [index for index, layer in enumerate(head.fully_connected_block) if isinstance(layer, nn.ReLU)]
+    for hidden_layer_number, relu_index in enumerate(relu_indices, start=1):
+        class_logits, kept_features = head.compute_logits(features=feature_vectors,
+                                                          kept_hidden_layer=hidden_layer_number)
+        expected_features = head.fully_connected_block[:relu_index](input=feature_vectors)
+        assert kept_features.shape == (7, [8, 5][hidden_layer_number - 1])
+        assert torch.allclose(input=kept_features, other=expected_features, atol=1e-6)
+        assert (kept_features < 0).any()
+        assert torch.allclose(input=class_logits, other=reference_logits, atol=1e-6)
 
 
 @pytest.mark.parametrize(argnames="feature_map_normalization", argvalues=["batch", "sequence"])

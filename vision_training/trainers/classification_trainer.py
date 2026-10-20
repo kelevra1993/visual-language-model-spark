@@ -72,6 +72,11 @@ class ClassificationTrainer(BaseTrainer):
         # whether the predictions of every test sample are saved, and the error images of the misclassified samples
         self.output_mode = model_configuration["ClassificationHead"]["output_mode"]
         self.class_weighting = model_configuration["ClassificationHead"]["class_weighting"]
+
+        # Decorrelation loss of the hidden features of the head, a setting of the image classifier only: the sequence
+        # tasks sharing this trainer have no 'ClassificationHead.decorrelation'
+        self.decorrelation_activated = (self.TASK_NAME == "classification" and
+                                        model_configuration["ClassificationHead"]["decorrelation"]["activated"])
         self.top_k = experiment_configuration["evaluation"]["top_k"]
         self.target_precision = experiment_configuration["evaluation"]["target_precision"]
         self.save_predictions = experiment_configuration["evaluation"]["save_predictions"]
@@ -123,12 +128,19 @@ class ClassificationTrainer(BaseTrainer):
 
     def get_tracked_metrics(self) -> Dict[str, str]:
         """
-        Lists the losses and the accuracy tracked on every training and validation batch.
+        Lists the losses and the accuracy tracked on every training and validation batch, with the decorrelation loss
+        and the mean absolute correlation of the decorrelated hidden features when 'ClassificationHead.decorrelation'
+        is on.
 
         Returns:
             Dict[str, str]: The display name of every tracked metric.
         """
-        return {"total_loss": "Total Loss", "classification_loss": "Classification Loss", "accuracy": "Accuracy"}
+        tracked_metrics = {"total_loss": "Total Loss", "classification_loss": "Classification Loss"}
+        if self.decorrelation_activated:
+            tracked_metrics.update({"decorrelation_loss": "Decorrelation Loss",
+                                    "hidden_feature_correlation": "Hidden Feature Correlation"})
+        tracked_metrics["accuracy"] = "Accuracy"
+        return tracked_metrics
 
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
         """
@@ -186,14 +198,16 @@ class ClassificationTrainer(BaseTrainer):
         """
         Computes the accuracy of a training or validation batch from the logits of its forward pass, without any extra
         forward pass: the share of samples whose most probable class is right, or in multi-label mode the share of
-        class decisions (probability above 0.5) that are right.
+        class decisions (probability above 0.5) that are right. With the decorrelation on, it also gives the mean
+        absolute correlation of the decorrelated hidden features, returned by the classifier with its loss.
 
         Args:
             batch (Dict[str, Any]): The prepared batch.
             model_outputs (Dict[str, Any]): The classifier outputs.
 
         Returns:
-            Dict[str, torch.Tensor]: The 'accuracy' of the batch.
+            Dict[str, torch.Tensor]: The 'accuracy' of the batch, and its 'hidden_feature_correlation' with the
+                decorrelation on.
         """
         with torch.no_grad():
             if self.output_mode == "multi_class":
@@ -201,7 +215,12 @@ class ClassificationTrainer(BaseTrainer):
             else:
                 correct_predictions = ((model_outputs["class_probabilities"] >= MULTI_LABEL_THRESHOLD) ==
                                        (batch["labels"] >= 0.5))
-            return {"accuracy": correct_predictions.to(dtype=torch.float32).mean()}
+            batch_metrics = {"accuracy": correct_predictions.to(dtype=torch.float32).mean()}
+
+        # Correlation of the decorrelated hidden features, computed by the classifier with the decorrelation loss
+        if self.decorrelation_activated:
+            batch_metrics["hidden_feature_correlation"] = model_outputs["hidden_feature_correlation"]
+        return batch_metrics
 
     def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
         """

@@ -2,7 +2,8 @@
 Smoke tests of ClassificationTrainer of vision_training/trainers/classification_trainer.py on a synthetic dataset:
 multi-class and multi-label training save, evaluate and resume, with the report, the per-class metrics, the
 predictions file, the error images and the sample images checked, the per-class report, the predictions file and the
-sample images can be turned off, and a head reading the flattened feature map trains.
+sample images can be turned off, a head reading the flattened feature map trains, and the decorrelation of the hidden
+features turned on when a run resumes is tracked and summed into the total loss.
 """
 
 import json
@@ -302,6 +303,58 @@ def test_flattened_feature_map_training(tmp_path: Path, capsys: pytest.CaptureFi
 
     results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "4 Test Images")]
+    console_output = capsys.readouterr().out
+    assert "Error encountered during iteration" not in console_output
+    assert "Critical Error" not in console_output
+
+
+def test_decorrelation_turned_on_when_a_run_resumes(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the decorrelation of the hidden features in a training: a run trained without it resumes in the same run
+    folder with it turned on (no run name token), the change being listed, and its training and validation batches
+    track the decorrelation loss and the mean correlation of the hidden features, summed with the classification loss
+    into the total loss, without any failed iteration. The run without it tracks neither.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 8, "test": 4}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+
+    # Warm-up of the classification loss alone, then the same run resumed with the decorrelation of its hidden layer
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings={},
+        evaluation_settings={}))
+    assert "decorrelation_loss" not in trainer.tracked_metrics_mapping
+    trainer.run_training_loop()
+    decorrelation_settings = {"decorrelation": {"activated": True, "weight": 0.01, "hidden_layer": 1}}
+    resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4,
+        head_settings=decorrelation_settings, evaluation_settings={}))
+    assert resumed_trainer.experiment_folder == trainer.experiment_folder and resumed_trainer.start_iteration == 3
+    assert ("ClassificationHead.decorrelation.activated", False, True) in \
+        resumed_trainer.configuration_changes["changed_settings"]
+    assert list(resumed_trainer.tracked_metrics_mapping.values()) == [
+        "Total Loss", "Classification Loss", "Decorrelation Loss", "Hidden Feature Correlation", "Accuracy"]
+    resumed_trainer.run_training_loop()
+
+    # The resumed iterations write both metrics, the total loss being the sum of the two losses of every batch
+    for split_name, expected_steps in [("Train", [3, 4, 5, 6]), ("Validation", [4, 6])]:
+        events = EventAccumulator(path=str(resumed_trainer.tensorboard_directory / split_name))
+        events.Reload()
+        decorrelation_losses = {event.step: event.value for event in events.Scalars(tag="Decorrelation Loss")}
+        classification_losses = {event.step: event.value for event in events.Scalars(tag="Classification Loss")}
+        total_losses = {event.step: event.value for event in events.Scalars(tag="Total Loss")}
+        correlations = [event.value for event in events.Scalars(tag="Hidden Feature Correlation")]
+        assert sorted(decorrelation_losses) == expected_steps
+        assert all(0.0 <= correlation <= 1.0 for correlation in correlations)
+        for step, decorrelation_loss in decorrelation_losses.items():
+            assert decorrelation_loss > 0.0
+            assert total_losses[step] == pytest.approx(expected=classification_losses[step] + decorrelation_loss,
+                                                       rel=1e-5)
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output

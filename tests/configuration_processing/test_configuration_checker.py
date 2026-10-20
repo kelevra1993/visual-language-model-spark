@@ -718,6 +718,27 @@ def dump_multi_label_errors(configuration: Dict[str, Any]) -> None:
                                                                            "maximum_per_class_pair": 0}
 
 
+def set_invalid_decorrelation(configuration: Dict[str, Any]) -> None:
+    """
+    Writes the decorrelation flag as a quoted string, with a weight of 0 and a hidden layer 0.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["decorrelation"] = {"activated": "yes", "weight": 0, "hidden_layer": 0}
+
+
+def decorrelate_a_missing_hidden_layer(configuration: Dict[str, Any]) -> None:
+    """
+    Turns the decorrelation on for a second hidden layer in a head of a single hidden layer.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["fully_connected"] = [128]
+    configuration["ClassificationHead"]["decorrelation"] = {"activated": True, "weight": 0.01, "hidden_layer": 2}
+
+
 @pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
                                                                    "configuration_synthetic_shapes.yaml"])
 def test_classification_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
@@ -735,6 +756,32 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
         configuration_path=configuration_path)
     assert experiment_configuration["task"] == "classification"
     assert model_configuration["Data"]["label_dictionary"] == {1: 0, 2: 1, 3: 2, 4: 3}
+
+
+def decorrelate_the_last_hidden_layer(configuration: Dict[str, Any]) -> None:
+    """
+    Turns the decorrelation on for the last of two hidden layers.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ClassificationHead"]["fully_connected"] = [128, 64]
+    configuration["ClassificationHead"]["decorrelation"] = {"activated": True, "weight": 0.01, "hidden_layer": 2}
+
+
+def test_decorrelation_of_a_hidden_layer_is_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that a classification configuration decorrelating the last hidden layer of its head passes the checks.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=decorrelate_the_last_hidden_layer)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["ClassificationHead"]["decorrelation"] == {"activated": True, "weight": 0.01,
+                                                                          "hidden_layer": 2}
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
@@ -768,7 +815,13 @@ def test_classification_configurations_are_consistent(tmp_path: Path, configurat
     (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
                                       "got 'yes'."]),
     (set_negative_number_sample_images, ["'ExperimentConfiguration.evaluation.number_sample_images' must be an "
-                                         "integer >= 0, got -1."])])
+                                         "integer >= 0, got -1."]),
+    (set_invalid_decorrelation, ["'ClassificationHead.decorrelation.activated' must be True or False, got 'yes'.",
+                                 "'ClassificationHead.decorrelation.weight' must be a number > 0, got 0.",
+                                 "'ClassificationHead.decorrelation.hidden_layer' must be an integer >= 1, got 0."]),
+    (decorrelate_a_missing_hidden_layer, ["'ClassificationHead.decorrelation.hidden_layer' must be at most the number "
+                                          "of hidden layers of 'ClassificationHead.fully_connected' (1) when "
+                                          "'ClassificationHead.decorrelation.activated' is True, got 2."])])
 def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                modify_function: Callable[[Dict[str, Any]], None],
                                                                expected_messages: List[str]) -> None:

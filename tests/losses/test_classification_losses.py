@@ -1,12 +1,13 @@
 """
 Tests of vision_training/losses/classification_losses.py: the weighted, smoothed multi-class and multi-label losses, the
-probabilities following the output mode and the balanced class weights.
+probabilities following the output mode, the balanced class weights and the decorrelation loss of the hidden features.
 """
 
+import math
 import torch
 
 from vision_training.losses.classification_losses import (compute_balanced_class_weights, compute_classification_loss,
-                                                          convert_logits_to_probabilities)
+                                                          compute_decorrelation_loss, convert_logits_to_probabilities)
 
 
 def test_multi_class_loss_is_weighted_smoothed_cross_entropy() -> None:
@@ -65,3 +66,37 @@ def test_balanced_class_weights() -> None:
                          other=torch.tensor(data=1.0))
     assert torch.allclose(input=compute_balanced_class_weights(class_counts=[0, 1]),
                           other=torch.tensor(data=[1.0, 1.0]))
+
+
+def test_decorrelation_loss_sums_the_squared_off_diagonal_correlations() -> None:
+    """
+    Verifies the decorrelation loss of the hidden features: the weight times the sum of the squared off-diagonal terms
+    of the correlation matrix of the features over the batch, whatever their scale and offset, in float32 under the
+    bfloat16 autocast, with the mean absolute off-diagonal correlation; 0 for uncorrelated features and a full penalty
+    for copies of one feature.
+    """
+    generator = torch.Generator().manual_seed(0)
+    hidden_features = torch.randn(size=(64, 6), generator=generator) @ torch.randn(size=(6, 6), generator=generator)
+    correlation = torch.corrcoef(input=hidden_features.T)
+    off_diagonal = correlation - torch.diag(input=torch.diagonal(input=correlation))
+
+    outputs = compute_decorrelation_loss(hidden_features=hidden_features * 7.0 + 3.0, weight=0.2)
+    assert torch.allclose(input=outputs["decorrelation_loss"], other=0.2 * off_diagonal.pow(exponent=2).sum(),
+                          rtol=1e-4)
+    assert torch.allclose(input=outputs["hidden_feature_correlation"], other=off_diagonal.abs().sum() / 30,
+                          rtol=1e-4)
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        autocast_outputs = compute_decorrelation_loss(hidden_features=hidden_features, weight=0.2)
+    assert autocast_outputs["decorrelation_loss"].dtype == torch.float32
+
+    # Orthogonal centred columns (the QR factor of centred columns) are uncorrelated, while copies of one feature are
+    # fully correlated: D(D - 1) off-diagonal terms of 1
+    centred_features = torch.randn(size=(32, 5), generator=generator)
+    centred_features = centred_features - centred_features.mean(dim=0, keepdim=True)
+    uncorrelated_features = torch.linalg.qr(A=centred_features)[0]
+    uncorrelated_outputs = compute_decorrelation_loss(hidden_features=uncorrelated_features, weight=1.0)
+    assert math.isclose(float(uncorrelated_outputs["decorrelation_loss"]), 0.0, abs_tol=1e-4)
+    copied_features = torch.randn(size=(32, 1), generator=generator).repeat(1, 4)
+    copied_outputs = compute_decorrelation_loss(hidden_features=copied_features, weight=1.0)
+    assert math.isclose(float(copied_outputs["decorrelation_loss"]), 12.0, rel_tol=1e-3)
+    assert math.isclose(float(copied_outputs["hidden_feature_correlation"]), 1.0, rel_tol=1e-3)

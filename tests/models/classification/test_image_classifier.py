@@ -1,7 +1,7 @@
 """
 Tests of ImageClassifier and of the classification head of vision_training/models/classification: output shapes and
-probabilities, learning a tiny batch, the class weights buffer, the global pooling shapes and the head sized by the
-pooled or flattened feature map.
+probabilities, learning a tiny batch, the class weights buffer, the decorrelation loss of the hidden features of the
+head, the global pooling shapes and the head sized by the pooled or flattened feature map.
 """
 
 import pytest
@@ -90,6 +90,98 @@ def test_class_weights_buffer_weights_the_loss() -> None:
                                                       weight=torch.tensor(data=[1.0, 2.0, 3.0]))
     assert torch.allclose(input=weighted_loss, other=expected_loss)
     assert "class_weights" in model.state_dict()
+
+
+def build_decorrelated_classifier(activated: bool) -> ImageClassifier:
+    """
+    Builds the small image classifier of the tests with two hidden layers in its head, the second one decorrelated
+    with a weight of 0.5 when asked, from the same random seed so that two classifiers share their weights. It stays
+    in training mode, where the batch statistics of the backbone spread the features of the images over the batch as
+    in a training; with the running statistics of a new backbone, every feature of the head varies less over a batch
+    than the epsilon of the normalization of the correlation (1e-5), which then counts it as constant.
+
+    Args:
+        activated (bool): Whether 'ClassificationHead.decorrelation' is on.
+
+    Returns:
+        ImageClassifier: The classifier in training mode, without dropout.
+    """
+    torch.manual_seed(seed=0)
+    configuration, device, dtype = get_classification_model_configuration(output_mode="multi_class")
+    configuration["ClassificationHead"].update({"fully_connected": [16, 12], "fully_connected_normalization": "layer",
+                                                "decorrelation": {"activated": activated, "weight": 0.5,
+                                                                  "hidden_layer": 2}})
+    return ImageClassifier(configuration=configuration, device=device, dtype=dtype).train()
+
+
+def test_decorrelation_loss_of_the_hidden_features() -> None:
+    """
+    Verifies the decorrelation loss of the image classifier: returned with the labels only, equal to the weight times
+    the sum of the squared off-diagonal correlations of the features of the chosen hidden layer as its ReLU receives
+    them, its tracked mean absolute correlation, the logits and the classification loss left unchanged, and gradients
+    reaching the layers up to that hidden layer only, not the class logits layer.
+    """
+    model = build_decorrelated_classifier(activated=True)
+    reference_model = build_decorrelated_classifier(activated=False)
+    images = torch.rand(size=(10, 3, 64, 64), generator=torch.Generator().manual_seed(4)) * 255.0
+    labels = torch.tensor(data=[0, 1, 2, 0, 1, 2, 0, 1, 2, 0])
+
+    # Features received by the ReLU of the second hidden layer, read by a hook on that ReLU
+    relu_layers = [layer for layer in model.classification_head.fully_connected_block
+                   if isinstance(layer, torch.nn.ReLU)]
+    received_features = []
+    hook = relu_layers[1].register_forward_pre_hook(hook=lambda module, inputs: received_features.append(
+        inputs[0].detach().clone()))
+    outputs = model(input_tensor=images, labels=labels)
+    hook.remove()
+
+    # Weight times the squared off-diagonal terms of the correlation matrix of the 12 features over the 10 images, the
+    # features varying enough over the batch for the epsilon of the normalization to change them by less than 1 %
+    correlation = torch.corrcoef(input=received_features[0].T)
+    off_diagonal = correlation - torch.diag(input=torch.diagonal(input=correlation))
+    assert received_features[0].shape == (10, 12) and (received_features[0] < 0).any()
+    assert received_features[0].var(dim=0, unbiased=False).min() > 1e-3
+    assert torch.allclose(input=outputs["decorrelation_loss"], other=0.5 * off_diagonal.pow(exponent=2).sum(),
+                          rtol=1e-2)
+    assert torch.allclose(input=outputs["hidden_feature_correlation"], other=off_diagonal.abs().sum() / (12 * 11),
+                          rtol=1e-2)
+    assert not outputs["hidden_feature_correlation"].requires_grad
+
+    # Same logits and classification loss as the classifier without decorrelation, and no decorrelation without labels
+    reference_outputs = reference_model(input_tensor=images, labels=labels)
+    assert torch.allclose(input=outputs["class_logits"], other=reference_outputs["class_logits"], atol=1e-6)
+    assert torch.allclose(input=outputs["classification_loss"], other=reference_outputs["classification_loss"])
+    assert "decorrelation_loss" not in reference_outputs
+    assert "decorrelation_loss" not in model(input_tensor=images) and "hidden_feature_correlation" not in model(
+        input_tensor=images)
+
+    # Gradients of the decorrelation loss reach the backbone and the hidden layers, not the class logits layer
+    outputs["decorrelation_loss"].backward()
+    assert model.classification_head.classifier.weight.grad is None
+    first_hidden_layer = model.classification_head.fully_connected_block[1]
+    assert first_hidden_layer.weight.grad is not None and first_hidden_layer.weight.grad.abs().sum() > 0
+    assert any(parameter.grad is not None and parameter.grad.abs().sum() > 0
+               for parameter in model.backbone.parameters())
+
+
+def test_minimising_the_decorrelation_loss_decorrelates_the_hidden_features() -> None:
+    """
+    Verifies that the decorrelation loss does what it is meant for: a few optimizer steps on it alone lower the mean
+    absolute correlation of the features of the decorrelated hidden layer on a fixed batch.
+    """
+    model = build_decorrelated_classifier(activated=True)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=1e-2)
+    images = torch.rand(size=(32, 3, 64, 64), generator=torch.Generator().manual_seed(5)) * 255.0
+    labels = torch.zeros(size=(32,), dtype=torch.int64)
+
+    correlations = []
+    for _ in range(30):
+        optimizer.zero_grad()
+        outputs = model(input_tensor=images, labels=labels)
+        correlations.append(float(outputs["hidden_feature_correlation"]))
+        outputs["decorrelation_loss"].backward()
+        optimizer.step()
+    assert correlations[-1] < 0.5 * correlations[0]
 
 
 @pytest.mark.parametrize(argnames=("global_pooling", "expected_vector"),

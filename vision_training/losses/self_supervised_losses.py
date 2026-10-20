@@ -4,6 +4,7 @@ InfoNCE (SimCLR), where every view must find the view of its own image among all
 Twins, where the cross-correlation of the embedding features of both views must be the identity. Each loss comes with
 the batch metrics tracked by the trainer, and the standard deviation of the normalized embeddings watches the collapse
 of every method. Computed by the self-supervised model in float32, outside the bfloat16 autocast of mixed precision.
+The cross-correlation of Barlow Twins is also the correlation matrix of the decorrelation loss of the image classifier.
 """
 
 import torch
@@ -14,8 +15,8 @@ from typing import Dict
 # Self-supervised methods of 'ProjectionHead.method'
 SELF_SUPERVISED_METHODS = ["simclr", "barlow_twins"]
 
-# Small value added to the variance of every embedding feature before the normalization of Barlow Twins, so that a
-# constant feature does not divide by zero
+# Small value added to the variance of every feature before the normalization of compute_feature_cross_correlation
+# (Barlow Twins and the decorrelation loss of the image classifier), so that a constant feature does not divide by zero
 BARLOW_TWINS_NORMALIZATION_EPSILON = 1e-5
 
 
@@ -62,6 +63,38 @@ def compute_info_nce_loss(first_embeddings: torch.Tensor, second_embeddings: tor
     return {"info_nce_loss": info_nce_loss, "positive_pair_accuracy": positive_pair_accuracy}
 
 
+def compute_feature_cross_correlation(first_embeddings: torch.Tensor, second_embeddings: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the [D, D] cross-correlation of the features of two batches of N vectors, in float32 outside the bfloat16
+    autocast: every feature is normalized over the batch (zero mean, unit variance), then the normalized features of
+    the first batch are multiplied with those of the second one and averaged over the batch. It is the matrix of
+    Barlow Twins, comparing the embeddings of the two views of every image, and, given the same features twice, the
+    correlation matrix of the decorrelation loss of the image classifier (compute_decorrelation_loss), whose diagonal
+    is then 1 for every feature that varies over the batch.
+
+    Args:
+        first_embeddings (torch.Tensor): The [N, D] first vectors, e.g. the embeddings of the first views.
+        second_embeddings (torch.Tensor): The [N, D] second vectors, in the order of the first ones.
+
+    Returns:
+        torch.Tensor: The [D, D] float32 cross-correlation, the correlation of feature i of the first vectors with
+            feature j of the second ones at row i and column j.
+    """
+    with torch.autocast(device_type=first_embeddings.device.type, enabled=False):
+        number_images = first_embeddings.shape[0]
+
+        # Every feature normalized over the vectors of the batch
+        normalized_views = []
+        for view_embeddings in [first_embeddings.float(), second_embeddings.float()]:
+            feature_means = view_embeddings.mean(dim=0, keepdim=True)
+            feature_variances = view_embeddings.var(dim=0, unbiased=False, keepdim=True)
+            normalized_views.append((view_embeddings - feature_means) /
+                                    torch.sqrt(input=feature_variances + BARLOW_TWINS_NORMALIZATION_EPSILON))
+
+        # Cross-correlation of the features of the first vectors with those of the second vectors
+        return normalized_views[0].T @ normalized_views[1] / number_images
+
+
 def compute_barlow_twins_loss(first_embeddings: torch.Tensor, second_embeddings: torch.Tensor,
                               off_diagonal_weight: float) -> Dict[str, torch.Tensor]:
     """
@@ -82,18 +115,12 @@ def compute_barlow_twins_loss(first_embeddings: torch.Tensor, second_embeddings:
             'cross_correlation_off_diagonal' without gradient.
     """
     with torch.autocast(device_type=first_embeddings.device.type, enabled=False):
-        number_images, embedding_dimension = first_embeddings.shape
+        embedding_dimension = first_embeddings.shape[1]
 
-        # Every feature normalized over the views of the batch
-        normalized_views = []
-        for view_embeddings in [first_embeddings.float(), second_embeddings.float()]:
-            feature_means = view_embeddings.mean(dim=0, keepdim=True)
-            feature_variances = view_embeddings.var(dim=0, unbiased=False, keepdim=True)
-            normalized_views.append((view_embeddings - feature_means) /
-                                    torch.sqrt(input=feature_variances + BARLOW_TWINS_NORMALIZATION_EPSILON))
-
-        # Cross-correlation of the features of the first views with those of the second views
-        cross_correlation = normalized_views[0].T @ normalized_views[1] / number_images
+        # Cross-correlation of the features of the first views with those of the second views, every feature
+        # normalized over the views of the batch
+        cross_correlation = compute_feature_cross_correlation(first_embeddings=first_embeddings,
+                                                              second_embeddings=second_embeddings)
         diagonal = torch.diagonal(input=cross_correlation)
         off_diagonal = cross_correlation - torch.diag_embed(input=diagonal)
 

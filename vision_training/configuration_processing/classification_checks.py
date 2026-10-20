@@ -1,8 +1,9 @@
 """
 Checks of the configuration sections specific to the image classification task: the data settings (label mode,
 class weighting), the classification head (global pooling, hidden layers and their normalization, output mode,
-dropout, label smoothing) and the evaluation settings. Run by configuration_checker.py for the classification task and
-reused by the sequence task checks.
+dropout, label smoothing), the decorrelation of its hidden features and the evaluation settings. Run by
+configuration_checker.py for the classification task and reused by the sequence task checks, except the decorrelation,
+a setting of the image classifier only.
 """
 
 from typing import Any, Dict, List
@@ -14,7 +15,7 @@ from vision_training.configuration_processing.configuration_values import (VALID
                                                                            check_batch_normalization_momentum,
                                                                            check_boolean_flags, check_positive_integers,
                                                                            check_probability_value,
-                                                                           get_configuration_value)
+                                                                           get_configuration_value, is_number)
 
 # Global pooling of the final feature map before the classification head (or the temporal module of the sequence
 # models), or its flattening
@@ -129,6 +130,45 @@ def check_classification_head_configuration(model_configuration: Dict[str, Any])
     return errors
 
 
+def check_classification_decorrelation_configuration(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the 'ClassificationHead.decorrelation' settings of the image classifier, which adds to its loss the
+    squared off-diagonal correlations of the features of one hidden layer of its head: the on/off flag, a weight above
+    0, and the hidden layer, a positive integer counted from 1 in 'ClassificationHead.fully_connected', which must
+    exist when the decorrelation is on. The sequence tasks sharing the classification head have no such setting.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model sections.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = check_boolean_flags(configuration=model_configuration,
+                                 key_paths=["ClassificationHead.decorrelation.activated"])
+    weight = get_configuration_value(configuration=model_configuration,
+                                     key_path="ClassificationHead.decorrelation.weight")
+    if not is_number(value=weight) or weight <= 0:
+        errors.append(f"'ClassificationHead.decorrelation.weight' must be a number > 0, got {weight!r}.")
+    hidden_layer_errors = check_positive_integers(configuration=model_configuration,
+                                                  key_paths=["ClassificationHead.decorrelation.hidden_layer"],
+                                                  allow_zero=False)
+    errors += hidden_layer_errors
+
+    # The decorrelated layer must be one of the hidden layers of the head when the decorrelation is on
+    activated = get_configuration_value(configuration=model_configuration,
+                                        key_path="ClassificationHead.decorrelation.activated")
+    hidden_layer = get_configuration_value(configuration=model_configuration,
+                                           key_path="ClassificationHead.decorrelation.hidden_layer")
+    fully_connected = get_configuration_value(configuration=model_configuration,
+                                              key_path="ClassificationHead.fully_connected")
+    if activated is True and not hidden_layer_errors and isinstance(fully_connected, list) and \
+            hidden_layer > len(fully_connected):
+        errors.append(f"'ClassificationHead.decorrelation.hidden_layer' must be at most the number of hidden layers of "
+                      f"'ClassificationHead.fully_connected' ({len(fully_connected)}) when "
+                      f"'ClassificationHead.decorrelation.activated' is True, got {hidden_layer}.")
+    return errors
+
+
 def check_classification_evaluation_configuration(experiment_configuration: Dict[str, Any],
                                                   model_configuration: Dict[str, Any]) -> List[str]:
     """
@@ -170,7 +210,7 @@ def check_classification_configuration(experiment_configuration: Dict[str, Any],
                                        model_configuration: Dict[str, Any]) -> List[str]:
     """
     Runs every check specific to the classification task: its data settings, without the sequence settings,
-    its classification head and its evaluation settings.
+    its classification head with the decorrelation of its hidden features, and its evaluation settings.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -183,6 +223,7 @@ def check_classification_configuration(experiment_configuration: Dict[str, Any],
     errors += check_classification_data_configuration(model_configuration=model_configuration)
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
     errors += check_classification_head_configuration(model_configuration=model_configuration)
+    errors += check_classification_decorrelation_configuration(model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
     return errors
