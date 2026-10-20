@@ -242,6 +242,9 @@ Data:
       random_colour_augmentation: { activated: False, probability: 0.3 }
       # Random Image Blurring : 9x9 Gaussian kernel with sigma 2.5
       random_blur: { activated: False, probability: 0.3 }
+      # Random Motion Blurring : streak of 5 to 15 pixels at an angle of 0 to 180 degrees, trailing backward
+      # or forward, the motion of the camera or of the objects during the exposure
+      random_motion_blur: { activated: False, probability: 0.3 }
       # Random Haze : blend with a uniform grey airlight of 180 to 255 intensity levels taking 20% to 60% of every
       # pixel, the fog or condensation of a camera lowering the contrast (applied after the other photometric types)
       random_haze: { activated: True, probability: 0.3 }
