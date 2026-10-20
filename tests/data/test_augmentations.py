@@ -3,12 +3,13 @@ Tests of DataAugmenter of vision_training/data/augmentations.py: geometric augme
 geometric augmentations moving the segmentation masks with nearest interpolation, geometric augmentations moving the
 instance masks and recomputing their boxes, photometric augmentations keeping boxes, masks and pixel range, images
 without boxes, a single histogram equalization per image, the haze blending every image with its own grey airlight
-after the other photometric types, shared or per-frame draws of the sequence frames, frame shuffling, the rejected
-inputs, the zoom-out, the translation by whole pixels with the removal of the objects it pushes out, the removal of the
-fragments of objects left by the crop, the aspect crop keeping independent shares of the width and of the height and
-stretching the image, its boxes and masks, the keypoints moved without being renamed and unlabelled once out of the
-image, the ignored regions of the keypoint detection moved with them as binary masks, and the augmentation reports
-written in the information panels of the input viewer.
+after the other photometric types, the black-out hiding whole cells of an 8x8 grid drawn one by one, last, shared or
+per-frame draws of the sequence frames, frame shuffling, the rejected inputs, the zoom-out, the translation by whole
+pixels with the removal of the objects it pushes out, the removal of the fragments of objects left by the crop, the
+aspect crop keeping independent shares of the width and of the height and stretching the image, its boxes and masks,
+the keypoints moved without being renamed and unlabelled once out of the image, the ignored regions of the keypoint
+detection moved with them as binary masks, and the augmentation reports written in the information panels of the
+input viewer.
 """
 
 import random
@@ -19,7 +20,8 @@ import torch
 from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, EXCLUSIVE_EQUALIZATION_TYPES,
+from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, BLACK_OUT_CELL_PROBABILITY,
+                                                 BLACK_OUT_GRID_SIZE, EXCLUSIVE_EQUALIZATION_TYPES,
                                                  GEOMETRIC_AUGMENTATION_TYPES, HAZE_AIRLIGHT_RANGE, HAZE_STRENGTH_RANGE,
                                                  MAXIMUM_TRANSLATION_FRACTION, MINIMUM_ASPECT_CROP_FRACTION,
                                                  MINIMUM_CROP_FRACTION, NOISE_STANDARD_DEVIATION,
@@ -229,6 +231,63 @@ def test_haze_blends_every_image_with_a_uniform_grey_airlight(monkeypatch: pytes
     expected_mean = 100.0 * (1.0 - largest_strength) + largest_strength * HAZE_AIRLIGHT_RANGE[1]
     assert abs(float(hazy_images.mean()) - expected_mean) < 1.0
     assert abs(float(hazy_images.std()) - NOISE_STANDARD_DEVIATION * (1.0 - largest_strength)) < 1.0
+
+
+def test_black_out_hides_whole_cells_of_an_8x8_grid_drawn_one_by_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies the random_black_out type: it hides whole cells of an 8x8 grid, each drawn on its own with
+    BLACK_OUT_CELL_PROBABILITY so that their number varies between images and is given in the report, covers the whole
+    image when a side is not a multiple of the grid size, hides the same cells on every frame of a sequence, and keeps
+    its cells black after the haze drawn with it.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture drawing every cell as hidden.
+    """
+    random.seed(0)
+    torch.manual_seed(seed=0)
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_black_out"]))
+
+    # Grey images of 96 pixels, cut into cells of 12 pixels: every cell is either hidden or left untouched
+    images = torch.full(size=(64, 3, IMAGE_SIZE, IMAGE_SIZE), fill_value=200.0)
+    hidden_images, _, _, _, _, _, reports = augmenter.augment_batch(images=images)
+    cell_size = IMAGE_SIZE // BLACK_OUT_GRID_SIZE
+    cells = hidden_images.reshape(64, 3, BLACK_OUT_GRID_SIZE, cell_size, BLACK_OUT_GRID_SIZE, cell_size)
+    hidden_cells = (cells == 0.0).all(dim=5).all(dim=3).all(dim=1)
+    untouched_cells = (cells == 200.0).all(dim=5).all(dim=3).all(dim=1)
+    assert bool((hidden_cells | untouched_cells).all())
+
+    # The number of hidden cells varies between images, is given in the report, and their share is the probability
+    hidden_counts = hidden_cells.flatten(start_dim=1).sum(dim=1).tolist()
+    assert [report["photometric_augmentations"][0] for report in reports] == [
+        [("random_black_out", f"{count} of the 64 cells of an 8x8 grid")] for count in hidden_counts]
+    assert len(set(hidden_counts)) > 1
+    assert abs(float(hidden_cells.float().mean()) - BLACK_OUT_CELL_PROBABILITY) < 0.04
+
+    # A sequence of different frames has the same cells hidden on all its frames
+    sequences = torch.stack(tensors=[torch.full(size=(3, IMAGE_SIZE, IMAGE_SIZE), fill_value=50.0 * (frame_index + 1))
+                                     for frame_index in range(4)]).unsqueeze(dim=0)
+    hidden_sequences = augmenter.augment_batch(images=sequences)[0]
+    hidden_pixels = hidden_sequences[0] == 0.0
+    assert bool(hidden_pixels.any()) and all(torch.equal(input=hidden_pixels[frame_index], other=hidden_pixels[0])
+                                             for frame_index in range(1, 4))
+
+    # Drawn after the haze, the hidden cells stay black while the other pixels are veiled
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(
+        enabled_types=["random_haze", "random_black_out"]))
+    hazy_images, _, _, _, _, _, reports = augmenter.augment_batch(images=images[:8])
+    assert all([type_name for type_name, _ in report["photometric_augmentations"][0]] == ["random_haze",
+                                                                                          "random_black_out"]
+               for report in reports)
+    hidden_pixels = hazy_images == 0.0
+    assert bool(hidden_pixels.any()) and bool((hazy_images[~hidden_pixels] != 200.0).all())
+
+    # With every cell drawn as hidden, the cells of rounded edges cover a whole image of 100 x 75 pixels
+    monkeypatch.setattr(target=random, name="random", value=lambda: 0.0)
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_black_out"]))
+    hidden_images, _, _, _, _, _, reports = augmenter.augment_batch(images=torch.full(size=(1, 3, 100, 75),
+                                                                                        fill_value=200.0))
+    assert bool((hidden_images == 0.0).all())
+    assert reports[0]["photometric_augmentations"] == [[("random_black_out", "64 of the 64 cells of an 8x8 grid")]]
 
 
 def test_images_without_boxes_for_classification() -> None:

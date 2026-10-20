@@ -110,7 +110,7 @@ main()
 │       │       the architecture starts a new one.
 │       ├── DataAugmenter(augmentation_configuration)
 │       │       Reads Data.data_augmentation: the global activated flag and probability, and the activated flag and
-│       │       probability of each of the 18 augmentation types. It only stores them; the random draws happen later, on
+│       │       probability of each of the 19 augmentation types. It only stores them; the random draws happen later, on
 │       │       the training batches (Stage 3, augment_batch).
 │       ├── setup_training_paths()
 │       │       Computes experiment_folder/Tensorboard, /Weights and /training_configuration.yaml. For a training it
@@ -635,14 +635,14 @@ CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-CWB_MC1000
 There is no optimizer section at the end because the run uses plain Adam without weight decay.
 
 ### Step 2.5 — `DataAugmenter()`
-This creates the augmentation tool of the training batches from `Data.data_augmentation`. It only reads and stores the settings: the global `activated` flag and `probability` (the chance that an image is augmented at all), and for each of the 18 augmentation types (8 geometric, 10 photometric) its own `activated` flag and `probability`. The random draws happen later, in Step 3.13, on every training batch. The `independent_frames` and `shuffle_frames` settings only concern the sequence tasks.
+This creates the augmentation tool of the training batches from `Data.data_augmentation`. It only reads and stores the settings: the global `activated` flag and `probability` (the chance that an image is augmented at all), and for each of the 19 augmentation types (8 geometric, 11 photometric) its own `activated` flag and `probability`. The random draws happen later, in Step 3.13, on every training batch. The `independent_frames` and `shuffle_frames` settings only concern the sequence tasks.
 
 **Example: the settings of `configuration_example.yaml`**
 ```text
 activated: True    probability: 0.3    independent_frames: False    shuffle_frames: {activated: False, ...}
-types:     12 of the 18 types activated, 11 with probability 0.5 and random_haze with 0.3 (random_aspect_crop,
+types:     12 of the 19 types activated, 11 with probability 0.5 and random_haze with 0.3 (random_aspect_crop,
            random_zoom_out, random_translation, random_up_down_flip, random_90_rotation and
-           random_colour_augmentation are off)
+           random_colour_augmentation and random_black_out are off)
 expected:  0.3 x (11 x 0.5 + 0.3) = 1.74 augmentations per image, on average
 attributes of the augmenter: activated, probability, independent_frames, shuffle_frames_activated,
                              shuffle_frames_probability, type_settings
@@ -1135,7 +1135,7 @@ labels  [8]            torch.int64   -> [8]            torch.int64
 ```
 
 ### Step 3.13 — `augment_batch()` → `DataAugmenter.augment_batch()`
-This is only called for training batches, so the model learns from varied images while the validation and the test stay on the original ones. Each image of the batch is drawn on its own: with probability `Data.data_augmentation.probability` it is augmented, otherwise it is left as it is. An augmented image gets the geometric types first (crop, aspect crop, zoom-out, translation, left-right flip, up-down flip, rotations), then the photometric ones (brightness, contrast, saturation, CLAHE, sharpening, histogram equalizations, noise, grayscale, colour swap, blur, haze), each type with its own probability. The labels do not change, since none of these changes the class. The result stays in [0, 255].
+This is only called for training batches, so the model learns from varied images while the validation and the test stay on the original ones. Each image of the batch is drawn on its own: with probability `Data.data_augmentation.probability` it is augmented, otherwise it is left as it is. An augmented image gets the geometric types first (crop, aspect crop, zoom-out, translation, left-right flip, up-down flip, rotations), then the photometric ones (brightness, contrast, saturation, CLAHE, sharpening, histogram equalizations, noise, grayscale, colour swap, blur, haze, black out), each type with its own probability. The labels do not change, since none of these changes the class. The result stays in [0, 255].
 
 **Example: which images of the first batch were changed** (`probability: 0.4`, 8 images)
 ```text

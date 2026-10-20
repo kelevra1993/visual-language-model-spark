@@ -243,7 +243,7 @@ The same augmenter as the classification; the geometric augmentations move the b
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4
-1 of 18 types activated: random_haze
+1 of 19 types activated: random_haze
 ```
 
 ### Step 2.6 — `setup_training_paths()`
