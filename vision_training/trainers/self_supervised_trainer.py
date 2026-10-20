@@ -20,6 +20,9 @@ from vision_training.data.label_mapping import get_class_names
 from vision_training.data.loaders import get_classification_dataloaders
 from vision_training.data.split_description import count_split_samples
 from vision_training.data.view_augmentations import ViewAugmenter
+from vision_training.evaluation.classification.class_metrics_report import (build_class_metric_scalars,
+                                                                             build_class_metrics_rows,
+                                                                             build_class_metrics_table)
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix)
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
@@ -40,9 +43,8 @@ METHOD_TRACKED_METRICS = {"simclr": {"total_loss": "Total Loss", "info_nce_loss"
                                            "cross_correlation_off_diagonal": "Off-Diagonal Correlation",
                                            "embedding_standard_deviation": "Embedding Standard Deviation"}}
 
-# Name of the per-class table of the k-nearest neighbour classification and of its sort column, worst classes first
+# Name of the per-class table of the k-nearest neighbour classification, worst classes first
 NEAREST_NEIGHBOUR_TABLE_TITLE = "Per Class k-NN Metrics"
-NEAREST_NEIGHBOUR_SORT_COLUMN = "F1"
 
 # Caption of an image without mapped category in the sample images and the input viewer
 UNLABELLED_CAPTION = "unlabelled"
@@ -283,24 +285,16 @@ class SelfSupervisedTrainer(BaseTrainer):
                           "k-NN Balanced Accuracy": class_metrics["balanced_accuracy"],
                           "k-NN Macro F1": class_metrics["macro_f1"]}
 
-        # Metrics of every class, in the file, the table (worst F1 first) and the TensorBoard scalars
-        class_rows, table_rows, class_scalars = [], [], {}
-        for class_index, class_name in enumerate(self.class_names):
-            number_class_samples = int(class_metrics["support"][class_index])
-            class_values = {metric_name: class_metrics[metric_name][class_index]
-                            for metric_name in ["precision", "recall", "f1"]}
-            class_rows.append({"class_index": class_index, "class": class_name, "samples": number_class_samples,
-                               **class_values})
-            table_rows.append([class_name, number_class_samples] + [class_values[metric_name] if number_class_samples
-                                                                    else None for metric_name in class_values])
-            class_scalars.update({f"k-NN {metric_name.capitalize()}/{class_name}": value
-                                  for metric_name, value in class_values.items()})
-        table = {"title": NEAREST_NEIGHBOUR_TABLE_TITLE,
-                 "columns": ["Class", "Samples", "Precision", "Recall", NEAREST_NEIGHBOUR_SORT_COLUMN],
-                 "rows": table_rows, "sort_column": NEAREST_NEIGHBOUR_SORT_COLUMN, "per_class": True,
-                 "legend": f"k-nearest neighbour classification ({self.number_neighbours} neighbours) of the labelled "
-                           f"test images by the other ones. Worst F1 first, ties in class order. — : no labelled "
-                           f"test image of the class."}
+        # Metrics of every class without thresholds, in the file, the table (worst F1 first) and the TensorBoard scalars
+        class_rows = build_class_metrics_rows(class_names=self.class_names, metrics=class_metrics)
+        table = build_class_metrics_table(class_rows=class_rows, target_precision=None, support_column="Samples",
+                                          title=NEAREST_NEIGHBOUR_TABLE_TITLE,
+                                          legend_introduction=f"k-nearest neighbour classification "
+                                                              f"({self.number_neighbours} neighbours) of the labelled "
+                                                              f"test images by the other ones. ",
+                                          support_description="labelled test image")
+        class_scalars = build_class_metric_scalars(class_names=self.class_names, metrics=class_metrics,
+                                                   tag_prefix="k-NN ")
         class_metrics_path = write_class_metrics_file(class_rows=class_rows, evaluation_folder=evaluation_folder)
         return global_metrics, {"table": table, "class_scalars": class_scalars,
                                 "class_metrics_path": class_metrics_path}

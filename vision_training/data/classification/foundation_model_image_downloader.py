@@ -607,6 +607,7 @@ def match_open_images(annotations_folder: Path, matches_path: Path) -> int:
                     photo_number = get_flickr_photo_number(url=row["OriginalURL"])
                     if photo_number not in wanted_photo_numbers:
                         continue
+                    # Write the match once, dropping the photo so that a later subset does not match it again
                     rotation = int(float(row["Rotation"])) if row["Rotation"] not in ("", "nan") else 0
                     matches_writer.writerow([photo_number, row["Subset"], row["ImageID"], rotation])
                     wanted_photo_numbers.discard(photo_number)
@@ -824,6 +825,7 @@ def process_open_images_archive(archive_key: str, wanted_rotations: Dict[str, in
             if not member.isfile() or image_identifier not in wanted_rotations or \
                     image_identifier in stored_identifiers:
                 continue
+            # Rotate upright, resize and store the image, the undecodable ones being listed as missing
             record = store_open_images_member(image_bytes=archive.extractfile(member=member).read(),
                                               image_identifier=image_identifier,
                                               rotation_degrees=wanted_rotations[image_identifier],
@@ -832,6 +834,7 @@ def process_open_images_archive(archive_key: str, wanted_rotations: Dict[str, in
             if record is None:
                 undecodable_identifiers.append(image_identifier)
                 continue
+            # Append the record to the progress file so that an interrupted run skips this image
             progress_file.write(json.dumps(obj=record) + "\n")
             records.append(record)
             stored_identifiers.add(image_identifier)

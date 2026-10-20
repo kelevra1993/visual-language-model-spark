@@ -439,6 +439,7 @@ def build_temporal_module(temporal_configuration: Dict[str, Any], input_features
                                        dropout_rate=temporal_configuration["dropout_rate"],
                                        bidirectional=temporal_configuration["bidirectional"],
                                        keep_time_axis=keep_time_axis, device=device, dtype=dtype)
+    # Self-attention over the frames, causal when a frame must only see the frames before it
     if temporal_type == "transformer":
         return TransformerTemporalModule(input_features=input_features,
                                          hidden_size=temporal_configuration["hidden_size"],
@@ -449,6 +450,7 @@ def build_temporal_module(temporal_configuration: Dict[str, Any], input_features
                                          positional_embedding=temporal_configuration["positional_embedding"],
                                          keep_time_axis=keep_time_axis, maximum_length=maximum_length, device=device,
                                          dtype=dtype)
+    # The temporal convolution otherwise
     return TemporalConvolutionModule(input_features=input_features, hidden_size=temporal_configuration["hidden_size"],
                                      number_layers=temporal_configuration["number_layers"],
                                      kernel_size=temporal_configuration["kernel_size"],

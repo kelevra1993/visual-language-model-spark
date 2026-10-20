@@ -1040,6 +1040,7 @@ def test_clustering_writes_clusters_links_mosaics_and_kept_images(embedding_run:
     assert all(int(row["rank"]) <= 2 for row in image_rows if row["kept_reason"].startswith("representative"))
     assert all(row["kept_reason"] == ISOLATED_IMAGE_REASON for row in image_rows
                if int(row["cluster"]) == ISOLATED_CLUSTER)
+    # Every folder of kept images lists the same samples in its CSV and its labels.json, its data linked to the split
     kept_counts = {}
     for folder_name in [KEPT_BY_CLUSTERING_FOLDER_NAME, KEPT_AT_RANDOM_FOLDER_NAME, KEPT_EVENLY_SPACED_FOLDER_NAME]:
         kept_images_folder = clustering_folder / folder_name
@@ -1050,6 +1051,7 @@ def test_clustering_writes_clusters_links_mosaics_and_kept_images(embedding_run:
         assert (kept_images_folder / "data").resolve() == (split_folder / "data").resolve()
         kept_counts[folder_name] = sorted((category_name, sum(row["category"] == category_name for row in kept_rows))
                                           for category_name in category_names)
+        # The clustering gives the reasons of clusters.csv, the evenly spaced baseline as many images of every video
         if folder_name == KEPT_BY_CLUSTERING_FOLDER_NAME:
             assert {int(row["row"]): row["reason"] for row in kept_rows} == kept_reasons
         if folder_name == KEPT_EVENLY_SPACED_FOLDER_NAME:
@@ -1143,6 +1145,7 @@ def test_kept_images_table_gives_every_layer_and_category_with_their_total() -> 
     clustering, one row per layer and category with the counts written with thousands separators and the shares of the
     initial images, a total row after the categories of a layer that has several, and none after a single category.
     """
+    # A layer with two categories, whose counts are those of the ficha empty bins run, and a layer with a single one
     source = {"name": "dataset-classification-train", "roles": ["validation", "test"]}
     summaries = [{"layer": "block_6", "category": "empty_bin", "initial_images": 11772, "image_clusters": 96,
                   "isolated_images": 1573, "kept_representatives": 476, "kept_isolated_images": 1573,
@@ -1154,11 +1157,13 @@ def test_kept_images_table_gives_every_layer_and_category_with_their_total() -> 
                   "isolated_images": 0, "kept_representatives": 2, "kept_isolated_images": 0, "kept_images": 2}]
     table = build_kept_images_table(source=source, clustering_name="dbscan_eps_0.16_min_samples_5_normalized_pca_200",
                                     category_summaries=summaries)
+    # The title names the source, its roles and the clustering, above the columns of the counts and shares
     assert table["title"] == ("Kept Images · dataset-classification-train (validation, test)\n"
                               "Clustering dbscan_eps_0.16_min_samples_5_normalized_pca_200")
     assert table["columns"] == ["Layer", "Category", "Initial\nImages", "Image\nClusters", "Isolated\nImages",
                                 "Isolated\nShare", "Kept\nRepresentatives", "Kept Isolated\nImages", "Kept\nImages",
                                 "Kept\nShare"]
+    # One row per layer and category, a total row after the two categories of block_6 and none after the single one
     assert table["rows"] == [
         ["block_6", "empty_bin", "11,772", "96", "1,573", "13.4 %", "476", "1,573", "2,049", "17.4 %"],
         ["block_6", "not_empty", "31,805", "310", "2,600", "8.2 %", "1,547", "1,000", "2,547", "8.0 %"],

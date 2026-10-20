@@ -318,9 +318,8 @@ def test_evaluate_image_keypoints_compares_the_predicted_and_ground_truth_object
             squared_distances = torch.nan_to_num(input=(differences ** 2).sum(dim=-1), nan=float("inf"))
             box = images[0]["bounding_boxes"][ground_truth_index]
             expected_similarity = compute_expected_similarity(
-                squared_distances=squared_distances.tolist(),
+                squared_distances=squared_distances.tolist(), area=float((box[2] - box[0]) * (box[3] - box[1])),
                 labelled=(images[0]["visibilities"][ground_truth_index] > 0).tolist(),
-                area=float((box[2] - box[0]) * (box[3] - box[1])),
                 sigmas=sigma_table[images[0]["labels"][ground_truth_index]].tolist())
             assert keypoint_overlaps[prediction_index, ground_truth_index].item() == pytest.approx(expected_similarity)
     assert keypoint_overlaps[3].tolist() == [0.0, 0.0, 0.0]

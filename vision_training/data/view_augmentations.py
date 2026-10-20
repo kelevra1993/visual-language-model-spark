@@ -2,8 +2,9 @@
 ViewAugmenter, the random views of the self-supervised task: every image of a batch is transformed twice, on its
 device, by a random resized crop, flips, a rotation, a perspective distortion, a jigsaw of its pieces, a colour jitter,
 a grayscale conversion, a gamma, a haze, a linear illumination, a plasma shadow, a Gaussian blur, a motion blur, a
-solarization, a Gaussian noise and a random erasing, each drawn independently for every image and every view, with
-probabilities that may differ between the first and the second view (the asymmetric views of BYOL and Barlow Twins).
+solarization, a Gaussian noise and a random erasing, each drawn independently for every image and every view (but the
+kernel size of the motion blur, drawn once per batch by kornia), with probabilities that may differ between the first
+and the second view (the asymmetric views of BYOL and Barlow Twins).
 The self-supervised model then pulls the two views of an image together. Built by the self-supervised trainer from the
 'Data.view_augmentation' section, and by the classification trainer from
 'ClassificationHead.view_losses.view_augmentation' to draw the second view of every image of the view losses of the
@@ -52,16 +53,16 @@ class RandomHaze(kornia_augmentation.IntensityAugmentationBase2D):
     transformations, so that a seed gives the same haze on every device and the drawn values can be described.
     """
 
-    def __init__(self, strength: Tuple[float, float], airlight: Tuple[float, float], p: float) -> None:
+    def __init__(self, strength: Tuple[float, float], airlight: Tuple[float, float], probability: float) -> None:
         """
         Builds the haze transformation of a chain of view transformations.
 
         Args:
             strength (Tuple[float, float]): The range of the share of the airlight in a hazy image, within [0, 1].
             airlight (Tuple[float, float]): The range of the intensity of the airlight, within [0, 1].
-            p (float): The probability of hazing an image.
+            probability (float): The probability of hazing an image.
         """
-        super().__init__(p=p, same_on_batch=False, keepdim=False)
+        super().__init__(p=probability, same_on_batch=False, keepdim=False)
         self._param_generator = kornia_random_generator.PlainUniformGenerator(
             (strength, "strength", None, None), (airlight, "airlight", None, None))
 
@@ -112,8 +113,9 @@ def build_view_transformations(view_augmentation_configuration: Dict[str, Any], 
     transformations draw the parameters of every image of the batch independently, on the CPU with the random generator
     of PyTorch (the same seed giving the same views on every device), then transform the images on their device; the
     plasma shadow and the Gaussian noise draw their fractal map and their noise on the device, the only transformations
-    whose views differ between devices for the same seed. The order of the four colour jitter changes is drawn once per
-    batch.
+    whose views differ between devices for the same seed. The order of the four colour jitter changes and the kernel
+    size of the motion blur, an odd size of 'motion_blur.kernel_size' with both bounds included, are drawn once per
+    batch, the angle and direction of the motion blur staying drawn for every image.
 
     Args:
         view_augmentation_configuration (Dict[str, Any]): The 'Data.view_augmentation' section.
@@ -162,7 +164,8 @@ def build_view_transformations(view_augmentation_configuration: Dict[str, Any], 
                         kornia_augmentation.RandomGamma(gamma=tuple(view_augmentation_configuration["gamma"]["gamma"]),
                                                         p=probabilities["gamma"]),
                         RandomHaze(strength=tuple(haze_configuration["strength"]),
-                                   airlight=tuple(haze_configuration["airlight"]), p=probabilities["haze"]),
+                                   airlight=tuple(haze_configuration["airlight"]),
+                                   probability=probabilities["haze"]),
                         kornia_augmentation.RandomLinearIllumination(
                             gain=tuple(view_augmentation_configuration["linear_illumination"]["gain"]),
                             p=probabilities["linear_illumination"]),
@@ -172,13 +175,15 @@ def build_view_transformations(view_augmentation_configuration: Dict[str, Any], 
                             shade_quantity=tuple(plasma_shadow_configuration["shade_quantity"]),
                             p=probabilities["plasma_shadow"])]
 
-    # Blurs, then the solarization, the noise after both blurs and the erasing of a rectangle last
+    # Blurs, then the solarization, the noise after both blurs and the erasing of a rectangle last. kornia draws the
+    # motion blur kernel size as 2 * int(Uniform(low // 2, high // 2)) + 1, which never reaches the upper bound, so the
+    # upper bound is passed raised by 2 to draw every odd size of [low, high], both bounds included
+    motion_kernel_sizes = motion_blur_configuration["kernel_size"]
     transformations += [kornia_augmentation.RandomGaussianBlur(
-                            kernel_size=(blur_kernel_size, blur_kernel_size),
-                            sigma=tuple(view_augmentation_configuration["gaussian_blur"]["sigma"]),
-                            p=probabilities["gaussian_blur"]),
+                            kernel_size=(blur_kernel_size, blur_kernel_size), p=probabilities["gaussian_blur"],
+                            sigma=tuple(view_augmentation_configuration["gaussian_blur"]["sigma"])),
                         kornia_augmentation.RandomMotionBlur(
-                            kernel_size=tuple(motion_blur_configuration["kernel_size"]),
+                            kernel_size=(motion_kernel_sizes[0], motion_kernel_sizes[1] + 2),
                             angle=float(motion_blur_configuration["maximum_angle"]),
                             direction=tuple(motion_blur_configuration["direction"]), p=probabilities["motion_blur"]),
                         kornia_augmentation.RandomSolarize(thresholds=tuple(solarize_configuration["threshold"]),
@@ -250,7 +255,10 @@ def describe_view_parameters(transformation_name: str, parameters: Dict[str, tor
     if transformation_name == "gaussian_blur":
         return f"sigma {float(image_values['sigma']):.2f}"
     if transformation_name == "motion_blur":
-        return (f"kernel {int(image_values['ksize_factor'])}, angle {float(image_values['angle_factor']):+.1f} "
+        # kornia blurs the whole batch with the kernel size drawn for the image of rank 'idx', the angle and the
+        # direction staying those of every image
+        applied_kernel_size = int(parameters["ksize_factor"][int(parameters["idx"][0])])
+        return (f"kernel {applied_kernel_size}, angle {float(image_values['angle_factor']):+.1f} "
                 f"degrees, direction {float(image_values['direction_factor']):+.2f}")
     if transformation_name == "solarize":
         return (f"threshold {float(image_values['thresholds']):.2f}, "

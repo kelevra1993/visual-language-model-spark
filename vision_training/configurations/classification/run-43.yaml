@@ -396,15 +396,16 @@ ClassificationHead:
       # seed.
       plasma_shadow: { probability: 0.0, shade_intensity: [-0.5, 0.0], shade_quantity: [0.0, 0.5],
                        roughness: [0.1, 0.7] }
-      # Gaussian blur of an odd kernel_size, its sigma drawn within the sigma range.
+      # Gaussian blur of an odd kernel_size, below twice the image size, its sigma drawn within the sigma range.
       gaussian_blur: { probability: 0.5, kernel_size: 9, sigma: [0.1, 2.0] }
-      # Motion blur of a camera or an object in motion: a line of an odd length drawn within kernel_size, at an angle
-      # within [-maximum_angle, maximum_angle] degrees, its weight moved towards one end by a direction drawn within
-      # direction (-1 the back, 0 even, 1 the front).
+      # Motion blur of a camera or an object in motion: a line of an odd length drawn within kernel_size, both bounds
+      # included and the same length for every image of a batch, at an angle within [-maximum_angle, maximum_angle]
+      # degrees, its weight moved towards one end by a direction drawn within direction (-1 the back, 0 even, 1 the
+      # front).
       motion_blur: { probability: 0.0, kernel_size: [3, 9], maximum_angle: 180.0, direction: [-1.0, 1.0] }
       # Solarization, a strong photometric distortion so that the views cannot match by their exact intensities: a value
-      # drawn within addition is added to every pixel, then the pixels above a threshold drawn within threshold are
-      # inverted.
+      # drawn within addition, strictly between -0.5 and 0.5, is added to every pixel, then the pixels above a threshold
+      # drawn within threshold are inverted.
       solarize: { probability: 0.0, threshold: [0.5, 0.5], addition: [0.0, 0.0] }
       # Gaussian noise of a sensor, of standard deviation standard_deviation in RGB images in [0, 1] (0.03 is about 8 of
       # the 255 levels), after both blurs which would smooth it away. Drawn on the GPU, so its views differ between

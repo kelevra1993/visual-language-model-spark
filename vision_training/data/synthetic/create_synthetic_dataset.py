@@ -97,9 +97,9 @@ HOLLOW_MINIMUM_SIZE = 16
 HOLLOW_CLASS_NAMES = [f"hollow_{shape_name}" for shape_name in HOLLOW_SHAPE_NAMES]
 
 # Keypoints of the hollow shapes: the hollow polygons and the hollow capsule also have a keypoint at every corner of
-# their hole, and the hollow ellipse has none, a distractor drawn among the objects of the keypoint images that is left
-# out of the keypoint label mapping, like the circle, the annulus and the ellipse, so that the keypoint detector must tell them
-# apart from the shapes it learns. The other hollow shapes keep the keypoints of their filled shape
+# their hole, and the hollow ellipse has none, a distractor drawn among the objects of the keypoint images that is
+# left out of the keypoint label mapping, like the circle, the annulus and the ellipse, so that the keypoint detector
+# must tell them apart from the shapes it learns. The other hollow shapes keep the keypoints of their filled shape
 HOLLOW_INNER_KEYPOINT_SHAPE_NAMES = ["square", "triangle", "rectangle", "pentagon", "hexagon", "octagon", "rhombus",
                                      "parallelogram", "trapezoid", "kite", "heptagon", "nonagon", "capsule"]
 HOLLOW_DISTRACTOR_SHAPE_NAMES = ["ellipse"]
@@ -1534,7 +1534,8 @@ def place_shape(image: np.ndarray, shape_descriptor: Dict[str, Any], placed_boxe
             # Window of the canvas inside the image, and the same window of the image
             canvas_left, canvas_top = max(0, -left), max(0, -top)
             canvas_right, canvas_bottom = min(canvas_width, image_width - left), min(canvas_height, image_height - top)
-            image_window = (slice(top + canvas_top, top + canvas_bottom), slice(left + canvas_left, left + canvas_right))
+            image_window = (slice(top + canvas_top, top + canvas_bottom),
+                            slice(left + canvas_left, left + canvas_right))
             mask_window = mask[canvas_top:canvas_bottom, canvas_left:canvas_right]
 
             # Colour of the shape, then the colours of its parts
@@ -2257,6 +2258,7 @@ def generate_selection_sequence(image_size: int, number_frames: int,
                                                                                 high=len(SELECTION_WANTED_SHAPES)))]
             largest_size, largest_area = largest_copies[shape_name]
             maximum_size = max(minimum_size, int(largest_size * SELECTION_SMALLER_SIZE_RATIO))
+            # Redraw the smaller copy until its area is a small enough share of the area of the largest copy
             for _ in range(MAXIMUM_FRAME_ATTEMPTS):
                 size = int(random_generator.integers(low=minimum_size, high=maximum_size + 1))
                 candidate_frame, area = draw_selection_frame(background=background, shape_name=shape_name, size=size,
@@ -2264,6 +2266,7 @@ def generate_selection_sequence(image_size: int, number_frames: int,
                 if area <= SELECTION_SMALLER_AREA_RATIO * largest_area:
                     frame = candidate_frame
                     break
+        # Another shape when no smaller copy was drawn or none was small enough
         if frame is None:
             shape_name = SELECTION_OTHER_SHAPES[int(random_generator.integers(low=0,
                                                                                high=len(SELECTION_OTHER_SHAPES)))]
@@ -2428,6 +2431,7 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
                                for member_name, frames in member_frames.items()}
             sequence_labels = {"category_id": category_identifier}
         elif chunk["task"] == "sequence_classification":
+            # A shape crossing the frames, the sequence labelled with its direction
             frames, category_identifier = generate_moving_shape_sequence(image_size=chunk["image_size"],
                                                                          number_frames=number_frames,
                                                                          random_generator=random_generator)
@@ -2435,6 +2439,7 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
                                                      frames=frames)}
             sequence_labels = {"category_id": category_identifier}
         elif chunk["task"] == "frame_selection":
+            # Shapes of several sizes, the largest copy of every wanted shape labelled as the frame to select
             frames, frame_category_ids = generate_selection_sequence(image_size=chunk["image_size"],
                                                                      number_frames=number_frames,
                                                                      random_generator=random_generator)
@@ -2442,6 +2447,7 @@ def generate_sequence_chunk(chunk: Dict[str, Any]) -> List[Dict[str, Any]]:
                                                      frames=frames)}
             sequence_labels = {"frame_category_ids": frame_category_ids}
         else:
+            # Shapes appearing and disappearing, every frame labelled
             frames, frame_category_ids = generate_shape_change_sequence(image_size=chunk["image_size"],
                                                                         number_frames=number_frames,
                                                                         maximum_objects=chunk["maximum_objects"],

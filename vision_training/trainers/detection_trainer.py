@@ -15,13 +15,11 @@ import numpy as np
 import torch
 
 from contextlib import contextmanager
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY, DetectionBatch, EvaluationResults
-from vision_training.data.label_mapping import get_class_names
 from vision_training.data.loaders import get_detection_dataloaders
-from vision_training.data.split_description import count_split_images_and_annotations
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
                                                                         save_confusion_matrix_table)
 from vision_training.evaluation.detection.average_precision_report import summarise_average_precisions
@@ -37,10 +35,10 @@ from vision_training.evaluation.detection.region_recall import (
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.evaluation.report_formatting import build_table_renderables, print_report
 from vision_training.models.detection.two_stage_detector import TwoStageDetector
-from vision_training.trainers.base_trainer import BaseTrainer
+from vision_training.trainers.coco_split_trainer import CocoSplitTrainer
 from vision_training.utilities.os_utilities import print_color
-from vision_training.utilities.visualization import (build_class_colours, build_detection_sample_grid,
-                                                     convert_image_to_array, view_input_data)
+from vision_training.utilities.visualization import (build_detection_sample_grid, convert_image_to_array,
+                                                     view_input_data)
 
 # Files of the recalls of the anchors, in the run folder, and of the proposals, in the evaluation folder of every
 # checkpoint
@@ -48,7 +46,7 @@ ANCHOR_RECALL_FILE_NAME = "anchor_recall.csv"
 PROPOSAL_RECALL_FILE_NAME = "proposal_recall.csv"
 
 
-class DetectionTrainer(BaseTrainer):
+class DetectionTrainer(CocoSplitTrainer):
     """
     Trainer of the object detection task: the two-stage detector trained on COCO-format datasets, with its four
     losses tracked, bounding boxes moved by the geometric augmentations, and every evaluated checkpoint scored with
@@ -104,27 +102,12 @@ class DetectionTrainer(BaseTrainer):
         Returns:
             Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
         """
-        test_labels_path = Path(self.experiment_configuration["test_data_folder"]) / "labels.json"
-        with open(file=test_labels_path, mode="r") as labels_file:
-            test_labels = json.load(fp=labels_file)
-        self.class_names = get_class_names(categories=test_labels["categories"], label_dictionary=self.label_dictionary)
-        self.class_colours = build_class_colours(number_classes=len(self.class_names))
-        self.test_image_file_names = {image["id"]: image["file_name"] for image in test_labels["images"]}
+        # Class names, class colours and test image names from the test manifest, then the loaders of the three splits
+        self.read_test_manifest()
         return get_detection_dataloaders(experiment_configuration=self.experiment_configuration,
                                          model_configuration=self.model_configuration, batch_size=self.batch_size,
                                          load_instance_masks=self.LOAD_INSTANCE_MASKS,
                                          load_original_instances=self.original_resolution)
-
-    def list_class_names(self) -> Optional[List[str]]:
-        """
-        Gives the class names taken from the test manifest by build_dataloaders, the background first, for the record
-        of the data of the run and the transfer of the detection heads (and of the mask heads of the instance
-        segmentation, which inherits it) to a run adding classes after them.
-
-        Returns:
-            Optional[List[str]]: The class names, in class index order.
-        """
-        return [self.class_names[class_index] for class_index in range(len(self.class_names))]
 
     def analyse_training_data(self) -> Dict[str, Path]:
         """
@@ -185,19 +168,6 @@ class DetectionTrainer(BaseTrainer):
             Optional[Dict[str, float]]: The weight of every loss output of the model.
         """
         return self.optimization_configuration["loss_weights"]
-
-    def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
-        """
-        Counts the images and annotations of a COCO split from its labels.json.
-
-        Args:
-            split_data_folder (Path): The root folder of the split.
-
-        Returns:
-            Tuple[int, str]: The number of images and their description with the number of annotations.
-        """
-        number_images, number_annotations = count_split_images_and_annotations(split_data_folder=split_data_folder)
-        return number_images, f"{number_images} images, {number_annotations} annotations"
 
     def prepare_batch(self, batch: Dict[str, Any]) -> DetectionBatch:
         """
@@ -558,29 +528,6 @@ class DetectionTrainer(BaseTrainer):
             if error_counts:
                 files["Error Images"] = accumulator["errors_folder"]
         return {"files": files, "images": images, "notes": notes}
-
-    def get_test_sample_classes(self) -> Dict[int, List[int]]:
-        """
-        Lists the test images without their classes, so that the fixed test images drawn at every evaluation are
-        evenly spread over the test split.
-
-        Returns:
-            Dict[int, List[int]]: An empty list for every COCO identifier of the test images.
-        """
-        return {image_identifier: [] for image_identifier in self.test_image_file_names}
-
-    def get_test_sample_name(self, sample_identifier: int) -> str:
-        """
-        Gives the short name of a test image from the test labels.json: its file name without extension, its folders
-        joined with underscores.
-
-        Args:
-            sample_identifier (int): The COCO identifier of the image, as given in the 'sample_identifiers' of a batch.
-
-        Returns:
-            str: The name of the image, e.g. 'image_000012' for 'image_000012.png'.
-        """
-        return str(PurePosixPath(self.test_image_file_names[sample_identifier]).with_suffix("")).replace("/", "_")
 
     def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """

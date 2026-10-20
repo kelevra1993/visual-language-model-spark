@@ -126,7 +126,8 @@ class RegionProposal(nn.Module):
             aspect_ratios (List[float]): A list of aspect ratios (width/height) for the anchor boxes.
             input_image_size (int): The absolute size (height and width) of the original input image.
             feature_map_size (int): The spatial resolution (height and width) of the input feature map.
-            feature_map_normalization (str): The normalization strategy to use in the convolution block (e.g. 'batch', 'none').
+            feature_map_normalization (str): The normalization strategy to use in the convolution block (e.g. 'batch',
+                'none').
             batch_normalization_momentum (float): The momentum of the running statistics of its batch normalization.
             dtype (torch.dtype): The tensor data type.
             device (torch.device): The computational device.
@@ -184,21 +185,22 @@ class RegionProposal(nn.Module):
                                                                 out_channels=self.number_anchors_per_location * 4,
                                                                 kernel_size=1, stride=1)
 
-    def forward(self, input_tensor):
+    def forward(self, input_tensor: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Processes a batched feature map to generate region proposal predictions.
-        
+
         This executes the primary convolutions to extract objectness scores and bounding box regressions,
         reshapes the output tensors to align with the generated anchors, and applies the regression
         transformations to the base anchors to yield proposed absolute bounding boxes.
-        
+
         Args:
             input_tensor (torch.Tensor): A batched feature map tensor of shape [B, C, H, W].
-            
+
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
                 - proposal_scores (torch.Tensor): The objectness logits for each anchor, shape [B, H*W*A].
-                - proposal_boxes_transformations (torch.Tensor): The regressed [dx, dy, dw, dh] offsets, shape [B, H*W*A, 4].
+                - proposal_boxes_transformations (torch.Tensor): The regressed [dx, dy, dw, dh] offsets, shape [B,
+                  H*W*A, 4].
                 - proposal_boxes (torch.Tensor): The absolute [x1, y1, x2, y2] bounding boxes, shape [B, H*W*A, 4].
         """
         # Get feature map dimensions
@@ -260,9 +262,7 @@ class RegionProposalFilter(nn.Module):
         # Load global NMS threshold
         self.nms_iou_threshold = configuration["nms_iou_threshold"]
 
-    def forward(self, proposal_boxes: torch.Tensor,
-                proposal_scores: torch.Tensor,
-                proposal_origins: torch.Tensor,
+    def forward(self, proposal_boxes: torch.Tensor, proposal_scores: torch.Tensor, proposal_origins: torch.Tensor,
                 input_image_size: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Filters region proposal bounding boxes using objectness scores and Non-Maximum Suppression (NMS).
@@ -284,14 +284,18 @@ class RegionProposalFilter(nn.Module):
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
                 - filtered_proposal_boxes (torch.Tensor): The filtered bounding boxes of shape [B, Post_NMS, 4].
-                - filtered_proposal_scores (torch.Tensor): The objectness scores for the filtered boxes of shape [B, Post_NMS].
+                - filtered_proposal_scores (torch.Tensor): The objectness scores for the filtered boxes of shape [B,
+                  Post_NMS].
                 - filtered_proposal_origins (torch.Tensor): The origin indices of shape [B, Post_NMS].
                 - valid_proposal_mask (torch.Tensor): The [B, Post_NMS] boolean mask of the survivors, False for the
                   padding copies.
                 Post_NMS is the post-NMS count of the mode, capped by its pre-NMS count and by the number of anchors.
         """
-        pre_nms_filter_proposals = self.training_pre_nms_proposals if self.training else self.inference_pre_nms_proposals
-        post_nms_filter_proposals = self.training_post_nms_proposals if self.training else self.inference_post_nms_proposals
+        # Proposal counts of the current mode, before and after the suppression
+        pre_nms_filter_proposals = (self.training_pre_nms_proposals if self.training else
+                                    self.inference_pre_nms_proposals)
+        post_nms_filter_proposals = (self.training_post_nms_proposals if self.training else
+                                     self.inference_post_nms_proposals)
 
         # Best proposals of every image after the suppression, the top-k limit clamped to the number of anchors
         boxes, scores, origins, valid_mask = select_best_proposals(

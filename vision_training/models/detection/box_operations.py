@@ -113,7 +113,7 @@ def get_box_dimensions_and_centers(boxes: torch.Tensor) -> Tuple[
     # Check that the last dimension is of shape 4 if not raise an error. The check is skipped while TorchScript traces
     # the model for export, since the shapes are fixed by then and tracing would warn about turning it into a constant
     if not torch.jit.is_tracing() and boxes.shape[-1] != 4:
-        print_tensor_shape(boxes)
+        print_tensor_shape(tensor=boxes)
         print_color(color="red",
                     output=f"Unexpected Tensor Shape For Boxes, The Last Dimension Is {boxes.shape[-1]} Instead Of 4")
         exit()
@@ -199,7 +199,8 @@ def clamp_boxes_to_image_boundaries(boxes: torch.Tensor, input_image_size: int) 
         input_image_size (int): The spatial dimension (height and width) of the square input image.
         
     Returns:
-        torch.Tensor: The bounding boxes tensor with all coordinates clamped within [0, input_image_size], shape (..., 4).
+        torch.Tensor: The bounding boxes tensor with all coordinates clamped within [0, input_image_size], shape
+            (..., 4).
     """
     # Since we are always dealing with square images, we clamp both x and y coordinates uniformly
     boxes = boxes.clamp(min=0, max=input_image_size)

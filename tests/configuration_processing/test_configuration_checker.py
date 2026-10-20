@@ -2189,6 +2189,22 @@ def set_invalid_harder_view_transformations(configuration: Dict[str, Any]) -> No
     view_augmentation["random_erasing"]["scale"] = [0.02, 1.5]
 
 
+def set_view_values_rejected_by_kornia(configuration: Dict[str, Any]) -> None:
+    """
+    Sets view values within the ranges of the checks but refused by kornia at the first view: a solarization addition
+    of 0.5, kornia asking for an addition strictly within (-0.5, 0.5), a Gaussian blur kernel of 513 pixels, whose
+    reflection padding of 256 pixels needs more than the 256 pixels of the input, and a crop of 0.001 % of the area,
+    whose smallest sides of about 0.7 pixel make kornia solve a singular system.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    view_augmentation = configuration["Data"]["view_augmentation"]
+    view_augmentation["solarize"]["addition"] = [0.0, 0.5]
+    view_augmentation["gaussian_blur"]["kernel_size"] = 513
+    view_augmentation["random_resized_crop"]["scale"] = [0.00001, 1.0]
+
+
 def set_invalid_grouped_batches(configuration: Dict[str, Any]) -> None:
     """
     Turns the grouped batches on with a block key that is not a string, an empty batch key and blocks of 3 images,
@@ -2289,10 +2305,19 @@ def set_invalid_self_supervised_evaluation(configuration: Dict[str, Any]) -> Non
         "high <= 1, got [-1.5, 1.0].",
         "'Data.view_augmentation.solarize.threshold' must be a list of two numbers [low, high] with 0 <= low <= high "
         "<= 1, got [0.5, 1.5].",
-        "'Data.view_augmentation.solarize.addition' must be a list of two numbers [low, high] with -0.5 <= low <= "
-        "high <= 0.5, got [-0.6, 0.0].",
+        "'Data.view_augmentation.solarize.addition' must be a list of two numbers [low, high] with -0.5 < low <= "
+        "high < 0.5, got [-0.6, 0.0].",
         "'Data.view_augmentation.random_erasing.scale' must be a list of two numbers [low, high] with 0 < low <= high "
         "<= 1, got [0.02, 1.5]."]),
+    (set_view_values_rejected_by_kornia, [
+        "'Data.view_augmentation.random_resized_crop' must give crops of at least 2 pixels on each side at "
+        "'Data.image_settings.size' (256), got sides down to 0.7 pixel with scale [1e-05, 1.0] and aspect_ratio "
+        "[0.75, 1.3333]: kornia cannot resize a crop one pixel wide or high.",
+        "'Data.view_augmentation.gaussian_blur.kernel_size' (513) must be below twice 'Data.image_settings.size' "
+        "(256): the blur pads the views by half its kernel on every side by reflection, which needs more pixels than "
+        "the side of the views.",
+        "'Data.view_augmentation.solarize.addition' must be a list of two numbers [low, high] with -0.5 < low <= "
+        "high < 0.5, got [0.0, 0.5]."]),
     (set_single_piece_jigsaw, ["'Data.view_augmentation.jigsaw.grid' must be a list of two integers [rows, columns] "
                                ">= 1, giving at least two pieces, that divide 'Data.image_settings.size' (256), got "
                                "[1, 1]."]),

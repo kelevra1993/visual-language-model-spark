@@ -35,9 +35,9 @@ def print_tensor_shape(tensor: torch.Tensor, name: Optional[str] = None, indent:
     """
     Logs the shape of a tensor to the console in a formatted blue string.
 
-    In the global project context, this utility is used during development and debugging
-    to verify that tensor dimensions align with expected shapes (e.g., MSA or Pair representations)
-    after complex transformations or contractions.
+    In the global project context, this utility is used during development and debugging, by the 'verbose' mode of
+    the two-stage detector and by the box checks, to verify that tensor dimensions align with the expected shapes
+    (feature maps, proposals, detections) after the reshapes of the detection pipeline.
 
     Args:
         tensor (torch.Tensor): The torch.Tensor whose shape will be printed. Shape: (*).
@@ -168,7 +168,7 @@ def print_tensor_list(tensor: torch.Tensor, round: int = 4) -> None:
     print(np.round(tensor.tolist(), round))
 
 
-def unsqueeze_tensor(input: torch.Tensor, direction: str, number: int = 1) -> torch.Tensor:
+def unsqueeze_tensor(input_tensor: torch.Tensor, direction: str, number: int = 1) -> torch.Tensor:
     """
     Expands the dimensions of a tensor by adding singleton dimensions at the specified end.
 
@@ -176,20 +176,21 @@ def unsqueeze_tensor(input: torch.Tensor, direction: str, number: int = 1) -> to
     the expected input shapes of various neural network layers in our architectures.
 
     Args:
-        input (torch.Tensor): The source torch.Tensor.
+        input_tensor (torch.Tensor): The source torch.Tensor.
         direction (str): Where to add dimensions; must be "left" (start) or "right" (end).
         number (int): The number of dimensions to add.
 
     Returns:
         torch.Tensor: The transformed torch.Tensor with 'number' additional dimensions.
-             - If direction is "left": shape (1, ..., input.shape)
-             - If direction is "right": shape (input.shape, ..., 1)
+             - If direction is "left": shape (1, ..., input_tensor.shape)
+             - If direction is "right": shape (input_tensor.shape, ..., 1)
     """
     if direction not in ["left", "right"]:
         print("Warning : direction must either be left or right")
         raise NotImplementedError
 
-    for i in range(number):
-        input = input.unsqueeze(dim=-1 if direction == "right" else 0)
+    # Add the singleton dimensions one at a time on the requested side
+    for _ in range(number):
+        input_tensor = input_tensor.unsqueeze(dim=-1 if direction == "right" else 0)
 
-    return input
+    return input_tensor

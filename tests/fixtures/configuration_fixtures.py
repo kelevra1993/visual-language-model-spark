@@ -1,8 +1,8 @@
 """
 Small model configuration dictionaries of the detection (with or without mask heads), classification, semantic
 segmentation, sequence, sequence comparison, self-supervised and keypoint detection models, with their device and
-dtype, shared by the model, export and transfer tests. Every configuration keeps no moving average of the weights (the 'Optimization'
-setting read by the transfer of the components).
+dtype, shared by the model, export and transfer tests. Every configuration keeps no moving average of the weights (the
+'Optimization' setting read by the transfer of the components).
 """
 
 import torch
@@ -20,8 +20,10 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
         mask_head (bool): Whether to add the 'MaskHead' section of the instance segmentation task. Defaults to False.
 
     Returns:
-        Tuple[Dict[str, Any], torch.device, torch.dtype]: The FPN F-RCNN configuration mapping, compute device, and tensor dtype.
+        Tuple[Dict[str, Any], torch.device, torch.dtype]: The FPN F-RCNN configuration mapping, compute device, and
+            tensor dtype.
     """
+    # Images of 1024 pixels with the background and 5 foreground classes
     configuration = {'Data': {'image_settings': {'size': 1024},
                               'label_dictionary': {'background': 0,
                                                    'foreground_1': 1,
@@ -29,6 +31,7 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                                                    'foreground_3': 3,
                                                    'foreground_4': 4,
                                                    'foreground_5': 5}},
+                     # Backbone of 9 blocks of 2 convolutions, without optional module or normalization
                      'Backbone': {
                          'input_channels': 3,
                          'convolutions': {'1': [2, 16],
@@ -46,12 +49,14 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                          'last_max_pooling': True,
                          'normalization': {'feature_map_normalization': 'none', 'batch_normalization_momentum': 0.1,
                                            'input_normalization': False, 'per_sample_normalization': False}},
+                     # Region proposal and detection heads on blocks 5 to 7, with 6 anchors per position
                      'DetectionLevels': {
                          level: {'anchors': {'scales': [64, 128], 'aspect_ratios': [0.5, 1.0, 2.0]},
                                  'region_proposal': {'convolutions': [2, 128]},
                                  'detector': {'roi_align_pool_size': 7, 'convolutions': [2, 64],
                                               'fully_connected': [256, 128]}}
                          for level in ['5', '6', '7']},
+                     # Proposal filter and anchor target assignment of the region proposal network
                      'RegionProposal': {
                          'normalization': {'feature_map_normalization': 'batch', 'batch_normalization_momentum': 0.1},
                          'nms_iou_threshold': 0.7,
@@ -64,6 +69,7 @@ def get_detection_model_configuration(mask_head: bool = False) -> Tuple[Dict[str
                          'total_training_samples': 256,
                          'localisation_loss_beta': 1 / 9
                      },
+                     # Proposal sampling, losses and postprocessing of the detection heads
                      'Detector': {
                          'normalization': {'feature_map_normalization': 'batch', 'batch_normalization_momentum': 0.1},
                          'foreground_iou_threshold': 0.3,

@@ -29,9 +29,8 @@ def test_proposals_give_the_index_of_their_matched_ground_truth() -> None:
     # A batch with an image without ground truth
     _, batched_labels, batched_matched_indices = batch_assign_targets_to_proposals(
         batched_ground_truth_boxes=[ground_truth_boxes, torch.zeros(size=(0, 4))],
-        batched_proposals=torch.stack(tensors=[proposals, proposals]),
-        batched_ground_truth_labels=[torch.tensor(data=[3, 5]), torch.zeros(size=(0,), dtype=torch.int64)],
-        foreground_iou_threshold=0.5)
+        batched_proposals=torch.stack(tensors=[proposals, proposals]), foreground_iou_threshold=0.5,
+        batched_ground_truth_labels=[torch.tensor(data=[3, 5]), torch.zeros(size=(0,), dtype=torch.int64)])
     assert batched_matched_indices.tolist() == [[1, 0, -1], [-1, -1, -1]]
     assert batched_labels[1].tolist() == [0, 0, 0]
 

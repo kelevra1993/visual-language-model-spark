@@ -280,6 +280,9 @@ def test_ignored_regions_are_the_objects_without_labelled_keypoint(tmp_path: Pat
     that only the labelled person is kept with its keypoints; that the collate stacks the regions of the images; that
     the samples carry no regions without the setting; and that a removed person without segmentation, or the regions
     without the keypoints, are refused.
+
+    Args:
+        tmp_path (Path): The pytest temporary folder holding the written split.
     """
     categories = [{"id": 1, "name": "person", "keypoints": ["head", "foot"]}, {"id": 2, "name": "box"}]
     crowd_mask = np.zeros(shape=(IMAGE_HEIGHT, IMAGE_WIDTH), dtype=np.uint8)

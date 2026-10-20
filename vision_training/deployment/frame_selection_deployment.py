@@ -196,6 +196,7 @@ def write_frame_selection_ensemble(repository: Path, ensemble_name: str, network
                                  for input_specification in specification["inputs"])
     decoder_output_maps = "".join(f'      output_map {{ key: "{output["name"]}" value: "{output["name"]}" }}\n'
                                   for output in decoder_outputs)
+    # The inputs of the frame selector and the outputs of the decoder, then the step running the frame selector
     configuration = (f'name: "{ensemble_name}"\n'
                      f'platform: "ensemble"\n'
                      f'max_batch_size: {maximum_batch_size}\n'
@@ -209,6 +210,7 @@ def write_frame_selection_ensemble(repository: Path, ensemble_name: str, network
                      f'{network_input_maps}'
                      f'      output_map {{ key: "{network_output_name}" value: "{DECODER_INPUT_NAME}" }}\n'
                      f'    }},\n'
+                     # The step running the decoder on the probabilities, its outputs returned by the ensemble
                      f'    {{\n'
                      f'      model_name: "{decoder_name}"\n'
                      f'      model_version: {model_version}\n'

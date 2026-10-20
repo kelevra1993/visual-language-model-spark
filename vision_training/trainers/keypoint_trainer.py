@@ -10,17 +10,14 @@ the mean pixel error of every class and every keypoint, with sample images of fi
 predicted objects. Registered for the keypoint detection task in the task registry.
 """
 
-import json
 import numpy as np
 import torch
 
-from pathlib import Path, PurePosixPath
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Tuple
 
 from vision_training.core.contracts import EvaluationResults, KeypointBatch
-from vision_training.data.label_mapping import get_class_names
 from vision_training.data.loaders import get_keypoint_dataloaders
-from vision_training.data.split_description import count_split_images_and_annotations
 from vision_training.evaluation.detection.average_precision_report import summarise_average_precisions
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.evaluation.keypoints.object_keypoint_similarity import (build_keypoint_sigma_table,
@@ -28,9 +25,9 @@ from vision_training.evaluation.keypoints.object_keypoint_similarity import (bui
                                                                              summarise_keypoint_accuracy)
 from vision_training.models.keypoints.keypoint_detector import KeypointDetector, build_keypoint_channel_table
 from vision_training.models.keypoints.keypoint_grouping import group_keypoint_candidates
-from vision_training.trainers.base_trainer import BaseTrainer
-from vision_training.utilities.visualization import (build_class_colours, build_keypoint_sample_grid,
-                                                     convert_image_to_array, draw_keypoint_objects, view_input_data)
+from vision_training.trainers.coco_split_trainer import CocoSplitTrainer
+from vision_training.utilities.visualization import (build_keypoint_sample_grid, convert_image_to_array,
+                                                     draw_keypoint_objects, view_input_data)
 
 # File of the accuracy of every keypoint of every class, in the evaluation folder of every checkpoint
 KEYPOINT_METRICS_FILE_NAME = "keypoint_metrics.csv"
@@ -39,7 +36,7 @@ KEYPOINT_METRICS_FILE_NAME = "keypoint_metrics.csv"
 KEYPOINT_HEADLINE_METRIC = "OKS mAP@0.5/area"
 
 
-class KeypointTrainer(BaseTrainer):
+class KeypointTrainer(CocoSplitTrainer):
     """
     Trainer of the keypoint detection task: the bottom-up keypoint detector trained on the whole images of COCO-format
     datasets with keypoints, its heatmap and tag losses tracked, and every evaluated checkpoint scored with the mean
@@ -94,24 +91,10 @@ class KeypointTrainer(BaseTrainer):
         Returns:
             Tuple[Iterable, Iterable, Iterable]: The training, validation and test loaders.
         """
-        test_labels_path = Path(self.experiment_configuration["test_data_folder"]) / "labels.json"
-        with open(file=test_labels_path, mode="r") as labels_file:
-            test_labels = json.load(fp=labels_file)
-        self.class_names = get_class_names(categories=test_labels["categories"], label_dictionary=self.label_dictionary)
-        self.class_colours = build_class_colours(number_classes=len(self.class_names))
-        self.test_image_file_names = {image["id"]: image["file_name"] for image in test_labels["images"]}
+        # Class names, class colours and test image names from the test manifest, then the loaders of the three splits
+        self.read_test_manifest()
         return get_keypoint_dataloaders(experiment_configuration=self.experiment_configuration,
                                         model_configuration=self.model_configuration, batch_size=self.batch_size)
-
-    def list_class_names(self) -> Optional[List[str]]:
-        """
-        Gives the class names taken from the test manifest by build_dataloaders, the background first, for the record
-        of the data of the run and the transfer of the components to a run adding classes.
-
-        Returns:
-            Optional[List[str]]: The class names, in class index order.
-        """
-        return [self.class_names[class_index] for class_index in range(len(self.class_names))]
 
     def build_model(self) -> KeypointDetector:
         """
@@ -133,19 +116,6 @@ class KeypointTrainer(BaseTrainer):
         """
         return {"total_loss": "Total Loss", "heatmap_loss": "Heatmap Loss", "tag_pull_loss": "Tag Pull Loss",
                 "tag_push_loss": "Tag Push Loss"}
-
-    def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
-        """
-        Counts the images and annotations of a COCO split from its labels.json.
-
-        Args:
-            split_data_folder (Path): The root folder of the split.
-
-        Returns:
-            Tuple[int, str]: The number of images and their description with the number of annotations.
-        """
-        number_images, number_annotations = count_split_images_and_annotations(split_data_folder=split_data_folder)
-        return number_images, f"{number_images} images, {number_annotations} annotations"
 
     def prepare_batch(self, batch: Dict[str, Any]) -> KeypointBatch:
         """
@@ -334,29 +304,6 @@ class KeypointTrainer(BaseTrainer):
                 "scalars": {**average_precision_summary["scalars"], **accuracy_summary["scalars"]},
                 "class_scalars": average_precision_summary["class_scalars"], "images": {}, "files": files,
                 "headline_metric": KEYPOINT_HEADLINE_METRIC}
-
-    def get_test_sample_classes(self) -> Dict[int, List[int]]:
-        """
-        Lists the test images without their classes, so that the fixed test images drawn at every evaluation are
-        evenly spread over the test split.
-
-        Returns:
-            Dict[int, List[int]]: An empty list for every COCO identifier of the test images.
-        """
-        return {image_identifier: [] for image_identifier in self.test_image_file_names}
-
-    def get_test_sample_name(self, sample_identifier: int) -> str:
-        """
-        Gives the short name of a test image from the test labels.json: its file name without extension, its folders
-        joined with underscores.
-
-        Args:
-            sample_identifier (int): The COCO identifier of the image, as given in the 'sample_identifiers' of a batch.
-
-        Returns:
-            str: The name of the image, e.g. 'image_000012' for 'image_000012.png'.
-        """
-        return str(PurePosixPath(self.test_image_file_names[sample_identifier]).with_suffix("")).replace("/", "_")
 
     def build_sample_image(self, batch: Dict[str, Any], predictions: Dict[str, Any], sample_index: int) -> np.ndarray:
         """

@@ -99,6 +99,7 @@ def build_transfer_trainer(temporary_directory: Path, dataset_folder: Path, numb
     configuration["ExperimentConfiguration"]["diagnosis_modes"].update({"compute_receptive_field": False,
                                                                         "compute_model_size": False,
                                                                         "view_input_images": False})
+    # Small images, the detectors taking their own size with anchor scales and mask heads fitted to it
     configuration["Data"]["image_settings"]["size"] = TRANSFER_IMAGE_SIZE
     if "DetectionLevels" in configuration:
         configuration["Data"]["image_settings"]["size"] = DETECTION_TRANSFER_IMAGE_SIZE

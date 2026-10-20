@@ -66,8 +66,9 @@ def evaluate_checkpoints(trainer: BaseTrainer, experiment_folder: Path, iteratio
     'Evaluation/evaluation_summary.csv' gathers one row per evaluated iteration with every evaluation scalar (those of
     every class only with the per-class report, the averaged weights in 'ema_' columns), and the best iteration
     according to the headline metric of the task is printed, for the trained and the averaged weights. A checkpoint
-    listed in the registry but deleted from the disk is skipped. When the tracking is on, the evaluations, the best headline metric and the summary go to an MLflow run of their own (start_evaluation_tracking),
-    closed whatever ends the evaluation.
+    listed in the registry but deleted from the disk is skipped. When the tracking is on, the evaluations, the best
+    headline metric and the summary go to an MLflow run of their own (start_evaluation_tracking), closed whatever ends
+    the evaluation.
 
     Args:
         trainer (BaseTrainer): The trainer of the run, built from its configuration, usually writing into a separate

@@ -225,6 +225,7 @@ def test_self_supervised_loaders_give_grouped_batches(tmp_path: Path, capsys: py
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
     """
+    # A training split of 12 images alternating between two cameras, and validation and test splits without groups
     categories = [{"id": 1, "name": "circle"}]
     cameras = {sample_identifier: f"c{sample_identifier % 2}" for sample_identifier in range(1, 13)}
     write_split(split_folder=tmp_path / "train", categories=categories,
@@ -234,6 +235,7 @@ def test_self_supervised_loaders_give_grouped_batches(tmp_path: Path, capsys: py
         write_split(split_folder=tmp_path / split_name, categories=categories,
                     samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png", "category_id": 1}
                              for sample_identifier in range(1, number_samples + 1)])
+    # Build the self-supervised loaders with blocks of 2 images of one camera, and check the printed summary
     experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name)
                                 for split_name in ["train", "validation", "test"]}
     model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},

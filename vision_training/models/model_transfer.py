@@ -552,6 +552,7 @@ def compare_component_configurations(section_name: str, source_configuration: Di
     Returns:
         List[str]: The description of every difference, empty when the components match.
     """
+    # The backbone, the temporal module and the segmentation decoder, each compared on the settings shaping its weights
     if section_name == "Backbone":
         return compare_backbone_architectures(source_backbone_configuration=source_configuration["Backbone"],
                                               target_backbone_configuration=target_configuration["Backbone"])
@@ -561,6 +562,7 @@ def compare_component_configurations(section_name: str, source_configuration: Di
     if section_name == "SegmentationDecoder":
         return compare_segmentation_decoders(source_configuration=source_configuration,
                                              target_configuration=target_configuration)
+    # The heads of the detectors, the high resolution network and the keypoint head
     if section_name in DETECTION_HEAD_WEIGHT_KEYS:
         return compare_detection_heads(section_name=section_name, source_configuration=source_configuration,
                                        target_configuration=target_configuration)
@@ -952,11 +954,13 @@ def load_pretrained_component(component: nn.Module, section_name: str, model_con
         if source_input != target_input:
             print_color(color="yellow", output=f"The Pretrained Backbone Was Trained On {source_input}, This Run Uses "
                                                f"{target_input}.")
+        # The feature map normalization changes the statistics the backbone weights were trained with
         source_normalization = source_configuration["Backbone"]["normalization"]["feature_map_normalization"]
         target_normalization = model_configuration["Backbone"]["normalization"]["feature_map_normalization"]
         if source_normalization != target_normalization:
             print_color(color="yellow", output=f"The Pretrained Backbone Was Trained With {source_normalization!r} "
                                                f"Normalization, This Run Uses {target_normalization!r} Normalization.")
+    # A temporal module loaded into a run of the other causality, and region proposal heads of other anchors
     if section_name == "TemporalModel" and model_configuration["TemporalModel"]["type"] in CAUSAL_TEMPORAL_TYPES:
         source_causal = source_configuration["TemporalModel"]["causal"]
         target_causal = model_configuration["TemporalModel"]["causal"]

@@ -44,9 +44,10 @@ class Backbone(nn.Module):
             normalization (Dict[str, Any]): Dictionary containing the 'feature_map_normalization' strategy, the
                 'batch_normalization_momentum' of its batch statistics and the 'input_normalization' /
                 'per_sample_normalization' input image flags.
-            detection_convolution_block_indices (List[int]): A list of block indices (1-indexed) whose intermediate feature maps 
-                are explicitly captured and returned for downstream multi-scale feature enhancement.
-            input_image_size (int): The spatial dimension (height and width) of the square input image, used to dynamically compute downstream tensor sizes.
+            detection_convolution_block_indices (List[int]): A list of block indices (1-indexed) whose intermediate
+                feature maps are explicitly captured and returned for downstream multi-scale feature enhancement.
+            input_image_size (int): The spatial dimension (height and width) of the square input image, used to
+                dynamically compute downstream tensor sizes.
             device (torch.device): The device on which to allocate the parameters.
             dtype (torch.dtype): The desired data type of returned parameters.
         """
@@ -132,7 +133,8 @@ class Backbone(nn.Module):
         input resolution.
 
         Args:
-            input_tensor (torch.Tensor): The input image tensor to be processed of shape [Batch, Channels, Height, Width].
+            input_tensor (torch.Tensor): The input image tensor to be processed of shape [Batch, Channels, Height,
+                Width].
             sequence_grouping (Optional[SequenceGrouping]): The sequence of every frame of the batch, given by the frame
                 encoder of the sequence models to the sequence normalization layers, or None for a batch of images.
             return_pre_pooling_outputs (bool): True to keep the output of every block before its pooling, block b

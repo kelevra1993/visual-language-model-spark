@@ -160,14 +160,9 @@ def print_dictionary(dictionary: Dict[str, Any], indent: int = 4) -> None:
 
 def get_random_color() -> Tuple[int, int, int]:
     """
-    Generates a random RGB color tuple.
-    
-    This utility is useful for randomly assigning colors to different bounding boxes
-    or classes during visualization, ensuring distinct visual representations.
-    
-    Args:
-        None
-        
+    Generates a random colour tuple for the OpenCV drawings of the visualization utilities, so that the boxes or
+    classes drawn without a colour of their own can be told apart.
+
     Returns:
         Tuple[int, int, int]: A tuple containing random (B, G, R) values from 0 to 255.
     """
