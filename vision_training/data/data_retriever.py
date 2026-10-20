@@ -10,10 +10,8 @@ from typing import Optional, List, Literal
 from pathlib import Path
 
 
-def retrieve_dataset(dataset_name: Literal["open-images-v7", "coco-2017"],
-                     dataset_directory: str,
-                     maximum_samples: Optional[int] = None,
-                     splits: Optional[List[str]] = None,
+def retrieve_dataset(dataset_name: Literal["open-images-v7", "coco-2017"], dataset_directory: str,
+                     maximum_samples: Optional[int] = None, splits: Optional[List[str]] = None,
                      label_types: Optional[List[str]] = None) -> fo.Dataset:
     """
     Downloads and constructs a dataset using the FiftyOne Zoo API.
@@ -27,7 +25,8 @@ def retrieve_dataset(dataset_name: Literal["open-images-v7", "coco-2017"],
         dataset_directory (str): The absolute path where the raw dataset files will be stored.
         maximum_samples (Optional[int]): The maximum number of images to download. Pass `None` to download all.
         splits (Optional[List[str]]): A list of dataset splits to download. Defaults to ["train", "validation", "test"].
-        label_types (Optional[List[str]]): A list of label types to retrieve. Defaults to ["detections", "segmentations"].
+        label_types (Optional[List[str]]): A list of label types to retrieve. Defaults to ["detections",
+            "segmentations"].
 
     Returns:
         fo.Dataset: The instantiated FiftyOne dataset object containing the downloaded data.

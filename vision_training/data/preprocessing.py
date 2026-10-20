@@ -96,8 +96,8 @@ def preprocess_boxes(bounding_boxes: list[list[float]], image_width: int, image_
         image_width (int): The original width of the image before preprocessing.
         image_height (int): The original height of the image before preprocessing.
         image_size (int): The target width and height for the output image.
-        keep_ratio (bool): If True, computes the scaling based on zero-padding the image to maintain its original aspect ratio.
-        Defaults to True.
+        keep_ratio (bool): If True, computes the scaling based on zero-padding the image to maintain its original aspect
+            ratio. Defaults to True.
 
     Returns:
         list[list[float]]: The scaled and shifted coordinate lists, in the format of the input.

@@ -32,11 +32,15 @@ class TwoStageDetector(TaskModel):
     def __init__(self, configuration: Dict[str, Any], verbose: bool = False,
                  device: torch.device = None, dtype: torch.dtype = None) -> None:
         """
-        Initializes the TwoStageDetector components.
-        
+        Builds the detector of the object detection task, and the base of the instance segmenter: the shared backbone
+        with its outputs at the detection levels, the region proposal head and the detection head of every level, the
+        anchors of all the levels and the region proposal filter, from the model configuration read by the detection
+        trainer, the model registry and the export.
+
         Args:
             configuration (Dict[str, Any]): The complete configuration dictionary for the experiment.
-            verbose (bool): If True, prints a structural summary of the instantiated model architecture. Defaults to False.
+            verbose (bool): If True, prints a structural summary of the instantiated model architecture. Defaults to
+                False.
             device (torch.device): The device for parameter allocation.
             dtype (torch.dtype): The data type for parameter allocation.
         """
@@ -129,15 +133,10 @@ class TwoStageDetector(TaskModel):
             # Initialize and store the RegionProposal module
             region_proposer_dictionary[index_string] = RegionProposal(
                 convolutions=detection_levels_configuration[index_string]["region_proposal"]["convolutions"],
-                input_channels=input_channels,
-                scales=scales,
-                aspect_ratios=aspect_ratios,
-                input_image_size=self.input_image_size,
-                feature_map_size=feature_map_size,
+                input_channels=input_channels, scales=scales, aspect_ratios=aspect_ratios,
+                input_image_size=self.input_image_size, feature_map_size=feature_map_size,
                 feature_map_normalization=feature_map_normalization,
-                batch_normalization_momentum=batch_normalization_momentum,
-                dtype=self.dtype,
-                device=self.device)
+                batch_normalization_momentum=batch_normalization_momentum, dtype=self.dtype, device=self.device)
 
         return region_proposer_dictionary
 
@@ -246,8 +245,8 @@ class TwoStageDetector(TaskModel):
         the globally pre-aggregated `self.anchors` to construct the batched anchors efficiently in a single operation.
 
         Args:
-            region_proposal_output_tensor_dictionary (Dict[str, Dict[str, torch.Tensor]]): A dictionary mapping detection 
-            indices to their respective region proposal predictions.
+            region_proposal_output_tensor_dictionary (Dict[str, Dict[str, torch.Tensor]]): A dictionary mapping
+            detection indices to their respective region proposal predictions.
 
         Returns:
             Dict[str, torch.Tensor]: A single dictionary containing the concatenated predictions
@@ -376,15 +375,17 @@ class TwoStageDetector(TaskModel):
         
         Args:
             batch_size (int): The total number of images in the batch.
-            detection_batch_indices (torch.Tensor): The batch indices mapping each proposal to an image. Shape: [K, 1] or [K].
-            prediction_tensors_dictionary (Dict[str, Optional[torch.Tensor]]): A dictionary containing 
-                                            the flattened prediction tensors (e.g., classification_scores, detection_boxes).
-                                            Each valid tensor must have a first dimension of size K.
-            verbose (bool): If True, prints a structural summary of the resulting rearranged tensors. Defaults to False.
-                                            
+            detection_batch_indices (torch.Tensor): The batch indices mapping each proposal to an image. Shape: [K, 1]
+                or [K].
+            prediction_tensors_dictionary (Dict[str, Optional[torch.Tensor]]): A dictionary containing the flattened
+                prediction tensors (e.g., classification_scores, detection_boxes). Each valid tensor must have a first
+                dimension of size K.
+            verbose (bool): If True, prints a structural summary of the resulting rearranged tensors. Defaults to
+                False.
+
         Returns:
-            Dict[str, Optional[torch.Tensor]]: A dictionary where each key maps to a batched tensor of shape `[batch_size, ...]`, 
-                                           containing the predictions for each specific image.
+            Dict[str, Optional[torch.Tensor]]: A dictionary where each key maps to a batched tensor of shape
+                `[batch_size, ...]`, containing the predictions for each specific image.
         """
 
         tensor_names = ["classification_scores", "box_regressions", "detection_boxes", "sliced_origins"]
@@ -409,16 +410,13 @@ class TwoStageDetector(TaskModel):
         if verbose:
             print_color(color="yellow", output=f"Re-Arranged Detection Output Information", add_separators=True)
             for tensor_name, tensor_value in rearranged_predictions.items():
-                print_tensor_shape(tensor_value, tensor_name, indent=1)
+                print_tensor_shape(tensor=tensor_value, name=tensor_name, indent=1)
 
         return rearranged_predictions
 
-    def _prepare_detector_inputs(self,
-                                 filtered_boxes: torch.Tensor,
-                                 filtered_origins: torch.Tensor,
+    def _prepare_detector_inputs(self, filtered_boxes: torch.Tensor, filtered_origins: torch.Tensor,
                                  ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
-                                 ground_truth_labels: Optional[List[torch.Tensor]] = None,
-                                 verbose: bool = False
+                                 ground_truth_labels: Optional[List[torch.Tensor]] = None, verbose: bool = False
                                  ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor],
                                             torch.Tensor, Optional[torch.Tensor]]:
         """
@@ -431,7 +429,8 @@ class TwoStageDetector(TaskModel):
         
         Args:
             filtered_boxes (torch.Tensor): The filtered region proposals of shape [Batch, Num_Proposals, 4].
-            filtered_origins (torch.Tensor): The detection scale origins of the proposals of shape [Batch, Num_Proposals].
+            filtered_origins (torch.Tensor): The detection scale origins of the proposals of shape
+                [Batch, Num_Proposals].
             ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List of ground truth bounding boxes.
             ground_truth_labels (Optional[List[torch.Tensor]]): List of ground truth class labels.
             verbose (bool): If True, prints a structural summary of the generated inputs. Defaults to False.
@@ -447,11 +446,11 @@ class TwoStageDetector(TaskModel):
                   of every sampled proposal within its image, -1 for the background, of shape [K] (None without
                   ground truth), read by the instance segmenter to pick the ground truth masks.
         """
-        batch_size, num_proposals, _ = filtered_boxes.shape
+        batch_size, number_proposals, _ = filtered_boxes.shape
 
         # Generate batch indices of shape [Batch, Proposals] to track which image each proposal belongs to
         batch_indices = torch.arange(start=0, end=batch_size, device=self.device,
-                                     dtype=self.dtype).view(-1, 1).expand(batch_size, num_proposals)
+                                     dtype=self.dtype).view(-1, 1).expand(batch_size, number_proposals)
 
         if ground_truth_bounding_boxes is not None:
             # Add the ground truth boxes to the proposals of their image, at the level of their best anchor, so that
@@ -463,22 +462,19 @@ class TwoStageDetector(TaskModel):
             # Assign the ground truth boxes and classes to the proposals by their overlap
             (detector_proposal_targets, detector_proposal_labels,
              detector_matched_ground_truth_indices) = batch_assign_targets_to_proposals(
-                batched_ground_truth_boxes=ground_truth_bounding_boxes,
-                batched_proposals=filtered_boxes,
+                batched_ground_truth_boxes=ground_truth_bounding_boxes, batched_proposals=filtered_boxes,
                 batched_ground_truth_labels=ground_truth_labels,
                 foreground_iou_threshold=self.detector_configuration["foreground_iou_threshold"])
 
             # Compute detection head regression targets
             detection_regression_targets = turn_boxes_to_transformation_targets(
-                ground_truth_boxes=detector_proposal_targets,
-                predicted_boxes=filtered_boxes)
+                ground_truth_boxes=detector_proposal_targets, predicted_boxes=filtered_boxes)
 
             # Get training samples for detection network
             sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
                 labels=detector_proposal_labels,
                 desired_positives=self.detector_configuration['number_training_positives'],
-                desired_total=self.detector_configuration['total_training_samples'],
-                verbose=self.verbose)
+                desired_total=self.detector_configuration['total_training_samples'], verbose=self.verbose)
 
             sampled_mask = sampled_positive_mask | sampled_negative_mask
 
@@ -509,11 +505,11 @@ class TwoStageDetector(TaskModel):
         # Calculate and display the final breakdown detection input proposals for debugging
         if verbose:
             print_color(color="yellow", output="Detector Information", add_separators=True)
-            print_tensor_shape(detection_proposals, indent=1)
-            print_tensor_shape(detection_proposals_origins, indent=1)
+            print_tensor_shape(tensor=detection_proposals, indent=1)
+            print_tensor_shape(tensor=detection_proposals_origins, indent=1)
             if self.training:
-                print_tensor_shape(detection_labels, indent=1)
-                print_tensor_shape(detection_regression_targets, indent=1)
+                print_tensor_shape(tensor=detection_labels, indent=1)
+                print_tensor_shape(tensor=detection_regression_targets, indent=1)
 
         return (detection_proposals, detection_proposals_origins, detection_labels, detection_regression_targets,
                 detection_batch_indices, detection_matched_ground_truth_indices)
@@ -524,7 +520,8 @@ class TwoStageDetector(TaskModel):
         Executes the Region Proposal forward pass for all intermediate feature map scales.
         
         Args:
-            backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps of shape [Batch, Channels, Height, Width].
+            backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps of
+                shape [Batch, Channels, Height, Width].
             
         Returns:
             Dict[str, Dict[str, torch.Tensor]]: The predicted proposal scores, bounding box regressions, 
@@ -548,31 +545,28 @@ class TwoStageDetector(TaskModel):
 
         return region_proposal_output_tensor_dictionary
 
-    def _forward_detections(
-            self,
-            backbone_output_tensor_dictionary: Dict[str, torch.Tensor],
-            detection_proposals: torch.Tensor,
-            detection_proposals_origins: torch.Tensor,
-            detection_batch_indices: torch.Tensor,
-            detection_labels: Optional[torch.Tensor] = None,
-            detection_regression_targets: Optional[torch.Tensor] = None,
-            detection_matched_ground_truth_indices: Optional[torch.Tensor] = None
-    ) -> Dict[str, Any]:
+    def _forward_detections(self, backbone_output_tensor_dictionary: Dict[str, torch.Tensor],
+                            detection_proposals: torch.Tensor, detection_proposals_origins: torch.Tensor,
+                            detection_batch_indices: torch.Tensor, detection_labels: Optional[torch.Tensor] = None,
+                            detection_regression_targets: Optional[torch.Tensor] = None,
+                            detection_matched_ground_truth_indices: Optional[torch.Tensor] = None) -> Dict[str, Any]:
         """
         Executes the Detection Head forward pass for all proposals across their respective feature maps.
         
         Args:
-            backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps of shape [Batch, Channels, Height, Width].
+            backbone_output_tensor_dictionary (Dict[str, torch.Tensor]): The multi-scale backbone feature maps of
+                shape [Batch, Channels, Height, Width].
             detection_proposals (torch.Tensor): Formatted proposals of shape [K, 5] (batch_index + coords).
             detection_proposals_origins (torch.Tensor): Origins of shape [K].
             detection_batch_indices (torch.Tensor): Batch indices of shape [K, 1].
             detection_labels (Optional[torch.Tensor]): Target labels for training of shape [K].
             detection_regression_targets (Optional[torch.Tensor]): Target regressions for training of shape [K, 4].
-            detection_matched_ground_truth_indices (Optional[torch.Tensor]): Index of the matched ground truth of every
-                proposal within its image for training, of shape [K].
-            
+            detection_matched_ground_truth_indices (Optional[torch.Tensor]): Index of the matched ground truth of
+                every proposal within its image for training, of shape [K].
+
         Returns:
-            Dict[str, Any]: Dictionary mapping detection index to a dictionary containing the sliced and computed outputs:
+            Dict[str, Any]: Dictionary mapping detection index to a dictionary containing the sliced and computed
+                outputs:
                 - "classification_scores" (torch.Tensor): Shape [K_scale, number_classes]
                 - "box_regressions" (torch.Tensor): Shape [K_scale, number_classes, 4]
                 - "sliced_labels" (Optional[torch.Tensor]): Shape [K_scale]
@@ -619,9 +613,8 @@ class TwoStageDetector(TaskModel):
 
         return detection_output_dictionary
 
-    def forward(self, input_tensor: torch.Tensor,
-                ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
-                ground_truth_labels: Optional[List[torch.Tensor]] = None, ) -> Dict[str, Any]:
+    def forward(self, input_tensor: torch.Tensor, ground_truth_bounding_boxes: Optional[List[torch.Tensor]] = None,
+                ground_truth_labels: Optional[List[torch.Tensor]] = None) -> Dict[str, Any]:
         """
         Executes the forward pass of the TwoStageDetector, whose stages are run by forward_detection_stages.
 
@@ -650,9 +643,11 @@ class TwoStageDetector(TaskModel):
 
         Args:
             input_tensor (torch.Tensor): The raw input image tensor of shape [Batch, Channels, Height, Width].
-            ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List containing ground truth boxes per image, each of shape [Num_GT, 4].
-            ground_truth_labels (Optional[List[torch.Tensor]]): List containing ground truth labels per image, each of shape [Num_GT].
-            
+            ground_truth_bounding_boxes (Optional[List[torch.Tensor]]): List containing ground truth boxes per image,
+                each of shape [Num_GT, 4].
+            ground_truth_labels (Optional[List[torch.Tensor]]): List containing ground truth labels per image, each
+                of shape [Num_GT].
+
         Returns:
             Dict[str, Any]: The 'backbone_output_tensor_dictionary' (feature maps keyed by detection level), the
                 'aggregated_detections_dictionary' (see aggregate_detection_outputs) and the
@@ -698,19 +693,15 @@ class TwoStageDetector(TaskModel):
         (detection_proposals, detection_proposals_origins,
          detection_labels, detection_regression_targets, detection_batch_indices,
          detection_matched_ground_truth_indices) = self._prepare_detector_inputs(
-            filtered_boxes=filtered_boxes,
-            filtered_origins=filtered_origins,
-            ground_truth_bounding_boxes=ground_truth_bounding_boxes,
-            ground_truth_labels=ground_truth_labels,
+            filtered_boxes=filtered_boxes, filtered_origins=filtered_origins,
+            ground_truth_bounding_boxes=ground_truth_bounding_boxes, ground_truth_labels=ground_truth_labels,
             verbose=self.verbose)
 
         # Route the formatted proposals to their appropriate detection heads to compute final box scores and regressions
         detection_output_tensor_dictionary = self._forward_detections(
             backbone_output_tensor_dictionary=backbone_output_tensor_dictionary,
-            detection_proposals=detection_proposals,
-            detection_proposals_origins=detection_proposals_origins,
-            detection_batch_indices=detection_batch_indices,
-            detection_labels=detection_labels,
+            detection_proposals=detection_proposals, detection_proposals_origins=detection_proposals_origins,
+            detection_batch_indices=detection_batch_indices, detection_labels=detection_labels,
             detection_regression_targets=detection_regression_targets,
             detection_matched_ground_truth_indices=detection_matched_ground_truth_indices)
 
@@ -724,8 +715,7 @@ class TwoStageDetector(TaskModel):
         model_output_dictionary = self._rearrange_predictions_by_batch(
             batch_size=input_tensor.shape[0],
             detection_batch_indices=aggregated_detections_dictionary["sliced_batch_indices"],
-            prediction_tensors_dictionary=aggregated_detections_dictionary,
-            verbose=self.verbose)
+            prediction_tensors_dictionary=aggregated_detections_dictionary, verbose=self.verbose)
 
         # At inference, turn the raw head outputs into the final thresholded, per-class NMS filtered detections
         if not self.training:
@@ -748,8 +738,7 @@ class TwoStageDetector(TaskModel):
         # - For Detection
         if ground_truth_bounding_boxes is not None:
             # Region Proposal Losses
-            (region_proposal_classification_loss,
-             region_proposal_localisation_loss) = compute_region_proposal_losses(
+            region_proposal_classification_loss, region_proposal_localisation_loss = compute_region_proposal_losses(
                 ground_truth_bounding_boxes=ground_truth_bounding_boxes,
                 aggregated_proposals_dictionary=aggregated_proposals_dictionary,
                 region_proposal_configuration=self.region_proposal_configuration)
@@ -829,8 +818,8 @@ class TwoStageDetector(TaskModel):
 
         # Initialize the textual representation of the architecture,
         # including the applied normalization strategy prominently
-        summary_text = (f"[bold]Normalization Strategy:[/bold]"
-                        f" {str(object=self.detector_configuration["normalization"]["feature_map_normalization"]).capitalize()}\n\n")
+        normalization_name = str(object=self.detector_configuration["normalization"]["feature_map_normalization"])
+        summary_text = f"[bold]Normalization Strategy:[/bold] {normalization_name.capitalize()}\n\n"
 
         for index_string, detection_head in self.detector_heads_dictionary.items():
             convolution_layers = detection_head.convolution_number_layers

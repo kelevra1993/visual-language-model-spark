@@ -348,6 +348,7 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
                                           sequence_settings=data_configuration["sequence_settings"],
                                           split_name=split_name)
         else:
+            # Whole sequences labelled per sequence, per frame or for the frame selection
             dataset = SequenceDataset(data_directory=os.path.join(split_data_folder, "data"),
                                       labels_file=os.path.join(split_data_folder, "labels.json"),
                                       image_size=data_configuration["image_settings"]["size"],
@@ -356,6 +357,7 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
                                       sequence_settings=data_configuration["sequence_settings"],
                                       label_type=label_type, split_name=split_name,
                                       selection_settings=selection_settings)
+        # Wrap the dataset in a Native loader padding every batch to its longest sequence
         loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
                                            loading_configuration=data_configuration["loading"],
                                            collate_function=collate_function))

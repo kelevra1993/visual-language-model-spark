@@ -101,7 +101,8 @@ def check_nn_module_method(module: nn.Module, simple_input_dictionary: Dict[str,
         assert torch.allclose(input=output_tensor, other=expected_output_tensor, atol=1e-5), \
             f'Problem With output {output_tensor_name} For Simple Check.'
 
-        # Determine the expected batched reference tensor by either loading it from disk or broadcasting the simple reference
+        # Determine the expected batched reference tensor by either loading it from disk or broadcasting the simple
+        # reference
         if os.path.exists(path=batched_output_filename):
             expected_batched_output_tensor = torch.load(f=batched_output_filename, weights_only=True)
         else:

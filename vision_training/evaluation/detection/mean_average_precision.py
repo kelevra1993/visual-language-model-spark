@@ -71,8 +71,7 @@ def find_best_ground_truth(overlap_matrices: List[torch.Tensor]) -> Tuple[torch.
     return torch.cat(tensors=best_intersection_over_union), torch.cat(tensors=best_ground_truth_indices)
 
 
-def match_detections_to_ground_truth(detection_image_indices: torch.Tensor,
-                                     best_intersection_over_union: torch.Tensor,
+def match_detections_to_ground_truth(detection_image_indices: torch.Tensor, best_intersection_over_union: torch.Tensor,
                                      best_ground_truth_indices: torch.Tensor,
                                      intersection_over_union_threshold: float) -> torch.Tensor:
     """

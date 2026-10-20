@@ -114,8 +114,7 @@ def add_ground_truth_proposals(batched_ground_truth_boxes: List[torch.Tensor], b
     return proposals, proposal_levels
 
 
-def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tensor],
-                                    batched_anchors: torch.Tensor,
+def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tensor], batched_anchors: torch.Tensor,
                                     background_iou_threshold: Dict[str, float],
                                     foreground_iou_threshold: Dict[str, float],
                                     strict_fallback_assignment: bool = False) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -162,18 +161,18 @@ def batch_assign_targets_to_anchors(batched_ground_truth_boxes: List[torch.Tenso
     best_match_ground_truth_index_before_thresholding = best_match_ground_truth_index.clone()
 
     # Create readable condition variables based on the IoU thresholds
-    below_background_min = best_match_ground_truth_iou < background_iou_threshold['min']
-    above_or_equal_background_min = best_match_ground_truth_iou >= background_iou_threshold['min']
-    below_background_max = best_match_ground_truth_iou < background_iou_threshold['max']
-    above_or_equal_background_max = best_match_ground_truth_iou >= background_iou_threshold['max']
-    below_foreground_min = best_match_ground_truth_iou < foreground_iou_threshold['min']
+    below_background_minimum = best_match_ground_truth_iou < background_iou_threshold['min']
+    above_or_equal_background_minimum = best_match_ground_truth_iou >= background_iou_threshold['min']
+    below_background_maximum = best_match_ground_truth_iou < background_iou_threshold['max']
+    above_or_equal_background_maximum = best_match_ground_truth_iou >= background_iou_threshold['max']
+    below_foreground_minimum = best_match_ground_truth_iou < foreground_iou_threshold['min']
 
     # Anchors that fall strictly within the background IoU limits are true negatives
-    background_indices = above_or_equal_background_min & below_background_max
+    background_indices = above_or_equal_background_minimum & below_background_maximum
 
     # Anchors that fall between the maximum background limit and the minimum foreground limit,
     # or below the absolute minimum background limit, are ignored (grey zone)
-    grey_zone_indices = (above_or_equal_background_max & below_foreground_min) | below_background_min
+    grey_zone_indices = (above_or_equal_background_maximum & below_foreground_minimum) | below_background_minimum
 
     # Label the background anchors -1 and the grey zone anchors -2, with masked fills that never wait for the GPU
     best_match_ground_truth_index = best_match_ground_truth_index.masked_fill(mask=background_indices, value=-1)

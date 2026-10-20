@@ -79,8 +79,10 @@ def write_fake_run(run_folder: Path, data_folder: Path, image_size: int, trained
                                                 "mapping_file_path": str(data_folder / "label_mapping.json")}}}
     (run_folder / "training_configuration.yaml").write_text(data=yaml.safe_dump(data=configuration))
     class_records = [
-        {"class_index": 0, "class_name": "cat", "category_ids": [1], "images": {"train": 3, "validation": 1, "test": 1}},
-        {"class_index": 1, "class_name": "dog", "category_ids": [2], "images": {"train": 1, "validation": 2, "test": 2}}]
+        {"class_index": 0, "class_name": "cat", "category_ids": [1],
+         "images": {"train": 3, "validation": 1, "test": 1}},
+        {"class_index": 1, "class_name": "dog", "category_ids": [2],
+         "images": {"train": 1, "validation": 2, "test": 2}}]
     classes_entry = {"classes": class_records} if counted_classes else {"class_names": ["cat", "dog"]}
     (run_folder / "data.json").write_text(data=json.dumps(obj={**classes_entry, "splits": split_records}))
     write_test_curves(test_folder=run_folder / "Tensorboard" / "Test", curves=trained_curves)

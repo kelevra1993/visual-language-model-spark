@@ -662,12 +662,14 @@ class ClassificationTrainer(BaseTrainer):
                                 f"Top-{self.top_k} Accuracy": compute_top_k_accuracy(probabilities=probabilities,
                                                                                      labels=labels,
                                                                                      top_k=self.top_k)}
+            # One-hot positives for the class thresholds, and the confusion matrix saved as a table
             positive_masks = torch.nn.functional.one_hot(input=labels, num_classes=number_classes).to(dtype=torch.bool)
             files["Confusion Matrix Table"] = save_confusion_matrix_table(confusion_matrix=confusion_matrix,
                                                                           class_names=self.class_names,
                                                                           output_folder=evaluation_folder)
             support_column = self.CLASS_SUPPORT_COLUMN
         else:
+            # Several classes per sample: the metrics of the class decisions at the multi-label threshold
             metrics = compute_multi_label_metrics(probabilities=probabilities, labels=labels,
                                                   threshold=MULTI_LABEL_THRESHOLD)
             headline_metrics = {"Subset Accuracy": metrics["subset_accuracy"], "Micro F1": metrics["micro_f1"],

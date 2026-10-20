@@ -40,8 +40,8 @@ def load_configuration(configuration_path: str | Path) -> Dict[str, Any]:
         try:
             configuration = yaml.safe_load(file)
             return configuration if configuration is not None else {}
-        except yaml.YAMLError as e:
-            raise ValueError(f"Error parsing YAML file at {path}:\n{e}")
+        except yaml.YAMLError as error:
+            raise ValueError(f"Error parsing YAML file at {path}:\n{error}")
 
 
 def inject_keypoint_categories(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
@@ -92,7 +92,7 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
         SystemExit: If the configuration is incomplete or inconsistent (see 'check_configuration'), after printing
             each problem in red.
     """
-    configuration = load_configuration(configuration_path)
+    configuration = load_configuration(configuration_path=configuration_path)
     if "ExperimentConfiguration" not in configuration:
         raise KeyError(f"Key 'ExperimentConfiguration' not found in {configuration_path}")
 

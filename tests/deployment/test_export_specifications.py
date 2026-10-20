@@ -58,6 +58,7 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
     Returns:
         TaskModel: The model of the task.
     """
+    # Seed the weights and take the test configuration of the task, the classifier with the pooling and shortcuts asked
     torch.manual_seed(seed=0)
     if task == "semantic_segmentation":
         configuration, device, dtype = get_segmentation_model_configuration(upsampling="transposed")
@@ -71,6 +72,8 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
         configuration["ClassificationHead"]["global_pooling"] = global_pooling
         configuration["Backbone"]["modules"]["residual_nets_v2"] = pre_activation
     else:
+        # The sequence models: bidirectional recurrent modules, a causal transformer for the labeller, and the
+        # selection settings read by the frame selector
         if task == "sequence_comparison":
             configuration, device, dtype = get_sequence_comparison_model_configuration(temporal_type=temporal_type,
                                                                                        fusion_type=fusion_type)
@@ -80,6 +83,7 @@ def build_test_model(task: str, temporal_type: Optional[str], fusion_type: Optio
         configuration["TemporalModel"]["causal"] = task == "sequence_labelling" and temporal_type == "transformer"
         configuration["Selection"] = {"unselected_category": "unselected", "decoding": "hungarian",
                                       "frames_per_class": 1, "selection_loss_weight": 1.0}
+    # Build the model of the task in evaluation mode, so that the exports trace its inference behaviour
     model = TASK_MODEL_CLASSES[task](configuration=configuration, device=device, dtype=dtype).eval()
 
     # The keypoint head starts with heatmaps of about 1e-5, below every tolerance, so both of its final convolutions,
@@ -377,6 +381,7 @@ def test_sequence_normalization_exports_match_the_eager_model(tmp_path: Path, ta
         task (str): "sequence_classification" or "sequence_comparison".
         normalization_scope (Optional[str]): The scope of the statistics of the comparator, None for the classifier.
     """
+    # A seeded sequence model whose backbone normalizes its feature maps with the statistics of every sequence
     hide_known_export_warnings()
     torch.manual_seed(seed=0)
     if task == "sequence_comparison":
@@ -388,6 +393,7 @@ def test_sequence_normalization_exports_match_the_eager_model(tmp_path: Path, ta
     configuration["Backbone"]["normalization"]["feature_map_normalization"] = "sequence"
     model = TASK_MODEL_CLASSES[task](configuration=configuration, device=device, dtype=dtype).eval()
     inference_model = build_inference_model(task=task, model=model)
+    # Trace with the example shape and compare on the check shape, of another batch size and number of frames
     specification = get_export_specification(task=task, inference_model=inference_model)
     example_inputs = create_random_inputs(specification=specification, shape_name="example_shape",
                                           maximum_batch_size=TEST_MAXIMUM_BATCH_SIZE, device=torch.device("cpu"),

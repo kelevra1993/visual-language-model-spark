@@ -150,26 +150,26 @@ def add_bounding_boxes(bounding_boxes: np.ndarray, image: np.ndarray, input_imag
         bounding_boxes = bounding_boxes.reshape((1, 4))
 
     for box_index, box in enumerate(bounding_boxes):
-        x_min, y_min, x_max, y_max = box
+        x_minimum, y_minimum, x_maximum, y_maximum = box
 
         # Ensure coordinates are within image boundaries for clean visualization
-        x_min = max(0, int(x_min))
-        y_min = max(0, int(y_min))
-        x_max = min(input_image_size, int(x_max))
-        y_max = min(input_image_size, int(y_max))
+        x_minimum = max(0, int(x_minimum))
+        y_minimum = max(0, int(y_minimum))
+        x_maximum = min(input_image_size, int(x_maximum))
+        y_maximum = min(input_image_size, int(y_maximum))
 
         # Draw the bounding box on the canvas using the provided color
-        cv2.rectangle(img=image, pt1=(x_min, y_min), pt2=(x_max, y_max), color=color, thickness=2)
+        cv2.rectangle(img=image, pt1=(x_minimum, y_minimum), pt2=(x_maximum, y_maximum), color=color, thickness=2)
 
         # Write the caption of the box above it, or inside its top when the box touches the top of the image
         if captions is not None:
             (caption_width, caption_height), _ = cv2.getTextSize(text=captions[box_index],
                                                                  fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.4,
                                                                  thickness=1)
-            caption_bottom = y_min - 3 if y_min - caption_height - 6 >= 0 else y_min + caption_height + 3
-            cv2.rectangle(img=image, pt1=(x_min, caption_bottom - caption_height - 3),
-                          pt2=(x_min + caption_width + 4, caption_bottom + 3), color=(0, 0, 0), thickness=-1)
-            cv2.putText(img=image, text=captions[box_index], org=(x_min + 2, caption_bottom),
+            caption_bottom = y_minimum - 3 if y_minimum - caption_height - 6 >= 0 else y_minimum + caption_height + 3
+            cv2.rectangle(img=image, pt1=(x_minimum, caption_bottom - caption_height - 3),
+                          pt2=(x_minimum + caption_width + 4, caption_bottom + 3), color=(0, 0, 0), thickness=-1)
+            cv2.putText(img=image, text=captions[box_index], org=(x_minimum + 2, caption_bottom),
                         fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=0.4, color=color, thickness=1)
 
     return image
@@ -866,11 +866,11 @@ def build_detection_sample_grid(image: np.ndarray, ground_truth_boxes: np.ndarra
                                             (prediction_panel, predicted_boxes, highlighted_detections)]:
         if highlighted_boxes is None:
             continue
-        for x_min, y_min, x_max, y_max in boxes[highlighted_boxes]:
-            draw_dashed_rectangle(image=panel, top_left=(max(0, int(x_min) - ERROR_OUTLINE_MARGIN),
-                                                         max(0, int(y_min) - ERROR_OUTLINE_MARGIN)),
-                                  bottom_right=(min(image_size - 1, int(x_max) + ERROR_OUTLINE_MARGIN),
-                                                min(image_size - 1, int(y_max) + ERROR_OUTLINE_MARGIN)),
+        for x_minimum, y_minimum, x_maximum, y_maximum in boxes[highlighted_boxes]:
+            draw_dashed_rectangle(image=panel, top_left=(max(0, int(x_minimum) - ERROR_OUTLINE_MARGIN),
+                                                         max(0, int(y_minimum) - ERROR_OUTLINE_MARGIN)),
+                                  bottom_right=(min(image_size - 1, int(x_maximum) + ERROR_OUTLINE_MARGIN),
+                                                min(image_size - 1, int(y_maximum) + ERROR_OUTLINE_MARGIN)),
                                   colour=WRONG_PREDICTION_COLOUR, thickness=2, dash_length=ERROR_OUTLINE_DASH_LENGTH)
     grid = place_panels_side_by_side(panels={"Ground Truth": ground_truth_panel, "Prediction": prediction_panel})
 

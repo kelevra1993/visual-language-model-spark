@@ -54,7 +54,7 @@ def build_label_dictionary(label_mapping_configuration: Dict[str, Any], task: st
             with open(mapping_path, "r") as file:
                 raw_mapping = json.load(file)
                 # Convert string keys to int if they are digits for easier mapping during data loading
-                parsed_mapping = {int(k) if str(k).isdigit() else k: v for k, v in raw_mapping.items()}
+                parsed_mapping = {int(key) if str(key).isdigit() else key: value for key, value in raw_mapping.items()}
                 # Ensure background is accounted for, for the tasks predicting it
                 if task in TASKS_WITH_BACKGROUND_CLASS and "background" not in parsed_mapping and \
                         0 not in parsed_mapping.values():

@@ -23,7 +23,8 @@ class InputNormalizer(nn.Module):
 
     def __init__(self, input_normalization: bool, per_sample_normalization: bool) -> None:
         """
-        Initializes the input normalization strategy flags.
+        Stores the input normalization flags of the 'normalization' configuration section, read at the start of
+        every backbone so that the raw [0, 255] images of the data loaders reach the first convolution rescaled.
 
         Args:
             input_normalization (bool): Whether to map pixel values from [0, 255] to [-0.5, 0.5].

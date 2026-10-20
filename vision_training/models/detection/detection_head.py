@@ -101,20 +101,22 @@ class DetectionHead(nn.Module):
         and bounding box refinements.
         
         Args:
-            proposal_boxes (torch.Tensor): A tensor of shape [K, 5] representing the sampled proposals across the batch, 
-                                           where the first column is the batch index and the rest are [x1, y1, x2, y2].
+            proposal_boxes (torch.Tensor): A tensor of shape [K, 5] representing the sampled proposals across the
+                batch, where the first column is the batch index and the rest are [x1, y1, x2, y2].
             input_tensor (torch.Tensor): Batched feature map from backbone of shape [Batch, Channels, Height, Width].
-            tensor_to_concatenate (Optional[torch.Tensor]): Optional tensor to concatenate of shape [K, Additional_Channels].
+            tensor_to_concatenate (Optional[torch.Tensor]): Optional tensor to concatenate of shape [K,
+                Additional_Channels].
             
         Returns:
             Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: A tuple containing:
                 - classification_scores (torch.Tensor): The predicted class logits of shape [K, number_classes].
-                - box_regressions (torch.Tensor): The predicted bounding box regressions of shape [K, number_classes, 4].
+                - box_regressions (torch.Tensor): The predicted bounding box regressions of shape [K, number_classes,
+                  4].
                 - detection_boxes (torch.Tensor): The final bounding box coordinates after
                  applying regression offsets of shape [K, number_classes, 4].
         """
 
-        # 1. RoIAlign: Extract and pool features for each proposal
+        # RoIAlign: Extract and pool features for each proposal
         # Input Feature Map Shape: [Batch, Channels, Height, Width]
         # Output Pooled Shape: [K, Channels, Pool_Size, Pool_Size]
         # A sampling ratio of 0 uses an adaptive number of sampling points per bin (identical to torchvision's default
@@ -123,22 +125,22 @@ class DetectionHead(nn.Module):
                                     output_size=(self.roi_align_pool_size, self.roi_align_pool_size),
                                     spatial_scale=self.spatial_scale, sampling_ratio=0, aligned=True)
 
-        # 2. Convolutional Block: Process the pooled features
+        # Convolutional Block: Process the pooled features
         # Input Shape: [K, Channels, Pool_Size, Pool_Size]
         # Output Shape: [K, Conv_Out_Channels, Pool_Size, Pool_Size]
         enhanced_pooled_features = self.convolutional_block(input_tensor=pooled_features)
 
-        # 3. Flatten the spatial dimensions for the fully connected layers
+        # Flatten the spatial dimensions for the fully connected layers
         # Input Shape: [K, Conv_Out_Channels, Pool_Size, Pool_Size]
         # Output Shape: [K, Flattened_Dimension]
         flattened_enhanced_pooled_features = enhanced_pooled_features.flatten(start_dim=1)
 
-        # 4. Fully Connected Block: Deep feature extraction
+        # Fully Connected Block: Deep feature extraction
         # Input Shape: [K, Flattened_Dimension] 
         # Output Shape: [K, FC_Out_Dimension]
         fully_connected_output_tensor = self.fully_connected_block(input=flattened_enhanced_pooled_features)
 
-        # 5. Prediction Heads: Output classification and regression predictions
+        # Prediction Heads: Output classification and regression predictions
         # Output Classification Shape: [K, number_classes]
         classification_scores = self.classifier(input=fully_connected_output_tensor)
 

@@ -15,6 +15,7 @@ import pytest
 import re
 import torch
 
+from kornia.filters import motion_blur
 from typing import Any, Dict
 
 from vision_training.data.view_augmentations import SECOND_VIEW_INDEX, VIEW_TRANSFORMATION_NAMES, ViewAugmenter
@@ -281,6 +282,8 @@ def test_every_transformation_describes_its_drawn_values() -> None:
     torch.manual_seed(seed=2)
     _, _, view_descriptions = view_augmenter.create_views(images=create_test_images(number_images=2),
                                                           describe_views=True)
+
+    # Line expected for every transformation, in the order of the chain, the ones without random values named alone
     expected_patterns = [r"random_resized_crop : \d+x\d+ pixels at x \d+, y \d+ \(\d+ % of the area\)",
                          "left_right_flip", "up_down_flip", r"rotation : [+-]\d+\.\d degrees",
                          r"perspective : corners moved by up to \d+\.\d pixels",
@@ -297,6 +300,51 @@ def test_every_transformation_describes_its_drawn_values() -> None:
     for image_lines in [lines for view_lines in view_descriptions for lines in view_lines]:
         assert len(image_lines) == len(expected_patterns)
         assert all(re.fullmatch(pattern=pattern, string=line) for pattern, line in zip(expected_patterns, image_lines))
+
+
+def test_motion_blur_draws_every_kernel_size_and_describes_the_applied_one() -> None:
+    """
+    Verifies the motion blur of the views with the kernel sizes [3, 9] of the self-supervised configurations: every odd
+    kernel size of the range, both bounds included, is applied over the draws, kornia blurring the whole batch with one
+    kernel size, and the description of every image gives that applied kernel size with the angle and direction of the
+    image, the view being the kornia motion blur of the image with these values.
+    """
+    # Motion blur alone, on every image of a batch of 4
+    configuration = build_identity_configuration()
+    configuration["motion_blur"]["probability"] = 1.0
+    view_augmenter = ViewAugmenter(view_augmentation_configuration=configuration, image_size=IMAGE_SIZE)
+    motion_blur_transformation = view_augmenter.view_transformations[0][VIEW_TRANSFORMATION_NAMES.index("motion_blur")]
+    images = create_test_images(number_images=4)
+
+    # Kernel size applied to the batch at every draw, the one of the image kornia picks for the whole batch
+    torch.manual_seed(seed=0)
+    applied_kernel_sizes = set()
+    for _ in range(200):
+        view_augmenter.draw_view(images=images, view_index=0)
+        parameters = motion_blur_transformation._params
+        applied_kernel_sizes.add(int(parameters["ksize_factor"][int(parameters["idx"][0])]))
+    assert applied_kernel_sizes == {3, 5, 7, 9}
+
+    # The description of every image gives the applied kernel size, and the values it gives reproduce the view
+    for seed in range(5):
+        torch.manual_seed(seed=seed)
+        first_views, _, view_descriptions = view_augmenter.create_views(images=images, describe_views=True)
+        parameters = motion_blur_transformation._params
+        applied_kernel_size = int(parameters["ksize_factor"][int(parameters["idx"][0])])
+        for image_index, lines in enumerate(view_descriptions[0]):
+            kernel_size, angle, direction = re.fullmatch(
+                pattern=r"motion_blur : kernel (\d+), angle ([+-]\d+\.\d) degrees, direction ([+-]\d\.\d\d)",
+                string=lines[1]).groups()
+            assert int(kernel_size) == applied_kernel_size
+            assert float(angle) == pytest.approx(expected=float(parameters["angle_factor"][image_index]), abs=0.05)
+            assert float(direction) == pytest.approx(expected=float(parameters["direction_factor"][image_index]),
+                                                     abs=0.005)
+
+        # The view is the image blurred with the applied kernel size and the drawn angle and direction of every image
+        expected_views = motion_blur(input=images.flip(dims=(1,)) / 255.0, kernel_size=applied_kernel_size,
+                                     angle=parameters["angle_factor"], direction=parameters["direction_factor"])
+        assert torch.allclose(input=first_views, other=expected_views.clamp(min=0.0, max=1.0).flip(dims=(1,)) * 255.0,
+                              atol=0.01)
 
 
 def test_views_describe_their_drawn_transformations() -> None:

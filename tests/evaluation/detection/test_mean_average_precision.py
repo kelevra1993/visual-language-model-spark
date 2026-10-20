@@ -12,9 +12,10 @@ import torch
 
 from typing import Dict, List
 
-from vision_training.evaluation.detection.mean_average_precision import (compute_average_precision, compute_precision_recall,
-                                               evaluate_detections, gather_class_detections,
-                                               match_detections_to_ground_truth)
+from vision_training.evaluation.detection.mean_average_precision import (compute_average_precision,
+                                                                         compute_precision_recall, evaluate_detections,
+                                                                         gather_class_detections,
+                                                                         match_detections_to_ground_truth)
 from vision_training.evaluation.detection.object_sizes import compute_box_areas
 from vision_training.models.detection.box_operations import get_intersection_over_union
 from vision_training.models.instance_segmentation.mask_operations import compute_mask_intersection_over_union

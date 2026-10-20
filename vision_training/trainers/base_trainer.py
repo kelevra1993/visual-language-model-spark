@@ -10,6 +10,7 @@ builds them through the task registry.
 
 import json
 import math
+import sys
 import cv2
 import numpy as np
 import torch
@@ -270,7 +271,7 @@ class BaseTrainer(ABC):
         # without having created the run folder
         if self.diagnosis_modes["view_input_images"]:
             self.view_input_batches()
-            exit()
+            sys.exit()
 
         # Analysis of the training data against the model printed before the training (the anchor recall of the
         # detection tasks), its files written to the run folder at every launch and sent to MLflow with the
@@ -997,12 +998,14 @@ class BaseTrainer(ABC):
         self.iterations_per_epoch = math.ceil(self.number_samples_per_split["train_data_folder"] / self.batch_size)
         if self.DROPS_LAST_TRAINING_BATCH:
             self.iterations_per_epoch = self.number_samples_per_split["train_data_folder"] // self.batch_size
+        # The length of the run and the iterations at which it saves and evaluates its weights
         print_color(color="blue", output=f"- Iterations Per Epoch    : {self.iterations_per_epoch}")
         print_color(color="blue", output=f"- Batch Size              : {self.batch_size}")
         print_color(color="blue", output=f"- Total Iterations        : {self.training_iterations}")
         print_color(color="blue", output=f"- Save And Evaluate Every : {self.weight_saving_iterations} iterations")
         print_color(color="blue", output=f"- Save Only Every         : {self.intermediate_weight_saving_iterations} "
                                          f"iterations")
+        # The optimization settings: learning rate, optimizer, schedule, gradient clipping and weight moving average
         print_color(color="blue", output=f"- Learning Rate           : {self.learning_rate}")
         print_color(color="blue", output=f"- Optimizer               : {self.optimization_configuration['optimizer']} "
                                          f"(weight decay {self.optimization_configuration['weight_decay']})")

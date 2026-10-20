@@ -6,6 +6,8 @@ error images settings of the classification-like and detection tasks, the loss w
 random views of the self-supervised task and of the view losses of the image classifier).
 """
 
+import math
+
 from typing import Any, Dict, List
 
 from vision_training.configuration_processing.configuration_values import (BACKBONE_FEATURE_MAP_NORMALIZATIONS,
@@ -43,24 +45,33 @@ MAXIMUM_ROTATION_DEGREES = 180.0
 # direction of the blur since its direction setting weights either end of the line
 MAXIMUM_MOTION_BLUR_DEGREES = 180.0
 
-# Largest value added to or removed from the solarized pixels of the random views, in RGB images in [0, 1]
+# Bound of the value added to or removed from the solarized pixels of the random views, in RGB images in [0, 1], which
+# kornia requires the additions to stay strictly within
 MAXIMUM_SOLARIZE_ADDITION = 0.5
 
+# Smallest side, in pixels, of the random resized crops of the views: kornia solves a singular system to resize a crop
+# one pixel wide or high, and rounds the drawn sides to whole pixels
+MINIMUM_CROP_SIDE = 2
+
 # Ranges [low, high] of the random views verified by check_number_range, under '<view augmentation>.<key>': the value
-# both bounds must be above, whether they may equal it, and the value they must not exceed. The gamma is positive, the
-# haze share and airlight intensity, the gain of the linear illumination, the plasma shade quantity and roughness and
-# the solarization threshold lie in [0, 1], the plasma shade intensity in [-1, 0] (darkening the image), the motion
-# blur direction in [-1, 1] (-1 and 1 weighting one end of the blur line only), and the erased rectangles cover a
-# fraction (0, 1] of the image with a positive aspect ratio
-VIEW_TRANSFORMATION_RANGES = [("gamma.gamma", 0.0, False, float("inf")), ("haze.strength", 0.0, True, 1.0),
-                              ("haze.airlight", 0.0, True, 1.0), ("linear_illumination.gain", 0.0, True, 1.0),
-                              ("plasma_shadow.shade_intensity", -1.0, True, 0.0),
-                              ("plasma_shadow.shade_quantity", 0.0, True, 1.0),
-                              ("plasma_shadow.roughness", 0.0, True, 1.0), ("motion_blur.direction", -1.0, True, 1.0),
-                              ("solarize.threshold", 0.0, True, 1.0),
-                              ("solarize.addition", -MAXIMUM_SOLARIZE_ADDITION, True, MAXIMUM_SOLARIZE_ADDITION),
-                              ("random_erasing.scale", 0.0, False, 1.0),
-                              ("random_erasing.aspect_ratio", 0.0, False, float("inf"))]
+# both bounds must be above, whether they may equal it, the value they must not exceed and whether they may equal it.
+# The gamma is positive, the haze share and airlight intensity, the gain of the linear illumination, the plasma shade
+# quantity and roughness and the solarization threshold lie in [0, 1], the plasma shade intensity in [-1, 0]
+# (darkening the image), the motion blur direction in [-1, 1] (-1 and 1 weighting one end of the blur line only), the
+# solarization addition strictly within (-0.5, 0.5), and the erased rectangles cover a fraction (0, 1] of the image
+# with a positive aspect ratio
+VIEW_TRANSFORMATION_RANGES = [("gamma.gamma", 0.0, False, float("inf"), True),
+                              ("haze.strength", 0.0, True, 1.0, True), ("haze.airlight", 0.0, True, 1.0, True),
+                              ("linear_illumination.gain", 0.0, True, 1.0, True),
+                              ("plasma_shadow.shade_intensity", -1.0, True, 0.0, True),
+                              ("plasma_shadow.shade_quantity", 0.0, True, 1.0, True),
+                              ("plasma_shadow.roughness", 0.0, True, 1.0, True),
+                              ("motion_blur.direction", -1.0, True, 1.0, True),
+                              ("solarize.threshold", 0.0, True, 1.0, True),
+                              ("solarize.addition", -MAXIMUM_SOLARIZE_ADDITION, False, MAXIMUM_SOLARIZE_ADDITION,
+                               False),
+                              ("random_erasing.scale", 0.0, False, 1.0, True),
+                              ("random_erasing.aspect_ratio", 0.0, False, float("inf"), True)]
 
 # Name of the component of every section whose 'pretrained' settings initialise it with the one of another run, used
 # in the messages
@@ -123,7 +134,8 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any], val
                                       allow_zero=True)
 
     # The optimizer requires a strictly positive learning rate
-    learning_rate = get_configuration_value(configuration=configuration, key_path="ExperimentConfiguration.learning_rate")
+    learning_rate = get_configuration_value(configuration=configuration,
+                                            key_path="ExperimentConfiguration.learning_rate")
     if isinstance(learning_rate, bool) or not isinstance(learning_rate, (int, float)) or learning_rate <= 0:
         errors.append(f"'ExperimentConfiguration.learning_rate' must be > 0, got {learning_rate!r}.")
 
@@ -368,7 +380,8 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
         errors.append(f"'{key_prefix}.freeze' must be False when '{key_prefix}.experiment_folder' is null: only a "
                       f"transferred {component_name} can be frozen.")
 
-    learning_rate_multiplier = get_configuration_value(configuration=model_configuration,
+    # Factor of the learning rate of the component, strictly positive
+    learning_rate_multiplier =get_configuration_value(configuration=model_configuration,
                                                        key_path=f"{key_prefix}.learning_rate_multiplier")
     if isinstance(learning_rate_multiplier, bool) or not isinstance(learning_rate_multiplier, (int, float)) or \
             learning_rate_multiplier <= 0:
@@ -391,10 +404,14 @@ def check_pretrained_configuration(model_configuration: Dict[str, Any], section_
     normalization_errors = check_boolean_flags(configuration=model_configuration,
                                                key_paths=["Backbone.pretrained.freeze_normalization_parameters"])
     errors += normalization_errors
+
+    # Settings the fixed normalization depends on: the flag itself and the normalization of the backbone
     freeze_normalization = get_configuration_value(configuration=model_configuration,
                                                    key_path="Backbone.pretrained.freeze_normalization_parameters")
     feature_map_normalization = get_configuration_value(
         configuration=model_configuration, key_path="Backbone.normalization.feature_map_normalization")
+
+    # Only a transferred backbone that still learns and has normalization layers can keep them fixed
     if not normalization_errors and freeze_normalization:
         if experiment_folder is None:
             errors.append("'Backbone.pretrained.freeze_normalization_parameters' must be False when "
@@ -519,28 +536,63 @@ def check_loss_weights_configuration(model_configuration: Dict[str, Any], loss_n
 
 
 def check_number_range(value: Any, key_path: str, minimum_value: float, maximum_value: float,
-                       minimum_included: bool = False) -> List[str]:
+                       minimum_included: bool = False, maximum_included: bool = True) -> List[str]:
     """
     Verifies that a [minimum, maximum] range of the random views (crop scale, aspect ratio, blur sigma, haze strength,
     solarization threshold...) is a list of two numbers in increasing order, above the minimum value (strictly unless
-    the minimum is included) and at most the maximum value.
+    the minimum is included) and below the maximum value (strictly unless the maximum is included).
 
     Args:
         value (Any): The range read from the configuration.
         key_path (str): The dotted key path of the range, used in the error message.
         minimum_value (float): The value both bounds must be above.
-        maximum_value (float): The value both bounds must not exceed.
+        maximum_value (float): The value both bounds must be below.
         minimum_included (bool): Whether the bounds may equal the minimum value. Defaults to False.
+        maximum_included (bool): Whether the bounds may equal the maximum value. Defaults to True.
 
     Returns:
         List[str]: A single error description if the range is invalid, otherwise an empty list.
     """
     lower_comparison = "<=" if minimum_included else "<"
+    upper_comparison = "<=" if maximum_included else "<"
     if not isinstance(value, list) or len(value) != 2 or not all(is_number(value=bound) for bound in value) or \
             not (minimum_value <= value[0] if minimum_included else minimum_value < value[0]) or \
-            not value[0] <= value[1] <= maximum_value:
+            not value[0] <= value[1] or \
+            not (value[1] <= maximum_value if maximum_included else value[1] < maximum_value):
         return [f"'{key_path}' must be a list of two numbers [low, high] with {minimum_value:g} {lower_comparison} low "
-                f"<= high <= {maximum_value:g}, got {value!r}."]
+                f"<= high {upper_comparison} {maximum_value:g}, got {value!r}."]
+    return []
+
+
+def check_crop_sides(scale: List[float], aspect_ratio: List[float], image_size: int, key_prefix: str) -> List[str]:
+    """
+    Verifies that every crop the random resized crop of the views can draw keeps sides of at least MINIMUM_CROP_SIDE
+    pixels at the network input size, so that the first views of a training do not stop on the singular system kornia
+    solves to resize a crop one pixel wide or high. kornia draws a crop of an area within scale of the image and of a
+    width / height ratio within aspect_ratio, of width sqrt(area x ratio) and height sqrt(area / ratio) rounded to
+    whole pixels, and falls back to a centre crop of ratio aspect_ratio[0] spanning the image when ten draws give no
+    crop inside it. Called by check_view_augmentation_configuration once both ranges are valid.
+
+    Args:
+        scale (List[float]): The valid range of the area of the crop, as a fraction of the image area.
+        aspect_ratio (List[float]): The valid range of the width / height ratio of the crop.
+        image_size (int): The side of the square network input, 'Data.image_settings.size'.
+        key_prefix (str): The dotted key path of the checked view section, e.g. "Data.view_augmentation".
+
+    Returns:
+        List[str]: A single error description if a crop can be too thin, otherwise an empty list.
+    """
+    # Thinnest drawn crop, of the smallest area and the most extreme ratios, and the side of the centre crop fallback
+    smallest_area = scale[0] * image_size ** 2
+    smallest_drawn_side = min(math.sqrt(smallest_area * aspect_ratio[0]), math.sqrt(smallest_area / aspect_ratio[1]))
+    fallback_side = image_size * min(aspect_ratio[0], 1.0 / aspect_ratio[0])
+    smallest_side = min(smallest_drawn_side, fallback_side)
+
+    # A side rounded up to the minimum is kept, the rounding taking half a pixel at most
+    if smallest_side < MINIMUM_CROP_SIDE - 0.5:
+        return [f"'{key_prefix}.random_resized_crop' must give crops of at least {MINIMUM_CROP_SIDE} pixels on each "
+                f"side at 'Data.image_settings.size' ({image_size}), got sides down to {smallest_side:.1f} pixel with "
+                f"scale {scale} and aspect_ratio {aspect_ratio}: kornia cannot resize a crop one pixel wide or high."]
     return []
 
 
@@ -563,17 +615,23 @@ def check_view_augmentation_configuration(model_configuration: Dict[str, Any], k
         List[str]: The description of every inconsistency found.
     """
     errors = []
+    image_size = get_configuration_value(configuration=model_configuration, key_path="Data.image_settings.size")
 
     # Area of the crop as a fraction of the image, and aspect ratio of the crop
-    errors += check_number_range(value=get_configuration_value(configuration=model_configuration,
-                                                               key_path=f"{key_prefix}.random_resized_crop.scale"),
-                                 key_path=f"{key_prefix}.random_resized_crop.scale", minimum_value=0.0,
-                                 maximum_value=1.0)
-    errors += check_number_range(value=get_configuration_value(
-                                     configuration=model_configuration,
-                                     key_path=f"{key_prefix}.random_resized_crop.aspect_ratio"),
-                                 key_path=f"{key_prefix}.random_resized_crop.aspect_ratio", minimum_value=0.0,
-                                 maximum_value=float("inf"))
+    scale = get_configuration_value(configuration=model_configuration,
+                                    key_path=f"{key_prefix}.random_resized_crop.scale")
+    aspect_ratio = get_configuration_value(configuration=model_configuration,
+                                           key_path=f"{key_prefix}.random_resized_crop.aspect_ratio")
+    crop_errors = check_number_range(value=scale, key_path=f"{key_prefix}.random_resized_crop.scale",
+                                     minimum_value=0.0, maximum_value=1.0)
+    crop_errors += check_number_range(value=aspect_ratio, key_path=f"{key_prefix}.random_resized_crop.aspect_ratio",
+                                      minimum_value=0.0, maximum_value=float("inf"))
+    errors += crop_errors
+
+    # Sides of the thinnest crop at the network input size, once both ranges and the size are valid
+    if not crop_errors and is_number(value=image_size) and image_size > 0:
+        errors += check_crop_sides(scale=scale, aspect_ratio=aspect_ratio, image_size=image_size,
+                                   key_prefix=key_prefix)
 
     # Probability of every transformation applied to a part of the views, the same for both views or one per view
     for transformation_name in VIEW_TRANSFORMATIONS_WITH_PROBABILITY:
@@ -599,7 +657,6 @@ def check_view_augmentation_configuration(model_configuration: Dict[str, Any], k
     # Jigsaw grid, [rows, columns] of pieces dividing the side of the network input, with at least two pieces since
     # kornia otherwise keeps drawing a permutation that differs from the identity forever
     grid = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.jigsaw.grid")
-    image_size = get_configuration_value(configuration=model_configuration, key_path="Data.image_settings.size")
     if not isinstance(grid, list) or len(grid) != 2 or \
             any(isinstance(count, bool) or not isinstance(count, int) or count < 1 for count in grid) or \
             grid[0] * grid[1] < 2 or (is_number(value=image_size) and any(image_size % count != 0 for count in grid)):
@@ -622,6 +679,11 @@ def check_view_augmentation_configuration(model_configuration: Dict[str, Any], k
                                           key_path=f"{key_prefix}.gaussian_blur.kernel_size")
     if isinstance(kernel_size, bool) or not isinstance(kernel_size, int) or kernel_size < 3 or kernel_size % 2 == 0:
         errors.append(f"'{key_prefix}.gaussian_blur.kernel_size' must be an odd integer >= 3, got {kernel_size!r}.")
+    elif is_number(value=image_size) and kernel_size // 2 >= image_size:
+        # The reflection padding of half the kernel must be shorter than the side of the views
+        errors.append(f"'{key_prefix}.gaussian_blur.kernel_size' ({kernel_size}) must be below twice "
+                      f"'Data.image_settings.size' ({image_size}): the blur pads the views by half its kernel on every "
+                      f"side by reflection, which needs more pixels than the side of the views.")
     errors += check_number_range(value=get_configuration_value(configuration=model_configuration,
                                                                key_path=f"{key_prefix}.gaussian_blur.sigma"),
                                  key_path=f"{key_prefix}.gaussian_blur.sigma", minimum_value=0.0,
@@ -650,10 +712,10 @@ def check_view_augmentation_configuration(model_configuration: Dict[str, Any], k
 
     # Ranges of the gamma, the haze, the linear illumination, the plasma shadow, the motion blur direction, the
     # solarization and the random erasing
-    for range_key, minimum_value, minimum_included, maximum_value in VIEW_TRANSFORMATION_RANGES:
+    for range_key, minimum_value, minimum_included, maximum_value, maximum_included in VIEW_TRANSFORMATION_RANGES:
         key_path = f"{key_prefix}.{range_key}"
         errors += check_number_range(value=get_configuration_value(configuration=model_configuration,
                                                                    key_path=key_path),
                                      key_path=key_path, minimum_value=minimum_value, maximum_value=maximum_value,
-                                     minimum_included=minimum_included)
+                                     minimum_included=minimum_included, maximum_included=maximum_included)
     return errors

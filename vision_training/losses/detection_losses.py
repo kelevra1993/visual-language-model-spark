@@ -43,8 +43,7 @@ def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tenso
 
     # Compute region proposal regression targets
     region_proposal_regression_targets = turn_boxes_to_transformation_targets(
-        ground_truth_boxes=region_proposal_anchor_targets,
-        predicted_boxes=aggregated_proposals_dictionary["anchors"])
+        ground_truth_boxes=region_proposal_anchor_targets, predicted_boxes=aggregated_proposals_dictionary["anchors"])
 
     # Get training samples for region proposal network
     sampled_positive_mask, sampled_negative_mask = sample_positive_and_negative_training_targets(
@@ -59,8 +58,7 @@ def compute_region_proposal_losses(ground_truth_bounding_boxes: List[torch.Tenso
 
     region_proposal_classification_loss = torch.nn.functional.binary_cross_entropy_with_logits(
         input=aggregated_proposals_dictionary["classification_scores"][sampled_mask],
-        target=region_proposal_anchor_labels[sampled_mask],
-        reduction="mean")
+        target=region_proposal_anchor_labels[sampled_mask], reduction="mean")
 
     # Compute the localization loss: Smooth L1 Loss (Huber Loss)
     # We only compute regression loss on the positively sampled anchors, as background anchors have no target.
@@ -84,17 +82,19 @@ def compute_detection_losses(aggregated_detections_dictionary: Dict[str, Optiona
     Computes the final Detection Head classification and localisation losses of the two-stage detector.
 
     Args:
-        aggregated_detections_dictionary (Dict[str, Optional[torch.Tensor]]): The aggregated predictions
-                                                                             and targets from all detection heads.
+        aggregated_detections_dictionary (Dict[str, Optional[torch.Tensor]]): The aggregated predictions and targets
+            from all detection heads.
             - "classification_scores" (torch.Tensor): Shape [total_proposals, number_classes]
             - "box_regressions" (torch.Tensor): Shape [total_proposals, number_classes, 4]
             - "sliced_proposals" (torch.Tensor): Shape [total_proposals, 5]
             - "sliced_labels" (torch.Tensor): Shape [total_proposals]
             - "sliced_regression_targets" (torch.Tensor): Shape [total_proposals, 4]
-        localisation_loss_beta (float): The beta of the smooth L1 localisation loss ('Detector.localisation_loss_beta').
+        localisation_loss_beta (float): The beta of the smooth L1 localisation loss
+            ('Detector.localisation_loss_beta').
 
     Returns:
-        Tuple[torch.Tensor, torch.Tensor]: The classification loss and the bounding box regression loss (scalar tensors).
+        Tuple[torch.Tensor, torch.Tensor]: The classification loss and the bounding box regression loss (scalar
+            tensors).
     """
     # Compute the Classification Loss (Cross Entropy)
     # This evaluates all sampled proposals (both foreground and background).
@@ -114,7 +114,6 @@ def compute_detection_losses(aggregated_detections_dictionary: Dict[str, Optiona
     detection_localisation_loss = torch.nn.functional.smooth_l1_loss(
         input=aggregated_detections_dictionary["box_regressions"][sampled_positive_indices, foreground_classes],
         target=aggregated_detections_dictionary["sliced_regression_targets"][sampled_positive_indices],
-        beta=localisation_loss_beta,
-        reduction="sum") / max(1, sampled_positive_indices.numel())
+        beta=localisation_loss_beta, reduction="sum") / max(1, sampled_positive_indices.numel())
 
     return detection_classification_loss, detection_localisation_loss

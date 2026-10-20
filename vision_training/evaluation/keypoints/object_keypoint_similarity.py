@@ -314,6 +314,7 @@ def summarise_keypoint_accuracy(objects: Dict[str, torch.Tensor], sigma_table: t
                            "mean_object_keypoint_similarity": compute_mean_or_none(
                                values=accuracy["similarities"][class_objects & measured_objects]),
                            "mean_error_pixels": compute_mean_or_none(values=distances[class_objects][class_errors])})
+        # The same measures for every keypoint of the class, from its column of the objects of the class
         for keypoint_position, keypoint_name in enumerate(definition["keypoints"]):
             keypoint_labelled = class_labelled[:, keypoint_position]
             keypoint_rows.append({

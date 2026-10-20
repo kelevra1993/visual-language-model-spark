@@ -2,8 +2,8 @@
 Reporting of the evaluation results of a checkpoint, for every task: the block of the report printed in the console and
 appended to the Results.txt file of the run (the same layout, see report_formatting.py), the scalars and images written
 to the Test TensorBoard writer (the sample images at every evaluation), the extra files printed as links, the per-class
-outputs only with the per-class report, and the per-class metrics file saved at every evaluation. Called by the base trainer after every evaluation and by the
-trainers saving their per-class metrics.
+outputs only with the per-class report, and the per-class metrics file saved at every evaluation. Called by the base
+trainer after every evaluation and by the trainers saving their per-class metrics.
 """
 
 import csv
@@ -54,10 +54,10 @@ def report_evaluation_results(results: EvaluationResults, iteration: int, test_w
     """
     Reports the evaluation of a saved checkpoint on the test split, for every task: the global scalars and the sample
     images are written to the Test TensorBoard writer to follow them over the training, with the scalars and images of
-    every class when the per-class report is on, then the block of the checkpoint (header with the iteration, the evaluated samples and the
-    time, global metrics, notes and tables) is appended to the Results.txt file of the run and printed with the same
-    layout, the per-class tables only with the per-class report, and the extra files saved by the task are printed as
-    links.
+    every class when the per-class report is on, then the block of the checkpoint (header with the iteration, the
+    evaluated samples and the time, global metrics, notes and tables) is appended to the Results.txt file of the run
+    and printed with the same layout, the per-class tables only with the per-class report, and the extra files saved
+    by the task are printed as links.
 
     Args:
         results (EvaluationResults): The results of the evaluation, computed by the task.

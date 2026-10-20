@@ -367,12 +367,14 @@ def check_clustering_settings(clustering_algorithm: str, clustering_parameters: 
             errors.append(f"cluster_selection_method must be one of {HDBSCAN_SELECTION_METHODS}, got "
                           f"{clustering_parameters['cluster_selection_method']!r}.")
     elif clustering_algorithm == "dbscan" and not missing_parameters:
+        # DBSCAN needs a positive neighbourhood radius, a boolean being refused even though it is an integer
         if isinstance(clustering_parameters["eps"], bool) or \
                 not isinstance(clustering_parameters["eps"], (int, float)) or clustering_parameters["eps"] <= 0:
             errors.append(f"eps must be a positive number, got {clustering_parameters['eps']!r}.")
         if not is_positive_integer(value=clustering_parameters["min_samples"]):
             errors.append(f"min_samples must be a positive integer, got {clustering_parameters['min_samples']!r}.")
     elif clustering_algorithm == "kmeans" and not missing_parameters:
+        # Every k-means parameter is a positive integer
         for name in CLUSTERING_PARAMETERS["kmeans"]:
             if not is_positive_integer(value=clustering_parameters[name]):
                 errors.append(f"{name} must be a positive integer, got {clustering_parameters[name]!r}.")
@@ -931,6 +933,7 @@ def run_extraction_pass(embedder: Dict[str, Any], source: Dict[str, Any], source
             if rows.tolist() != list(range(batch_start, batch_end)):
                 raise ValueError(f"The loader gave the rows {rows.tolist()} instead of the rows {batch_start} to "
                                  f"{batch_end - 1}.")
+            # Run the model once for every missing output and write the finite values to the rows of the batch
             outputs = compute_batch_outputs(model=embedder["model"],
                                             images=batch["images"].to(device=embedder["device"], dtype=torch.float32),
                                             block_requests=missing_block_requests,
@@ -942,6 +945,7 @@ def run_extraction_pass(embedder: Dict[str, Any], source: Dict[str, Any], source
                     raise ValueError(f"The model gives values that are not finite for {output_key} on the images "
                                      f"{batch_start} to {batch_end - 1} of {source['name']}.")
                 matrices[output_key][batch_start:batch_end] = values
+            # Flush the matrices to disk before recording the batch as finished, so that a resumed pass trusts it
             for output_key in missing_outputs:
                 matrices[output_key].flush()
                 record["outputs"][output_key]["finished_images"] = max(

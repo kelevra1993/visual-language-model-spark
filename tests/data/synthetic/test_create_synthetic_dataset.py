@@ -277,7 +277,8 @@ def test_hollow_shapes_are_closed_rings_inside_their_filled_shape(shape_name: st
             mask=hollow_mask, center_x=64, center_y=64, size=size, random_generator=random_generator, upright=upright)
 
         # The walls lie inside the filled shape and cover less of it
-        assert np.all(filled_mask[hollow_mask > 0] > 0) and np.count_nonzero(hollow_mask) < np.count_nonzero(filled_mask)
+        assert np.all(filled_mask[hollow_mask > 0] > 0)
+        assert np.count_nonzero(hollow_mask) < np.count_nonzero(filled_mask)
 
         # The walls form one group closed around a single hole
         number_ring_groups, _ = cv2.connectedComponents(image=(hollow_mask > 0).astype(np.uint8), connectivity=8)

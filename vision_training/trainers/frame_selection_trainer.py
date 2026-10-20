@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY, EvaluationResults, EvaluationTable
-from vision_training.data.split_description import count_split_sequences
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix)
 from vision_training.evaluation.classification.confusion_matrix import (save_confusion_matrix_image,
@@ -130,23 +129,6 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         """
         return {"total_loss": "Total Loss", "classification_loss": "Classification Loss",
                 "selection_loss": "Selection Loss", "accuracy": "Accuracy"}
-
-    def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
-        """
-        Counts the sequences, frames and kept sequences of a frame selection split from its labels.json manifest,
-        every kept sequence being given whole.
-
-        Args:
-            split_data_folder (Path): The root folder of the split.
-
-        Returns:
-            Tuple[int, str]: The number of kept sequences (the samples of an epoch) and their description.
-        """
-        number_sequences, number_frames, number_kept_sequences = count_split_sequences(
-            split_data_folder=split_data_folder, sequence_settings=self.sequence_settings)
-        return number_kept_sequences, (f"{number_sequences} sequences, {number_frames} frames, "
-                                       f"{number_kept_sequences} sequences of at most "
-                                       f"{self.sequence_settings['maximum_sequence_length']} frames")
 
     def get_sequence_predictions(self, batch: Dict[str, Any], predictions: Dict[str, Any],
                                  sample_index: int) -> Tuple[np.ndarray, np.ndarray]:
@@ -454,6 +436,8 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
                                                   number_frames=len(sequence_labels),
                                                   unselected_class_index=self.unselected_class_index)
                 for sequence_selection, sequence_labels in zip(selections[decoding], frame_labels)]
+
+            # Selection metrics of the decoding, reported under its name
             selection_metrics[decoding] = compute_selection_metrics(
                 selected_frames=selections[decoding], frame_labels=frame_labels,
                 decoded_frame_labels=decoded_frame_labels[decoding], wanted_class_indices=self.wanted_class_indices,
@@ -468,6 +452,8 @@ class FrameSelectionTrainer(SequenceLabellingTrainer):
         # Ranks of the true frames before decoding, then the metrics of the most probable class of every frame
         ranking_metrics = compute_ranking_metrics(probabilities=probabilities, frame_labels=frame_labels,
                                                   wanted_class_indices=self.wanted_class_indices, top_k=self.top_k)
+
+        # Metrics of the most probable class of every frame of the test split
         all_labels = torch.from_numpy(np.concatenate(frame_labels))
         frame_metrics = compute_metrics_from_confusion_matrix(confusion_matrix=compute_confusion_matrix(
             predicted_labels=torch.from_numpy(np.concatenate(probabilities)).argmax(dim=1), labels=all_labels,

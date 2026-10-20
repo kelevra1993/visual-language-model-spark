@@ -396,6 +396,7 @@ class KeypointDetector(TaskModel):
             stage_shapes = self.high_resolution_network.trace_branch_shapes(input_tensor=stem_features)
         self.train(mode=was_training)
 
+        # The settings of the network and the stem output, then the shape of every branch of every stage
         network_configuration = self.high_resolution_configuration
         summary_text = (f"[bold]Base Width[/bold]          : {network_configuration['base_width']}\n"
                         f"[bold]Modules Per Stage[/bold]   : {network_configuration['modules_per_stage']}\n"
@@ -405,6 +406,7 @@ class KeypointDetector(TaskModel):
             summary_text += f"[bold] - Stage {stage_index}[/bold] ({len(branch_shapes)} branches)\n"
             for branch_index, branch_shape in enumerate(branch_shapes):
                 summary_text += f"   - Branch 1/{HEATMAP_STRIDE * 2 ** branch_index:<3}: {branch_shape}\n"
+        # The settings of the heads and of their targets, printed in a panel below the branches
         higher_resolution_size = heatmap_size * BRANCH_SCALE_FACTOR
         higher_resolution_line = (f"{higher_resolution_size}x{higher_resolution_size} (stride "
                                   f"{HEATMAP_STRIDE // BRANCH_SCALE_FACTOR})" if self.higher_resolution else "Off")

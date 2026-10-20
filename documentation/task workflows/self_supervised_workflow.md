@@ -45,8 +45,10 @@ main()
 │               ├── no sequence settings (check_image_task_sequence_settings)
 │               ├── views:      random_resized_crop scale in (0, 1] and aspect ratio, probabilities in [0, 1] (or one
 │               │               per view), rotation degrees, perspective distortion, jigsaw grid, colour jitter
-│               │               strengths, hue shift, blur kernels, sigma and angle, noise, and the ranges of the
-│               │               gamma, haze, illumination, plasma shadow, blur direction, solarization and erasing
+│               │               strengths, hue shift, blur kernels (the Gaussian one below twice the input size),
+│               │               sigma and angle, noise, crops of at least 2 pixels on each side, and the ranges of the
+│               │               gamma, haze, illumination, plasma shadow, blur direction, solarization (addition
+│               │               strictly within (-0.5, 0.5)) and erasing
 │               ├── grouped:    Data.grouped_batches: activated flag, block_key a string, batch_key null or a string,
 │               │               images_per_block >= 2, dividing the batch size when the section is on
 │               ├── head:       check_projection_head_configuration(): pooling, layers, normalization, method
@@ -205,7 +207,7 @@ label_dictionary: {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8}
 ### Step 1.5 — `check_configuration()`
 The common checks, then `check_self_supervised_configuration()` (in `vision_training/configuration_processing/self_supervised_checks.py`):
 - **data**: `multi_class` label mode, classes 0 to K-1, `Data.data_augmentation` off, since the random views replace it, and no sequence settings (`check_image_task_sequence_settings()`).
-- **views**: the `random_resized_crop` scale is a list `[low, high]` with `0 < low <= high <= 1` and a valid aspect ratio, every probability is in [0, 1] or a list of two of them `[first view, second view]`, the rotation `maximum_degrees` is at most `MAXIMUM_ROTATION_DEGREES`, the perspective `distortion_scale` is in [0, 1], the jigsaw `grid` holds at least two pieces and divides the input size, the colour jitter strengths are not negative and the hue shift at most `MAXIMUM_HUE_SHIFT`, the Gaussian blur kernel and sigma are valid, the motion blur kernel sizes are odd and at least 3 and its `maximum_angle` at most `MAXIMUM_MOTION_BLUR_DEGREES`, the noise `standard_deviation` is not negative, and the ranges of `VIEW_TRANSFORMATION_RANGES` (gamma, haze, linear illumination, plasma shadow, motion blur direction, solarization, random erasing) are within the bounds kornia accepts.
+- **views**: the `random_resized_crop` scale is a list `[low, high]` with `0 < low <= high <= 1` and a valid aspect ratio, which together give crops of at least `MINIMUM_CROP_SIDE` (2) pixels on each side at the input size (`check_crop_sides`), every probability is in [0, 1] or a list of two of them `[first view, second view]`, the rotation `maximum_degrees` is at most `MAXIMUM_ROTATION_DEGREES`, the perspective `distortion_scale` is in [0, 1], the jigsaw `grid` holds at least two pieces and divides the input size, the colour jitter strengths are not negative and the hue shift at most `MAXIMUM_HUE_SHIFT`, the Gaussian blur kernel is odd and below twice the input size, its sigma range valid, the motion blur kernel sizes are odd and at least 3 and its `maximum_angle` at most `MAXIMUM_MOTION_BLUR_DEGREES`, the noise `standard_deviation` is not negative, and the ranges of `VIEW_TRANSFORMATION_RANGES` (gamma, haze, linear illumination, plasma shadow, motion blur direction, solarization, random erasing) are within the bounds kornia accepts, the solarization addition strictly within (-0.5, 0.5).
 - **grouped batches**: `check_grouped_batches_configuration()`: `Data.grouped_batches.activated` is True or False, `block_key` a non-empty string, `batch_key` null or a non-empty string, and `images_per_block` an integer of at least 2 that divides the batch size when the section is on.
 - **head**: `check_projection_head_configuration()`: pooling, layers, normalization, the method (`simclr` or `barlow_twins`) and its settings.
 - **batch and evaluation**: a batch size of at least 2, and `number_neighbours` above 0.
@@ -289,7 +291,7 @@ ViewAugmenter.view_transformations[0]: Sequential(
   (10): RandomLinearIllumination(gain=(0.05, 0.25), sign=(-1.0, 1.0), p=0.3, ...)
   (11): RandomPlasmaShadow(roughness=(0.1, 0.7), shade_intensity=(-0.5, 0.0), shade_quantity=(0.0, 0.5), p=0.2, ...)
   (12): RandomGaussianBlur(sigma=(0.1, 2.0), p=1.0, ..., kernel_size=(9, 9), separable=True, border_type=reflect)
-  (13): RandomMotionBlur(kernel_size=(3, 9), angle=180.0, direction=(-1.0, 1.0), p=0.1, ..., border_type=constant, resample=nearest)
+  (13): RandomMotionBlur(kernel_size=(3, 11), angle=180.0, direction=(-1.0, 1.0), p=0.1, ..., border_type=constant, resample=nearest)
   (14): RandomSolarize(thresholds=(0.5, 0.5), additions=(0.0, 0.0), p=0.0, ...)
   (15): RandomGaussianNoise(p=0.2, ..., mean=0.0, std=0.03)
   (16): RandomErasing(scale=(0.02, 0.15), resize_to=(0.3, 3.3), value=0.0, p=0.25, ...)
@@ -618,7 +620,7 @@ labels  [8] torch.int64              -> [8] torch.int64
 Returns the batch unchanged: the views are drawn in `forward_pass()` (Step 3.12), so that the validation batches, which skip `augment_batch()`, get random views too.
 
 ### Step 3.12 — `forward_pass()` → `ViewAugmenter.create_views()`
-`forward_pass()` draws two random views of every image, then calls `SelfSupervisedModel.forward(input_tensor=first_views, second_view_tensor=second_views)`. Every transformation is drawn independently for each image and each view, so the two views of an image differ in crop, geometry, colours, lighting, blur, noise and erasing, the first view being nearly always blurred and only the second one solarized.
+`forward_pass()` draws two random views of every image, then calls `SelfSupervisedModel.forward(input_tensor=first_views, second_view_tensor=second_views)`. Every transformation is drawn independently for each image and each view (but the kernel size of the motion blur, drawn once per batch, the configured upper bound being passed to kornia raised by 2 so that it is drawn too), so the two views of an image differ in crop, geometry, colours, lighting, blur, noise and erasing, the first view being nearly always blurred and only the second one solarized.
 
 **Example: the views of the first batch and the transformations drawn for two images**
 ```text

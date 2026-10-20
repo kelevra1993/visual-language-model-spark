@@ -19,7 +19,7 @@ from vision_training.models.components.squeeze_and_excitation import SqueezeAndE
 class ChannelLayerNormalizer(nn.Module):
     """
     Applies Layer Normalization over the channel dimension for 4D image tensors.
-    
+
     This class is required because PyTorch's native LayerNorm expects the 
     normalized dimension to be the last dimension. This wrapper permutes 
     the tensor so normalization is applied across the channel dimension correctly.
@@ -27,8 +27,9 @@ class ChannelLayerNormalizer(nn.Module):
 
     def __init__(self, channels: int, device: torch.device, dtype: torch.dtype) -> None:
         """
-        Initializes the ChannelLayerNormalizer.
-        
+        Builds the layer normalization over the channels of a feature map, the "layer" choice of
+        'feature_map_normalization' used by every convolution block of the backbones, decoders and heads.
+
         Args:
             channels (int): The number of channels in the input tensor.
             device (torch.device): The device on which to allocate the parameters.
@@ -82,33 +83,6 @@ class ConvolutionBlock(nn.Module):
     plain configuration keep identical state_dict keys. The pre-activation layers are stored as normalization,
     activation, convolution and dropout, the normalization covering the input channels of the layer, so that their
     checkpoints cannot be loaded by the original placement.
-
-    Args:
-        input_channels (int): The number of channels in the input feature map.
-        output_channels (int): The number of channels produced by the convolution.
-        bias (bool): Whether to include a learnable bias term in the convolutional layers.
-        number_layers (int): The total number of convolutional layers to stack within this block.
-        kernel_size (int): The size of the square convolving kernel.
-        stride (int): The stride of the convolution.
-        padding (int): The padding added to both sides of the input.
-        feature_map_normalization (str): Strategy for normalization ("batch", "layer", "sequence" (batch normalization
-            with the statistics of each sequence, backbone of the sequence models only) or "none").
-        batch_normalization_momentum (float): The momentum of the running mean and variance of the batch and sequence
-            normalization layers (PyTorch convention: each training batch moves them by this fraction, 0.1 following
-            about the last 10 batches and 0.01 about the last 100), unused by the other normalizations.
-        activation (bool): Whether to apply a ReLU activation function after each convolution.
-        dropout_rate (float): The probability of an element to be zeroed in the dropout layer.
-        add_pooling (bool): Whether to apply a max pooling layer at the very end of the block.
-        device (torch.device): The device on which to allocate the parameters.
-        dtype (torch.dtype): The desired data type of returned parameters.
-        squeeze_and_excite (bool): Whether to recalibrate channels with Squeeze-and-Excitation after every layer,
-            before the residual shortcut is added.
-        residual (bool): Whether to add residual shortcuts every two convolution layers, before the activation of the
-            layer closing each pair.
-        pre_activation (bool): Whether the residual shortcuts use the pre-activation placement (normalization and
-            activation before every convolution, nothing after the addition, the block output normalized and
-            activated). Requires the residual shortcuts and the activation.
-        inception (bool): Whether to replace every plain convolution with an Inception module.
     """
 
     def __init__(self, input_channels: int, output_channels: int, bias: bool, number_layers: int,
@@ -116,7 +90,37 @@ class ConvolutionBlock(nn.Module):
                  batch_normalization_momentum: float, activation: bool, dropout_rate: float, add_pooling: bool,
                  device: torch.device, dtype: torch.dtype, squeeze_and_excite: bool, residual: bool,
                  pre_activation: bool, inception: bool) -> None:
+        """
+        Builds the layers of the block, the unit stacked by the backbones, the decoders and the heads of every
+        task, from the settings of their configuration section, after checking the requested normalization.
 
+        Args:
+            input_channels (int): The number of channels in the input feature map.
+            output_channels (int): The number of channels produced by the convolution.
+            bias (bool): Whether to include a learnable bias term in the convolutional layers.
+            number_layers (int): The total number of convolutional layers to stack within this block.
+            kernel_size (int): The size of the square convolving kernel.
+            stride (int): The stride of the convolution.
+            padding (int): The padding added to both sides of the input.
+            feature_map_normalization (str): Strategy for normalization ("batch", "layer", "sequence" (batch
+                normalization with the statistics of each sequence, backbone of the sequence models only) or "none").
+            batch_normalization_momentum (float): The momentum of the running mean and variance of the batch and
+                sequence normalization layers (PyTorch convention: each training batch moves them by this fraction, 0.1
+                following about the last 10 batches and 0.01 about the last 100), unused by the other normalizations.
+            activation (bool): Whether to apply a ReLU activation function after each convolution.
+            dropout_rate (float): The probability of an element to be zeroed in the dropout layer.
+            add_pooling (bool): Whether to apply a max pooling layer at the very end of the block.
+            device (torch.device): The device on which to allocate the parameters.
+            dtype (torch.dtype): The desired data type of returned parameters.
+            squeeze_and_excite (bool): Whether to recalibrate channels with Squeeze-and-Excitation after every layer,
+                before the residual shortcut is added.
+            residual (bool): Whether to add residual shortcuts every two convolution layers, before the activation of
+                the layer closing each pair.
+            pre_activation (bool): Whether the residual shortcuts use the pre-activation placement (normalization and
+                activation before every convolution, nothing after the addition, the block output normalized and
+                activated). Requires the residual shortcuts and the activation.
+            inception (bool): Whether to replace every plain convolution with an Inception module.
+        """
         super(ConvolutionBlock, self).__init__()
 
         # Store the structural parameters for summaries and receptive field computation
@@ -289,12 +293,14 @@ class ConvolutionBlock(nn.Module):
         optional pooling layer (see compute_layers and apply_pooling).
 
         Args:
-            input_tensor (torch.Tensor): The input feature map to be processed by the network of shape [Batch, Channels, Height, Width].
+            input_tensor (torch.Tensor): The input feature map to be processed by the network of shape [Batch,
+                Channels, Height, Width].
             sequence_grouping (Optional[SequenceGrouping]): The sequence of every frame of the batch, read by the
                 sequence normalization layers only, or None (the whole batch as one sequence for these layers).
 
         Returns:
-            torch.Tensor: The resulting feature map after passing through the convolutional block of shape [Batch, Out_Channels, Out_Height, Out_Width].
+            torch.Tensor: The resulting feature map after passing through the convolutional block of shape [Batch,
+                Out_Channels, Out_Height, Out_Width].
         """
         return self.apply_pooling(input_tensor=self.compute_layers(input_tensor=input_tensor,
                                                                    sequence_grouping=sequence_grouping))

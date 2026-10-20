@@ -994,8 +994,7 @@ def widen_second_backbone_block(configuration: Dict[str, Any]) -> None:
                               "this run."),
     (widen_second_backbone_block, "The backbone blocks have [8, 16, 16, 32] output channels in the source run and "
                                   "[8, 32, 16, 32] in this run")])
-def test_decoders_of_other_architectures_are_rejected(tmp_path: Path,
-                                                      modify_function: Callable[[Dict[str, Any]], None],
+def test_decoders_of_other_architectures_are_rejected(tmp_path: Path, modify_function: Callable[[Dict[str, Any]], None],
                                                       expected_message: str) -> None:
     """
     Verifies that a segmentation decoder is not transferred to a decoder of other levels, of another upsampling, or

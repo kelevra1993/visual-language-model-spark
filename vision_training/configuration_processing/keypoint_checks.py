@@ -218,11 +218,13 @@ def check_keypoint_evaluation_configuration(experiment_configuration: Dict[str, 
     if not isinstance(keypoint_sigmas, dict):
         return errors + [f"'ExperimentConfiguration.evaluation.keypoint_sigmas' must map category names to "
                          f"{{keypoint name: sigma}} mappings ({{}} for none), got {keypoint_sigmas!r}."]
+    # The keypoint names of every category, a merged class "a+b" giving its keypoints to each of its categories
     keypoint_names = {}
     if "keypoint_categories" in model_configuration["Data"]:
         for definition in model_configuration["Data"]["keypoint_categories"].values():
             for category_name in definition["name"].split("+"):
                 keypoint_names[category_name] = definition["keypoints"]
+    # Every category given must be learnt, with positive sigmas for keypoints it has
     for category_name, category_sigmas in keypoint_sigmas.items():
         key_path = f"ExperimentConfiguration.evaluation.keypoint_sigmas.{category_name}"
         if keypoint_names and category_name not in keypoint_names:

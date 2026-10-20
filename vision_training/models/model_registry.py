@@ -1,8 +1,8 @@
 """
 Registry of the model class of every task, keyed by 'ExperimentConfiguration.task' (object detection, instance
 segmentation, classification, semantic segmentation, sequence classification, labelling and comparison, frame
-selection, self-supervised learning, keypoint detection). Read by the trainers and by model_loading.py to rebuild a run from its saved
-configuration.
+selection, self-supervised learning, keypoint detection). Read by the trainers and by model_loading.py to rebuild a
+run from its saved configuration.
 """
 
 import torch

@@ -211,6 +211,7 @@ def test_detector_gives_candidates_without_ground_truth(higher_resolution: bool,
             hidden_convolution = prediction_head[0].block[0]
             assert hidden_convolution.kernel_size == (3, 3) and hidden_convolution.out_channels == hidden_width
             assert prediction_head[-1].in_channels == hidden_width
+    # The inference outputs of two random images: heatmaps and tags at a quarter of the image, without any loss
     with torch.no_grad():
         outputs = model(input_tensor=torch.rand(size=(2, 3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0)
     expected_keys = {"heatmaps", "tags", "candidate_positions", "candidate_scores", "candidate_tags"}
@@ -218,12 +219,14 @@ def test_detector_gives_candidates_without_ground_truth(higher_resolution: bool,
     assert outputs["heatmaps"].shape == outputs["tags"].shape == (2, 7, HEATMAP_SIZE, HEATMAP_SIZE)
     if higher_resolution:
         assert outputs["higher_resolution_heatmaps"].shape == (2, 7, 2 * HEATMAP_SIZE, 2 * HEATMAP_SIZE)
+    # The first heatmaps hold the prior probability of 0.01 and the first tags stay near 0
     assert torch.allclose(input=outputs["heatmaps"], other=torch.full_like(input=outputs["heatmaps"], fill_value=0.01),
                           atol=1e-3)
     assert float(outputs["tags"].abs().max()) < 0.1
     if higher_resolution:
         assert torch.allclose(input=outputs["higher_resolution_heatmaps"], atol=1e-3,
                               other=torch.full_like(input=outputs["higher_resolution_heatmaps"], fill_value=0.01))
+    # The 5 candidates of every channel lie inside the image
     assert outputs["candidate_positions"].shape == (2, 7, 5, 2)
     assert outputs["candidate_scores"].shape == outputs["candidate_tags"].shape == (2, 7, 5)
     assert bool(((outputs["candidate_positions"] > 0.0) & (outputs["candidate_positions"] < IMAGE_SIZE)).all())

@@ -39,8 +39,8 @@ def test_pre_pooling_outputs_of_every_block(last_max_pooling: bool, expected_fin
 
     # The input of block b + 1 is the pooled pre-pooling output of block b
     pooled_first_block = torch.nn.functional.max_pool2d(input=pre_pooling_outputs["1"], kernel_size=2, stride=2)
-    assert torch.equal(input=pooled_first_block,
-                       other=backbone.convolution_blocks[0](input_tensor=backbone.input_normalizer(input_tensor=images)))
+    second_block_input = backbone.convolution_blocks[0](input_tensor=backbone.input_normalizer(input_tensor=images))
+    assert torch.equal(input=pooled_first_block, other=second_block_input)
 
 
 def test_default_outputs_are_the_detection_blocks() -> None:

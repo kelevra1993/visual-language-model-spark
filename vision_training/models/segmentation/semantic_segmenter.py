@@ -197,6 +197,7 @@ class SemanticSegmenter(TaskModel):
         number_bottleneck_poolings = number_blocks if self.backbone.convolution_blocks[-1].add_pooling else \
             number_blocks - 1
         bottleneck_size = input_image_size // 2 ** number_bottleneck_poolings
+        # The decoder settings and the bottleneck, then the skip connection and output of every level
         summary_text = (f"[bold]Upsampling[/bold]    : {self.segmentation_decoder.upsampling}\n"
                         f"[bold]Normalization[/bold] : {self.segmentation_decoder.feature_map_normalization}\n"
                         f"[bold]Bottleneck[/bold]    : {bottleneck_size}x{bottleneck_size}x"
@@ -210,6 +211,7 @@ class SemanticSegmenter(TaskModel):
                              f"{convolution_block.output_channels} channels\n"
                              f"   - Output          : {level_size}x{level_size}x"
                              f"{convolution_block.output_channels}\n\n")
+        # The head gives the class logits at the input resolution
         summary_text += (f"[bold]Head Dropout Rate[/bold] : {self.decoder_configuration['dropout_rate']}\n"
                          f"[bold]Class Logits[/bold]      : {input_image_size}x{input_image_size}x"
                          f"{self.number_classes}")
