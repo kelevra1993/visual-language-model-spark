@@ -53,12 +53,17 @@ main()
 │   │   Data.tiling, and the evaluation settings save_predicted_masks, original_resolution and boundary_tolerance.
 │   │
 │   └── BaseTrainer.__init__()
-│       │   Same order as for every task: device, run name, settings, augmenter, paths, loaders, sample images, model,
-│       │   pretrained components, optimizer, metric tracker, printouts, restoration.
+│       │   Same order as for every task: device, run name, settings, augmenter, classes of a resumed run, previous
+│       │   training moved aside, paths, loaders and their check, sample images, model, pretrained components,
+│       │   optimizer, metric tracker, printouts, restoration.
 │       │
-│       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter() / setup_training_paths()
+│       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
 │       │       The run name ends with the decoder (upsampling, normalization, D<layers>x<channels> of every level) and
 │       │       the classes (MC<foreground classes>), plus TL<scale> when the run trains on tiles.
+│       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
+│       │       A resumed run keeps the classes of its label_dictionary.json, a training from scratch renames the
+│       │       run folder of a previous training of the same settings v<n>_<run name>, then the run folder is
+│       │       created with the configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
 │       │   │   Builds the three loaders, keeps class_names (background first) and class_colours (one BGR colour per
 │       │   │   class, for the overlays and the sample images).
@@ -73,6 +78,7 @@ main()
 │       │       │       builds the [256] table turning every mask value into a class index (0 background, 255 ignored).
 │       │       └── build_native_loader()
 │       │               Same torch DataLoader as the classification.
+│       ├── check_loaders_give_batches()          refuses a split whose loader gives no batch
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       Counting the classes of every test mask would be slow, so every test image gets an empty class list,
 │       │       and the sample images are evenly spread over the test split.
@@ -107,14 +113,13 @@ main()
 └── trainer.run_training_loop()  [STAGE 3]
     └── run_training_iterations()
         ├── setup_tensorboard_writers() / initialize_training_loop_state() / start_experiment_tracking()
-        ├── for each training_iteration:
-        │   ├── save_model() + run_test_evaluation() when due                    -> [STAGE 4]
-        │   ├── get_next_batch()
+        ├── for each training_iteration, from start_iteration to number_iterations (the total of the run):
+        │   ├── get_next_batch()                    a batch failing to load is dropped and the next one taken
         │   │   └── SegmentationDataset.__getitem__()
-        │   │           Reads the image and its mask, resizes the image (bilinear) and the mask (nearest, padding
-        │   │           at 255) with the same letterbox, or cuts a tile with tiling, then converts the mask values to
-        │   │           class indices through the lookup table. Returns images [B, 3, H, W] uint8, masks [B, H, W] int64,
-        │   │           sample_identifiers [B].
+        │   │           Reads the image (read_image()) and its mask, resizes the image (bilinear) and the mask
+        │   │           (nearest, padding at 255) with the same letterbox, or cuts a tile with tiling, then converts the
+        │   │           mask values to class indices through the lookup table. Returns images [B, 3, H, W] uint8, masks
+        │   │           [B, H, W] int64, sample_identifiers [B].
         │   ├── set_training_mode()
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch()                 images to float32, masks to int64 on the device
@@ -133,9 +138,11 @@ main()
         │   │   │       compute_segmentation_metrics(): the pixel accuracy and the mean IoU of the batch.
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
         │   ├── training_loss.backward() / step_optimizer()
+        │   ├── save_model() on the multiples of weight_saving_iterations and intermediate_weight_saving_iterations
         │   ├── validation pass every validation_iteration_ratio iterations
-        │   └── average_trackers() + log_interval_metrics() + print_interval_summary()
-        ├── final save_model() + run_test_evaluation()
+        │   ├── average_trackers() + log_interval_metrics() + print_interval_summary() + report_dropped_batches()
+        │   └── run_test_evaluation() on the multiples of weight_saving_iterations, last    -> [STAGE 4]
+        ├── save_model() of the steps taken since the last checkpoint, if any (nothing evaluated after the loop)
         └── close the writers, finish_experiment_tracking()
 
 run_test_evaluation(iteration)  [STAGE 4]
@@ -292,11 +299,14 @@ activated True   probability 0.4
 ```
 
 ### Step 2.6 — `setup_training_paths()`
+As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`), then the run folder is created with the copy of the configuration and `label_dictionary.json`, the class index of every category, background included.
+
 **Example: the run folder after this step**
 ```text
 SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9/
 ├── Tensorboard/
 ├── Weights/
+├── label_dictionary.json          the class index of every category of the run
 └── training_configuration.yaml    4,289 bytes
 ```
 With `class_weighting: "balanced"`, the run folder also receives `class_pixel_counts.json` at Step 2.18.
@@ -527,16 +537,16 @@ We Generate A New Model That Will Be Trained From Scratch.            -> start_i
 > The examples below are real outputs from a run on CPU of `configuration_synthetic_shapes.yaml` shortened to 64 pixel images, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the predicted masks saved and the MLflow tracking on. Its run name is `SEG_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9`.
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
-The loop of every task (see `classification_workflow.md`, Step 3.1).
+The loop of every task (see `classification_workflow.md`, Step 3.1): from `start_iteration` to `number_iterations`, the total of the run, each iteration takes its training step, then saves its checkpoint, runs its validation batch and prints its summary on the iterations set for each, and evaluates its checkpoint last.
 
-**Example: what happens at each iteration of the run**
+**Example: what happens at each iteration of the run**, in the order of the rows within an iteration, after its training step
 
 | Iteration | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | after the loop |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Checkpoint saved | | | ✔ | | | ✔ | | | ✔ | | | | ✔ (iteration 12) |
-| Test evaluation | | | | | | ✔ | | | | | | | ✔ (iteration 12) |
+| Checkpoint saved | | | ✔ | | | ✔ | | | ✔ | | | ✔ | nothing: iteration 12 is saved |
 | Validation batch | | | | | | | | | | ✔ | | | |
 | Console summary | | | | ✔ | | | | ✔ | | | | ✔ | |
+| Test evaluation | | | | | | ✔ | | | | | | ✔ | nothing |
 
 ### Step 3.2 — `setup_tensorboard_writers()`
 **Example: the curves after the run**
@@ -561,22 +571,22 @@ MLflow Run Created In The Experiment 'semantic_segmentation' : 6a88ad94d2d2440f9
 ```
 
 ### Step 3.5 — `save_model()` → `save_checkpoint()`
-The checkpoint stores the source runs of the two transferable components of the segmentation.
+Saved right after the training step of iterations 3, 6, 9 and 12, so that the checkpoint of iteration N holds N steps (see `classification_workflow.md`, Step 3.6). The checkpoint stores the label dictionary of the run and the source runs of the two transferable components of the segmentation.
 
 **Example: the checkpoints and the keys of the last one**
 ```text
 Weights/Iteration_3/model_000003.pt   9,588,813 bytes      Weights/Iteration_6/model_000006.pt   9,588,813 bytes
 Weights/Iteration_9/model_000009.pt   9,588,813 bytes      Weights/Iteration_12/model_000012.pt  9,588,813 bytes
-['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'mlflow_run_id',
- 'pretrained_backbone', 'pretrained_segmentation_decoder']
+['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'label_dictionary',
+ 'mlflow_run_id', 'pretrained_backbone', 'pretrained_segmentation_decoder']
 model_state: 175 tensors, the first 'class_weights', then 'backbone.convolution_blocks.0. ...'
 ```
 
 ### Step 3.6 — `run_test_evaluation()`
-At iterations 6 and 12 (the final checkpoint), see Stage 4.
+At iterations 6 and 12, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), see Stage 4.
 
 ### Step 3.7 — `get_next_batch()` → `SegmentationDataset.__getitem__()`
-`__getitem__()` reads the image (BGR, `uint8`) and its mask, and checks that they have the same size. Without tiling, `preprocess_image()` resizes the image with the bilinear interpolation and the mask with the nearest interpolation (so that every pixel keeps a category), with the same letterbox: the padding of the image is black and the padding of the mask is 255, the unlabelled value. With tiling, `cut_tile()` scales both and cuts the tile of the split. The lookup table of Step 2.9 then turns the mask values into class indices.
+`get_next_batch()` drops a batch whose loading fails and takes the next one (see `classification_workflow.md`, Step 3.8). `__getitem__()` reads the image with `read_image()` (BGR, `uint8`, a `ValueError` naming a file that cannot be read) and its mask, and checks that they have the same size. Without tiling, `preprocess_image()` resizes the image with the bilinear interpolation and the mask with the nearest interpolation (so that every pixel keeps a category), with the same letterbox: the padding of the image is black and the padding of the mask is 255, the unlabelled value. With tiling, `cut_tile()` scales both and cuts the tile of the split. The lookup table of Step 2.9 then turns the mask values into class indices.
 
 **Example: the first batch of the run**
 ```text
@@ -730,10 +740,13 @@ Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ```
 
 ### Step 3.21 — end of the loop
+The checkpoint of iteration 12 is already saved and evaluated inside its iteration, so the loop saves nothing more and evaluates nothing (see `classification_workflow.md`, Step 3.25).
+
 **Example output**
 ```text
-Model successfully saved at iteration 12. Exiting Training.
-Iteration 12 · 200 Test Images · 2026-10-09 10:04 ───────────────      <- the evaluation of the final checkpoint
+Iteration 12 · 200 Test Images · 2026-10-09 10:04 ───────────────      <- the evaluation of iteration 12, last in the iteration
+...
+Last Checkpoint Saved At Iteration 12. Exiting Training.
 ```
 
 
@@ -741,7 +754,7 @@ Iteration 12 · 200 Test Images · 2026-10-09 10:04 ─────────�
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 images of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8` and `save_predicted_masks: True`.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 images of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8` and `save_predicted_masks: True`. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1). The `evaluation_context()` of the segmentation changes nothing.
@@ -912,13 +925,13 @@ The checkpoint of iteration 6 predicted `square` almost everywhere (pixel accura
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 images of the test split (its `labels.json` reduced, its `data/` and `masks/` folders linked).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 images of the test split (its `labels.json` reduced, its `data/` and `masks/` folders linked).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` to the segmentation run, and `test_data_folder` to another labelled split (holding `labels.json`, `data/` and `masks/`) if needed.
 
 ### Step 5.2 — trainer construction
-The script loads `training_configuration.yaml` of the run, points it to the output folder, the reduced split and the batch size, and builds a `SegmentationTrainer`. With `class_weighting: "balanced"` it would count the pixels of the training masks again in the output folder, since the counts are cached in the run folder of the trainer.
+The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder, the reduced split and the batch size, and builds a `SegmentationTrainer`. With `class_weighting: "balanced"` it would count the pixels of the training masks again in the output folder, since the counts are cached in the run folder of the trainer.
 
 ### Step 5.3 — `get_checkpoint_iterations()`
 **Example output**

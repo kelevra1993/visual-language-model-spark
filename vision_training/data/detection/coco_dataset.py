@@ -11,7 +11,6 @@ data/loaders.py.
 import random
 import json
 import os
-import cv2
 import numpy as np
 import torch
 
@@ -20,7 +19,7 @@ from torch.utils.data import Dataset
 
 from vision_training.data.detection.coco_masks import (build_instance_mask, compute_mask_bounding_boxes,
                                                        compute_segmentation_bounding_box)
-from vision_training.data.preprocessing import preprocess_boxes, preprocess_image_and_boxes
+from vision_training.data.preprocessing import preprocess_boxes, preprocess_image_and_boxes, read_image
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 
@@ -206,6 +205,17 @@ class CocoDetectionDataset(Dataset):
         self.keypoint_counts = {category['id']: len(category['keypoints']) if 'keypoints' in category else 0
                                 for category in self.data['categories']}
 
+        # Categories of the manifest the label mapping does not name, whose objects are left out like the background
+        # ones: announced, since a mapping keyed by other identifiers (e.g. names) would otherwise drop every object
+        if label_mode == "multi_class":
+            unmapped_categories = [f"{category['name']} ({category['id']})" for category in self.data['categories']
+                                   if category['id'] not in label_dictionary and
+                                   str(category['id']) not in label_dictionary]
+            if unmapped_categories:
+                print_color(color="yellow",
+                            output=f"Categories Absent From The Label Mapping, Their Objects Left Out : "
+                                   f"{', '.join(unmapped_categories)} ({format_path_link(path=labels_file)})")
+
         # Map image identifiers to their respective bounding box and label collections for rapid retrieval
         self.image_to_annotations = {}
         for annotation in self.annotations:
@@ -246,7 +256,7 @@ class CocoDetectionDataset(Dataset):
         image_path = os.path.join(self.data_directory, image_information['file_name'])
 
         # Load the physical image directly from the filesystem into a dense matrix format
-        image = cv2.imread(filename=image_path)
+        image = read_image(image_path=image_path)
 
         if image_identifier in self.image_to_annotations:
             image_annotations = self.image_to_annotations[image_identifier]

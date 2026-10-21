@@ -65,14 +65,16 @@ def check_classification_data_configuration(model_configuration: Dict[str, Any])
     return errors
 
 
-def check_classification_head_configuration(model_configuration: Dict[str, Any]) -> List[str]:
+def check_classification_head_configuration(experiment_configuration: Dict[str, Any],
+                                            model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the 'ClassificationHead' section shared by the classification-like tasks: the global pooling, the hidden
-    fully connected layers, their normalization and its batch momentum, the dropout, the output mode, the label
-    smoothing, the class weighting of the loss, and the 'pretrained' settings initialising the head with the one of
-    another run.
+    fully connected layers, their normalization and its batch momentum (a batch normalization needing batches of at
+    least two samples), the dropout, the output mode, the label smoothing, the class weighting of the loss, and the
+    'pretrained' settings initialising the head with the one of another run.
 
     Args:
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration, giving the batch size.
         model_configuration (Dict[str, Any]): The processed model sections.
 
     Returns:
@@ -110,6 +112,15 @@ def check_classification_head_configuration(model_configuration: Dict[str, Any])
                       "'ClassificationHead.fully_connected' is []: the head has no hidden layer to normalize.")
     errors += check_batch_normalization_momentum(configuration=model_configuration,
                                                  key_path="ClassificationHead.batch_normalization_momentum")
+
+    # A batch normalization of the hidden layers trains on the statistics of a batch, which one sample cannot give
+    batch_size = get_configuration_value(configuration={"ExperimentConfiguration": experiment_configuration},
+                                         key_path="ExperimentConfiguration.batch_size")
+    if fully_connected_normalization == "batch" and isinstance(batch_size, int) and not isinstance(batch_size, bool) \
+            and batch_size == 1:
+        errors.append("'ExperimentConfiguration.batch_size' must be at least 2 with "
+                      "'ClassificationHead.fully_connected_normalization' 'batch': the batch normalization of the "
+                      "hidden layers needs the statistics of several samples.")
 
     # Dropout and label smoothing rates, strictly below 1 so that some signal always remains
     for key_name in ["dropout_rate", "label_smoothing"]:
@@ -299,7 +310,8 @@ def check_classification_configuration(experiment_configuration: Dict[str, Any],
     errors = []
     errors += check_classification_data_configuration(model_configuration=model_configuration)
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
-    errors += check_classification_head_configuration(model_configuration=model_configuration)
+    errors += check_classification_head_configuration(experiment_configuration=experiment_configuration,
+                                                      model_configuration=model_configuration)
     errors += check_classification_decorrelation_configuration(model_configuration=model_configuration)
     errors += check_classification_view_losses_configuration(experiment_configuration=experiment_configuration,
                                                              model_configuration=model_configuration)

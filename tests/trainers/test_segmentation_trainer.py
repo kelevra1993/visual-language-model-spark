@@ -207,7 +207,7 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights, the class
     # pixel counts being read back from the run folder
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2,
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=7,
         section_settings=section_settings, evaluation_settings=evaluation_settings))
     assert resumed_trainer.experiment_folder == trainer.experiment_folder
     assert resumed_trainer.start_iteration == 6
@@ -220,7 +220,7 @@ def test_segmentation_training_saves_evaluates_and_resumes(tmp_path: Path, capsy
     # Third run with other loss settings: the loss settings give no token, so the run resumes in the same folder from
     # iteration 7, its class weights following the new configuration instead of the balanced ones of the checkpoint
     changed_loss_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=1,
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=8,
         section_settings={"SegmentationLoss": {"class_weighting": "none", "dice_weight": 0.0}},
         evaluation_settings=evaluation_settings))
     assert changed_loss_trainer.experiment_folder == trainer.experiment_folder

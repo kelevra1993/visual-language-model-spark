@@ -52,12 +52,17 @@ main()
 │   │   Reads the score threshold of the evaluation and the one of the sample images.
 │   │
 │   └── BaseTrainer.__init__()
-│       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter() / setup_training_paths()
+│       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
+│       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
+│       │       The classes of a resumed run kept from its label_dictionary.json, a previous training of the same
+│       │       settings moved to v<n>_<run name> when the run starts from scratch, then the run folder with the
+│       │       configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
 │       │   │   Reads the test labels.json for class_names, class_colours and the file name of every test image.
 │       │   └── get_detection_dataloaders() -> get_detection_dataloader() for every split
 │       │       ├── DALI activated: dali_pipeline() + DALIGenericIterator + DALIDataloaderWrapper (GPU decoding)
 │       │       └── otherwise:      CocoDetectionDataset() + build_native_loader(collate_function)
+│       ├── check_loaders_give_batches()                                  refuses a split whose loader gives no batch
 │       ├── get_test_sample_classes() + choose_sample_identifiers()      empty class lists: evenly spread images
 │       ├── build_model()
 │       │   └── TwoStageDetector.__init__()
@@ -77,10 +82,10 @@ main()
 │
 └── trainer.run_training_loop()  [STAGE 3]
     └── run_training_iterations()
-        ├── for each training_iteration:
-        │   ├── save_model() + run_test_evaluation() when due                    -> [STAGE 4]
+        ├── for each training_iteration, from start_iteration to number_iterations (the total of the run):
         │   ├── get_next_batch() -> CocoDetectionDataset.__getitem__() + collate_function()
-        │   │       images [B, 3, H, W] uint8, bounding_boxes and labels as lists (a different number per image)
+        │   │       images [B, 3, H, W] uint8, bounding_boxes and labels as lists (a different number per image); a
+        │   │       batch failing to load is dropped and the next one taken
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch() / augment_batch()   the geometric augmentations move the boxes
         │   │   ├── forward_pass() -> TwoStageDetector.forward(ground_truth_bounding_boxes=..., ground_truth_labels=...)
@@ -98,9 +103,12 @@ main()
         │   │   │   └── compute_detection_losses()                           cross entropy + smooth L1
         │   │   ├── compute_batch_metrics()   none: the four losses are the tracked metrics
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
-        │   ├── training_loss.backward() / step_optimizer() / validation pass
-        │   └── average_trackers() + log_interval_metrics() + print_interval_summary()
-        └── final save_model() + run_test_evaluation(), finish_experiment_tracking()
+        │   ├── training_loss.backward() / step_optimizer()
+        │   ├── save_model() on the multiples of weight_saving_iterations and intermediate_weight_saving_iterations
+        │   ├── validation pass
+        │   ├── average_trackers() + log_interval_metrics() + print_interval_summary() + report_dropped_batches()
+        │   └── run_test_evaluation() on the multiples of weight_saving_iterations, last    -> [STAGE 4]
+        └── save_model() of the steps taken since the last checkpoint, if any, finish_experiment_tracking()
 
 run_test_evaluation(iteration)  [STAGE 4]
 ├── evaluation_context()                    the score threshold of the model lowered to evaluation.score_threshold
@@ -230,11 +238,11 @@ For Training We Will Be Using device: cpu
 ```
 
 ### Step 2.4 — `get_run_name()` → `build_run_name()`
-The input and backbone tokens are those of every image task. `build_detection_sections()` adds `L567` (the detection blocks), `A9.32-512` (9 anchors per position, scales from 32 to 512), `RBN-R2x64` (the region proposal heads: batch normalization, 2 layers of 64 filters), `DSE-DRES-DBN-D7.2x64.256.128` (the detection heads: squeeze-and-excitation, residual, batch normalization, RoIAlign of 7, 2 layers of 64 filters, fully connected 256 and 128) and `MC9` (9 foreground classes, `BIN` in binary mode). A setting that differs between the levels is written for every level, joined with `+`.
+The input and backbone tokens are those of every image task. `build_detection_sections()` adds `L567` (the detection blocks), `A9.32-512.598295` (9 anchors per position, scales from 32 to 512, then the first 6 characters of the SHA-256 of the scales and aspect ratios of every level, so that other ratios or middle scales start a new run), `RBN-R2x64` (the region proposal heads: batch normalization, 2 layers of 64 filters), `DSE-DRES-DBN-D7.2x64.256.128` (the detection heads: squeeze-and-excitation, residual, batch normalization, RoIAlign of 7, 2 layers of 64 filters, fully connected 256 and 128) and `MC9` (9 foreground classes, the categories merged into one class counting once, `BIN` in binary mode). A setting that differs between the levels is written for every level, joined with `+`.
 
 **Example output**
 ```text
-DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MC9
+DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MC9
 ```
 
 ### Step 2.5 — `DataAugmenter()`
@@ -247,11 +255,14 @@ activated True   probability 0.4
 ```
 
 ### Step 2.6 — `setup_training_paths()`
+As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`), then the run folder is created with the copy of the configuration and `label_dictionary.json`, the class index of every category, background included. The loaders built next are refused when one of them gives no batch (`check_loaders_give_batches()`).
+
 **Example: the run folder after this step**
 ```text
-DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MC9/
+DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MC9/
 ├── Tensorboard/
 ├── Weights/
+├── label_dictionary.json          the class index of every category of the run
 └── training_configuration.yaml    5,613 bytes
 ```
 
@@ -277,7 +288,7 @@ collate      <function collate_function>
 ```
 
 ### Step 2.9 — `CocoDetectionDataset.__init__()` (and `__getitem__()`)
-The dataset reads the manifest, shuffles its images once and groups the annotations by image. `__getitem__()` reads the image, keeps the boxes whose category has a class (an unmapped category gives the background and is dropped), turns the COCO `[x, y, width, height]` into `[x_min, y_min, x_max, y_max]`, and resizes the image and its boxes together (`preprocess_image_and_boxes()`, with a letterbox when `keep_ratio` and the image is not square).
+The dataset reads the manifest, shuffles its images once and groups the annotations by image. In `multi_class` mode it prints in yellow the manifest categories absent from the label mapping, `Categories Absent From The Label Mapping, Their Objects Left Out : <name> (<id>), ...`. `__getitem__()` reads the image with `read_image()` (OpenCV, BGR, `uint8`, a `ValueError` naming a file that cannot be read), keeps the boxes whose category has a class (an unmapped category gives the background and is dropped), turns the COCO `[x, y, width, height]` into `[x_min, y_min, x_max, y_max]`, and resizes the image and its boxes together (`preprocess_image_and_boxes()`, with a letterbox when `keep_ratio` and the image is not square).
 
 **Example: a manifest, the first image after shuffling, and the sample the loader gets from it**
 ```text
@@ -385,7 +396,7 @@ Adam, 1 parameter group, base_learning_rates [0.0002], weight decay 0.0
 ### Step 2.18 — `print_experiment_information()` (→ `describe_split()` → `count_split_images_and_annotations()`)
 **Example output**
 ```text
-- Run Name                : DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MC9
+- Run Name                : DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MC9
 ...
 - Train Data Folder       : file://<datasets>/synthetic_shapes/train (100 images, 322 annotations)
 - Validation Data Folder  : file://<datasets>/synthetic_shapes/validation (20 images, 78 annotations)
@@ -489,19 +500,19 @@ Block 5 (scales 32 to 128) gives a foreground anchor to every large object, whil
 
 ## Stage 3 — Training Loop
 
-> The examples below are real outputs from a run on CPU of the redirected `configuration_synthetic_shapes.yaml` shortened to 512 pixel images, batch size 2, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the MLflow tracking on. Its run name is `DET_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MC9`; with batches of 2 images, an epoch is 50 iterations. At 512 pixels the feature maps of the detection blocks are 16x16, 8x8 and 8x8, so the detector has 2304 + 576 + 576 = 3456 anchors.
+> The examples below are real outputs from a run on CPU of the redirected `configuration_synthetic_shapes.yaml` shortened to 512 pixel images, batch size 2, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the MLflow tracking on. Its run name is `DET_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MC9`; with batches of 2 images, an epoch is 50 iterations. At 512 pixels the feature maps of the detection blocks are 16x16, 8x8 and 8x8, so the detector has 2304 + 576 + 576 = 3456 anchors.
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
-The loop of every task (see `classification_workflow.md`, Step 3.1).
+The loop of every task (see `classification_workflow.md`, Step 3.1): from `start_iteration` to `number_iterations`, the total of the run, each iteration takes its training step, then saves its checkpoint, runs its validation batch and prints its summary on the iterations set for each, and evaluates its checkpoint last.
 
-**Example: what happens at each iteration of the run**
+**Example: what happens at each iteration of the run**, in the order of the rows within an iteration, after its training step
 
 | Iteration | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | after the loop |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Checkpoint saved | | | ✔ | | | ✔ | | | ✔ | | | | ✔ (iteration 12) |
-| Test evaluation | | | | | | ✔ | | | | | | | ✔ (iteration 12) |
+| Checkpoint saved | | | ✔ | | | ✔ | | | ✔ | | | ✔ | nothing: iteration 12 is saved |
 | Validation batch | | | | | | | | | | ✔ | | | |
 | Console summary | | | | ✔ | | | | ✔ | | | | ✔ | |
+| Test evaluation | | | | | | ✔ | | | | | | ✔ | nothing |
 
 ### Step 3.2 — `setup_tensorboard_writers()` / `initialize_training_loop_state()`
 **Example: the curves after the run**
@@ -520,22 +531,23 @@ MLflow Run Created In The Experiment 'object_detection' : d34603eb46cb459982f88c
 The MLflow run is created by a background thread. In this run it existed before the first checkpoint, so the four checkpoints hold its identifier; a checkpoint saved while the run is still being created holds `mlflow_run_id: None`. The configuration, `anchor_recall.csv` of Step 2.21 (folder `analysis`) and `data.json` are sent as soon as the run is open.
 
 ### Step 3.4 — `save_model()` → `save_checkpoint()`
-The backbone is the only transferable component of the detector, so the checkpoint has only `pretrained_backbone`.
+Saved right after the training step of iterations 3, 6, 9 and 12, so that the checkpoint of iteration N holds N steps (see `classification_workflow.md`, Step 3.6), with the label dictionary of the run. The backbone is the only transferable component of the detector, so the checkpoint has only `pretrained_backbone`.
 
 **Example: the checkpoints and the keys of the last one**
 ```text
 Weights/Iteration_3/model_000003.pt   67,443,616 bytes      Weights/Iteration_6/model_000006.pt   67,443,616 bytes
 Weights/Iteration_9/model_000009.pt   67,443,616 bytes      Weights/Iteration_12/model_000012.pt  67,443,616 bytes
-['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'mlflow_run_id', 'pretrained_backbone']
+['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'label_dictionary',
+ 'mlflow_run_id', 'pretrained_backbone']
 model_state: 363 tensors, the first 'backbone.convolution_blocks.0.squeeze_and_excitation_layers.0. ...'
 mlflow_run_id: 'd34603eb46cb459982f88c208dd1a275' in the four checkpoints
 ```
 
 ### Step 3.5 — `run_test_evaluation()`
-At iterations 6 and 12 (the final checkpoint), see Stage 4.
+At iterations 6 and 12, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), see Stage 4.
 
 ### Step 3.6 — `get_next_batch()` → `CocoDetectionDataset.__getitem__()` + `collate_function()`
-The images are stacked; the boxes and labels stay lists, one tensor per image.
+A batch whose loading fails (an image that `read_image()` cannot read, Step 2.9) is dropped and the next one taken (see `classification_workflow.md`, Step 3.8). The images are stacked; the boxes and labels stay lists, one tensor per image.
 
 **Example: the first batch of the run**
 ```text
@@ -739,10 +751,13 @@ Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ```
 
 ### Step 3.23 — end of the loop
+The checkpoint of iteration 12 is already saved and evaluated inside its iteration, so the loop saves nothing more and evaluates nothing (see `classification_workflow.md`, Step 3.25).
+
 **Example output**
 ```text
-Model successfully saved at iteration 12. Exiting Training.
-Iteration 12 · 20 Test Images · 2026-10-10 07:40 ───────────────      <- the evaluation of the final checkpoint
+Iteration 12 · 20 Test Images · 2026-10-10 07:40 ───────────────      <- the evaluation of iteration 12, last in the iteration
+...
+Last Checkpoint Saved At Iteration 12. Exiting Training.
 ```
 
 
@@ -750,7 +765,7 @@ Iteration 12 · 20 Test Images · 2026-10-10 07:40 ─────────�
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (20 images, 57 boxes), with `per_class_report: True`, `number_sample_images: 8`, `score_threshold: 0.05`, `target_precision: 0.99`, the error images off and the MLflow tracking on. Both checkpoints find no shape: at iteration 12 the 10 class probabilities of a proposal are all close to 0.1.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (20 images, 57 boxes), with `per_class_report: True`, `number_sample_images: 8`, `score_threshold: 0.05`, `target_precision: 0.99`, the error images off and the MLflow tracking on. Both checkpoints find no shape: at iteration 12 the 10 class probabilities of a proposal are all close to 0.1. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
 
 ### Step 4.1 — `run_test_evaluation()` → `evaluation_context()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1). The `evaluation_context()` of the detection lowers the score threshold of the model from the deployment one (`Detector.inference.score_threshold`, 0.5) to `evaluation.score_threshold` (0.05) during the evaluation, so that the precision-recall curves keep their low-confidence end, and restores it afterwards, even when the evaluation fails.
@@ -1047,12 +1062,14 @@ At the end of the 12-iteration run of Step 2.21, the 250 proposals of every imag
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 4` and, to keep it short, a test folder of the first 10 images of the test split (its `labels.json` reduced to these images and their annotations, its `data/` folder linked).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 4` and, to keep it short, a test folder of the first 10 images of the test split (its `labels.json` reduced to these images and their annotations, its `data/` folder linked).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5).
 
 ### Step 5.2 — trainer construction
+The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file (`classification_workflow.md`, Step 5.2).
+
 **Example: the split line of the launch information**
 ```text
 - Test Data Folder        : file:///.../test_reduced (10 images, 17 annotations)

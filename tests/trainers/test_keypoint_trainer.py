@@ -122,8 +122,8 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     (one row per class with its objects summing to the objects of the test images, its average precisions and its
     keypoint accuracy), keypoint_metrics.csv (one row per keypoint of every class) and a sample image of every test
     image, and write the three TensorBoard folders. A second run with the same settings resolves to the same run
-    folder, resumes from the last checkpoint with exactly its weights, and trains 2 more iterations. No training step
-    may fail silently.
+    folder, resumes from the last checkpoint with exactly its weights, and trains up to the total of 7 iterations.
+    No step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -207,7 +207,7 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2))
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=7))
     assert resumed_trainer.experiment_folder == trainer.experiment_folder
     assert resumed_trainer.start_iteration == 6
     saved_model_state = torch.load(f=weights_directory / "Iteration_5" / "model_000005.pt", map_location="cpu",

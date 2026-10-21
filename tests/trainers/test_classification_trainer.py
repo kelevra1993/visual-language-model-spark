@@ -179,9 +179,10 @@ def test_classification_training_saves_evaluates_and_resumes(tmp_path: Path, cap
     assert list(class_thresholds["classes"]) == trainer.class_names
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]
 
-    # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
+    # Second run with the same settings and a total of 7 iterations: same run folder, resumed from iteration 5 with
+    # exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings=head_settings,
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=7, head_settings=head_settings,
         evaluation_settings={}))
     assert resumed_trainer.experiment_folder == trainer.experiment_folder
     assert resumed_trainer.start_iteration == 6
@@ -352,7 +353,7 @@ def test_decorrelation_turned_on_when_a_run_resumes(tmp_path: Path, capsys: pyte
     trainer.run_training_loop()
     decorrelation_settings = {"decorrelation": {"activated": True, "weight": 0.01, "hidden_layer": 1}}
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4,
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=6,
         head_settings=decorrelation_settings, evaluation_settings={}))
     assert resumed_trainer.experiment_folder == trainer.experiment_folder and resumed_trainer.start_iteration == 3
     assert ("ClassificationHead.decorrelation.activated", False, True) in \
@@ -439,7 +440,7 @@ def test_view_losses_turned_on_resized_and_off_when_a_run_resumes(tmp_path: Path
     # The same run resumed with both view losses, whose projectors start from random weights
     view_losses_settings = build_view_losses_settings(barlow_twins_projector=[32, 32, 16], contrastive_activated=True)
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4,
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=6,
         head_settings=view_losses_settings, evaluation_settings={}))
     assert resumed_trainer.experiment_folder == trainer.experiment_folder and resumed_trainer.start_iteration == 3
     assert ("ClassificationHead.view_losses.barlow_twins.activated", False, True) in \
@@ -491,7 +492,7 @@ def test_view_losses_turned_on_resized_and_off_when_a_run_resumes(tmp_path: Path
 
     # Resumed with the same settings, the projectors restart from their saved weights and optimizer states
     restarted_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2,
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=8,
         head_settings=view_losses_settings, evaluation_settings={}))
     console_output = capsys.readouterr().out
     assert "It Starts From Random Weights" not in console_output and "Is No Longer Trained" not in console_output
@@ -504,7 +505,7 @@ def test_view_losses_turned_on_resized_and_off_when_a_run_resumes(tmp_path: Path
 
     # Resumed with a resized Barlow Twins projector and the contrastive loss off
     resized_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2,
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=8,
         head_settings=build_view_losses_settings(barlow_twins_projector=[32, 32, 24], contrastive_activated=False),
         evaluation_settings={}))
     console_output = capsys.readouterr().out
@@ -521,7 +522,7 @@ def test_view_losses_turned_on_resized_and_off_when_a_run_resumes(tmp_path: Path
 
     # Resumed with every view loss off, the run saves no auxiliary head
     final_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings={},
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=10, head_settings={},
         evaluation_settings={}))
     assert final_trainer.auxiliary_heads == {}
     assert "Barlow Twins Loss" not in final_trainer.tracked_metrics_mapping.values()

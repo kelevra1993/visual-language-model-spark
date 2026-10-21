@@ -302,12 +302,12 @@ class InstanceSegmentationTrainer(DetectionTrainer):
         resolution_name = "original image" if self.original_resolution else "network input"
         mask_summary = summarise_average_precisions(
             detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
-            number_classes=len(self.label_dictionary), class_names=self.class_names, overlap_type="masks",
+            number_classes=len(set(self.label_dictionary.values())), class_names=self.class_names, overlap_type="masks",
             title_prefix="Mask", name_prefix="Mask ", column_prefix="mask_", legend=MASK_TABLE_LEGEND,
             target_precision=self.target_precision, resolution_name=resolution_name)
         box_summary = summarise_average_precisions(
             detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
-            number_classes=len(self.label_dictionary), class_names=self.class_names, overlap_type="boxes",
+            number_classes=len(set(self.label_dictionary.values())), class_names=self.class_names, overlap_type="boxes",
             title_prefix="Box", legend=BOX_TABLE_LEGEND, resolution_name=resolution_name)
         proposal_recall = self.save_proposal_recall(accumulator=accumulator, iteration=iteration)
 

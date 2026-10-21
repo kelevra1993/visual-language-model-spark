@@ -2,10 +2,12 @@
 Tests of build_run_name of vision_training/configuration_processing/run_name.py on the reference configurations of every
 task: the reference run names are fixed, every changed setting (architecture, inputs, heads, temporal modules, fusions,
 segmentation decoders and losses, projection heads and self-supervised methods, high resolution networks, keypoint
-heads and their higher resolution branch, transfers, normalization, optimizer, weight decay) changes the run name with
-its token, and the training settings that can change between two resumptions (augmentation, view augmentation, batch
-size, learning rate, schedule, clipping, mixed precision, moving average of the weights, dropout rates, segmentation
-losses, heatmap and keypoint sigmas, tag loss weights and grouping settings) keep it.
+heads and their higher resolution branch, transfers, normalization, optimizer, weight decay, anchor aspect ratios
+through the hash of the anchors, the max pooling after the last block, categories merged into one class counted once)
+changes the run name with its token, and the training settings that can change between two resumptions
+(augmentation, view augmentation, batch size, learning rate, schedule, clipping, mixed precision, moving average of
+the weights, dropout rates, segmentation losses, heatmap and keypoint sigmas, tag loss weights and grouping settings)
+keep it.
 """
 
 import copy
@@ -22,8 +24,8 @@ EXAMPLE_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "c
                               "configuration_example.yaml")
 
 # Run name of the reference settings set by get_reference_configurations
-REFERENCE_RUN_NAME = ("DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_"
-                      "DSE-DRES-DBN-D7.2x64.256.128_BIN")
+REFERENCE_RUN_NAME = ("DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_"
+                      "RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_BIN")
 
 CLASSIFICATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                      "classification" / "configuration_synthetic_shapes.yaml")
@@ -181,6 +183,43 @@ def differ_heads_per_level(experiment_configuration: Dict[str, Any], model_confi
     detection_levels["5"]["detector"] = {"roi_align_pool_size": 14, "convolutions": [2, 64], "fully_connected": [512]}
 
 
+def change_anchor_aspect_ratios(experiment_configuration: Dict[str, Any],
+                                model_configuration: Dict[str, Any]) -> None:
+    """
+    Gives every level other anchor aspect ratios, as many as before, so that only the hash of the anchors changes.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    for detection_level in model_configuration["DetectionLevels"].values():
+        detection_level["anchors"]["aspect_ratios"] = [0.25, 1.0, 4.0]
+
+
+def add_last_max_pooling(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
+    """
+    Adds the max pooling after the last block of the backbone.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Backbone"]["last_max_pooling"] = True
+
+
+def merge_categories_into_one_class(experiment_configuration: Dict[str, Any],
+                                    model_configuration: Dict[str, Any]) -> None:
+    """
+    Uses a multi-class label mapping merging the categories 1 and 2 into one class, 2 foreground classes in all.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The experiment configuration, modified in place.
+        model_configuration (Dict[str, Any]): The model configuration, modified in place.
+    """
+    model_configuration["Data"]["label_mode"] = "multi_class"
+    model_configuration["Data"]["label_dictionary"] = {1: 1, 2: 1, 3: 2, "background": 0}
+
+
 def use_multi_class_labels(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any]) -> None:
     """
     Uses a multi-class label mapping of 4 foreground classes.
@@ -241,8 +280,11 @@ def test_reference_run_name() -> None:
     (change_feature_map_normalizations, REFERENCE_RUN_NAME.replace("-BN-B", "-LN-B").replace(
         "RBN", "RNN").replace("DBN", "DLN")),
     (widen_last_block, REFERENCE_RUN_NAME.replace("6x128.6x128", "6x128.6x256")),
-    (change_detection_levels, REFERENCE_RUN_NAME.replace("_L567_A9.32-512_", "_L67_A9.64-512_")),
-    (differ_heads_per_level, REFERENCE_RUN_NAME.replace("A9.32-512", "A12+9+9.16-512").replace(
+    (change_detection_levels, REFERENCE_RUN_NAME.replace("_L567_A9.32-512.598295_", "_L67_A9.64-512.169502_")),
+    (change_anchor_aspect_ratios, REFERENCE_RUN_NAME.replace("_A9.32-512.598295_", "_A9.32-512.e8c6de_")),
+    (add_last_max_pooling, REFERENCE_RUN_NAME.replace("6x128.6x128_L567", "6x128.6x128-LMP_L567")),
+    (merge_categories_into_one_class, REFERENCE_RUN_NAME.replace("_BIN", "_MC2")),
+    (differ_heads_per_level, REFERENCE_RUN_NAME.replace("A9.32-512.598295", "A12+9+9.16-512.464d0d").replace(
         "R2x64", "R2x64+2x64+3x128").replace("D7.2x64.256.128", "D14.2x64.512+7.2x64.256.128+7.2x64.256.128")),
     (use_multi_class_labels, REFERENCE_RUN_NAME.replace("_BIN", "_MC4"))])
 def test_changed_settings_change_run_name(modify_function: Callable[[Dict[str, Any], Dict[str, Any]], None],
@@ -1025,7 +1067,8 @@ def use_binary_segmentation_labels(experiment_configuration: Dict[str, Any],
     (None, SEGMENTATION_REFERENCE_RUN_NAME),
     (use_bilinear_upsampling_and_decoder_modules, SEGMENTATION_REFERENCE_RUN_NAME.replace("_UTC-DBN-",
                                                                                           "_UBL-DSE-DRES-DLN-")),
-    (add_last_block_decoder_level, SEGMENTATION_REFERENCE_RUN_NAME.replace("-D2x64.2x64.", "-D3x128.2x64.2x64.")),
+    (add_last_block_decoder_level, SEGMENTATION_REFERENCE_RUN_NAME.replace(
+        "-D2x64.2x64.", "-D3x128.2x64.2x64.").replace("2x64.2x128_", "2x64.2x128-LMP_")),
     (use_cross_entropy_only, SEGMENTATION_REFERENCE_RUN_NAME),
     (use_dice_only, SEGMENTATION_REFERENCE_RUN_NAME),
     (use_weighted_focal_cross_entropy, SEGMENTATION_REFERENCE_RUN_NAME),

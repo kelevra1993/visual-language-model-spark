@@ -80,14 +80,19 @@ def test_classes_counted_in_every_manifest_format(labels: Dict[str, Any], expect
 
 def test_binary_mode_maps_every_category_to_the_foreground() -> None:
     """
-    Verifies that every manifest category is the foreground class in binary mode, and that the categories the label
-    dictionary does not map are left out in multi-class mode.
+    Verifies that every manifest category is the foreground class in binary mode, that the categories the label
+    dictionary does not map are left out in multi-class mode, and that so are the categories mapped to the background
+    class of a detector, the background having no category, while a classifier counts its class 0.
     """
     categories = [{"id": 1, "name": "car"}, {"id": 2, "name": "person"}]
     assert map_categories_to_classes(categories=categories, label_dictionary={"background": 0, "foreground": 1},
                                      label_mode="binary", unmapped_class_index=None) == {1: 1, 2: 1}
     assert map_categories_to_classes(categories=categories, label_dictionary={"background": 0, 2: 1},
                                      label_mode="multi_class", unmapped_class_index=None) == {2: 1}
+    assert map_categories_to_classes(categories=categories, label_dictionary={"background": 0, 1: 0, 2: 1},
+                                     label_mode="multi_class", unmapped_class_index=None) == {2: 1}
+    assert map_categories_to_classes(categories=categories, label_dictionary={1: 0, 2: 1},
+                                     label_mode="multi_class", unmapped_class_index=None) == {1: 0, 2: 1}
 
 
 def test_unmapped_frames_are_counted_in_the_unselected_class(tmp_path: Path) -> None:

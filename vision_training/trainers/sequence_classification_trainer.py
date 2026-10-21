@@ -83,7 +83,8 @@ class SequenceClassificationTrainer(ClassificationTrainer):
         """
         loaders = get_sequence_dataloaders(experiment_configuration=self.experiment_configuration,
                                            model_configuration=self.model_configuration, batch_size=self.batch_size,
-                                           label_type=self.LABEL_TYPE)
+                                           label_type=self.LABEL_TYPE,
+                                           drop_last_training_batch=self.drops_last_training_batch())
         training_dataset = loaders[0].dataset
         self.class_names = [training_dataset.class_names[class_index]
                             for class_index in range(training_dataset.number_classes)]

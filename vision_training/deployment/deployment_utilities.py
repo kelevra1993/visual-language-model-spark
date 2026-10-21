@@ -9,7 +9,6 @@ deployment/run_inference.py.
 """
 
 import os
-import cv2
 import numpy as np
 import torch
 import tritonclient.grpc as triton_client
@@ -28,7 +27,7 @@ from vision_training.deployment.frame_selection_deployment import (DECODER_OUTPU
 from vision_training.models.sequence.frame_selection_decoding import run_frame_selection
 from vision_training.trainers.checkpointing import get_checkpoint_path
 from vision_training.models.model_loading import load_trained_model
-from vision_training.data.preprocessing import preprocess_image
+from vision_training.data.preprocessing import preprocess_image, read_image
 from vision_training.utilities.os_utilities import get_image_paths
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 
@@ -65,8 +64,7 @@ def load_inference_inputs(image_folder: Path, experiment_folder: Path) -> List[D
     # Every image in the channels first layout of the network
     images = []
     for image_path in get_image_paths(folder=image_folder):
-        image = preprocess_image(image=cv2.imread(filename=str(image_path)), image_size=image_size,
-                                 keep_ratio=keep_ratio)
+        image = preprocess_image(image=read_image(image_path=image_path), image_size=image_size, keep_ratio=keep_ratio)
         images.append(image.transpose(2, 0, 1).astype(np.float32))
 
     # Every image becomes a batch of one element for the image tasks

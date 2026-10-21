@@ -43,12 +43,17 @@ main()
 │   │   The SequenceClassificationTrainer with LABEL_TYPE = "frame" and CLASS_SUPPORT_COLUMN = "Frames".
 │   │
 │   └── BaseTrainer.__init__()
-│       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter() / setup_training_paths()
+│       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
+│       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
+│       │       The classes of a resumed run kept from its label_dictionary.json, a previous training of the same
+│       │       settings moved to v<n>_<run name> when the run starts from scratch, then the run folder with the
+│       │       configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders() -> get_sequence_dataloaders(label_type="frame")
 │       │   └── SequenceDataset.__init__(split_name=...)
 │       │           One sample per whole sequence, each frame keeping the class of its category
 │       │           ('frame_category_ids'), -100 for an unmapped category; a sequence longer than
 │       │           maximum_sequence_length is left out with a warning.
+│       ├── check_loaders_give_batches()             refuses a split whose loader gives no batch
 │       ├── save_data_record()                       data.json: classes, data folder, labels SHA-256, images
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       The classes of the labelled frames of every test sequence: a sequence counts for its most frequent
@@ -66,11 +71,10 @@ main()
 │
 └── trainer.run_training_loop()  [STAGE 3]
     └── run_training_iterations()
-        ├── for each training_iteration:
-        │   ├── save_model() + run_test_evaluation() when due                    -> [STAGE 4]
+        ├── for each training_iteration, from start_iteration to number_iterations (the total of the run):
         │   ├── get_next_batch() -> SequenceDataset.__getitem__() + collate_padded_sequences()
         │   │       labels [B, T]: the class of every frame, -100 on the padding frames, T the longest sequence
-        │   │       of the batch
+        │   │       of the batch; a batch failing to load is dropped and the next one taken
         │   ├── MetricTracker.count_frames()
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch() / augment_batch()   shuffle_frames() moves the frame labels with their frames
@@ -81,9 +85,12 @@ main()
         │   │   │   └── compute_sequence_labelling_loss()   cross entropy over the labelled frames only
         │   │   ├── compute_batch_metrics() -> compute_frame_accuracy()   accuracy over the labelled frames
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
-        │   ├── training_loss.backward() / step_optimizer() / validation pass
-        │   └── average_trackers() + log_interval_metrics() + print_interval_summary()
-        └── final save_model() + run_test_evaluation(), finish_experiment_tracking()
+        │   ├── training_loss.backward() / step_optimizer()
+        │   ├── save_model() on the multiples of weight_saving_iterations and intermediate_weight_saving_iterations
+        │   ├── validation pass
+        │   ├── average_trackers() + log_interval_metrics() + print_interval_summary() + report_dropped_batches()
+        │   └── run_test_evaluation() on the multiples of weight_saving_iterations, last    -> [STAGE 4]
+        └── save_model() of the steps taken since the last checkpoint, if any, finish_experiment_tracking()
 
 run_test_evaluation(iteration)  [STAGE 4]
 ├── create_evaluation_accumulator()
@@ -229,16 +236,19 @@ activated True   probability 0.4   independent_frames False   shuffle_frames {'a
 ```
 
 ### Step 2.6 — `setup_training_paths()`
+As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`), then the run folder is created with the copy of the configuration and `label_dictionary.json`, the class index of every category of the run.
+
 **Example: the run folder after this step**
 ```text
 M2M_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71/
 ├── Tensorboard/
 ├── Weights/
+├── label_dictionary.json          the class index of every category of the run
 └── training_configuration.yaml    4,881 bytes
 ```
 
 ### Step 2.7 — `build_dataloaders()` → `get_sequence_dataloaders(label_type="frame")` + `save_data_record()`
-Every sequence is one sample, so a split gives as many samples as it has sequences (minus those longer than `maximum_sequence_length`, Step 2.8). Right after the loaders, `save_data_record()` writes `data.json` next to the configuration: the classes with their frames in every split and, for every split, its data folder, the SHA-256 of its `labels.json` and its images, so that the data a model was trained on stays known. `analyse_training_data()` gives no file for this task.
+Every sequence is one sample, so a split gives as many samples as it has sequences (minus those longer than `maximum_sequence_length`, Step 2.8). The training loader leaves out its last incomplete batch only with a batch normalized classification head (`ClassificationHead.fully_connected_normalization: "batch"`, see `sequence_classification_workflow.md`, Step 2.8), which is not the case here. Right after the loaders, `check_loaders_give_batches()` refuses a split whose loader gives no batch, then `save_data_record()` writes `data.json` next to the configuration: the classes with their frames in every split and, for every split, its data folder, the SHA-256 of its `labels.json` and its images, so that the data a model was trained on stays known. `analyse_training_data()` gives no file for this task.
 
 **Example output**
 ```text
@@ -361,14 +371,16 @@ We Generate A New Model That Will Be Trained From Scratch.            -> start_i
 > The examples below are real outputs from a run on CPU of the redirected `configuration_synthetic_sequences.yaml` shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the error images and the MLflow tracking on. Its run name is `M2M_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71`; with batches of 4 sequences, an epoch is 125 iterations.
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
-**Example: what happens at each iteration of the run**
+The loop of every task (see `classification_workflow.md`, Step 3.1): from `start_iteration` to `number_iterations`, the total of the run, each iteration takes its training step, then saves its checkpoint, runs its validation batch and prints its summary on the iterations set for each, and evaluates its checkpoint last.
+
+**Example: what happens at each iteration of the run**, in the order of the rows within an iteration, after its training step
 
 | Iteration | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | after the loop |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Checkpoint saved | | | ✔ | | | ✔ | | | ✔ | | | | ✔ (iteration 12) |
-| Test evaluation | | | | | | ✔ | | | | | | | ✔ (iteration 12) |
+| Checkpoint saved | | | ✔ | | | ✔ | | | ✔ | | | ✔ | nothing: iteration 12 is saved |
 | Validation batch | | | | | | | | | | ✔ | | | |
 | Console summary | | | | ✔ | | | | ✔ | | | | ✔ | |
+| Test evaluation | | | | | | ✔ | | | | | | ✔ | nothing |
 
 ### Step 3.2 — `setup_tensorboard_writers()` / `initialize_training_loop_state()` / `start_experiment_tracking()`
 **Example output**
@@ -379,6 +391,8 @@ MLflow Run Created In The Experiment 'sequence_labelling' : 924c26859f0f4a3dbea8
 ```
 
 ### Step 3.3 — `save_model()` → `save_checkpoint()`
+Saved right after the training step of iterations 3, 6, 9 and 12, so that the checkpoint of iteration N holds N steps (see `classification_workflow.md`, Step 3.6), with the label dictionary of the run.
+
 **Example: the checkpoints and the keys of the last one**
 ```text
 Checkpoint Folder :
@@ -386,16 +400,16 @@ Checkpoint Folder :
  - Model Saved In : model_000003.pt
 Weights/Iteration_3/model_000003.pt   3,345,255 bytes      Weights/Iteration_6/model_000006.pt   3,345,255 bytes
 Weights/Iteration_9/model_000009.pt   3,345,255 bytes      Weights/Iteration_12/model_000012.pt  3,345,255 bytes
-['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'mlflow_run_id',
- 'pretrained_backbone', 'pretrained_temporal_module', 'pretrained_classification_head']
+['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'label_dictionary',
+ 'mlflow_run_id', 'pretrained_backbone', 'pretrained_temporal_module', 'pretrained_classification_head']
 model_state: 90 tensors, the first 'class_weights', then 'backbone.convolution_blocks.0. ...'      format_version 2
 ```
 
 ### Step 3.4 — `run_test_evaluation()`
-At iterations 6 and 12 (the final checkpoint), see Stage 4.
+At iterations 6 and 12, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), see Stage 4.
 
 ### Step 3.5 — `get_next_batch()` → `SequenceDataset.__getitem__()` + `collate_padded_sequences()`
-The sequence of the sequence classification (`sequence_classification_workflow.md`, Step 3.7), its label being the `[T]` class of every frame. `collate_padded_sequences()` pads every sequence of the batch to the longest one: black frames, `False` in the mask and -100 in the labels, so that the padding frames are ignored by the loss and the metrics.
+The sequence of the sequence classification (`sequence_classification_workflow.md`, Step 3.7: every frame read with `read_image()`, a batch failing to load dropped and the next one taken), its label being the `[T]` class of every frame. `collate_padded_sequences()` pads every sequence of the batch to the longest one: black frames, `False` in the mask and -100 in the labels, so that the padding frames are ignored by the loss and the metrics.
 
 **Example: the first batch of the run** (the longest sequence of the batch has 12 frames)
 ```text
@@ -518,10 +532,13 @@ Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 The interval of iteration 8 (loss 4.0830, accuracy 0.3015) took 00:01:06, since it includes the test evaluation of iteration 6, so its throughput is 0.2 Sequences Per Second.
 
 ### Step 3.15 — end of the loop
+The checkpoint of iteration 12 is already saved and evaluated inside its iteration, so the loop saves nothing more and evaluates nothing (see `classification_workflow.md`, Step 3.25).
+
 **Example output**
 ```text
-Model successfully saved at iteration 12. Exiting Training.
-Iteration 12 · 60 Test Sequences, 427 Labelled Frames · 2026-10-18 08:48 ───────────────      <- the evaluation of the final checkpoint
+Iteration 12 · 60 Test Sequences, 427 Labelled Frames · 2026-10-18 08:48 ───────────────      <- the evaluation of iteration 12, last in the iteration
+...
+Last Checkpoint Saved At Iteration 12. Exiting Training.
 ```
 
 **Example: the run folder after the training**
@@ -531,6 +548,7 @@ M2M_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128_HAVG.64_MC71/
 ├── Tensorboard/        Train/, Validation/, Test/
 ├── Weights/            Iteration_3/, Iteration_6/, Iteration_9/, Iteration_12/, full-checkpoint
 ├── data.json
+├── label_dictionary.json
 ├── mlflow_run.json
 ├── Results.txt
 └── training_configuration.yaml
@@ -543,7 +561,7 @@ MLflow artifacts: metric_names.json, Results.txt, data/data.json, configuration/
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences, 427 labelled frames), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. The checkpoint of iteration 6 gives `disappearing_hollow_ellipse` to every frame; the one of iteration 12 gives `no_change` to 307 frames and `disappearing_hollow_ellipse` to the 120 others.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (60 sequences, 427 labelled frames), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. The checkpoint of iteration 6 gives `disappearing_hollow_ellipse` to every frame; the one of iteration 12 gives `no_change` to 307 frames and `disappearing_hollow_ellipse` to the 120 others. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1).
@@ -747,12 +765,14 @@ MLflow only accepts letters, digits, `_`, `-`, `.`, `/` and spaces in a metric n
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 20 sequences of the test split (its `labels.json` reduced, its `data/` folder linked).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 20 sequences of the test split (its `labels.json` reduced, its `data/` folder linked).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5). The test sequences are read with the `sequence_settings` of the run, so a test sequence longer than its `maximum_sequence_length` is left out with the warnings of Step 2.8.
 
 ### Step 5.2 — trainer construction
+The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file (`classification_workflow.md`, Step 5.2).
+
 **Example: the split line of the launch information**
 ```text
 - Test Data Folder        : test_reduced (20 sequences, 161 frames, 20 sequences of at most 50 frames)

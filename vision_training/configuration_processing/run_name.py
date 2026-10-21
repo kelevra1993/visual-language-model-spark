@@ -4,6 +4,9 @@ settings of the run (task, input, backbone, task and optimizer sections). Called
 resume a run folder.
 """
 
+import hashlib
+import json
+
 from typing import Any, Callable, Dict, List
 
 
@@ -128,8 +131,10 @@ def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Builds the backbone section of the run name, shared by every task: the modules (SE, RES or RES2 for the
     pre-activation shortcuts, INC<starting block>), the feature map normalization (BN, LN or NN), B<layers>x<filters>
-    of every block in order, then PT when the backbone is initialised by the one of another run, followed by FRZ when
-    it is frozen and FBN when its normalization parameters are kept fixed (see build_pretrained_tokens).
+    of every block in order, LMP when a max pooling follows the last block ('last_max_pooling', which changes the
+    size of the final feature map and of a flattening head), then PT when the backbone is initialised by the one of
+    another run, followed by FRZ when it is frozen and FBN when its normalization parameters are kept fixed (see
+    build_pretrained_tokens).
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.
@@ -155,6 +160,10 @@ def build_backbone_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     convolutions = backbone_configuration["convolutions"]
     backbone_tokens.append("B" + ".".join(f"{convolutions[block][0]}x{convolutions[block][1]}"
                                           for block in sorted(convolutions, key=int)))
+
+    # Max pooling after the last block, halving the final feature map
+    if backbone_configuration["last_max_pooling"]:
+        backbone_tokens.append("LMP")
 
     # Backbone transferred from another run, frozen or not
     backbone_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="Backbone")
@@ -199,15 +208,37 @@ def build_optimizer_tokens(model_configuration: Dict[str, Any]) -> List[str]:
     return optimizer_tokens
 
 
+def build_anchors_hash(detection_levels: Dict[str, Any], level_names: List[str]) -> str:
+    """
+    Writes the anchors of every detection level as a short hash for the anchor token of the run names: the count and
+    the range of the scales alone keep the name when the aspect ratios or the middle scales change, and a run would
+    then resume heads trained on other anchors. The scales and ratios are taken in their order, which is the order of
+    the anchors in the outputs of the heads, as floats so that 32 and 32.0 give the same hash.
+
+    Args:
+        detection_levels (Dict[str, Any]): The 'DetectionLevels' section, with the 'anchors' of every level.
+        level_names (List[str]): The detection levels, in level order.
+
+    Returns:
+        str: The first 6 hexadecimal characters of the SHA-256 of the anchors of every level.
+    """
+    anchor_settings = [[level_name, [float(scale) for scale in detection_levels[level_name]["anchors"]["scales"]],
+                        [float(ratio) for ratio in detection_levels[level_name]["anchors"]["aspect_ratios"]]]
+                       for level_name in level_names]
+    return hashlib.sha256(json.dumps(obj=anchor_settings).encode()).hexdigest()[:6]
+
+
 def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[str]]:
     """
     Builds the sections of the run name specific to object detection: L<blocks feeding the detection heads>, the
-    anchors A<anchors per position>.<smallest scale>-<largest scale>, the region proposal heads (R<normalization>,
-    R<layers>x<filters>, then RPT and RFRZ when they are transferred and frozen), the detector heads (modules DSE,
-    DRES, DINC, D<normalization>, D<RoIAlign pool size>.<layers>x<filters>.<fully connected sizes>, then DPT and DFRZ
-    when they are transferred and frozen) and the classes (BIN or MC<foreground classes>). The levels are the keys of
-    'DetectionLevels', whose anchors, region proposal and detector settings are written once when identical on
-    every level, otherwise joined with '+' in level order.
+    anchors A<anchors per position>.<smallest scale>-<largest scale>.<hash of every scale and aspect ratio of every
+    level> (build_anchors_hash), so that other ratios or middle scales start a new run, the region proposal heads
+    (R<normalization>, R<layers>x<filters>, then RPT and RFRZ when they are transferred and frozen), the detector heads
+    (modules DSE, DRES, DINC, D<normalization>, D<RoIAlign pool size>.<layers>x<filters>.<fully connected sizes>, then
+    DPT and DFRZ when they are transferred and frozen) and the classes (BIN or MC<foreground classes>, the categories
+    merged into one class counting once). The levels are the keys of 'DetectionLevels', whose anchor counts, region
+    proposal and detector settings are written once when identical on every level, otherwise joined with '+' in level
+    order.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
@@ -226,7 +257,9 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     anchor_counts = [str(len(detection_levels[level]["anchors"]["scales"]) *
                          len(detection_levels[level]["anchors"]["aspect_ratios"])) for level in level_names]
     anchor_scales = [scale for level in level_names for scale in detection_levels[level]["anchors"]["scales"]]
-    anchors_token = f"A{join_level_tokens(level_tokens=anchor_counts)}.{min(anchor_scales)}-{max(anchor_scales)}"
+    anchors_hash = build_anchors_hash(detection_levels=detection_levels, level_names=level_names)
+    anchors_token = (f"A{join_level_tokens(level_tokens=anchor_counts)}.{min(anchor_scales)}-{max(anchor_scales)}."
+                     f"{anchors_hash}")
 
     # Region proposal heads: normalization, then the layers and filters of the head of every level
     region_proposal_heads = {level: detection_levels[level]["region_proposal"]["convolutions"] for level in level_names}
@@ -261,7 +294,7 @@ def build_detection_sections(model_configuration: Dict[str, Any]) -> List[List[s
     if data_configuration["label_mode"] == "binary":
         classes_token = "BIN"
     else:
-        classes_token = f"MC{len(data_configuration['label_dictionary']) - 1}"
+        classes_token = f"MC{len(set(data_configuration['label_dictionary'].values())) - 1}"
 
     return [[levels_token], [anchors_token], region_proposal_tokens, detector_tokens, [classes_token]]
 
@@ -622,7 +655,7 @@ def build_keypoint_sections(model_configuration: Dict[str, Any]) -> List[List[st
     head_tokens += build_pretrained_tokens(model_configuration=model_configuration, section_name="KeypointHead")
 
     # Classes, the label dictionary including the background class
-    classes_token = f"MC{len(data_configuration['label_dictionary']) - 1}"
+    classes_token = f"MC{len(set(data_configuration['label_dictionary'].values())) - 1}"
     return [network_tokens, head_tokens, [classes_token]]
 
 
@@ -644,9 +677,13 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
     whose saved configuration no longer matches. The training settings that can change between two resumptions of a
     run (augmentation, batch size, learning rate and its schedule, learning rate multipliers of the transferred
     components, gradient clipping, mixed precision, dropout rates, batch normalization momentums) give no token.
+    Neither do the source run of a transferred component (only whether it is transferred, a resumed run never loading
+    it again) nor the content of the label mapping file (only the number of classes): a run resumed with another
+    mapping of as many classes keeps the label dictionary saved in its folder
+    (BaseTrainer.restore_run_label_dictionary).
 
     The name is made of '_' separated sections of '-' separated tokens, a flag token being left out when its setting
-    is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512_RBN-R2x64_
+    is off, e.g. 'DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_
     DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, INS, CLS, M2O, M2M, CMP, SEG,
     SEL, SSL or KPT), the input and backbone sections shared by every task (build_input_tokens,
     build_backbone_tokens), the sections of the task (e.g. build_detection_sections), then the optimizer section

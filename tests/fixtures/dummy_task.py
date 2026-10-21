@@ -27,16 +27,19 @@ class DummyDataset(Dataset):
     """
     Tiny in-memory dataset of the dummy task used to test the general trainer on its own: seeded random images and
     binary labels, each sample carrying the sample identifier given for it, so that a test split can repeat samples
-    in its last batch.
+    in its last batch, and samples whose image cannot be read, failing like the datasets of the framework.
     """
 
-    def __init__(self, sample_identifiers: List[int], seed: int) -> None:
+    def __init__(self, sample_identifiers: List[int], seed: int,
+                 unreadable_identifiers: Optional[List[int]] = None) -> None:
         """
         Draws the images and labels of the samples.
 
         Args:
             sample_identifiers (List[int]): The identifier of every sample, repeated identifiers giving the same image.
             seed (int): The seed of the random images and labels.
+            unreadable_identifiers (Optional[List[int]]): The samples whose image cannot be read, raising the error of
+                read_image, None for none. Defaults to None.
         """
         generator = torch.Generator().manual_seed(seed)
         number_distinct_samples = max(sample_identifiers) + 1
@@ -44,6 +47,7 @@ class DummyDataset(Dataset):
                                  generator=generator) * 255.0
         self.labels = torch.randint(low=0, high=2, size=(number_distinct_samples,), generator=generator)
         self.sample_identifiers = sample_identifiers
+        self.unreadable_identifiers = [] if unreadable_identifiers is None else unreadable_identifiers
 
     def __len__(self) -> int:
         """
@@ -63,8 +67,13 @@ class DummyDataset(Dataset):
 
         Returns:
             Dict[str, Any]: The image, label and sample identifier of the sample.
+
+        Raises:
+            ValueError: If the image of the sample cannot be read (unreadable_identifiers).
         """
         sample_identifier = self.sample_identifiers[sample_index]
+        if sample_identifier in self.unreadable_identifiers:
+            raise ValueError(f"The image cannot be read : {sample_identifier}.png")
         return {"images": self.images[sample_identifier], "labels": self.labels[sample_identifier],
                 "sample_identifiers": sample_identifier}
 

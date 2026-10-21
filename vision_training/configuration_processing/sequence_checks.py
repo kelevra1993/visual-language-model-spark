@@ -124,7 +124,8 @@ def check_sequence_classification_configuration(experiment_configuration: Dict[s
     """
     errors = []
     errors += check_classification_data_configuration(model_configuration=model_configuration)
-    errors += check_classification_head_configuration(model_configuration=model_configuration)
+    errors += check_classification_head_configuration(experiment_configuration=experiment_configuration,
+                                                      model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
     errors += check_sequence_settings(model_configuration=model_configuration)
@@ -150,7 +151,8 @@ def check_sequence_labelling_configuration(experiment_configuration: Dict[str, A
     """
     errors = []
     errors += check_classification_data_configuration(model_configuration=model_configuration)
-    errors += check_classification_head_configuration(model_configuration=model_configuration)
+    errors += check_classification_head_configuration(experiment_configuration=experiment_configuration,
+                                                      model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
     errors += check_sequence_settings(model_configuration=model_configuration)
@@ -221,7 +223,8 @@ def check_sequence_comparison_configuration(experiment_configuration: Dict[str, 
     """
     errors = []
     errors += check_classification_data_configuration(model_configuration=model_configuration)
-    errors += check_classification_head_configuration(model_configuration=model_configuration)
+    errors += check_classification_head_configuration(experiment_configuration=experiment_configuration,
+                                                      model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
     errors += check_sequence_settings(model_configuration=model_configuration)
@@ -280,7 +283,8 @@ def check_frame_selection_configuration(experiment_configuration: Dict[str, Any]
     """
     errors = []
     errors += check_classification_data_configuration(model_configuration=model_configuration)
-    errors += check_classification_head_configuration(model_configuration=model_configuration)
+    errors += check_classification_head_configuration(experiment_configuration=experiment_configuration,
+                                                      model_configuration=model_configuration)
     errors += check_classification_evaluation_configuration(experiment_configuration=experiment_configuration,
                                                             model_configuration=model_configuration)
     errors += check_sequence_settings(model_configuration=model_configuration)

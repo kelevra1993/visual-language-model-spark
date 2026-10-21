@@ -1,7 +1,8 @@
 """
-Image, mask and bounding box preprocessing shared by the data loaders and the inference clients: resizing to the
-square network input with optional centred padding (bilinear for the images, nearest for the segmentation masks), the
-matching box transformation, and their inverses restoring predicted boxes and segmentation predictions (class maps or
+Image, mask and bounding box preprocessing shared by the data loaders and the inference clients: the reading of the
+dataset and inference images, naming the files that cannot be read, the resizing to the square network input with
+optional centred padding (bilinear for the images, nearest for the segmentation masks), the matching box
+transformation, and their inverses restoring predicted boxes and segmentation predictions (class maps or
 probabilities) to the original image, the latter also used by the evaluation of the segmenter at the original
 resolution.
 """
@@ -10,7 +11,33 @@ import cv2
 import numpy as np
 import torch
 
+from pathlib import Path
 from typing import Tuple
+
+from vision_training.utilities.os_utilities import format_path_link
+
+
+def read_image(image_path: str | Path) -> np.ndarray:
+    """
+    Reads an image as BGR, for the classification, COCO, segmentation and sequence datasets and the image folders of
+    the inference clients: OpenCV gives None for a missing, unreadable or corrupted file, which would otherwise fail
+    later with an unrelated error, so the file is named in the error. The training loop then drops the batch holding
+    it and prints the error once (BaseTrainer.get_next_batch), and a test evaluation stopped by it counts as an error
+    of its iteration, the training going on.
+
+    Args:
+        image_path (str | Path): The image file.
+
+    Returns:
+        np.ndarray: The uint8 [H, W, 3] BGR image.
+
+    Raises:
+        ValueError: If the file cannot be read as an image.
+    """
+    image = cv2.imread(filename=str(image_path))
+    if image is None:
+        raise ValueError(f"The image cannot be read : {format_path_link(path=Path(image_path))}")
+    return image
 
 
 def compute_letterbox_region(image_height: int, image_width: int, image_size: int) -> Tuple[int, int, int, int]:

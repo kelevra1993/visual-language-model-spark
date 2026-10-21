@@ -2,7 +2,8 @@
 Tests of SequenceDataset of vision_training/data/sequence/sequence_dataset.py: the whole sequences with one class per
 sequence or one class per frame, the sequences longer than the maximum sequence length left out with red warnings, the
 whole sequences of the frame selection with their unselected frames and their check, the batches padded to their
-longest sequence by collate_padded_sequences, and the sequence counts of vision_training/data/split_description.py.
+longest sequence by collate_padded_sequences, the sequence counts of vision_training/data/split_description.py, and
+the training loader of a head needing batch statistics leaving out its last incomplete batch.
 """
 
 import json
@@ -17,6 +18,7 @@ from torch.utils.data import DataLoader
 from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
+from vision_training.data.loaders import get_sequence_dataloaders
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_padded_sequences
 from vision_training.data.split_description import count_split_sequences
 
@@ -271,3 +273,40 @@ def test_selection_needs_a_mapped_unselected_category(tmp_path: Path, unselected
                         sequence_settings={"maximum_sequence_length": 4}, label_type="selection",
                         split_name="Training",
                         selection_settings={"unselected_category": unselected_category, "frames_per_class": 1})
+
+
+def test_loaders_needing_batch_statistics_drop_the_last_training_batch(tmp_path: Path) -> None:
+    """
+    Verifies the sequence loaders of a classifier whose head is batch normalized (drop_last_training_batch): the
+    training loader leaves out its last incomplete batch, which a single sequence would fill and break, the validation
+    loader keeps every sequence, and a training split smaller than a batch stops the launch with its size instead of
+    giving no batch.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    split_sizes = {"train": 3, "validation": 3, "test": 2}
+    for split_name, number_sequences in split_sizes.items():
+        write_sequence_split(split_folder=tmp_path / split_name, sequences=[
+            {"id": sequence_index + 1, "name": f"sequence_{sequence_index}", "number_frames": 2,
+             "category_id": sequence_index % 2 + 1} for sequence_index in range(number_sequences)])
+    experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name) for split_name in split_sizes}
+    data_configuration = {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0, 2: 1},
+                          "sequence_settings": {"maximum_sequence_length": 8},
+                          "loading": {"number_workers": 0, "prefetch_batches": 2}}
+    model_configuration = {"Data": data_configuration}
+
+    # Batches of 2 sequences: the third training sequence is left out only for the head needing batch statistics
+    for drop_last_training_batch, expected_training_batches in [(True, [2]), (False, [2, 1])]:
+        training_loader, validation_loader, _ = get_sequence_dataloaders(
+            experiment_configuration=experiment_configuration, model_configuration=model_configuration, batch_size=2,
+            label_type="sequence", drop_last_training_batch=drop_last_training_batch)
+        assert [batch["images"].shape[0] for batch in training_loader] == expected_training_batches
+        assert [batch["images"].shape[0] for batch in validation_loader] == [2, 1]
+
+    # Batches of 4 sequences, more than the training split holds
+    with pytest.raises(expected_exception=ValueError, match="The 'train_data_folder' split holds 3 samples, fewer than "
+                                                            "the batch size 4"):
+        get_sequence_dataloaders(experiment_configuration=experiment_configuration,
+                                 model_configuration=model_configuration, batch_size=4, label_type="sequence",
+                                 drop_last_training_batch=True)

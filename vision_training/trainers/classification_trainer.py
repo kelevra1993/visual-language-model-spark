@@ -137,11 +137,27 @@ class ClassificationTrainer(BaseTrainer):
         """
         loaders = get_classification_dataloaders(experiment_configuration=self.experiment_configuration,
                                                  model_configuration=self.model_configuration,
-                                                 batch_size=self.batch_size)
+                                                 batch_size=self.batch_size,
+                                                 drop_last_training_batch=self.drops_last_training_batch())
         training_dataset = loaders[0].dataset
         self.class_names = [training_dataset.class_names[class_index]
                             for class_index in range(training_dataset.number_classes)]
         return loaders
+
+    def drops_last_training_batch(self) -> bool:
+        """
+        Tells whether the training loader leaves out the last incomplete batch of every epoch, read by the loaders of
+        the classification and sequence tasks: when the hidden layers of the classification head are batch
+        normalized ('ClassificationHead.fully_connected_normalization' "batch"), or a view loss is on (batch
+        normalized projectors, losses comparing the images of a batch), since a last batch of a single image or
+        sequence gives no batch statistics and fails at every epoch.
+
+        Returns:
+            bool: True when the last incomplete training batch is left out.
+        """
+        batch_normalized_head = self.model_configuration["ClassificationHead"]["fully_connected_normalization"] == \
+            "batch"
+        return batch_normalized_head or self.view_losses_activated
 
     def list_class_names(self) -> Optional[List[str]]:
         """
