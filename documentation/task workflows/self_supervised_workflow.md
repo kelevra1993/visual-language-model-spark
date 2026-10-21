@@ -104,7 +104,8 @@ main()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
 │       │       The summary adds a Projection Head panel.
 │       ├── view_input_batches()  (only with view_input_images, then exits)
-│       │       The two random views of a training image, each next to the transformations drawn for it.
+│       │       The two random views of a training image, each next to the transformations drawn for it, every
+│       │       batch of the GroupedBatchSampler first shown whole (show_input_batch -> build_batch_mosaic).
 │       └── restore_last_model() -> get_last_checkpoint_iteration() / load_model()
 │
 └── trainer.run_training_loop()  [STAGE 3]
@@ -528,7 +529,9 @@ The backbone panel, the Projection Head panel of Step 2.15, the receptive field 
 ```
 
 ### Step 2.21 — `view_input_batches()`
-Only with `diagnosis_modes.view_input_images`, then the program exits. `show_input_samples()` draws the two views of a training image with `create_views(describe_views=True)` and shows them in two windows, "View 1" and "View 2", each next to a black information panel holding the class of the image and the transformations drawn for the view with their values (the lines of Step 3.12). The validation images get their views drawn the same way, so only the training image is shown. It needs a display and was not run for this document.
+Only with `diagnosis_modes.view_input_images`, then the program exits. `show_input_samples()` draws the two views of a training image with `create_views(describe_views=True)` and shows them in two windows, "View 1" and "View 2", each next to a black information panel holding the class of the image and the transformations drawn for the view with their values (the lines of Step 3.12). The validation images get their views drawn the same way, so only the training image is shown.
+
+With `Data.grouped_batches` on, `show_input_batch()` first shows every training batch whole in a "Training Batch" window, before the views of its images: `build_batch_mosaic()` (in `vision_training/utilities/visualization.py`) lays out the thumbnails of its images in the order of the batch, cut into blocks of `images_per_block` images, each under a caption bar, up to 16 thumbnails per row, below a header drawn like the information panels. `describe_input_batch()` writes the header from the `grouped_batch_flags` the `GroupedBatchSampler` keeps for the batches of its current pass: the position of the batch in the pass, whether it is grouped or a random batch of the leftover pool, and the grouped and random batches of a pass; a grouped batch adds its batch value and its blocks, every block captioned with its block value; a random batch counts the images of every batch and block value, most frequent first, and captions every image with its values. Random batches (the section off, or a training split without groups) show no mosaic. SPACE goes from the mosaic to the views of the first image of the batch, ENTER stops. It needs a display and was not run for this document.
 
 ### Step 2.22 — `restore_last_model()` → `get_last_checkpoint_iteration()` / `load_model()`
 **Example output** (a new run folder)

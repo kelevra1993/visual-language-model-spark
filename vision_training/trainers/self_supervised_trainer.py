@@ -10,12 +10,14 @@ the labelled test images, effective rank and standard deviation of the represent
 import numpy as np
 import torch
 
+from collections import Counter
 from pathlib import Path
 from torch.nn import functional as torch_functional
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from vision_training.core.contracts import (IGNORED_LABEL_INDEX, LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY,
                                             EvaluationResults, SelfSupervisedBatch)
+from vision_training.data.grouped_batch_sampler import GroupedBatchSampler
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.loaders import get_classification_dataloaders
 from vision_training.data.split_description import count_split_samples
@@ -32,7 +34,8 @@ from vision_training.losses.self_supervised_losses import compute_embedding_stan
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
-from vision_training.utilities.visualization import add_caption_bar, convert_image_to_array, view_input_data
+from vision_training.utilities.visualization import (add_caption_bar, build_batch_mosaic, convert_image_to_array,
+                                                     show_viewer_windows, view_input_data)
 
 # Metrics tracked on every training and validation batch for each self-supervised method, with their display names
 METHOD_TRACKED_METRICS = {"simclr": {"total_loss": "Total Loss", "info_nce_loss": "InfoNCE Loss",
@@ -48,6 +51,9 @@ NEAREST_NEIGHBOUR_TABLE_TITLE = "Per Class k-NN Metrics"
 
 # Caption of an image without mapped category in the sample images and the input viewer
 UNLABELLED_CAPTION = "unlabelled"
+
+# Title of the window of the batch mosaic of the input viewer
+BATCH_WINDOW_TITLE = "Training Batch"
 
 # Offset of the seed of the views of every sample image, added to its sample identifier, so that every evaluation and
 # both the trained and the averaged weights compare the same two views of an image
@@ -404,6 +410,96 @@ class SelfSupervisedTrainer(BaseTrainer):
         caption = (f"{self.get_label_caption(label=batch['labels'][sample_index])} | Views Similarity "
                    f"{view_similarity:.3f}")
         return add_caption_bar(image=sample_image, caption=caption)
+
+    def show_input_batch(self, training_batch: Dict[str, Any], batch_index: int) -> bool:
+        """
+        Shows a training batch built by the GroupedBatchSampler in one window before the views of its images: the
+        mosaic of its images in the order of the batch, cut into its blocks (build_batch_mosaic), under a header
+        describing the batch (describe_input_batch). Nothing is shown for random batches, when 'Data.grouped_batches'
+        is off or the training split has no groups.
+
+        Args:
+            training_batch (Dict[str, Any]): The training batch as the loader gives it, on the CPU.
+            batch_index (int): The position of the batch in the pass of the viewer over the training split.
+
+        Returns:
+            bool: True if the user asked to stop viewing.
+        """
+        # Random batches, without the grouped batch sampler, have no blocks to show
+        batch_sampler = self.train_dataloader.batch_sampler
+        if not isinstance(batch_sampler, GroupedBatchSampler):
+            return False
+
+        # Groups of every image of the batch, read from the dataset by the sample identifiers
+        sample_identifiers = training_batch[SAMPLE_IDENTIFIERS_KEY]
+        if isinstance(sample_identifiers, torch.Tensor):
+            sample_identifiers = sample_identifiers.tolist()
+        sample_records = self.train_dataloader.dataset.sample_records
+        image_groups = [sample_records[sample_identifier]["groups"] for sample_identifier in sample_identifiers]
+
+        # Mosaic of the blocks of the batch under the header describing it, shown alone in its window
+        title, lines, block_captions, image_captions = self.describe_input_batch(
+            image_groups=image_groups, batch_sampler=batch_sampler, batch_index=batch_index)
+        mosaic = build_batch_mosaic(images=training_batch["images"], block_size=batch_sampler.images_per_block,
+                                    block_captions=block_captions, image_captions=image_captions, title=title,
+                                    lines=lines)
+        return show_viewer_windows(window_images=[mosaic], window_titles=[BATCH_WINDOW_TITLE])
+
+    def describe_input_batch(self, image_groups: List[Dict[str, str]], batch_sampler: GroupedBatchSampler,
+                             batch_index: int) -> Tuple[str, List[str], List[str], Optional[List[str]]]:
+        """
+        Writes the texts of the batch mosaic of the input viewer: its title gives the position of the batch in the
+        pass and whether it is grouped or a random batch of the leftover pool, and its lines the batches of a pass and
+        the values of the keys of 'Data.grouped_batches' in the batch. A grouped batch captions every block with its
+        block value; a random batch counts the images of every value, numbers its chunks of images_per_block images
+        and captions every image with its values. The captions list every value found, so that a block mixing values
+        would show it.
+
+        Args:
+            image_groups (List[Dict[str, str]]): The "groups" of every image of the batch, in its order.
+            batch_sampler (GroupedBatchSampler): The sampler of the training split, giving whether the batch is grouped.
+            batch_index (int): The position of the batch in the current pass of the sampler.
+
+        Returns:
+            Tuple[str, List[str], List[str], Optional[List[str]]]: The title, the lines of the header, the caption of
+                every block, and the caption of every image (None for a grouped batch).
+        """
+        # Block and batch values of every image of the batch, and whether the sampler built it from blocks
+        grouped_batches_configuration = self.data_configuration["grouped_batches"]
+        block_key, batch_key = grouped_batches_configuration["block_key"], grouped_batches_configuration["batch_key"]
+        block_size = batch_sampler.images_per_block
+        block_values = [groups[block_key] for groups in image_groups]
+        batch_values = None if batch_key is None else [groups[batch_key] for groups in image_groups]
+        grouped = batch_sampler.grouped_batch_flags[batch_index]
+
+        # Position and kind of the batch, then the batches of every pass
+        title = (f"Training Batch {batch_index + 1} / {len(batch_sampler)} : "
+                 f"{'Grouped' if grouped else 'Random (Leftover Pool)'}")
+        lines = [f"Pass : {batch_sampler.number_grouped_batches} grouped and {batch_sampler.number_leftover_batches} "
+                 f"random batches of {batch_sampler.batch_size} images", ""]
+        block_starts = range(0, len(image_groups), block_size)
+
+        # A grouped batch: its batch value, its blocks, and the block value of every block as its caption
+        if grouped:
+            if batch_values is not None:
+                lines.append(f"Batch key '{batch_key}' : {', '.join(sorted(set(batch_values)))}")
+            lines.append(f"Block key '{block_key}' : {len(block_starts)} blocks of {block_size} images")
+            block_captions = [", ".join(sorted(set(block_values[start:start + block_size]))) for start in block_starts]
+            return title, lines, block_captions, None
+
+        # A random batch: the images of every value, most frequent first, and the values of every image
+        for key_role, group_key, values in [("Batch", batch_key, batch_values), ("Block", block_key, block_values)]:
+            if values is None:
+                continue
+            value_counts = sorted(Counter(values).items(), key=lambda value_count: (-value_count[1], value_count[0]))
+            lines += [f"{key_role} key '{group_key}' : {len(value_counts)} values",
+                      "  " + ", ".join(f"{value} x {count}" for value, count in value_counts)]
+        block_captions = [f"Images {start + 1} to {min(start + block_size, len(image_groups))}"
+                          for start in block_starts]
+        image_captions = (block_values if batch_values is None else
+                          [f"{batch_value} / {block_value}"
+                           for batch_value, block_value in zip(batch_values, block_values)])
+        return title, lines, block_captions, image_captions
 
     def show_input_samples(self, training_batch: Dict[str, Any], validation_batch: Dict[str, Any],
                            sample_index: int) -> bool:

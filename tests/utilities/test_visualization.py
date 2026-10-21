@@ -8,8 +8,9 @@ thumbnails above the probability heat map, the keypoint drawings colour every ke
 the drawn keypoints by the skeleton in the colour of their class, leave the unlabelled keypoints, the predicted ones not
 found and the padding positions out, draw the occluded ones as rings and caption the objects, the keypoint sample grid
 lays out its ground truth and prediction panels between their caption and legend bars, the frame grid numbers its
-frames from the given number, and the input viewer wraps the lines of its information panels, places each image next
-to its panel, centres its windows on the screen and is skipped without a display.
+frames from the given number, the input viewer wraps the lines of its information panels, places each image next to
+its panel, centres its windows on the screen and is skipped without a display, and the batch mosaic of the
+self-supervised viewer lays out the blocks of a batch under its header.
 """
 
 import cv2
@@ -18,8 +19,9 @@ import pytest
 import torch
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, CORRECT_PREDICTION_COLOUR,
-                                                     ERROR_OUTLINE_MARGIN, GRID_GAP,
+from vision_training.utilities.visualization import (BATCH_MOSAIC_BLOCK_SPACING, BATCH_MOSAIC_THUMBNAIL_SIZE,
+                                                     BATCH_NAVIGATION_HINT, CAPTION_BAR_HEIGHT,
+                                                     CORRECT_PREDICTION_COLOUR, ERROR_OUTLINE_MARGIN, GRID_GAP,
                                                      HEAT_MAP_ROW_HEIGHT, IGNORED_PIXEL_COLOUR,
                                                      INFORMATION_PANEL_WIDTH, KEYPOINT_SIDE_COLOURS,
                                                      LEGEND_BAR_HEIGHT, PANEL_GROUP_COLOUR,
@@ -28,7 +30,7 @@ from vision_training.utilities.visualization import (CAPTION_BAR_HEIGHT, CORRECT
                                                      SELECTION_COLOURS, SELECTION_THUMBNAIL_SIZE,
                                                      UNSELECTED_FRAME_BRIGHTNESS, VIEWER_TITLE_BAR_HEIGHT,
                                                      VIEWER_WINDOW_SPACING, WRONG_PREDICTION_COLOUR,
-                                                     add_caption_bar, build_class_colours,
+                                                     add_caption_bar, build_batch_mosaic, build_class_colours,
                                                      build_detection_sample_grid, build_frame_grid,
                                                      build_frame_selection_image,
                                                      build_information_panel, build_keypoint_sample_grid,
@@ -460,3 +462,43 @@ def test_viewer_is_skipped_without_a_display(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.delenv(name="WAYLAND_DISPLAY", raising=False)
     assert view_input_data(images=[torch.zeros(size=(3, 8, 8))], bounding_boxes=None, labels=None,
                            window_titles=["Training"], display_input_size=8, panel_lines=[["Class : cat"]])
+
+
+def test_batch_mosaic_lays_out_the_blocks_under_their_header() -> None:
+    """
+    Verifies the batch mosaic of the self-supervised input viewer: the header, drawn like the information panels with
+    the hint of the mosaic, as wide as the mosaic, above the blocks of consecutive images of the batch side by side,
+    every thumbnail at its place in the order of the batch under the caption bar of its block, and a block of more
+    images than a row of the mosaic going on several rows, its thumbnails captioned when captions are given.
+    """
+    # Eight images of 32 pixels, each of its own gray level, in two blocks of 4 images
+    thumbnail_size, spacing = BATCH_MOSAIC_THUMBNAIL_SIZE, BATCH_MOSAIC_BLOCK_SPACING
+    images = torch.arange(start=1, end=9, dtype=torch.float32).mul(other=20.0).view(8, 1, 1, 1).expand(8, 3, 32, 32)
+    title, lines = "Training Batch 1 / 2 : Grouped", ["Block key 'camera' : 2 blocks of 4 images"]
+    mosaic = build_batch_mosaic(images=images, block_size=4, block_captions=["c0", "c1"], image_captions=None,
+                                title=title, lines=lines)
+
+    # The header above two blocks of 4 thumbnails side by side
+    header = build_information_panel(title=title, lines=lines, minimum_height=0, width=mosaic.shape[1],
+                                     hint=BATCH_NAVIGATION_HINT)
+    block_width = 4 * (thumbnail_size + GRID_GAP) - GRID_GAP
+    block_height = PANEL_LINE_HEIGHT + thumbnail_size + GRID_GAP
+    assert mosaic.shape == (header.shape[0] + block_height + 2 * spacing, 2 * block_width + 3 * spacing, 3)
+    assert np.array_equal(a1=mosaic[:header.shape[0]], a2=header)
+    thumbnails_top = header.shape[0] + spacing + PANEL_LINE_HEIGHT
+    for image_index in range(8):
+        thumbnail_left = (spacing + (image_index // 4) * (block_width + spacing) +
+                          (image_index % 4) * (thumbnail_size + GRID_GAP))
+        assert bool((mosaic[thumbnails_top:thumbnails_top + thumbnail_size,
+                            thumbnail_left:thumbnail_left + thumbnail_size] == 20 * (image_index + 1)).all())
+
+    # A block of 20 images on two rows of the mosaic, at least as wide as the information panel, with captions
+    tall_mosaic = build_batch_mosaic(images=images[:1].expand(20, 3, 32, 32), block_size=20, block_captions=["c0"],
+                                     image_captions=["s0 / c0"] * 20, title=title, lines=lines)
+    tall_header_height = tall_mosaic.shape[0] - (PANEL_LINE_HEIGHT + 2 * (thumbnail_size + GRID_GAP) + 2 * spacing)
+    assert tall_header_height == header.shape[0]
+    assert tall_mosaic.shape[1] == max(INFORMATION_PANEL_WIDTH, 16 * (thumbnail_size + GRID_GAP) - GRID_GAP +
+                                       2 * spacing)
+    second_row_top = tall_header_height + spacing + PANEL_LINE_HEIGHT + thumbnail_size + GRID_GAP
+    assert bool((tall_mosaic[second_row_top + thumbnail_size - 1, spacing:spacing + thumbnail_size] == 20).all())
+    assert bool((tall_mosaic[second_row_top, spacing] == 0).all())
