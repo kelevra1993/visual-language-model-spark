@@ -13,7 +13,7 @@ from pathlib import Path
 from torch import nn
 from typing import Any, Dict, List, Optional
 
-from vision_training.utilities.os_utilities import format_path_link
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Version of the checkpoint dictionaries: version 2 adds the task and the run name to the weights and optimizer state
 CHECKPOINT_FORMAT_VERSION = 2
@@ -44,10 +44,67 @@ def get_checkpoint_file(weights_directory: Path, iteration: int) -> Path:
     return weights_directory / f"Iteration_{iteration}" / f"model_{iteration:06}.pt"
 
 
+def find_saved_checkpoint_iterations(weights_directory: Path) -> List[int]:
+    """
+    Lists the iterations whose checkpoint folder holds its complete weight file, the 'Iteration_<k>/model_<k>.pt'
+    renamed from its temporary file once written, read instead of the registry when the registry cannot be read (a
+    process killed while writing it before the registry was replaced atomically, or a file edited by hand).
+
+    Args:
+        weights_directory (Path): The 'Weights' folder of the run.
+
+    Returns:
+        List[int]: The iterations of the complete checkpoints, sorted, empty when there is none.
+    """
+    saved_iterations = []
+    for checkpoint_folder in weights_directory.glob("Iteration_*"):
+        iteration_text = checkpoint_folder.name.split("_")[-1]
+        if iteration_text.isdigit() and get_checkpoint_file(weights_directory=weights_directory,
+                                                            iteration=int(iteration_text)).is_file():
+            saved_iterations.append(int(iteration_text))
+    return sorted(saved_iterations)
+
+
+def read_checkpoint_registry(weights_directory: Path) -> Optional[List[int]]:
+    """
+    Reads the iterations named by the registry of a run, its first line naming the last checkpoint and the next ones
+    every checkpoint, e.g. 'model_checkpoint_path: "Iteration_2000"'. A registry that cannot be read (empty or cut
+    lines) is announced in yellow, the callers then reading the checkpoint folders (find_saved_checkpoint_iterations).
+
+    Args:
+        weights_directory (Path): The 'Weights' folder of the run.
+
+    Returns:
+        Optional[List[int]]: The iterations of the registry lines in their order, the last checkpoint first, or None
+            when the registry is missing or cannot be read.
+    """
+    registry_path = weights_directory / CHECKPOINT_REGISTRY_NAME
+    if not registry_path.is_file():
+        return None
+    with open(registry_path, "r") as registry_file:
+        registry_lines = [line.strip() for line in registry_file if line.strip()]
+
+    # Every line ends with the quoted name of a checkpoint folder, whose last part is its iteration
+    registry_iterations = []
+    for registry_line in registry_lines:
+        quoted_parts = registry_line.split('"')
+        iteration_text = quoted_parts[1].split("_")[-1] if len(quoted_parts) == 3 else ""
+        if not iteration_text.isdigit():
+            registry_iterations = []
+            break
+        registry_iterations.append(int(iteration_text))
+    if not registry_iterations:
+        print_color(color="yellow", output=f"The Checkpoint Registry Cannot Be Read, The Checkpoint Folders Are Read "
+                                           f"Instead : {format_path_link(path=registry_path)}")
+        return None
+    return registry_iterations
+
+
 def get_last_checkpoint_iteration(weights_directory: Path) -> int:
     """
     Reads the iteration of the most recent checkpoint of a run from its registry, which lets a training resume where it
-    stopped and the deployment tools pick the last weights without being told the iteration.
+    stopped and the deployment tools pick the last weights without being told the iteration. Without a readable
+    registry, the newest complete checkpoint folder gives it, so that a run whose registry was lost still resumes.
 
     Args:
         weights_directory (Path): The 'Weights' folder of the run.
@@ -55,65 +112,88 @@ def get_last_checkpoint_iteration(weights_directory: Path) -> int:
     Returns:
         int: The iteration of the last saved checkpoint, or 0 if the run has no checkpoint yet.
     """
-    registry_path = weights_directory / CHECKPOINT_REGISTRY_NAME
-    if not registry_path.exists():
-        return 0
+    registry_iterations = read_checkpoint_registry(weights_directory=weights_directory)
+    if registry_iterations is not None:
+        return registry_iterations[0]
 
-    # The first line names the last saved iteration, e.g. 'model_checkpoint_path: "Iteration_2000"'
-    with open(registry_path, "r") as registry_file:
-        first_line = registry_file.readline().strip()
-    return int(first_line.split('"')[1].split("_")[-1])
+    # No readable registry: the newest checkpoint whose weight file is complete
+    saved_iterations = find_saved_checkpoint_iterations(weights_directory=weights_directory)
+    return saved_iterations[-1] if saved_iterations else 0
 
 
 def get_checkpoint_iterations(weights_directory: Path) -> List[int]:
     """
     Lists the iteration of every checkpoint recorded in the registry of a run, the intermediate checkpoints included,
-    so that the evaluation tools can evaluate all of them.
+    so that the evaluation tools can evaluate all of them, or of every complete checkpoint folder when the registry
+    cannot be read.
 
     Args:
         weights_directory (Path): The 'Weights' folder of the run.
 
     Returns:
-        List[int]: The recorded iterations, sorted and without repetition, empty if the run has no registry.
+        List[int]: The recorded iterations, sorted and without repetition, empty if the run has no checkpoint.
     """
-    registry_path = weights_directory / CHECKPOINT_REGISTRY_NAME
-    if not registry_path.exists():
-        return []
+    registry_iterations = read_checkpoint_registry(weights_directory=weights_directory)
+    if registry_iterations is None:
+        return find_saved_checkpoint_iterations(weights_directory=weights_directory)
+    return sorted(set(registry_iterations))
 
-    # Every line names a checkpoint, e.g. 'all_model_checkpoint_paths: "Iteration_2000"'
-    with open(registry_path, "r") as registry_file:
-        registry_lines = [line.strip() for line in registry_file if line.strip()]
-    return sorted({int(line.split('"')[1].split("_")[-1]) for line in registry_lines})
+
+def synchronize_path(path: Path) -> None:
+    """
+    Flushes a file, or the entries of a folder, from the system cache to the disk (fsync), so that a power cut or a
+    crash of the machine right after a checkpoint is saved keeps it (replace_durably).
+
+    Args:
+        path (Path): The file or folder to flush.
+    """
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def replace_durably(temporary_file_path: Path, file_path: Path) -> None:
+    """
+    Moves a fully written temporary file of a checkpoint (weight file or registry) to its final name, so that a crash,
+    a SIGKILL or a power cut never leaves a truncated file: the temporary file is flushed to the disk, then replaces
+    the final file atomically, and the folder is flushed so that the rename itself is on the disk.
+
+    Args:
+        temporary_file_path (Path): The written temporary file, next to the final file.
+        file_path (Path): The final file.
+    """
+    synchronize_path(path=temporary_file_path)
+    os.replace(src=temporary_file_path, dst=file_path)
+    synchronize_path(path=file_path.parent)
 
 
 def update_checkpoint_registry(weights_directory: Path, iteration: int) -> None:
     """
     Records a newly saved checkpoint in the registry of the run: the first line is updated to name it as the last
-    checkpoint, and it is appended to the history of all the checkpoints.
+    checkpoint, and it is appended to the history of all the checkpoints. The registry is written to a temporary file
+    that replaces it atomically (replace_durably), so that a reader never finds it empty or cut.
 
     Args:
         weights_directory (Path): The 'Weights' folder of the run.
         iteration (int): The iteration of the newly saved checkpoint.
     """
-    registry_path = weights_directory / CHECKPOINT_REGISTRY_NAME
-
-    # Read the existing history of the run, if any
-    try:
-        with open(registry_path, "r") as registry_file:
-            registry_lines = registry_file.readlines()
-    except FileNotFoundError:
-        registry_lines = []
+    # History of the run, rebuilt from the checkpoint folders when the registry cannot be read
+    registry_iterations = read_checkpoint_registry(weights_directory=weights_directory)
+    if registry_iterations is None:
+        saved_iterations = [saved_iteration for saved_iteration in find_saved_checkpoint_iterations(
+            weights_directory=weights_directory) if saved_iteration != iteration]
+        registry_iterations = [saved_iterations[-1]] + saved_iterations if saved_iterations else []
 
     # Name the new checkpoint as the last one, then add it to the history
-    last_checkpoint_line = f'model_checkpoint_path: "Iteration_{iteration}"\n'
-    if len(registry_lines) == 0:
-        registry_lines.append(last_checkpoint_line)
-    else:
-        registry_lines[0] = last_checkpoint_line
-    registry_lines.append(f'all_model_checkpoint_paths: "Iteration_{iteration}"\n')
-
-    with open(registry_path, "w") as registry_file:
-        registry_file.writelines(registry_lines)
+    registry_lines = [f'model_checkpoint_path: "Iteration_{iteration}"\n']
+    registry_lines += [f'all_model_checkpoint_paths: "Iteration_{recorded_iteration}"\n'
+                       for recorded_iteration in registry_iterations[1:] + [iteration]]
+    registry_path = weights_directory / CHECKPOINT_REGISTRY_NAME
+    temporary_registry_path = registry_path.with_name(registry_path.name + ".tmp")
+    temporary_registry_path.write_text(data="".join(registry_lines))
+    replace_durably(temporary_file_path=temporary_registry_path, file_path=registry_path)
 
 
 def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, optimizer: torch.optim.Optimizer,
@@ -126,8 +206,9 @@ def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, o
 
     The save cannot be interrupted: Ctrl+C is ignored until both the weight file and the registry are written, since
     copying every GPU tensor to the CPU can take a few seconds and a second Ctrl+C during that time would otherwise
-    leave a corrupted checkpoint. The weights are first written to a temporary file and then renamed, so a checkpoint
-    on disk is always either complete or absent.
+    leave a corrupted checkpoint. The weights and then the registry are first written to temporary files, flushed to
+    the disk and renamed (replace_durably), so a checkpoint on disk is always either complete or absent, even after a
+    SIGKILL, the out-of-memory killer or a power cut.
 
     Args:
         weights_directory (Path): The 'Weights' folder of the run.
@@ -160,9 +241,9 @@ def save_checkpoint(weights_directory: Path, iteration: int, model: nn.Module, o
         if auxiliary_heads_state is not None:
             checkpoint[AUXILIARY_HEADS_STATE_KEY] = auxiliary_heads_state
 
-        # Write to a temporary file, then atomically move it to its final name
+        # Write to a temporary file, then move it to its final name once it is on the disk
         torch.save(obj=checkpoint, f=temporary_checkpoint_path)
-        os.replace(src=temporary_checkpoint_path, dst=checkpoint_path)
+        replace_durably(temporary_file_path=temporary_checkpoint_path, file_path=checkpoint_path)
 
         # Update the registry only once the weight file is complete
         update_checkpoint_registry(weights_directory=weights_directory, iteration=iteration)
@@ -197,22 +278,22 @@ def get_checkpoint_path(experiment_folder: Path, iteration: Optional[int]) -> Pa
 
     Args:
         experiment_folder (Path): The run folder holding 'Weights' and 'training_configuration.yaml'.
-        iteration (Optional[int]): The iteration to load, or None for the last one recorded in the registry.
+        iteration (Optional[int]): The iteration to load, or None for the last one recorded in the registry (or, without
+            a readable registry, the newest complete checkpoint folder).
 
     Returns:
         Path: The path of the checkpoint file.
 
     Raises:
-        FileNotFoundError: If the run has no registry (iteration None), or no checkpoint exists for the iteration.
+        FileNotFoundError: If the run has no checkpoint (iteration None), or no checkpoint exists for the iteration.
     """
     weights_directory = experiment_folder / "Weights"
 
     # Without an explicit iteration, the registry gives the last saved one
     if iteration is None:
-        registry_path = weights_directory / CHECKPOINT_REGISTRY_NAME
-        if not registry_path.exists():
-            raise FileNotFoundError(f"No checkpoint registry found : {format_path_link(path=registry_path)}")
         iteration = get_last_checkpoint_iteration(weights_directory=weights_directory)
+        if iteration == 0:
+            raise FileNotFoundError(f"No checkpoint found in the run : {format_path_link(path=weights_directory)}")
 
     checkpoint_path = get_checkpoint_file(weights_directory=weights_directory, iteration=iteration)
     if not checkpoint_path.exists():
