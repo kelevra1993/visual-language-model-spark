@@ -1,8 +1,10 @@
 # Bugs And Standards
 
 > Audit of the whole repository carried out on 2026-10-20 at commit `165339b`, to go through together. The coding
-> standards S1 to S10 and the bugs B7, B20, B34, B47 and B50 were fixed on 2026-10-20 (not committed yet), the
-> other items are still open. Nine reviewers each read one area end to end (configuration, data generation, data loading, core
+> standards S1 to S10 and the bugs B7, B20, B34, B47 and B50 were fixed on 2026-10-20 (not committed yet). On
+> 2026-10-21, C3, C4 (the anchors and `last_max_pooling`), H6, M6, M7, M8, M17, M20, L13, B9, B11, B30 and B44
+> were fixed, with the host waits of `random_black_out`. The items dropped by the user are deleted from this file,
+> the other items are still open. Nine reviewers each read one area end to end (configuration, data generation, data loading, core
 > models, detection and keypoint models, training loop, task trainers and losses, evaluation and tracking, deployment
 > and scripts) and reproduced their findings with small scripts on the synthetic datasets, the dummy task or hand-made
 > inputs. Every medium and high finding was then read again in the code. The coding standards of the global
@@ -39,17 +41,16 @@
 
 ## Summary
 
-- **No new high bug.** The most serious problems still open are items of the audit of 2026-10-10, each checked again in
-  the code at this commit (see [Items Of suggestions.md Still Open](#items-of-suggestionsmd-still-open)):
-  - **C1:** a NaN or Inf loss is never detected, so one bad batch turns every later weight and checkpoint into NaN
-    ([B13](#b13-a-focal_gamma-between-0-and-1-turns-the-segmentation-gradients-into-nan-once-a-pixel-is-classified-with-certainty) produces such a NaN with an accepted segmentation setting).
+- **No new high bug.** The most serious problems found open at this commit were items of the audit of 2026-10-10, each
+  checked again in the code (see [Items Of suggestions.md Still Open](#items-of-suggestionsmd-still-open)), all fixed
+  on 2026-10-21 except H4 and M9:
   - **C3:** DET and INS count their classes as label dictionary keys and nothing checks their mapping, so merged
     categories crash the first evaluation (found again by three reviewers).
   - **C4 and M17:** run names collide for settings that change the weights (`last_max_pooling`, the anchors, the
     pretrained source, the content of the label mapping), so a different configuration resumes another run.
-  - **H4, H5, H6, M6 to M9 and M20:** missing shortcuts in channel-changing blocks, swallowed save and data errors,
+  - **H4, H6, M6 to M9 and M20:** missing shortcuts in channel-changing blocks, swallowed data errors,
     iterations counted from the resume point, fresh starts mixing two runs, and an empty split looping forever.
-- **59 new bugs:** 19 medium and 40 low, listed by area below. Two come from the commits of
+- **57 new bugs:** 17 medium and 40 low, listed by area below. Two come from the commits of
   2026-10-20: [B7](#b7-motion-blur-of-the-views-the-largest-kernel-size-is-never-drawn-and-the-viewer-describes-kernels-kornia-does-not-apply) (the motion blur kernel sizes of the views) and the solarize bound of [B20](#b20-the-view-augmentation-checks-accept-values-kornia-rejects).
 - **Coding standards:** most rules are respected everywhere (module docstrings, imports, no nested functions, no bare
   `except`, `Args:` docstrings, strict configuration access, linked paths, YAML comments, README layout). The
@@ -66,10 +67,10 @@
 | Core models | [B8](#b8-a-causal-sequence-labeller-or-frame-selector-with-sequence-normalization-uses-the-future-frames), [B9](#b9-a-batch-normalized-classification-head-crashes-on-a-training-batch-of-a-single-vector) | [B32](#b32-backbonecompute_detection_input_information-dry-runs-in-training-mode-with-gradients), [B33](#b33-model-builders-silently-fall-back-on-misspelled-option-strings), [B34](#b34-sequenceclassifier-and-sequencelabeller-are-near-copies) |
 | Detection and keypoint models | [B10](#b10-a-keypoint-head-transfer-compares-only-the-class-names-so-keypoints-in-another-order-land-on-the-wrong-channels) | [B35](#b35-the-eager-evaluation-ignores-the-valid-proposal-mask-so-padding-copies-can-become-duplicate-detections), [B36](#b36-the-rpn-classification-loss-is-nan-when-no-anchor-of-the-batch-is-sampled), [B37](#b37-get_box_dimensions_and_centers-ends-the-process-with-exit-and-status-0-on-a-wrong-box-shape), [B38](#b38-a-detection-head-transfer-from-a-run-saved-before-detectionlevels-fails-with-a-bare-keyerror), [B39](#b39-hrnet-with-feature_map_normalization-none-builds-every-convolution-without-bias), [B40](#b40-the-batch_assign_targets_to_anchors-docstring-promises-a-positive-anchor-for-every-ground-truth), [B41](#b41-detectionheadforward-documents-a-tensor_to_concatenate-argument-it-never-reads), [B42](#b42-training-and-validation-forwards-of-the-detector-do-inference-only-work-with-one-host-synchronisation-per-image) |
 | Training loop | [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved), [B12](#b12-ctrlc-during-a-periodic-save-is-ignored-by-the-trainer-but-kills-the-persistent-loader-workers-the-run-fails-5-iterations-later) | [B43](#b43-resuming-by-launching-the-runs-own-training_configurationyaml-crashes-with-samefileerror), [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries), [B45](#b45-the-console-summary-treats-the-correlation-metrics-as-higher-is-better-a-rising-off-diagonal-correlation-prints-green-with-best), [B46](#b46-iterations-per-epoch-and-the-sample-counts-logged-to-mlflow-come-from-the-manifest-before-the-label-mapping), [B47](#b47-the-self-supervised-k-nn-report-re-implements-the-per-class-rows-table-and-scalars-of-class_metrics_reportpy) |
-| Task trainers and losses | [B13](#b13-a-focal_gamma-between-0-and-1-turns-the-segmentation-gradients-into-nan-once-a-pixel-is-classified-with-certainty) | [B48](#b48-the-det-and-ins-input-viewer-captions-the-boxes-with-raw-category-ids-instead-of-class-names), [B49](#b49-an-evaluation-score-threshold-above-the-deployment-threshold-silently-removes-detections-from-the-confusion-matrix-and-the-images), [B50](#b50-keypointtrainer-copies-four-detectiontrainer-methods-and-frameselectiontrainer-redefines-the-describe_split-it-inherits) |
-| Evaluation and tracking | [B14](#b14-checkpoint-evaluation-keeps-a-nan-headline-value-as-the-best-checkpoint), [B15](#b15-in-mlflow-testbest_metric-of-a-standalone-all-evaluation-shows-the-last-evaluated-value-not-the-best), [B16](#b16-one-artifact-write-failing-with-a-permanent-oserror-blocks-every-later-mlflow-write-and-leaves-the-run-running) | [B51](#b51-keypoint-matched-objects-and-mean-pixel-error-count-predictions-far-from-the-object), [B52](#b52-tied-probabilities-give-every-tied-frame-rank-1-inflating-top-k-selection-accuracy-and-mean-rank), [B53](#b53-mean-iou-mean-dice-and-macro-f1-leave-out-the-classes-predicted-but-absent-from-the-ground-truth), [B54](#b54-a-standalone-evaluation-is-tracked-in-another-mlflow-database-than-the-one-the-launch-panel-prints), [B55](#b55-a-detection-test-split-without-objects-reports-map-and-mar-00-instead-of-no-value) |
+| Task trainers and losses | | [B48](#b48-the-det-and-ins-input-viewer-captions-the-boxes-with-raw-category-ids-instead-of-class-names), [B49](#b49-an-evaluation-score-threshold-above-the-deployment-threshold-silently-removes-detections-from-the-confusion-matrix-and-the-images), [B50](#b50-keypointtrainer-copies-four-detectiontrainer-methods-and-frameselectiontrainer-redefines-the-describe_split-it-inherits) |
+| Evaluation and tracking | [B15](#b15-in-mlflow-testbest_metric-of-a-standalone-all-evaluation-shows-the-last-evaluated-value-not-the-best), [B16](#b16-one-artifact-write-failing-with-a-permanent-oserror-blocks-every-later-mlflow-write-and-leaves-the-run-running) | [B51](#b51-keypoint-matched-objects-and-mean-pixel-error-count-predictions-far-from-the-object), [B52](#b52-tied-probabilities-give-every-tied-frame-rank-1-inflating-top-k-selection-accuracy-and-mean-rank), [B53](#b53-mean-iou-mean-dice-and-macro-f1-leave-out-the-classes-predicted-but-absent-from-the-ground-truth), [B54](#b54-a-standalone-evaluation-is-tracked-in-another-mlflow-database-than-the-one-the-launch-panel-prints), [B55](#b55-a-detection-test-split-without-objects-reports-map-and-mar-00-instead-of-no-value) |
 | Deployment and scripts | [B17](#b17-an-exported-frame-selector-with-averaged-ema-weights-gets-the-confidence-thresholds-of-the-trained-weights), [B18](#b18-a-maximum-batch-size-of-1-crashes-the-onnx-export-and-at-2-the-dynamic-batch-is-never-checked), [B19](#b19-standalone-evaluations-of-another-split-overwrite-and-mix-with-the-earlier-ones-in-the-same-output-folder) | [B56](#b56-evaluate_checkpointpys-default-error-image-setting-stops-seg-kpt-and-ssl-runs-with-a-bare-keyerror), [B57](#b57-a-run-without-checkpoint-registry-is-evaluated-on-nothing-and-the-script-ends-normally), [B58](#b58-a-misspelled-export-format-is-silently-exported-as-onnx-and-its-tensorrt-setting-dropped), [B59](#b59-load_inference_inputs-claims-the-preprocessing-of-the-loaders-but-a-tiled-segmentation-run-gets-a-whole-image-squeezed-into-one-tile) |
-| **Total** | **19** | **40** |
+| **Total** | **17** | **40** |
 
 ## Bugs
 
@@ -192,7 +193,8 @@
   `check_temporal_model_configuration`, or use past-only cumulative statistics; add this case to the causality test.
 
 #### B9. A batch-normalized classification head crashes on a training batch of a single vector
-- **Area:** core models · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer) · **Category:** bug
+- **Area:** core models · **Severity:** medium · **Status:** fixed on 2026-10-21 (found confirmed, reproduced by
+  the reviewer) · **Category:** bug
 - **Where:** `vision_training/models/components/fully_connected_block.py:35, 85-88`; `classification_head.py:181-189`;
   `loaders.py:244` (`drop_last` only for SSL), `359-361` (sequence loaders);
   `configuration_processing/classification_checks.py:97-112` (any batch size accepted).
@@ -221,8 +223,8 @@
   differ (or permute the rows by name); refuse instead of skipping when the names are unknown.
 
 #### B11. Ten failed batch fetches in a row leave through exit(1): the final checkpoint is never saved
-- **Area:** training loop · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer, code read again) ·
-  **Category:** error-handling
+- **Area:** training loop · **Severity:** medium · **Status:** fixed on 2026-10-21 (found confirmed, reproduced
+  by the reviewer, code read again) · **Category:** error-handling
 - **Where:** `vision_training/trainers/base_trainer.py:1215-1231` (`get_next_batch`, `exit(1)` at 1230), called at
   1387-1388 and 1410-1411; final save at 1466; `run_training_loop` 1327-1334.
 - **Problem:** `exit(1)` raises `SystemExit`, which neither the loop's `except Exception` nor `run_training_loop` (only
@@ -248,35 +250,6 @@
   the same weights, Results.txt holds an "Iteration 8" evaluation of them, and a resume starts at 10.
 - **Fix:** record the SIGINT during the save and raise `KeyboardInterrupt` once the save is complete; optionally ignore
   SIGINT in the workers (`worker_init_fn`) so that only the main process shuts them down.
-
-#### B13. A focal_gamma between 0 and 1 turns the segmentation gradients into NaN once a pixel is classified with certainty
-- **Area:** task trainers and losses · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer and
-  again on 2026-10-20: gamma 0.5 and 0.9 give a non-finite gradient at a logit margin of 17, gamma 1.0 and 2.0 do not) ·
-  **Category:** bug
-- **Where:** `vision_training/losses/segmentation_losses.py:48-51` (`(1.0 - target_probabilities) ** focal_gamma`; its
-  docstring says "stable under mixed precision"); `configuration_processing/segmentation_checks.py:169-173` (any
-  `focal_gamma >= 0` accepted).
-- **Problem:** in float32 the softmax gives a true-class probability of exactly 1.0 once the true logit leads by about
-  17, and the derivative of `x ** gamma` at 0 is infinite for gamma below 1, so the backward pass gives NaN on that
-  pixel while the forward loss stays finite; with nothing checking the gradients (item C1 of suggestions.md), the
-  optimizer then writes NaN into every weight.
-- **Failure scenario:** `SegmentationLoss.focal_gamma: 0.5`, accepted by the checker: once an easy background pixel
-  reaches that margin, every weight, every later loss and every checkpoint is NaN (the shipped configurations use 0.0
-  and are safe).
-- **Fix:** clamp `1.0 - target_probabilities` to `torch.finfo(torch.float32).eps` before the power (the reviewer checked
-  that the gradients then stay finite), or refuse 0 < gamma < 1 in the checker.
-
-#### B14. Checkpoint evaluation keeps a NaN headline value as the best checkpoint
-- **Area:** evaluation and tracking · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer) ·
-  **Category:** bug
-- **Where:** `vision_training/evaluation/checkpoint_evaluation.py:143-148`.
-- **Problem:** the best iteration is updated with `value > best` and `value == best`, both always False against a NaN
-  first value; `scripts/evaluation/evaluate_checkpoint.py:75` evaluates "all" from the last checkpoint, the diverged
-  one, and the SSL headline "Effective Rank" is NaN for non-finite representations (the MLflow tracker skips NaN, this
-  code does not).
-- **Failure scenario:** an SSL run diverged at 300: iterations 300, 200, 100 with Effective Rank nan, 30.0, 12.5 print
-  "Best Checkpoint : iteration 300 (Effective Rank nan)".
-- **Fix:** skip non-finite values when updating the best checkpoints, and say so when none is finite.
 
 #### B15. In MLflow, test/best_<metric> of a standalone "all" evaluation shows the last evaluated value, not the best
 - **Area:** evaluation and tracking · **Severity:** medium · **Status:** confirmed (reproduced by the reviewer on a
@@ -468,7 +441,8 @@
 - **Fix:** "2 to 5 objects".
 
 #### B30. A category mapped to 0 to exclude it names the background class and is counted under it in data.json
-- **Area:** data loading · **Severity:** low · **Status:** confirmed (reproduced by the reviewer) · **Category:** bug
+- **Area:** data loading · **Severity:** low · **Status:** fixed on 2026-10-21 (found confirmed, reproduced by the
+  reviewer) · **Category:** bug
 - **Where:** `vision_training/data/label_mapping.py:59-61, 83-97` (`get_class_names`), `data_record.py:132-139`; compare
   `coco_dataset.py:101-104`.
 - **Problem:** a category mapped to 0 is left out of training, but `get_class_names` names class 0 after it and
@@ -632,7 +606,8 @@
 - **Fix:** skip the copy when `os.path.samefile(initial, destination)`.
 
 #### B44. Evaluated checkpoints are overwritten, or left unevaluated, at stop and resume boundaries
-- **Area:** training loop · **Severity:** low · **Status:** confirmed (reproduced by the reviewer, two cases) ·
+- **Area:** training loop · **Severity:** low · **Status:** fixed on 2026-10-21 (found confirmed, reproduced by the
+  reviewer, two cases) ·
   **Category:** bug / documentation
 - **Where:** `vision_training/trainers/base_trainer.py:1366-1367, 1379-1384` (comments and the `training_iteration !=
   self.start_iteration` test), 1466 (final save).
@@ -831,54 +806,49 @@ The status at `165339b` of every item of the
 descriptions and fixes stay in that file.
 - **Open:** the defect described is still in the code.
 - **Partly fixed:** only the part given in the note remains.
-- **Fixed** and **dropped:** as listed at the top of `suggestions.md`; for a dropped item, the note says whether the code
-  changed.
+- **Fixed:** as listed at the top of `suggestions.md`. The items dropped by the user are deleted from the table.
 
 Statuses come from reading the code at this commit. The items re-found by the reviewers were also reproduced.
 
 | Item | Severity there | Status | Note |
 |---|---|---|---|
-| C1. A NaN or Inf loss is never detected | critical | **open** | see below |
 | C2. Label smoothing with class weights favours the rarest class | critical | **open** (latent) | see below |
-| C3. DET and INS count their classes as dictionary keys | critical | **open** | see below |
-| C4. Run names collide for settings that change the weights | critical | **open** | see below; its `dtype` and `input_channels` points are moot (models always float32, 3 channels enforced) |
+| C3. DET and INS count their classes as dictionary keys | critical | fixed | on 2026-10-21: classes counted as distinct values, detection mapping checked |
+| C4. Run names collide for settings that change the weights | critical | fixed | on 2026-10-21: the anchors (`A<counts>.<smallest>-<largest>.<hash>`) and `last_max_pooling` (`LMP`) give tokens, and M17 keeps the classes of a run; its `dtype` and `input_channels` points are moot |
 | H1. The RPN never trains on plain background | high | fixed | `background_iou_threshold.min: 0.0` in the four DET and INS files, warning above 0 (`detection_checks.py:226-234`) |
 | H2. Ground truth boxes never added to the proposals | high | fixed (`a10bb7a`) | `add_ground_truth_proposals`, `two_stage_detector.py:456-461` |
 | H3. Validation crashes when samples x classes < maximum_detections | high | fixed (`a10bb7a`) | candidates padded before `topk` (`postprocessing.py:92-100`); validation still runs the unused postprocessing ([B42](#b42-training-and-validation-forwards-of-the-detector-do-inference-only-work-with-one-host-synchronisation-per-image)) |
 | H4. `residual_nets` does nothing in channel-changing blocks | high | **open** | see below |
-| H5. A failed save or evaluation is swallowed | high | **open** | |
-| H6. An unreadable image silently drops its batch | high | **open** | see below |
+| H6. An unreadable image silently drops its batch | high | fixed | on 2026-10-21: unreadable images named, their batches dropped, counted and reported without stopping the training |
 | M1. Squeeze-and-excitation gates the residual sum | medium | fixed (`f66c7a3`) | |
 | M2. The shortcut is added after the ReLU | medium | fixed (`57eae97`) | |
 | M3. Proposals selected jointly over the levels | medium | **open** | `region_proposer.py:88-103`, shared by `InferenceDetector` |
 | M4. The two NMS thresholds look swapped | medium | fixed | 0.7 and 0.5 in the four DET and INS files |
 | M5. Masks resized with plain nearest are shifted | medium | **partly fixed** | see below; also `preprocessing.py:200-202` restores class maps with `mode="nearest"` |
-| M6. `number_iterations` counts from the resume point | medium | **open** | |
-| M7. `resume_training: false` reuses the run folder | medium | **open** | see below |
-| M8. An empty split loops forever | medium | **open** | |
+| M6. `number_iterations` counts from the resume point | medium | fixed | on 2026-10-21: `number_iterations` is the total of the run |
+| M7. `resume_training: false` reuses the run folder | medium | fixed | on 2026-10-21: the previous training is moved to `v<n>_<run name>` |
+| M8. An empty split loops forever | medium | fixed | on 2026-10-21: refused at launch, two empty passes raise |
 | M9. Training step errors swallowed, stale final save | medium | **open** | |
 | M10. Weight decay on every parameter | medium | **open** (latent) | one `weight_decay` for every group (`base_trainer.py:606-613`); 0.0 in the files read |
-| M12. DET and INS remove crowd annotations | medium | dropped | crowds are now kept as ordinary objects (`coco_dataset.py:75-76, 150-151`) |
 | M13. Decoded image size never compared with the annotations | medium | **partly fixed** | see below; `coco_dataset.py:249` still never compares the decoded shape with the JSON size |
 | M14. Objectness ranked in bfloat16 | medium | **open** (latent) | `region_proposer.py:88` without `.float()`; the shipped DET and INS files keep `mixed_precision: False` |
 | M15. A failed export check leaves the new model served | medium | **open** | |
 | M16. The DET and INS export comparison compares padding | medium | **open** | |
-| M17. The label mapping file is not part of the run | medium | **open** | see below |
+| M17. The label mapping file is not part of the run | medium | fixed | on 2026-10-21: `label_dictionary.json` and checkpoint metadata |
 | M18. CMP member frames ordered as text | medium | **open** | `os_utilities.py:237`; the frames of sequence inference requests too (`deployment_utilities.py:67`) |
-| M20. `Iteration_k` holds k-1 steps | medium | **open** | see also [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries) |
+| M20. `Iteration_k` holds k-1 steps | medium | fixed | on 2026-10-21, with [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries) |
 | M21. TensorRT FP16 never validated, engine cache | medium | **open** | |
 | L1. Anchors centred on the cell corners | low | **open** | `anchors.py:76` |
 | L2. Export crashes for some valid configurations | low | fixed | top-k clamped to the anchors (`region_proposer.py:103`, `inference_detector.py:135`), `dtype` removed, 3 channels enforced (`common_checks.py:273-277`) |
 | L3. The threshold finder returns the lowest valid threshold | low | **open** | `threshold_finder.py:46-48`, which also sets the DET, INS, KPT and SEL class thresholds |
 | L4. Balanced weights do not balance positives in multi-label | low | **open** | `classification_losses.py:37-40`, not documented either |
 | L5. The box-loss normalisation contradicts its comment | low | **open** | see below |
-| L6. The "COCO" mAP uses VOC matching | low | dropped | code unchanged, now documented as the PASCAL VOC rule (`mean_average_precision.py:79-82`) |
 | L7. Zero-area proposals and detections never removed | low | **open** | see below |
 | L8. DET boxes only cleaned on augmented samples | low | **open** | DET and KPT (`coco_dataset.py:118-121`); INS takes its boxes from the masks |
 | L9. Multi-label keeps all-unmapped samples as negatives | low | **open** | `classification_dataset.py:80-85`; the class docstring still says they are left out |
 | L10. Nothing checks one label per frame | low | **open** | a count mismatch now raises in `collate_padded_sequences` (`sequence_dataset.py:138`), and `get_next_batch` drops that batch silently (read, not reproduced) |
 | L11. M2M batches without labelled frame | low | **open** | see below |
-| L13. The checkpoint registry is rewritten in place | low | **open** | |
+| L13. The checkpoint registry is rewritten in place | low | fixed | on 2026-10-21: written to a temporary file, synced and replaced |
 | L14. `run_benchmarking_loop` crashes at its first step | low | **open** | |
 | L15. Loader workers forked from a multi-threaded process | low | **open** | `base_trainer.py:1353` (writers), 1361 (MLflow thread), 1799 (test workers) |
 | L16. A host-GPU synchronisation per step | low | **open** | `metric_tracking.py:133, 165` |
@@ -910,11 +880,6 @@ Statuses come from reading the code at this commit. The items re-found by the re
 
 ### What This Audit Adds
 
-- **C1:** there is still no `isfinite` or `isnan` in `vision_training/trainers/`. Three new findings produce or keep
-  such values:
-  - [B13](#b13-a-focal_gamma-between-0-and-1-turns-the-segmentation-gradients-into-nan-once-a-pixel-is-classified-with-certainty): a focal gamma between 0 and 1;
-  - [B36](#b36-the-rpn-classification-loss-is-nan-when-no-anchor-of-the-batch-is-sampled): a NaN RPN loss with a non-default background threshold;
-  - [B14](#b14-checkpoint-evaluation-keeps-a-nan-headline-value-as-the-best-checkpoint): a NaN headline value kept as the best checkpoint.
 - **C2:** unchanged in `classification_losses.py:34-35`, `segmentation_losses.py:38-40` and `sequence_losses.py:29-31`.
   No shipped configuration smooths the labels, but `tests/trainers/test_segmentation_trainer.py:129` trains with
   "balanced" weights and a smoothing of 0.1.
@@ -1090,11 +1055,10 @@ is still open.
 ## Suggested Order
 
 1. **Training safety and run identity, for all tasks:**
-   - C1 (the NaN guard), which also covers [B13](#b13-a-focal_gamma-between-0-and-1-turns-the-segmentation-gradients-into-nan-once-a-pixel-is-classified-with-certainty) and [B14](#b14-checkpoint-evaluation-keeps-a-nan-headline-value-as-the-best-checkpoint);
    - C3 (the class count of DET and INS), with [B30](#b30-a-category-mapped-to-0-to-exclude-it-names-the-background-class-and-is-counted-under-it-in-datajson);
    - C4 and M17 (run names and the label mapping);
    - M7 (a fresh start reusing a run folder);
-   - then H5, H6, M6, M8, M9, M20 and L13 of suggestions.md, with [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved), [B12](#b12-ctrlc-during-a-periodic-save-is-ignored-by-the-trainer-but-kills-the-persistent-loader-workers-the-run-fails-5-iterations-later),
+   - then H6, M6, M8, M9, M20 and L13 of suggestions.md, with [B11](#b11-ten-failed-batch-fetches-in-a-row-leave-through-exit1-the-final-checkpoint-is-never-saved), [B12](#b12-ctrlc-during-a-periodic-save-is-ignored-by-the-trainer-but-kills-the-persistent-loader-workers-the-run-fails-5-iterations-later),
      [B44](#b44-evaluated-checkpoints-are-overwritten-or-left-unevaluated-at-stop-and-resume-boundaries) and [B9](#b9-a-batch-normalized-classification-head-crashes-on-a-training-batch-of-a-single-vector).
 
    A run name token added to every run would stop the running ImageNet runs from resuming in their folders, so the

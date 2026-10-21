@@ -61,7 +61,7 @@ class TwoStageDetector(TaskModel):
         # Get input image size and total number of classes
         self.input_image_size = self.data_configuration["image_settings"]["size"]
         self.label_dictionary = self.data_configuration["label_dictionary"]
-        self.number_classes = len(self.label_dictionary)
+        self.number_classes = len(set(self.label_dictionary.values()))
 
         # Final detection post-processing settings, applied at inference only
         self.detection_score_threshold = self.detector_configuration["inference"]["score_threshold"]

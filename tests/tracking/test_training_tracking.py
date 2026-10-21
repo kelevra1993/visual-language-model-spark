@@ -222,7 +222,7 @@ def test_training_loop_feeds_the_tracker(tmp_path: Path) -> None:
     assert checkpoint["mlflow_run_id"] == RecordingTracker.RUN_ID
 
     # A resumed training, from the checkpoint of iteration 5
-    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=7, view_input_images=False,
                                           number_sample_images=0)
     resumed_trainer.training_data_analysis_files = {"Analysis Example": analysis_file_path}
     resumed_tracker = RecordingTracker()
@@ -325,9 +325,9 @@ def test_classification_training_and_evaluation_are_tracked(tmp_path: Path, trac
                             weights_only=True)
     assert checkpoint["mlflow_run_id"] == training_run_id
 
-    # Resumption from the checkpoint of iteration 5 for 2 more iterations: the same run, continued
+    # Resumption from the checkpoint of iteration 5 up to iteration 7: the same run, continued
     resumed_configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
-                                                           number_iterations=2, head_settings={},
+                                                           number_iterations=7, head_settings={},
                                                            evaluation_settings={})
     enable_tracking(configuration_path=resumed_configuration_path)
     resumed_trainer = build_trainer(configuration_path=resumed_configuration_path)
@@ -337,7 +337,7 @@ def test_classification_training_and_evaluation_are_tracked(tmp_path: Path, trac
         training_run_id)
     assert resumed_run.info.status == FINISHED_STATUS
     assert (resumed_run.data.tags["resume_count"], resumed_run.data.tags["last_resumed_iteration"]) == ("1", "5")
-    assert resumed_run.data.tags["resumed_5.ExperimentConfiguration.number_iterations"] == "2"
+    assert resumed_run.data.tags["resumed_5.ExperimentConfiguration.number_iterations"] == "7"
     assert read_metric_steps(client=client, run_id=training_run_id, metric_key="train/Total Loss") == [2, 4, 6]
     assert "configuration/training_configuration_resume_5.yaml" in [
         artifact.path for artifact in client.list_artifacts(run_id=training_run_id, path="configuration")]

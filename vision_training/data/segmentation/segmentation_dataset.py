@@ -19,7 +19,7 @@ from typing import Any, Dict, List, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
-from vision_training.data.preprocessing import preprocess_image
+from vision_training.data.preprocessing import preprocess_image, read_image
 from vision_training.utilities.os_utilities import format_path_link
 
 # Value of the pixels without class in the mask files (unlabelled pixels), also given to the padding of the resized
@@ -223,7 +223,7 @@ class SegmentationDataset(Dataset):
             ValueError: If the mask does not have the size of its image.
         """
         sample = self.samples[sample_index]
-        image = cv2.imread(filename=os.path.join(self.data_directory, sample["file_name"]))
+        image = read_image(image_path=os.path.join(self.data_directory, sample["file_name"]))
         mask = self.read_mask(sample=sample)
         if mask.shape != image.shape[:2]:
             raise ValueError(f"The mask {sample['mask_file_name']} has the size {mask.shape}, its image "

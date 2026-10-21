@@ -52,10 +52,15 @@ main()
 │   ├── build_keypoint_sigma_table()                               OKS sigma of every keypoint of every class
 │   └── BaseTrainer.__init__()
 │       ├── get_device() / get_run_name() -> build_run_name() -> build_keypoint_sections()
-│       ├── DataAugmenter() / setup_training_paths()
+│       ├── DataAugmenter()
+│       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
+│       │       the classes of a resumed run kept from its label_dictionary.json (its keypoint definitions read
+│       │       again), a previous training of the same settings moved to v<n>_<run name> when the run starts
+│       │       from scratch, then the run folder with the configuration and label_dictionary.json
 │       ├── build_dataloaders()                                    class_names from the test labels.json
 │       │   └── get_keypoint_dataloaders()
 │       │       └── CocoDetectionDataset(load_keypoints=True) per split    one whole image per sample
+│       ├── check_loaders_give_batches()                           refuses a split whose loader gives no batch
 │       ├── save_data_record()                                     data.json
 │       ├── get_test_sample_classes() + choose_sample_identifiers()       16 fixed test images
 │       ├── build_model()
@@ -74,9 +79,9 @@ main()
 │
 └── trainer.run_training_loop()   [STAGE 3]
     └── run_training_iterations()
-        ├── for each training_iteration:
-        │   ├── save_model() + run_test_evaluation() when due                         -> [STAGE 4]
+        ├── for each training_iteration, from start_iteration to number_iterations (the total of the run):
         │   ├── get_next_batch() -> CocoDetectionDataset.__getitem__() -> add_keypoints()
+        │   │       read_image(); a batch failing to load is dropped and the next one taken
         │   ├── run_model_iteration()
         │   │   ├── prepare_batch()                                                   to the device
         │   │   ├── augment_batch() -> DataAugmenter.augment_batch(keypoints=...)     keypoints moved, never renamed
@@ -89,9 +94,11 @@ main()
         │   │   │   └── compute_tag_losses()                                          pull and push
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
         │   ├── training_loss.backward() / step_optimizer()                           + moving average of the weights
+        │   ├── save_model() on the multiples of weight_saving_iterations and intermediate_weight_saving_iterations
         │   ├── validation batch (no augmentation, the losses without gradients)
-        │   └── average_trackers() + log_interval_metrics() + print_interval_summary()
-        └── final save_model() + run_test_evaluation(), finish_experiment_tracking()
+        │   ├── average_trackers() + log_interval_metrics() + print_interval_summary() + report_dropped_batches()
+        │   └── run_test_evaluation() on the multiples of weight_saving_iterations, last         -> [STAGE 4]
+        └── save_model() of the steps taken since the last checkpoint, if any, finish_experiment_tracking()
 
 run_test_evaluation(iteration)   [STAGE 4]
 ├── evaluate_test_split()                                     trained weights, then use_averaged_weights() for EMA
@@ -278,7 +285,7 @@ KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256
 ```
 
 ### Step 2.4 — `DataAugmenter()` + `setup_training_paths()`
-The augmenter of every task. Its geometric types move the keypoints of the objects with the image (Step 3.4). The run folder is created as for every task (see `classification_workflow.md`).
+The augmenter of every task. Its geometric types move the keypoints of the objects with the image (Step 3.4). The run folder is created as for every task (see `classification_workflow.md`, Step 2.6), with the copy of the configuration and `label_dictionary.json`, the class index of every category of the run: before it, a resumed run keeps the classes of its `label_dictionary.json` when the mapping file now gives others, its keypoint definitions, indexed by class, being read again for them (`restore_run_label_dictionary()`), and a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`). The loaders built next are refused when one of them gives no batch (`check_loaders_give_batches()`).
 
 ### Step 2.5 — `build_dataloaders()` → `get_keypoint_dataloaders()` → `CocoDetectionDataset(load_keypoints=True)`
 `build_dataloaders()` reads `class_names` from the test `labels.json` (`get_class_names()`), gives every class a colour for the sample images, keeps the file name of every test image and calls `get_keypoint_dataloaders()`. It builds one `CocoDetectionDataset` per split, the dataset of the object detection, with `load_keypoints=True` and `maximum_keypoints=18`, and with `load_ignored_regions=True` for the training and validation splits when `KeypointHead.ignore_unlabelled_objects` is on (off here; never for the test split, which computes no loss). The sample is **one whole image** with all its objects, as for the detection. The dataset reads the number of keypoints of every category from the `categories` of the split (0 for the distractors).
@@ -504,21 +511,21 @@ We Generate A New Model That Will Be Trained From Scratch.
 > The examples below are real outputs from a run on CPU of the shortened configuration of the introduction, with the MLflow tracking on. Its run name is the one of Step 2.3. The 60 iterations, with the two test evaluations of the trained and the averaged weights, took 16 min 13 s, about 2 min 30 s per interval of 10 iterations at 0.5 to 0.6 Images Per Second. The shapes inside one batch come from the trainer of Stage 2 on a training batch drawn with seed 0, augmented with seed 3.
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
-The loop of every task (see `classification_workflow.md`, Step 3.1).
+The loop of every task (see `classification_workflow.md`, Step 3.1): from `start_iteration` to `number_iterations`, the total of the run, each iteration takes its training step, then saves its checkpoint, runs its validation batch and prints its summary on the iterations set for each, and evaluates its checkpoint last.
 
-**Example: what happens at each iteration of the run**
+**Example: what happens at each iteration of the run**, in the order of the rows within an iteration, after its training step
 
 | Iteration | 10 | 15 | 20 | 30 | 40 | 45 | 50 | 60 | after the loop |
 |---|---|---|---|---|---|---|---|---|---|
-| Checkpoint saved | | ✔ | | ✔ | | ✔ | | | ✔ (iteration 60) |
-| Test evaluation (trained and EMA weights) | | | | ✔ | | | | | ✔ (iteration 60) |
+| Checkpoint saved | | ✔ | | ✔ | | ✔ | | ✔ | nothing: iteration 60 is saved |
 | Validation batch | ✔ | | ✔ | ✔ | ✔ | | ✔ | ✔ | |
 | Console summary | ✔ | | ✔ | ✔ | ✔ | | ✔ | ✔ | |
+| Test evaluation (trained and EMA weights) | | | | ✔ | | | | ✔ | nothing |
 
-The checkpoint and the evaluation of iteration 30 run at the start of iteration 30, before its batch.
+The checkpoint of iteration 30 is saved right after its training step, and evaluated last in iteration 30, after its validation batch and its summary.
 
 ### Step 3.2 — `setup_tensorboard_writers()` / `start_experiment_tracking()` / `save_model()`
-As for every task. The checkpoint holds the source run of every transferable component of the task, here three: `pretrained_backbone`, `pretrained_high_resolution_network` and `pretrained_keypoint_head` (None without transfer), and the state of the moving average of the weights. The higher resolution branch is part of the keypoint head, so it is transferred with it.
+As for every task: the checkpoints are saved right after the training step of iterations 15, 30, 45 and 60, so that the checkpoint of iteration N holds N steps (see `classification_workflow.md`, Step 3.6), with the label dictionary of the run. The checkpoint holds the source run of every transferable component of the task, here three: `pretrained_backbone`, `pretrained_high_resolution_network` and `pretrained_keypoint_head` (None without transfer), and the state of the moving average of the weights. The higher resolution branch is part of the keypoint head, so it is transferred with it.
 
 **Example output**
 ```text
@@ -534,8 +541,9 @@ Checkpoint Folder :
 Weights/Iteration_15/model_000015.pt   51,083,151 bytes      Weights/Iteration_30/model_000030.pt   51,083,151 bytes
 Weights/Iteration_45/model_000045.pt   51,083,151 bytes      Weights/Iteration_60/model_000060.pt   51,083,151 bytes
 
-checkpoint keys ['exponential_moving_average_state', 'format_version', 'iteration', 'mlflow_run_id', 'model_state', 'optimizer_state',
-                 'pretrained_backbone', 'pretrained_high_resolution_network', 'pretrained_keypoint_head', 'run_name', 'task']
+checkpoint keys ['exponential_moving_average_state', 'format_version', 'iteration', 'label_dictionary', 'mlflow_run_id', 'model_state',
+                 'optimizer_state', 'pretrained_backbone', 'pretrained_high_resolution_network', 'pretrained_keypoint_head', 'run_name',
+                 'task']
 format_version 2   iteration 60   task 'keypoint_detection'   mlflow_run_id '9176e12f26c04c99a115a8f34342d970'
 pretrained_backbone None   pretrained_high_resolution_network None   pretrained_keypoint_head None
 exponential_moving_average_state keys ['model_state', 'number_updates']
@@ -764,15 +772,18 @@ Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 | Train Tag Push Loss | 0.0162 | 0.0124 | 0.0123 | 0.0160 | 0.0148 | 0.0098 |
 | Throughput (Images Per Second) | 0.6 | 0.6 | 0.4 | 0.6 | 0.5 | 0.5 |
 
-The heatmap loss makes almost all of the total loss. It starts near the 10.19 of the untrained model (Step 3.7) and drops as the empty cells go below 0.01; the keypoint cells only rise later. The tag losses stay small at first because the tags all start near 0, which costs nothing to the pull loss; the push loss of a pair of same-class objects on the same tag would be 0.1 × exp(0) = 0.1. The valid losses come from a single batch of 8 images per interval, so they jump from one interval to the next. The interval of iteration 30 took 3 min 5 s instead of about 2 min 30 s, as it holds the two test evaluations of iteration 30.
+The heatmap loss makes almost all of the total loss. It starts near the 10.19 of the untrained model (Step 3.7) and drops as the empty cells go below 0.01; the keypoint cells only rise later. The tag losses stay small at first because the tags all start near 0, which costs nothing to the pull loss; the push loss of a pair of same-class objects on the same tag would be 0.1 × exp(0) = 0.1. The valid losses come from a single batch of 8 images per interval, so they jump from one interval to the next. The interval of iteration 30 took 3 min 5 s instead of about 2 min 30 s, as it held the two test evaluations of iteration 30 when this run was captured, the evaluations then running at the start of their iteration; they now run after the summary of iteration 30, in the interval of iteration 40.
 
 ### Step 3.13 — end of the loop
-**Example output**
+The checkpoint of iteration 60 is saved right after its training step and evaluated last in its iteration, so the loop saves nothing more and evaluates nothing (see `classification_workflow.md`, Step 3.25).
+
+**Example output: the end of iteration 60 and of the loop**
 ```text
-Checkpoint Folder :
+Checkpoint Folder :                                   <- right after the training step of iteration 60
  - Iteration_60
  - Model Saved In : model_000060.pt
-Model successfully saved at iteration 60. Exiting Training.
+...                                                   <- the summary, then the two evaluations of iteration 60 (Stage 4)
+Last Checkpoint Saved At Iteration 60. Exiting Training.
 ```
 
 **Example: the TensorBoard curves after the run**
@@ -789,7 +800,7 @@ Test_EMA has one scalar less, `Keypoint Accuracy/Mean Keypoint Error (pixels)`: 
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The reports below are real outputs of the evaluations of the checkpoints of iterations 30 and 60 of the run of Stage 3, on its whole test split (30 images of 102 objects, of which 90 have keypoints, the 12 others being distractors), with `per_class_report: True` and `number_sample_images: 16`. After 60 iterations on CPU the detector finds almost nothing, so the steps inside one test batch also show the trained weights of iteration 2000 of a GPU run of the same model: `configuration_synthetic_shapes.yaml` with 6000 iterations (cosine decay over 5500) on the 250000 training images, loaded by `load_state_dict()` into the trainer of Stage 2 and run on the first test batch of the same 30 test images. The loaders shuffle every split, so the first test batch differs between two passes; the evaluation does not depend on the order.
+> The reports below are real outputs of the evaluations of the checkpoints of iterations 30 and 60 of the run of Stage 3, on its whole test split (30 images of 102 objects, of which 90 have keypoints, the 12 others being distractors), with `per_class_report: True` and `number_sample_images: 16`. The outputs of iteration 30 were captured when its checkpoint was still saved before its training step, after 29 steps; it now holds 30 steps. After 60 iterations on CPU the detector finds almost nothing, so the steps inside one test batch also show the trained weights of iteration 2000 of a GPU run of the same model: `configuration_synthetic_shapes.yaml` with 6000 iterations (cosine decay over 5500) on the 250000 training images, loaded by `load_state_dict()` into the trainer of Stage 2 and run on the first test batch of the same 30 test images. The loaders shuffle every split, so the first test batch differs between two passes; the evaluation does not depend on the order.
 
 ### Step 4.1 — `run_test_evaluation()` → `evaluate_test_split()`
 The evaluation of every task (see `classification_workflow.md`, Stage 4): the trained weights are evaluated by `evaluate_test_split()`, then the averaged weights in `use_averaged_weights()`, their files written in the `EMA` subfolder of the evaluation folder. The keypoint trainer keeps the default `evaluation_context()`, which changes nothing. The model runs as in deployment: on the whole resized image, without ground truth, every object being found by the grouping of the keypoint candidates. On the CPU of Stage 3, one evaluation of the 30 test images (4 batches of 8) takes about 20 seconds.
@@ -1035,19 +1046,21 @@ The averaged weights follow the trained weights a few iterations behind (the n-t
 ├── Tensorboard/Train/, Validation/, Test/, Test_EMA/
 ├── Weights/Iteration_15/ ... Iteration_60/, full-checkpoint
 ├── Results.txt                        1444 lines
-└── data.json, mlflow_run.json, training_configuration.yaml
+└── data.json, label_dictionary.json, mlflow_run.json, training_configuration.yaml
 ```
 
 ---
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of a copy of `scripts/evaluation/evaluate_checkpoint.py` whose `run_name` and `experiment_folder` point to the run of Stage 3 (checkpoints 15, 30, 45 and 60), with `iteration = "all"`, `batch_size = 16` and the whole test split, on CPU with the MLflow tracking on. The four checkpoints, each with its averaged weights, were evaluated in 2 min 27 s, about 17 s per evaluation.
+> The examples below are real outputs of a copy of `scripts/evaluation/evaluate_checkpoint.py` whose `run_name` and `experiment_folder` point to the run of Stage 3 (checkpoints 15, 30, 45 and 60, captured when those of iterations 15, 30 and 45 were still saved before their training step), with `iteration = "all"`, `batch_size = 16` and the whole test split, on CPU with the MLflow tracking on. The four checkpoints, each with its averaged weights, were evaluated in 2 min 27 s, about 17 s per evaluation.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5).
 
 ### Step 5.2 — trainer construction
+The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file (`classification_workflow.md`, Step 5.2).
+
 Building the trainer prints the panels of Steps 2.10 and 2.11 again. With a batch of 16 images, the test split is 2 batches and an epoch 19 iterations.
 
 **Example: the lines of the launch information that differ from Step 2.10**
@@ -1100,7 +1113,7 @@ experiments/evaluations/<run>/
 ├── Tensorboard/Test/, Test_EMA/
 ├── Weights/                                                                    empty
 ├── Results.txt                                                                 2888 lines
-└── data.json, training_configuration.yaml
+└── data.json, label_dictionary.json, training_configuration.yaml
 ```
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint

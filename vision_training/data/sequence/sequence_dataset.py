@@ -10,7 +10,6 @@ longest sequence. Instantiated by get_sequence_dataloaders of data/loaders.py.
 import json
 import os
 import random
-import cv2
 import numpy as np
 import torch
 
@@ -19,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
-from vision_training.data.preprocessing import preprocess_image
+from vision_training.data.preprocessing import preprocess_image, read_image
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 # Labels read from the manifest: one class per sequence (many to one), one class per frame (many to many), or one class
@@ -59,7 +58,7 @@ def read_sequence_frames(data_directory: str, frame_files: List[str], number_fra
 
     # Read the real frames in order, the remaining ones staying black padding frames
     for frame_index, frame_file in enumerate(frame_files):
-        image = cv2.imread(filename=os.path.join(data_directory, frame_file))
+        image = read_image(image_path=os.path.join(data_directory, frame_file))
         resized_image = preprocess_image(image=image, image_size=image_size, keep_ratio=keep_ratio)
         frames[frame_index] = torch.from_numpy(np.ascontiguousarray(resized_image)).permute(2, 0, 1)
         sequence_mask[frame_index] = True

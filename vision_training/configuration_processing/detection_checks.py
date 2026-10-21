@@ -305,8 +305,8 @@ def check_detector_configuration(model_configuration: Dict[str, Any]) -> List[st
                                                  key_path="Detector.inference.maximum_detections")
     inference_proposals = get_configuration_value(configuration=model_configuration,
                                                   key_path="RegionProposal.inference.post_nms_proposals")
-    number_foreground_classes = len(get_configuration_value(configuration=model_configuration,
-                                                            key_path="Data.label_dictionary")) - 1
+    number_foreground_classes = len(set(get_configuration_value(configuration=model_configuration,
+                                                                key_path="Data.label_dictionary").values())) - 1
     if not maximum_detection_errors and isinstance(inference_proposals, int) and \
             maximum_detections > inference_proposals * number_foreground_classes:
         errors.append(f"'Detector.inference.maximum_detections' ({maximum_detections}) must be <= "
@@ -394,12 +394,53 @@ def check_detection_evaluation_configuration(experiment_configuration: Dict[str,
     return errors
 
 
+def check_detection_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Verifies the label mapping of the object detection and the instance segmentation: in multi-class mode, the classes
+    of the label dictionary are at least two, indexed 0 (the background) to K-1 without gaps, so that the model gets one
+    output per class and every target index exists (original COCO identifiers kept as class indices would leave gaps),
+    and its "background" key is the class 0. A category mapped to 0 is allowed, its objects being left out of the
+    training, but announced in yellow, since a mapping numbered from 0 (as written for the classifiers) silently drops
+    its first category this way.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model sections.
+
+    Returns:
+        List[str]: The description of every inconsistency found.
+    """
+    errors = []
+    label_mode = get_configuration_value(configuration=model_configuration, key_path="Data.label_mapping.mode")
+    if label_mode != "multi_class":
+        return errors
+
+    # Classes indexed from the background 0 without gaps, the background key naming the class 0
+    label_dictionary = get_configuration_value(configuration=model_configuration, key_path="Data.label_dictionary")
+    class_indices = sorted(set(label_dictionary.values()))
+    if len(class_indices) < 2 or class_indices != list(range(len(class_indices))):
+        errors.append(f"The classes of the label mapping must be at least two, indexed 0 (background) to K-1 without "
+                      f"gaps, got {class_indices}.")
+    if "background" in label_dictionary and label_dictionary["background"] != 0:
+        errors.append(f"The 'background' of the label mapping must be the class 0, got "
+                      f"{label_dictionary['background']!r}.")
+
+    # Categories mapped to the background: their objects are not learnt, a way to leave a category out, announced
+    background_categories = [category for category, class_index in label_dictionary.items()
+                             if category != "background" and class_index == 0]
+    if background_categories:
+        print_color(color="yellow", output=f"Warning: the categories {background_categories} of the label mapping are "
+                                           f"mapped to the background class 0: their objects are left out of the "
+                                           f"training.")
+    return errors
+
+
 def check_detection_configuration(experiment_configuration: Dict[str, Any],
                                   model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Runs every check specific to the object detection task: its evaluation settings, its data settings without the
-    sequence settings, its detection levels (anchors and heads of every level), region proposal and detector sections,
-    and the weights of its losses, with the mask loss for the instance segmentation, which runs these checks too.
+    Runs every check specific to the object detection task: its evaluation settings, its label mapping, its data
+    settings without the sequence settings, its detection levels (anchors and heads of every level), region proposal
+    and detector sections, and the weights of its losses, with the mask loss for the instance segmentation, which runs
+    these checks too.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -410,6 +451,7 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
     """
     errors = []
     errors += check_detection_evaluation_configuration(experiment_configuration=experiment_configuration)
+    errors += check_detection_data_configuration(model_configuration=model_configuration)
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
     errors += check_detection_levels(model_configuration=model_configuration)
     errors += check_region_proposal_configuration(model_configuration=model_configuration)

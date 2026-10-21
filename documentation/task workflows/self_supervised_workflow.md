@@ -62,12 +62,17 @@ main()
 │   │   random views of every image.
 │   │
 │   └── BaseTrainer.__init__()
-│       │   Same order as for every task: device, run name, settings, augmenter, paths, loaders, sample images, model,
-│       │   pretrained components, optimizer, metric tracker, printouts, restoration.
+│       │   Same order as for every task: device, run name, settings, augmenter, classes of a resumed run, previous
+│       │   training moved aside, paths, loaders and their check, sample images, model, pretrained components,
+│       │   optimizer, metric tracker, printouts, restoration.
 │       │
-│       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter() / setup_training_paths()
+│       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
 │       │       The run name starts with SSL and ends with the head (PAVG.<layers>-PBN) and the method
 │       │       (SIMCLR-T<temperature> or BT-OD<off-diagonal weight>). The DataAugmenter stays off.
+│       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
+│       │       A resumed run keeps the classes of its label_dictionary.json, a training from scratch renames the
+│       │       run folder of a previous training of the same settings v<n>_<run name>, then the run folder is
+│       │       created with the configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
 │       │   │   Builds the three loaders and names the classes after the categories of the three manifests.
 │       │   │
@@ -80,6 +85,7 @@ main()
 │       │       └── build_native_loader()
 │       │               drop_last for the training and validation loaders, so that every batch has batch_size images,
 │       │               or the GroupedBatchSampler in place of the batch size, the shuffling and drop_last.
+│       ├── check_loaders_give_batches()          refuses a split whose loader gives no batch
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       The 8 fixed test images of the sample images, spread over the classes.
 │       ├── build_model()
@@ -104,10 +110,9 @@ main()
 └── trainer.run_training_loop()  [STAGE 3]
     └── run_training_iterations()
         ├── setup_tensorboard_writers() / initialize_training_loop_state() / start_experiment_tracking()
-        ├── for each training_iteration:
-        │   ├── save_model() + run_test_evaluation() when due                    -> [STAGE 4]
-        │   ├── get_next_batch()
-        │   │   └── ClassificationDataset.__getitem__()
+        ├── for each training_iteration, from start_iteration to number_iterations (the total of the run):
+        │   ├── get_next_batch()                    a batch failing to load is dropped and the next one taken
+        │   │   └── ClassificationDataset.__getitem__() -> read_image()
         │   │           images [B, 3, H, W] uint8, labels [B] int64 (unused by the training), sample_identifiers [B]
         │   ├── set_training_mode()
         │   ├── run_model_iteration()
@@ -122,9 +127,11 @@ main()
         │   │   ├── compute_batch_metrics()         the metrics returned by the model, nothing recomputed
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
         │   ├── training_loss.backward() / step_optimizer()
+        │   ├── save_model() on the multiples of weight_saving_iterations and intermediate_weight_saving_iterations
         │   ├── validation pass every validation_iteration_ratio iterations (new random views, no gradient)
-        │   └── average_trackers() + log_interval_metrics() + print_interval_summary()
-        ├── final save_model() + run_test_evaluation()
+        │   ├── average_trackers() + log_interval_metrics() + print_interval_summary() + report_dropped_batches()
+        │   └── run_test_evaluation() on the multiples of weight_saving_iterations, last    -> [STAGE 4]
+        ├── save_model() of the steps taken since the last checkpoint, if any (nothing evaluated after the loop)
         └── close the writers, finish_experiment_tracking()
 
 run_test_evaluation(iteration)  [STAGE 4]
@@ -310,13 +317,14 @@ ViewAugmenter.view_transformations[1]: Sequential(
 (Kornia prints the aspect ratio range of the crop and of the erased rectangles under the name `resize_to`.)
 
 ### Step 2.6 — `setup_training_paths()`
-Creates the run folder, copies the YAML file into it and writes the data record. The copy is a file copy, so it holds the file as written, not the values changed in memory after loading.
+Creates the run folder, copies the YAML file into it and writes the label dictionary of the run (`label_dictionary.json`), then the constructor writes the data record once the loaders exist. The copy is a file copy, so it holds the file as written, not the values changed in memory after loading. Before it, `restore_run_label_dictionary()` keeps the classes of a resumed run and `move_previous_run_folder()` renames the folder of a previous training of the same settings when the run starts from scratch, as for every task (see `classification_workflow.md`, Step 2.6).
 
 **Example: the run folder after the construction**
 ```text
 Tensorboard/                    folder
 Weights/                        folder
 data.json                       17,000,995 bytes
+label_dictionary.json           the class index of every category of the run
 training_configuration.yaml     23,809 bytes
 ```
 
@@ -488,7 +496,7 @@ barlow_twins: {'total_loss': 'Total Loss', 'barlow_twins_loss': 'Barlow Twins Lo
 - Validation Iter. Ratio  : 5
 - MLflow Tracking         : Off
 ```
-The 3906 iterations per epoch are 500000 / 128 rounded down: the self-supervised trainer sets `DROPS_LAST_TRAINING_BATCH`, since its training loader drops its last incomplete batch, while the other tasks round up.
+The 3906 iterations per epoch are 500000 / 128 rounded down: the self-supervised trainer sets `DROPS_LAST_TRAINING_BATCH`, since its training loader drops its last incomplete batch, while the other tasks round up, except the classification and sequence tasks whose training loader drops it too, for a batch normalized classification head or a view loss (see `classification_workflow.md`, Step 2.10).
 
 ### Step 2.20 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
 The backbone panel, the Projection Head panel of Step 2.15, the receptive field and the size of every component.
@@ -538,16 +546,16 @@ We Generate A New Model That Will Be Trained From Scratch.
 > The examples below are real outputs from a run on CPU of `configuration_synthetic_shapes.yaml` shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, a test split of 1000 images and the MLflow tracking on. Its run name is `SSL_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2`. The construction took 4.8 s and the whole run 27.5 s. The Barlow Twins examples come from the same run with `ProjectionHead.method: barlow_twins` (run name ending `_BT-OD0.005`).
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
-The loop of every task (see `classification_workflow.md`, Step 3.1).
+The loop of every task (see `classification_workflow.md`, Step 3.1): from `start_iteration` to `number_iterations`, the total of the run, each iteration takes its training step, then saves its checkpoint, runs its validation batch and prints its summary on the iterations set for each, and evaluates its checkpoint last.
 
-**Example: what happens at each iteration of the run**
+**Example: what happens at each iteration of the run**, in the order of the rows within an iteration, after its training step
 
 | Iteration | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | after the loop |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| Checkpoint saved | | | ✔ | | | ✔ | | | ✔ | | | | ✔ (iteration 12) |
-| Test evaluation | | | | | | ✔ | | | | | | | ✔ (iteration 12) |
+| Checkpoint saved | | | ✔ | | | ✔ | | | ✔ | | | ✔ | nothing: iteration 12 is saved |
 | Validation batch | | | | | | | | | | ✔ | | | |
 | Console summary | | | | ✔ | | | | ✔ | | | | ✔ | |
+| Test evaluation | | | | | | ✔ | | | | | | ✔ | nothing |
 
 ### Step 3.2 — `setup_tensorboard_writers()`
 **Example: the curves after the run**
@@ -572,7 +580,7 @@ MLflow Run Created In The Experiment 'self_supervised' : 73a1f377fd644212b312f00
 ```
 
 ### Step 3.5 — `save_model()` → `save_checkpoint()`
-The checkpoint holds the whole model, projection head included, so that the training can resume; only the backbone is transferred to other runs.
+Saved right after the training step of iterations 3, 6, 9 and 12, so that the checkpoint of iteration N holds N steps (see `classification_workflow.md`, Step 3.6). The checkpoint holds the whole model, projection head included, so that the training can resume; only the backbone is transferred to other runs.
 
 **Example: the checkpoints and the keys of the last one**
 ```text
@@ -583,16 +591,17 @@ Checkpoint Folder :
 Weights/Iteration_3/model_000003.pt   6,967,751 bytes      Weights/Iteration_6/model_000006.pt   6,967,751 bytes
 Weights/Iteration_9/model_000009.pt   6,967,751 bytes      Weights/Iteration_12/model_000012.pt  6,967,751 bytes
 Weights/full-checkpoint               207 bytes: model_checkpoint_path: "Iteration_12", all_model_checkpoint_paths 3, 6, 9, 12
-['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'mlflow_run_id', 'pretrained_backbone']
+['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'label_dictionary',
+ 'mlflow_run_id', 'pretrained_backbone']
 model_state: 108 tensors, the first 'backbone.convolution_blocks.0.squeeze_and_excitation_layers.0.first_adaptive_recalibrator.weight'
 format_version: 2   task: 'self_supervised'   pretrained_backbone: None
 ```
 
 ### Step 3.6 — `run_test_evaluation()`
-At iterations 6 and 12 (the final checkpoint), see Stage 4.
+At iterations 6 and 12, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), see Stage 4.
 
 ### Step 3.7 — `get_next_batch()` → `ClassificationDataset.__getitem__()`
-The classification dataset reads and resizes every image (see `classification_workflow.md`). The labels come with the batch but the training never reads them.
+The classification dataset reads every image with `read_image()` and resizes it (see `classification_workflow.md`, Steps 3.8 and 3.9): a batch whose image cannot be read is dropped, its error printed once, and the next batch is taken. The labels come with the batch but the training never reads them.
 
 **Example: the first batch of the run**
 ```text
@@ -737,8 +746,8 @@ info_nce_loss = 2.708 (= ln 15)   positive_pair_accuracy = 0.1875   embedding_st
 ```
 In evaluation mode the batch normalization uses its running statistics, which are not yet meaningful after 10 updates: all the embeddings are almost the same (standard deviation 0.0012), so every view is as similar to all the others and the loss is exactly the one of random embeddings. Step 4.9 explains it.
 
-### Step 3.21 — `average_trackers()` + `log_interval_metrics()` + `print_interval_summary()`
-The sums of the interval are divided by the number of batches it ran.
+### Step 3.21 — `average_trackers()` + `log_interval_metrics()` + `print_interval_summary()` + `report_dropped_batches()`
+The sums of the interval are divided by the number of batches it ran. After the summary, the batches dropped since the last one because their loading failed are counted by split, only when there are some (see `classification_workflow.md`, Step 3.24).
 
 **Example: the sums and the averages of the first interval**
 ```text
@@ -794,10 +803,13 @@ Moving Average of Train Embedding Standard Deviation   :   0.7511
 ```
 
 ### Step 3.22 — end of the loop
+The checkpoint of iteration 12 is already saved and evaluated inside its iteration, so the loop saves nothing more and evaluates nothing (see `classification_workflow.md`, Step 3.25).
+
 **Example output**
 ```text
-Model successfully saved at iteration 12. Exiting Training.
-Iteration 12 · 1000 Test Images · 2026-10-16 19:33 ───────────────      <- the evaluation of the final checkpoint
+Iteration 12 · 1000 Test Images · 2026-10-16 19:33 ───────────────      <- the evaluation of iteration 12, last in the iteration
+...
+Last Checkpoint Saved At Iteration 12. Exiting Training.
 ```
 
 
@@ -805,7 +817,7 @@ Iteration 12 · 1000 Test Images · 2026-10-16 19:33 ─────────
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its test split (1000 images of 64×64 pixels, batch size 8), with `per_class_report: True`, `number_sample_images: 8` and `number_neighbours: 20`.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its test split (1000 images of 64×64 pixels, batch size 8), with `per_class_report: True`, `number_sample_images: 8` and `number_neighbours: 20`. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1). The test images are encoded as they are, without views, as in deployment.
@@ -965,7 +977,7 @@ Iteration 12 · 1000 Test Images · 2026-10-16 19:33 ─────────
 **Example: the run folder, TensorBoard and MLflow after the two evaluations**
 ```text
 runs/SSL_IN-KAR-64_..._SIMCLR-T0.2/
-    data.json  mlflow_run.json  Results.txt  training_configuration.yaml
+    data.json  label_dictionary.json  mlflow_run.json  Results.txt  training_configuration.yaml
     Evaluation/Iteration_6/ and Iteration_12/   class_metrics.csv  Samples/ (8)
     Tensorboard/Train, Validation, Test
     Weights/Iteration_3, 6, 9, 12/  full-checkpoint
@@ -986,13 +998,13 @@ With the moving average of the weights on (`Optimization.exponential_moving_aver
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of 200 test images (`test_200`). A second evaluation of the checkpoint of iteration 12 uses the same 200 images without their categories (`test_unlabelled_200`).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of 200 test images (`test_200`). A second evaluation of the checkpoint of iteration 12 uses the same 200 images without their categories (`test_unlabelled_200`).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` to the self-supervised run, and `test_data_folder` to another split if needed. The split does not need labels: without them, only the effective rank and the representation standard deviation are computed (Step 5.6).
 
 ### Step 5.2 — trainer construction
-The script loads `training_configuration.yaml` of the run, points it to the output folder `evaluations/`, the evaluated split and the batch size, calls `disable_pretrained_settings()` (nothing to change here, the run had no pretrained backbone) and builds a `SelfSupervisedTrainer`.
+The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder `evaluations/`, the evaluated split and the batch size, calls `disable_pretrained_settings()` (nothing to change here, the run had no pretrained backbone) and builds a `SelfSupervisedTrainer`.
 
 **Example output** (shortened)
 ```text
@@ -1036,7 +1048,7 @@ The file has 33 columns: the iteration, the 5 global metrics and the 27 per-clas
 **Example: the output folder**
 ```text
 evaluations/SSL_IN-KAR-64_..._SIMCLR-T0.2/
-    data.json  Results.txt  training_configuration.yaml  Weights/ (empty)
+    data.json  label_dictionary.json  Results.txt  training_configuration.yaml  Weights/ (empty)
     Evaluation/evaluation_summary.csv
     Evaluation/Iteration_3, 6, 9, 12/   class_metrics.csv  Samples/
     Tensorboard/Test

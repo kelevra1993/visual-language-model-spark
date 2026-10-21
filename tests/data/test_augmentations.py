@@ -4,12 +4,13 @@ geometric augmentations moving the segmentation masks with nearest interpolation
 instance masks and recomputing their boxes, photometric augmentations keeping boxes, masks and pixel range, images
 without boxes, a single histogram equalization per image, the motion blur streaking a dot along the drawn angle with
 reflected borders, the haze blending every image with its own grey airlight after the other photometric types, the
-black-out hiding whole cells of a set grid drawn one by one, last, shared or per-frame draws of the sequence frames,
-frame shuffling, the rejected inputs, the zoom-out, the translation by whole pixels with the removal of the objects it
-pushes out, the removal of the fragments of objects left by the crop, the aspect crop keeping independent shares of the
-width and of the height and stretching the image, its boxes and masks, the keypoints moved without being renamed and
-unlabelled once out of the image, the ignored regions of the keypoint detection moved with them as binary masks, and the
-augmentation reports written in the information panels of the input viewer.
+black-out hiding whole cells of a set grid drawn one by one, last, without making the host wait for the GPU, shared or
+per-frame draws of the sequence frames, frame shuffling, the rejected inputs, the zoom-out, the translation by whole
+pixels with the removal of the objects it pushes out, the removal of the fragments of objects left by the crop, the
+aspect crop keeping independent shares of the width and of the height and stretching the image, its boxes and masks,
+the keypoints moved without being renamed and unlabelled once out of the image, the ignored regions of the keypoint
+detection moved with them as binary masks, and the augmentation reports written in the information panels of the input
+viewer.
 """
 
 import random
@@ -28,7 +29,7 @@ from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPE
                                                  MINIMUM_CROP_FRACTION, MOTION_BLUR_ANGLE_RANGE,
                                                  MOTION_BLUR_DIRECTION_RANGE, MOTION_BLUR_KERNEL_SIZE_RANGE,
                                                  NOISE_STANDARD_DEVIATION, PHOTOMETRIC_AUGMENTATION_TYPES,
-                                                 build_motion_blur_kernel)
+                                                 build_motion_blur_kernel, compute_cell_indices, send_grid_to_device)
 from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
 
 IMAGE_SIZE = 96
@@ -360,6 +361,62 @@ def test_haze_blends_every_image_with_a_uniform_grey_airlight(monkeypatch: pytes
     expected_mean = 100.0 * (1.0 - largest_strength) + largest_strength * HAZE_AIRLIGHT_RANGE[1]
     assert abs(float(hazy_images.mean()) - expected_mean) < 1.0
     assert abs(float(hazy_images.std()) - NOISE_STANDARD_DEVIATION * (1.0 - largest_strength)) < 1.0
+
+
+def test_black_out_cells_follow_the_rounded_edges_of_the_grid() -> None:
+    """
+    Verifies the cell of every row of pixels computed for the black-out from numbers only: the cells start at the
+    edges index x size / grid size rounded half to even, as Python's round, for every size up to 70 pixels and every
+    grid up to the size, a single cell covering the whole side.
+    """
+    for number_pixels in range(1, 71):
+        for number_cells in range(1, number_pixels + 1):
+            edges = [round(index * number_pixels / number_cells) for index in range(number_cells + 1)]
+            expected_cells = [cell_index for cell_index in range(number_cells)
+                              for _ in range(edges[cell_index + 1] - edges[cell_index])]
+            assert compute_cell_indices(number_pixels=number_pixels, number_cells=number_cells,
+                                        device=torch.device("cpu")).tolist() == expected_cells
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The training batches are augmented on the GPU.")
+def test_black_out_on_the_gpu_never_makes_the_host_wait() -> None:
+    """
+    Verifies the random_black_out type on the GPU, where the training batches are augmented: its grid, drawn on the
+    host, reaches the device as numbers, so that blacking out images and a sequence on a grid whose size does not
+    divide the image never makes the host wait for the device, which the synchronization debug mode of PyTorch turns
+    into an error, and the same draws give the black-out and the reports of the CPU. The grids of one or several
+    packed integers, the bit of their sign included, come back unchanged on the device.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_black_out"],
+                                                                             black_out_grid_size=7))
+    images = torch.rand(size=(4, 3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0
+    sequences = torch.rand(size=(1, 3, 3, IMAGE_SIZE, IMAGE_SIZE)) * 255.0
+    device_images, device_sequences = images.to(device="cuda"), sequences.to(device="cuda")
+    augmenter.augment_batch(images=device_images)
+    torch.cuda.synchronize()
+
+    # Black-out on the GPU with every synchronization of the host turned into an error
+    random.seed(5)
+    torch.cuda.set_sync_debug_mode(debug_mode="error")
+    try:
+        gpu_images, _, _, _, _, _, gpu_reports = augmenter.augment_batch(images=device_images)
+        gpu_sequences = augmenter.augment_batch(images=device_sequences)[0]
+    finally:
+        torch.cuda.set_sync_debug_mode(debug_mode="default")
+
+    # The same draws on the CPU give the same black-out and the same reports
+    random.seed(5)
+    cpu_images, _, _, _, _, _, cpu_reports = augmenter.augment_batch(images=images)
+    cpu_sequences = augmenter.augment_batch(images=sequences)[0]
+    assert gpu_reports == cpu_reports
+    assert torch.equal(input=gpu_images.cpu(), other=cpu_images)
+    assert torch.equal(input=gpu_sequences.cpu(), other=cpu_sequences)
+
+    # Grids of one integer with every cell hidden (sign bit set), of two integers, and one grid per image of a batch
+    for hidden_cells in [torch.ones(size=(8, 8), dtype=torch.bool), torch.rand(size=(10, 10)) < 0.5,
+                         torch.rand(size=(3, 1, 8, 8)) < 0.5]:
+        assert torch.equal(input=send_grid_to_device(hidden_cells=hidden_cells, device=torch.device("cuda")).cpu(),
+                           other=hidden_cells)
 
 
 def test_black_out_hides_whole_cells_of_the_configured_grid_drawn_one_by_one(monkeypatch: pytest.MonkeyPatch) -> None:

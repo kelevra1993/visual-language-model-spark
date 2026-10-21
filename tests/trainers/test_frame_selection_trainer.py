@@ -168,7 +168,7 @@ def test_frame_selection_training_saves_evaluates_and_resumes(tmp_path: Path, ca
 
     # Second run with the same settings: same run folder, resumed from iteration 5 with exactly its weights
     resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
-        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2))
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=7))
     assert resumed_trainer.experiment_folder == trainer.experiment_folder
     assert resumed_trainer.start_iteration == 6
     for parameter_name, parameter_value in resumed_trainer.model.state_dict().items():

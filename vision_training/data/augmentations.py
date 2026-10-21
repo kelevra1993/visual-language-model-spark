@@ -7,7 +7,9 @@ equalizations drawn together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only o
 blend of the haze (apply_haze) and the black-out of the cells of a grid (apply_black_out, described by
 describe_black_out) are shared with the RandomHaze and RandomBlackOut transformations of the self-supervised views, the
 grid size of each being set in its configuration section. The line kernel of the motion blur is drawn on the
-device (build_motion_blur_kernel), so that the host does not wait for the device at every image.
+device (build_motion_blur_kernel), and the grid of the black-out is given to the device as numbers with its cells
+computed there (send_grid_to_device, compute_cell_indices), so that the host does not wait for the device at every
+image.
 Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
 common checks. Every augmented batch comes with a report of the types drawn for each sample and their values, which
 the 'view_input_images' diagnosis mode writes in the information panel next to every training image.
@@ -18,6 +20,7 @@ import random
 import warnings
 import torch
 
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 from torch.nn import functional as torch_functional
 from torchvision import tv_tensors
@@ -154,7 +157,8 @@ def apply_black_out(images: torch.Tensor, hidden_cells: torch.Tensor) -> torch.T
     Blacks out the hidden cells of a grid laid over images, an occlusion that makes a network learn from every region
     of an image instead of the most telling one. Shared by the random_black_out type of DataAugmenter, one grid for an
     image or a sequence, and by the RandomBlackOut transformation of the self-supervised views (view_augmentations.py),
-    one grid per image of a batch.
+    one grid per image of a batch. The grid drawn on the host reaches the device without a copy (send_grid_to_device)
+    and the cell of every pixel is computed there (compute_cell_indices), so that the host never waits for the device.
 
     Args:
         images (torch.Tensor): The images [..., H, W] to black out.
@@ -168,20 +172,88 @@ def apply_black_out(images: torch.Tensor, hidden_cells: torch.Tensor) -> torch.T
     image_height, image_width = images.shape[-2], images.shape[-1]
     number_rows, number_columns = hidden_cells.shape[-2], hidden_cells.shape[-1]
 
-    # Heights and widths of the cells, their edges rounded when a side is not a multiple of the grid size
-    row_edges = [round(index * image_height / number_rows) for index in range(number_rows + 1)]
-    column_edges = [round(index * image_width / number_columns) for index in range(number_columns + 1)]
-    row_sizes = torch.tensor(data=[end - start for start, end in zip(row_edges[:-1], row_edges[1:])],
-                             device=images.device)
-    column_sizes = torch.tensor(data=[end - start for start, end in zip(column_edges[:-1], column_edges[1:])],
-                                device=images.device)
+    # Grid drawn on the host given to the device of the images as numbers, so that the host never waits for a copy
+    if hidden_cells.device != images.device:
+        hidden_cells = send_grid_to_device(hidden_cells=hidden_cells, device=images.device)
 
-    # Spread the kept cells over the pixels and zero the hidden ones, the output sizes being given so that the device
-    # does not wait for the host to read them
-    kept_cells = (~hidden_cells).to(device=images.device, dtype=images.dtype)
-    kept_rows = kept_cells.repeat_interleave(repeats=row_sizes, dim=-2, output_size=image_height)
-    kept_pixels = kept_rows.repeat_interleave(repeats=column_sizes, dim=-1, output_size=image_width)
-    return images * kept_pixels
+    # Cell of every row and column of pixels, then the kept cells spread over the pixels and the hidden ones zeroed
+    row_cells = compute_cell_indices(number_pixels=image_height, number_cells=number_rows, device=images.device)
+    column_cells = compute_cell_indices(number_pixels=image_width, number_cells=number_columns, device=images.device)
+    kept_pixels = (~hidden_cells).index_select(dim=-2, index=row_cells).index_select(dim=-1, index=column_cells)
+    return images * kept_pixels.to(dtype=images.dtype)
+
+
+def send_grid_to_device(hidden_cells: torch.Tensor, device: torch.device) -> torch.Tensor:
+    """
+    Gives the boolean grid of the hidden cells drawn on the host to the device of the images for apply_black_out
+    without any copy: its cells are packed into 64-bit integers on the host, each written on the device by a fill whose
+    value travels with the launch of the kernel, then unpacked there. A copy from the host would make the host wait
+    for the device at every image (a pageable copy), or allocate new pinned memory while the earlier copies are still
+    queued (a pinned copy), both many times slower than the black-out itself.
+
+    Args:
+        hidden_cells (torch.Tensor): The boolean [..., rows, columns] grid of the hidden cells, on the host.
+        device (torch.device): The device of the images.
+
+    Returns:
+        torch.Tensor: The same grid on the device.
+    """
+    # Cells packed by 64 into integers on the host, the last integer padded with kept cells, the bit 63 giving the
+    # sign of an int64
+    number_cells = hidden_cells.numel()
+    padded_cells = torch.zeros(size=(math.ceil(number_cells / 64) * 64,), dtype=torch.int64)
+    padded_cells[:number_cells] = hidden_cells.flatten().to(dtype=torch.int64)
+    packed_words = (padded_cells.view(-1, 64) << torch.arange(end=64, dtype=torch.int64)).sum(dim=1).tolist()
+
+    # Every integer written on the device by a fill, then its bits read back into the cells of the grid
+    device_words = torch.cat([torch.full(size=(1,), fill_value=packed_word, dtype=torch.int64, device=device)
+                              for packed_word in packed_words])
+    device_bits = (device_words.unsqueeze(dim=-1) >> get_bit_offsets(device=device)) & 1
+    return device_bits.flatten()[:number_cells].view(hidden_cells.shape).to(dtype=torch.bool)
+
+
+@lru_cache(maxsize=8)
+def get_bit_offsets(device: torch.device) -> torch.Tensor:
+    """
+    Gives the offsets 0 to 63 of the bits of an int64 on a device, which send_grid_to_device shifts the packed
+    integers by to read their bits, created once per device.
+
+    Args:
+        device (torch.device): The device of the images.
+
+    Returns:
+        torch.Tensor: The int64 [64] offsets.
+    """
+    return torch.arange(end=64, dtype=torch.int64, device=device)
+
+
+@lru_cache(maxsize=64)
+def compute_cell_indices(number_pixels: int, number_cells: int, device: torch.device) -> torch.Tensor:
+    """
+    Gives the cell of every row (or column) of pixels of an image cut into a grid, for apply_black_out, computed on the
+    device of the images from numbers only, so that the host never waits for a copy to the device, and kept for the
+    next images of the same size and grid, which never change it. The cell edges are index x number_pixels /
+    number_cells rounded half to even, as Python's round, computed with integers so that they are exact: a side that
+    is not a multiple of the grid size gives cells differing by one pixel.
+
+    Args:
+        number_pixels (int): The height (or width) of the images in pixels.
+        number_cells (int): The number of rows (or columns) of the grid.
+        device (torch.device): The device of the images.
+
+    Returns:
+        torch.Tensor: The int64 [number_pixels] cell index of every row (or column) of pixels.
+    """
+    # Inner edges of the cells, index x number_pixels / number_cells rounded half to even on the integers
+    numerators = torch.arange(start=1, end=number_cells, device=device, dtype=torch.int64) * number_pixels
+    quotients = torch.div(input=numerators, other=number_cells, rounding_mode="floor")
+    doubled_remainders = 2 * (numerators - quotients * number_cells)
+    rounded_up = (doubled_remainders > number_cells) | ((doubled_remainders == number_cells) & (quotients % 2 == 1))
+    inner_edges = quotients + rounded_up.to(dtype=torch.int64)
+
+    # Cell of every pixel: the number of inner edges at or before it
+    pixel_positions = torch.arange(end=number_pixels, device=device, dtype=torch.int64)
+    return torch.bucketize(input=pixel_positions, boundaries=inner_edges, right=True)
 
 
 def describe_black_out(hidden_cells: torch.Tensor) -> str:

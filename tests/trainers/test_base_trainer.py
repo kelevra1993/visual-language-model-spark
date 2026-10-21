@@ -4,7 +4,9 @@ and tracks the metrics, training saves, evaluates and resumes from its checkpoin
 resumed between two summaries cover the iterations it really ran, a resumed run reports and keeps the configuration
 and the data it changed, the final checkpoint is evaluated on the weights it holds, the evaluation draws the fixed
 sample images, the moving average of the weights is saved, evaluated next to the trained weights and resumed, and the
-input viewer creates no run folder.
+input viewer creates no run folder. A resumed run keeps the classes saved in its folder, a fresh start moves the
+previous training of the same settings aside, unreadable images and failed evaluations never stop the training, a
+training whose data vanished ends with a final checkpoint, and a split without batch is refused.
 """
 
 import copy
@@ -15,13 +17,15 @@ import torch
 
 from pathlib import Path
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
-from typing import Callable, Dict, Optional, Tuple
+from torch.utils.data import DataLoader, Dataset
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from unittest.mock import patch
 
 from tests.fixtures.dummy_task import DummyDataset, DummyTrainer, build_dummy_configurations
 from tests.fixtures.evaluation_checks import read_results_blocks
 from vision_training.configuration_processing.configuration_changes import MISSING_SETTING
 from vision_training.core.contracts import EvaluationResults
+from vision_training.data.label_mapping import RUN_LABEL_DICTIONARY_FILE_NAME
 from vision_training.trainers.checkpointing import CHECKPOINT_FORMAT_VERSION, EXPONENTIAL_MOVING_AVERAGE_STATE_KEY
 from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY
 from vision_training.utilities.os_utilities import format_path_link
@@ -60,10 +64,50 @@ class EvaluationRecorder:
         return self.original_evaluation(iteration=iteration)
 
 
+class VanishingDataset(DummyDataset):
+    """
+    Training split of the dummy task whose data disappears during the run, as when its mount drops: every sample read
+    after the first ones fails, so that a test can check what the training does once no batch can be loaded anymore.
+    """
+
+    def __init__(self, sample_identifiers: List[int], seed: int, readable_samples: int) -> None:
+        """
+        Draws the images and labels of the samples, and counts the samples read.
+
+        Args:
+            sample_identifiers (List[int]): The identifier of every sample.
+            seed (int): The seed of the random images and labels.
+            readable_samples (int): The number of samples read before the data disappears.
+        """
+        super().__init__(sample_identifiers=sample_identifiers, seed=seed)
+        self.readable_samples = readable_samples
+        self.number_read_samples = 0
+
+    def __getitem__(self, sample_index: int) -> Dict[str, Any]:
+        """
+        Returns one sample while the data is there.
+
+        Args:
+            sample_index (int): The index of the sample.
+
+        Returns:
+            Dict[str, Any]: The image, label and sample identifier of the sample.
+
+        Raises:
+            OSError: Once readable_samples samples were read.
+        """
+        self.number_read_samples += 1
+        if self.number_read_samples > self.readable_samples:
+            raise OSError("The data folder is not mounted")
+        return super().__getitem__(sample_index=sample_index)
+
+
 def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_input_images: bool,
                         number_sample_images: int, configuration_text: str = "dummy: true\n",
                         moving_average_activated: bool = False, number_training_samples: int = 8,
-                        allow_data_change_on_resume: bool = False, run_name: Optional[str] = None) -> DummyTrainer:
+                        allow_data_change_on_resume: bool = False, run_name: Optional[str] = None,
+                        resume_training: bool = True, label_dictionary: Optional[Dict[Any, int]] = None,
+                        training_dataset: Optional[Dataset] = None) -> DummyTrainer:
     """
     Builds the trainer of the dummy task in a temporary directory. Its test split has 6 samples but only 4 distinct
     ones, its last batch repeating the first two samples, which must be evaluated only once.
@@ -80,6 +124,12 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
         allow_data_change_on_resume (bool): Whether the run may resume on changed labels. Defaults to False.
         run_name (Optional[str]): The name of the run folder, as given by a standalone evaluation, None for the name
             of the dummy trainer. Defaults to None.
+        resume_training (bool): Whether the run resumes from the last checkpoint of its folder, False to train from
+            scratch. Defaults to True.
+        label_dictionary (Optional[Dict[Any, int]]): The label dictionary given by the mapping file, None for the one
+            of the dummy configuration. Defaults to None.
+        training_dataset (Optional[Dataset]): The training split, None for number_training_samples readable samples.
+            Defaults to None.
 
     Returns:
         DummyTrainer: The trainer, resumed from the last checkpoint of its run folder when there is one.
@@ -92,9 +142,14 @@ def build_dummy_trainer(temporary_directory: Path, number_iterations: int, view_
     experiment_configuration["evaluation"]["number_sample_images"] = number_sample_images
     experiment_configuration["allow_data_change_on_resume"] = allow_data_change_on_resume
     experiment_configuration["run_name"] = run_name
+    experiment_configuration["resume_training"] = resume_training
+    if label_dictionary is not None:
+        model_configuration["Data"]["label_dictionary"] = label_dictionary
     model_configuration["Optimization"]["exponential_moving_average"] = {"activated": moving_average_activated,
                                                                          "decay": 0.5}
-    datasets = {"train": DummyDataset(sample_identifiers=list(range(number_training_samples)), seed=0),
+    if training_dataset is None:
+        training_dataset = DummyDataset(sample_identifiers=list(range(number_training_samples)), seed=0)
+    datasets = {"train": training_dataset,
                 "validation": DummyDataset(sample_identifiers=list(range(4)), seed=1),
                 "test": DummyDataset(sample_identifiers=[0, 1, 2, 3, 0, 1], seed=2)}
     return DummyTrainer(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
@@ -130,9 +185,11 @@ def test_model_iteration_sums_the_losses_and_tracks_the_metrics(tmp_path: Path) 
 def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies the whole generic pipeline on the dummy task: 5 iterations save the intermediate, evaluated and final
-    checkpoints with the task and run name, evaluate every test sample exactly once into Results.txt, and write the
-    three TensorBoard folders; a second run with the same settings resumes from the last checkpoint with exactly its
-    weights and continues the registry. No training step may fail silently.
+    checkpoints with the task and run name, each saved after the step of its iteration (the checkpoint of iteration k
+    holding k optimizer steps), evaluate every test sample exactly once into Results.txt, and write the three
+    TensorBoard folders; a second run with the same settings and a total of 7 iterations resumes from the last
+    checkpoint with exactly its weights, trains the iterations 6 and 7 and continues the registry, and a third one
+    finds the run complete and trains nothing. No training step may fail silently.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -153,14 +210,21 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert (checkpoint["task"], checkpoint["run_name"], checkpoint["iteration"]) == ("dummy_task", "dummy_run", 5)
     assert checkpoint["format_version"] == CHECKPOINT_FORMAT_VERSION and checkpoint["mlflow_run_id"] is None
 
+    # Every checkpoint is saved after the step of its iteration: the one of iteration k holds k optimizer steps
+    for iteration in [2, 4, 5]:
+        saved_checkpoint = torch.load(f=weights_directory / f"Iteration_{iteration}" / f"model_{iteration:06}.pt",
+                                      map_location="cpu", weights_only=True)
+        assert all(parameter_state["step"] == iteration
+                   for parameter_state in saved_checkpoint["optimizer_state"]["state"].values())
+
     # The test split has 6 samples but only 4 distinct ones, each evaluated exactly once
     results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "4 Test Samples")]
     assert "Accuracy" in results_blocks[0]["text"] and "Per Class Recall" in results_blocks[0]["text"]
     assert sorted(path.name for path in trainer.tensorboard_directory.iterdir()) == ["Test", "Train", "Validation"]
 
-    # A second run with the same settings resumes from iteration 5 with exactly its weights
-    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+    # A second run with the same settings and a total of 7 iterations resumes from iteration 5 with exactly its weights
+    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=7, view_input_images=False,
                                           number_sample_images=0)
     assert resumed_trainer.start_iteration == 6
     for parameter_name, parameter_value in resumed_trainer.model.state_dict().items():
@@ -171,10 +235,19 @@ def test_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.Cap
     assert (weights_directory / "full-checkpoint").read_text().splitlines()[0] == 'model_checkpoint_path: "Iteration_7"'
     assert {"Iteration_6", "Iteration_7"} <= {path.name for path in weights_directory.glob("Iteration_*")}
 
+    # A third run with the same total finds the run complete and trains nothing
+    complete_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=7, view_input_images=False,
+                                           number_sample_images=0)
+    assert complete_trainer.start_iteration == 8
+    registry_text = (weights_directory / "full-checkpoint").read_text()
+    complete_trainer.run_training_loop()
+    assert (weights_directory / "full-checkpoint").read_text() == registry_text
+
     # The training loop catches errors and keeps going, so make sure that no iteration failed along the way
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+    assert "The Run Is Already Complete: Its Last Checkpoint Is At Iteration 7" in console_output
 
 
 def test_resumed_interval_averages_the_iterations_it_ran(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
@@ -190,7 +263,7 @@ def test_resumed_interval_averages_the_iterations_it_ran(tmp_path: Path, capsys:
     """
     build_dummy_trainer(temporary_directory=tmp_path, number_iterations=3, view_input_images=False,
                         number_sample_images=0).run_training_loop()
-    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=3, view_input_images=False,
+    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=6, view_input_images=False,
                                           number_sample_images=0)
     assert resumed_trainer.start_iteration == 4
     capsys.readouterr()
@@ -508,8 +581,8 @@ def test_moving_average_turned_on_when_a_run_resumes(tmp_path: Path, capsys: pyt
                             weights_only=True)
     assert EXPONENTIAL_MOVING_AVERAGE_STATE_KEY not in checkpoint
 
-    # The resumed run starts its average from the weights of iteration 2
-    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+    # The resumed run, up to iteration 4, starts its average from the weights of iteration 2
+    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=4, view_input_images=False,
                                           number_sample_images=0, moving_average_activated=True)
     assert "Holds No Moving Average Of The Weights" in capsys.readouterr().out
     assert resumed_trainer.exponential_moving_average.number_updates == 0
@@ -522,3 +595,193 @@ def test_moving_average_turned_on_when_a_run_resumes(tmp_path: Path, capsys: pyt
     results_blocks = read_results_blocks(results_path=resumed_trainer.experiment_folder / "Results.txt")
     assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [
         (4, "4 Test Samples"), (4, "4 Test Samples · EMA Weights")]
+
+
+def test_resumed_run_keeps_its_classes_when_the_mapping_changes(tmp_path: Path,
+                                                                capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that the label dictionary of a run is saved in its folder ('label_dictionary.json') and in its
+    checkpoints, that a run resumed after its mapping file swapped the two classes keeps the classes it was trained
+    with, with a message, and that a run started from scratch takes the classes of the edited mapping file.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    trained_label_dictionary = {"negative": 0, "positive": 1}
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.run_training_loop()
+    run_label_dictionary_path = trainer.experiment_folder / RUN_LABEL_DICTIONARY_FILE_NAME
+    assert json.loads(s=run_label_dictionary_path.read_text()) == trained_label_dictionary
+    checkpoint = torch.load(f=trainer.weights_directory / "Iteration_2" / "model_000002.pt", map_location="cpu",
+                            weights_only=True)
+    assert checkpoint["label_dictionary"] == trained_label_dictionary
+
+    # The mapping file swaps the two classes: the resumed run keeps its own and saves them again
+    swapped_label_dictionary = {"negative": 1, "positive": 0}
+    resumed_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=4, view_input_images=False,
+                                          number_sample_images=0, label_dictionary=swapped_label_dictionary)
+    assert resumed_trainer.start_iteration == 3
+    assert resumed_trainer.label_dictionary == trained_label_dictionary
+    assert resumed_trainer.data_configuration["label_dictionary"] == trained_label_dictionary
+    assert json.loads(s=run_label_dictionary_path.read_text()) == trained_label_dictionary
+    assert "The Label Mapping Changed Since The Run Started, The Run Keeps Its Own Classes" in capsys.readouterr().out
+
+    # A run started from scratch trains the classes of the edited mapping file
+    new_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=4, view_input_images=False,
+                                      number_sample_images=0, label_dictionary=swapped_label_dictionary,
+                                      resume_training=False)
+    assert new_trainer.label_dictionary == swapped_label_dictionary
+    assert json.loads(s=run_label_dictionary_path.read_text()) == swapped_label_dictionary
+
+
+def test_fresh_start_moves_the_previous_training_aside(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a run started from scratch ('resume_training' false) in the folder of a previous training of the
+    same settings moves that folder aside as 'v1_<run name>', then 'v2_<run name>' at the next restart, so that the
+    checkpoints, registry and results of two trainings are never mixed, and that a standalone evaluation naming the run
+    folder moves nothing.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    experiments_folder = tmp_path / "experiments"
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+                                  number_sample_images=0)
+    trainer.run_training_loop()
+    assert trainer.previous_run_folder is None
+
+    # A first restart moves the trained run aside, the new training starting from iteration 1 in an empty run folder
+    restarted_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2, view_input_images=False,
+                                            number_sample_images=0, resume_training=False)
+    assert restarted_trainer.previous_run_folder == experiments_folder / "v1_dummy_run"
+    assert (experiments_folder / "v1_dummy_run" / "Weights" / "Iteration_2" / "model_000002.pt").is_file()
+    assert restarted_trainer.start_iteration == 1
+    assert list(restarted_trainer.weights_directory.glob(pattern="Iteration_*")) == []
+    restarted_trainer.run_training_loop()
+    assert (restarted_trainer.weights_directory / "full-checkpoint").read_text().splitlines()[1:] == [
+        'all_model_checkpoint_paths: "Iteration_2"']
+    assert "The Previous Training Of The Same Settings Is Moved To" in capsys.readouterr().out
+
+    # A second restart keeps the first training and moves the second one aside
+    second_restarted_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2,
+                                                   view_input_images=False, number_sample_images=0,
+                                                   resume_training=False)
+    assert second_restarted_trainer.previous_run_folder == experiments_folder / "v2_dummy_run"
+    assert sorted(path.name for path in experiments_folder.iterdir()) == ["dummy_run", "v1_dummy_run",
+                                                                         "v2_dummy_run"]
+
+    # A standalone evaluation names the run folder it reads, which is never moved
+    evaluation_trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=2,
+                                             view_input_images=False, number_sample_images=0, run_name="dummy_run",
+                                             resume_training=False)
+    assert evaluation_trainer.previous_run_folder is None
+    assert sorted(path.name for path in experiments_folder.iterdir()) == ["dummy_run", "v1_dummy_run",
+                                                                         "v2_dummy_run"]
+
+
+def test_unreadable_images_drop_their_batches_without_stopping_the_training(tmp_path: Path,
+                                                                            capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a training batch holding an unreadable image is dropped without stopping the training: the image is
+    named once in the run however many times its batch comes back, the dropped batches are counted in the next console
+    summary and only there, and every iteration still trains on a batch.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    # Unshuffled batches [0, 1], [2, 3], [4, 5], [6, 7]: the batch of the image 3 is dropped at iterations 2 and 5
+    training_dataset = DummyDataset(sample_identifiers=list(range(8)), seed=0, unreadable_identifiers=[3])
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=6, view_input_images=False,
+                                  number_sample_images=0, training_dataset=training_dataset)
+    trainer.run_training_loop()
+    console_output = capsys.readouterr().out
+    assert console_output.count("Training Batch Dropped : The image cannot be read : 3.png") == 1
+    assert console_output.count("- Dropped Batches Since The Last Summary : Training 1 (their loading failed") == 2
+    assert "Error encountered during iteration" not in console_output
+
+    # Every iteration took its step, the last checkpoint holding the 6 steps
+    checkpoint = torch.load(f=trainer.weights_directory / "Iteration_6" / "model_000006.pt", map_location="cpu",
+                            weights_only=True)
+    assert all(parameter_state["step"] == 6 for parameter_state in checkpoint["optimizer_state"]["state"].values())
+
+
+def test_failed_evaluation_keeps_its_checkpoint_and_the_training_going(tmp_path: Path,
+                                                                       capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a test evaluation failing at a weight saving iteration (e.g. an unreadable test image) is counted as
+    an error of its iteration without stopping the training: the checkpoint of the iteration, saved right after its
+    step and before the evaluation, holds its 4 steps, the next iterations train and save as usual, and the last
+    checkpoint, whose evaluation failed too, is announced as not evaluated instead of being saved again.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=8, view_input_images=False,
+                                  number_sample_images=0)
+    with patch.object(target=trainer, attribute="run_test_evaluation",
+                      side_effect=ValueError("The image cannot be read : test.png")):
+        trainer.run_training_loop()
+    console_output = capsys.readouterr().out
+    assert "Error encountered during iteration 4." in console_output
+    assert "Error encountered during iteration 8." in console_output
+    assert "The Checkpoint Of Iteration 8 Was Not Evaluated" in console_output
+    assert sorted(path.name for path in trainer.weights_directory.glob(pattern="Iteration_*")) == [
+        "Iteration_2", "Iteration_4", "Iteration_6", "Iteration_8"]
+    assert (trainer.weights_directory / "full-checkpoint").read_text().splitlines()[0] == (
+        'model_checkpoint_path: "Iteration_8"')
+    checkpoint = torch.load(f=trainer.weights_directory / "Iteration_4" / "model_000004.pt", map_location="cpu",
+                            weights_only=True)
+    assert all(parameter_state["step"] == 4 for parameter_state in checkpoint["optimizer_state"]["state"].values())
+
+
+def test_vanished_data_ends_the_training_with_a_final_checkpoint(tmp_path: Path,
+                                                                capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a training whose data disappears (every sample read failing after the third batch) stops after its
+    consecutive errors instead of leaving the process, and saves a final checkpoint of the steps taken since its last
+    one: the third step, after the intermediate checkpoint of iteration 2.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    # 20 batches of 2 samples per pass, the first 3 readable
+    training_dataset = VanishingDataset(sample_identifiers=list(range(40)), seed=0, readable_samples=6)
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=20, view_input_images=False,
+                                  number_sample_images=0, training_dataset=training_dataset)
+    trainer.run_training_loop()
+    console_output = capsys.readouterr().out
+    assert "10 fetches of a Training batch failed in a row, the last one with: The data folder is not mounted" in (
+        console_output)
+    assert "Critical Error" in console_output
+    assert "Last Checkpoint Saved At Iteration 3. Exiting Training." in console_output
+    checkpoint = torch.load(f=trainer.weights_directory / "Iteration_3" / "model_000003.pt", map_location="cpu",
+                            weights_only=True)
+    assert all(parameter_state["step"] == 3 for parameter_state in checkpoint["optimizer_state"]["state"].values())
+
+
+def test_split_without_batch_is_refused(tmp_path: Path) -> None:
+    """
+    Verifies that a split giving no batch (e.g. every sample left out by the label mapping) is refused before the
+    training with the split named, instead of waiting forever for a batch, and that a loader whose passes keep ending
+    without any batch raises after two passes.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    trainer = build_dummy_trainer(temporary_directory=tmp_path, number_iterations=1, view_input_images=False,
+                                  number_sample_images=0)
+    empty_loader = DataLoader(dataset=[], batch_size=2)
+    trainer.validation_dataloader = empty_loader
+    with pytest.raises(expected_exception=ValueError,
+                       match="The 'validation_data_folder' split gives no batch: its dataset keeps 0 samples"):
+        trainer.check_loaders_give_batches()
+    with pytest.raises(expected_exception=RuntimeError,
+                       match="The Validation loader gives no batch: 2 passes over its split ended without any."):
+        trainer.get_next_batch(dataloader_iterator=iter(empty_loader), dataloader=empty_loader,
+                               split_name="Validation")

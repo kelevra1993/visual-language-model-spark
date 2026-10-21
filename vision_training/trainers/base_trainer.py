@@ -16,6 +16,7 @@ import numpy as np
 import torch
 
 from abc import ABC, abstractmethod
+from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -29,13 +30,16 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple
 
 from vision_training.configuration_processing.configuration_changes import (ConfigurationChanges, find_changed_settings,
                                                                             format_setting_value)
-from vision_training.configuration_processing.configuration_loader import load_configuration
+from vision_training.configuration_processing.configuration_loader import (inject_keypoint_categories,
+                                                                           load_configuration)
 from vision_training.configuration_processing.run_name import build_run_name
 from vision_training.core.contracts import LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, EvaluationResults
 from vision_training.data.augmentations import DataAugmenter
 from vision_training.data.data_record import (CLASSES_RECORD_KEY, COMPARED_SPLIT_ENTRIES, DATA_RECORD_FILE_NAME,
                                               DATA_RECORD_SPLITS, RELABELLED_SPLIT_ENTRIES, DataRecordChanges,
                                               build_class_records, build_split_record, find_changed_splits)
+from vision_training.data.label_mapping import (RUN_LABEL_DICTIONARY_FILE_NAME, read_run_label_dictionary,
+                                                write_run_label_dictionary)
 from vision_training.evaluation.evaluation_report import report_evaluation_results
 from vision_training.evaluation.report_formatting import HEADER_SEPARATOR
 from vision_training.evaluation.sample_selection import choose_sample_identifiers
@@ -75,6 +79,10 @@ AVERAGED_WEIGHTS_TENSORBOARD_FOLDER = "Test_EMA"
 AVERAGED_WEIGHTS_LABEL = "EMA Weights"
 AVERAGED_WEIGHTS_METRIC_PREFIX = "test_ema"
 
+# Passes over a split ending without any batch after which the fetch of a batch gives up, an empty loader restarting
+# forever otherwise (get_next_batch)
+MAXIMUM_EMPTY_PASSES = 2
+
 
 class BaseTrainer(ABC):
     """
@@ -97,7 +105,8 @@ class BaseTrainer(ABC):
     SAMPLE_NAME = "Images"
 
     # Whether the training loader leaves out the last incomplete batch of every epoch, True for the self-supervised
-    # task whose losses compare the samples of a full batch, so that an epoch has one iteration less
+    # task whose losses compare the samples of a full batch, so that an epoch has one iteration less; the
+    # classification trainer decides it from its settings instead (drops_last_training_batch)
     DROPS_LAST_TRAINING_BATCH = False
 
     # Whether the real frames of the training batches are counted for a frame throughput, True for the sequence tasks
@@ -163,8 +172,6 @@ class BaseTrainer(ABC):
         self.tracking_configuration = self.experiment_configuration["tracking"]
         self.experiment_tracker = DisabledTracker()
 
-        self.label_dictionary = self.data_configuration["label_dictionary"]
-
         # Random augmentation of the training batches, applied on their device right before the forward pass
         self.data_augmenter = DataAugmenter(augmentation_configuration=self.data_configuration["data_augmentation"])
         self.input_image_size = self.data_configuration["image_settings"]["size"]
@@ -172,9 +179,18 @@ class BaseTrainer(ABC):
         self.resume_training = self.experiment_configuration["resume_training"]
         self.allow_data_change_on_resume = self.experiment_configuration["allow_data_change_on_resume"]
 
+        # Classes of the run: those saved in its folder for a resumed run, the mapping file giving them otherwise
+        self.restore_run_label_dictionary()
+        self.label_dictionary = self.data_configuration["label_dictionary"]
+
         # A resume on changed labels is refused before the run folder is touched, changed data asking for a new run
         if not self.diagnosis_modes["view_input_images"]:
             self.check_resumed_data()
+
+        # A training started from scratch moves aside the folder of a previous training of the same settings
+        self.previous_run_folder = None
+        if not self.diagnosis_modes["view_input_images"]:
+            self.previous_run_folder = self.move_previous_run_folder()
 
         # Paths of the run folder, created with the copy of the configuration only for a training: the input viewer
         # exits without training, so it leaves no empty run folder and never overwrites the configuration of a run. A
@@ -191,10 +207,16 @@ class BaseTrainer(ABC):
         self.test_writer = None
         self.averaged_test_writer = None
 
+        # Batches dropped since the last console summary because their loading failed, by split, and the errors
+        # already printed, every distinct one being printed once in the run (get_next_batch)
+        self.dropped_batch_counts = Counter()
+        self.reported_fetch_errors = set()
+
         # Setting up dataloaders
         print_color(color="blue",
                     output="Initializing Training, Validation And Test DataLoaders...", add_separators=True)
         self.train_dataloader, self.validation_dataloader, self.test_dataloader = self.build_dataloaders()
+        self.check_loaders_give_batches()
 
         # Record of the images of every split next to the configuration, written for a training only like the run
         # folder, a resumed run whose data changed keeping the record of its previous data
@@ -785,10 +807,11 @@ class BaseTrainer(ABC):
 
         This method acts as the initialization step for experiment storage: it gives the paths of the `Tensorboard`
         and `Weights` directories and of the archived configuration within the run folder and, for a training, creates
-        the directories and archives the configuration file of the run there before the training loop commences. A
-        resumed run first compares the launched configuration with the saved one (see
-        compare_with_saved_configuration), which the copy replaces. The input viewer, which exits without training,
-        only needs the paths.
+        the directories and archives the configuration file and the label dictionary of the run there
+        ('label_dictionary.json', read back by restore_run_label_dictionary and by the configuration loader of the
+        evaluation, export and model loading tools) before the training loop commences. A resumed run first compares
+        the launched configuration with the saved one (see compare_with_saved_configuration), which the copy replaces.
+        The input viewer, which exits without training, only needs the paths.
 
         Args:
             initial_configuration_path (Path): The original path of the experiment configuration file.
@@ -823,6 +846,9 @@ class BaseTrainer(ABC):
 
         # Save a copy of the configuration file
         copyfile(src=str(initial_configuration_path), dst=str(new_configuration_path))
+
+        # Save the classes of the run, those of the mapping file or, for a resumed run, those it kept
+        write_run_label_dictionary(label_dictionary=self.label_dictionary, run_folder=self.experiment_folder)
 
         return tensorboard_directory, weights_directory, new_configuration_path, configuration_changes
 
@@ -864,6 +890,91 @@ class BaseTrainer(ABC):
             copyfile(src=str(saved_configuration_path), dst=str(archived_configuration_path))
         return ConfigurationChanges(resumed_iteration=resumed_iteration, changed_settings=changed_settings,
                                     archived_configuration_path=archived_configuration_path)
+
+    def drops_last_training_batch(self) -> bool:
+        """
+        Tells whether the training loader of the task leaves out the last incomplete batch of every epoch, for the
+        iterations per epoch printed at launch: DROPS_LAST_TRAINING_BATCH, True for the self-supervised task, and
+        overridden by the classification trainer, whose training needs full batches with batch statistics.
+
+        Returns:
+            bool: True when the last incomplete training batch is left out.
+        """
+        return self.DROPS_LAST_TRAINING_BATCH
+
+    def check_loaders_give_batches(self) -> None:
+        """
+        Refuses a run whose training or test loader, or validation loader when the validation is on, gives no batch,
+        before anything is trained: an empty split, or a split whose every sample has a category left out by the label
+        mapping, would make the training loop wait for a batch that never comes.
+
+        Raises:
+            ValueError: If a checked loader gives no batch.
+        """
+        checked_loaders = {"train_data_folder": self.train_dataloader, "test_data_folder": self.test_dataloader}
+        if self.validation_iteration_ratio > 0:
+            checked_loaders["validation_data_folder"] = self.validation_dataloader
+
+        # The number of batches of a pass, which counts the samples kept by the dataset after the label mapping
+        for split_key, loader in checked_loaders.items():
+            if len(loader) == 0:
+                raise ValueError(f"The '{split_key}' split gives no batch: its dataset keeps {len(loader.dataset)} "
+                                 f"samples of {format_path_link(path=self.experiment_configuration[split_key])}, check "
+                                 f"the folder and the label mapping.")
+
+    def restore_run_label_dictionary(self) -> None:
+        """
+        Keeps the classes of a resumed run: the label dictionary saved in its folder ('label_dictionary.json', written
+        by setup_training_paths) replaces the one built from the mapping file, which may have been edited since with
+        as many classes (another number of classes gives another run name, hence another folder), so that the classes
+        of its checkpoints keep their meaning. The change is printed in yellow, and the keypoint definitions of the
+        keypoint detection, indexed by class, are read again for the restored classes. A new run, a run without
+        checkpoint and a run started before the file existed take the mapping file.
+        """
+        if not self.resume_training or not get_last_checkpoint_iteration(
+                weights_directory=self.experiment_folder / "Weights"):
+            return
+        run_label_dictionary = read_run_label_dictionary(run_folder=self.experiment_folder)
+        if run_label_dictionary is None or run_label_dictionary == self.data_configuration["label_dictionary"]:
+            return
+        print_color(color="yellow",
+                    output=f"The Label Mapping Changed Since The Run Started, The Run Keeps Its Own Classes : "
+                           f"{format_path_link(path=self.experiment_folder / RUN_LABEL_DICTIONARY_FILE_NAME)}",
+                    add_separators=True)
+        self.data_configuration["label_dictionary"] = run_label_dictionary
+
+        # Keypoint definitions indexed by the classes of the mapping file, read again for the classes of the run
+        if "keypoint_categories" in self.data_configuration:
+            inject_keypoint_categories(experiment_configuration=self.experiment_configuration,
+                                       model_configuration=self.model_configuration)
+
+    def move_previous_run_folder(self) -> Optional[Path]:
+        """
+        Moves aside the folder of a previous training of the same settings when a run starts from scratch
+        ('ExperimentConfiguration.resume_training' false), before the new training writes anything, so that the
+        checkpoints, registry, TensorBoard logs, results and MLflow run record of the two trainings are never mixed:
+        the folder is renamed 'v<n>_<run name>' in the experiments root folder, n being the first number not taken
+        (v1 for the first restart, v2 for the next one, the new training always keeping the run name). A standalone
+        evaluation, which names the evaluated run folder ('run_name'), and an empty or missing folder are left as
+        they are.
+
+        Returns:
+            Optional[Path]: The folder the previous training was moved to, None when nothing was moved.
+        """
+        if self.resume_training or self.experiment_configuration["run_name"] is not None or \
+                not self.experiment_folder.is_dir() or not any(self.experiment_folder.iterdir()):
+            return None
+
+        # First version number not taken by an earlier restart of the same settings
+        version = 1
+        while (self.experiment_folder.parent / f"v{version}_{self.run_name}").exists():
+            version += 1
+        previous_run_folder = self.experiment_folder.parent / f"v{version}_{self.run_name}"
+        self.experiment_folder.rename(previous_run_folder)
+        print_color(color="yellow",
+                    output=f"The Run Starts From Scratch, The Previous Training Of The Same Settings Is Moved To : "
+                           f"{format_path_link(path=previous_run_folder)}", add_separators=True)
+        return previous_run_folder
 
     def check_resumed_data(self) -> None:
         """
@@ -967,6 +1078,9 @@ class BaseTrainer(ABC):
         print_color(color="blue", output=f"- Configuration File      : "
                                          f"{format_path_link(path=self.configuration_path)}")
         print_color(color="blue", output=f"- Data Record             : {format_path_link(path=self.data_record_path)}")
+        if self.previous_run_folder is not None:
+            print_color(color="yellow", output=f"- Previous Training Moved : "
+                                               f"{format_path_link(path=self.previous_run_folder)}")
         if self.diagnosis_modes["view_input_images"]:
             print_color(color="yellow", output="- Run Folder Not Created  : The Input Viewer Exits Without Training")
 
@@ -991,7 +1105,7 @@ class BaseTrainer(ABC):
         # One epoch is a full pass over the training samples, without the last incomplete batch when the training
         # loader leaves it out
         self.iterations_per_epoch = math.ceil(self.number_samples_per_split["train_data_folder"] / self.batch_size)
-        if self.DROPS_LAST_TRAINING_BATCH:
+        if self.drops_last_training_batch():
             self.iterations_per_epoch = self.number_samples_per_split["train_data_folder"] // self.batch_size
         # The length of the run and the iterations at which it saves and evaluates its weights
         print_color(color="blue", output=f"- Iterations Per Epoch    : {self.iterations_per_epoch}")
@@ -1187,48 +1301,89 @@ class BaseTrainer(ABC):
         return ["", "Augmentations"] + self.data_augmenter.describe_report(
             report=batch["augmentation_reports"][sample_index], label_names=label_names, real_frames=real_frames)
 
-    @staticmethod
-    def get_next_batch(dataloader_iterator: _BaseDataLoaderIter, dataloader: DataLoader,
+    def get_next_batch(self, dataloader_iterator: _BaseDataLoaderIter, dataloader: DataLoader, split_name: str,
                        maximum_consecutive_errors: int = 10) -> Tuple[Dict[str, Any], _BaseDataLoaderIter]:
         """
-        Retrieves the next batch of elements from the dataloader iterator for the training or evaluation pipeline.
-
-        If the iterator is exhausted, it gracefully re-initializes it from the original dataloader.
-        If an exception is encountered during data loading, it continues attempting to fetch the
-        next available batch, up to a maximum number of consecutive failures.
+        Retrieves the next training or validation batch for the training and benchmarking loops, restarting the loader
+        at the end of every pass over its split, which reshuffles it. A batch whose loading fails (e.g. an unreadable
+        image, named by its dataset) is dropped and the next one taken, so that a few bad files never stop a training:
+        every distinct error is printed the first time it occurs, and the dropped batches of every split are counted
+        and printed with the next console summary (report_dropped_batches).
 
         Args:
             dataloader_iterator (_BaseDataLoaderIter): The current iterator for the dataloader.
             dataloader (DataLoader): The original dataloader object used to reset the iterator.
-            maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before exiting.
-                Defaults to 10.
+            split_name (str): The split of the loader, "Training" or "Validation", naming it in the messages and in
+                the counts of the dropped batches.
+            maximum_consecutive_errors (int): The number of failed fetches in a row after which the loading is taken
+                as broken (e.g. a data folder that disappeared). Defaults to 10.
 
         Returns:
             Tuple[Dict[str, Any], _BaseDataLoaderIter]: A tuple containing the batch data dictionary,
                 and the potentially refreshed dataloader iterator.
 
         Raises:
-            SystemExit: If more than maximum_consecutive_errors consecutive exceptions occur.
+            RuntimeError: If maximum_consecutive_errors fetches fail in a row, or if MAXIMUM_EMPTY_PASSES passes over
+                the split end without any batch, an error which the training loop counts like the other errors of an
+                iteration and after which it still saves its last checkpoint.
         """
-        error_counts = 0
+        consecutive_errors = 0
+        empty_passes = 0
         while True:
             try:
-                data_dictionary = next(dataloader_iterator)
-                break
+                return next(dataloader_iterator), dataloader_iterator
             except StopIteration:
+                # A pass ends: the loader restarts, unless the passes keep ending without any batch, which would
+                # otherwise loop forever on an empty split
+                empty_passes += 1
+                if empty_passes >= MAXIMUM_EMPTY_PASSES:
+                    raise RuntimeError(f"The {split_name} loader gives no batch: {empty_passes} passes over its split "
+                                       f"ended without any.")
                 dataloader_iterator = iter(dataloader)
             except Exception as exception:
-                error_counts += 1
-                if error_counts > maximum_consecutive_errors:
-                    print_color(color="red",
-                                output=f"Critical Error: Over {maximum_consecutive_errors} consecutive errors "
-                                       f"encountered during the fetch of the next batch. Exiting.",
-                                add_separators=True)
-                    print(f"Last exception: {exception}")
-                    exit(1)
-                continue
+                # The batch is dropped and counted for the next console summary, its error printed the first time
+                consecutive_errors += 1
+                self.dropped_batch_counts[split_name] += 1
+                self.report_fetch_error(exception=exception, split_name=split_name)
+                if consecutive_errors >= maximum_consecutive_errors:
+                    raise RuntimeError(f"{consecutive_errors} fetches of a {split_name} batch failed in a row, the "
+                                       f"last one with: {exception}") from exception
 
-        return data_dictionary, dataloader_iterator
+    def report_fetch_error(self, exception: Exception, split_name: str) -> None:
+        """
+        Prints the error of a dropped batch (get_next_batch) the first time it occurs in the run, so that a bad file
+        is named once instead of at every epoch: its last line, the error raised by the dataset (e.g. the unreadable
+        image), in yellow, and the whole message with the traceback of the loader worker for the first dropped batch
+        of the run.
+
+        Args:
+            exception (Exception): The error raised by the fetch of the batch.
+            split_name (str): The split of the loader, "Training" or "Validation".
+        """
+        message_lines = [line for line in str(exception).splitlines() if line.strip()]
+        error_line = message_lines[-1] if message_lines else type(exception).__name__
+        if error_line in self.reported_fetch_errors:
+            return
+
+        # The traceback of the first dropped batch, then the error of every new one
+        if not self.reported_fetch_errors:
+            print(f"{type(exception).__name__}: {exception}")
+        self.reported_fetch_errors.add(error_line)
+        print_color(color="yellow", output=f"{split_name} Batch Dropped : {error_line}")
+
+    def report_dropped_batches(self) -> None:
+        """
+        Prints the number of batches of every split dropped since the previous console summary because their loading
+        failed (get_next_batch), with the summary of the training loop, then starts the counts again. Prints nothing
+        when no batch was dropped.
+        """
+        if sum(self.dropped_batch_counts.values()) == 0:
+            return
+        dropped_batches = ", ".join(f"{split_name} {dropped_count}"
+                                    for split_name, dropped_count in self.dropped_batch_counts.items() if dropped_count)
+        print_color(color="yellow", output=f"- Dropped Batches Since The Last Summary : {dropped_batches} (their "
+                                           f"loading failed, see the errors printed above)")
+        self.dropped_batch_counts.clear()
 
     def run_benchmarking_loop(self, benchmarking_iterations: int = 1e5) -> None:
         """
@@ -1251,7 +1406,8 @@ class BaseTrainer(ABC):
         for training_iteration in tqdm(range(int(benchmarking_iterations)), desc="Benchmarking Loop"):
             # Get next training elements
             training_batch, training_dataloader_iterator = self.get_next_batch(
-                dataloader_iterator=training_dataloader_iterator, dataloader=self.train_dataloader)
+                dataloader_iterator=training_dataloader_iterator, dataloader=self.train_dataloader,
+                split_name="Training")
 
             self.set_training_mode()
             self.zero_gradients()
@@ -1269,7 +1425,8 @@ class BaseTrainer(ABC):
             if validation_enabled and training_iteration % self.validation_iteration_ratio == 0:
                 # Get next validation elements
                 validation_batch, validation_dataloader_iterator = self.get_next_batch(
-                    dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader)
+                    dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader,
+                    split_name="Validation")
 
                 self.set_evaluation_mode()
                 with torch.no_grad():
@@ -1333,11 +1490,13 @@ class BaseTrainer(ABC):
 
     def run_training_iterations(self, maximum_consecutive_errors: int) -> str:
         """
-        Executes the main training loop: training steps, validation passes, console summaries, checkpoints (with the
-        evaluation of the test split at every weight_saving_iterations checkpoint) and a final checkpoint, evaluated
-        too when the run completes on a weight_saving_iterations iteration. The MLflow run of the training is opened
-        once the loader workers exist, and receives the interval averages of every console summary and the test
-        evaluations.
+        Executes the main training loop up to iteration number_iterations, the total of the run (a resumed run trains
+        the iterations left, and one already there trains no more): training steps, checkpoints saved right after the
+        step of their iteration (Iteration_k holding k steps, so that a resume from it starts at k + 1), validation
+        passes, console summaries, the evaluation of the test split at every weight_saving_iterations checkpoint, last
+        of its iteration, and a final checkpoint of the steps taken since the last one, whatever ends the loop. The
+        MLflow run of the training is opened once the loader workers exist, and receives the interval averages of
+        every console summary and the test evaluations.
 
         Args:
             maximum_consecutive_errors (int): The maximum number of consecutive exceptions allowed before the training
@@ -1347,6 +1506,14 @@ class BaseTrainer(ABC):
             str: The status of the MLflow run: FINISHED_STATUS, or KILLED_STATUS when the user stopped the training,
                 or FAILED_STATUS when it stopped after too many consecutive errors.
         """
+        # A run resumed from a checkpoint at or beyond its total of iterations has nothing left to train
+        if self.start_iteration > self.training_iterations:
+            print_color(color="green",
+                        output=f"The Run Is Already Complete: Its Last Checkpoint Is At Iteration "
+                               f"{self.start_iteration - 1} And 'number_iterations' Is {self.training_iterations}, The "
+                               f"Total Of The Run. Raise 'number_iterations' To Train It Further.", add_separators=True)
+            return FINISHED_STATUS
+
         # Initialize tensorboard writers right before training starts
         self.training_writer, self.validation_writer = self.setup_tensorboard_writers()
 
@@ -1361,29 +1528,18 @@ class BaseTrainer(ABC):
         # Status of the MLflow run set by a stop of the training before its last iteration
         stopped_status = None
 
-        # The checkpoint of the last iteration is the final one, saved after its training step, so that a checkpoint
-        # saved at the start of the last iteration is never overwritten after being evaluated
-        last_iteration = self.training_iterations + self.start_iteration - 1
-        training_completed = False
+        # Last iteration whose step was taken, saved and evaluated: the checkpoint a resumed run starts from holds the
+        # steps up to the iteration before its first one, so that a stop before the first step saves nothing again
+        last_stepped_iteration = self.start_iteration - 1
+        last_saved_iteration = self.start_iteration - 1
+        last_evaluated_iteration = None
 
-        for training_iteration in range(self.start_iteration, last_iteration + 1, 1):
+        for training_iteration in range(self.start_iteration, self.training_iterations + 1, 1):
             try:
-                # Save and evaluate the model at every weight saving iteration, and only save it at the more
-                # frequent intermediate weight saving iterations in between. The last iteration is left to the final
-                # save after the loop
-                is_last_iteration = training_iteration == last_iteration
-                if not is_last_iteration and training_iteration % self.weight_saving_iterations == 0:
-                    self.save_model(iteration=training_iteration)
-                    # The checkpoint of the first iteration of a run is not evaluated: it is either the untrained
-                    # model of a new run, or the already evaluated checkpoint a resumed run starts from
-                    if training_iteration != self.start_iteration:
-                        self.run_test_evaluation(iteration=training_iteration)
-                elif not is_last_iteration and training_iteration % self.intermediate_weight_saving_iterations == 0:
-                    self.save_model(iteration=training_iteration)
-
                 # Get next training elements
                 training_batch, training_dataloader_iterator = self.get_next_batch(
-                    dataloader_iterator=training_dataloader_iterator, dataloader=self.train_dataloader)
+                    dataloader_iterator=training_dataloader_iterator, dataloader=self.train_dataloader,
+                    split_name="Training")
 
                 # Real frames of the training batch, counted for the frame throughput of the sequence tasks
                 self.metric_tracker.count_frames(tracker_dictionary=training_trackers, batch=training_batch)
@@ -1399,6 +1555,15 @@ class BaseTrainer(ABC):
                 # Backward and Step
                 training_loss.backward()
                 self.step_optimizer(iteration=training_iteration)
+                last_stepped_iteration = training_iteration
+
+                # Save the model right after the step of every weight saving iteration (evaluated at the end of the
+                # iteration) and of the more frequent intermediate weight saving iterations in between, so that the
+                # checkpoint of iteration k holds its k steps
+                is_evaluated_iteration = training_iteration % self.weight_saving_iterations == 0
+                if is_evaluated_iteration or training_iteration % self.intermediate_weight_saving_iterations == 0:
+                    self.save_model(iteration=training_iteration)
+                    last_saved_iteration = training_iteration
 
                 # Validation phase gated by the configurable validation_iteration_ratio.
                 # A ratio of 1 runs validation every iteration, 2 runs every 2nd, N runs every Nth.
@@ -1406,7 +1571,8 @@ class BaseTrainer(ABC):
                     self.set_evaluation_mode()
                     with torch.no_grad():
                         validation_batch, validation_dataloader_iterator = self.get_next_batch(
-                            dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader)
+                            dataloader_iterator=validation_dataloader_iterator, dataloader=self.validation_dataloader,
+                            split_name="Validation")
                         # Forward pass for validation, its metrics added to the sums of the interval
                         _, _ = self.run_model_iteration(batch=validation_batch, writer=self.validation_writer,
                                                         apply_augmentation=False, iteration=training_iteration,
@@ -1427,14 +1593,19 @@ class BaseTrainer(ABC):
                     training_trackers = self.metric_tracker.print_interval_summary(
                         iterations=training_iteration, training_tracker_dictionary=training_trackers,
                         validation_tracker_dictionary=validation_trackers)
+                    self.report_dropped_batches()
 
                     if validation_enabled:
                         validation_trackers = self.metric_tracker.create_trackers()
 
-                # Reset the consecutive errors counter after a fully successful iteration, the run being completed once
-                # its last iteration succeeds
+                # Evaluate the checkpoint of a weight saving iteration on the test split, last in the iteration so that
+                # a failing evaluation (e.g. an unreadable test image) leaves the rest of the iteration done
+                if is_evaluated_iteration:
+                    self.run_test_evaluation(iteration=training_iteration)
+                    last_evaluated_iteration = training_iteration
+
+                # Reset the consecutive errors counter after a fully successful iteration
                 consecutive_errors = 0
-                training_completed = is_last_iteration
 
             except KeyboardInterrupt:
                 print_color(color="red",
@@ -1461,15 +1632,24 @@ class BaseTrainer(ABC):
                     print(f"Exception: {error}")
                     continue
 
-        self.save_model(iteration=training_iteration)
-        print_color(color="green",
-                    output=f"Model successfully saved at iteration {training_iteration}. Exiting Training.",
-                    add_separators=True)
+        # Final checkpoint of the steps taken since the last save, whatever ended the loop (its last iteration, a stop
+        # by the user or too many errors), a checkpoint already saved after the last step being kept as it is
+        if last_stepped_iteration > last_saved_iteration:
+            self.save_model(iteration=last_stepped_iteration)
+            last_saved_iteration = last_stepped_iteration
 
-        # Evaluate the final checkpoint of a completed run on a weight saving iteration, once it holds the weights
-        # after the last training step
-        if training_completed and training_iteration % self.weight_saving_iterations == 0:
-            self.run_test_evaluation(iteration=training_iteration)
+        # A new run stopped before its first step has no checkpoint
+        saved_checkpoint_text = f"Last Checkpoint Saved At Iteration {last_saved_iteration}" if last_saved_iteration \
+            else "No Checkpoint Saved"
+        print_color(color="green", output=f"{saved_checkpoint_text}. Exiting Training.", add_separators=True)
+
+        # A last checkpoint of a weight saving iteration saved by this launch but left unevaluated by a stop is
+        # announced, to be evaluated apart
+        if last_saved_iteration >= self.start_iteration and last_saved_iteration % self.weight_saving_iterations == 0 \
+                and last_saved_iteration != last_evaluated_iteration:
+            print_color(color="yellow",
+                        output=f"The Checkpoint Of Iteration {last_saved_iteration} Was Not Evaluated: "
+                               f"scripts/evaluation/evaluate_checkpoint.py Evaluates It.")
 
         if self.training_writer is not None:
             self.training_writer.close()
@@ -1884,7 +2064,8 @@ class BaseTrainer(ABC):
 
     def save_model(self, iteration: int) -> None:
         """
-        Saves a checkpoint of the model and optimizer, with the task, the run name, the identifier of the MLflow run
+        Saves a checkpoint of the model and optimizer, with the task, the run name, the label dictionary of the run
+        ('label_dictionary', its keys written as text as in 'label_dictionary.json'), the identifier of the MLflow run
         ('mlflow_run_id', None without tracking or while the run is being opened), the source run of every
         transferable component of the task ('pretrained_backbone', 'pretrained_temporal_module',
         'pretrained_classification_head', 'pretrained_segmentation_decoder', 'pretrained_region_proposer_dictionary',
@@ -1895,8 +2076,9 @@ class BaseTrainer(ABC):
         Args:
             iteration (int): The current training iteration, used for naming the weight file.
         """
-        # Task, run name, MLflow run and source run of every transferable component, stored with the weights
+        # Task, run name, classes, MLflow run and source run of every transferable component, stored with the weights
         metadata = {"task": self.TASK_NAME, "run_name": self.run_name,
+                    "label_dictionary": {str(key): class_index for key, class_index in self.label_dictionary.items()},
                     "mlflow_run_id": self.experiment_tracker.get_run_id()}
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             metadata[f"pretrained_{TRANSFERABLE_COMPONENTS[section_name]}"] = pretrained_configuration[

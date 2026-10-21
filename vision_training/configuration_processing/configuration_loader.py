@@ -13,7 +13,7 @@ from typing import Any, Dict, Tuple
 from vision_training.configuration_processing.configuration_checker import check_configuration
 from vision_training.configuration_processing.configuration_values import ConfigurationError
 from vision_training.data.keypoints.keypoint_categories import read_keypoint_categories
-from vision_training.data.label_mapping import build_label_dictionary
+from vision_training.data.label_mapping import build_label_dictionary, read_run_label_dictionary
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 
@@ -77,7 +77,9 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
 
     This function extracts the 'ExperimentConfiguration' section, processes
     its paths and types, adds the 'tracking_root' and 'run_name' (None) runtime keys read by the trainer, and returns
-    it alongside the rest of the configuration parameters.
+    it alongside the rest of the configuration parameters. The label dictionary is built from the mapping file, or
+    read from 'label_dictionary.json' when the file sits in a run folder holding one (the saved configuration of a
+    run, loaded by the evaluation, export and model loading tools).
 
     Args:
         configuration_path (str | Path): Path to the consolidated YAML file.
@@ -153,10 +155,14 @@ def load_experiment_configuration(configuration_path: str | Path) -> Tuple[Dict[
         model_configuration["Data"]["label_mode"] = label_mapping["mode"]
 
         # The dictionary depends on the task; a missing task, an unknown mode or a mode the task does not support
-        # give no dictionary, the configuration checker then reports the problem
+        # give no dictionary, the configuration checker then reports the problem. The configuration of a run folder
+        # (evaluation, export, model loading) takes the label dictionary saved with the run, so that its classes keep
+        # their meaning when the mapping file is edited or moved
         if "task" in experiment_configuration:
-            label_dictionary = build_label_dictionary(label_mapping_configuration=label_mapping,
-                                                      task=experiment_configuration["task"])
+            label_dictionary = read_run_label_dictionary(run_folder=Path(configuration_path).parent)
+            if label_dictionary is None:
+                label_dictionary = build_label_dictionary(label_mapping_configuration=label_mapping,
+                                                          task=experiment_configuration["task"])
             if label_dictionary is not None:
                 model_configuration["Data"]["label_dictionary"] = label_dictionary
 

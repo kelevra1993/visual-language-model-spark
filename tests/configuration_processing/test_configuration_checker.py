@@ -3,7 +3,8 @@ Tests of the configuration checks of vision_training/configuration_processing/co
 load_experiment_configuration: the configurations shipped for every task are accepted, while inconsistent settings
 (detection, classification, sequence, comparison, segmentation, self-supervised, keypoint detection, normalization,
 pretrained transfers with the initialisation of their new classes, optimization) and missing keys are rejected with
-errors naming their path. The keypoint definitions injected by the loader from the training labels are checked too.
+errors naming their path. The keypoint definitions injected by the loader from the training labels are checked too,
+and so is the label dictionary saved with a run, taken by the configuration of its folder.
 """
 
 import copy
@@ -16,6 +17,7 @@ from typing import Any, Callable, Dict, List
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_detection_levels
+from vision_training.data.label_mapping import write_run_label_dictionary
 from vision_training.data.synthetic.create_synthetic_dataset import (KEYPOINT_CATEGORIES, build_keypoint_label_mapping,
                                                                      build_keypoint_labels)
 from vision_training.utilities.os_utilities import color_text
@@ -791,6 +793,17 @@ def compare_the_views_of_single_image_batches(configuration: Dict[str, Any]) -> 
     configuration["ClassificationHead"]["view_losses"]["barlow_twins"]["activated"] = True
 
 
+def normalize_the_head_of_single_image_batches(configuration: Dict[str, Any]) -> None:
+    """
+    Normalizes the hidden layer of the head with the batch normalization, with batches of a single image.
+
+    Args:
+        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
+    """
+    configuration["ExperimentConfiguration"]["batch_size"] = 1
+    configuration["ClassificationHead"].update({"fully_connected": [64], "fully_connected_normalization": "batch"})
+
+
 @pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",
                                                                    "configuration_synthetic_shapes.yaml"])
 def test_classification_configurations_are_consistent(tmp_path: Path, configuration_name: str) -> None:
@@ -927,7 +940,11 @@ def test_view_losses_are_accepted(tmp_path: Path) -> None:
                                                   "'ClassificationHead.view_losses.contrastive.activated' is True"]),
     (compare_the_views_of_single_image_batches, ["'ExperimentConfiguration.batch_size' must be at least 2 with the "
                                                  "view losses ['barlow_twins'] on: they compare the images of a batch "
-                                                 "with each other."])])
+                                                 "with each other."]),
+    (normalize_the_head_of_single_image_batches, ["'ExperimentConfiguration.batch_size' must be at least 2 with "
+                                                  "'ClassificationHead.fully_connected_normalization' 'batch': the "
+                                                  "batch normalization of the hidden layers needs the statistics of "
+                                                  "several samples."])])
 def test_inconsistent_classification_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                                modify_function: Callable[[Dict[str, Any]], None],
                                                                expected_messages: List[str]) -> None:
@@ -1918,16 +1935,81 @@ def test_segmentation_label_mapping_gives_mask_values(tmp_path: Path, capsys: py
                                                   modify_function=None)
     (tmp_path / "label_mapping.json").write_text(data=json.dumps(obj=label_mapping))
 
-    # An accepted mapping keeps its background category, a rejected one is reported without traceback
+    # An accepted mapping keeps its background category next to the background class, a rejected one is reported
+    # without traceback
     if expected_message is None:
         _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-        assert model_configuration["Data"]["label_dictionary"] == {0: 0, 1: 1, 2: 2}
+        assert model_configuration["Data"]["label_dictionary"] == {0: 0, 1: 1, 2: 2, "background": 0}
         return
     with pytest.raises(expected_exception=SystemExit):
         load_experiment_configuration(configuration_path=configuration_path)
     printed_output = capsys.readouterr().out
     assert expected_message in printed_output
     assert "Traceback" not in printed_output
+
+
+@pytest.mark.parametrize(argnames=("label_mapping", "expected_error", "expected_warning"), argvalues=[
+    ({"1": 1, "2": 1, "3": 2}, None, None),
+    ({"1": 1, "3": 3}, "indexed 0 (background) to K-1 without gaps, got [0, 1, 3].", None),
+    ({"1": 0, "2": 1, "3": 2}, None, "Warning: the categories [1] of the label mapping are mapped to the background "
+                                     "class 0: their objects are left out of the training."),
+    ({"background": 1, "1": 0, "2": 2}, "The 'background' of the label mapping must be the class 0, got 1.", None)])
+def test_detection_label_mapping_indexes_its_classes_from_the_background(
+        tmp_path: Path, capsys: pytest.CaptureFixture, label_mapping: Dict[str, int], expected_error: str | None,
+        expected_warning: str | None) -> None:
+    """
+    Verifies the label mapping of the object detection: merged categories give one class each, counted once, classes
+    with gaps (original COCO identifiers kept) and a background key on another class than 0 are refused, and a
+    category mapped to 0, left out of the training, is accepted with a warning.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        label_mapping (Dict[str, int]): The content of the label mapping file.
+        expected_error (str | None): The error printed for the mapping, None when it is accepted.
+        expected_warning (str | None): The warning printed for an accepted mapping, None for none.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="object_detection",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=None)
+    (tmp_path / "label_mapping.json").write_text(data=json.dumps(obj=label_mapping))
+
+    # An accepted mapping gives the background class 0 and counts every class once
+    if expected_error is None:
+        _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+        label_dictionary = model_configuration["Data"]["label_dictionary"]
+        assert label_dictionary["background"] == 0 and len(set(label_dictionary.values())) == 3
+        printed_output = capsys.readouterr().out
+        assert (expected_warning in printed_output) if expected_warning is not None else (
+            "mapped to the background class 0" not in printed_output)
+        return
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+    printed_output = capsys.readouterr().out
+    assert expected_error in printed_output
+    assert "Traceback" not in printed_output
+
+
+def test_run_folder_configuration_takes_its_saved_label_dictionary(tmp_path: Path) -> None:
+    """
+    Verifies that the configuration of a run folder (evaluation, export, model loading) takes the label dictionary
+    saved with the run ('label_dictionary.json') rather than the mapping file edited since, the classes of its
+    checkpoints keeping their meaning, and that a configuration without saved dictionary takes the mapping file.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="object_detection",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=None)
+    (tmp_path / "label_mapping.json").write_text(data=json.dumps(obj={"1": 1, "2": 2}))
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["Data"]["label_dictionary"] == {"background": 0, 1: 1, 2: 2}
+
+    # The run saved its classes before the mapping file swapped them: the saved classes are kept
+    write_run_label_dictionary(label_dictionary={"background": 0, 1: 2, 2: 1}, run_folder=tmp_path)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["Data"]["label_dictionary"] == {"background": 0, 1: 2, 2: 1}
 
 
 @pytest.mark.parametrize(argnames="configuration_name", argvalues=["configuration_example.yaml",

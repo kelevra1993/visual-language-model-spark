@@ -17,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TypedDict
 
+from vision_training.data.label_mapping import get_background_class_index
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS
 from vision_training.utilities.os_utilities import read_json
 
@@ -113,7 +114,9 @@ def map_categories_to_classes(categories: List[Dict[str, Any]], label_dictionary
     Gives the class index of every manifest category for the counts of the classes of the record of the data, the way
     the data loaders map them: through the label dictionary in multi-class mode, every category being the foreground
     in binary mode. The categories the label dictionary does not map are left out, as the loaders leave them out,
-    except for the frame selection, whose loader gives their frames to the unselected class.
+    except for the frame selection, whose loader gives their frames to the unselected class. The categories mapped to
+    the background class of the detection and segmentation tasks are left out too, the background having no category
+    (label_mapping.get_background_class_index).
 
     Args:
         categories (List[Dict[str, Any]]): The 'id' and 'name' of every category of the manifests of the run.
@@ -129,11 +132,14 @@ def map_categories_to_classes(categories: List[Dict[str, Any]], label_dictionary
     if label_mode == "binary":
         return {category["id"]: label_dictionary["foreground"] for category in categories}
 
-    # Multi-class mode: the class of the label dictionary, or the class of the unmapped categories when there is one
+    # Multi-class mode: the class of the label dictionary, except the background, or the class of the unmapped
+    # categories when there is one
+    background_class_index = get_background_class_index(label_dictionary=label_dictionary)
     category_classes = {}
     for category in categories:
         if category["id"] in label_dictionary:
-            category_classes[category["id"]] = label_dictionary[category["id"]]
+            if label_dictionary[category["id"]] != background_class_index:
+                category_classes[category["id"]] = label_dictionary[category["id"]]
         elif unmapped_class_index is not None:
             category_classes[category["id"]] = unmapped_class_index
     return category_classes

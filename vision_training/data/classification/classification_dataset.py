@@ -9,7 +9,6 @@ data/loaders.py.
 import json
 import os
 import random
-import cv2
 import numpy as np
 import torch
 
@@ -19,7 +18,7 @@ from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
-from vision_training.data.preprocessing import preprocess_image
+from vision_training.data.preprocessing import preprocess_image, read_image
 from vision_training.utilities.os_utilities import format_path_link, print_color
 
 
@@ -133,7 +132,7 @@ class ClassificationDataset(Dataset):
                 classes in multi-label mode) and its sample identifier.
         """
         sample = self.samples[sample_index]
-        image = cv2.imread(filename=os.path.join(self.data_directory, sample["file_name"]))
+        image = read_image(image_path=os.path.join(self.data_directory, sample["file_name"]))
         resized_image = preprocess_image(image=image, image_size=self.image_size, keep_ratio=self.keep_ratio)
         image_tensor = torch.from_numpy(np.ascontiguousarray(a=resized_image)).permute(dims=(2, 0, 1))
 

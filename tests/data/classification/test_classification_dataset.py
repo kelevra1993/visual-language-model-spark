@@ -1,7 +1,8 @@
 """
 Tests of the classification data of vision_training/data/classification: ClassificationDataset loading multi-class and
 multi-label manifests, keeping the unlabelled samples for the self-supervised task, whose loaders keep full training
-and validation batches, the label mapping without background class, and the manifests written by
+and validation batches, as the training loader of a classifier needing batch statistics does, the corrupted images
+named in their error, the label mapping without background class, and the manifests written by
 create_class_folder_manifests from class folders.
 """
 
@@ -163,11 +164,68 @@ def test_self_supervised_loaders_keep_full_batches(tmp_path: Path) -> None:
                                        model_configuration=model_configuration, batch_size=4, self_supervised=True)
 
 
+def test_classifier_needing_batch_statistics_drops_its_last_training_batch(tmp_path: Path) -> None:
+    """
+    Verifies the loaders of a classifier whose training needs batch statistics (a batch normalized head or the view
+    losses, drop_last_training_batch): the training loader leaves out its last incomplete batch, which a single image
+    would fill and break, while the validation and test loaders keep every image, and the training loader of the other
+    classifiers keeps it too.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    categories = [{"id": 1, "name": "circle"}]
+    split_sizes = {"train": 5, "validation": 3, "test": 3}
+    for split_name, number_samples in split_sizes.items():
+        write_split(split_folder=tmp_path / split_name, categories=categories,
+                    samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png", "category_id": 1}
+                             for sample_identifier in range(1, number_samples + 1)])
+    experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name) for split_name in split_sizes}
+    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
+                                    "loading": {"number_workers": 0, "prefetch_batches": 2},
+                                    "grouped_batches": {"activated": False, "block_key": "camera",
+                                                        "images_per_block": 2, "batch_key": None}},
+                           "ClassificationHead": {"output_mode": "multi_class"}}
+
+    # Batches of 2 images: the fifth training image is left out only for the training needing batch statistics
+    for drop_last_training_batch, expected_training_batches in [(True, [2, 2]), (False, [2, 2, 1])]:
+        training_loader, validation_loader, test_loader = get_classification_dataloaders(
+            experiment_configuration=experiment_configuration, model_configuration=model_configuration, batch_size=2,
+            drop_last_training_batch=drop_last_training_batch)
+        assert [loader.drop_last for loader in [training_loader, validation_loader, test_loader]] == [
+            drop_last_training_batch, False, False]
+        assert [batch["images"].shape[0] for batch in training_loader] == expected_training_batches
+        assert [batch["images"].shape[0] for batch in validation_loader] == [2, 1]
+
+
+def test_unreadable_image_is_named(tmp_path: Path) -> None:
+    """
+    Verifies that a corrupted image of a classification split stops its sample with an error naming the file, which
+    the training loop prints before dropping the batch, instead of an unrelated error of the resizing.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    samples = [{"id": 1, "file_name": "a.png", "category_id": 1}, {"id": 2, "file_name": "b.png", "category_id": 1}]
+    write_split(split_folder=tmp_path, categories=[{"id": 1, "name": "circle"}], samples=samples)
+    (tmp_path / "data" / "b.png").write_bytes(data=b"not an image")
+    dataset = ClassificationDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
+                                    image_size=32, keep_ratio=True, label_dictionary={1: 0}, output_mode="multi_class",
+                                    shuffle=False)
+
+    # The readable image loads, the corrupted one is named
+    assert dataset[0]["images"].shape[-2:] == (32, 32)
+    with pytest.raises(expected_exception=ValueError, match="The image cannot be read : ") as error:
+        dataset[1]
+    assert "b.png" in str(error.value)
+
+
 def test_label_mapping_without_background_class(tmp_path: Path) -> None:
     """
     Verifies that the label dictionary of the classification task keeps the class indices of the mapping file without
-    adding the background class of the object detector, and that the binary mode, which only makes sense next to a
-    background class, gives no dictionary for it.
+    adding the background class of the object detector, which names its class 0 'background' even when the mapping
+    file maps a category to 0 to leave it out, and that the binary mode, which only makes sense next to a background
+    class, gives no dictionary for it.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -179,7 +237,7 @@ def test_label_mapping_without_background_class(tmp_path: Path) -> None:
     assert build_label_dictionary(label_mapping_configuration=label_mapping_configuration,
                                   task="classification") == {1: 0, 2: 1}
     assert build_label_dictionary(label_mapping_configuration=label_mapping_configuration,
-                                  task="object_detection") == {1: 0, 2: 1}
+                                  task="object_detection") == {1: 0, 2: 1, "background": 0}
     assert build_label_dictionary(label_mapping_configuration={"mode": "binary", "mapping_file_path": None},
                                   task="classification") is None
 

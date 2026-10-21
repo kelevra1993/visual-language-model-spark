@@ -421,7 +421,7 @@ class DetectionTrainer(CocoSplitTrainer):
         """
         summary = summarise_average_precisions(
             detections=accumulator["detections"], ground_truths=accumulator["ground_truths"],
-            number_classes=len(self.label_dictionary), class_names=self.class_names,
+            number_classes=len(set(self.label_dictionary.values())), class_names=self.class_names,
             target_precision=self.target_precision,
             resolution_name="original image" if self.original_resolution else "network input")
         proposal_recall = self.save_proposal_recall(accumulator=accumulator, iteration=iteration)

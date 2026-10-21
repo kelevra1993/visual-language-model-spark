@@ -38,7 +38,8 @@ def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration
         loading_configuration (Dict[str, Any]): The 'Data.loading' section: 'number_workers' and 'prefetch_batches'.
         collate_function (Optional[Callable]): The function batching the samples, None for the default one.
         drop_last (bool): Whether to leave out the last incomplete batch of every pass over the split, for the losses
-            comparing the samples of a batch with each other (self-supervised task). Defaults to False.
+            comparing the samples of a batch with each other (self-supervised task) and the training of the layers
+            normalized by batch statistics (classification heads). Defaults to False.
         shuffle (bool): Whether to shuffle the samples at every pass, False to read them in their order. Defaults to
             True.
         batch_sampler (Optional[Sampler[List[int]]]): The sampler giving the dataset indices of every batch, given to
@@ -200,8 +201,8 @@ def get_keypoint_dataloaders(experiment_configuration: Dict[str, Any], model_con
 
 
 def get_classification_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                                   batch_size: int, self_supervised: bool = False
-                                   ) -> Tuple[DataLoader, DataLoader, DataLoader]:
+                                   batch_size: int, self_supervised: bool = False,
+                                   drop_last_training_batch: bool = False) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Initializes the training, validation and testing loaders of the classification task, read from the
     'labels.json' manifest of every split with the Native loader (OpenCV decoding and CPU resizing). The
@@ -210,6 +211,8 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
     incomplete batch of every pass, since its losses compare the views of the images of a batch with each other (a
     batch of a single image would give a loss without gradient). With 'Data.grouped_batches' on, their batches gather
     blocks of images sharing an attribute of their "groups" (GroupedBatchSampler), the hard negatives of each other.
+    The classifier leaves out the last incomplete training batch when its training needs batch statistics
+    (drop_last_training_batch), which a last batch of a single image cannot give.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
@@ -218,13 +221,17 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
         batch_size (int): The number of samples of a batch.
         self_supervised (bool): Whether the loaders feed the self-supervised trainer, which has no classification
             head (multi-class labels). Defaults to False.
+        drop_last_training_batch (bool): Whether the training loader leaves out the last incomplete batch of every
+            pass, for a batch-normalized classification head or the view losses
+            (ClassificationTrainer.drops_last_training_batch). Defaults to False.
 
     Returns:
         Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
 
     Raises:
-        ValueError: If a self-supervised training or validation split holds fewer images than a batch, or if only some
-            of its samples hold the keys of 'Data.grouped_batches' when the grouped batches are on.
+        ValueError: If a split whose batches must be full (self-supervised training and validation splits, training
+            split with drop_last_training_batch) holds fewer images than a batch, or if only some of the samples of a
+            self-supervised split hold the keys of 'Data.grouped_batches' when the grouped batches are on.
     """
     data_configuration = model_configuration["Data"]
     output_mode = "multi_class" if self_supervised else model_configuration["ClassificationHead"]["output_mode"]
@@ -240,17 +247,20 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
                                         label_dictionary=data_configuration["label_dictionary"],
                                         output_mode=output_mode, keep_unlabelled_samples=self_supervised)
 
-        # Full batches only for the self-supervised losses, the test split being encoded image by image
-        drop_last = self_supervised and split_key != "test_data_folder"
+        # Full batches for the self-supervised losses, the test split being encoded image by image, and for the training
+        # batches of a classifier needing batch statistics
+        self_supervised_split = self_supervised and split_key != "test_data_folder"
+        drop_last = self_supervised_split or (drop_last_training_batch and split_key == "train_data_folder")
         if drop_last and len(dataset) < batch_size:
             raise ValueError(f"The '{split_key}' split holds {len(dataset)} images, fewer than the batch size "
-                             f"{batch_size}: the self-supervised training and validation batches must be full.")
+                             f"{batch_size}: its batches must be full, for the self-supervised losses or for the batch "
+                             f"statistics of the classifier.")
 
         # Batches grouped by the attributes of the images for the self-supervised training and validation splits, when
         # 'Data.grouped_batches' is on and the split has groups, random batches otherwise
         batch_sampler = build_grouped_batch_sampler(
             samples=dataset.samples, grouped_batches_configuration=data_configuration["grouped_batches"],
-            batch_size=batch_size, split_name=split_key) if drop_last else None
+            batch_size=batch_size, split_name=split_key) if self_supervised_split else None
         loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
                                            loading_configuration=data_configuration["loading"], drop_last=drop_last,
                                            batch_sampler=batch_sampler))
@@ -302,7 +312,8 @@ def get_segmentation_dataloaders(experiment_configuration: Dict[str, Any], model
 
 
 def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
-                             batch_size: int, label_type: str) -> Tuple[DataLoader, DataLoader, DataLoader]:
+                             batch_size: int, label_type: str,
+                             drop_last_training_batch: bool = False) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Initializes the training, validation and testing loaders of the sequence tasks, read from the 'labels.json'
     manifest of every split with the Native loader (OpenCV decoding and CPU resizing). Every sequence is given whole
@@ -319,9 +330,15 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
         label_type (str): "sequence" (one class per sequence), "frame" (one class per frame), "selection" (one class
             per frame of a whole sequence, checked for the frame selection with the 'Selection' section) or "pair"
             (one class per pair of sequences, read from a 'pairs' manifest).
+        drop_last_training_batch (bool): Whether the training loader leaves out the last incomplete batch of every
+            pass, for a batch-normalized classification head, which a last batch of a single sequence would break
+            (ClassificationTrainer.drops_last_training_batch). Defaults to False.
 
     Returns:
         Tuple[DataLoader, DataLoader, DataLoader]: The training, validation and test loaders.
+
+    Raises:
+        ValueError: If the training split holds fewer samples than a batch with drop_last_training_batch.
     """
     data_configuration = model_configuration["Data"]
     loaders = []
@@ -357,9 +374,16 @@ def get_sequence_dataloaders(experiment_configuration: Dict[str, Any], model_con
                                       sequence_settings=data_configuration["sequence_settings"],
                                       label_type=label_type, split_name=split_name,
                                       selection_settings=selection_settings)
+        # The training loader of a head needing batch statistics leaves out its last incomplete batch, so its split
+        # must hold at least one full batch
+        drop_last = drop_last_training_batch and split_key == "train_data_folder"
+        if drop_last and len(dataset) < batch_size:
+            raise ValueError(f"The '{split_key}' split holds {len(dataset)} samples, fewer than the batch size "
+                             f"{batch_size}: its batches must be full, for the batch statistics of the classifier.")
+
         # Wrap the dataset in a Native loader padding every batch to its longest sequence
         loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
                                            loading_configuration=data_configuration["loading"],
-                                           collate_function=collate_function))
+                                           collate_function=collate_function, drop_last=drop_last))
 
     return loaders[0], loaders[1], loaders[2]
