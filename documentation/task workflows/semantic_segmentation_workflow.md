@@ -40,6 +40,7 @@ main()
 │               ├── data:       Native loader, classes 0..K-1 with the background at 0, categories that are mask values
 │               │               (1 to 254), no detection block, tiling scale > 0 and overlap smaller than a tile
 │               ├── no sequence settings (frame shuffling, sequence normalization)
+│               ├── no image-only augmentation type (random_perspective, random_jigsaw), which the masks cannot follow
 │               ├── decoder:    upsampling (transposed/bilinear), one level per skip connection of the backbone,
 │               │               modules, normalization, head dropout, deep supervision weights, pretrained settings
 │               ├── loss:       non-negative weights of the cross entropy, Dice, Lovász and boundary losses (not all
@@ -225,7 +226,7 @@ The mapping file gives the class index of every category, a category being the v
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_segmentation_configuration()`: the data settings (Native loader, background at 0, categories that are mask values, tiling), no sequence settings, the decoder (one level per skip connection of the backbone), the losses and the evaluation settings. Every problem is reported together, then the program exits.
+The common checks run first, then `check_segmentation_configuration()`: the data settings (Native loader, background at 0, categories that are mask values, tiling), no sequence settings, no augmentation type moving the image only (`random_perspective` and `random_jigsaw`, which the masks cannot follow, `check_image_only_augmentation_types()`), the decoder (one level per skip connection of the backbone), the losses and the evaluation settings. Every problem is reported together, then the program exits.
 
 **Example: output with `upsampling: "nearest"` and `dice_weight: -1.0` in the YAML**
 ```text
@@ -294,7 +295,7 @@ The same augmenter as the classification. Here the masks follow the images (Step
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4
-6 of 20 types activated: random_crop, random_left_right_flip, random_rotation, brightness_contrast_saturation,
+6 of 28 types activated: random_crop, random_left_right_flip, random_rotation, brightness_contrast_saturation,
                          random_noise, random_haze
 ```
 

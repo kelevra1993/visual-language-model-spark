@@ -3,8 +3,10 @@ Tests of the configuration checks of vision_training/configuration_processing/co
 load_experiment_configuration: the configurations shipped for every task are accepted, while inconsistent settings
 (detection, classification, sequence, comparison, segmentation, self-supervised, keypoint detection, normalization,
 pretrained transfers with the initialisation of their new classes, optimization) and missing keys are rejected with
-errors naming their path. The keypoint definitions injected by the loader from the training labels are checked too,
-and so is the label dictionary saved with a run, taken by the configuration of its folder.
+errors naming their path. The augmentation types moving the image only are refused for the tasks with boxes, masks or
+keypoints and accepted for the others, and a section removed from the repository is refused alone, before the other
+checks. The keypoint definitions injected by the loader from the training labels are checked too, and so is the label
+dictionary saved with a run, taken by the configuration of its folder.
 """
 
 import copy
@@ -15,6 +17,7 @@ import yaml
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
+from vision_training.configuration_processing.common_checks import REMOVED_SECTIONS
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_detection_levels
 from vision_training.data.label_mapping import write_run_label_dictionary
@@ -403,6 +406,24 @@ def set_empty_black_out_grid(configuration: Dict[str, Any]) -> None:
     configuration["Data"]["data_augmentation"]["types"]["random_black_out"]["grid_size"] = 0
 
 
+def activate_image_only_augmentation_types(configuration: Dict[str, Any]) -> None:
+    """
+    Turns on the perspective and the jigsaw of the data augmentation, which move the image only.
+
+    Args:
+        configuration (Dict[str, Any]): The raw configuration, modified in place.
+    """
+    for augmentation_type in ["random_perspective", "random_jigsaw"]:
+        configuration["Data"]["data_augmentation"]["types"][augmentation_type]["activated"] = True
+
+
+# Refusals of the perspective and the jigsaw by the tasks whose boxes, masks or keypoints cannot follow them
+IMAGE_ONLY_TYPE_REFUSALS = [f"'Data.data_augmentation.types.{augmentation_type}.activated' must be False for this "
+                            f"task: {augmentation_type} moves the image only, and its bounding boxes, masks or "
+                            f"keypoints cannot follow it." for augmentation_type in ["random_perspective",
+                                                                                     "random_jigsaw"]]
+
+
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
     (set_invalid_loading, ["'Data.loading.prefetch_batches' must be an integer >= 1, got 0."]),
     (set_empty_black_out_grid, ["'Data.data_augmentation.types.random_black_out.grid_size' must be an integer within "
@@ -477,7 +498,8 @@ def set_empty_black_out_grid(configuration: Dict[str, Any]) -> None:
                                 ">= 0, got -1.0.",
                                 "'Optimization.loss_weights.detection_regression_loss' must be a number >= 0, got "
                                 "'high'."]),
-    (zero_every_loss_weight, ["'Optimization.loss_weights' cannot all be 0, the model would have no loss."])])
+    (zero_every_loss_weight, ["'Optimization.loss_weights' cannot all be 0, the model would have no loss."]),
+    (activate_image_only_augmentation_types, IMAGE_ONLY_TYPE_REFUSALS)])
 def test_inconsistent_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                 expected_messages: List[str]) -> None:
@@ -754,45 +776,6 @@ def decorrelate_a_missing_hidden_layer(configuration: Dict[str, Any]) -> None:
     configuration["ClassificationHead"]["decorrelation"] = {"activated": True, "weight": 0.01, "hidden_layer": 2}
 
 
-def set_invalid_view_losses(configuration: Dict[str, Any]) -> None:
-    """
-    Writes an unknown pooling of the view losses and a crop of the second views from an empty area, the Barlow Twins
-    flag as a quoted string with weights of 0 and a projector layer of zero units, and a contrastive loss with a
-    negative temperature, unknown positives and an empty projector.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    view_losses = configuration["ClassificationHead"]["view_losses"]
-    view_losses["global_pooling"] = "median"
-    view_losses["view_augmentation"]["random_resized_crop"]["scale"] = [0.0, 1.0]
-    view_losses["barlow_twins"].update({"activated": "yes", "weight": 0, "off_diagonal_weight": 0, "projector": [0]})
-    view_losses["contrastive"].update({"temperature": -0.1, "positives": "images", "projector": []})
-
-
-def contrast_the_classes_of_multi_label_images(configuration: Dict[str, Any]) -> None:
-    """
-    Turns the contrastive loss on with the classes as positives, for images of several classes.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ClassificationHead"]["output_mode"] = "multi_label"
-    configuration["ClassificationHead"]["view_losses"]["contrastive"].update({"activated": True,
-                                                                             "positives": "classes"})
-
-
-def compare_the_views_of_single_image_batches(configuration: Dict[str, Any]) -> None:
-    """
-    Turns Barlow Twins on with batches of a single image.
-
-    Args:
-        configuration (Dict[str, Any]): The raw classification configuration, modified in place.
-    """
-    configuration["ExperimentConfiguration"]["batch_size"] = 1
-    configuration["ClassificationHead"]["view_losses"]["barlow_twins"]["activated"] = True
-
-
 def normalize_the_head_of_single_image_batches(configuration: Dict[str, Any]) -> None:
     """
     Normalizes the hidden layer of the head with the batch normalization, with batches of a single image.
@@ -849,35 +832,85 @@ def test_decorrelation_of_a_hidden_layer_is_accepted(tmp_path: Path) -> None:
                                                                           "hidden_layer": 2}
 
 
-def compare_the_max_pooled_views_with_both_losses(configuration: Dict[str, Any]) -> None:
+@pytest.mark.parametrize(argnames=("task_folder", "configuration_name"), argvalues=[
+    ("classification", "configuration_synthetic_shapes.yaml"),
+    ("sequence_classification", "configuration_synthetic_sequences.yaml"),
+    ("self_supervised", "configuration_synthetic_shapes.yaml")])
+def test_image_only_augmentation_types_are_accepted_without_targets(tmp_path: Path, task_folder: str,
+                                                                    configuration_name: str) -> None:
     """
-    Turns both view losses on, the contrastive loss with the other view of an image as its only positive, on the max
-    pooled final feature maps.
+    Verifies that the tasks whose samples hold no box, mask or keypoint, here the image and sequence classifications
+    and the self-supervised task, accept the perspective and the jigsaw, the augmentation types moving the image only.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        task_folder (str): The folder of the configurations of the task.
+        configuration_name (str): The file name of the configuration.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
+                                                  configuration_name=configuration_name,
+                                                  modify_function=activate_image_only_augmentation_types)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    augmentation_types = model_configuration["Data"]["data_augmentation"]["types"]
+    assert augmentation_types["random_perspective"]["activated"] and augmentation_types["random_jigsaw"]["activated"]
+
+
+def keep_the_removed_view_losses(configuration: Dict[str, Any]) -> None:
+    """
+    Keeps the section of the view losses removed from the image classifier, next to an unknown pooling of its head.
 
     Args:
         configuration (Dict[str, Any]): The raw classification configuration, modified in place.
     """
-    view_losses = configuration["ClassificationHead"]["view_losses"]
-    view_losses["global_pooling"] = "max"
-    view_losses["barlow_twins"]["activated"] = True
-    view_losses["contrastive"].update({"activated": True, "positives": "views"})
+    configuration["ClassificationHead"]["view_losses"] = {"global_pooling": "average"}
+    configuration["ClassificationHead"]["global_pooling"] = "median"
 
 
-def test_view_losses_are_accepted(tmp_path: Path) -> None:
+def keep_the_removed_view_augmentation(configuration: Dict[str, Any]) -> None:
     """
-    Verifies that a classification configuration turning both view losses on passes the checks.
+    Keeps the section of the views of the self-supervised task, removed for the types of the data augmentation, next
+    to an unknown method of the projection head.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    configuration["Data"]["view_augmentation"] = {"rotation": {"probability": 0.5, "maximum_degrees": 180.0}}
+    configuration["ProjectionHead"]["method"] = "byol"
+
+
+@pytest.mark.parametrize(argnames=("task_folder", "modify_function", "removed_section", "hidden_message"), argvalues=[
+    ("classification", keep_the_removed_view_losses, "ClassificationHead.view_losses",
+     "'ClassificationHead.global_pooling' must be one of"),
+    ("self_supervised", keep_the_removed_view_augmentation, "Data.view_augmentation",
+     "'ProjectionHead.method' must be one of")])
+def test_removed_sections_are_refused_alone(tmp_path: Path, capsys: pytest.CaptureFixture, task_folder: str,
+                                            modify_function: Callable[[Dict[str, Any]], None], removed_section: str,
+                                            hidden_message: str) -> None:
+    """
+    Verifies that a configuration still holding a section removed from the repository (the view losses of the image
+    classifier, the views of the self-supervised task now drawn by the data augmentation) is refused with a message
+    naming the section, what replaced it and that it must be deleted, and alone: the other checks do not run, so that
+    the reason of the refusal is never hidden behind the keys the removed section leaves missing.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        task_folder (str): The folder of the configurations of the task.
+        modify_function (Callable[[Dict[str, Any]], None]): Function keeping the removed section.
+        removed_section (str): The key path of the removed section.
+        hidden_message (str): A message of another check, which must not be printed.
     """
-    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="classification",
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder=task_folder,
                                                   configuration_name="configuration_synthetic_shapes.yaml",
-                                                  modify_function=compare_the_max_pooled_views_with_both_losses)
-    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
-    view_losses = model_configuration["ClassificationHead"]["view_losses"]
-    assert (view_losses["global_pooling"], view_losses["barlow_twins"]["activated"],
-            view_losses["contrastive"]["activated"], view_losses["contrastive"]["positives"]) == ("max", True, True,
-                                                                                                 "views")
+                                                  modify_function=modify_function)
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+
+    printed_output = capsys.readouterr().out
+    assert (f"'{removed_section}' was removed: {REMOVED_SECTIONS[removed_section]}. Delete it from the configuration "
+            f"file.") in printed_output
+    assert hidden_message not in printed_output and "Traceback" not in printed_output
 
 
 @pytest.mark.parametrize(argnames=("modify_function", "expected_messages"), argvalues=[
@@ -918,29 +951,6 @@ def test_view_losses_are_accepted(tmp_path: Path) -> None:
     (decorrelate_a_missing_hidden_layer, ["'ClassificationHead.decorrelation.hidden_layer' must be at most the number "
                                           "of hidden layers of 'ClassificationHead.fully_connected' (1) when "
                                           "'ClassificationHead.decorrelation.activated' is True, got 2."]),
-    (set_invalid_view_losses, ["'ClassificationHead.view_losses.global_pooling' must be one of ['average', 'max', "
-                               "'flatten'], got 'median'.",
-                               "'ClassificationHead.view_losses.view_augmentation.random_resized_crop.scale' must be a "
-                               "list of two numbers [low, high] with 0 < low <= high <= 1, got [0.0, 1.0].",
-                               "'ClassificationHead.view_losses.barlow_twins.activated' must be True or False, got "
-                               "'yes'.",
-                               "'ClassificationHead.view_losses.barlow_twins.weight' must be a number > 0, got 0.",
-                               "'ClassificationHead.view_losses.barlow_twins.off_diagonal_weight' must be a number > "
-                               "0, got 0.",
-                               "'ClassificationHead.view_losses.contrastive.temperature' must be a number > 0, got "
-                               "-0.1.",
-                               "'ClassificationHead.view_losses.barlow_twins.projector' must be a non-empty list of "
-                               "positive integers, the last one being the embedding size, got [0].",
-                               "'ClassificationHead.view_losses.contrastive.projector' must be a non-empty list of "
-                               "positive integers, the last one being the embedding size, got [].",
-                               "'ClassificationHead.view_losses.contrastive.positives' must be one of ['views', "
-                               "'classes'], got 'images'."]),
-    (contrast_the_classes_of_multi_label_images, ["'ClassificationHead.view_losses.contrastive.positives' must be "
-                                                  "'views' with 'ClassificationHead.output_mode' 'multi_label' when "
-                                                  "'ClassificationHead.view_losses.contrastive.activated' is True"]),
-    (compare_the_views_of_single_image_batches, ["'ExperimentConfiguration.batch_size' must be at least 2 with the "
-                                                 "view losses ['barlow_twins'] on: they compare the images of a batch "
-                                                 "with each other."]),
     (normalize_the_head_of_single_image_batches, ["'ExperimentConfiguration.batch_size' must be at least 2 with "
                                                   "'ClassificationHead.fully_connected_normalization' 'batch': the "
                                                   "batch normalization of the hidden layers needs the statistics of "
@@ -1884,7 +1894,8 @@ def set_invalid_segmentation_evaluation(configuration: Dict[str, Any]) -> None:
                           "'Data.tiling.overlap' must be smaller than the tile size 'Data.image_settings.size' (512), "
                           "got 512."]),
     (write_per_class_report_as_text, ["'ExperimentConfiguration.evaluation.per_class_report' must be True or False, "
-                                      "got 'yes'."])])
+                                      "got 'yes'."]),
+    (activate_image_only_augmentation_types, IMAGE_ONLY_TYPE_REFUSALS)])
 def test_inconsistent_segmentation_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                              modify_function: Callable[[Dict[str, Any]], None],
                                                              expected_messages: List[str]) -> None:
@@ -2164,7 +2175,8 @@ def remove_mask_loss_weight(configuration: Dict[str, Any]) -> None:
                                            "False, got 1."]),
     (remove_mask_loss_weight, ["'Optimization.loss_weights' must give the weight of exactly the losses "
                                "['region_proposal_classification_loss', 'region_proposal_localisation_loss', "
-                               "'detection_classification_loss', 'detection_regression_loss', 'mask_loss'], got"])])
+                               "'detection_classification_loss', 'detection_regression_loss', 'mask_loss'], got"]),
+    (activate_image_only_augmentation_types, IMAGE_ONLY_TYPE_REFUSALS)])
 def test_inconsistent_instance_segmentation_configuration_is_rejected(
         tmp_path: Path, capsys: pytest.CaptureFixture, modify_function: Callable[[Dict[str, Any]], None],
         expected_messages: List[str]) -> None:
@@ -2210,6 +2222,32 @@ def test_self_supervised_configurations_are_consistent(tmp_path: Path, configura
     assert model_configuration["Data"]["label_dictionary"] == {1: 0, 2: 1, 3: 2, 4: 3}
 
 
+def keep_the_whole_images_in_the_views(configuration: Dict[str, Any]) -> None:
+    """
+    Turns off the random resized crop of the views, random_crop, its probability below 1 being then left aside.
+
+    Args:
+        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
+    """
+    configuration["Data"]["data_augmentation"]["types"]["random_crop"] = {"activated": False, "probability": 0.5}
+
+
+def test_views_without_crop_are_accepted(tmp_path: Path) -> None:
+    """
+    Verifies that the self-supervised task accepts views drawn without the random resized crop, keeping the whole
+    images, the probability of a crop turned off being left aside.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+    """
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="self_supervised",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=keep_the_whole_images_in_the_views)
+    _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
+    assert model_configuration["Data"]["data_augmentation"]["types"]["random_crop"] == {"activated": False,
+                                                                                        "probability": 0.5}
+
+
 def set_invalid_projection_head(configuration: Dict[str, Any]) -> None:
     """
     Sets an unknown pooling and method, an empty list of layers, a temperature of 0 and an off-diagonal weight given
@@ -2233,71 +2271,24 @@ def normalize_projection_without_hidden_layers(configuration: Dict[str, Any]) ->
     configuration["ProjectionHead"].update({"fully_connected": [128], "fully_connected_normalization": "batch"})
 
 
-def activate_data_augmentation_with_views(configuration: Dict[str, Any]) -> None:
+def deactivate_the_augmentation_of_the_views(configuration: Dict[str, Any]) -> None:
     """
-    Turns on the data augmentation of the other tasks next to the views of the self-supervised task.
+    Turns off the data augmentation, whose types draw the two views of the self-supervised task.
 
     Args:
         configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
     """
-    configuration["Data"]["data_augmentation"]["activated"] = True
+    configuration["Data"]["data_augmentation"]["activated"] = False
 
 
-def set_invalid_view_augmentation(configuration: Dict[str, Any]) -> None:
+def crop_half_of_the_views(configuration: Dict[str, Any]) -> None:
     """
-    Sets a crop area above the image, a decreasing aspect ratio range, a probability above 1, a rotation beyond half
-    a turn, a negative brightness, a hue shift beyond half a turn, an even blur kernel and a sigma range of one value.
+    Draws the random resized crop of the views, random_crop, for half of them only.
 
     Args:
         configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
     """
-    view_augmentation = configuration["Data"]["view_augmentation"]
-    view_augmentation["random_resized_crop"] = {"scale": [0.5, 1.2], "aspect_ratio": [2.0, 1.0]}
-    view_augmentation["grayscale"]["probability"] = 1.5
-    view_augmentation["rotation"]["maximum_degrees"] = 200.0
-    view_augmentation["colour_jitter"].update({"brightness": -0.1, "hue": 0.6})
-    view_augmentation["gaussian_blur"].update({"kernel_size": 4, "sigma": [0.5]})
-
-
-def set_invalid_harder_view_transformations(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a probability per view for three views, a second view probability above 1, a perspective distortion above 1,
-    a jigsaw grid of 3 rows not dividing the 256 pixels of the input, a gamma range reaching 0, a haze strength and a
-    linear illumination gain above 1, a brightening plasma shadow, an even motion blur kernel, a motion blur angle
-    beyond half a turn and a direction below -1, a solarization threshold above 1 and an addition below -0.5, a
-    negative noise and an erased area above the image.
-
-    Args:
-        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
-    """
-    view_augmentation = configuration["Data"]["view_augmentation"]
-    view_augmentation["gaussian_blur"]["probability"] = [1.0, 0.1, 0.5]
-    view_augmentation["solarize"].update({"probability": [0.0, 1.2], "threshold": [0.5, 1.5], "addition": [-0.6, 0.0]})
-    view_augmentation["perspective"]["distortion_scale"] = 1.2
-    view_augmentation["jigsaw"]["grid"] = [3, 2]
-    view_augmentation["gamma"]["gamma"] = [0.0, 1.5]
-    view_augmentation["haze"]["strength"] = [0.0, 1.5]
-    view_augmentation["linear_illumination"]["gain"] = [0.05, 1.25]
-    view_augmentation["plasma_shadow"]["shade_intensity"] = [-0.5, 0.5]
-    view_augmentation["motion_blur"].update({"kernel_size": [4, 9], "maximum_angle": 200.0, "direction": [-1.5, 1.0]})
-    view_augmentation["gaussian_noise"]["standard_deviation"] = -0.03
-    view_augmentation["random_erasing"]["scale"] = [0.02, 1.5]
-
-
-def set_view_values_rejected_by_kornia(configuration: Dict[str, Any]) -> None:
-    """
-    Sets view values within the ranges of the checks but refused by kornia at the first view: a solarization addition
-    of 0.5, kornia asking for an addition strictly within (-0.5, 0.5), a Gaussian blur kernel of 513 pixels, whose
-    reflection padding of 256 pixels needs more than the 256 pixels of the input, and a crop of 0.001 % of the area,
-    whose smallest sides of about 0.7 pixel make kornia solve a singular system.
-
-    Args:
-        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
-    """
-    view_augmentation = configuration["Data"]["view_augmentation"]
-    view_augmentation["solarize"]["addition"] = [0.0, 0.5]
-    view_augmentation["gaussian_blur"]["kernel_size"] = 513
-    view_augmentation["random_resized_crop"]["scale"] = [0.00001, 1.0]
+    configuration["Data"]["data_augmentation"]["types"]["random_crop"]["probability"] = 0.5
 
 
 def set_invalid_grouped_batches(configuration: Dict[str, Any]) -> None:
@@ -2320,27 +2311,6 @@ def set_single_image_grouped_blocks(configuration: Dict[str, Any]) -> None:
         configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
     """
     configuration["Data"]["grouped_batches"].update({"activated": "False", "images_per_block": 1})
-
-
-def set_single_piece_jigsaw(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a jigsaw grid of a single piece, for which kornia keeps drawing a permutation differing from the identity
-    forever.
-
-    Args:
-        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
-    """
-    configuration["Data"]["view_augmentation"]["jigsaw"]["grid"] = [1, 1]
-
-
-def set_black_out_grid_finer_than_the_views(configuration: Dict[str, Any]) -> None:
-    """
-    Sets a black-out grid of 300 rows and columns on views of 256 pixels, whose cells would hold no pixel.
-
-    Args:
-        configuration (Dict[str, Any]): The raw self-supervised configuration, modified in place.
-    """
-    configuration["Data"]["view_augmentation"]["black_out"]["grid_size"] = 300
 
 
 def set_invalid_self_supervised_evaluation(configuration: Dict[str, Any]) -> None:
@@ -2367,68 +2337,13 @@ def set_invalid_self_supervised_evaluation(configuration: Dict[str, Any]) -> Non
     (normalize_projection_without_hidden_layers, ["'ProjectionHead.fully_connected_normalization' must be 'none' when "
                                                   "'ProjectionHead.fully_connected' holds the embedding layer only: "
                                                   "the head has no hidden layer to normalize."]),
-    (activate_data_augmentation_with_views, ["'Data.data_augmentation.activated' must be False for the "
-                                             "self-supervised task: the random views of 'Data.view_augmentation' "
-                                             "replace the data augmentation."]),
-    (set_invalid_view_augmentation, ["'Data.view_augmentation.random_resized_crop.scale' must be a list of two "
-                                     "numbers [low, high] with 0 < low <= high <= 1, got [0.5, 1.2].",
-                                     "'Data.view_augmentation.random_resized_crop.aspect_ratio' must be a list of two "
-                                     "numbers [low, high] with 0 < low <= high <= inf, got [2.0, 1.0].",
-                                     "'Data.view_augmentation.grayscale.probability' must be a probability within "
-                                     "[0, 1], got 1.5.",
-                                     "'Data.view_augmentation.rotation.maximum_degrees' must be a number within "
-                                     "[0, 180], got 200.0.",
-                                     "'Data.view_augmentation.colour_jitter.brightness' must be a number >= 0, got "
-                                     "-0.1.",
-                                     "'Data.view_augmentation.colour_jitter.hue' must be a number within [0, 0.5], "
-                                     "got 0.6.",
-                                     "'Data.view_augmentation.gaussian_blur.kernel_size' must be an odd integer >= 3, "
-                                     "got 4.",
-                                     "'Data.view_augmentation.gaussian_blur.sigma' must be a list of two numbers "
-                                     "[low, high] with 0 < low <= high <= inf, got [0.5]."]),
-    (set_invalid_harder_view_transformations, [
-        "'Data.view_augmentation.gaussian_blur.probability' must be a probability within [0, 1] or a list of two of "
-        "them [first view, second view], got [1.0, 0.1, 0.5].",
-        "'Data.view_augmentation.solarize.probability' must be a probability within [0, 1] or a list of two of them "
-        "[first view, second view], got [0.0, 1.2].",
-        "'Data.view_augmentation.perspective.distortion_scale' must be a number within [0, 1], got 1.2.",
-        "'Data.view_augmentation.jigsaw.grid' must be a list of two integers [rows, columns] >= 1, giving at least two "
-        "pieces, that divide 'Data.image_settings.size' (256), got [3, 2].",
-        "'Data.view_augmentation.motion_blur.kernel_size' must be a list of two odd integers [low, high] with 3 <= low "
-        "<= high, got [4, 9].",
-        "'Data.view_augmentation.motion_blur.maximum_angle' must be a number within [0, 180], got 200.0.",
-        "'Data.view_augmentation.gaussian_noise.standard_deviation' must be a number >= 0, got -0.03.",
-        "'Data.view_augmentation.gamma.gamma' must be a list of two numbers [low, high] with 0 < low <= high <= inf, "
-        "got [0.0, 1.5].",
-        "'Data.view_augmentation.haze.strength' must be a list of two numbers [low, high] with 0 <= low <= high <= 1, "
-        "got [0.0, 1.5].",
-        "'Data.view_augmentation.linear_illumination.gain' must be a list of two numbers [low, high] with 0 <= low <= "
-        "high <= 1, got [0.05, 1.25].",
-        "'Data.view_augmentation.plasma_shadow.shade_intensity' must be a list of two numbers [low, high] with -1 <= "
-        "low <= high <= 0, got [-0.5, 0.5].",
-        "'Data.view_augmentation.motion_blur.direction' must be a list of two numbers [low, high] with -1 <= low <= "
-        "high <= 1, got [-1.5, 1.0].",
-        "'Data.view_augmentation.solarize.threshold' must be a list of two numbers [low, high] with 0 <= low <= high "
-        "<= 1, got [0.5, 1.5].",
-        "'Data.view_augmentation.solarize.addition' must be a list of two numbers [low, high] with -0.5 < low <= "
-        "high < 0.5, got [-0.6, 0.0].",
-        "'Data.view_augmentation.random_erasing.scale' must be a list of two numbers [low, high] with 0 < low <= high "
-        "<= 1, got [0.02, 1.5]."]),
-    (set_view_values_rejected_by_kornia, [
-        "'Data.view_augmentation.random_resized_crop' must give crops of at least 2 pixels on each side at "
-        "'Data.image_settings.size' (256), got sides down to 0.7 pixel with scale [1e-05, 1.0] and aspect_ratio "
-        "[0.75, 1.3333]: kornia cannot resize a crop one pixel wide or high.",
-        "'Data.view_augmentation.gaussian_blur.kernel_size' (513) must be below twice 'Data.image_settings.size' "
-        "(256): the blur pads the views by half its kernel on every side by reflection, which needs more pixels than "
-        "the side of the views.",
-        "'Data.view_augmentation.solarize.addition' must be a list of two numbers [low, high] with -0.5 < low <= "
-        "high < 0.5, got [0.0, 0.5]."]),
-    (set_single_piece_jigsaw, ["'Data.view_augmentation.jigsaw.grid' must be a list of two integers [rows, columns] "
-                               ">= 1, giving at least two pieces, that divide 'Data.image_settings.size' (256), got "
-                               "[1, 1]."]),
-    (set_black_out_grid_finer_than_the_views, ["'Data.view_augmentation.black_out.grid_size' must be an integer "
-                                               "within [1, 'Data.image_settings.size' (256)], got 300: a grid finer "
-                                               "than the image would hide cells holding no pixel."]),
+    (deactivate_the_augmentation_of_the_views, ["'Data.data_augmentation.activated' must be True for the "
+                                                "self-supervised task: its types draw the two views of every image, "
+                                                "which would otherwise both be the image itself."]),
+    (crop_half_of_the_views, ["'Data.data_augmentation.types.random_crop.probability' must be 1.0 for the "
+                              "self-supervised task when 'Data.data_augmentation.types.random_crop.activated' is True, "
+                              "got 0.5: the random resized crop is drawn for every view, or turned off to keep the "
+                              "whole images."]),
     (set_invalid_grouped_batches, ["'Data.grouped_batches.block_key' must be a non-empty string, got 3.",
                                    "'Data.grouped_batches.batch_key' must be null or a non-empty string, got ''.",
                                    "'Data.grouped_batches.images_per_block' (3) must divide "
@@ -2445,8 +2360,8 @@ def test_inconsistent_self_supervised_configuration_is_rejected(tmp_path: Path, 
                                                                 modify_function: Callable[[Dict[str, Any]], None],
                                                                 expected_messages: List[str]) -> None:
     """
-    Verifies that every inconsistency of the self-supervised sections (projection head, views, data augmentation,
-    evaluation and batch size) stops the loading with a short message naming the faulty key.
+    Verifies that every inconsistency of the self-supervised sections (projection head, data augmentation drawing the
+    views, grouped batches, evaluation and batch size) stops the loading with a short message naming the faulty key.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
@@ -2676,7 +2591,8 @@ def remove_training_labels(configuration: Dict[str, Any]) -> None:
     (use_binary_keypoint_labels, ["'Data.label_mapping.mode' must be 'multi_class' for the keypoint detection, every "
                                   "class having its own keypoints, got 'binary'."]),
     (remove_training_labels, ["The keypoint definitions of the classes could not be read: the 'labels.json' of "
-                              "'ExperimentConfiguration.train_data_folder' must exist"])])
+                              "'ExperimentConfiguration.train_data_folder' must exist"]),
+    (activate_image_only_augmentation_types, IMAGE_ONLY_TYPE_REFUSALS)])
 def test_inconsistent_keypoint_configuration_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture,
                                                          modify_function: Callable[[Dict[str, Any]], None],
                                                          expected_messages: List[str]) -> None:

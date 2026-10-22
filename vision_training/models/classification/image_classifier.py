@@ -2,10 +2,8 @@
 Model of the image classification task: ImageClassifier chains the shared Backbone, a global pooling (or the flattening
 of the feature map) and the classification head, and returns the class logits, probabilities and losses: the
 classification loss, and the decorrelation loss of one hidden layer of the head when 'ClassificationHead.decorrelation'
-is on. Given a second view of every image, it also returns the final feature maps of both views, pooled and compared by
-the view losses of the classification trainer ('ClassificationHead.view_losses'), whose projectors its architecture
-summary prints. Registered in model_registry.py for the "classification" task and wrapped by inference_classifier.py
-for the exports.
+is on. Registered in model_registry.py for the "classification" task and wrapped by inference_classifier.py for the
+exports.
 """
 
 import torch
@@ -19,7 +17,6 @@ from vision_training.models.backbones.backbone import build_backbone
 from vision_training.models.classification.classification_head import (ClassificationHead, build_global_pooling,
                                                                        compute_pooled_features,
                                                                        print_classification_head_summary)
-from vision_training.models.classification.view_losses import print_view_losses_summary
 from vision_training.models.task_model import TaskModel
 
 
@@ -31,8 +28,7 @@ class ImageClassifier(TaskModel):
     classes (sigmoid), depending on 'ClassificationHead.output_mode'.
 
     Outputs: 'class_logits' [B, K] and 'class_probabilities' [B, K], plus 'classification_loss' when labels are given,
-    and 'decorrelation_loss' with the tracked 'hidden_feature_correlation' when the decorrelation is also on. With
-    second views, the 'final_feature_map' [B, C, H, W] of the images and the 'second_view_final_feature_map'.
+    and 'decorrelation_loss' with the tracked 'hidden_feature_correlation' when the decorrelation is also on.
     """
 
     def __init__(self, configuration: Dict[str, Any], verbose: bool = False, device: torch.device = None,
@@ -81,37 +77,21 @@ class ImageClassifier(TaskModel):
         self.register_buffer(name="class_weights",
                              tensor=torch.ones(size=(self.number_classes,), device=device, dtype=dtype))
 
-    def forward(self, input_tensor: torch.Tensor, labels: Optional[torch.Tensor] = None,
-                second_view_tensor: Optional[torch.Tensor] = None) -> Dict[str, Any]:
+    def forward(self, input_tensor: torch.Tensor, labels: Optional[torch.Tensor] = None) -> Dict[str, Any]:
         """
         Classifies a batch of images, and computes the classification loss when the labels are given, with the
         decorrelation loss of the features of one hidden layer of the head when 'ClassificationHead.decorrelation' is
-        on (training and validation batches; the predictions without labels never compute it). Given a second view of
-        every image, for the view losses of the classification trainer, both views go through the backbone in one
-        forward pass, so that its batch normalization layers compute their statistics over all the views, and the
-        final feature maps of both views are returned, pooled by the trainer with the pooling of the view losses, the
-        head classifying the images alone.
+        on (training and validation batches; the predictions without labels never compute it).
 
         Args:
             input_tensor (torch.Tensor): The [B, 3, H, W] float BGR images in [0, 255].
             labels (Optional[torch.Tensor]): The [B] class indices or [B, K] multi-hot targets, or None.
-            second_view_tensor (Optional[torch.Tensor]): The [B, 3, H, W] second views of the images, in the same
-                order, or None. Defaults to None.
 
         Returns:
             Dict[str, Any]: The 'class_logits' and 'class_probabilities' [B, K], plus 'classification_loss' with labels,
-                'decorrelation_loss' and 'hidden_feature_correlation' with labels and the decorrelation on, and the
-                [B, C, H, W] 'final_feature_map' and 'second_view_final_feature_map' with second views.
+                and 'decorrelation_loss' and 'hidden_feature_correlation' with labels and the decorrelation on.
         """
-        # Both views in one forward pass of the backbone, then split back into the images and their second views, the
-        # predictions and the exports running the images alone
-        if second_view_tensor is not None:
-            number_images = input_tensor.shape[0]
-            input_tensor = torch.cat(tensors=[input_tensor, second_view_tensor], dim=0)
         final_feature_map, _ = self.backbone(input_tensor=input_tensor)
-        if second_view_tensor is not None:
-            final_feature_map, second_view_feature_map = (final_feature_map[:number_images],
-                                                          final_feature_map[number_images:])
         pooled_features = self.global_pooling(input=final_feature_map)
 
         # Keep the features of the decorrelated hidden layer, before its ReLU, only when its loss is computed
@@ -135,32 +115,21 @@ class ImageClassifier(TaskModel):
         if decorrelation_on:
             outputs.update(compute_decorrelation_loss(hidden_features=hidden_features,
                                                       weight=self.decorrelation_configuration["weight"]))
-
-        # Final feature maps of both views, pooled and compared by the view losses of the trainer
-        if second_view_tensor is not None:
-            outputs.update({"final_feature_map": final_feature_map,
-                            "second_view_final_feature_map": second_view_feature_map})
         return outputs
 
     def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
         """
         Prints the backbone summary, then the classification head: pooling, size of the pooled or flattened vector,
-        hidden layers, dropout, output mode and number of classes, then the view losses turned on with their
-        projectors, trained with the classifier as the auxiliary heads of the classification trainer.
+        hidden layers, dropout, output mode and number of classes.
 
         Args:
-            auxiliary_heads (Optional[Dict[str, nn.Module]]): The projector of every view loss turned on, built by
-                build_view_loss_projectors, empty or None when every view loss is off, which prints no view loss.
+            auxiliary_heads (Optional[Dict[str, nn.Module]]): Unused, the trainer of the task having no auxiliary
+                head; kept so that every task model prints its summary with the same arguments.
         """
         self.backbone.print_summary()
         print_classification_head_summary(head_configuration=self.head_configuration,
                                           input_features=self.classification_head.input_features,
                                           number_classes=self.number_classes)
-
-        # Self-supervised view losses and their projectors, only when one of them is on
-        if auxiliary_heads:
-            print_view_losses_summary(view_losses_configuration=self.head_configuration["view_losses"],
-                                      projectors=auxiliary_heads)
 
     def get_size_components(self) -> Dict[str, nn.Module]:
         """

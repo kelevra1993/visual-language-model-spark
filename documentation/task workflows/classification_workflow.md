@@ -59,6 +59,9 @@ main()
 │       │   of error messages instead of raising, so ALL problems are gathered. If the list is not empty, the loader
 │       │   prints every message in red with a link to the YAML file and exits. It runs, in order:
 │       │
+│       ├── check_removed_sections()              a section removed from the repository (Data.view_augmentation,
+│       │                                         ClassificationHead.view_losses) is reported alone, before the
+│       │                                         other checks
 │       ├── check_experiment_configuration()      task name is a known task, training loop settings, per-class
 │       │                                         report, number of sample images, MLflow tracking settings
 │       ├── check_data_configuration()            loader flags, label mapping mode, input image size is a power of 2
@@ -71,10 +74,8 @@ main()
 │               │               gaps, and no detection blocks in the backbone (the head uses the last feature map)
 │               ├── no sequence settings (frame shuffling, sequence normalization), since images have no frames
 │               ├── head:       global pooling (average/max/flatten), hidden layer sizes, dropout and label
-│               │               smoothing in [0, 1), output mode (multi_class/multi_label), class weighting
-│               ├── view losses: pooling, second view transformations, on/off flags, weights, off-diagonal weight
-│               │               and temperature > 0, positives ("classes" needs one class per image), projector
-│               │               layers, and batches of at least 2 images when a view loss is on
+│               │               smoothing in [0, 1), output mode (multi_class/multi_label), class weighting,
+│               │               and batches of at least 2 images with batch normalized hidden layers
 │               └── evaluation: top_k > 0, target_precision in [0, 1], error images only in multi_class mode
 │
 ├── get_trainer_class(task)
@@ -87,9 +88,8 @@ main()
 ├── ClassificationTrainer(experiment_configuration, model_configuration, configuration_path)  [STAGE 2]
 │   │   Receives both dictionaries and the YAML path from main(). Before calling the shared constructor, it stores the
 │   │   classification settings that its hooks read later: output_mode and class_weighting (ClassificationHead), then
-│   │   top_k, target_precision, save_predictions and error_dumps (evaluation). With a view loss on
-│   │   (ClassificationHead.view_losses), it also builds the ViewAugmenter of the second views and the pooling of the
-│   │   view losses. TASK_NAME is "classification"; the base class refuses a configuration of another task.
+│   │   top_k, target_precision, save_predictions and error_dumps (evaluation). TASK_NAME is "classification"; the base
+│   │   class refuses a configuration of another task.
 │   │
 │   └── BaseTrainer.__init__()
 │       │   Does everything that does not depend on the task, in this order: read the settings, pick the device, name
@@ -112,8 +112,9 @@ main()
 │       │       the architecture starts a new one.
 │       ├── DataAugmenter(augmentation_configuration)
 │       │       Reads Data.data_augmentation: the global activated flag and probability, and the activated flag and
-│       │       probability of each of the 20 augmentation types. It only stores them; the random draws happen later, on
-│       │       the training batches (Stage 3, augment_batch).
+│       │       probability of each of the 28 augmentation types, their strengths being the hard-coded
+│       │       SUPERVISED_AUGMENTATION_STRENGTHS. It only stores them; the random draws happen later, on the training
+│       │       batches (Stage 3, augment_batch).
 │       ├── restore_run_label_dictionary()
 │       │       Only acts for a resumed run with a checkpoint: when the mapping file now gives other classes than the
 │       │       label_dictionary.json of the run folder, the run keeps its own classes, so that the classes of its
@@ -150,7 +151,7 @@ main()
 │       │               Data.loading.number_workers persistent worker processes, prefetch_batches batches prepared
 │       │               ahead, pinned memory for a fast copy to the GPU, one OpenCV thread per worker. The training
 │       │               loader leaves out its last incomplete batch (drop_last) when the hidden layers of the head are
-│       │               batch normalized (fully_connected_normalization "batch") or a view loss is on.
+│       │               batch normalized (fully_connected_normalization "batch").
 │       ├── check_loaders_give_batches()
 │       │       Refuses the run (ValueError) when the training or test loader, or the validation loader when
 │       │       validation_iteration_ratio > 0, gives no batch: an empty split, or a split whose every sample is left
@@ -218,15 +219,9 @@ main()
 │       │       parameter group at learning rate x learning_rate_multiplier. base_learning_rates keeps the starting rate
 │       │       of every group for the schedule. With Optimization.exponential_moving_average.activated, the
 │       │       ExponentialMovingAverage is then created: a copy of the model, never trained, averaging its weights.
-│       ├── build_auxiliary_heads() + create_optimizer()
-│       │       The projector of every view loss turned on, a ProjectionHead reading the final feature map pooled by
-│       │       view_losses.global_pooling, kept outside the model with its own optimizer (the optimizer, learning
-│       │       rate and weight decay of the run). Without view loss the dictionary is empty: nothing is built,
-│       │       trained or saved.
 │       ├── get_tracked_metrics() + MetricTracker.__init__()
 │       │       get_tracked_metrics returns {total_loss, classification_loss, accuracy} with their display names
-│       │       (with decorrelation_loss and hidden_feature_correlation when ClassificationHead.decorrelation is on,
-│       │       and the loss and batch metrics of every view loss turned on).
+│       │       (with decorrelation_loss and hidden_feature_correlation when ClassificationHead.decorrelation is on).
 │       │       MetricTracker stores them with batch_size, validation_iteration_ratio and the kind of sample ("Images"):
 │       │       it will average them over every console interval, print them with their changes and write them to
 │       │       TensorBoard.
@@ -242,15 +237,11 @@ main()
 │       │           images, 1000 categories'. The size of the training split gives the iterations per epoch.
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
 │       │       print_summary always runs: the input and output shape of every backbone block (traced with a dummy
-│       │       image), then the head panel, followed by the View Losses panel (pooling, second view crop, every loss
-│       │       with its projector) when a view loss is on, the trainer giving the classifier its projectors
-│       │       (auxiliary heads). The two others are switched by diagnosis_modes.compute_receptive_field and
-│       │       compute_model_size: receptive field of every layer, and parameters and size of backbone, head and
-│       │       total, then of every projector and of the classifier with its projectors when a view loss is on.
+│       │       image), then the head panel. The two others are switched by diagnosis_modes.compute_receptive_field and
+│       │       compute_model_size: receptive field of every layer, and parameters and size of backbone, head and total.
 │       ├── view_input_batches()  (only with diagnosis_modes.view_input_images, then exits)
-│       │       Shows an augmented training image next to a validation image, each with its class, and the second
-│       │       view of the training image in a third window when a view loss is on. ENTER closes the viewer and
-│       │       exit() stops the program before any training; no run folder was created.
+│       │       Shows an augmented training image next to a validation image, each with its class. ENTER closes the
+│       │       viewer and exit() stops the program before any training; no run folder was created.
 │       └── restore_last_model()
 │           │   Only called when resume_training is true. Returns the iteration where the loop starts: 1 for a new run,
 │           │   or the last saved iteration + 1 after loading that checkpoint into the model and the optimizer.
@@ -261,10 +252,7 @@ main()
 │           └── load_model() -> load_checkpoint()
 │                   load_checkpoint reads Weights/Iteration_N/model_00000N.pt with torch.load, mapped to the current
 │                   device. load_model puts its model_state in the model and its optimizer_state in the optimizer,
-│                   restores the moving average of the weights from its exponential_moving_average_state, and the
-│                   projectors of the view losses with their optimizers from its auxiliary_heads_state: a projector
-│                   missing from it (turned on at this resume) or resized starts from random weights, and a saved
-│                   projector the run no longer has is left out of the next checkpoints, each case being printed.
+│                   and restores the moving average of the weights from its exponential_moving_average_state.
 │
 └── trainer.run_training_loop()  [STAGE 3]
     │   Runs the iterations (run_training_iterations) and closes the MLflow run whatever ends them: FINISHED, KILLED
@@ -314,9 +302,8 @@ main()
         │   │       Counts the real frames of the batch for the frame throughput of the sequence tasks; nothing for
         │   │       images.
         │   ├── set_training_mode()
-        │   │       model.train() and the projectors of the view losses: dropout is active and the batch normalization
-        │   │       layers update their statistics. Needed again after every evaluation and validation, which switch
-        │   │       to model.eval().
+        │   │       model.train(): dropout is active and the batch normalization layers update their statistics.
+        │   │       Needed again after every evaluation and validation, which switch to model.eval().
         │   ├── run_model_iteration()
         │   │   │   The same function runs a training batch and a validation batch: prepare, augment (training only),
         │   │   │   forward, losses, metrics, tracking. It returns the total loss, which the loop then back-propagates.
@@ -327,17 +314,11 @@ main()
         │   │   ├── augment_batch() -> DataAugmenter.augment_batch()
         │   │   │       Training only. Each image is augmented with probability Data.data_augmentation.probability: the
         │   │   │       geometric types first (crop, flips, rotations), then the photometric ones (brightness, CLAHE,
-        │   │   │       noise, blur...), each type with its own probability. The labels do not change. With a view loss
-        │   │   │       on, the images before the augmentation are kept as view_source_images for the second views.
+        │   │   │       noise, blur...), each type with its own probability. The labels do not change.
         │   │   ├── forward_pass() -> ImageClassifier.forward()
         │   │   │   │   Calls model(input_tensor=images, labels=labels), in bfloat16 when mixed_precision is on.
         │   │   │   │   Returns class_logits [B, K], class_probabilities [B, K] and classification_loss (a scalar,
-        │   │   │   │   since the labels are given). With a view loss on, the ViewAugmenter first draws a second view
-        │   │   │   │   of every image in float32 with the chain of the second view (draw_view with SECOND_VIEW_INDEX,
-        │   │   │   │   the second value of a probability given per view) from view_source_images (from the images
-        │   │   │   │   themselves for a validation batch), both views go through the backbone in one pass, the head
-        │   │   │   │   classifies the images alone, and the final feature maps of both views are returned for
-        │   │   │   │   compute_view_losses.
+        │   │   │   │   since the labels are given).
         │   │   │   │
         │   │   │   ├── Backbone.forward()
         │   │   │   │       Normalizes the pixels (x / 255 - 0.5 with input_normalization), then runs the image through
@@ -348,19 +329,13 @@ main()
         │   │   │   ├── convert_logits_to_probabilities()
         │   │   │   │       Softmax over the classes in "multi_class" mode (each row sums to 1), independent sigmoids
         │   │   │   │       in "multi_label" mode.
-        │   │   │   ├── compute_classification_loss()
-        │   │   │   │       Cross entropy of the logits against the class indices (with the class weights and the
-        │   │   │   │       label smoothing), or binary cross entropy with logits against the multi-hot labels in
-        │   │   │   │       "multi_label" mode.
-        │   │   │   └── compute_view_losses()   (with a view loss on)
-        │   │   │           Pools the final feature maps of both views (view_losses.global_pooling), runs every
-        │   │   │           projector on both views together, then compute_barlow_twins_loss and compute_info_nce_loss
-        │   │   │           (the classes of the images giving more positives with positives "classes"), each
-        │   │   │           multiplied by its weight and summed with the classification loss into the total loss.
+        │   │   │   └── compute_classification_loss()
+        │   │   │           Cross entropy of the logits against the class indices (with the class weights and the
+        │   │   │           label smoothing), or binary cross entropy with logits against the multi-hot labels in
+        │   │   │           "multi_label" mode.
         │   │   ├── compute_batch_metrics()
         │   │   │       Accuracy of the batch, from the logits already computed (no second forward pass): the share of
-        │   │   │       images whose highest logit is the true class. With a view loss on, the Diagonal and
-        │   │   │       Off-Diagonal Correlation of Barlow Twins and the Positive Pair Accuracy are added.
+        │   │   │       images whose highest logit is the true class.
         │   │   └── MetricTracker.accumulate() + log_to_tensorboard()
         │   │           accumulate adds each tracked metric of the batch to the sums of the interval and counts the
         │   │           batch. log_to_tensorboard writes each metric of the batch at the current iteration.
@@ -369,17 +344,15 @@ main()
         │   ├── step_optimizer() -> compute_learning_rate_factor()
         │   │       Clips the gradient norm when Optimization.gradient_clipping_norm is set, sets the learning rate of
         │   │       every parameter group to base rate x factor(iteration) (warm-up, then constant or cosine), calls
-        │   │       optimizer.step() and the step of the optimizer of every projector of the view losses (its
-        │   │       gradients clipped on their own), updates the moving average of the weights when on, and writes the
-        │   │       learning rate to TensorBoard.
+        │   │       optimizer.step(), updates the moving average of the weights when on, and writes the learning
+        │   │       rate to TensorBoard.
         │   ├── save_model() -> save_checkpoint()
         │   │       Called right after the step when the iteration is a multiple of weight_saving_iterations
         │   │       (checkpoint, evaluated at the end of the iteration) or of intermediate_weight_saving_iterations
         │   │       (checkpoint only), so that Weights/Iteration_N holds the weights after N steps. Writes
         │   │       Weights/Iteration_N/model_00000N.pt (model, optimizer, task, run name, label dictionary, MLflow
-        │   │       run, transfer sources, moving average of the weights when on, projectors of the view losses with
-        │   │       their optimizers when on) through a temporary file, then adds the iteration to
-        │   │       Weights/full-checkpoint.
+        │   │       run, transfer sources, moving average of the weights when on) through a temporary file, then adds
+        │   │       the iteration to Weights/full-checkpoint.
         │   ├── validation pass: run_model_iteration() without augmentation
         │   │       Every validation_iteration_ratio iterations: model.eval(), no gradients, next validation batch,
         │   │       same run_model_iteration with apply_augmentation=False. Its metrics go to the validation trackers
@@ -676,17 +649,19 @@ CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-CWB_MC1000
 There is no optimizer section at the end because the run uses plain Adam without weight decay.
 
 ### Step 2.5 — `DataAugmenter()`
-This creates the augmentation tool of the training batches from `Data.data_augmentation`. It only reads and stores the settings: the global `activated` flag and `probability` (the chance that an image is augmented at all), and for each of the 20 augmentation types (8 geometric, 12 photometric) its own `activated` flag and `probability`. The random draws happen later, in Step 3.13, on every training batch. The `independent_frames` and `shuffle_frames` settings only concern the sequence tasks.
+This creates the augmentation tool of the training batches from `Data.data_augmentation`. It only reads and stores the settings: the global `activated` flag and `probability` (the chance that an image is augmented at all), and for each of the 28 augmentation types (10 geometric, 18 photometric) its own `activated` flag and `probability`. The strengths of the types (crop sizes, rotation angles, brightness steps...) are not settings: the augmenter of a supervised task takes the hard-coded `SUPERVISED_AUGMENTATION_STRENGTHS`, and the views of the self-supervised task the stronger `SELF_SUPERVISED_AUGMENTATION_STRENGTHS` (README, Data Augmentation). The random draws happen later, in Step 3.13, on every training batch. The `independent_frames` and `shuffle_frames` settings only concern the sequence tasks.
 
 **Example: the settings of `configuration_example.yaml`**
 ```text
 activated: True    probability: 0.3    independent_frames: False    shuffle_frames: {activated: False, ...}
-types:     12 of the 20 types activated, 11 with probability 0.5 and random_haze with 0.3 (random_aspect_crop,
-           random_zoom_out, random_translation, random_up_down_flip, random_90_rotation,
-           random_colour_augmentation, random_motion_blur and random_black_out are off)
+types:     12 of the 28 types activated, 11 with probability 0.5 and random_haze with 0.3 (random_aspect_crop,
+           random_zoom_out, random_translation, random_up_down_flip, random_90_rotation, random_perspective,
+           random_jigsaw, random_hue, random_colour_augmentation, random_gamma, random_linear_illumination,
+           random_plasma_shadow, random_motion_blur, random_solarize, random_black_out and random_erasing are off)
 expected:  0.3 x (11 x 0.5 + 0.3) = 1.74 augmentations per image, on average
-attributes of the augmenter: activated, probability, independent_frames, shuffle_frames_activated,
-                             shuffle_frames_probability, type_settings
+attributes of the augmenter: activated, probability, self_supervised (False), strengths
+                             (SUPERVISED_AUGMENTATION_STRENGTHS), independent_frames, shuffle_frames_activated,
+                             shuffle_frames_probability, type_settings, black_out_grid_size
 ```
 
 ### Step 2.6 — `setup_training_paths()`
@@ -755,7 +730,7 @@ kept (shuffled order, its raw category is mapped to the class index 501):
 ### Step 2.10 — `build_native_loader()`
 This wraps the dataset in a PyTorch `DataLoader` with the `Data.loading` settings: the samples are reshuffled at every epoch, `number_workers` worker processes decode the images (each with a single OpenCV thread, kept alive between epochs and evaluations), `prefetch_batches` batches are prepared ahead of the model, and the batches are copied to pinned memory so that the transfer to the GPU is fast. With `number_workers: 0` the images are loaded in the main process, which is slower but easier to debug.
 
-The training loader leaves out the last incomplete batch of every epoch (`drop_last`) when its training needs batch statistics (`ClassificationTrainer.drops_last_training_batch()`): when the hidden layers of the head are batch normalized (`ClassificationHead.fully_connected_normalization: "batch"`) or a view loss is on, since a last batch of a single image gives no batch statistics and would fail at every epoch. An epoch is then `floor(training samples / batch size)` iterations, which the launch panel prints (Step 2.22), and a training split holding fewer images than a batch is refused. Otherwise, as in `configuration_example.yaml` (`fully_connected_normalization: "layer"`, no view loss), the last incomplete batch is kept. The validation and test loaders always keep it.
+The training loader leaves out the last incomplete batch of every epoch (`drop_last`) when its training needs batch statistics (`ClassificationTrainer.drops_last_training_batch()`): when the hidden layers of the head are batch normalized (`ClassificationHead.fully_connected_normalization: "batch"`), since a last batch of a single image gives no batch statistics and would fail at every epoch. An epoch is then `floor(training samples / batch size)` iterations, which the launch panel prints (Step 2.22), and a training split holding fewer images than a batch is refused. Otherwise, as in `configuration_example.yaml` (`fully_connected_normalization: "layer"`), the last incomplete batch is kept. The validation and test loaders always keep it.
 
 **Example: the training loader of `configuration_example.yaml`**
 ```text
@@ -964,7 +939,7 @@ iterations_per_epoch     = 4966
 ```
 
 ### Step 2.24 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-`print_summary(auxiliary_heads)` always runs: for every backbone block, the input and output shape traced with a dummy image (as shown in Step 2.14), then a panel for the head, and the View Losses panel when a view loss is on, from the projectors the trainer gives as its auxiliary heads. The two others are optional and switched by `diagnosis_modes.compute_receptive_field` and `diagnosis_modes.compute_model_size`: the receptive field of every layer (the area of the input image that one output value depends on), and the number of parameters and the size of the backbone, the head and the whole model, followed, when a view loss is on, by every projector and by `Total With Auxiliary Heads`, the classifier with its projectors: the projectors are trained and saved in the checkpoints, but never exported.
+`print_summary()` always runs: for every backbone block, the input and output shape traced with a dummy image (as shown in Step 2.14), then a panel for the head. The two others are optional and switched by `diagnosis_modes.compute_receptive_field` and `diagnosis_modes.compute_model_size`: the receptive field of every layer (the area of the input image that one output value depends on), and the number of parameters and the size of the backbone, the head and the whole model.
 
 **Example output: the head panel, the receptive field panel (shortened) and the size panel**
 ```text
@@ -1002,40 +977,6 @@ iterations_per_epoch     = 4966
 │   - Parameters           : 3,232,744                     │
 │   - Trainable Parameters : 3,232,744                     │
 │   - Estimated Size       : 12.94 MB                      │
-╰──────────────────────────────────────────────────────────╯
-```
-
-**Example output: the View Losses panel and the end of the size panel with both view losses of `configuration_synthetic_shapes.yaml` on**
-```text
-╭──────────────────────────────── View Losses ─────────────────────────────────╮
-│ Representation         : average pooling, 128 features                       │
-│ Second View Crop       : 0.8 to 1 of the image area                          │
-│ Barlow Twins           : weight 0.004, off-diagonal weight 0.005             │
-│ Barlow Twins Projector : [512, 512], 329,728 parameters                      │
-│ Contrastive            : weight 0.5, temperature 0.1, positives classes      │
-│ Contrastive Projector  : [2048, 128], 530,560 parameters                     │
-╰──────────────────────────────────────────────────────────────────────────────╯
-╭─────────────────────── Model Size ───────────────────────╮
-│ ...                                                      │
-│ Total Model                                              │
-│   - Parameters           : 4,634,217                     │
-│   - Trainable Parameters : 4,634,217                     │
-│   - Estimated Size       : 18.54 MB                      │
-│                                                          │
-│ Barlow Twins Projector                                   │
-│   - Parameters           : 329,728                       │
-│   - Trainable Parameters : 329,728                       │
-│   - Estimated Size       : 1.32 MB                       │
-│                                                          │
-│ Contrastive Projector                                    │
-│   - Parameters           : 530,560                       │
-│   - Trainable Parameters : 530,560                       │
-│   - Estimated Size       : 2.14 MB                       │
-│                                                          │
-│ Total With Auxiliary Heads                               │
-│   - Parameters           : 5,494,505                     │
-│   - Trainable Parameters : 5,494,505                     │
-│   - Estimated Size       : 22.00 MB                      │
 ╰──────────────────────────────────────────────────────────╯
 ```
 
@@ -1217,7 +1158,7 @@ labels  [8]            torch.int64   -> [8]            torch.int64
 ```
 
 ### Step 3.13 — `augment_batch()` → `DataAugmenter.augment_batch()`
-This is only called for training batches, so the model learns from varied images while the validation and the test stay on the original ones. Each image of the batch is drawn on its own: with probability `Data.data_augmentation.probability` it is augmented, otherwise it is left as it is. An augmented image gets the geometric types first (crop, aspect crop, zoom-out, translation, left-right flip, up-down flip, rotations), then the photometric ones (brightness, contrast, saturation, CLAHE, sharpening, histogram equalizations, noise, grayscale, colour swap, blur, motion blur, haze, black out), each type with its own probability. The labels do not change, since none of these changes the class. The result stays in [0, 255].
+This is only called for training batches, so the model learns from varied images while the validation and the test stay on the original ones. Each image of the batch is drawn on its own: with probability `Data.data_augmentation.probability` it is augmented, otherwise it is left as it is. An augmented image gets the geometric types first (crop, aspect crop, zoom-out, translation, left-right flip, up-down flip, rotations, perspective, jigsaw), then the photometric ones (brightness, contrast, saturation, hue, CLAHE, sharpening, histogram equalizations, noise, grayscale, colour swap, gamma, linear illumination, plasma shadow, blur, motion blur, haze, solarization, black out, erasing), each type with its own probability. The labels do not change, since none of these changes the class. The result stays in [0, 255].
 
 **Example: which images of the first batch were changed** (`probability: 0.4`, 8 images)
 ```text

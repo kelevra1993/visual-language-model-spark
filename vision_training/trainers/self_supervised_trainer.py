@@ -1,13 +1,15 @@
 """
 Trainer of the self-supervised task: the loaders of the 'labels.json' manifests keeping every image, the two random
-views of every training and validation image made before the forward pass (parameters drawn on the CPU, images
-transformed on the device), the loss and batch metrics of the method (SimCLR or Barlow Twins) tracked on every batch,
-and the evaluation of the representations of the checkpoints on the test split (k-nearest neighbour classification of
-the labelled test images, effective rank and standard deviation of the representations). Registered for the
-"self_supervised" task; the backbone it trains then initialises the other tasks through 'Backbone.pretrained'.
+views of every training and validation image drawn on the device before the forward pass by the data augmentation with
+the self-supervised strengths (DataAugmenter.create_views of Data.data_augmentation), the loss and batch metrics of the
+method (SimCLR or Barlow Twins) tracked on every batch, and the evaluation of the representations of the checkpoints on
+the test split (k-nearest neighbour classification of the labelled test images, effective rank and standard deviation of
+the representations). Registered for the "self_supervised" task; the backbone it trains then initialises the other tasks
+through 'Backbone.pretrained'.
 """
 
 import numpy as np
+import random
 import torch
 
 from collections import Counter
@@ -21,7 +23,6 @@ from vision_training.data.grouped_batch_sampler import GroupedBatchSampler
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.loaders import get_classification_dataloaders
 from vision_training.data.split_description import count_split_samples
-from vision_training.data.view_augmentations import ViewAugmenter
 from vision_training.evaluation.classification.class_metrics_report import (build_class_metric_scalars,
                                                                              build_class_metrics_rows,
                                                                              build_class_metrics_table)
@@ -62,14 +63,14 @@ SAMPLE_VIEWS_SEED = 20_000
 
 class SelfSupervisedTrainer(BaseTrainer):
     """
-    Trainer of the self-supervised task: the backbone, the global pooling and the projection head learn from two
-    random views of every image (Data.view_augmentation), pulled together by the loss of 'ProjectionHead.method'.
-    The views replace the data augmentation of the other tasks, so 'Data.data_augmentation' stays off and the views
-    are drawn in the forward pass of the training and the validation batches alike, the validation loss needing views
-    too. Every evaluated checkpoint is scored without training any classifier: its representations classify the
-    labelled test images by their nearest neighbours among the other labelled test images (accuracy, balanced
-    accuracy, macro F1 and per-class metrics), and their effective rank and standard deviation watch the collapse,
-    the only metrics of a test split without labels.
+    Trainer of the self-supervised task: the backbone, the global pooling and the projection head learn from two random
+    views of every image, pulled together by the loss of 'ProjectionHead.method'. The views are drawn by the data
+    augmentation ('Data.data_augmentation', with the stronger SELF_SUPERVISED_AUGMENTATION_STRENGTHS) in the forward
+    pass of the training and the validation batches alike, the validation loss needing views too. Every evaluated
+    checkpoint is scored without training any classifier: its representations classify the labelled test images by their
+    nearest neighbours among the other labelled test images (accuracy, balanced accuracy, macro F1 and per-class
+    metrics), and their effective rank and standard deviation watch the collapse, the only metrics of a test split
+    without labels.
     """
 
     TASK_NAME = "self_supervised"
@@ -78,11 +79,14 @@ class SelfSupervisedTrainer(BaseTrainer):
     # comparing the samples of a full batch
     DROPS_LAST_TRAINING_BATCH = True
 
+    # The data augmentation draws the two views of every image, with the self-supervised strengths
+    SELF_SUPERVISED_AUGMENTATION = True
+
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
         """
-        Reads the self-supervised settings used by the hooks and builds the view augmenter, then prepares the
-        training run through the general trainer.
+        Reads the self-supervised settings used by the hooks, then prepares the training run through the general
+        trainer, which builds the data augmentation drawing the views.
 
         Args:
             experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
@@ -92,12 +96,6 @@ class SelfSupervisedTrainer(BaseTrainer):
         # Method of the run, giving its tracked metrics, and the number of neighbours voting in the evaluation
         self.method = model_configuration["ProjectionHead"]["method"]
         self.number_neighbours = experiment_configuration["evaluation"]["number_neighbours"]
-
-        # Random views of the training and validation images, their parameters drawn on the CPU and the images
-        # transformed on the device
-        self.view_augmenter = ViewAugmenter(
-            view_augmentation_configuration=model_configuration["Data"]["view_augmentation"],
-            image_size=model_configuration["Data"]["image_settings"]["size"])
         super().__init__(experiment_configuration=experiment_configuration, model_configuration=model_configuration,
                          configuration_path=configuration_path)
 
@@ -182,8 +180,8 @@ class SelfSupervisedTrainer(BaseTrainer):
 
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Leaves the training batch unchanged: the random views of the self-supervised task are drawn in forward_pass,
-        for the training and the validation batches alike, and replace the data augmentation of the other tasks.
+        Leaves the training batch unchanged: the two random views of every image are drawn in forward_pass, for the
+        training and the validation batches alike.
 
         Args:
             batch (Dict[str, Any]): The training batch.
@@ -195,8 +193,9 @@ class SelfSupervisedTrainer(BaseTrainer):
 
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Draws the two random views of every image of a training or validation batch, then runs the model on both views
-        so that it returns the loss of the method.
+        Draws the two random views of every image of a training or validation batch with the data augmentation
+        (DataAugmenter.create_views, in float32 even within the mixed precision autocast), then runs the model on both
+        views so that it returns the loss of the method.
 
         Args:
             batch (Dict[str, Any]): The prepared batch.
@@ -204,7 +203,7 @@ class SelfSupervisedTrainer(BaseTrainer):
         Returns:
             Dict[str, Any]: The model outputs, with the loss and the batch metrics of the method.
         """
-        first_views, second_views, _ = self.view_augmenter.create_views(images=batch["images"])
+        first_views, second_views, _, _ = self.data_augmenter.create_views(images=batch["images"])
         return self.model(input_tensor=first_views, second_view_tensor=second_views)
 
     def predict_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
@@ -382,7 +381,8 @@ class SelfSupervisedTrainer(BaseTrainer):
         captioned with its class and the cosine similarity of the representations of both views, which a backbone
         invariant to the views brings close to 1. The views are drawn from a seed of the image, in a copy of the random
         state that leaves the one of the training unchanged, so that every evaluation and both the trained and the
-        averaged weights compare the same two views.
+        averaged weights compare the same two views. The augmentation draws with Python's random module and the noise
+        and the plasma maps with PyTorch, so both generators are seeded and both training states restored.
 
         Args:
             batch (Dict[str, Any]): The prepared test batch.
@@ -393,9 +393,15 @@ class SelfSupervisedTrainer(BaseTrainer):
             np.ndarray: The [H, W, 3] uint8 BGR image of the sample.
         """
         image = batch["images"][sample_index:sample_index + 1]
-        with torch.random.fork_rng(devices=[] if self.device.type == "cpu" else [self.device]):
-            torch.manual_seed(seed=SAMPLE_VIEWS_SEED + int(batch[SAMPLE_IDENTIFIERS_KEY][sample_index]))
-            first_view, second_view, _ = self.view_augmenter.create_views(images=image)
+        views_seed = SAMPLE_VIEWS_SEED + int(batch[SAMPLE_IDENTIFIERS_KEY][sample_index])
+        training_random_state = random.getstate()
+        try:
+            with torch.random.fork_rng(devices=[] if self.device.type == "cpu" else [self.device]):
+                torch.manual_seed(seed=views_seed)
+                random.seed(views_seed)
+                first_view, second_view, _, _ = self.data_augmenter.create_views(images=image)
+        finally:
+            random.setstate(training_random_state)
 
         # Similarity of the representations of both views, the model being in evaluation mode
         view_representations = self.model(input_tensor=torch.cat(tensors=[first_view, second_view],
@@ -505,8 +511,9 @@ class SelfSupervisedTrainer(BaseTrainer):
                            sample_index: int) -> bool:
         """
         Displays the two random views of a training image side by side, exactly as the network receives them, each
-        next to an information panel holding the class of the image and the transformations drawn for the view with
-        their values. The validation images get views drawn the same way, so only the training image is shown.
+        next to an information panel holding the class of the image and the augmentations drawn for the view with
+        their values (DataAugmenter.describe_report). The validation images get views drawn the same way, so only the
+        training image is shown.
 
         Args:
             training_batch (Dict[str, Any]): The training batch, on the CPU.
@@ -516,14 +523,13 @@ class SelfSupervisedTrainer(BaseTrainer):
         Returns:
             bool: True if the user asked to stop viewing.
         """
-        first_view, second_view, view_descriptions = self.view_augmenter.create_views(
-            images=training_batch["images"][sample_index:sample_index + 1].to(dtype=torch.float32), describe_views=True)
+        first_view, second_view, first_reports, second_reports = self.data_augmenter.create_views(
+            images=training_batch["images"][sample_index:sample_index + 1].to(dtype=torch.float32))
 
-        # The class of the image, then the transformations of each view indented under their header
+        # The class of the image, then the augmentations of each view under their header
         class_line = f"Class : {self.get_label_caption(label=training_batch['labels'][sample_index])}"
-        panel_lines = [[class_line, "", "View transformations"] +
-                       ([f"  {line}" for line in view_description[0]] or ["  none"])
-                       for view_description in view_descriptions]
+        panel_lines = [[class_line, "", "View augmentations"] + self.data_augmenter.describe_report(report=reports[0])
+                       for reports in [first_reports, second_reports]]
         return view_input_data(images=[first_view[0], second_view[0]], bounding_boxes=None, labels=None,
                                window_titles=["View 1", "View 2"], display_input_size=self.input_image_size,
                                panel_lines=panel_lines)

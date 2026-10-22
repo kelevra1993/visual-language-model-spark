@@ -1,11 +1,11 @@
 """
-General trainer shared by every task: the run folder with the copy of the configuration and the record of the images
-of every split, the training loop with its validation passes, the starting weights, the optimizer and learning rate
-schedule, the moving average of the weights, the auxiliary heads trained with the model but kept outside it (the
-projectors of the view losses of the image classifier), the checkpoints and the resume, the evaluation of the saved
-checkpoints on the test split (trained and averaged weights), the MLflow tracking of the run (vision_training/tracking)
-and the input batch viewer. The task trainers subclass it and implement its abstract hooks, and vision_training/main.py
-builds them through the task registry.
+General trainer shared by every task: the run folder with the copy of the configuration and the record of the images of
+every split, the training loop with its validation passes, the starting weights, the optimizer and learning rate
+schedule, the moving average of the weights, the auxiliary heads trained with the model but kept outside it (none for
+the current tasks), the data augmentation with the strengths of the task, the checkpoints and the resume, the evaluation
+of the saved checkpoints on the test split (trained and averaged weights), the MLflow tracking of the run
+(vision_training/tracking) and the input batch viewer. The task trainers subclass it and implement its abstract hooks,
+and vision_training/main.py builds them through the task registry.
 """
 
 import json
@@ -112,6 +112,10 @@ class BaseTrainer(ABC):
     # Whether the real frames of the training batches are counted for a frame throughput, True for the sequence tasks
     COUNTS_FRAMES = False
 
+    # Whether the data augmentation draws the views of the self-supervised task, with the stronger strengths of
+    # SELF_SUPERVISED_AUGMENTATION_STRENGTHS, instead of augmenting the training batches of a supervised task
+    SELF_SUPERVISED_AUGMENTATION = False
+
     def __init__(self, experiment_configuration: Dict[str, Any], model_configuration: Dict[str, Any],
                  configuration_path: str | Path) -> None:
         """
@@ -172,8 +176,10 @@ class BaseTrainer(ABC):
         self.tracking_configuration = self.experiment_configuration["tracking"]
         self.experiment_tracker = DisabledTracker()
 
-        # Random augmentation of the training batches, applied on their device right before the forward pass
-        self.data_augmenter = DataAugmenter(augmentation_configuration=self.data_configuration["data_augmentation"])
+        # Random augmentation of the training batches, or views of the self-supervised task, applied on their device
+        # right before the forward pass with the strengths of the task
+        self.data_augmenter = DataAugmenter(augmentation_configuration=self.data_configuration["data_augmentation"],
+                                            self_supervised=self.SELF_SUPERVISED_AUGMENTATION)
         self.input_image_size = self.data_configuration["image_settings"]["size"]
         self.batch_size = self.experiment_configuration["batch_size"]
         self.resume_training = self.experiment_configuration["resume_training"]
@@ -353,9 +359,9 @@ class BaseTrainer(ABC):
         """
         Builds the auxiliary heads of the task once its model is built: modules trained with the model through the
         losses of forward_pass but kept outside it, so that they are never exported, transferred nor averaged and can
-        be added or dropped when a run resumes (e.g. the projectors of the view losses of the image classifier). The
-        general trainer gives each one its own optimizer, steps it with the model and saves it in the checkpoints under
-        its name. No head by default.
+        be added or dropped when a run resumes (e.g. a projector of an auxiliary loss). The general trainer gives each
+        one its own optimizer, steps it with the model and saves it in the checkpoints under its name. No head by
+        default, and no current task builds one.
 
         Returns:
             Dict[str, nn.Module]: The auxiliary heads on the device and in the precision of the run, keyed by name,

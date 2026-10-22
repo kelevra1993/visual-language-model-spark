@@ -1,8 +1,7 @@
 """
 Projection head of the self-supervised task: the fully connected layers mapping the pooled representation of the
 backbone to the embedding compared by the self-supervised losses, and its summary panel. The head only serves the
-self-supervised training: the backbone, not the head, initialises the other tasks. Used by the self-supervised model,
-and as the projector of every view loss of the image classifier (models/classification/view_losses.py).
+self-supervised training: the backbone, not the head, initialises the other tasks. Used by the self-supervised model.
 """
 
 import torch
@@ -48,11 +47,10 @@ def print_projection_head_summary(head_configuration: Dict[str, Any], input_feat
 
 class ProjectionHead(nn.Module):
     """
-    Projection head of the self-supervised model, and projector of the view losses of the image classifier: hidden
-    fully connected layers, each one linear, optionally batch or layer normalized, then ReLU, followed by the linear
-    layer giving the embedding, without normalization nor activation, as in SimCLR (one hidden layer) and Barlow Twins
-    (two hidden layers). The losses are computed on the embeddings, so that the representation before the head keeps
-    the information the augmentations remove.
+    Projection head of the self-supervised model: hidden fully connected layers, each one linear, optionally batch or
+    layer normalized, then ReLU, followed by the linear layer giving the embedding, without normalization nor
+    activation, as in SimCLR (one hidden layer) and Barlow Twins (two hidden layers). The losses are computed on the
+    embeddings, so that the representation before the head keeps the information the augmentations remove.
     """
 
     def __init__(self, input_features: int, fully_connected: List[int], fully_connected_normalization: str,
