@@ -2,10 +2,10 @@
 Tests of the GroupedBatchSampler of vision_training/data/grouped_batch_sampler.py, the batches of the self-supervised
 task gathering blocks of images sharing an attribute of their "groups", the hard negatives of each other: every batch
 is full, the images of a block share their block value and a grouped batch its batch value, no image comes twice in a
-pass, the images left over form random batches, the length is the number of batches yielded, a seed reproduces the
-batches, which are rebuilt at every pass, the split stays random without groups and stops with groups in some samples
-only, ClassificationDataset keeps the groups of its samples, and the loaders of the self-supervised task give grouped
-batches of the batch size.
+pass, the images left over form random batches, the sampler marks which batches of a pass are grouped, the length is
+the number of batches yielded, a seed reproduces the batches, which are rebuilt at every pass, the split stays random
+without groups and stops with groups in some samples only, ClassificationDataset keeps the groups of its samples, and
+the loaders of the self-supervised task give grouped batches of the batch size.
 """
 
 import pytest
@@ -69,7 +69,8 @@ def test_grouped_batches_are_full_and_share_their_values() -> None:
     Verifies the batches of several passes with a batch key: every batch is full, no image comes twice in a pass, the
     length is the number of batches yielded, the 3 grouped batches (2 of the site s0, 1 of the site s1) are made of
     blocks of one camera, and the leftover images form a random batch of several sites, which holds every image of the
-    site s2 used in the pass; blocks that do not divide the batches are refused.
+    site s2 used in the pass, the sampler marking the grouped batches of every pass in their order; blocks that do not
+    divide the batches are refused.
     """
     samples = build_samples()
     sampler = build_sampler(samples=samples, batch_key="site")
@@ -87,6 +88,7 @@ def test_grouped_batches_are_full_and_share_their_values() -> None:
         batch_sites = [{samples[sample_index]["groups"]["site"] for sample_index in batch} for batch in batches]
         grouped_batches = [batch for batch, sites in zip(batches, batch_sites) if len(sites) == 1]
         assert sorted(next(iter(sites)) for sites in batch_sites if len(sites) == 1) == ["s0", "s0", "s1"]
+        assert sampler.grouped_batch_flags == [len(sites) == 1 for sites in batch_sites]
         for batch in grouped_batches:
             blocks = [batch[start:start + IMAGES_PER_BLOCK] for start in range(0, BATCH_SIZE, IMAGES_PER_BLOCK)]
             assert all(len({samples[sample_index]["groups"]["camera"] for sample_index in block}) == 1

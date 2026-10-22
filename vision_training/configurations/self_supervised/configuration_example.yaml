@@ -91,10 +91,12 @@ ExperimentConfiguration:
       compute_receptive_field: True
       # Choice to compute final model size
       compute_model_size: True
-      # Choice to view what is being fed to the neural network : opens a Training and a Validation window showing the
-      # input images captioned with their class. SPACE shows the next images, ENTER closes the viewer and exits the
-      # program without training, so set it to False to train. Requires a display (skipped with a warning otherwise). No
-      # run folder is created in this mode.
+      # Choice to view what is being fed to the neural network : opens a "View 1" and a "View 2" window showing the two
+      # random views of a training image, each next to the transformations drawn for it. With Data.grouped_batches on,
+      # every training batch is first shown whole in a "Training Batch" window, its images cut into their blocks under
+      # the values of their groups. SPACE shows the next images, ENTER closes the viewer and exits the program without
+      # training, so set it to False to train. Requires a display (skipped with a warning otherwise). No run folder is
+      # created in this mode.
       view_input_images: False
 
 Optimization:

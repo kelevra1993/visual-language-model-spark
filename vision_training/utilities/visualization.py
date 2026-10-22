@@ -5,8 +5,8 @@ information panel listing its target and its augmentations, the windows centred 
 sequence tasks, the caption bars of the evaluation error images, the class colours,
 mask overlays, error maps and sample grids of the semantic segmentation, the instance mask overlays of the instance
 segmentation, the keypoints of the objects of an image with their skeleton and the keypoint sample grids of the
-keypoint detection, and the selection grids with their probability heat map of the frame selection. Used by the
-trainers.
+keypoint detection, the selection grids with their probability heat map of the frame selection, and the batch mosaic
+of the self-supervised input viewer. Used by the trainers.
 """
 
 import importlib
@@ -48,6 +48,15 @@ NAVIGATION_HINT = "Press SPACE For Next Image, Or ENTER To Quit"
 VIEWER_WINDOW_SPACING = 20
 VIEWER_TITLE_BAR_HEIGHT = 80
 VIEWER_SCREEN_FRACTION = 0.92
+
+# Batch mosaic of the self-supervised input viewer: the side in pixels of the thumbnails of the images, the thumbnails
+# per row (a block of more images going on several rows), the gray space in pixels around every block, the font scale
+# of the image captions, and the navigation hint of its header
+BATCH_MOSAIC_THUMBNAIL_SIZE = 128
+BATCH_MOSAIC_IMAGES_PER_ROW = 16
+BATCH_MOSAIC_BLOCK_SPACING = 16
+BATCH_MOSAIC_CAPTION_FONT_SCALE = 0.5
+BATCH_NAVIGATION_HINT = "Press SPACE For The Views Of Its Images, Or ENTER To Quit"
 
 # BGR colours of the captions of the evaluation sample images, by whether the prediction of the sample is right
 CORRECT_PREDICTION_COLOUR = (0, 200, 0)
@@ -295,29 +304,32 @@ def wrap_panel_line(line: str, maximum_width: int) -> List[str]:
     return wrapped_lines
 
 
-def build_information_panel(title: str, lines: List[str], minimum_height: int) -> np.ndarray:
+def build_information_panel(title: str, lines: List[str], minimum_height: int,
+                            width: int = INFORMATION_PANEL_WIDTH, hint: str = NAVIGATION_HINT) -> np.ndarray:
     """
     Draws the black information panel the input viewer ('view_input_images') shows next to an image: its title
     (Training, Validation, View 1...), the lines written by the trainer (the target of the sample, the augmentations
     drawn for it with their values, the objects they removed...) and the navigation hint at the bottom, so that no text
-    covers the image. The panel grows downwards when its lines need more room than the image height.
+    covers the image. The panel grows downwards when its lines need more room than the image height. The batch mosaic
+    of the self-supervised viewer uses it as its header, as wide as the mosaic.
 
     Args:
         title (str): The title written at the top of the panel.
         lines (List[str]): The lines of the panel, the indented ones written in a lighter colour under their group.
         minimum_height (int): The height of the displayed image, which the panel matches at least.
+        width (int): The width of the panel in pixels. Defaults to INFORMATION_PANEL_WIDTH.
+        hint (str): The navigation hint written at the bottom of the panel. Defaults to NAVIGATION_HINT.
 
     Returns:
-        np.ndarray: The [H, INFORMATION_PANEL_WIDTH, 3] uint8 BGR panel.
+        np.ndarray: The [H, width, 3] uint8 BGR panel.
     """
     wrapped_lines = [wrapped_line for line in lines
-                     for wrapped_line in wrap_panel_line(line=line, maximum_width=INFORMATION_PANEL_WIDTH -
-                                                         2 * PANEL_MARGIN)]
+                     for wrapped_line in wrap_panel_line(line=line, maximum_width=width - 2 * PANEL_MARGIN)]
 
     # Room for the title, the lines, an empty line and the navigation hint, at least the height of the image
     panel_height = max(minimum_height, 2 * PANEL_MARGIN + PANEL_TITLE_HEIGHT + (len(wrapped_lines) + 2) *
                        PANEL_LINE_HEIGHT)
-    panel = np.zeros(shape=(panel_height, INFORMATION_PANEL_WIDTH, 3), dtype=np.uint8)
+    panel = np.zeros(shape=(panel_height, width, 3), dtype=np.uint8)
     cv2.putText(img=panel, text=title, org=(PANEL_MARGIN, PANEL_MARGIN + PANEL_TITLE_HEIGHT - 14),
                 fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=PANEL_TITLE_FONT_SCALE, color=PANEL_TITLE_COLOUR,
                 thickness=2)
@@ -330,7 +342,7 @@ def build_information_panel(title: str, lines: List[str], minimum_height: int) -
                     fontScale=PANEL_LINE_FONT_SCALE, color=line_colour, thickness=PANEL_LINE_THICKNESS)
 
     # Write the navigation hint at the bottom of the panel
-    cv2.putText(img=panel, text=NAVIGATION_HINT, org=(PANEL_MARGIN, panel_height - PANEL_MARGIN),
+    cv2.putText(img=panel, text=hint, org=(PANEL_MARGIN, panel_height - PANEL_MARGIN),
                 fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=PANEL_LINE_FONT_SCALE, color=PANEL_HINT_COLOUR,
                 thickness=PANEL_LINE_THICKNESS)
     return panel
@@ -477,12 +489,6 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[to
     Returns:
         bool: True if the user pressed ENTER to stop the visualization (or no display is available), False otherwise.
     """
-    # Skip the viewer when no graphical display is reachable (e.g. SSH without X forwarding) instead of crashing
-    if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
-        print_color(color="yellow",
-                    output="No display available (DISPLAY is not set). Skipping the input image viewer.")
-        return True
-
     # Build every window: the image with its boxes next to its information panel
     window_images = [build_viewer_window(image=image,
                                          bounding_boxes=bounding_boxes[window_index] if bounding_boxes is not None
@@ -492,6 +498,28 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[to
                                          lines=panel_lines[window_index] if panel_lines is not None else [],
                                          display_input_size=display_input_size)
                      for window_index, (image, window_title) in enumerate(zip(images, window_titles))]
+    return show_viewer_windows(window_images=window_images, window_titles=window_titles)
+
+
+def show_viewer_windows(window_images: List[np.ndarray], window_titles: List[str]) -> bool:
+    """
+    Shows the windows of the input viewer ('view_input_images') centred on the screen, scaled down when they would not
+    fit it, and waits for the user: the windows of the samples built by view_input_data, or the batch mosaic of the
+    self-supervised viewer (build_batch_mosaic). Execution halts until the user presses SPACE (next) or ENTER (stop
+    viewing).
+
+    Args:
+        window_images (List[np.ndarray]): The [H, W, 3] uint8 BGR content of every window.
+        window_titles (List[str]): The title of every window.
+
+    Returns:
+        bool: True if the user pressed ENTER to stop the visualization (or no display is available), False otherwise.
+    """
+    # Skip the viewer when no graphical display is reachable (e.g. SSH without X forwarding) instead of crashing
+    if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        print_color(color="yellow",
+                    output="No display available (DISPLAY is not set). Skipping the input image viewer.")
+        return True
 
     # Centre the windows on the screen, scaled down when they would not fit it
     window_positions, display_scale = compute_window_positions(
@@ -514,6 +542,91 @@ def view_input_data(images: List[torch.Tensor], bounding_boxes: Optional[List[to
             break
 
     return False
+
+
+def build_batch_mosaic(images: torch.Tensor, block_size: int, block_captions: List[str],
+                       image_captions: Optional[List[str]], title: str, lines: List[str]) -> np.ndarray:
+    """
+    Draws the batch mosaic of the self-supervised input viewer ('view_input_images'), shown before the views of the
+    images of a batch built by the GroupedBatchSampler: every image of the batch as a thumbnail, in the order of the
+    batch, cut into consecutive blocks of block_size images, each block under a caption bar (its block value for a
+    grouped batch) and surrounded by gray space, up to BATCH_MOSAIC_IMAGES_PER_ROW thumbnails per row, a block of more
+    images going on several rows. A header above the blocks, drawn like the information panels, gives the title, the
+    lines describing the batch and the navigation hint.
+
+    Args:
+        images (torch.Tensor): The [B, 3, H, W] BGR images of the batch in [0, 255], on any device.
+        block_size (int): The number of images of a block.
+        block_captions (List[str]): The caption of every block, written in its caption bar.
+        image_captions (Optional[List[str]]): A caption written on every thumbnail (e.g. the group values of the images
+            of a random batch), or None to leave the thumbnails bare.
+        title (str): The title of the header.
+        lines (List[str]): The lines of the header, the indented ones written in a lighter colour under their group.
+
+    Returns:
+        np.ndarray: The [H, W, 3] uint8 BGR mosaic, at least INFORMATION_PANEL_WIDTH pixels wide.
+    """
+    # Images of the batch as [B, H, W, 3] uint8 arrays, which OpenCV resizes and draws on
+    image_arrays = convert_image_to_array(image=images)
+    number_images, image_height, image_width, _ = image_arrays.shape
+
+    # Thumbnails whose longest side is the thumbnail size
+    thumbnail_scale = BATCH_MOSAIC_THUMBNAIL_SIZE / max(image_height, image_width)
+    thumbnail_width = max(1, round(image_width * thumbnail_scale))
+    thumbnail_height = max(1, round(image_height * thumbnail_scale))
+    interpolation = cv2.INTER_NEAREST if thumbnail_scale >= 1.0 else cv2.INTER_AREA
+
+    # Size of a block: its caption bar above rows of thumbnails separated by gaps, and the blocks per row of the mosaic
+    columns_per_block = min(block_size, BATCH_MOSAIC_IMAGES_PER_ROW)
+    rows_per_block = (block_size + columns_per_block - 1) // columns_per_block
+    block_width = columns_per_block * (thumbnail_width + GRID_GAP) - GRID_GAP
+    block_height = PANEL_LINE_HEIGHT + rows_per_block * (thumbnail_height + GRID_GAP)
+    number_blocks = (number_images + block_size - 1) // block_size
+    blocks_per_row = min(number_blocks, max(1, BATCH_MOSAIC_IMAGES_PER_ROW // block_size))
+    number_block_rows = (number_blocks + blocks_per_row - 1) // blocks_per_row
+    grid_width = blocks_per_row * (block_width + BATCH_MOSAIC_BLOCK_SPACING) + BATCH_MOSAIC_BLOCK_SPACING
+    grid_height = number_block_rows * (block_height + BATCH_MOSAIC_BLOCK_SPACING) + BATCH_MOSAIC_BLOCK_SPACING
+
+    # Header as wide as the mosaic, above a gray grid of blocks
+    mosaic_width = max(grid_width, INFORMATION_PANEL_WIDTH)
+    header = build_information_panel(title=title, lines=lines, minimum_height=0, width=mosaic_width,
+                                     hint=BATCH_NAVIGATION_HINT)
+    grid = np.full(shape=(grid_height, mosaic_width, 3), fill_value=64, dtype=np.uint8)
+    for block_index in range(number_blocks):
+
+        # Block with its black caption bar, the caption cut at the edge of the block when longer, above the thumbnails
+        # separated by gray gaps
+        block = np.full(shape=(block_height, block_width, 3), fill_value=128, dtype=np.uint8)
+        block[:PANEL_LINE_HEIGHT] = 0
+        cv2.putText(img=block, text=block_captions[block_index], org=(GRID_GAP, PANEL_LINE_HEIGHT - 10),
+                    fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=PANEL_LINE_FONT_SCALE, color=PANEL_GROUP_COLOUR,
+                    thickness=PANEL_LINE_THICKNESS)
+
+        # Thumbnails of the images of the block, row by row, each with its caption when given
+        block_images = range(block_index * block_size, min((block_index + 1) * block_size, number_images))
+        for position, image_index in enumerate(block_images):
+            thumbnail = cv2.resize(src=image_arrays[image_index], dsize=(thumbnail_width, thumbnail_height),
+                                   interpolation=interpolation)
+            if image_captions is not None:
+                (caption_width, caption_height), _ = cv2.getTextSize(
+                    text=image_captions[image_index], fontFace=cv2.FONT_HERSHEY_SIMPLEX,
+                    fontScale=BATCH_MOSAIC_CAPTION_FONT_SCALE, thickness=1)
+                cv2.rectangle(img=thumbnail, pt1=(0, 0), pt2=(caption_width + 6, caption_height + 8),
+                              color=(0, 0, 0), thickness=-1)
+                cv2.putText(img=thumbnail, text=image_captions[image_index], org=(3, caption_height + 3),
+                            fontFace=cv2.FONT_HERSHEY_SIMPLEX, fontScale=BATCH_MOSAIC_CAPTION_FONT_SCALE,
+                            color=PANEL_TITLE_COLOUR, thickness=1)
+            top = PANEL_LINE_HEIGHT + (position // columns_per_block) * (thumbnail_height + GRID_GAP)
+            left = (position % columns_per_block) * (thumbnail_width + GRID_GAP)
+            block[top:top + thumbnail_height, left:left + thumbnail_width] = thumbnail
+
+        # Place the block in its cell of the grid, row by row
+        block_top = BATCH_MOSAIC_BLOCK_SPACING + (block_index // blocks_per_row) * (block_height +
+                                                                                    BATCH_MOSAIC_BLOCK_SPACING)
+        block_left = BATCH_MOSAIC_BLOCK_SPACING + (block_index % blocks_per_row) * (block_width +
+                                                                                    BATCH_MOSAIC_BLOCK_SPACING)
+        grid[block_top:block_top + block_height, block_left:block_left + block_width] = block
+    return np.concatenate([header, grid], axis=0)
 
 
 def build_frame_grid(frames: torch.Tensor, sequence_mask: torch.Tensor, frame_captions: Optional[List[str]],

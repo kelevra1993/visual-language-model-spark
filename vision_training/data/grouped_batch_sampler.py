@@ -5,7 +5,8 @@ sharing its nuisance attributes: the same camera, scene or device type. The grou
 dictionary of every sample of the 'labels.json' manifests, kept in its sample record by ClassificationDataset, and the
 keys from the 'Data.grouped_batches' section. Built by get_classification_dataloaders of data/loaders.py for the
 training and validation splits of the self-supervised task and given to their DataLoader as its batch sampler, the
-batches staying random when the section is off or when no sample of the split holds its keys.
+batches staying random when the section is off or when no sample of the split holds its keys. The input viewer of the
+self-supervised trainer reads which batches of a pass are grouped, for its batch mosaic.
 """
 
 import torch
@@ -28,7 +29,8 @@ class GroupedBatchSampler(Sampler[List[int]]):
     Every image is used at most once per pass, and every pass gives floor(N / batch_size) batches, like the random
     batches without their last incomplete one, since every grouped batch is full and the leftover pool holds every other
     image. The draws of every pass use a PyTorch generator seeded from the global PyTorch generator, like the shuffling
-    of the DataLoader, so that a seed reproduces the batches.
+    of the DataLoader, so that a seed reproduces the batches. Whether every batch of the current pass is grouped is
+    kept, in the order of the pass, for the batch mosaic of the input viewer ('view_input_images').
     """
 
     def __init__(self, group_values: List[Tuple[Optional[str], str]], batch_size: int, images_per_block: int) -> None:
@@ -68,6 +70,10 @@ class GroupedBatchSampler(Sampler[List[int]]):
         self.number_grouped_batches = sum(number_blocks // self.blocks_per_batch
                                           for number_blocks in blocks_per_batch_value.values())
         self.number_leftover_batches = self.number_samples // batch_size - self.number_grouped_batches
+
+        # Whether every batch of the current pass, in the order it is yielded, is a grouped batch (False for a random
+        # batch of the leftover pool), set when a pass starts
+        self.grouped_batch_flags: List[bool] = []
 
     def __len__(self) -> int:
         """
@@ -121,8 +127,10 @@ class GroupedBatchSampler(Sampler[List[int]]):
         batches += [shuffled_leftover_indices[batch_index * self.batch_size:(batch_index + 1) * self.batch_size]
                     for batch_index in range(len(shuffled_leftover_indices) // self.batch_size)]
 
-        # Grouped and random batches in a random order
-        for position in torch.randperm(n=len(batches), generator=generator).tolist():
+        # Grouped and random batches in a random order, the grouped ones being the first of the list
+        batch_order = torch.randperm(n=len(batches), generator=generator).tolist()
+        self.grouped_batch_flags = [position < self.number_grouped_batches for position in batch_order]
+        for position in batch_order:
             yield batches[position]
 
 

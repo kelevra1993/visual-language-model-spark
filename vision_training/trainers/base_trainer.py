@@ -526,6 +526,21 @@ class BaseTrainer(ABC):
         """
         return build_split_record(split_data_folder=split_data_folder)
 
+    def show_input_batch(self, training_batch: Dict[str, Any], batch_index: int) -> bool:
+        """
+        Shows a whole training batch in the input viewer ('view_input_images') before its samples, as the loader gives
+        it: the self-supervised task shows the mosaic of a batch built by its GroupedBatchSampler, the other tasks
+        show nothing.
+
+        Args:
+            training_batch (Dict[str, Any]): The training batch as the loader gives it, on the CPU.
+            batch_index (int): The position of the batch in the pass of the viewer over the training split.
+
+        Returns:
+            bool: True if the user asked to stop viewing.
+        """
+        return False
+
     def list_class_names(self) -> Optional[List[str]]:
         """
         Gives the class names of the run in class index order (background first for the detection and segmentation
@@ -1253,17 +1268,22 @@ class BaseTrainer(ABC):
         Shows the training and validation samples exactly as the data loaders feed them to the network, the training
         ones augmented as during training, in two windows centred side by side on the screen, each image next to a
         black information panel with its targets and, for the training sample, the augmentations drawn for it with
-        their values. Enabled by the 'view_input_images' diagnosis mode, it lets the user check the preprocessing, the
-        label mapping and the data augmentation. Pressing ENTER closes the viewer, after which the program exits
-        without training.
+        their values, every training batch being first shown whole when the task shows it (show_input_batch).
+        Enabled by the 'view_input_images' diagnosis mode, it lets the user check the preprocessing, the label mapping
+        and the data augmentation. Pressing ENTER closes the viewer, after which the program exits without training.
         """
         print_color(color="red", output="View Of The Training And Validation Images That Are Fed To The Neural Network",
                     add_separators=True)
         print_color(color="green", output="Press SPACE To Navigate, Press ENTER To Stop Viewing And Exit")
 
         # Step through the training and validation loaders together, until the user stops or either one runs out
-        for training_batch, validation_batch in zip(self.train_dataloader, self.validation_dataloader):
+        for batch_index, (training_batch, validation_batch) in enumerate(zip(self.train_dataloader,
+                                                                             self.validation_dataloader)):
             number_samples = min(training_batch["images"].shape[0], validation_batch["images"].shape[0])
+
+            # The whole training batch as the loader gives it, for the tasks showing it
+            if self.show_input_batch(training_batch=training_batch, batch_index=batch_index):
+                return
 
             # Augment the training batch exactly as during training, so the viewer shows what the network receives
             training_batch = self.augment_batch(batch={**training_batch,

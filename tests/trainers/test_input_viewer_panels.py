@@ -2,7 +2,9 @@
 Tests of the information panels written by the trainers for the input viewer ('view_input_images'), the viewer itself
 being replaced by a recorder of its arguments: the object detection panels count the objects per class and name the
 objects removed by the augmentations, the panels of a pair of sequences give the real frames and the shuffled order of
-every member, the self-supervised panels describe the transformations drawn for each view, the classification panels
+every member, the self-supervised panels describe the transformations drawn for each view, the self-supervised batch
+mosaic describes every batch of the grouped batch sampler (grouped or random) and is not shown for random batches, the
+classification panels
 add the second view of the view losses drawn from the image before its augmentation, and the keypoint
 panels count the objects per class and their keypoints by visibility, the flipped training image moving the keypoints
 without renaming them. The trainers are created without their datasets, only the attributes read by
@@ -13,6 +15,7 @@ import random
 import pytest
 import torch
 
+from pathlib import Path
 from typing import Any, Dict, List
 
 import vision_training.trainers.classification_trainer as classification_trainer_module
@@ -20,8 +23,11 @@ import vision_training.trainers.detection_trainer as detection_trainer_module
 import vision_training.trainers.keypoint_trainer as keypoint_trainer_module
 import vision_training.trainers.self_supervised_trainer as self_supervised_trainer_module
 import vision_training.trainers.sequence_classification_trainer as sequence_classification_trainer_module
+from tests.data.classification.test_classification_dataset import write_split
+from tests.data.test_grouped_batch_sampler import SITE_CAMERA_IMAGES
 from tests.data.test_view_augmentations import build_identity_configuration
 from vision_training.data.augmentations import AUGMENTATION_TYPES, MAXIMUM_TRANSLATION_FRACTION, DataAugmenter
+from vision_training.data.loaders import get_classification_dataloaders
 from vision_training.data.view_augmentations import ViewAugmenter
 from vision_training.utilities.visualization import KEYPOINT_SIDE_COLOURS, build_class_colours
 from vision_training.trainers.classification_trainer import ClassificationTrainer
@@ -178,6 +184,106 @@ def test_self_supervised_panels_describe_the_transformations_of_each_view(monkey
     assert viewer_recorder.arguments["panel_lines"] == [
         ["Class : square", "", "View transformations",
          "  random_resized_crop : 32x32 pixels at x 0, y 0 (100 % of the area)"]] * 2
+
+
+def build_grouped_training_loader(tmp_path: Path, activated: bool) -> torch.utils.data.DataLoader:
+    """
+    Builds the self-supervised training loader of the images of SITE_CAMERA_IMAGES, every image holding its site and
+    camera in its groups, with batches of 8 images made of blocks of 4 images of one camera within one site: 3 grouped
+    batches and 1 random batch per pass.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory, receiving the splits.
+        activated (bool): Whether the grouped batches are on, the batches being random otherwise.
+
+    Returns:
+        torch.utils.data.DataLoader: The training loader.
+    """
+    # A training split whose images hold their site and camera, and validation and test splits without groups
+    categories = [{"id": 1, "name": "circle"}]
+    group_values = [group_value for group_value, number_images in SITE_CAMERA_IMAGES.items()
+                    for _ in range(number_images)]
+    write_split(split_folder=tmp_path / "train", categories=categories,
+                samples=[{"id": sample_index + 1, "file_name": f"{sample_index + 1}.png", "category_id": 1,
+                          "groups": {"site": site, "camera": camera}}
+                         for sample_index, (site, camera) in enumerate(group_values)])
+    for split_name in ["validation", "test"]:
+        write_split(split_folder=tmp_path / split_name, categories=categories,
+                    samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png", "category_id": 1}
+                             for sample_identifier in range(1, 9)])
+
+    # Self-supervised loaders with blocks of 4 images of one camera within batches of 8 images of one site
+    experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name)
+                                for split_name in ["train", "validation", "test"]}
+    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
+                                    "loading": {"number_workers": 0, "prefetch_batches": 2},
+                                    "grouped_batches": {"activated": activated, "block_key": "camera",
+                                                        "images_per_block": 4, "batch_key": "site"}}}
+    training_loader, _, _ = get_classification_dataloaders(experiment_configuration=experiment_configuration,
+                                                           model_configuration=model_configuration, batch_size=8,
+                                                           self_supervised=True)
+    return training_loader
+
+
+def test_self_supervised_batch_mosaic_describes_the_grouped_batches(tmp_path: Path,
+                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies the batch mosaic of the self-supervised input viewer over a pass of the grouped batch sampler: every
+    batch is shown in a 'Training Batch' window with its images in the order of the batch, the stop asked in the window
+    being returned, a grouped batch titled as such with its site and every block captioned with its camera, and the
+    random batch of the leftover pool counting the images of every site and camera and captioning every image with its
+    site and camera; with the grouped batches off, nothing is shown.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the mosaic and its window.
+    """
+    # A trainer with only the grouped training loader and its keys, the mosaic and its window replaced by recorders
+    trainer = SelfSupervisedTrainer.__new__(SelfSupervisedTrainer)
+    trainer.train_dataloader = build_grouped_training_loader(tmp_path=tmp_path / "grouped", activated=True)
+    trainer.data_configuration = {"grouped_batches": {"block_key": "camera", "batch_key": "site"}}
+    mosaic_recorder, window_recorder = ViewerRecorder(), ViewerRecorder()
+    monkeypatch.setattr(target=self_supervised_trainer_module, name="build_batch_mosaic", value=mosaic_recorder)
+    monkeypatch.setattr(target=self_supervised_trainer_module, name="show_viewer_windows", value=window_recorder)
+
+    # Every batch of a pass shown in its window, with its images and the groups read back from the dataset
+    torch.manual_seed(seed=0)
+    batch_kinds = []
+    for batch_index, batch in enumerate(trainer.train_dataloader):
+        assert trainer.show_input_batch(training_batch=batch, batch_index=batch_index)
+        assert window_recorder.arguments["window_titles"] == ["Training Batch"]
+        arguments = mosaic_recorder.arguments
+        assert torch.equal(input=arguments["images"], other=batch["images"]) and arguments["block_size"] == 4
+        image_groups = [trainer.train_dataloader.dataset.sample_records[sample_identifier]["groups"]
+                        for sample_identifier in batch["sample_identifiers"].tolist()]
+        sites_cameras = [(groups["site"], groups["camera"]) for groups in image_groups]
+        assert arguments["lines"][0] == "Pass : 3 grouped and 1 random batches of 8 images"
+
+        # A grouped batch: one site, and one camera per block
+        if arguments["title"] == f"Training Batch {batch_index + 1} / 4 : Grouped":
+            batch_kinds.append("grouped")
+            assert arguments["lines"][2:] == [f"Batch key 'site' : {sites_cameras[0][0]}",
+                                              "Block key 'camera' : 2 blocks of 4 images"]
+            assert arguments["block_captions"] == [sites_cameras[0][1], sites_cameras[4][1]]
+            assert arguments["image_captions"] is None
+            continue
+
+        # The random batch: the images of every value, and the values of every image
+        batch_kinds.append("random")
+        assert arguments["title"] == f"Training Batch {batch_index + 1} / 4 : Random (Leftover Pool)"
+        number_sites = len({site for site, _ in sites_cameras})
+        number_cameras = len({camera for _, camera in sites_cameras})
+        assert arguments["lines"][2] == f"Batch key 'site' : {number_sites} values"
+        assert arguments["lines"][4] == f"Block key 'camera' : {number_cameras} values"
+        assert arguments["block_captions"] == ["Images 1 to 4", "Images 5 to 8"]
+        assert arguments["image_captions"] == [f"{site} / {camera}" for site, camera in sites_cameras]
+    assert sorted(batch_kinds) == ["grouped", "grouped", "grouped", "random"]
+
+    # Random batches without the grouped batch sampler: nothing shown
+    mosaic_recorder.arguments = {}
+    trainer.train_dataloader = build_grouped_training_loader(tmp_path=tmp_path / "random", activated=False)
+    assert not trainer.show_input_batch(training_batch=next(iter(trainer.train_dataloader)), batch_index=0)
+    assert mosaic_recorder.arguments == {}
 
 
 def test_classification_panels_show_the_second_view_of_the_view_losses(monkeypatch: pytest.MonkeyPatch) -> None:
