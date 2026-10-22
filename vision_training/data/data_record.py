@@ -155,7 +155,8 @@ def count_manifest_classes(labels: Dict[str, Any], category_classes: Dict[Any, i
     sequences, and the 'pairs' of the class for the sequence comparison. The samples of the semantic segmentation
     count the masks holding the class from the 'category_ids' of every sample. A unit is only counted when the
     manifest gives its categories, so that a segmentation manifest without 'category_ids' and an unlabelled
-    self-supervised dataset have no count.
+    self-supervised dataset have no count, and a sample without category in a manifest whose other samples have one
+    (an unlabelled image of the self-supervised task, kept without class by its dataset) is counted in no class.
 
     Args:
         labels (Dict[str, Any]): The content of the 'labels.json' of the split.
@@ -182,7 +183,13 @@ def count_manifest_classes(labels: Dict[str, Any], category_classes: Dict[Any, i
             return {}
         image_counts = Counter()
         for sample in labels["samples"]:
-            sample_categories = sample["category_ids"] if "category_ids" in sample else [sample["category_id"]]
+            # Categories of the sample, none for an unlabelled image of the self-supervised task
+            if "category_ids" in sample:
+                sample_categories = sample["category_ids"]
+            elif "category_id" in sample:
+                sample_categories = [sample["category_id"]]
+            else:
+                sample_categories = []
             image_counts.update({category_classes[category] for category in sample_categories
                                  if category in category_classes})
         return {"images": image_counts}

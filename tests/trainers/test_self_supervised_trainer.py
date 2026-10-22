@@ -4,8 +4,9 @@ SimCLR and Barlow Twins trainings save, evaluate and resume, with the tracked me
 neighbour report of the labelled test images, its per-class metrics file and the sample images of two views checked,
 the sample views drawn again identically without moving the random state of the training, the moving average of the
 weights evaluated next to the trained weights on the same sample views, a dataset without labels evaluated on the
-collapse metrics of its representations only, and the classes of the evaluation named after the categories of the
-three manifests.
+collapse metrics of its representations only, a dataset mixing labelled and unlabelled images trained on every image
+and evaluated on the labelled ones, and the classes of the evaluation named after the categories of the three
+manifests.
 """
 
 import csv
@@ -339,6 +340,57 @@ def test_dataset_without_labels_is_evaluated_on_its_representations(tmp_path: Pa
     evaluation_folder = trainer.experiment_folder / "Evaluation" / "Iteration_4"
     assert sorted(path.name for path in evaluation_folder.iterdir()) == ["Samples"]
 
+    console_output = capsys.readouterr().out
+    assert "Error encountered during iteration" not in console_output
+    assert "Critical Error" not in console_output
+
+
+def test_dataset_mixing_labelled_and_unlabelled_images_is_trained_and_evaluated(tmp_path: Path,
+                                                                                 capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies a self-supervised run on manifests mixing labelled images and images without 'category_id', like the
+    hidden collections of the ficha pretraining layouts: every image is trained on, the record of the data counts the
+    labelled images of every split only, and the k-nearest neighbour evaluation scores the labelled test images while
+    the report covers every test image.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 6}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+
+    # Remove the category of every other sample of every split, which leaves 4, 2 and 3 labelled images
+    for split_name in ["train", "validation", "test"]:
+        labels_path = dataset_folder / split_name / "labels.json"
+        labels = json.loads(s=labels_path.read_text())
+        labels["samples"] = [sample if sample_index % 2 == 0 else {"id": sample["id"], "file_name": sample["file_name"]}
+                             for sample_index, sample in enumerate(labels["samples"])]
+        labels_path.write_text(data=json.dumps(obj=labels))
+
+    # Every training image kept, the record of the data counting the labelled images of every split only
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4, head_settings={}))
+    assert len(trainer.train_dataloader.dataset) == 8
+    class_records = json.loads(s=(trainer.experiment_folder / "data.json").read_text())["classes"]
+    assert {split_name: sum(class_record["images"][split_name] for class_record in class_records)
+            for split_name in ["train", "validation", "test"]} == {"train": 4, "validation": 2, "test": 3}
+    with patch.object(target=trainer, attribute="report_evaluation", wraps=trainer.report_evaluation) as report_mock:
+        trainer.run_training_loop()
+    results = report_mock.call_args.kwargs["results"]
+
+    # k-NN metrics of the 3 labelled test images first, the report covering the 6 test images
+    assert list(results["metrics"]) == LABELLED_EVALUATION_METRICS and results["headline_metric"] == "k-NN Accuracy"
+    assert "Labelled Test Images : 3 of 6" in results["notes"]
+    results_blocks = read_results_blocks(results_path=trainer.experiment_folder / "Results.txt")
+    assert [(block["iteration"], block["evaluated_samples"]) for block in results_blocks] == [(4, "6 Test Images")]
+    with open(file=trainer.experiment_folder / "Evaluation" / "Iteration_4" / "class_metrics.csv", mode="r",
+              newline="") as class_metrics_file:
+        assert sum(int(row["samples"]) for row in csv.DictReader(f=class_metrics_file)) == 3
+
+    # The training loop catches errors and keeps going, so make sure that no iteration failed along the way
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
