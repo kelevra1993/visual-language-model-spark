@@ -7,6 +7,8 @@ only for the tasks with boxes, masks or keypoints, the error images settings of 
 tasks, or the loss weights of the detection tasks).
 """
 
+import re
+
 from typing import Any, Dict, List
 
 from vision_training.configuration_processing.configuration_values import (BACKBONE_FEATURE_MAP_NORMALIZATIONS,
@@ -22,6 +24,10 @@ VALID_LABEL_MODES = ["binary", "multi_class"]
 
 # Channels of the images given by the loaders of every task (BGR) and taken by the exported models
 IMAGE_CHANNELS = 3
+
+# Characters of the suffix of the run names: letters, digits, '-' and '.', so that the suffix stays one section of the
+# name ('_' separating the sections) and inside the experiment folder ('/' separating the folders)
+RUN_NAME_SUFFIX_PATTERN = re.compile(pattern=r"[A-Za-z0-9.-]+")
 
 # Optimizers and learning rate schedules of the 'Optimization' section
 VALID_OPTIMIZERS = ["adam", "adamw", "sgd"]
@@ -73,8 +79,8 @@ def check_removed_sections(model_configuration: Dict[str, Any]) -> List[str]:
 
 def check_experiment_configuration(experiment_configuration: Dict[str, Any], valid_tasks: List[str]) -> List[str]:
     """
-    Verifies the task, the training loop settings, the per-class report switch, the number of sample images and the
-    MLflow tracking settings of the 'ExperimentConfiguration' section consumed by the trainers.
+    Verifies the task, the run name suffix, the training loop settings, the per-class report switch, the number of
+    sample images and the MLflow tracking settings of the 'ExperimentConfiguration' section consumed by the trainers.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -92,6 +98,14 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any], val
     task = get_configuration_value(configuration=configuration, key_path="ExperimentConfiguration.task")
     if task not in valid_tasks:
         errors.append(f"'ExperimentConfiguration.task' must be one of {valid_tasks}, got {task!r}.")
+
+    # Suffix appended as the last section of the run name (build_run_name), null for none
+    run_name_suffix = get_configuration_value(configuration=configuration,
+                                              key_path="ExperimentConfiguration.run_name_suffix")
+    if run_name_suffix is not None and (not isinstance(run_name_suffix, str) or
+                                        RUN_NAME_SUFFIX_PATTERN.fullmatch(string=run_name_suffix) is None):
+        errors.append(f"'ExperimentConfiguration.run_name_suffix' must be null or a non-empty string of letters, "
+                      f"digits, '-' and '.', got {run_name_suffix!r}.")
 
     # Counts driving the training loop, logging and checkpointing
     errors += check_positive_integers(configuration=configuration,

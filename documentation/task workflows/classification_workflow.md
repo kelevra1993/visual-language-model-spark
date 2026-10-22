@@ -512,14 +512,15 @@ trainer.run_training_loop()
 ```
 
 ### Step 1.2 — `load_experiment_configuration()`
-This function produces the two dictionaries that every later stage reads. It removes the `ExperimentConfiguration` section from the raw YAML and keeps it as `experiment_configuration`, which holds the run settings. Whatever is left becomes `model_configuration`, which holds the data, network and optimization settings. It then converts the values YAML reads with the wrong type, adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration) to `experiment_configuration`, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4), and runs the checks (Step 1.5).
+This function produces the two dictionaries that every later stage reads. It removes the `ExperimentConfiguration` section from the raw YAML and keeps it as `experiment_configuration`, which holds the run settings. Whatever is left becomes `model_configuration`, which holds the data, network and optimization settings. It then converts the values YAML reads with the wrong type, adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration) and `run_name` (None, the name of the run folder then being built from the settings, Step 2.4) to `experiment_configuration`, adds `label_mode` and `label_dictionary` to `Data` (Step 1.4), and runs the checks (Step 1.5).
 
 **Example: how the dictionaries are split**
 ```text
-experiment_configuration keys: task, experiment_folder, train_data_folder, validation_data_folder, test_data_folder,
-                               batch_size, information_dump, weight_saving_iterations,
+experiment_configuration keys: task, experiment_folder, run_name_suffix, train_data_folder, validation_data_folder,
+                               test_data_folder, batch_size, information_dump, weight_saving_iterations,
                                intermediate_weight_saving_iterations, number_iterations, validation_iteration_ratio,
-                               evaluation, tracking, learning_rate, resume_training, diagnosis_modes, tracking_root
+                               evaluation, tracking, learning_rate, resume_training, allow_data_change_on_resume,
+                               diagnosis_modes, tracking_root, run_name
 model_configuration keys:      Optimization, Data, Backbone, ClassificationHead
 Data keys after loading:       DALI, loading, image_settings, label_mapping, data_augmentation, label_mode, label_dictionary
 ```
@@ -646,7 +647,7 @@ The run folder is `experiment_folder / <run name>`. The name is built from the s
 ```text
 CLS_IN-KAR-256_SE-RES-BN-B1x64.2x64.2x64.4x64.5x64.5x64_HFLAT.512.256-CWB_MC1000
 ```
-There is no optimizer section at the end because the run uses plain Adam without weight decay.
+There is no optimizer section at the end because the run uses plain Adam without weight decay, and no suffix because `run_name_suffix` is null: `run_name_suffix: "v1"` would end the name with `_v1`, so that a run of the same settings with another batch size, augmentation or learning rate starts in a folder of its own instead of resuming this one.
 
 ### Step 2.5 — `DataAugmenter()`
 This creates the augmentation tool of the training batches from `Data.data_augmentation`. It only reads and stores the settings: the global `activated` flag and `probability` (the chance that an image is augmented at all), and for each of the 28 augmentation types (10 geometric, 18 photometric) its own `activated` flag and `probability`. The strengths of the types (crop sizes, rotation angles, brightness steps...) are not settings: the augmenter of a supervised task takes the hard-coded `SUPERVISED_AUGMENTATION_STRENGTHS`, and the views of the self-supervised task the stronger `SELF_SUPERVISED_AUGMENTATION_STRENGTHS` (README, Data Augmentation). The random draws happen later, in Step 3.13, on every training batch. The `independent_frames` and `shuffle_frames` settings only concern the sequence tasks.

@@ -1,7 +1,7 @@
 """
 Building of the run names: the name of the folder a training run is saved in, made of short tokens describing the
-settings of the run (task, input, backbone, task and optimizer sections). Called by the base trainer to create or
-resume a run folder.
+settings of the run (task, input, backbone, task and optimizer sections), followed by the suffix chosen in the
+configuration (ExperimentConfiguration.run_name_suffix). Called by the base trainer to create or resume a run folder.
 """
 
 import hashlib
@@ -688,10 +688,13 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
     DSE-DRES-DBN-D7.2x64.256.128_BIN' (without the line break): the task code (DET, INS, CLS, M2O, M2M, CMP, SEG,
     SEL, SSL or KPT), the input and backbone sections shared by every task (build_input_tokens,
     build_backbone_tokens), the sections of the task (e.g. build_detection_sections), then the optimizer section
-    (build_optimizer_tokens), left out when empty.
+    (build_optimizer_tokens), left out when empty, and last the suffix of 'ExperimentConfiguration.run_name_suffix'
+    when it is not null (e.g. '_v1'), which gives a run of the same settings with another batch size, augmentation or
+    learning rate a folder of its own instead of resuming the run without suffix.
 
     Args:
-        experiment_configuration (Dict[str, Any]): The processed experiment configuration, with its task.
+        experiment_configuration (Dict[str, Any]): The processed experiment configuration, with its task and run
+            name suffix.
         model_configuration (Dict[str, Any]): The processed model configuration, with its label dictionary.
 
     Returns:
@@ -706,4 +709,9 @@ def build_run_name(experiment_configuration: Dict[str, Any], model_configuration
     optimizer_tokens = build_optimizer_tokens(model_configuration=model_configuration)
     if optimizer_tokens:
         sections.append(optimizer_tokens)
+
+    # Suffix chosen in the configuration, last section of the name, left out when null
+    run_name_suffix = experiment_configuration["run_name_suffix"]
+    if run_name_suffix is not None:
+        sections.append([run_name_suffix])
     return "_".join("-".join(section) for section in sections)

@@ -15,6 +15,10 @@ ExperimentConfiguration:
   # rate and its schedule, gradient clipping, mixed precision and dropout rates give no token, so that a run can be
   # resumed in its folder with changed values. The format is described in vision_training/configuration_processing/run_name.py.
   experiment_folder: "/home/robert_kelevra/Projects/visual-language-model-spark/hyperparameter_experiments/run_43"
+  # Suffix appended as the last section of the run name, e.g. "v1" giving <run name>_v1, so that a run of the
+  # same settings with another batch size, augmentation or learning rate starts in a folder of its own instead of
+  # resuming the run without suffix. Letters, digits, '-' and '.' only, null for no suffix.
+  run_name_suffix: null
   # Root directory containing the training dataset images and labels.json manifest (synthetic shapes: 500,000
   # images).
   train_data_folder: "/home/robert_kelevra/Data/classifier_data/synthetic_shapes_20/train"

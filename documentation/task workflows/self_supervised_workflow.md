@@ -64,9 +64,10 @@ main()
 │       │   optimizer, metric tracker, printouts, restoration.
 │       │
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
-│       │       The run name starts with SSL and ends with the head (PAVG.<layers>-PBN) and the method
-│       │       (SIMCLR-T<temperature> or BT-OD<off-diagonal weight>). The DataAugmenter takes
-│       │       SELF_SUPERVISED_AUGMENTATION_STRENGTHS: it draws the two random views of every image.
+│       │       The run name starts with SSL and ends with the head (PAVG.<layers>-PBN), the method
+│       │       (SIMCLR-T<temperature> or BT-OD<off-diagonal weight>) and the run_name_suffix if not null.
+│       │       The DataAugmenter takes SELF_SUPERVISED_AUGMENTATION_STRENGTHS: it draws the two random views
+│       │       of every image.
 │       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
 │       │       A resumed run keeps the classes of its label_dictionary.json, a training from scratch renames the
 │       │       run folder of a previous training of the same settings v<n>_<run name>, then the run folder is
@@ -174,16 +175,17 @@ python -m vision_training.main --configuration_path vision_training/configuratio
 ```
 
 ### Step 1.2 — `load_experiment_configuration()`
-It splits the YAML into the two dictionaries read by every later stage, converts the values YAML reads with the wrong type (`1e10` is read as a string), adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration), adds `label_mode` and `label_dictionary` to `Data` (Step 1.4) and runs the checks (Step 1.5). The self-supervised task has one section of its own, `ProjectionHead`; its random views are drawn by the types of `Data.data_augmentation`, the section of every task.
+It splits the YAML into the two dictionaries read by every later stage, converts the values YAML reads with the wrong type (`1e10` is read as a string), adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration) and `run_name` (None, the name of the run folder then being built from the settings, Step 2.4), adds `label_mode` and `label_dictionary` to `Data` (Step 1.4) and runs the checks (Step 1.5). The self-supervised task has one section of its own, `ProjectionHead`; its random views are drawn by the types of `Data.data_augmentation`, the section of every task.
 
 **Example: the sections and the converted values**
 ```text
 raw keys:               ['ExperimentConfiguration', 'Optimization', 'Data', 'Backbone', 'ProjectionHead']
 raw number_iterations:  '1e10'                       -> after loading: 10000000000
-experiment keys:        task, experiment_folder, train_data_folder, validation_data_folder, test_data_folder, batch_size,
-                        information_dump, weight_saving_iterations, intermediate_weight_saving_iterations,
-                        number_iterations, validation_iteration_ratio, evaluation, tracking, learning_rate,
-                        resume_training, diagnosis_modes, tracking_root
+experiment keys:        task, experiment_folder, run_name_suffix, train_data_folder, validation_data_folder,
+                        test_data_folder, batch_size, information_dump, weight_saving_iterations,
+                        intermediate_weight_saving_iterations, number_iterations, validation_iteration_ratio, evaluation,
+                        tracking, learning_rate, resume_training, allow_data_change_on_resume, diagnosis_modes,
+                        tracking_root, run_name
 model keys:             ['Optimization', 'Data', 'Backbone', 'ProjectionHead']
 task:                   'self_supervised'
 experiment_folder:      PosixPath('.../visual-language-model-spark/experiments')
@@ -279,7 +281,7 @@ For Training We Will Be Using device: cpu
 ```
 
 ### Step 2.4 — `get_run_name()` → `build_run_name()`
-The run name gives the task (`SSL`), the input, the backbone, then the head built by `build_self_supervised_sections()` (in `vision_training/configuration_processing/run_name.py`): `PAVG` for the average pooling, the layers of the head, `PBN` for its batch normalization, and the method, `SIMCLR-T<temperature>` or `BT-OD<off-diagonal weight>`. There is no class count, since the training never reads a label.
+The run name gives the task (`SSL`), the input, the backbone, then the head built by `build_self_supervised_sections()` (in `vision_training/configuration_processing/run_name.py`): `PAVG` for the average pooling, the layers of the head, `PBN` for its batch normalization, and the method, `SIMCLR-T<temperature>` or `BT-OD<off-diagonal weight>`. There is no class count, since the training never reads a label. A `run_name_suffix` that is not null ends the name, e.g. `_v1`: the views, the batch size and the learning rate give no token, so a run of the same settings with stronger views or larger batches needs it to start in a folder of its own instead of resuming the previous run.
 
 **Example output**
 ```text
