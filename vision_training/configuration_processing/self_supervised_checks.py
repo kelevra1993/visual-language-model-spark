@@ -1,17 +1,16 @@
 """
 Checks of the configuration sections specific to the self-supervised task: the data settings (label mapping of the
-k-nearest neighbour evaluation, the views of 'Data.view_augmentation' replacing the data augmentation, checked by
-check_view_augmentation_configuration of common_checks.py, shared with the view losses of the image classifier), the
-grouped batches of 'Data.grouped_batches', the projection head with its method (SimCLR or Barlow Twins) and the
-evaluation settings. Run by configuration_checker.py for the self-supervised task.
+k-nearest neighbour evaluation, and the data augmentation whose types draw the two views of every image, with the
+random resized crop of random_crop drawn for every view), the grouped batches of 'Data.grouped_batches', the projection
+head with its method (SimCLR or Barlow Twins) and the evaluation settings. Run by configuration_checker.py for the
+self-supervised task.
 """
 
 from typing import Any, Dict, List
 
 from vision_training.configuration_processing.classification_checks import (VALID_GLOBAL_POOLINGS,
                                                                             VALID_HEAD_NORMALIZATIONS)
-from vision_training.configuration_processing.common_checks import (check_image_task_sequence_settings,
-                                                                    check_view_augmentation_configuration)
+from vision_training.configuration_processing.common_checks import check_image_task_sequence_settings
 from vision_training.configuration_processing.configuration_values import (check_batch_normalization_momentum,
                                                                            check_boolean_flags, check_positive_integers,
                                                                            get_configuration_value, is_number)
@@ -21,8 +20,9 @@ from vision_training.losses.self_supervised_losses import SELF_SUPERVISED_METHOD
 def check_self_supervised_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     """
     Verifies the data settings of the self-supervised task: a multi-class label mapping whose class indices are 0 to
-    K-1 (the classes of the k-nearest neighbour evaluation, possibly none for a dataset without labels), and the
-    data augmentation off, the views of 'Data.view_augmentation' replacing it.
+    K-1 (the classes of the k-nearest neighbour evaluation, possibly none for a dataset without labels), and the data
+    augmentation on, its types drawing the two views of every image (DataAugmenter.create_views), with random_crop,
+    the random resized crop of the views, drawn for every view (probability 1.0) unless it is off.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model sections.
@@ -44,10 +44,20 @@ def check_self_supervised_data_configuration(model_configuration: Dict[str, Any]
             errors.append(f"The classes of the label mapping file must be indexed 0 to K-1 without gaps, "
                           f"got {class_indices}.")
 
-    # The views replace the data augmentation of the other tasks
-    if get_configuration_value(configuration=model_configuration, key_path="Data.data_augmentation.activated") is True:
-        errors.append("'Data.data_augmentation.activated' must be False for the self-supervised task: the random views "
-                      "of 'Data.view_augmentation' replace the data augmentation.")
+    # The types of the data augmentation draw the two views of every image, which would otherwise be the image itself
+    if get_configuration_value(configuration=model_configuration, key_path="Data.data_augmentation.activated") is False:
+        errors.append("'Data.data_augmentation.activated' must be True for the self-supervised task: its types draw "
+                      "the two views of every image, which would otherwise both be the image itself.")
+
+    # The random resized crop is drawn for every view, or turned off to keep the whole images
+    crop_key_prefix = "Data.data_augmentation.types.random_crop"
+    crop_activated = get_configuration_value(configuration=model_configuration, key_path=f"{crop_key_prefix}.activated")
+    crop_probability = get_configuration_value(configuration=model_configuration,
+                                               key_path=f"{crop_key_prefix}.probability")
+    if crop_activated is True and is_number(value=crop_probability) and crop_probability != 1.0:
+        errors.append(f"'{crop_key_prefix}.probability' must be 1.0 for the self-supervised task when "
+                      f"'{crop_key_prefix}.activated' is True, got {crop_probability!r}: the random resized crop is "
+                      f"drawn for every view, or turned off to keep the whole images.")
     return errors
 
 
@@ -172,8 +182,8 @@ def check_self_supervised_evaluation_configuration(experiment_configuration: Dic
 def check_self_supervised_configuration(experiment_configuration: Dict[str, Any],
                                         model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Runs every check specific to the self-supervised task: its data settings without the sequence settings, its view
-    augmentation, its grouped batches, its projection head and its evaluation settings.
+    Runs every check specific to the self-supervised task: its data settings with the data augmentation drawing its
+    views, without the sequence settings, its grouped batches, its projection head and its evaluation settings.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -185,8 +195,6 @@ def check_self_supervised_configuration(experiment_configuration: Dict[str, Any]
     errors = []
     errors += check_self_supervised_data_configuration(model_configuration=model_configuration)
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
-    errors += check_view_augmentation_configuration(model_configuration=model_configuration,
-                                                    key_prefix="Data.view_augmentation")
     errors += check_grouped_batches_configuration(experiment_configuration=experiment_configuration,
                                                   model_configuration=model_configuration)
     errors += check_projection_head_configuration(model_configuration=model_configuration)

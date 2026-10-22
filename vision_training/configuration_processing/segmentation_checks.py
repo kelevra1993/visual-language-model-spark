@@ -8,7 +8,8 @@ semantic_segmentation task.
 from typing import Any, Dict, List
 
 from vision_training.configuration_processing.classification_checks import VALID_CLASS_WEIGHTINGS
-from vision_training.configuration_processing.common_checks import (check_image_task_sequence_settings,
+from vision_training.configuration_processing.common_checks import (check_image_only_augmentation_types,
+                                                                    check_image_task_sequence_settings,
                                                                     check_pretrained_configuration)
 from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
                                                                            VALID_UPSAMPLINGS,
@@ -224,8 +225,8 @@ def check_segmentation_evaluation_configuration(experiment_configuration: Dict[s
 def check_segmentation_configuration(experiment_configuration: Dict[str, Any],
                                      model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Runs every check specific to the semantic segmentation task: its data settings, without the sequence settings,
-    its decoder, its losses and its evaluation settings.
+    Runs every check specific to the semantic segmentation task: its data settings, without the sequence settings nor
+    the augmentation types moving the image only, its decoder, its losses and its evaluation settings.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -237,6 +238,7 @@ def check_segmentation_configuration(experiment_configuration: Dict[str, Any],
     errors = []
     errors += check_segmentation_data_configuration(model_configuration=model_configuration)
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
+    errors += check_image_only_augmentation_types(model_configuration=model_configuration)
     errors += check_segmentation_decoder_configuration(model_configuration=model_configuration)
     errors += check_segmentation_loss_configuration(model_configuration=model_configuration)
     errors += check_segmentation_evaluation_configuration(experiment_configuration=experiment_configuration)

@@ -11,6 +11,7 @@ import math
 from typing import Any, Dict, List
 
 from vision_training.configuration_processing.common_checks import (check_error_dumps_configuration,
+                                                                    check_image_only_augmentation_types,
                                                                     check_image_task_sequence_settings,
                                                                     check_loss_weights_configuration,
                                                                     check_pretrained_configuration)
@@ -438,9 +439,9 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
                                   model_configuration: Dict[str, Any]) -> List[str]:
     """
     Runs every check specific to the object detection task: its evaluation settings, its label mapping, its data
-    settings without the sequence settings, its detection levels (anchors and heads of every level), region proposal
-    and detector sections, and the weights of its losses, with the mask loss for the instance segmentation, which runs
-    these checks too.
+    settings without the sequence settings nor the augmentation types moving the image only, its detection levels
+    (anchors and heads of every level), region proposal and detector sections, and the weights of its losses, with the
+    mask loss for the instance segmentation, which runs these checks too.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -453,6 +454,7 @@ def check_detection_configuration(experiment_configuration: Dict[str, Any],
     errors += check_detection_evaluation_configuration(experiment_configuration=experiment_configuration)
     errors += check_detection_data_configuration(model_configuration=model_configuration)
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
+    errors += check_image_only_augmentation_types(model_configuration=model_configuration)
     errors += check_detection_levels(model_configuration=model_configuration)
     errors += check_region_proposal_configuration(model_configuration=model_configuration)
     errors += check_detector_configuration(model_configuration=model_configuration)

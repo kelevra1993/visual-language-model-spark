@@ -1,10 +1,9 @@
 """
 Trainer of the image classification task: the data loaders of the 'labels.json' manifests, the classifier, the
-accuracy tracked on every batch, the view losses comparing every image with a second random view of it (Barlow Twins
-and the contrastive loss, their projectors trained as auxiliary heads of the general trainer), and the evaluation of
-the checkpoints on the test split (classification metrics, per-class metrics, confusion matrix, class thresholds, ROC
-and precision-recall curves with the per-class report, error images and the predictions file). Registered for the
-classification task and extended by the sequence classification trainer.
+accuracy tracked on every batch, and the evaluation of the checkpoints on the test split (classification metrics,
+per-class metrics, confusion matrix, class thresholds, ROC and precision-recall curves with the per-class report, error
+images and the predictions file). Registered for the classification task and extended by the sequence classification
+trainer.
 """
 
 import csv
@@ -14,14 +13,11 @@ import numpy as np
 import torch
 
 from pathlib import Path
-from torch import nn
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from vision_training.core.contracts import (LOSS_KEY_SUFFIX, SAMPLE_IDENTIFIERS_KEY, ClassificationBatch,
-                                            EvaluationResults)
+from vision_training.core.contracts import SAMPLE_IDENTIFIERS_KEY, ClassificationBatch, EvaluationResults
 from vision_training.data.loaders import get_classification_dataloaders
 from vision_training.data.split_description import count_split_samples
-from vision_training.data.view_augmentations import SECOND_VIEW_INDEX, ViewAugmenter, describe_view_transformations
 from vision_training.evaluation.classification.classification_metrics import (compute_confusion_matrix,
                                                                               compute_metrics_from_confusion_matrix,
                                                                               compute_multi_label_metrics,
@@ -37,9 +33,6 @@ from vision_training.evaluation.classification.score_curves import (compute_clas
 from vision_training.evaluation.classification.threshold_finder import find_class_thresholds
 from vision_training.evaluation.evaluation_report import write_class_metrics_file
 from vision_training.losses.classification_losses import compute_balanced_class_weights
-from vision_training.models.classification.classification_head import build_global_pooling, compute_pooled_features
-from vision_training.models.classification.view_losses import (VIEW_LOSS_NAMES, build_view_loss_projectors,
-                                                               compute_view_losses)
 from vision_training.models.model_registry import TASK_MODEL_CLASSES
 from vision_training.models.task_model import TaskModel
 from vision_training.trainers.base_trainer import BaseTrainer
@@ -49,27 +42,13 @@ from vision_training.utilities.visualization import (CORRECT_PREDICTION_COLOUR, 
 # Probability from which a class is predicted in multi-label mode
 MULTI_LABEL_THRESHOLD = 0.5
 
-# Metrics tracked on every training and validation batch for each view loss turned on, with their display names, the
-# names of the self-supervised trainer
-VIEW_LOSS_TRACKED_METRICS = {"barlow_twins": {"barlow_twins_loss": "Barlow Twins Loss",
-                                              "cross_correlation_diagonal": "Diagonal Correlation",
-                                              "cross_correlation_off_diagonal": "Off-Diagonal Correlation"},
-                             "contrastive": {"contrastive_loss": "Contrastive Loss",
-                                             "positive_pair_accuracy": "Positive Pair Accuracy"}}
-
-# Key of the images of a training batch before its data augmentation, kept by augment_batch when a view loss is on so
-# that the second view of every image is drawn independently of the augmentation of the image
-VIEW_SOURCE_IMAGES_KEY = "view_source_images"
-
 
 class ClassificationTrainer(BaseTrainer):
     """
     Trainer of the classification task: the image classifier trained on 'labels.json' manifests (Native loader), with
     its loss and its accuracy tracked on every batch, and every evaluated checkpoint scored on the test split with the
     accuracy, balanced accuracy, top-k accuracy, per-class precision, recall and F1, the confusion matrix and the
-    per-class thresholds reaching the target precision. With 'ClassificationHead.view_losses' on, a second random view
-    of every training and validation image goes through the classifier with it, and Barlow Twins and the contrastive
-    loss of their representations, each through its projector kept as an auxiliary head, are added to the loss.
+    per-class thresholds reaching the target precision.
 
     The sequence classification trainer extends it, the classes, loss, batch metric and evaluation being the same
     once a sequence is classified as a whole.
@@ -102,24 +81,6 @@ class ClassificationTrainer(BaseTrainer):
         # tasks sharing this trainer have no 'ClassificationHead.decorrelation'
         self.decorrelation_activated = (self.TASK_NAME == "classification" and
                                         model_configuration["ClassificationHead"]["decorrelation"]["activated"])
-
-        # View losses comparing every image with a second random view of it, a setting of the image classifier only
-        # too: the second views are drawn on the device by the view augmenter, the final feature maps of both views are
-        # pooled by the pooling of the view losses, and the projector of every loss turned on is built as an auxiliary
-        # head once the classifier is built (build_auxiliary_heads)
-        self.view_losses_configuration = None
-        self.view_losses_activated = False
-        self.view_augmenter = None
-        self.view_pooling = None
-        if self.TASK_NAME == "classification":
-            self.view_losses_configuration = model_configuration["ClassificationHead"]["view_losses"]
-            self.view_losses_activated = any(self.view_losses_configuration[loss_name]["activated"]
-                                             for loss_name in VIEW_LOSS_NAMES)
-        if self.view_losses_activated:
-            self.view_augmenter = ViewAugmenter(
-                view_augmentation_configuration=self.view_losses_configuration["view_augmentation"],
-                image_size=model_configuration["Data"]["image_settings"]["size"])
-            self.view_pooling = build_global_pooling(global_pooling=self.view_losses_configuration["global_pooling"])
         self.top_k = experiment_configuration["evaluation"]["top_k"]
         self.target_precision = experiment_configuration["evaluation"]["target_precision"]
         self.save_predictions = experiment_configuration["evaluation"]["save_predictions"]
@@ -148,16 +109,13 @@ class ClassificationTrainer(BaseTrainer):
         """
         Tells whether the training loader leaves out the last incomplete batch of every epoch, read by the loaders of
         the classification and sequence tasks: when the hidden layers of the classification head are batch
-        normalized ('ClassificationHead.fully_connected_normalization' "batch"), or a view loss is on (batch
-        normalized projectors, losses comparing the images of a batch), since a last batch of a single image or
-        sequence gives no batch statistics and fails at every epoch.
+        normalized ('ClassificationHead.fully_connected_normalization' "batch"), since a last batch of a single image
+        or sequence gives no batch statistics and fails at every epoch.
 
         Returns:
             bool: True when the last incomplete training batch is left out.
         """
-        batch_normalized_head = self.model_configuration["ClassificationHead"]["fully_connected_normalization"] == \
-            "batch"
-        return batch_normalized_head or self.view_losses_activated
+        return self.model_configuration["ClassificationHead"]["fully_connected_normalization"] == "batch"
 
     def list_class_names(self) -> Optional[List[str]]:
         """
@@ -185,29 +143,11 @@ class ClassificationTrainer(BaseTrainer):
             model.class_weights.copy_(compute_balanced_class_weights(class_counts=class_counts))
         return model
 
-    def build_auxiliary_heads(self) -> Dict[str, nn.Module]:
-        """
-        Builds the projector of every view loss turned on ('ClassificationHead.view_losses'), reading the final feature
-        map of the backbone pooled by the pooling of the view losses, as the auxiliary heads of the general trainer:
-        trained with the classifier but never exported, transferred nor averaged, and saved in the checkpoints with
-        their own optimizers, so that a view loss can be turned on or off when a run resumes.
-
-        Returns:
-            Dict[str, nn.Module]: The projector of every view loss turned on, empty without view loss and for the
-                sequence tasks.
-        """
-        if not self.view_losses_activated:
-            return {}
-        representation_features = compute_pooled_features(
-            global_pooling=self.view_losses_configuration["global_pooling"], backbone=self.model.backbone)
-        return build_view_loss_projectors(view_losses_configuration=self.view_losses_configuration,
-                                          input_features=representation_features, device=self.device, dtype=self.dtype)
-
     def get_tracked_metrics(self) -> Dict[str, str]:
         """
         Lists the losses and the accuracy tracked on every training and validation batch, with the decorrelation loss
         and the mean absolute correlation of the decorrelated hidden features when 'ClassificationHead.decorrelation'
-        is on, and the loss and batch metrics of every view loss turned on ('ClassificationHead.view_losses').
+        is on.
 
         Returns:
             Dict[str, str]: The display name of every tracked metric.
@@ -216,22 +156,8 @@ class ClassificationTrainer(BaseTrainer):
         if self.decorrelation_activated:
             tracked_metrics.update({"decorrelation_loss": "Decorrelation Loss",
                                     "hidden_feature_correlation": "Hidden Feature Correlation"})
-        for loss_name in self.list_activated_view_losses():
-            tracked_metrics.update(VIEW_LOSS_TRACKED_METRICS[loss_name])
         tracked_metrics["accuracy"] = "Accuracy"
         return tracked_metrics
-
-    def list_activated_view_losses(self) -> List[str]:
-        """
-        Lists the view losses turned on in 'ClassificationHead.view_losses', whose losses and batch metrics are tracked.
-
-        Returns:
-            List[str]: The names of the view losses turned on, in the order of VIEW_LOSS_NAMES, none for the sequence
-                tasks.
-        """
-        if not self.view_losses_activated:
-            return []
-        return [loss_name for loss_name in VIEW_LOSS_NAMES if self.view_losses_configuration[loss_name]["activated"]]
 
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
         """
@@ -261,58 +187,17 @@ class ClassificationTrainer(BaseTrainer):
         return {**batch, "images": batch["images"].to(device=self.device, dtype=self.dtype),
                 "labels": batch["labels"].to(device=self.device, dtype=labels_dtype)}
 
-    def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Randomly augments the images of a training batch like every task and, when a view loss of the image classifier
-        is on, keeps the images before the augmentation under VIEW_SOURCE_IMAGES_KEY, the second views being drawn from
-        them so that the two views of an image are drawn independently of each other. The sequence trainers inherit it
-        through their own augmentation, without view losses.
-
-        Args:
-            batch (Dict[str, Any]): The training batch.
-
-        Returns:
-            Dict[str, Any]: The batch with its augmented images, their 'augmentation_reports' and, with a view loss on,
-                the images before the augmentation.
-        """
-        augmented_batch = super().augment_batch(batch=batch)
-
-        # Images before the augmentation, kept for the second views of the image classifier only
-        if self.TASK_NAME == "classification" and self.view_losses_activated:
-            augmented_batch[VIEW_SOURCE_IMAGES_KEY] = batch["images"]
-        return augmented_batch
-
     def forward_pass(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Runs the classifier with the labels of the batch, so that it returns its classification loss. With a view loss
-        on, a second random view of every image is drawn from the image before the data augmentation (the image itself
-        for a validation batch), both views go through the classifier, and the view losses of their final feature maps,
-        pooled by the pooling of the view losses, are added to its outputs, summed with the classification loss into
-        the total loss.
+        Runs the classifier with the labels of the batch, so that it returns its classification loss.
 
         Args:
             batch (Dict[str, Any]): The prepared batch.
 
         Returns:
-            Dict[str, Any]: The classifier outputs, with its classification loss and the view losses turned on.
+            Dict[str, Any]: The classifier outputs, with its classification loss.
         """
-        if not self.view_losses_activated:
-            return self.model(input_tensor=batch["images"], labels=batch["labels"])
-
-        # Second view of every image, drawn by the chain of the second view from the image before the data augmentation
-        # of a training batch
-        source_images = batch[VIEW_SOURCE_IMAGES_KEY] if VIEW_SOURCE_IMAGES_KEY in batch else batch["images"]
-        second_views = self.view_augmenter.draw_view(images=source_images, view_index=SECOND_VIEW_INDEX)
-        model_outputs = self.model(input_tensor=batch["images"], labels=batch["labels"],
-                                   second_view_tensor=second_views)
-
-        # View losses of the pooled final feature maps of both views, through the projectors kept as auxiliary heads
-        model_outputs.update(compute_view_losses(first_feature_maps=model_outputs["final_feature_map"],
-                                                 second_feature_maps=model_outputs["second_view_final_feature_map"],
-                                                 labels=batch["labels"], global_pooling=self.view_pooling,
-                                                 projectors=self.auxiliary_heads,
-                                                 view_losses_configuration=self.view_losses_configuration))
-        return model_outputs
+        return self.model(input_tensor=batch["images"], labels=batch["labels"])
 
     def predict_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -331,16 +216,15 @@ class ClassificationTrainer(BaseTrainer):
         Computes the accuracy of a training or validation batch from the logits of its forward pass, without any extra
         forward pass: the share of samples whose most probable class is right, or in multi-label mode the share of
         class decisions (probability above 0.5) that are right. With the decorrelation on, it also gives the mean
-        absolute correlation of the decorrelated hidden features, returned by the classifier with its loss, and with a
-        view loss on the batch metrics of its method, computed with its loss.
+        absolute correlation of the decorrelated hidden features, returned by the classifier with its loss.
 
         Args:
             batch (Dict[str, Any]): The prepared batch.
             model_outputs (Dict[str, Any]): The classifier outputs.
 
         Returns:
-            Dict[str, torch.Tensor]: The 'accuracy' of the batch, its 'hidden_feature_correlation' with the
-                decorrelation on, and the batch metrics of the view losses turned on.
+            Dict[str, torch.Tensor]: The 'accuracy' of the batch, and its 'hidden_feature_correlation' with the
+                decorrelation on.
         """
         with torch.no_grad():
             if self.output_mode == "multi_class":
@@ -353,12 +237,6 @@ class ClassificationTrainer(BaseTrainer):
         # Correlation of the decorrelated hidden features, computed by the classifier with the decorrelation loss
         if self.decorrelation_activated:
             batch_metrics["hidden_feature_correlation"] = model_outputs["hidden_feature_correlation"]
-
-        # Batch metrics of every view loss turned on, computed with its loss
-        for loss_name in self.list_activated_view_losses():
-            batch_metrics.update({metric_key: model_outputs[metric_key]
-                                  for metric_key in VIEW_LOSS_TRACKED_METRICS[loss_name]
-                                  if not metric_key.endswith(LOSS_KEY_SUFFIX)})
         return batch_metrics
 
     def create_evaluation_accumulator(self, iteration: int) -> Dict[str, Any]:
@@ -776,9 +654,7 @@ class ClassificationTrainer(BaseTrainer):
                            sample_index: int) -> bool:
         """
         Displays an augmented training image next to a validation image, each with an information panel holding its
-        class and its augmentations. With a view loss on, the second view of the training image, drawn as during the
-        training from the image before its augmentation, is shown in a third window with the view transformations drawn
-        for it.
+        class and its augmentations.
 
         Args:
             training_batch (Dict[str, Any]): The augmented training batch, on the CPU.
@@ -792,20 +668,7 @@ class ClassificationTrainer(BaseTrainer):
         panel_lines = [[f"Class : {self.get_label_caption(label=batch['labels'][sample_index])}"] +
                        self.describe_input_augmentations(batch=batch, sample_index=sample_index)
                        for batch in [training_batch, validation_batch]]
-        images = [training_batch["images"][sample_index], validation_batch["images"][sample_index]]
-        window_titles = ["Training", "Validation"]
-
-        # Second view of the training image, described right after it is drawn, before the next view overwrites the
-        # drawn parameters
-        if self.view_losses_activated:
-            second_view = self.view_augmenter.draw_view(
-                images=training_batch[VIEW_SOURCE_IMAGES_KEY][sample_index:sample_index + 1],
-                view_index=SECOND_VIEW_INDEX)
-            view_description = describe_view_transformations(
-                transformations=self.view_augmenter.view_transformations[SECOND_VIEW_INDEX], number_images=1)[0]
-            images.append(second_view[0])
-            window_titles.append("Second View")
-            panel_lines.append([panel_lines[0][0], "", "View transformations"] +
-                               ([f"  {line}" for line in view_description] or ["  none"]))
-        return view_input_data(images=images, bounding_boxes=None, labels=None, window_titles=window_titles,
-                               display_input_size=self.input_image_size, panel_lines=panel_lines)
+        return view_input_data(
+            images=[training_batch["images"][sample_index], validation_batch["images"][sample_index]],
+            bounding_boxes=None, labels=None, window_titles=["Training", "Validation"],
+            display_input_size=self.input_image_size, panel_lines=panel_lines)

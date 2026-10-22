@@ -203,10 +203,19 @@ Data:
       random_rotation: { activated: True, probability: 0.5 }
       # Random -90° or 90° rotation (square images only)
       random_90_rotation: { activated: False, probability: 0.5 }
+      # Random Perspective : each corner moved inwards by up to 10% of half the image width and height, a change of
+      # viewpoint, the uncovered border filled with black; moves the image only, so it is refused for the tasks with
+      # boxes, masks or keypoints
+      random_perspective: { activated: False, probability: 0.3 }
+      # Random Jigsaw : image cut into 2x2 pieces put back in a random order, breaking the global layout of the image;
+      # moves the image only, so it is refused for the tasks with boxes, masks or keypoints
+      random_jigsaw: { activated: False, probability: 0.3 }
 
       # Photometric augmentations.
       # Brightness (+-40 intensity levels), contrast and saturation (both x0.7 to x1.0) adjustments
       brightness_contrast_saturation: { activated: True, probability: 0.5 }
+      # Random Hue : hue turned by up to 18 degrees (5% of the hue circle) in either direction
+      random_hue: { activated: False, probability: 0.5 }
       # Contrast-limited Adaptive Histogram Equalization (CLAHE), clip limit 2.0 on a 4x4 grid of tiles
       clahe_augment: { activated: True, probability: 0.5 }
       # Image Sharpening with a Laplacian of Gaussian unsharp mask (sigma 1.5, strength 3)
@@ -215,24 +224,39 @@ Data:
       equalize_histogram_augment: { activated: True, probability: 0.5 }
       # Histogram Equalization of one random channel (B, G or R) or of all three channels
       equalize_bgr_histogram_augment: { activated: True, probability: 0.5 }
-      # Random Noise : Gaussian noise with a standard deviation of 40 intensity levels
+      # Random Noise : Gaussian noise with a standard deviation of 20 intensity levels
       random_noise: { activated: True, probability: 0.5 }
       # Grayscale conversion, kept on three channels
       gray_scale_augment: { activated: True, probability: 0.5 }
       # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
       random_colour_augmentation: { activated: False, probability: 0.5 }
+      # Random Gamma : gamma correction with a gamma of 0.8 to 1.25, darkening or lightening the mid-tones
+      random_gamma: { activated: False, probability: 0.3 }
+      # Random Linear Illumination : ramp of 13 to 38 intensity levels growing from one side of the image to the
+      # opposite one, brightening or darkening it, a light source on one side of the scene
+      random_linear_illumination: { activated: False, probability: 0.3 }
+      # Random Plasma Shadow : irregular shadows of a random fractal map darkening by up to 77 intensity levels
+      random_plasma_shadow: { activated: False, probability: 0.3 }
       # Random Image Blurring : 9x9 Gaussian kernel with sigma 2.5
       random_blur: { activated: True, probability: 0.5 }
       # Random Motion Blurring : streak of 5 to 15 pixels at an angle of 0 to 180 degrees, trailing backward
       # or forward, the motion of the camera or of the objects during the exposure
       random_motion_blur: { activated: False, probability: 0.3 }
       # Random Haze : blend with a uniform grey airlight of 180 to 255 intensity levels taking 20% to 60% of every
-      # pixel, the fog or condensation of a camera lowering the contrast (applied after the other photometric types)
+      # pixel, the fog or condensation of a camera lowering the contrast (applied after the blurs, before the
+      # solarization, the black-out and the erasing)
       random_haze: { activated: True, probability: 0.3 }
+      # Random Solarize : every pixel at or above 128 intensity levels inverted
+      random_solarize: { activated: False, probability: 0.2 }
       # Random Black Out : image cut into a grid of grid_size x grid_size cells (smaller cells hiding smaller
-      # parts), every cell blacked out with a fixed probability of 0.2 (applied last); the boxes, masks and
-      # keypoints are left unchanged, so an object can be hidden while keeping its label
+      # parts), every cell blacked out with a fixed probability of 0.2 (applied after the other photometric types
+      # but the erasing); the boxes, masks and keypoints are left unchanged, so an object can be hidden while
+      # keeping its label
       random_black_out: { activated: False, probability: 0.3, grid_size: 8 }
+      # Random Erasing : one rectangle covering 2% to 15% of the image, of height / width ratio 0.3 to 3.3, filled with
+      # black (applied last); the boxes, masks and keypoints are left unchanged, so an object can be hidden while
+      # keeping its label
+      random_erasing: { activated: False, probability: 0.3 }
 
 Backbone:
   # Number of input channels of the initial convolution block: must be 3, the loaders giving BGR images
@@ -353,124 +377,6 @@ ClassificationHead:
     # Hidden layer whose features are decorrelated, counted from 1 in fully_connected, at most its number of layers
     # when activated.
     hidden_layer: 2
-  # View losses added to the classification loss in training and validation, comparing every image with a second
-  # random view of it: the image goes through the classifier as usual (with the data augmentation of a training
-  # image), and its second view, drawn on the GPU from the image before that augmentation with the transformations of
-  # view_augmentation, goes through the backbone with it. The final feature maps of both views are pooled into their
-  # representations (global_pooling), which the projector of every loss turned on maps to the embeddings the loss
-  # compares: fully connected layers trained with the classifier but kept outside it, never exported nor transferred,
-  # saved in the checkpoints with their own optimizer. The head classifies the images alone, so the predictions and
-  # the exports are unchanged. Every loss is multiplied by its weight and summed with the classification loss into the
-  # total loss, the weighted value being tracked. The view losses give no run name token and can be turned on or off
-  # when a run resumes: a projector turned on starts from random weights, one turned off is left out of the next
-  # checkpoints.
-  view_losses:
-    # Reduction of the final feature map of a view to its representation: "average" or "max" (global pooling, its
-    # channels), or "flatten" (its channels x height x width values, which keep where the features are but differ
-    # between two crops of an image, and make the first layer of every projector much larger).
-    global_pooling: "average"
-    # Random transformations of the second view, those of the views of the self-supervised task, applied to the image
-    # before the data augmentation of the classifier. The view losses teach the backbone to ignore what changes between
-    # the two views, so they must keep what defines the class of the image. A probability given per view, [first view,
-    # second view], applies its second value; the transformations from the perspective to the random erasing are off.
-    view_augmentation:
-      # Crop of a random area (fraction of the image area within scale) and aspect ratio (width / height within
-      # aspect_ratio), resized back to the input size. A crop missing the object of the class leaves nothing to match.
-      random_resized_crop: { scale: [0.2, 1.0], aspect_ratio: [0.75, 1.3333] }
-      # Mirror from left to right.
-      left_right_flip: { probability: 0.5 }
-      # Mirror from top to bottom, for images whose content keeps its meaning upside down.
-      up_down_flip: { probability: 0.0 }
-      # Rotation by a random angle within [-maximum_degrees, maximum_degrees], the uncovered corners filled with black.
-      rotation: { probability: 0.0, maximum_degrees: 0.0 }
-      # Perspective distortion, a change of viewpoint: every corner of the image moved by up to distortion_scale (within
-      # [0, 1]) times half the image side, the uncovered borders filled with black.
-      perspective: { probability: 0.0, distortion_scale: 0.2 }
-      # Jigsaw, experimental: the image cut into a grid of [rows, columns] pieces put back in a random order, breaking
-      # its global layout for the datasets whose static background lets the views match without learning their content.
-      # Off by default, to try at 0.2 with [2, 2]; the grid must divide the input size.
-      jigsaw: { probability: 0.0, grid: [2, 2] }
-      # Brightness, contrast and saturation scaled by a random factor within [1 - strength, 1 + strength], and the hue
-      # shifted by up to hue (0.5 being half a turn of the hue circle), in a random order drawn for every batch.
-      colour_jitter: { probability: 0.8, brightness: 0.4, contrast: 0.4, saturation: 0.4, hue: 0.1 }
-      # Grayscale conversion, kept on three channels.
-      grayscale: { probability: 0.2 }
-      # Gamma correction, a non-linear change of the exposure: every pixel raised to a power drawn within gamma.
-      gamma: { probability: 0.0, gamma: [0.7, 1.5] }
-      # Haze, the fog, condensation or low contrast of a camera: every pixel blended with a uniform airlight,
-      # view x (1 - strength) + strength x airlight, the strength and the airlight (within [0, 1]) drawn within their
-      # ranges.
-      haze: { probability: 0.0, strength: [0.0, 0.5], airlight: [0.6, 1.0] }
-      # Linear illumination, an uneven lighting: a ramp from 0 to a change drawn within gain (within [0, 1], brightening
-      # or darkening) added from one side of the image to the opposite one.
-      linear_illumination: { probability: 0.0, gain: [0.05, 0.25] }
-      # Plasma shadow, irregular shadows: the pixels where a random fractal map, whose detail grows with a roughness
-      # drawn within roughness, is below a level drawn within shade_quantity are darkened by a value drawn within
-      # shade_intensity (within [-1, 0]). Its map is drawn on the GPU, so its views differ between devices for the same
-      # seed.
-      plasma_shadow: { probability: 0.0, shade_intensity: [-0.5, 0.0], shade_quantity: [0.0, 0.5],
-                       roughness: [0.1, 0.7] }
-      # Gaussian blur of an odd kernel_size, below twice the image size, its sigma drawn within the sigma range.
-      gaussian_blur: { probability: 0.5, kernel_size: 9, sigma: [0.1, 2.0] }
-      # Motion blur of a camera or an object in motion: a line of an odd length drawn within kernel_size, both bounds
-      # included and the same length for every image of a batch, at an angle within [-maximum_angle, maximum_angle]
-      # degrees, its weight moved towards one end by a direction drawn within direction (-1 the back, 0 even, 1 the
-      # front).
-      motion_blur: { probability: 0.0, kernel_size: [3, 9], maximum_angle: 180.0, direction: [-1.0, 1.0] }
-      # Solarization, a strong photometric distortion so that the views cannot match by their exact intensities: a value
-      # drawn within addition, strictly between -0.5 and 0.5, is added to every pixel, then the pixels above a threshold
-      # drawn within threshold are inverted.
-      solarize: { probability: 0.0, threshold: [0.5, 0.5], addition: [0.0, 0.0] }
-      # Gaussian noise of a sensor, of standard deviation standard_deviation in RGB images in [0, 1] (0.03 is about 8 of
-      # the 255 levels), after both blurs which would smooth it away. Drawn on the GPU, so its views differ between
-      # devices for the same seed.
-      gaussian_noise: { probability: 0.0, standard_deviation: 0.03 }
-      # Black-out of the cells of a grid of grid_size x grid_size cells, every cell blacked out with a fixed
-      # probability of 0.2, as the random_black_out type of the data augmentation, last with the random
-      # erasing so that the cells stay black.
-      black_out: { probability: 0.0, grid_size: 8 }
-      # Random erasing, an occlusion: a rectangle covering a fraction of the image drawn within scale, of aspect ratio
-      # drawn within aspect_ratio, filled with black, last so that the erased area stays plainly filled.
-      random_erasing: { probability: 0.0, scale: [0.02, 0.15], aspect_ratio: [0.3, 3.3] }
-    # Barlow Twins: the cross-correlation matrix of the embedding features of both views, every feature normalized over
-    # the batch, pushed to the identity, every feature equal on both views (diagonal to 1) and the features decorrelated
-    # (off-diagonal to 0). Tracked as Barlow Twins Loss (weighted), Diagonal Correlation and Off-Diagonal Correlation.
-    # The sampling noise of the correlations of a batch of N images keeps the unweighted loss above about
-    # off_diagonal_weight x D x (D - 1) / N for an embedding of D features.
-    barlow_twins:
-      # Adds the Barlow Twins loss to the classification loss.
-      activated: False
-      # Weight of the Barlow Twins loss, above 0. Unweighted, it starts at about 300 for an embedding of 512 features,
-      # its gradient on the final feature map being about 30 (synthetic shapes) to 150 (ImageNet) times the one of the
-      # classification loss at initialisation (batches of 32 images), an eighth to three fifths of it with 0.004. A
-      # wider embedding raises it: 177 to 544 times with [2048, 2048, 2048], for a weight of 0.001.
-      weight: 0.004
-      # Weight of the off-diagonal terms (redundancy reduction) against the diagonal terms (invariance), above 0.
-      off_diagonal_weight: 0.005
-      # Units of the fully connected layers of the projector, the last one being the embedding size: every layer before
-      # it is linear, batch normalization, ReLU, the last one linear only. Barlow Twins improves with wide embeddings,
-      # but the weights and the optimizer state of its projector are saved in every checkpoint, about 4 MB for
-      # [512, 512] and about 100 MB for [2048, 2048, 2048].
-      projector: [512, 512]
-    # Contrastive loss, InfoNCE over the 2N views of a batch of N images: every view has to find its positives among
-    # the 2N - 1 other views by cosine similarity divided by the temperature. Tracked as Contrastive Loss (weighted)
-    # and Positive Pair Accuracy (share of the views whose most similar view is one of their positives).
-    contrastive:
-      # Adds the contrastive loss to the classification loss.
-      activated: False
-      # Weight of the contrastive loss, above 0. Unweighted, it starts at about log(2N - 1), its gradient on the final
-      # feature map being 0.5 (synthetic shapes) to 1.6 (ImageNet) times the one of the classification loss at
-      # initialisation (batches of 32 images), a quarter to four fifths of it with 0.5.
-      weight: 0.5
-      # Temperature dividing the cosine similarities, above 0, e.g. 0.1 to 0.5.
-      temperature: 0.1
-      # Positives of a view: "views" (the other view of its image only, SimCLR) or "classes" (also every view of an
-      # image of the same class, supervised contrastive learning, SupCon), "views" with output_mode "multi_label"
-      # when activated.
-      positives: "classes"
-      # Units of the fully connected layers of the projector, the last one being the embedding size, e.g. one hidden
-      # layer and a small embedding as in SimCLR.
-      projector: [2048, 128]
   # Classification head of another training run initialising this run instead of random weights. Its fully_connected
   # layers and fully_connected_normalization must be identical in both runs (the dropout rate and the batch
   # normalization momentum may differ), as well as the size of the vectors it reads. The classes of the source run, read

@@ -4,12 +4,14 @@ section read from the training split, the Backbone stem ending at a quarter of t
 image size its lowest resolution branch divides, the 'KeypointHead' section (higher resolution branch, hidden width,
 ignored regions, tag loss weights and grouping settings), and the object keypoint similarity settings of the
 evaluation. Run by configuration_checker.py for the keypoint_detection task. The geometric augmentations of
-'Data.data_augmentation' are all allowed, the augmenter moving the keypoints with the image.
+'Data.data_augmentation' are allowed, the augmenter moving the keypoints with the image, but the perspective and the
+jigsaw, which move the image only (IMAGE_ONLY_AUGMENTATION_TYPES).
 """
 
 from typing import Any, Dict, List
 
-from vision_training.configuration_processing.common_checks import (check_image_task_sequence_settings,
+from vision_training.configuration_processing.common_checks import (check_image_only_augmentation_types,
+                                                                    check_image_task_sequence_settings,
                                                                     check_pretrained_configuration)
 from vision_training.configuration_processing.configuration_values import (VALID_FEATURE_MAP_NORMALIZATIONS,
                                                                            check_batch_normalization_momentum,
@@ -257,9 +259,9 @@ def check_keypoint_evaluation_configuration(experiment_configuration: Dict[str, 
 def check_keypoint_configuration(experiment_configuration: Dict[str, Any],
                                  model_configuration: Dict[str, Any]) -> List[str]:
     """
-    Runs every check specific to the keypoint detection task: its data settings without the sequence settings, the
-    stem resolution of its Backbone, its high resolution network with the image size, its keypoint head, and its
-    evaluation settings.
+    Runs every check specific to the keypoint detection task: its data settings without the sequence settings nor the
+    augmentation types moving the image only, the stem resolution of its Backbone, its high resolution network with the
+    image size, its keypoint head, and its evaluation settings.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed experiment configuration.
@@ -270,6 +272,7 @@ def check_keypoint_configuration(experiment_configuration: Dict[str, Any],
     """
     errors = []
     errors += check_image_task_sequence_settings(model_configuration=model_configuration)
+    errors += check_image_only_augmentation_types(model_configuration=model_configuration)
     errors += check_keypoint_data_configuration(model_configuration=model_configuration)
     errors += check_keypoint_stem_configuration(model_configuration=model_configuration)
     errors += check_high_resolution_network_configuration(model_configuration=model_configuration)

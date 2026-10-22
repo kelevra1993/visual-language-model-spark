@@ -24,8 +24,8 @@ CHECKPOINT_REGISTRY_NAME = "full-checkpoint"
 # Key of the exponential moving average of the weights in the checkpoints of the runs that keep one
 EXPONENTIAL_MOVING_AVERAGE_STATE_KEY = "exponential_moving_average_state"
 
-# Key of the auxiliary heads trained with the model but outside it (e.g. the projectors of the view losses of the image
-# classifier), each with its weights and its optimizer state, in the checkpoints of the runs that have some
+# Key of the auxiliary heads trained with the model but outside it (none for the current tasks), each with its weights
+# and its optimizer state, in the checkpoints of the runs that have some
 AUXILIARY_HEADS_STATE_KEY = "auxiliary_heads_state"
 
 

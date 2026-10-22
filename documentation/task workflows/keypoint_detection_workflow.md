@@ -38,7 +38,9 @@ main()
 │   └── check_configuration()
 │       ├── common checks
 │       └── check_keypoint_configuration()
-│           ├── check_image_task_sequence_settings() / check_keypoint_data_configuration()
+│           ├── check_image_task_sequence_settings()               no sequence settings
+│           ├── check_image_only_augmentation_types()              random_perspective and random_jigsaw off
+│           ├── check_keypoint_data_configuration()
 │           ├── check_keypoint_stem_configuration()                the stem must end at 1/4 of the image
 │           ├── check_high_resolution_network_configuration()      image size a multiple of the lowest branch stride
 │           ├── check_keypoint_head_configuration()                hidden width, sigma, tag weights, grouping settings
@@ -217,7 +219,7 @@ keypoint_categories: 33 classes, keys [1, 2, 3, ..., 33]
 ```
 
 ### Step 1.6 — `check_configuration()`
-The common checks run first, then `check_keypoint_configuration()`, which calls in order `check_image_task_sequence_settings()`, `check_keypoint_data_configuration()`, `check_keypoint_stem_configuration()`, `check_high_resolution_network_configuration()`, `check_keypoint_head_configuration()` and `check_keypoint_evaluation_configuration()`. Two rules come from the architecture:
+The common checks run first, then `check_keypoint_configuration()`, which calls in order `check_image_task_sequence_settings()`, `check_image_only_augmentation_types()` (the perspective and the jigsaw move the image only, the keypoints cannot follow them), `check_keypoint_data_configuration()`, `check_keypoint_stem_configuration()`, `check_high_resolution_network_configuration()`, `check_keypoint_head_configuration()` and `check_keypoint_evaluation_configuration()`. Two rules come from the architecture:
 - The stem must end at 1/4 of the image, the resolution of the heatmaps and tags (`HEATMAP_STRIDE = 4`).
 - The image size must be a multiple of the stride of the lowest resolution branch of the HRNet (4 × 2^(number of stages), 32 with 3 stages), so that every branch can be upsampled back exactly to the highest one.
 
@@ -583,10 +585,10 @@ The augmentations of every task, applied to the whole images. Every geometric ty
 **Example: the augmentations of the batch**
 ```text
 keys ['images', 'bounding_boxes', 'labels', 'keypoints', 'sample_identifiers', 'augmentation_reports']
-image 0: objects 1 -> 1  labelled keypoints  5 ->  5   brightness -38.9 levels, contrast x0.95, saturation x0.78; noise of 40 levels
+image 0: objects 1 -> 1  labelled keypoints  5 ->  5   brightness -38.9 levels, contrast x0.95, saturation x0.78; noise of 20 levels
 image 1: objects 1 -> 1  labelled keypoints  8 ->  8   Not augmented (global probability 0.4 not drawn)
 image 2: objects 3 -> 3  labelled keypoints 22 -> 22   Not augmented (global probability 0.4 not drawn)
-image 3: objects 2 -> 2  labelled keypoints 17 -> 17   noise of 40 levels
+image 3: objects 2 -> 2  labelled keypoints 17 -> 17   noise of 20 levels
 image 4: objects 4 -> 4  labelled keypoints 28 -> 28   augmented, but no augmentation type drawn
 image 5: objects 5 -> 5  labelled keypoints 24 -> 24   Not augmented (global probability 0.4 not drawn)
 image 6: objects 4 -> 4  labelled keypoints 20 -> 20   Not augmented (global probability 0.4 not drawn)
@@ -687,7 +689,7 @@ Geometric :
   none
 Photometric :
   brightness_contrast_saturation : brightness -38.9 levels, contrast x0.95, saturation x0.78
-  random_noise : standard deviation 40 levels
+  random_noise : standard deviation 20 levels
 Removed objects : none
 ```
 

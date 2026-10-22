@@ -157,7 +157,8 @@
 
 #### B7. Motion blur of the views: the largest kernel size is never drawn, and the viewer describes kernels kornia does not apply
 - **Area:** data loading · **Severity:** medium · **Status:** fixed on 2026-10-20 (found confirmed, reproduced by the reviewer; kornia 0.8.3 source
-  read again) · **Category:** bug (added on 2026-10-20 with the harder views)
+  read again), the views being drawn by the types of `Data.data_augmentation` since 2026-10-22, `view_augmentations.py`
+  removed · **Category:** bug (added on 2026-10-20 with the harder views)
 - **Where:** `vision_training/data/view_augmentations.py:180-183` (construction), `252-254` (description); kornia
   `random_generator/_2d/motion_blur.py:84-100` and `_2d/intensity/motion_blur.py:113-122`.
 - **Problem:** kornia draws `Uniform(low // 2, high // 2).int() * 2 + 1`, so `[3, 9]` only gives 3, 5 or 7, and it blurs
@@ -324,7 +325,9 @@
 
 #### B20. The view augmentation checks accept values kornia rejects
 - **Area:** configuration · **Severity:** low · **Status:** fixed on 2026-10-20 (found confirmed, reproduced by the reviewer; the solarize bound
-  checked again in kornia) · **Category:** configuration (the solarize bound was added on 2026-10-20)
+  checked again in kornia), the view augmentation checks removed on 2026-10-22 with the views, now drawn by the types of
+  `Data.data_augmentation` with hard-coded strengths · **Category:** configuration (the solarize bound was added on
+  2026-10-20)
 - **Where:** `vision_training/configuration_processing/common_checks.py:47, 61` (solarize addition), `620-628` (blur
   kernel), `572-576` (crop aspect ratio).
 - **Problem:** kornia's `solarize` requires an addition strictly inside (-0.5, 0.5) (`kornia/enhance/adjust.py:724`) but
@@ -990,16 +993,16 @@ is still open.
 - **Fixed.** `load_configuration` and every `print_tensor_shape` call take keyword arguments.
 
 #### S5. One parameter or one argument per line
-- **Fixed** wherever the grouped items fit in 120 characters. The 26 places left hold arguments or parameters of which
-  no two fit on one line, and stay one per line:
+- **Fixed** wherever the grouped items fit in 120 characters. The 25 places left hold arguments or parameters of which
+  no two fit on one line, and stay one per line (a 26th, `RandomPlasmaShadow`, was removed on 2026-10-22 with
+  `view_augmentations.py`):
   - source: `two_stage_detector.py` (`forward_detection_stages`, `self.region_proposal_filter`,
     `compute_region_proposal_losses`), `detection_losses.py` (the signature of `compute_region_proposal_losses`,
     `batch_assign_targets_to_anchors`, `sample_positive_and_negative_training_targets`, the smooth L1 loss of the
     proposals), `mean_average_precision.py` (`match_detections_to_ground_truth`, `find_class_score_thresholds`),
     `keypoint_detector.py` (both `compute_peak_offsets`), `export_specifications.py` (both `match_detections`),
-    `frame_selection_metrics.py` (`find_class_thresholds`), `inference_detector.py` (`self.filter_proposals`),
-    `sequence_labelling_trainer.py` (`group_sequence_predictions`) and `view_augmentations.py`
-    (`RandomPlasmaShadow`);
+    `frame_selection_metrics.py` (`find_class_thresholds`), `inference_detector.py` (`self.filter_proposals`) and
+    `sequence_labelling_trainer.py` (`group_sequence_predictions`);
   - tests: `test_augmentations.py` (two `augment_batch`), `test_mean_average_precision.py`
     (`match_detections_to_ground_truth`), `test_self_supervised_trainer.py` (`SimpleNamespace`),
     `test_cluster_image_embeddings.py` (four signatures) and `test_os_utilities.py` (one signature).
@@ -1037,9 +1040,7 @@ is still open.
 - **`x` and `y` for point coordinates:** `create_synthetic_dataset.py:1904`, `visualization.py:947` and three tests.
 - **`img_tensor`** (`tests/evaluation/test_evaluation_report.py:43`): the keyword of the TensorBoard `add_image`
   that the fake writer of the test replaces.
-- **One argument or parameter per line where no two fit in 120 characters:** the 26 places listed in S5.
-- **`input` and `params` in `RandomHaze.apply_transform`** (`view_augmentations.py:68`): the signature of the kornia
-  method it overrides.
+- **One argument or parameter per line where no two fit in 120 characters:** the 25 places listed in S5.
 - **`max_pool_connections`** (`foundation_model_image_downloader.py:650`): the botocore setting it is passed to.
 - **`previous_settings.get(setting_key, MISSING_SETTING)`** (`configuration_changes.py:73`): it compares a saved
   configuration, with a sentinel for the settings that configuration was saved without.

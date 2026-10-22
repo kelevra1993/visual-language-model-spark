@@ -40,6 +40,8 @@ main()
 │               ├── check_detection_evaluation_configuration()   evaluation.score_threshold, target_precision and
 │               │                                                error_dumps
 │               ├── no sequence settings
+│               ├── check_image_only_augmentation_types()        random_perspective and random_jigsaw off, since the
+│               │                                                boxes cannot follow them
 │               ├── check_detection_levels()                     DetectionLevels: quoted backbone blocks in increasing
 │               │                                                order, anchor scales within the image size, positive
 │               │                                                ratios, region proposal and detection heads
@@ -186,7 +188,7 @@ dict: {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 'background': 0}
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_detection_configuration()`. Two of its checks keep the target assignment consistent: an anchor cannot be both background and foreground, and the detector samples its training targets among the proposals kept by the filter.
+The common checks run first, then `check_detection_configuration()`, which refuses the augmentation types moving the image only, `random_perspective` and `random_jigsaw` (`check_image_only_augmentation_types()`), since the boxes cannot follow them. Two of its checks keep the target assignment consistent: an anchor cannot be both background and foreground, and the detector samples its training targets among the proposals kept by the filter.
 
 **Example: output with `RegionProposal.background_iou_threshold.max: 0.6` and `Detector.total_training_samples: 600` in the YAML**
 ```text
@@ -251,7 +253,7 @@ The same augmenter as the classification; the geometric augmentations move the b
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4
-1 of 20 types activated: random_haze
+1 of 28 types activated: random_haze
 ```
 
 ### Step 2.6 — `setup_training_paths()`

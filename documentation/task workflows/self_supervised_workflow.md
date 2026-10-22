@@ -39,16 +39,13 @@ main()
 │   │       Reads the mapping file {category identifier: class index}, without background. The classes only serve
 │   │       the k-nearest neighbour evaluation: the training never reads a label.
 │   └── check_configuration()
-│       ├── common checks                         experiment, data, backbone, optimization (see classification)
+│       ├── common checks                         the removed sections first (Data.view_augmentation), then
+│       │                                         experiment, data (with the flag and probability of every
+│       │                                         augmentation type), backbone, optimization (see classification)
 │       └── check_self_supervised_configuration()
-│               ├── data:       multi_class label mode, classes 0..K-1, Data.data_augmentation off (the views replace it)
+│               ├── data:       multi_class label mode, classes 0..K-1, Data.data_augmentation on (its types draw the
+│               │               views) and random_crop at probability 1.0 when it is activated
 │               ├── no sequence settings (check_image_task_sequence_settings)
-│               ├── views:      random_resized_crop scale in (0, 1] and aspect ratio, probabilities in [0, 1] (or one
-│               │               per view), rotation degrees, perspective distortion, jigsaw grid, colour jitter
-│               │               strengths, hue shift, blur kernels (the Gaussian one below twice the input size),
-│               │               sigma and angle, noise, crops of at least 2 pixels on each side, and the ranges of the
-│               │               gamma, haze, illumination, plasma shadow, blur direction, solarization (addition
-│               │               strictly within (-0.5, 0.5)) and erasing
 │               ├── grouped:    Data.grouped_batches: activated flag, block_key a string, batch_key null or a string,
 │               │               images_per_block >= 2, dividing the batch size when the section is on
 │               ├── head:       check_projection_head_configuration(): pooling, layers, normalization, method
@@ -58,8 +55,8 @@ main()
 ├── get_trainer_class(task)  -> SelfSupervisedTrainer
 │
 ├── SelfSupervisedTrainer(experiment_configuration, model_configuration, configuration_path)  [STAGE 2]
-│   │   Stores the method, the number of neighbours of the k-NN evaluation and the ViewAugmenter that draws the two
-│   │   random views of every image.
+│   │   Stores the method and the number of neighbours of the k-NN evaluation. SELF_SUPERVISED_AUGMENTATION makes the
+│   │   general trainer build its DataAugmenter with the self-supervised strengths: it draws the two views.
 │   │
 │   └── BaseTrainer.__init__()
 │       │   Same order as for every task: device, run name, settings, augmenter, classes of a resumed run, previous
@@ -68,7 +65,8 @@ main()
 │       │
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
 │       │       The run name starts with SSL and ends with the head (PAVG.<layers>-PBN) and the method
-│       │       (SIMCLR-T<temperature> or BT-OD<off-diagonal weight>). The DataAugmenter stays off.
+│       │       (SIMCLR-T<temperature> or BT-OD<off-diagonal weight>). The DataAugmenter takes
+│       │       SELF_SUPERVISED_AUGMENTATION_STRENGTHS: it draws the two random views of every image.
 │       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
 │       │       A resumed run keeps the classes of its label_dictionary.json, a training from scratch renames the
 │       │       run folder of a previous training of the same settings v<n>_<run name>, then the run folder is
@@ -104,7 +102,7 @@ main()
 │       ├── print_summary() / print_receptive_field_summary() / print_model_size_summary()
 │       │       The summary adds a Projection Head panel.
 │       ├── view_input_batches()  (only with view_input_images, then exits)
-│       │       The two random views of a training image, each next to the transformations drawn for it, every
+│       │       The two random views of a training image, each next to the augmentations drawn for it, every
 │       │       batch of the GroupedBatchSampler first shown whole (show_input_batch -> build_batch_mosaic).
 │       └── restore_last_model() -> get_last_checkpoint_iteration() / load_model()
 │
@@ -120,7 +118,7 @@ main()
         │   │   ├── prepare_batch()                 images to float32, labels to int64 on the device
         │   │   ├── augment_batch()                 returns the batch unchanged: the views are drawn in forward_pass
         │   │   ├── forward_pass()
-        │   │   │   ├── ViewAugmenter.create_views()        two random views of every image, in float32
+        │   │   │   ├── DataAugmenter.create_views()        two random views of every image, in float32
         │   │   │   └── SelfSupervisedModel.forward(input_tensor, second_view_tensor)
         │   │   │       ├── encode()                       the 2N views in one pass: backbone, pooling, projection head
         │   │   │       ├── compute_method_loss()          compute_info_nce_loss() or compute_barlow_twins_loss()
@@ -176,7 +174,7 @@ python -m vision_training.main --configuration_path vision_training/configuratio
 ```
 
 ### Step 1.2 — `load_experiment_configuration()`
-It splits the YAML into the two dictionaries read by every later stage, converts the values YAML reads with the wrong type (`1e10` is read as a string), adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration), adds `label_mode` and `label_dictionary` to `Data` (Step 1.4) and runs the checks (Step 1.5). The self-supervised task has one section of its own, `ProjectionHead`, and a `Data.view_augmentation` subsection that describes the random views.
+It splits the YAML into the two dictionaries read by every later stage, converts the values YAML reads with the wrong type (`1e10` is read as a string), adds `tracking_root` (the root folder of the MLflow backend, the `experiment_folder` of the configuration), adds `label_mode` and `label_dictionary` to `Data` (Step 1.4) and runs the checks (Step 1.5). The self-supervised task has one section of its own, `ProjectionHead`; its random views are drawn by the types of `Data.data_augmentation`, the section of every task.
 
 **Example: the sections and the converted values**
 ```text
@@ -214,8 +212,7 @@ label_dictionary: {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8}
 
 ### Step 1.5 — `check_configuration()`
 The common checks, then `check_self_supervised_configuration()` (in `vision_training/configuration_processing/self_supervised_checks.py`):
-- **data**: `multi_class` label mode, classes 0 to K-1, `Data.data_augmentation` off, since the random views replace it, and no sequence settings (`check_image_task_sequence_settings()`).
-- **views**: the `random_resized_crop` scale is a list `[low, high]` with `0 < low <= high <= 1` and a valid aspect ratio, which together give crops of at least `MINIMUM_CROP_SIDE` (2) pixels on each side at the input size (`check_crop_sides`), every probability is in [0, 1] or a list of two of them `[first view, second view]`, the rotation `maximum_degrees` is at most `MAXIMUM_ROTATION_DEGREES`, the perspective `distortion_scale` is in [0, 1], the jigsaw `grid` holds at least two pieces and divides the input size, the colour jitter strengths are not negative and the hue shift at most `MAXIMUM_HUE_SHIFT`, the Gaussian blur kernel is odd and below twice the input size, its sigma range valid, the motion blur kernel sizes are odd and at least 3 and its `maximum_angle` at most `MAXIMUM_MOTION_BLUR_DEGREES`, the noise `standard_deviation` is not negative, and the ranges of `VIEW_TRANSFORMATION_RANGES` (gamma, haze, linear illumination, plasma shadow, motion blur direction, solarization, random erasing) are within the bounds kornia accepts, the solarization addition strictly within (-0.5, 0.5).
+- **data**: `multi_class` label mode, classes 0 to K-1, `Data.data_augmentation.activated` True, since its types draw the two views of every image, which would otherwise both be the image itself, `random_crop`, the random resized crop of the views, at a probability of 1.0 when it is activated (drawn for every view, or turned off to keep the whole images), and no sequence settings (`check_image_task_sequence_settings()`). The flag and the probability of every type are checked as for every task (`check_data_configuration()`); the strengths are hard-coded.
 - **grouped batches**: `check_grouped_batches_configuration()`: `Data.grouped_batches.activated` is True or False, `block_key` a non-empty string, `batch_key` null or a non-empty string, and `images_per_block` an integer of at least 2 that divides the batch size when the section is on.
 - **head**: `check_projection_head_configuration()`: pooling, layers, normalization, the method (`simclr` or `barlow_twins`) and its settings.
 - **batch and evaluation**: a batch size of at least 2, and `number_neighbours` above 0.
@@ -227,9 +224,20 @@ Every error is listed before the program stops.
 ------------------------------------------------------
 Invalid Configuration File : file:///.../configuration_wrong.yaml
 ------------------------------------------------------
-  - 'Data.view_augmentation.random_resized_crop.scale' must be a list of two numbers [low, high] with 0 < low <= high <= 1, got [0.6, 1.4].
+  - 'Data.data_augmentation.types.random_crop.probability' must be 1.0 for the self-supervised task when 'Data.data_augmentation.types.random_crop.activated' is True, got 0.5: the random resized crop is drawn for every view, or turned off to keep the whole images.
   - 'ProjectionHead.method' must be one of ['simclr', 'barlow_twins'], got 'byol'.
   - 'ExperimentConfiguration.batch_size' must be at least 2 for the self-supervised task: the losses compare the views of the images of a batch with each other.
+SystemExit code 1
+```
+
+A configuration still holding `Data.view_augmentation`, the section of the views before they were drawn by the data augmentation, is refused alone, before any other check, by `check_removed_sections()`.
+
+**Example output: the configuration of the synthetic shapes before the merge of the two augmentations**
+```text
+--------------------------------------------------------------------------------
+Invalid Configuration File : file:///.../configuration_before_single_data_augmentation.yaml
+--------------------------------------------------------------------------------
+  - 'Data.view_augmentation' was removed: the self-supervised task draws its two views with the types of 'Data.data_augmentation', whose strengths are hard-coded (SELF_SUPERVISED_AUGMENTATION_STRENGTHS of vision_training/data/augmentations.py), so its probabilities go to those types. Delete it from the configuration file.
 SystemExit code 1
 ```
 
@@ -246,12 +254,13 @@ SystemExit code 1
 > The examples below are real outputs from building the trainer on `configurations/self_supervised/configuration_synthetic_shapes.yaml` (256 pixel images, batch size 128, 2 loading workers), with the run folder redirected to a temporary folder. The whole construction took 7.0 s on CPU.
 
 ### Step 2.1 — `SelfSupervisedTrainer.__init__()`
-Before calling `BaseTrainer.__init__()`, it stores what its hooks read: `self.method` (`ProjectionHead.method`), `self.number_neighbours` (`evaluation.number_neighbours`, the k of the k-NN evaluation) and `self.view_augmenter`, the `ViewAugmenter` built from `Data.view_augmentation` at the input image size. Its class attributes name the task for the shared code, `DROPS_LAST_TRAINING_BATCH` telling it that the training loader drops its last incomplete batch (Step 2.19).
+Before calling `BaseTrainer.__init__()`, it stores what its hooks read: `self.method` (`ProjectionHead.method`), and `self.number_neighbours` (`evaluation.number_neighbours`, the k of the k-NN evaluation). Its class attributes name the task for the shared code, `DROPS_LAST_TRAINING_BATCH` telling it that the training loader drops its last incomplete batch (Step 2.19), and `SELF_SUPERVISED_AUGMENTATION` that its `DataAugmenter` draws the views with the self-supervised strengths (Step 2.5).
 
 **Example output**
 ```text
 method: simclr   number_neighbours: 20
 TASK_NAME: self_supervised   SAMPLE_NAME: Images   COUNTS_FRAMES: False   DROPS_LAST_TRAINING_BATCH: True
+SELF_SUPERVISED_AUGMENTATION: True
 ```
 
 ### Step 2.2 — `BaseTrainer.__init__()`
@@ -277,45 +286,30 @@ The run name gives the task (`SSL`), the input, the backbone, then the head buil
 SSL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2
 ```
 
-### Step 2.5 — `DataAugmenter()` and `ViewAugmenter()`
-The `DataAugmenter` of the other tasks is built but stays off (`Data.data_augmentation.activated: False`, enforced by Step 1.5). The `ViewAugmenter` (in `vision_training/data/view_augmentations.py`) holds one Kornia chain per view in `view_transformations`, built by `build_view_transformations(view_index)` with the probabilities of that view (a probability given as `[first view, second view]` differs between the two chains), every transformation being drawn independently for every image. The haze is `RandomHaze`, a Kornia intensity transformation of the module, since Kornia has none:
-- `draw_view(images, view_index)` flips the BGR images to RGB, scales them to [0, 1], applies the chain of the view, clamps the result and converts it back to BGR in [0, 255].
-- `create_views(images, describe_views=False)` runs in float32, with the autocast off, draws the first view with the first chain and the second view with the second chain, and returns `(first_views, second_views, descriptions)`, the descriptions (`describe_view_transformations()`) being `None` unless asked for by the input viewer.
+### Step 2.5 — `DataAugmenter()`
+The general trainer builds the `DataAugmenter` of every task (in `vision_training/data/augmentations.py`) from `Data.data_augmentation`, here with `self_supervised=True` since the trainer sets `SELF_SUPERVISED_AUGMENTATION`: the types keep the activated flags and the probabilities of the configuration and take the hard-coded `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`, stronger than the `SUPERVISED_AUGMENTATION_STRENGTHS` of the other tasks (a crop of 20 % to 100 % of the area at an aspect ratio of x1/2 to x2, a colour jitter of x0.2 to x1.8, a hue turned by up to 36 degrees..., the table of the README, Data Augmentation). Its `create_views(images)` draws the two views of a batch (Step 3.12):
+- every image gets its two views: the global `probability` is ignored, and every activated type is drawn for each view of each image with its own probability;
+- `random_solarize` and `random_black_out` (`SECOND_VIEW_ONLY_TYPES`) are drawn for the second view only, as the asymmetric views of BYOL and Barlow Twins, while the supervised tasks draw them for every image;
+- the views are computed in float32 with the autocast off, so that the interpolations and the blurs keep their precision under the bfloat16 autocast of mixed precision, and returned with the augmentation report of every view.
 
-**Example: the attributes of both augmenters (the two chains differ by the probabilities of the Gaussian blur, the solarization and the black-out)**
+**Example: the settings of the augmenter**
 ```text
-DataAugmenter: {'activated': False, 'probability': 0.4, 'independent_frames': False, 'shuffle_frames_activated': False, ...}
-ViewAugmenter.view_transformations[0]: Sequential(
-  (0): RandomResizedCrop(scale=(0.6, 1.0), resize_to=(0.75, 1.3333), output_size=(256, 256), p=1.0, ..., resample=bilinear)
-  (1): RandomHorizontalFlip(p=0.5, ...)
-  (2): RandomVerticalFlip(p=0.5, ...)
-  (3): RandomRotation(degrees=180.0, p=0.5, ..., resample=bilinear)
-  (4): RandomPerspective(distortion_scale=0.2, p=0.5, ..., resample=bilinear)
-  (5): RandomJigsaw(grid=(2, 2), p=0.0, ...)
-  (6): ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4, hue=0.1, p=0.8, ...)
-  (7): RandomGrayscale(p=0.2, ...)
-  (8): RandomGamma(gamma_factor=(0.7, 1.5), gain_factor=(1.0, 1.0), p=0.3, ...)
-  (9): RandomHaze(strength=(0.0, 0.5), airlight=(0.6, 1.0), p=0.3, ...)
-  (10): RandomLinearIllumination(gain=(0.05, 0.25), sign=(-1.0, 1.0), p=0.3, ...)
-  (11): RandomPlasmaShadow(roughness=(0.1, 0.7), shade_intensity=(-0.5, 0.0), shade_quantity=(0.0, 0.5), p=0.2, ...)
-  (12): RandomGaussianBlur(sigma=(0.1, 2.0), p=1.0, ..., kernel_size=(9, 9), separable=True, border_type=reflect)
-  (13): RandomMotionBlur(kernel_size=(3, 11), angle=180.0, direction=(-1.0, 1.0), p=0.1, ..., border_type=constant, resample=nearest)
-  (14): RandomSolarize(thresholds=(0.5, 0.5), additions=(0.0, 0.0), p=0.0, ...)
-  (15): RandomGaussianNoise(p=0.2, ..., mean=0.0, std=0.03)
-  (16): RandomBlackOut(p=0.0, ...)
-  (17): RandomErasing(scale=(0.02, 0.15), resize_to=(0.3, 3.3), value=0.0, p=0.25, ...)
-)
-ViewAugmenter.view_transformations[1]: Sequential(
-  ...
-  (12): RandomGaussianBlur(sigma=(0.1, 2.0), p=0.1, ..., kernel_size=(9, 9), separable=True, border_type=reflect)
-  ...
-  (14): RandomSolarize(thresholds=(0.5, 0.5), additions=(0.0, 0.0), p=0.2, ...)
-  ...
-  (16): RandomBlackOut(p=0.3, ...)
-  ...
-)
+activated: True   probability: 1.0 (ignored by the views)   self_supervised: True
+strengths is SELF_SUPERVISED_AUGMENTATION_STRENGTHS: True
+18 of 28 types activated: {'random_crop': 1.0, 'random_left_right_flip': 0.5, 'random_up_down_flip': 0.5,
+    'random_rotation': 0.5, 'random_perspective': 0.5, 'brightness_contrast_saturation': 0.8, 'random_hue': 0.8,
+    'random_noise': 0.2, 'gray_scale_augment': 0.2, 'random_gamma': 0.3, 'random_linear_illumination': 0.3,
+    'random_plasma_shadow': 0.2, 'random_blur': 0.5, 'random_motion_blur': 0.1, 'random_haze': 0.3,
+    'random_solarize': 0.2, 'random_black_out': 0.3, 'random_erasing': 0.25}
+black_out_grid_size: 8   second view only: ['random_solarize', 'random_black_out']
+  crop_area_range: (0.2, 1.0)
+  crop_aspect_ratio_range: (0.5, 2.0)
+  maximum_rotation_degrees: 20.0
+  brightness_factor_range: (0.2, 1.8)
+  maximum_hue_shift: 0.1
+  blur_sigma_range: (0.1, 3.0)
+  noise_standard_deviation: 30.0
 ```
-(Kornia prints the aspect ratio range of the crop and of the erased rectangles under the name `resize_to`.)
 
 ### Step 2.6 — `setup_training_paths()`
 Creates the run folder, copies the YAML file into it and writes the label dictionary of the run (`label_dictionary.json`), then the constructor writes the data record once the loaders exist. The copy is a file copy, so it holds the file as written, not the values changed in memory after loading. Before it, `restore_run_label_dictionary()` keeps the classes of a resumed run and `move_previous_run_folder()` renames the folder of a previous training of the same settings when the run starts from scratch, as for every task (see `classification_workflow.md`, Step 2.6).
@@ -529,7 +523,7 @@ The backbone panel, the Projection Head panel of Step 2.15, the receptive field 
 ```
 
 ### Step 2.21 — `view_input_batches()`
-Only with `diagnosis_modes.view_input_images`, then the program exits. `show_input_samples()` draws the two views of a training image with `create_views(describe_views=True)` and shows them in two windows, "View 1" and "View 2", each next to a black information panel holding the class of the image and the transformations drawn for the view with their values (the lines of Step 3.12). The validation images get their views drawn the same way, so only the training image is shown.
+Only with `diagnosis_modes.view_input_images`, then the program exits. `show_input_samples()` draws the two views of a training image with `create_views()` and shows them in two windows, "View 1" and "View 2", each next to a black information panel holding the class of the image and, under "View augmentations", the augmentations drawn for the view with their values (`describe_report()`, the lines of Step 3.12). The validation images get their views drawn the same way, so only the training image is shown.
 
 With `Data.grouped_batches` on, `show_input_batch()` first shows every training batch whole in a "Training Batch" window, before the views of its images: `build_batch_mosaic()` (in `vision_training/utilities/visualization.py`) lays out the thumbnails of its images in the order of the batch, cut into blocks of `images_per_block` images, each under a caption bar, up to 16 thumbnails per row, below a header drawn like the information panels. `describe_input_batch()` writes the header from the `grouped_batch_flags` the `GroupedBatchSampler` keeps for the batches of its current pass: the position of the batch in the pass, whether it is grouped or a random batch of the leftover pool, and the grouped and random batches of a pass; a grouped batch adds its batch value and its blocks, every block captioned with its block value; a random batch counts the images of every batch and block value, most frequent first, and captions every image with its values. Random batches (the section off, or a training split without groups) show no mosaic. SPACE goes from the mosaic to the views of the first image of the batch, ENTER stops. It needs a display and was not run for this document.
 
@@ -634,37 +628,57 @@ labels  [8] torch.int64              -> [8] torch.int64
 ### Step 3.11 — `augment_batch()`
 Returns the batch unchanged: the views are drawn in `forward_pass()` (Step 3.12), so that the validation batches, which skip `augment_batch()`, get random views too.
 
-### Step 3.12 — `forward_pass()` → `ViewAugmenter.create_views()`
-`forward_pass()` draws two random views of every image, then calls `SelfSupervisedModel.forward(input_tensor=first_views, second_view_tensor=second_views)`. Every transformation is drawn independently for each image and each view (but the kernel size of the motion blur, drawn once per batch, the configured upper bound being passed to kornia raised by 2 so that it is drawn too), so the two views of an image differ in crop, geometry, colours, lighting, blur, noise and erasing, the first view being nearly always blurred and only the second one solarized.
+### Step 3.12 — `forward_pass()` → `DataAugmenter.create_views()`
+`forward_pass()` draws two random views of every image, then calls `SelfSupervisedModel.forward(input_tensor=first_views, second_view_tensor=second_views)`. Every activated type is drawn independently for each image and each view with its own probability, the global `probability` being ignored, so the two views of an image differ in crop, geometry, colours, lighting, blur, noise and erasing, and only the second one can be solarized or blacked out (`SECOND_VIEW_ONLY_TYPES`).
 
-**Example: the views of the first batch and the transformations drawn for two images**
+**Example: the views of a training batch and the augmentations drawn for two images** (the first training batch of the shortened configuration, drawn on CPU with the seeds 0 outside the run, `describe_report()` giving the lines of every view)
 ```text
 first_views, second_views: [8, 3, 64, 64] torch.float32 in [0, 255]
 
-image 0, view 1: random_resized_crop : 56x61 pixels at x 7, y 0 (83 % of the area)
-                 perspective : corners moved by up to 5.5 pixels
-                 colour_jitter : brightness x0.66, contrast x1.23, saturation x1.28, hue +24.8 degrees
-                 gamma : gamma 1.09
-                 linear_illumination : gradient up to +0.09
-                 gaussian_blur : sigma 0.42
-                 motion_blur : kernel 5, angle +141.8 degrees, direction +0.58
-                 random_erasing : 21x19 pixels at x 13, y 4
-image 0, view 2: random_resized_crop : 61x46 pixels at x 2, y 12 (69 % of the area)
-                 up_down_flip
-                 colour_jitter : brightness x0.77, contrast x1.01, saturation x1.18, hue -15.4 degrees
-                 gamma : gamma 1.14
-                 gaussian_noise
-                 random_erasing : 16x14 pixels at x 10, y 42
-image 1, view 1: random_resized_crop : 59x51 pixels at x 5, y 12 (73 % of the area)
-                 left_right_flip
-                 up_down_flip
-                 grayscale
-                 linear_illumination : gradient up to -0.24
-                 gaussian_blur : sigma 0.71
-image 1, view 2: random_resized_crop : 60x63 pixels at x 4, y 0 (92 % of the area)
-                 haze : strength 0.33, airlight 0.79
-                 solarize : threshold 0.50, addition +0.00
-                 random_erasing : 22x8 pixels at x 5, y 16
+image 0, view 1:
+  Geometric :
+    random_crop : 32x47 pixels (37 % of the area), at top 16 and left 25 pixels
+    random_up_down_flip
+    random_rotation : -2.9 degrees
+  Photometric :
+    random_hue : hue +21.1 degrees
+    random_noise : standard deviation 30 levels
+    random_gamma : gamma 0.96
+    random_blur : 23x23 kernel, sigma 2.59
+    random_erasing : 25x12 pixels at top 10 and left 18 pixels
+image 0, view 2:
+  Geometric :
+    random_crop : 38x24 pixels (22 % of the area), at top 10 and left 17 pixels
+    random_left_right_flip
+    random_perspective : corners moved by up to 11.9 pixels
+  Photometric :
+    brightness_contrast_saturation : brightness x1.26, contrast x0.63, saturation x0.22
+    random_hue : hue -3.7 degrees
+    random_linear_illumination : +58 levels growing towards the bottom
+    random_motion_blur : kernel of 7 pixels, angle 114 degrees, direction +0.40
+image 1, view 1:
+  Geometric :
+    random_crop : 53x42 pixels (54 % of the area), at top 7 and left 11 pixels
+    random_rotation : -5.3 degrees
+    random_perspective : corners moved by up to 6.3 pixels
+  Photometric :
+    brightness_contrast_saturation : brightness x0.32, contrast x1.45, saturation x0.69
+    random_hue : hue +8.7 degrees
+image 1, view 2:
+  Geometric :
+    random_crop : 30x42 pixels (31 % of the area), at top 13 and left 20 pixels
+    random_left_right_flip
+    random_up_down_flip
+    random_perspective : corners moved by up to 14.9 pixels
+  Photometric :
+    brightness_contrast_saturation : brightness x0.98, contrast x0.92, saturation x0.25
+    random_hue : hue +11.5 degrees
+    random_noise : standard deviation 30 levels
+    gray_scale_augment
+    random_gamma : gamma 1.91
+    random_plasma_shadow : intensity -50 levels, quantity 0.38, roughness 0.26
+    random_blur : 23x23 kernel, sigma 2.13
+    random_solarize : threshold 127.5 levels
 ```
 
 ### Step 3.13 — `SelfSupervisedModel.forward()` → `encode()`
@@ -989,7 +1003,7 @@ Tensorboard/Test: 32 scalars (5 global + 27 per class) at steps 6 and 12, 8 imag
     scalar Effective Rank   6: 1.0118, 12: 1.0535
 MLflow (runs/mlflow.db): 44 metric keys, 91 rows: train/*, validation/*, test/<global metric>, test/best_k-NN Accuracy,
         27 test_class/k-NN <Metric>/<class>, learning_rate
-    parameters: the flattened configuration, e.g. Data.view_augmentation.rotation.maximum_degrees = 180.0
+    parameters: the flattened configuration, e.g. Data.data_augmentation.types.random_crop.probability = 1.0
     tags: best_iteration 12, git_commit, git_dirty, host, pretrained_backbone None, run_folder, run_name, task
     artifacts: configuration/training_configuration.yaml, data/data.json, evaluation/iteration_6/ and iteration_12/
                class_metrics.csv, metric_names.json, Results.txt

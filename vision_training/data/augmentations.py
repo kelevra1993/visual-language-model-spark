@@ -1,18 +1,21 @@
 """
-DataAugmenter, the random geometric and photometric augmentations applied on the device to the training batches of
-every task right before the forward pass, moving the bounding boxes of the object detector, the masks of the semantic
-segmentation, the instance masks of the instance segmentation and the keypoints and ignored regions of the keypoint
-detection with the images and handling the frame shuffling and per-frame draws of the sequence tasks. Of the histogram
-equalizations drawn together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only one, chosen at random, is applied. The
-blend of the haze (apply_haze) and the black-out of the cells of a grid (apply_black_out, described by
-describe_black_out) are shared with the RandomHaze and RandomBlackOut transformations of the self-supervised views, the
-grid size of each being set in its configuration section. The line kernel of the motion blur is drawn on the
-device (build_motion_blur_kernel), and the grid of the black-out is given to the device as numbers with its cells
-computed there (send_grid_to_device, compute_cell_indices), so that the host does not wait for the device at every
-image.
+DataAugmenter, the random geometric and photometric augmentations of every task, applied on the device right before
+the forward pass: the training batches of the supervised tasks, moving the bounding boxes of the object detector, the
+masks of the semantic segmentation, the instance masks of the instance segmentation and the keypoints and ignored
+regions of the keypoint detection with the images and handling the frame shuffling and per-frame draws of the sequence
+tasks, and the two random views of every training and validation image of the self-supervised task (create_views),
+whose loss pulls the two views of an image together. The strength of every augmentation type is hard-coded in two
+sets, SUPERVISED_AUGMENTATION_STRENGTHS and the stronger SELF_SUPERVISED_AUGMENTATION_STRENGTHS of the views, chosen
+by the task, the configuration only turning the types on and setting their probabilities. Of the histogram
+equalizations drawn together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only one, chosen at random, is applied, the
+geometric types of IMAGE_ONLY_AUGMENTATION_TYPES move the image only, and the types of SECOND_VIEW_ONLY_TYPES are drawn
+for the second view only of the self-supervised task. The line kernel of the motion blur, the cells of the black-out,
+the sampling grid of the perspective and the fractal map of the plasma shadow are computed on the device from numbers
+only (build_motion_blur_kernel, send_grid_to_device, compute_cell_indices, compute_perspective_coefficients,
+build_plasma_map), so that the host does not wait for the device at every image.
 Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
-common checks. Every augmented batch comes with a report of the types drawn for each sample and their values, which
-the 'view_input_images' diagnosis mode writes in the information panel next to every training image.
+common checks. Every augmented sample comes with a report of the types drawn for it and their values, which the
+'view_input_images' diagnosis mode writes in the information panel next to every training image or view.
 """
 
 import math
@@ -35,25 +38,30 @@ from vision_training.data.detection.coco_masks import compute_mask_bounding_boxe
 with warnings.catch_warnings():
     warnings.filterwarnings(action="ignore", message=r"`torch\.jit\.script` is deprecated", category=FutureWarning)
     from kornia.color import rgb_to_yuv, yuv_to_rgb
-    from kornia.enhance import equalize_clahe
+    from kornia.enhance import adjust_hue, equalize_clahe
     from kornia.filters import filter2d
 
 # Geometric augmentations, applied first, in this order. They move the bounding boxes and the masks along with the
-# image. random_aspect_crop, the crop changing the aspect ratio of the content, follows random_crop, which keeps it,
-# random_zoom_out follows both, so that a sample drawing a crop and the zoom-out is cropped first and then shrunk, its
-# draws being independent, and random_translation then shifts the result
+# image, except the types of IMAGE_ONLY_AUGMENTATION_TYPES. random_aspect_crop, the crop changing the aspect ratio of
+# the content, follows random_crop, random_zoom_out follows both, so that a sample drawing a crop and the zoom-out is
+# cropped first and then shrunk, its draws being independent, random_translation then shifts the result, and the
+# perspective and the jigsaw come last, as in the views of the self-supervised methods
 GEOMETRIC_AUGMENTATION_TYPES = ["random_crop", "random_aspect_crop", "random_zoom_out", "random_translation",
                                 "random_left_right_flip", "random_up_down_flip", "random_rotation",
-                                "random_90_rotation"]
+                                "random_90_rotation", "random_perspective", "random_jigsaw"]
 
 # Photometric augmentations, applied after the geometric ones, in this order. They never move the bounding boxes and
-# never change the masks. random_motion_blur follows random_blur, the two blurs smoothing the noise drawn before them,
-# random_haze comes after the others, so that the equalizations and the sharpening drawn with it do not restore the
-# contrast it removes, and random_black_out last, so that its cells stay black
-PHOTOMETRIC_AUGMENTATION_TYPES = ["brightness_contrast_saturation", "clahe_augment", "sharp_augment",
+# never change the masks. random_hue follows the brightness, contrast and saturation, the gamma, the linear
+# illumination and the plasma shadow come before the blurs, random_motion_blur follows random_blur, the two blurs
+# smoothing the noise drawn before them, random_haze comes after the others, so that the equalizations and the
+# sharpening drawn with it do not restore the contrast it removes, the solarization follows it, and random_black_out
+# and random_erasing come last, so that their cells and rectangles stay black
+PHOTOMETRIC_AUGMENTATION_TYPES = ["brightness_contrast_saturation", "random_hue", "clahe_augment", "sharp_augment",
                                   "equalize_histogram_augment", "equalize_bgr_histogram_augment", "random_noise",
-                                  "gray_scale_augment", "random_colour_augmentation", "random_blur",
-                                  "random_motion_blur", "random_haze", "random_black_out"]
+                                  "gray_scale_augment", "random_colour_augmentation", "random_gamma",
+                                  "random_linear_illumination", "random_plasma_shadow", "random_blur",
+                                  "random_motion_blur", "random_haze", "random_solarize", "random_black_out",
+                                  "random_erasing"]
 
 AUGMENTATION_TYPES = GEOMETRIC_AUGMENTATION_TYPES + PHOTOMETRIC_AUGMENTATION_TYPES
 
@@ -62,31 +70,123 @@ AUGMENTATION_TYPES = GEOMETRIC_AUGMENTATION_TYPES + PHOTOMETRIC_AUGMENTATION_TYP
 # on a flat background into visible blocks
 EXCLUSIVE_EQUALIZATION_TYPES = ["clahe_augment", "equalize_histogram_augment", "equalize_bgr_histogram_augment"]
 
-# Fixed augmentation strengths, documented in the data_augmentation section of the configuration file
-MINIMUM_CROP_FRACTION = 0.75
-MINIMUM_ASPECT_CROP_FRACTION = 0.75
-MINIMUM_ZOOM_OUT_FRACTION = 0.5
-MAXIMUM_TRANSLATION_FRACTION = 0.25
-MAXIMUM_ROTATION_DEGREES = 5.0
-BRIGHTNESS_MAXIMUM_DELTA = 40.0
-CONTRAST_FACTOR_RANGE = (0.7, 1.0)
-SATURATION_FACTOR_RANGE = (0.7, 1.0)
-NOISE_STANDARD_DEVIATION = 40.0
-BLUR_KERNEL_SIZE = 9
-BLUR_SIGMA = 2.5
-MOTION_BLUR_KERNEL_SIZE_RANGE = (5, 15)
-MOTION_BLUR_ANGLE_RANGE = (0.0, 180.0)
-MOTION_BLUR_DIRECTION_RANGE = (-1.0, 1.0)
-HAZE_STRENGTH_RANGE = (0.2, 0.6)
-HAZE_AIRLIGHT_RANGE = (180.0, 255.0)
-BLACK_OUT_CELL_PROBABILITY = 0.2
-SHARPENING_SIGMA = 1.5
-SHARPENING_STRENGTH = 3.0
-CLAHE_CLIP_LIMIT = 2.0
-CLAHE_GRID_SIZE = (4, 4)
+# Geometric types moving the image only, which no box, mask or keypoint can follow: the checks of the object
+# detection, the instance segmentation, the semantic segmentation and the keypoint detection refuse them
+IMAGE_ONLY_AUGMENTATION_TYPES = ["random_perspective", "random_jigsaw"]
+
+# Types drawn for the second view only of the self-supervised task, as the asymmetric views of BYOL and Barlow Twins,
+# so that the two views of an image never share them; the supervised tasks draw them for every image
+SECOND_VIEW_ONLY_TYPES = ["random_solarize", "random_black_out"]
+
+# Number of views drawn for every image of the self-supervised task
+NUMBER_VIEWS = 2
+
+
+class AugmentationStrengths(TypedDict):
+    """
+    Strengths of the augmentation types, hard-coded rather than configured so that a configuration file only turns the
+    types on and sets their probabilities: SUPERVISED_AUGMENTATION_STRENGTHS for the supervised tasks, and
+    SELF_SUPERVISED_AUGMENTATION_STRENGTHS, the stronger views of the self-supervised task, DataAugmenter taking the set
+    of its task. The intensities are in levels of the [0, 255] images, the fractions of a side or of the area within
+    [0, 1], the angles in degrees, and every range [low, high] is drawn uniformly, a range whose bounds are equal giving
+    its value without any draw. random_crop keeps the aspect ratio of the image and a share of each side within
+    crop_side_range, or, given crop_area_range, a share of the area within it and an aspect ratio drawn within
+    crop_aspect_ratio_range (the random resized crop of SimCLR); brightness_contrast_saturation shifts the brightness by
+    up to brightness_maximum_delta levels, or, given brightness_factor_range, scales it by a factor drawn within it (the
+    colour jitter of SimCLR). The unused setting of each pair is None.
+    """
+    crop_side_range: Optional[Tuple[float, float]]
+    crop_area_range: Optional[Tuple[float, float]]
+    crop_aspect_ratio_range: Optional[Tuple[float, float]]
+    aspect_crop_side_range: Tuple[float, float]
+    zoom_out_side_range: Tuple[float, float]
+    maximum_translation_fraction: float
+    maximum_rotation_degrees: float
+    perspective_distortion_scale: float
+    jigsaw_grid_size: int
+    brightness_maximum_delta: Optional[float]
+    brightness_factor_range: Optional[Tuple[float, float]]
+    contrast_factor_range: Tuple[float, float]
+    saturation_factor_range: Tuple[float, float]
+    maximum_hue_shift: float
+    clahe_clip_limit: float
+    clahe_grid_size: Tuple[int, int]
+    sharpening_sigma: float
+    sharpening_strength: float
+    noise_standard_deviation: float
+    gamma_range: Tuple[float, float]
+    linear_illumination_gain_range: Tuple[float, float]
+    plasma_shadow_intensity_range: Tuple[float, float]
+    plasma_shadow_quantity_range: Tuple[float, float]
+    plasma_shadow_roughness_range: Tuple[float, float]
+    blur_kernel_size: int
+    blur_sigma_range: Tuple[float, float]
+    motion_blur_kernel_size_range: Tuple[int, int]
+    motion_blur_angle_range: Tuple[float, float]
+    motion_blur_direction_range: Tuple[float, float]
+    haze_strength_range: Tuple[float, float]
+    haze_airlight_range: Tuple[float, float]
+    solarize_threshold: float
+    black_out_cell_probability: float
+    erasing_area_range: Tuple[float, float]
+    erasing_aspect_ratio_range: Tuple[float, float]
+
+
+# Strengths of the supervised tasks, slight changes keeping every object recognisable: the crop keeps 75 % to 100 % of
+# each side, the brightness moves by up to 40 levels, the contrast and saturation only decrease and the noise has a
+# standard deviation of 20 levels. The types added with the self-supervised views (perspective, jigsaw, hue, gamma,
+# linear illumination, plasma shadow, solarization, erasing) take milder values than the views
+SUPERVISED_AUGMENTATION_STRENGTHS: AugmentationStrengths = {
+    "crop_side_range": (0.75, 1.0), "crop_area_range": None, "crop_aspect_ratio_range": None,
+    "aspect_crop_side_range": (0.75, 1.0), "zoom_out_side_range": (0.5, 1.0), "maximum_translation_fraction": 0.25,
+    "maximum_rotation_degrees": 5.0, "perspective_distortion_scale": 0.1, "jigsaw_grid_size": 2,
+    "brightness_maximum_delta": 40.0, "brightness_factor_range": None, "contrast_factor_range": (0.7, 1.0),
+    "saturation_factor_range": (0.7, 1.0), "maximum_hue_shift": 0.05,
+    "clahe_clip_limit": 2.0, "clahe_grid_size": (4, 4), "sharpening_sigma": 1.5, "sharpening_strength": 3.0,
+    "noise_standard_deviation": 20.0, "gamma_range": (0.8, 1.25),
+    "linear_illumination_gain_range": (0.05 * 255.0, 0.15 * 255.0),
+    "plasma_shadow_intensity_range": (-0.3 * 255.0, 0.0), "plasma_shadow_quantity_range": (0.0, 0.5),
+    "plasma_shadow_roughness_range": (0.1, 0.7),
+    "blur_kernel_size": 9, "blur_sigma_range": (2.5, 2.5), "motion_blur_kernel_size_range": (5, 15),
+    "motion_blur_angle_range": (0.0, 180.0), "motion_blur_direction_range": (-1.0, 1.0),
+    "haze_strength_range": (0.2, 0.6), "haze_airlight_range": (180.0, 255.0), "solarize_threshold": 127.5,
+    "black_out_cell_probability": 0.2, "erasing_area_range": (0.02, 0.15), "erasing_aspect_ratio_range": (0.3, 3.3)}
+
+# Strengths of the self-supervised task, the views of SimCLR, BYOL and Barlow Twins, stronger than in the supervised
+# tasks so that the two views of an image share its content only: the crop covers 20 % to 100 % of the area with an
+# aspect ratio of x1/2 to x2, the colour jitter scales the brightness, contrast and saturation by 0.2 to 1.8 (the
+# colour jitter of SimCLR on ImageNet) and shifts the hue by up to a tenth of the hue circle, the translation and the
+# perspective reach 40 %, the rotation 20 degrees, the noise 30 levels, the blur a sigma of 3.0 on a 23x23 kernel
+# (about a tenth of the side of the views, as in SimCLR), the motion blur 21 pixels, the gamma 0.5 to 2.0, the haze
+# 70 % and the black-out 35 % of the cells. The other types keep the supervised values or those of the former views
+SELF_SUPERVISED_AUGMENTATION_STRENGTHS: AugmentationStrengths = {
+    "crop_side_range": None, "crop_area_range": (0.2, 1.0), "crop_aspect_ratio_range": (1.0 / 2.0, 2.0),
+    "aspect_crop_side_range": (0.75, 1.0), "zoom_out_side_range": (0.5, 1.0), "maximum_translation_fraction": 0.4,
+    "maximum_rotation_degrees": 20.0, "perspective_distortion_scale": 0.4, "jigsaw_grid_size": 2,
+    "brightness_maximum_delta": None, "brightness_factor_range": (0.2, 1.8), "contrast_factor_range": (0.2, 1.8),
+    "saturation_factor_range": (0.2, 1.8), "maximum_hue_shift": 0.1,
+    "clahe_clip_limit": 2.0, "clahe_grid_size": (4, 4), "sharpening_sigma": 1.5, "sharpening_strength": 3.0,
+    "noise_standard_deviation": 30.0, "gamma_range": (0.5, 2.0),
+    "linear_illumination_gain_range": (0.05 * 255.0, 0.25 * 255.0),
+    "plasma_shadow_intensity_range": (-0.5 * 255.0, 0.0), "plasma_shadow_quantity_range": (0.0, 0.5),
+    "plasma_shadow_roughness_range": (0.1, 0.7),
+    "blur_kernel_size": 23, "blur_sigma_range": (0.1, 3.0), "motion_blur_kernel_size_range": (7, 21),
+    "motion_blur_angle_range": (0.0, 180.0), "motion_blur_direction_range": (-1.0, 1.0),
+    "haze_strength_range": (0.2, 0.7), "haze_airlight_range": (0.6 * 255.0, 255.0), "solarize_threshold": 127.5,
+    "black_out_cell_probability": 0.35, "erasing_area_range": (0.02, 0.15), "erasing_aspect_ratio_range": (0.3, 3.3)}
+
+# Draws of the region of a crop of random area and aspect ratio before the central region is taken, as the random
+# resized crop of torchvision, and of the rectangle of random_erasing before the image is left unchanged
+MAXIMUM_REGION_ATTEMPTS = 10
+
+# Sides of the image towards which the ramp of random_linear_illumination grows, one drawn with equal chances
+LINEAR_ILLUMINATION_DIRECTIONS = ["bottom", "top", "right", "left"]
+
+# Added to the range of the fractal map of random_plasma_shadow before its min-max normalization, as kornia does
+PLASMA_NORMALIZATION_EPSILON = 1e-6
 
 # Axes a translation shifts the image along, one of them drawn with equal chances: the width only, the height only, or
-# both at once, each shift being drawn independently up to MAXIMUM_TRANSLATION_FRACTION of its side
+# both at once, each shift being drawn independently up to maximum_translation_fraction of its side
 TRANSLATION_AXES = ["x", "y", "xy"]
 
 # Boxes narrower or shorter than this many pixels after a geometric augmentation are removed with their label
@@ -135,14 +235,13 @@ def apply_haze(images: torch.Tensor, strength: Union[float, torch.Tensor],
     """
     Hazes images, the fog, condensation or dirt on the lens of a camera: every pixel is blended with a uniform
     airlight, images * (1 - strength) + strength * airlight, which lowers the contrast and lifts the dark areas towards
-    the airlight. Shared by the random_haze type of DataAugmenter, on the BGR training images in [0, 255], and by the
-    RandomHaze transformation of the self-supervised views (view_augmentations.py), on RGB images in [0, 1], the
-    airlight being given in the range of the images; a grey airlight is the same in both channel orders.
+    the airlight. Used by the random_haze type of DataAugmenter on the BGR images in [0, 255], a grey airlight being the
+    same in every channel order.
 
     Args:
         images (torch.Tensor): The images or sequences to haze, of any shape.
         strength (Union[float, torch.Tensor]): The share of the airlight in every pixel, within [0, 1], a number or a
-            tensor broadcast over the images (one value per image of a batch).
+            tensor broadcast over the images.
         airlight (Union[float, torch.Tensor]): The intensity of the airlight, in the range of the images, a number or
             a tensor broadcast over the images.
 
@@ -155,10 +254,9 @@ def apply_haze(images: torch.Tensor, strength: Union[float, torch.Tensor],
 def apply_black_out(images: torch.Tensor, hidden_cells: torch.Tensor) -> torch.Tensor:
     """
     Blacks out the hidden cells of a grid laid over images, an occlusion that makes a network learn from every region
-    of an image instead of the most telling one. Shared by the random_black_out type of DataAugmenter, one grid for an
-    image or a sequence, and by the RandomBlackOut transformation of the self-supervised views (view_augmentations.py),
-    one grid per image of a batch. The grid drawn on the host reaches the device without a copy (send_grid_to_device)
-    and the cell of every pixel is computed there (compute_cell_indices), so that the host never waits for the device.
+    of an image instead of the most telling one, for the random_black_out type of DataAugmenter, one grid for an image,
+    a view or a sequence. The grid drawn on the host reaches the device without a copy (send_grid_to_device) and the
+    cell of every pixel is computed there (compute_cell_indices), so that the host never waits for the device.
 
     Args:
         images (torch.Tensor): The images [..., H, W] to black out.
@@ -259,8 +357,8 @@ def compute_cell_indices(number_pixels: int, number_cells: int, device: torch.de
 def describe_black_out(hidden_cells: torch.Tensor) -> str:
     """
     Writes the black-out drawn for one image, the number of hidden cells out of the cells of its grid, for the report
-    of the random_black_out type of DataAugmenter and for the description of the RandomBlackOut transformation of the
-    self-supervised views, both written in the information panels of the input viewer ('view_input_images').
+    of the random_black_out type of DataAugmenter, written in the information panels of the input viewer
+    ('view_input_images').
 
     Args:
         hidden_cells (torch.Tensor): The boolean [rows, columns] grid of the hidden cells of the image.
@@ -310,9 +408,210 @@ def build_motion_blur_kernel(kernel_size: int, angle: float, direction: float, d
     return (kernel / kernel.sum()).unsqueeze(dim=0)
 
 
+def draw_uniform(value_range: Tuple[float, float]) -> float:
+    """
+    Draws a value of a strength range [low, high] of AugmentationStrengths with Python's random module, the generator
+    of every draw of DataAugmenter, or gives its value without any draw when both bounds are equal, so that a fixed
+    strength (the sigma of the blur of the supervised tasks) leaves the random sequence of the other draws unchanged.
+
+    Args:
+        value_range (Tuple[float, float]): The [low, high] range of the strength.
+
+    Returns:
+        float: The drawn value.
+    """
+    low, high = value_range
+    return low if low == high else random.uniform(low, high)
+
+
+def compute_perspective_coefficients(output_points: List[Tuple[float, float]],
+                                     input_points: List[Tuple[float, float]]) -> List[float]:
+    """
+    Solves on the host, from numbers only, the eight coefficients [a, b, c, d, e, f, g, h] of the perspective
+    transformation of random_perspective taking every pixel (x, y) of the output to its position in the input,
+    ((a x + b y + c) / (g x + h y + 1), (d x + e y + f) / (g x + h y + 1)), from four point pairs: the corners moved
+    inwards in the output and the corners of the input. The sampling grid is then computed on the device from these
+    numbers, so that the host never waits for a copy to the device, which torchvision's perspective makes at every
+    image.
+
+    Args:
+        output_points (List[Tuple[float, float]]): The four (x, y) points of the output, in pixels.
+        input_points (List[Tuple[float, float]]): The four (x, y) points of the input they show, in pixels.
+
+    Returns:
+        List[float]: The coefficients a, b, c, d, e, f, g, h.
+    """
+    # Two linear equations per point pair, the denominator of the transformation multiplied out
+    equations, targets = [], []
+    for (output_x, output_y), (input_x, input_y) in zip(output_points, input_points):
+        equations.append([output_x, output_y, 1.0, 0.0, 0.0, 0.0, -output_x * input_x, -output_y * input_x])
+        equations.append([0.0, 0.0, 0.0, output_x, output_y, 1.0, -output_x * input_y, -output_y * input_y])
+        targets += [input_x, input_y]
+
+    # The eight equations solved in double precision on the CPU
+    coefficients = torch.linalg.solve(torch.tensor(data=equations, dtype=torch.float64),
+                                      torch.tensor(data=targets, dtype=torch.float64))
+    return coefficients.tolist()
+
+
+@lru_cache(maxsize=16)
+def get_pixel_coordinates(height: int, width: int, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Gives the column and the row of every pixel of an image on a device, the positions random_perspective takes back
+    into the input, created from numbers once per image size and device and only read afterwards.
+
+    Args:
+        height (int): The height of the images in pixels.
+        width (int): The width of the images in pixels.
+        device (torch.device): The device of the images.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: The float32 [H, W] columns and rows of the pixels.
+    """
+    rows, columns = torch.meshgrid(torch.arange(end=height, device=device, dtype=torch.float32),
+                                   torch.arange(end=width, device=device, dtype=torch.float32), indexing="ij")
+    return columns, rows
+
+
+@lru_cache(maxsize=8)
+def get_plasma_kernels(device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Gives the [1, 3, 3] averaging kernels of the diamond and the square steps of build_plasma_map on a device, filled
+    from numbers once per device: the four diagonal neighbours of a pixel, then its four direct neighbours, each
+    weighted 0.25. kornia copies them from the host at every step of its diamond_square, which makes the host wait
+    for the device.
+
+    Args:
+        device (torch.device): The device of the images.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: The kernels of the diamond and of the square steps.
+    """
+    diamond_kernel = torch.zeros(size=(1, 3, 3), device=device)
+    diamond_kernel[:, 0::2, 0::2] = 0.25
+    square_kernel = torch.zeros(size=(1, 3, 3), device=device)
+    square_kernel[:, 0::2, 1] = 0.25
+    square_kernel[:, 1, 0::2] = 0.25
+    return diamond_kernel, square_kernel
+
+
+def build_plasma_seed(rows: int, columns: int, device: torch.device) -> torch.Tensor:
+    """
+    Draws the coarse seed grid of build_plasma_map on the device, three rows (or three columns) of random values
+    interpolated by one diamond and one square step, the seed of kornia's diamond_square for one image.
+
+    Args:
+        rows (int): The number of rows of the seed, odd, 3 or the columns being 3.
+        columns (int): The number of columns of the seed, odd, 3 or the rows being 3.
+        device (torch.device): The device of the images.
+
+    Returns:
+        torch.Tensor: The [1, 1, rows, columns] seed.
+    """
+    # The seed is drawn with three rows, a seed of three columns being drawn transposed
+    transposed = columns == 3
+    if transposed:
+        rows, columns = columns, rows
+    seed = torch.rand(size=(1, 1, rows, columns), device=device)
+    seed[..., ::2, ::2] = torch.rand(size=(1, 1, 2, (columns + 1) // 2), device=device)
+
+    # Diamond step: the middle row between the corners of every square of the first and last rows
+    seed[..., 1, 1::2] = (seed[..., ::2, :-2:2] + seed[..., ::2, 2::2]).sum(dim=2) / 4.0
+
+    # Square step: the borders from their neighbours, then the whole seed rescaled
+    first_column_bottom = seed[..., 2, 0]
+    seed[..., 1, 0] = seed[..., 0, 0] + seed[..., 1, 1] + first_column_bottom
+    seed[..., 1, -1] = seed[..., -1, -1] + seed[..., 1, -2] + first_column_bottom
+    diamond_centres = seed[..., 1, 1::2]
+    seed[..., 0, 1::2] = seed[..., 0, 0:-2:2] + seed[..., 0, 2::2] + diamond_centres
+    seed[..., 2, 1::2] = seed[..., 2, 0:-2:2] + seed[..., 2, 2::2] + diamond_centres
+    seed = seed / 3.0
+    return seed.transpose(2, 3) if transposed else seed
+
+
+def refine_plasma_map(plasma_map: torch.Tensor, random_scale: float) -> torch.Tensor:
+    """
+    Doubles the resolution of the fractal map of build_plasma_map, one diamond and one square step of kornia's
+    diamond_square: every new pixel takes the average of its neighbours plus a random value scaled by random_scale,
+    which the roughness lowers at every step, the kernels being kept on the device (get_plasma_kernels).
+
+    Args:
+        plasma_map (torch.Tensor): The [1, 1, H, W] map, H and W odd.
+        random_scale (float): The scale of the random values added at this step.
+
+    Returns:
+        torch.Tensor: The [1, 1, 2 H - 1, 2 W - 1] map.
+    """
+    diamond_kernel, square_kernel = get_plasma_kernels(device=plasma_map.device)
+    map_height, map_width = plasma_map.shape[-2], plasma_map.shape[-1]
+
+    # Known pixels spread on every second row and column of the finer map, the border pixels missing a quarter of
+    # their neighbours being compensated
+    refined_map = torch.zeros(size=(1, 1, 2 * (map_height - 1) + 1, 2 * (map_width - 1) + 1), device=plasma_map.device)
+    refined_map[:, :, ::2, ::2] = plasma_map
+    border_compensation = torch.ones_like(input=refined_map)
+    border_compensation[:, :, :, 0] = border_compensation[:, :, :, -1] = 1.0 / 0.75
+    border_compensation[:, :, 0, :] = border_compensation[:, :, -1, :] = 1.0 / 0.75
+    random_values = torch.rand(size=refined_map.shape, device=plasma_map.device) * random_scale
+
+    # Diamond step: the centres of the squares of known pixels from their four corners
+    diamond_regions = filter2d(input=refined_map, kernel=diamond_kernel)
+    diamond_centres = (diamond_regions > 0).to(dtype=refined_map.dtype)
+    refined_map = (refined_map + (1.0 - random_scale) * diamond_regions * diamond_centres +
+                   diamond_centres * random_values)
+
+    # Square step: the remaining pixels from their four direct neighbours
+    square_regions = filter2d(input=refined_map, kernel=square_kernel) * border_compensation
+    square_centres = (square_regions > 0).to(dtype=refined_map.dtype)
+    return refined_map + square_centres * random_values + (1.0 - random_scale) * square_centres * square_regions
+
+
+def build_plasma_map(height: int, width: int, roughness: float, device: torch.device) -> torch.Tensor:
+    """
+    Draws the random fractal map of random_plasma_shadow on the device, a port of kornia's diamond_square for one
+    image (the map of kornia's RandomPlasmaShadow) whose kernels and scales never leave the device: a coarse seed
+    refined step by step up to the image size, every step adding random values scaled down by the roughness, so that a
+    higher roughness gives a map with more fine detail, then normalized to [0, 1].
+
+    Args:
+        height (int): The height of the image in pixels, at least 3.
+        width (int): The width of the image in pixels, at least 3.
+        roughness (float): The scale applied to the random values at every refinement, within [0, 1].
+        device (torch.device): The device of the image.
+
+    Returns:
+        torch.Tensor: The [H, W] map in [0, 1].
+
+    Raises:
+        ValueError: If a side of the image is below 3 pixels, too small for a diamond-square map.
+    """
+    if height < 3 or width < 3:
+        raise ValueError(f"random_plasma_shadow needs images of at least 3x3 pixels, got {height}x{width}.")
+
+    # Sides of the map, one more than the next power of two, the number of refinements and the sides of the seed
+    padded_height = 2 ** math.ceil(math.log2(height - 1)) + 1
+    padded_width = 2 ** math.ceil(math.log2(width - 1)) + 1
+    number_refinements = int(min(math.log2(padded_height - 1) - 1, math.log2(padded_width - 1) - 1))
+    plasma_map = build_plasma_seed(rows=(padded_height - 1) // 2 ** number_refinements + 1,
+                                   columns=(padded_width - 1) // 2 ** number_refinements + 1, device=device)
+
+    # Refinements with random values scaled down by the roughness at every step, then the image size kept
+    random_scale = 1.0
+    for refinement_index in range(number_refinements):
+        random_scale *= roughness
+        plasma_map = refine_plasma_map(plasma_map=plasma_map, random_scale=random_scale)
+    plasma_map = plasma_map[0, 0, :height, :width]
+
+    # Values spread over [0, 1] by their minimum and maximum, computed on the device
+    minimum_value, maximum_value = plasma_map.min(), plasma_map.max()
+    return (plasma_map - minimum_value) / (maximum_value - minimum_value + PLASMA_NORMALIZATION_EPSILON)
+
+
 class DataAugmenter:
     """
-    Randomly augments training batches on their device (usually the GPU), right before the forward pass.
+    Randomly augments batches on their device (usually the GPU), right before the forward pass: the training batches of
+    the supervised tasks (augment_batch), and the two views of every training and validation image of the
+    self-supervised task (create_views).
 
     It is shared by every network of the project: the object detector passes bounding boxes and labels, which are
     moved, clipped and filtered together with the geometric augmentations, the semantic segmenter passes the class
@@ -324,21 +623,30 @@ class DataAugmenter:
     [B, T, C, H, W] for the sequence networks, in which case every frame of a sequence receives exactly the same
     random augmentation so that the sequence stays coherent, unless the photometric types are drawn frame by frame
     ('independent_frames'). The real frames of the sequences can also be shuffled ('shuffle_frames', see
-    shuffle_frames) for the sequences whose frame order carries no information.
+    shuffle_frames) for the sequences whose frame order carries no information. The strengths of the types are those
+    of the task, SUPERVISED_AUGMENTATION_STRENGTHS or SELF_SUPERVISED_AUGMENTATION_STRENGTHS.
     """
 
-    def __init__(self, augmentation_configuration: Dict[str, Any]) -> None:
+    def __init__(self, augmentation_configuration: Dict[str, Any], self_supervised: bool = False) -> None:
         """
-        Reads the 'Data.data_augmentation' configuration section.
+        Reads the 'Data.data_augmentation' configuration section and takes the strengths of the task.
 
         Args:
             augmentation_configuration (Dict[str, Any]): The section holding the global 'activated' flag, the
                 'probability' of augmenting an image, the 'independent_frames' flag and the 'shuffle_frames' settings
                 of the sequences and, for every augmentation type, its own 'activated' flag and 'probability' of
                 being applied to an augmented image, with the 'grid_size' of random_black_out.
+            self_supervised (bool): Whether the augmenter draws the views of the self-supervised task, with
+                SELF_SUPERVISED_AUGMENTATION_STRENGTHS, instead of augmenting the training batches of a supervised task
+                with SUPERVISED_AUGMENTATION_STRENGTHS. Defaults to False.
         """
         self.activated = augmentation_configuration["activated"]
         self.probability = augmentation_configuration["probability"]
+
+        # Strengths of the task, hard-coded, the self-supervised views being stronger
+        self.self_supervised = self_supervised
+        self.strengths = (SELF_SUPERVISED_AUGMENTATION_STRENGTHS if self_supervised else
+                          SUPERVISED_AUGMENTATION_STRENGTHS)
 
         # Sequences only: the photometric types drawn frame by frame, and the shuffling of the frames of a sequence
         self.independent_frames = augmentation_configuration["independent_frames"]
@@ -443,19 +751,66 @@ class DataAugmenter:
         return (torch.stack(tensors=augmented_images), output_boxes, output_labels, output_masks, output_instance_masks,
                 output_keypoints, augmentation_reports)
 
+    def create_views(self, images: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, List[AugmentationReport],
+                                                          List[AugmentationReport]]:
+        """
+        Draws the two random views of every image of a training or validation batch of the self-supervised task, which
+        the self-supervised loss pulls together: every view of every image goes through every activated type with its
+        own draws and the self-supervised strengths, so that the only thing the two views of an image share is its
+        content. The global 'probability' is ignored, every image getting its two views, and the types of
+        SECOND_VIEW_ONLY_TYPES are drawn for the second view only. The views are computed in float32 even within the
+        bfloat16 autocast of a mixed precision forward pass, so that the interpolations and blurs keep their precision.
+
+        Args:
+            images (torch.Tensor): The [B, 3, H, W] float BGR images in [0, 255].
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor, List[AugmentationReport], List[AugmentationReport]]: The first and the
+                second [B, 3, H, W] float32 BGR views of the images in [0, 255], and the augmentation report of every
+                image for each of the two views.
+
+        Raises:
+            ValueError: If the augmenter was not built for the self-supervised task, or the images are not a
+                [B, C, H, W] batch.
+        """
+        if not self.self_supervised:
+            raise ValueError("create_views draws the views of the self-supervised task: build the DataAugmenter with "
+                             "self_supervised=True.")
+        if images.dim() != 4:
+            raise ValueError(f"The views are drawn for a [B, C, H, W] batch of images, got the shape "
+                             f"{list(images.shape)}.")
+
+        # Every view of the batch drawn image by image, all the first views first, without the global probability
+        views, view_reports = [], []
+        with torch.autocast(device_type=images.device.type, enabled=False):
+            float_images = images.to(dtype=torch.float32)
+            for view_index in range(NUMBER_VIEWS):
+                view_images, reports = [], []
+                for image in float_images:
+                    view_image, report = image, create_empty_report()
+                    if self.activated:
+                        view_image, _, _, _, _, _, report = self.augment_sample(
+                            image=image, bounding_boxes=None, labels=None, mask=None, view_index=view_index)
+                    view_images.append(view_image)
+                    reports.append(report)
+                views.append(torch.stack(tensors=view_images))
+                view_reports.append(reports)
+        return views[0], views[1], view_reports[0], view_reports[1]
+
     def augment_sample(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                        labels: Optional[torch.Tensor], mask: Optional[torch.Tensor],
-                       instance_masks: Optional[torch.Tensor] = None,
-                       keypoints: Optional[torch.Tensor] = None) -> Tuple[
+                       instance_masks: Optional[torch.Tensor] = None, keypoints: Optional[torch.Tensor] = None,
+                       view_index: Optional[int] = None) -> Tuple[
                        torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor],
                        Optional[torch.Tensor], Optional[torch.Tensor], AugmentationReport]:
         """
-        Applies every activated augmentation type to one sample, each with its own probability, and reports the
-        applied types with their drawn values. A sequence [T, C, H, W] is transformed as a whole, so all its frames
-        share the same random parameters, except the photometric types with 'independent_frames', drawn for every
-        frame. The keypoints of the keypoint detection move with the image as boxes of zero size, so that every
-        geometric type moves them exactly, and keep their names: a flip or a rotation never renames a keypoint, the
-        user choosing the geometric types that suit the keypoints of the dataset.
+        Applies every activated augmentation type to one sample, or one view of an image of the self-supervised task,
+        each type with its own probability, and reports the applied types with their drawn values. A sequence
+        [T, C, H, W] is transformed as a whole, so all its frames share the same random parameters, except the
+        photometric types with 'independent_frames', drawn for every frame. The keypoints of the keypoint detection
+        move with the image as boxes of zero size, so that every geometric type moves them exactly, and keep their
+        names: a flip or a rotation never renames a keypoint, the user choosing the geometric types that suit the
+        keypoints of the dataset.
 
         Args:
             image (torch.Tensor): A float BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -467,6 +822,9 @@ class DataAugmenter:
                 to None.
             keypoints (Optional[torch.Tensor]): The [N, K, 3] float keypoints (x, y, visibility) of the objects of the
                 boxes, or None. Defaults to None.
+            view_index (Optional[int]): The index of the drawn view of the self-supervised task (create_views), 0 for
+                the first view, which never draws the types of SECOND_VIEW_ONLY_TYPES, or None for a supervised task.
+                Defaults to None.
 
         Returns:
             Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor],
@@ -496,7 +854,7 @@ class DataAugmenter:
         geometry_changed = False
         area_scale = 1.0
         for augmentation_type in GEOMETRIC_AUGMENTATION_TYPES:
-            if self.should_apply(augmentation_type=augmentation_type):
+            if self.should_apply(augmentation_type=augmentation_type, view_index=view_index):
                 augmentation_method = getattr(self, augmentation_type)
                 image, bounding_boxes, mask, type_area_scale, drawn_values = augmentation_method(
                     image=image, bounding_boxes=bounding_boxes, mask=mask)
@@ -535,16 +893,18 @@ class DataAugmenter:
         # Apply the photometric augmentations, which never move the boxes nor change the mask, once for the sample or
         # frame by frame, the report keeping one list of applied types per draw
         if image.dim() == 4 and self.independent_frames:
-            augmented_frames = [self.apply_photometric_augmentations(image=frame) for frame in image]
+            augmented_frames = [self.apply_photometric_augmentations(image=frame, view_index=view_index)
+                                for frame in image]
             image = torch.stack(tensors=[augmented_frame for augmented_frame, frame_types in augmented_frames])
             report["photometric_augmentations"] = [frame_types for augmented_frame, frame_types in augmented_frames]
         else:
-            image, applied_types = self.apply_photometric_augmentations(image=image)
+            image, applied_types = self.apply_photometric_augmentations(image=image, view_index=view_index)
             report["photometric_augmentations"] = [applied_types]
 
         return image.clamp(min=0.0, max=255.0), bounding_boxes, labels, mask, instance_masks, keypoints, report
 
-    def apply_photometric_augmentations(self, image: torch.Tensor) -> Tuple[torch.Tensor, List[Tuple[str, str]]]:
+    def apply_photometric_augmentations(self, image: torch.Tensor, view_index: Optional[int] = None) -> Tuple[
+                                        torch.Tensor, List[Tuple[str, str]]]:
         """
         Applies every activated photometric augmentation type to an image, a sequence or one frame of a sequence, each
         with its own probability and random parameters, a single one of the histogram equalizations drawn together
@@ -552,6 +912,8 @@ class DataAugmenter:
 
         Args:
             image (torch.Tensor): A float BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
+            view_index (Optional[int]): The index of the drawn view of the self-supervised task, or None for a
+                supervised task (see should_apply). Defaults to None.
 
         Returns:
             Tuple[torch.Tensor, List[Tuple[str, str]]]: The augmented image or sequence, and the applied types with
@@ -559,7 +921,7 @@ class DataAugmenter:
         """
         # Draw every type, then keep one of the histogram equalizations drawn together, chosen at random
         drawn_types = [augmentation_type for augmentation_type in PHOTOMETRIC_AUGMENTATION_TYPES
-                       if self.should_apply(augmentation_type=augmentation_type)]
+                       if self.should_apply(augmentation_type=augmentation_type, view_index=view_index)]
         drawn_equalizations = [augmentation_type for augmentation_type in drawn_types
                                if augmentation_type in EXCLUSIVE_EQUALIZATION_TYPES]
         if len(drawn_equalizations) > 1:
@@ -612,17 +974,22 @@ class DataAugmenter:
         sample_indices = torch.arange(batch_size, device=images.device)[:, None]
         return images[sample_indices, frame_orders], frame_orders
 
-    def should_apply(self, augmentation_type: str) -> bool:
+    def should_apply(self, augmentation_type: str, view_index: Optional[int] = None) -> bool:
         """
-        Draws whether an augmentation type is applied to the current sample.
+        Draws whether an augmentation type is applied to the current sample or view, the first view of the
+        self-supervised task never drawing the types of SECOND_VIEW_ONLY_TYPES.
 
         Args:
             augmentation_type (str): The name of the augmentation type.
+            view_index (Optional[int]): The index of the drawn view of the self-supervised task, 0 for the first view,
+                or None for a supervised task. Defaults to None.
 
         Returns:
-            bool: True if the type is activated and its random draw falls below its probability.
+            bool: True if the type is activated, allowed for the view, and its random draw falls below its probability.
         """
         is_activated, probability = self.type_settings[augmentation_type]
+        if view_index == 0 and augmentation_type in SECOND_VIEW_ONLY_TYPES:
+            return False
         return is_activated and random.random() < probability
 
     def describe_report(self, report: AugmentationReport, label_names: Optional[Dict[int, str]] = None,
@@ -761,10 +1128,13 @@ class DataAugmenter:
                     mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
                                                            Optional[torch.Tensor], float, str]:
         """
-        Crops a random region covering 75 to 100% of each side and resizes it back to the original size, which
-        zooms slightly into the image. Boxes are shifted and scaled accordingly; boxes leaving the crop, or keeping
-        too small a share of their area inside it, are removed afterwards by 'clean_bounding_boxes'. The mask is
-        cropped and resized with the nearest interpolation.
+        Crops a random region and resizes it back to the original size, which zooms into the image. In the supervised
+        tasks (crop_side_range) the region keeps the aspect ratio of the image and 75 to 100% of each side, a slight
+        zoom; in the self-supervised task (crop_area_range) it covers 20 to 100% of the area with an aspect ratio of
+        x1/2 to x2 (draw_area_crop), the random resized crop of SimCLR, its content being stretched when it is resized
+        back. Boxes are shifted and scaled accordingly; boxes leaving the crop, or keeping too small a share of their
+        area inside it, are removed afterwards by 'clean_bounding_boxes'. The mask is cropped and resized with the
+        nearest interpolation.
 
         Args:
             image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
@@ -778,17 +1148,60 @@ class DataAugmenter:
         """
         image_height, image_width = image.shape[-2], image.shape[-1]
 
-        # Draw one crop fraction for both sides to keep the aspect ratio, and a random position for the crop
-        crop_fraction = random.uniform(MINIMUM_CROP_FRACTION, 1.0)
-        crop_height, crop_width = round(image_height * crop_fraction), round(image_width * crop_fraction)
-        top, left = random.randint(0, image_height - crop_height), random.randint(0, image_width - crop_width)
+        # Draw a region of random area and aspect ratio (self-supervised task), or one crop fraction for both sides
+        # to keep the aspect ratio, and a random position for the crop
+        if self.strengths["crop_area_range"] is not None:
+            top, left, crop_height, crop_width = self.draw_area_crop(image_height=image_height, image_width=image_width)
+            area_fraction = crop_height * crop_width / (image_height * image_width)
+            drawn_values = (f"{crop_width}x{crop_height} pixels ({area_fraction * 100:.0f} % of the area), at top "
+                            f"{top} and left {left} pixels")
+        else:
+            crop_fraction = random.uniform(*self.strengths["crop_side_range"])
+            crop_height, crop_width = round(image_height * crop_fraction), round(image_width * crop_fraction)
+            top, left = random.randint(0, image_height - crop_height), random.randint(0, image_width - crop_width)
+            drawn_values = f"{crop_fraction * 100:.0f} % of each side, at top {top} and left {left} pixels"
 
         cropped_image, cropped_boxes, cropped_mask = self.crop_and_resize(
             image=image, bounding_boxes=bounding_boxes, mask=mask, top=top, left=left, crop_height=crop_height,
             crop_width=crop_width)
-        drawn_values = f"{crop_fraction * 100:.0f} % of each side, at top {top} and left {left} pixels"
         return (cropped_image, cropped_boxes, cropped_mask, (image_height * image_width) / (crop_height * crop_width),
                 drawn_values)
+
+    def draw_area_crop(self, image_height: int, image_width: int) -> Tuple[int, int, int, int]:
+        """
+        Draws the region of random_crop in the self-supervised task, as the random resized crop of torchvision used by
+        SimCLR: an area within crop_area_range of the image area and a width / height ratio drawn log-uniformly within
+        crop_aspect_ratio_range, drawn again up to MAXIMUM_REGION_ATTEMPTS times until the region fits in the image,
+        the central region of the ratio of the range nearest to the image ratio being taken otherwise.
+
+        Args:
+            image_height (int): The height of the image in pixels.
+            image_width (int): The width of the image in pixels.
+
+        Returns:
+            Tuple[int, int, int, int]: The top row, the left column, the height and the width of the region, in pixels.
+        """
+        minimum_ratio, maximum_ratio = self.strengths["crop_aspect_ratio_range"]
+        logarithm_ratio_range = (math.log(minimum_ratio), math.log(maximum_ratio))
+
+        # Area and ratio drawn until the region fits, at a random position
+        for attempt_index in range(MAXIMUM_REGION_ATTEMPTS):
+            target_area = image_height * image_width * random.uniform(*self.strengths["crop_area_range"])
+            aspect_ratio = math.exp(random.uniform(*logarithm_ratio_range))
+            crop_width = round(math.sqrt(target_area * aspect_ratio))
+            crop_height = round(math.sqrt(target_area / aspect_ratio))
+            if 0 < crop_width <= image_width and 0 < crop_height <= image_height:
+                return (random.randint(0, image_height - crop_height), random.randint(0, image_width - crop_width),
+                        crop_height, crop_width)
+
+        # Central region of the nearest ratio of the range, the whole image when its ratio lies within the range
+        image_ratio = image_width / image_height
+        crop_height, crop_width = image_height, image_width
+        if image_ratio < minimum_ratio:
+            crop_height = round(image_width / minimum_ratio)
+        elif image_ratio > maximum_ratio:
+            crop_width = round(image_height * maximum_ratio)
+        return (image_height - crop_height) // 2, (image_width - crop_width) // 2, crop_height, crop_width
 
     def random_aspect_crop(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
                            mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
@@ -814,8 +1227,8 @@ class DataAugmenter:
 
         # Draw the kept share of the width and of the height independently, which changes the aspect ratio of the
         # content, and a random position for the crop
-        width_fraction = random.uniform(MINIMUM_ASPECT_CROP_FRACTION, 1.0)
-        height_fraction = random.uniform(MINIMUM_ASPECT_CROP_FRACTION, 1.0)
+        width_fraction = random.uniform(*self.strengths["aspect_crop_side_range"])
+        height_fraction = random.uniform(*self.strengths["aspect_crop_side_range"])
         crop_height, crop_width = round(image_height * height_fraction), round(image_width * width_fraction)
         top, left = random.randint(0, image_height - crop_height), random.randint(0, image_width - crop_width)
 
@@ -890,7 +1303,7 @@ class DataAugmenter:
         image_height, image_width = image.shape[-2], image.shape[-1]
 
         # Draw one shrink fraction for both sides to keep the aspect ratio, and a random position on the canvas
-        zoom_fraction = random.uniform(MINIMUM_ZOOM_OUT_FRACTION, 1.0)
+        zoom_fraction = random.uniform(*self.strengths["zoom_out_side_range"])
         shrunk_height, shrunk_width = round(image_height * zoom_fraction), round(image_width * zoom_fraction)
         top, left = random.randint(0, image_height - shrunk_height), random.randint(0, image_width - shrunk_width)
 
@@ -958,12 +1371,12 @@ class DataAugmenter:
                                                                   Optional[torch.Tensor], float, str]:
         """
         Shifts the image along its width, its height or both (TRANSLATION_AXES, drawn with equal chances) by whole
-        pixels, each shift being drawn up to MAXIMUM_TRANSLATION_FRACTION (25 %) of its side in either direction, so
-        that every task, the classification included, sees its objects away from the positions of the dataset. The
-        uncovered border is black like the padding of the data loaders. Boxes move by the same shifts without being
-        clipped, so that 'clean_bounding_boxes' removes the objects pushed out of the image or keeping too small a share
-        of their area inside it. The mask moves exactly, its uncovered border being ignored in a class mask and
-        background (0) in the binary instance masks.
+        pixels, each shift being drawn up to maximum_translation_fraction of its side in either direction (25 % in the
+        supervised tasks, 40 % in the self-supervised task), so that every task, the classification included, sees
+        its objects away from the positions of the dataset. The uncovered border is black like the padding of the data
+        loaders. Boxes move by the same shifts without being clipped, so that 'clean_bounding_boxes' removes the
+        objects pushed out of the image or keeping too small a share of their area inside it. The mask moves exactly,
+        its uncovered border being ignored in a class mask and background (0) in the binary instance masks.
 
         Args:
             image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
@@ -979,8 +1392,8 @@ class DataAugmenter:
 
         # Draw the axes, then the shift along each of them, the other axis keeping a zero shift
         translation_axes = random.choice(TRANSLATION_AXES)
-        maximum_shift_x = int(image_width * MAXIMUM_TRANSLATION_FRACTION)
-        maximum_shift_y = int(image_height * MAXIMUM_TRANSLATION_FRACTION)
+        maximum_shift_x = int(image_width * self.strengths["maximum_translation_fraction"])
+        maximum_shift_y = int(image_height * self.strengths["maximum_translation_fraction"])
         shift_x = random.randint(-maximum_shift_x, maximum_shift_x) if "x" in translation_axes else 0
         shift_y = random.randint(-maximum_shift_y, maximum_shift_y) if "y" in translation_axes else 0
 
@@ -1051,11 +1464,11 @@ class DataAugmenter:
                         mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
                                                                Optional[torch.Tensor], float, str]:
         """
-        Rotates the image by a random angle between -5 and 5 degrees around its centre, filling the uncovered
-        corners with black like the padding of the data loaders. A rotated box is no longer axis aligned, so it is
-        replaced by the enclosing box of its rotated corners, which is slightly larger than the object. The mask is
-        rotated with the nearest interpolation, its uncovered corners being ignored like its padding for a class mask,
-        and background (0) for binary instance masks.
+        Rotates the image by a random angle between -5 and 5 degrees around its centre (-20 and 20 degrees in the
+        self-supervised task), filling the uncovered corners with black like the padding of the data loaders. A rotated
+        box is no longer axis aligned, so it is replaced by the enclosing box of its rotated corners, which is slightly
+        larger than the object. The mask is rotated with the nearest interpolation, its uncovered corners being ignored
+        like its padding for a class mask, and background (0) for binary instance masks.
 
         Args:
             image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
@@ -1067,7 +1480,8 @@ class DataAugmenter:
                 and mask, the area scale of the objects (1, the sizes are kept) and the drawn angle for the
                 augmentation report.
         """
-        angle = random.uniform(-MAXIMUM_ROTATION_DEGREES, MAXIMUM_ROTATION_DEGREES)
+        maximum_degrees = self.strengths["maximum_rotation_degrees"]
+        angle = random.uniform(-maximum_degrees, maximum_degrees)
 
         rotated_image = vision_functional.rotate(image, angle=angle, interpolation=InterpolationMode.BILINEAR,
                                                  fill=0.0)
@@ -1126,33 +1540,181 @@ class DataAugmenter:
         return rotated_image, rotated_boxes, rotated_mask, 1.0, drawn_values
 
     @staticmethod
-    def brightness_contrast_saturation(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+    def refuse_targets(augmentation_type: str, bounding_boxes: Optional[torch.Tensor],
+                       mask: Optional[torch.Tensor]) -> None:
         """
-        Slightly changes the brightness (+-40 intensity levels), contrast and saturation (both scaled by 0.7 to 1.0)
-        to make the network robust to lighting and camera differences.
+        Refuses the boxes, keypoints and masks for the geometric types moving the image only
+        (IMAGE_ONLY_AUGMENTATION_TYPES), which the checks of the configuration refuse for the tasks having them, so
+        that a target that would stay at its place under a moved image never reaches the loss.
+
+        Args:
+            augmentation_type (str): The name of the geometric type.
+            bounding_boxes (Optional[torch.Tensor]): The [N, 4] boxes, with the keypoints as boxes of zero size, or
+                None.
+            mask (Optional[torch.Tensor]): The [H, W] class mask or [N, H, W] instance masks, or None.
+
+        Raises:
+            ValueError: If boxes or a mask are given.
+        """
+        if bounding_boxes is not None or mask is not None:
+            raise ValueError(f"{augmentation_type} moves the image only and cannot move bounding boxes, masks or "
+                             f"keypoints: 'Data.data_augmentation.types.{augmentation_type}.activated' must be False "
+                             f"for this task.")
+
+    def random_perspective(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
+                           mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
+                                                                  Optional[torch.Tensor], float, str]:
+        """
+        Distorts the perspective of the image, a change of viewpoint: each of its four corners moves inwards by up to
+        perspective_distortion_scale of half the image width and of half its height, drawn on its own along both
+        axes (10 % in the supervised tasks, 40 % in the self-supervised task, as kornia's RandomPerspective), and the
+        image is warped into the quadrilateral of the moved corners with a bilinear sampling, its uncovered border being
+        black like the padding of the data loaders. The coefficients of the transformation are solved on the host
+        (compute_perspective_coefficients) and the sampling grid is computed on the device from them, so that the host
+        never waits for the device. No box, mask or keypoint follows the distortion (refuse_targets). A sequence
+        receives the same distortion on all its frames.
+
+        Args:
+            image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
+            bounding_boxes (Optional[torch.Tensor]): None, the type moving the image only.
+            mask (Optional[torch.Tensor]): None, the type moving the image only.
+
+        Returns:
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float, str]: The distorted image, no
+                boxes nor mask, the area scale of 1 and the largest move of a corner for the augmentation report.
+        """
+        self.refuse_targets(augmentation_type="random_perspective", bounding_boxes=bounding_boxes, mask=mask)
+        image_height, image_width = image.shape[-2], image.shape[-1]
+        horizontal_reach = self.strengths["perspective_distortion_scale"] * image_width / 2.0
+        vertical_reach = self.strengths["perspective_distortion_scale"] * image_height / 2.0
+
+        # Corners of the image, each one moved inwards by its own draw along both axes
+        image_corners = [(0.0, 0.0), (image_width - 1.0, 0.0), (image_width - 1.0, image_height - 1.0),
+                         (0.0, image_height - 1.0)]
+        inward_directions = [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)]
+        moved_corners = [(corner_x + direction_x * horizontal_reach * random.random(),
+                          corner_y + direction_y * vertical_reach * random.random())
+                         for (corner_x, corner_y), (direction_x, direction_y) in zip(image_corners, inward_directions)]
+
+        # Position in the image of every pixel of the distorted image, computed on the device from the coefficients
+        (column_from_column, column_from_row, column_shift, row_from_column, row_from_row, row_shift,
+         denominator_from_column, denominator_from_row) = compute_perspective_coefficients(
+            output_points=moved_corners, input_points=image_corners)
+        columns, rows = get_pixel_coordinates(height=image_height, width=image_width, device=image.device)
+        denominators = denominator_from_column * columns + denominator_from_row * rows + 1.0
+        source_columns = (column_from_column * columns + column_from_row * rows + column_shift) / denominators
+        source_rows = (row_from_column * columns + row_from_row * rows + row_shift) / denominators
+
+        # Bilinear sampling of the image at these positions, the corners being pixel centres, black outside the image
+        sampling_grid = torch.stack(tensors=[2.0 * source_columns / (image_width - 1) - 1.0,
+                                             2.0 * source_rows / (image_height - 1) - 1.0], dim=-1)
+        images = image if image.dim() == 4 else image.unsqueeze(dim=0)
+        batch_grid = sampling_grid.expand(images.shape[0], -1, -1, -1)
+        warped_images = torch_functional.grid_sample(input=images, grid=batch_grid, mode="bilinear",
+                                                     padding_mode="zeros", align_corners=True)
+        largest_move = max(math.hypot(moved_x - corner_x, moved_y - corner_y)
+                           for (moved_x, moved_y), (corner_x, corner_y) in zip(moved_corners, image_corners))
+        return warped_images.view_as(other=image), None, None, 1.0, f"corners moved by up to {largest_move:.1f} pixels"
+
+    def random_jigsaw(self, image: torch.Tensor, bounding_boxes: Optional[torch.Tensor],
+                      mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
+                                                             Optional[torch.Tensor], float, str]:
+        """
+        Cuts the image into a grid of jigsaw_grid_size x jigsaw_grid_size pieces (2 x 2) and puts them back in a random
+        order, as kornia's RandomJigsaw, which breaks the global layout of the image for the datasets whose fixed
+        background or framing would let the self-supervised views match without learning their content. The pieces are
+        moved by slicing only, without any resampling. No box, mask or keypoint follows the pieces (refuse_targets). A
+        sequence receives the same order of pieces on all its frames.
+
+        Args:
+            image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
+            bounding_boxes (Optional[torch.Tensor]): None, the type moving the image only.
+            mask (Optional[torch.Tensor]): None, the type moving the image only.
+
+        Returns:
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor], float, str]: The shuffled image, no
+                boxes nor mask, the area scale of 1 and the order of the pieces for the augmentation report.
+
+        Raises:
+            ValueError: If a side of the image is not a multiple of the grid size.
+        """
+        self.refuse_targets(augmentation_type="random_jigsaw", bounding_boxes=bounding_boxes, mask=mask)
+        grid_size = self.strengths["jigsaw_grid_size"]
+        image_height, image_width = image.shape[-2], image.shape[-1]
+        if image_height % grid_size != 0 or image_width % grid_size != 0:
+            raise ValueError(f"random_jigsaw cuts the image into {grid_size}x{grid_size} pieces, its sides must be "
+                             f"multiples of {grid_size}, got {image_height}x{image_width}.")
+        piece_height, piece_width = image_height // grid_size, image_width // grid_size
+
+        # Pieces in reading order, shuffled, then put back row by row
+        pieces = [image[..., row * piece_height:(row + 1) * piece_height,
+                        column * piece_width:(column + 1) * piece_width]
+                  for row in range(grid_size) for column in range(grid_size)]
+        piece_order = list(range(len(pieces)))
+        random.shuffle(piece_order)
+        shuffled_rows = [torch.cat(tensors=[pieces[piece_index]
+                                            for piece_index in piece_order[row * grid_size:(row + 1) * grid_size]],
+                                   dim=-1) for row in range(grid_size)]
+        drawn_values = "pieces in the order " + " ".join(str(piece_index) for piece_index in piece_order)
+        return torch.cat(tensors=shuffled_rows, dim=-2), None, None, 1.0, drawn_values
+
+    def brightness_contrast_saturation(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+        """
+        Changes the brightness, contrast and saturation to make the network robust to lighting and camera
+        differences: slightly in the supervised tasks, a brightness shift of up to 40 intensity levels and the contrast
+        and saturation scaled by 0.7 to 1.0; strongly in the self-supervised task, the colour jitter of SimCLR scaling
+        the brightness, contrast and saturation by 0.2 to 1.8 each, its strength on ImageNet.
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            Tuple[torch.Tensor, str]: The adjusted BGR image in [0, 255] and the drawn shift and factors for the
+            Tuple[torch.Tensor, str]: The adjusted BGR image in [0, 255] and the drawn brightness and factors for the
                 augmentation report.
         """
-        brightness_delta = random.uniform(-BRIGHTNESS_MAXIMUM_DELTA, BRIGHTNESS_MAXIMUM_DELTA)
-        brightened_image = (image + brightness_delta).clamp(min=0.0, max=255.0)
+        # Brightness scaled by a factor (self-supervised task) or shifted by a number of levels
+        if self.strengths["brightness_factor_range"] is not None:
+            brightness_factor = random.uniform(*self.strengths["brightness_factor_range"])
+            brightened_image = (image * brightness_factor).clamp(min=0.0, max=255.0)
+            brightness_description = f"brightness x{brightness_factor:.2f}"
+        else:
+            brightness_delta = random.uniform(-self.strengths["brightness_maximum_delta"],
+                                              self.strengths["brightness_maximum_delta"])
+            brightened_image = (image + brightness_delta).clamp(min=0.0, max=255.0)
+            brightness_description = f"brightness {brightness_delta:+.1f} levels"
 
         # Contrast and saturation weight the channels as RGB, so the BGR image is reversed before and after
-        contrast_factor = random.uniform(*CONTRAST_FACTOR_RANGE)
-        saturation_factor = random.uniform(*SATURATION_FACTOR_RANGE)
+        contrast_factor = random.uniform(*self.strengths["contrast_factor_range"])
+        saturation_factor = random.uniform(*self.strengths["saturation_factor_range"])
         rgb_image = brightened_image.flip(dims=(-3,)) / 255.0
         rgb_image = vision_functional.adjust_contrast(rgb_image, contrast_factor=contrast_factor)
         rgb_image = vision_functional.adjust_saturation(rgb_image, saturation_factor=saturation_factor)
-        drawn_values = (f"brightness {brightness_delta:+.1f} levels, contrast x{contrast_factor:.2f}, "
+        drawn_values = (f"{brightness_description}, contrast x{contrast_factor:.2f}, "
                         f"saturation x{saturation_factor:.2f}")
         return rgb_image.flip(dims=(-3,)) * 255.0, drawn_values
 
-    @staticmethod
-    def clahe_augment(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+    def random_hue(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+        """
+        Turns the hue of the image by up to maximum_hue_shift of the hue circle in either direction (18 degrees in the
+        supervised tasks, 36 degrees in the self-supervised task, the hue of the colour jitter of SimCLR), which
+        changes its colours while keeping their brightness and saturation, by kornia's adjust_hue in the HSV space of
+        the image reversed to RGB. The turn is given to kornia as a number filled on the device, kornia copying a
+        number of the host to the device, which makes the host wait for the device.
+
+        Args:
+            image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
+
+        Returns:
+            Tuple[torch.Tensor, str]: The BGR image in [0, 255] with its hue turned, and the drawn turn in degrees for
+                the augmentation report.
+        """
+        hue_shift = random.uniform(-self.strengths["maximum_hue_shift"], self.strengths["maximum_hue_shift"])
+        rgb_image = (image.flip(dims=(-3,)) / 255.0).clamp(min=0.0, max=1.0)
+        hue_turn = torch.full(size=(), fill_value=hue_shift * 2.0 * math.pi, device=image.device, dtype=image.dtype)
+        turned_image = adjust_hue(image=rgb_image, factor=hue_turn)
+        return turned_image.flip(dims=(-3,)) * 255.0, f"hue {hue_shift * 360.0:+.1f} degrees"
+
+    def clahe_augment(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Applies contrast-limited adaptive histogram equalization (clip limit 2.0 on a 4x4 grid of tiles) to every
         channel, enhancing local contrast in dark or washed-out regions.
@@ -1164,13 +1726,12 @@ class DataAugmenter:
             Tuple[torch.Tensor, str]: The equalized BGR image in [0, 255] and its fixed settings for the augmentation
                 report.
         """
+        clip_limit, grid_size = self.strengths["clahe_clip_limit"], self.strengths["clahe_grid_size"]
         normalized_image = (image / 255.0).clamp(min=0.0, max=1.0)
-        drawn_values = f"clip limit {CLAHE_CLIP_LIMIT}, {CLAHE_GRID_SIZE[0]}x{CLAHE_GRID_SIZE[1]} tiles"
-        return (equalize_clahe(normalized_image, clip_limit=CLAHE_CLIP_LIMIT, grid_size=CLAHE_GRID_SIZE) * 255.0,
-                drawn_values)
+        drawn_values = f"clip limit {clip_limit}, {grid_size[0]}x{grid_size[1]} tiles"
+        return equalize_clahe(normalized_image, clip_limit=clip_limit, grid_size=grid_size) * 255.0, drawn_values
 
-    @staticmethod
-    def sharp_augment(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+    def sharp_augment(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Sharpens the image with a Laplacian of Gaussian unsharp mask: the Laplacian of the blurred grayscale image
         highlights edges, and subtracting it (strength 3) makes them crisper.
@@ -1183,12 +1744,14 @@ class DataAugmenter:
                 report.
         """
         image_height, image_width = image.shape[-2], image.shape[-1]
+        sharpening_sigma = self.strengths["sharpening_sigma"]
+        sharpening_strength = self.strengths["sharpening_strength"]
 
         # Grayscale luminance from the BGR channels, blurred to limit the noise amplified by the Laplacian
         luminance_weights = torch.tensor(data=[0.114, 0.587, 0.299], dtype=image.dtype, device=image.device)
         grayscale_image = (image * luminance_weights.view(3, 1, 1)).sum(dim=-3, keepdim=True)
         blurred_image = vision_functional.gaussian_blur(grayscale_image, kernel_size=[5, 5],
-                                                        sigma=[SHARPENING_SIGMA, SHARPENING_SIGMA])
+                                                        sigma=[sharpening_sigma, sharpening_sigma])
 
         # Apply the Laplacian kernel on every frame with reflected borders
         laplacian_kernel = torch.tensor(data=[[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]], dtype=image.dtype,
@@ -1198,9 +1761,9 @@ class DataAugmenter:
         laplacian = torch_functional.conv2d(input=padded_image, weight=laplacian_kernel)
 
         # Subtract the scaled Laplacian to sharpen the edges and report the fixed strength and blur
-        sharpened_image = (image - SHARPENING_STRENGTH * laplacian.reshape(grayscale_image.shape)).clamp(min=0.0,
+        sharpened_image = (image - sharpening_strength * laplacian.reshape(grayscale_image.shape)).clamp(min=0.0,
                                                                                                          max=255.0)
-        return sharpened_image, f"strength {SHARPENING_STRENGTH}, sigma {SHARPENING_SIGMA}"
+        return sharpened_image, f"strength {sharpening_strength}, sigma {sharpening_sigma}"
 
     @staticmethod
     def equalize_histogram_augment(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
@@ -1245,11 +1808,11 @@ class DataAugmenter:
         equalized_image[..., channel_indices, :, :] = vision_functional.equalize(normalized_channels) * 255.0
         return equalized_image, f"channels {channel_name}"
 
-    @staticmethod
-    def random_noise(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+    def random_noise(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
-        Adds Gaussian noise with a standard deviation of 40 intensity levels, simulating sensor noise. For a
-        sequence every frame receives its own noise sample, with the same strength, as a real camera would.
+        Adds Gaussian noise with a standard deviation of 20 intensity levels (30 levels in the self-supervised task),
+        simulating sensor noise. For a sequence every frame receives its own noise sample, with the same strength, as a
+        real camera would.
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -1257,8 +1820,9 @@ class DataAugmenter:
         Returns:
             Tuple[torch.Tensor, str]: The noisy image and its strength for the augmentation report.
         """
-        return (image + torch.randn_like(input=image) * NOISE_STANDARD_DEVIATION,
-                f"standard deviation {NOISE_STANDARD_DEVIATION:.0f} levels")
+        standard_deviation = self.strengths["noise_standard_deviation"]
+        return (image + torch.randn_like(input=image) * standard_deviation,
+                f"standard deviation {standard_deviation:.0f} levels")
 
     @staticmethod
     def gray_scale_augment(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
@@ -1287,31 +1851,107 @@ class DataAugmenter:
         """
         return image.flip(dims=(-3,)), "blue and red swapped"
 
-    @staticmethod
-    def random_blur(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+    def random_gamma(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
-        Blurs the image with a 9x9 Gaussian kernel (sigma 2.5), simulating defocus and motion softness.
+        Corrects the gamma of the image, a non-linear change of the exposure darkening or lightening the mid-tones
+        more than the dark and bright areas: every pixel of the image scaled to [0, 1] is raised to a power drawn
+        within gamma_range (0.8 to 1.25 in the supervised tasks, 0.5 to 2.0 in the self-supervised task, kornia's
+        RandomGamma of the views).
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
 
         Returns:
-            Tuple[torch.Tensor, str]: The blurred image and the kernel for the augmentation report.
+            Tuple[torch.Tensor, str]: The corrected image in [0, 255] and the drawn gamma for the augmentation report.
         """
-        blurred_image = vision_functional.gaussian_blur(image, kernel_size=[BLUR_KERNEL_SIZE, BLUR_KERNEL_SIZE],
-                                                        sigma=[BLUR_SIGMA, BLUR_SIGMA])
-        return blurred_image, f"{BLUR_KERNEL_SIZE}x{BLUR_KERNEL_SIZE} kernel, sigma {BLUR_SIGMA}"
+        gamma = random.uniform(*self.strengths["gamma_range"])
+        return 255.0 * (image / 255.0).clamp(min=0.0, max=1.0) ** gamma, f"gamma {gamma:.2f}"
 
-    @staticmethod
-    def random_motion_blur(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+    def random_linear_illumination(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+        """
+        Lights the image unevenly, a light source on one side of the scene: a ramp growing linearly from 0 on one side
+        of the image to a gain drawn within linear_illumination_gain_range on the opposite side (13 to 38 levels in the
+        supervised tasks, 13 to 64 levels in the self-supervised task, kornia's RandomLinearIllumination of the views)
+        brightens or darkens every pixel, the side towards which the ramp grows being drawn among the four
+        (LINEAR_ILLUMINATION_DIRECTIONS). The ramp is computed on the device from numbers. A sequence receives the same
+        illumination on all its frames, unless its photometric types are drawn frame by frame.
+
+        Args:
+            image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
+
+        Returns:
+            Tuple[torch.Tensor, str]: The lit image in [0, 255] and the drawn gain and side for the augmentation
+                report.
+        """
+        # Gain of the ramp, brightening or darkening with equal chances, and the side it grows towards
+        gain = random.uniform(*self.strengths["linear_illumination_gain_range"])
+        sign = 1.0 if random.random() < 0.5 else -1.0
+        direction = random.choice(LINEAR_ILLUMINATION_DIRECTIONS)
+
+        # Ramp from 0 to 1 along the rows or the columns, reversed when it grows towards the top or the left
+        vertical = direction in ["bottom", "top"]
+        ramp = torch.linspace(start=0.0, end=1.0, steps=image.shape[-2] if vertical else image.shape[-1],
+                              device=image.device, dtype=image.dtype)
+        if direction in ["top", "left"]:
+            ramp = ramp.flip(dims=(0,))
+        ramp = ramp.view(-1, 1) if vertical else ramp.view(1, -1)
+        lit_image = (image + sign * gain * ramp).clamp(min=0.0, max=255.0)
+        return lit_image, f"{sign * gain:+.0f} levels growing towards the {direction}"
+
+    def random_plasma_shadow(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+        """
+        Casts irregular shadows on the image: the pixels where a random fractal map (build_plasma_map, the plasma of
+        kornia's RandomPlasmaShadow of the views), whose detail grows with a roughness drawn within
+        plasma_shadow_roughness_range, falls below a quantity drawn within plasma_shadow_quantity_range are darkened by
+        an intensity drawn within plasma_shadow_intensity_range (up to 77 levels in the supervised tasks, up to 128
+        levels in the self-supervised task). A sequence receives the same shadows on all its frames, unless its
+        photometric types are drawn frame by frame.
+
+        Args:
+            image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
+
+        Returns:
+            Tuple[torch.Tensor, str]: The shadowed image in [0, 255] and the drawn intensity, quantity and roughness for
+                the augmentation report.
+        """
+        roughness = random.uniform(*self.strengths["plasma_shadow_roughness_range"])
+        quantity = random.uniform(*self.strengths["plasma_shadow_quantity_range"])
+        intensity = random.uniform(*self.strengths["plasma_shadow_intensity_range"])
+
+        # Fractal map drawn on the device, the pixels below the quantity darkened by the intensity
+        plasma_map = build_plasma_map(height=image.shape[-2], width=image.shape[-1], roughness=roughness,
+                                      device=image.device)
+        shadowed_image = (image + (plasma_map < quantity).to(dtype=image.dtype) * intensity).clamp(min=0.0, max=255.0)
+        return shadowed_image, f"intensity {intensity:+.0f} levels, quantity {quantity:.2f}, roughness {roughness:.2f}"
+
+    def random_blur(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+        """
+        Blurs the image with a Gaussian kernel, 9x9 of sigma 2.5 in the supervised tasks, and 23x23 of a sigma drawn
+        within 0.1 and 3.0 in the self-supervised task (about a tenth of the side of the views, as the blur of SimCLR
+        and BYOL), simulating defocus and motion softness.
+
+        Args:
+            image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
+
+        Returns:
+            Tuple[torch.Tensor, str]: The blurred image and the kernel and sigma for the augmentation report.
+        """
+        kernel_size = self.strengths["blur_kernel_size"]
+        sigma = draw_uniform(value_range=self.strengths["blur_sigma_range"])
+        blurred_image = vision_functional.gaussian_blur(image, kernel_size=[kernel_size, kernel_size],
+                                                        sigma=[sigma, sigma])
+        return blurred_image, f"{kernel_size}x{kernel_size} kernel, sigma {round(sigma, 2):g}"
+
+    def random_motion_blur(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Smears the image along a straight line, the motion of the camera or of the objects during the exposure (a
         conveyor belt, a vehicle, a shaking hand), so that the network learns to recognise objects whose edges are
         streaked in one direction instead of softened in all of them like by random_blur: the line is an odd kernel
-        of 5 to 15 pixels at an angle of 0 to 180 degrees (counter-clockwise from the horizontal), the streak trailing
-        backward or forward along it with a direction of -1 to 1, 0 spreading it evenly, drawn on the device
-        (build_motion_blur_kernel). The borders are reflected so that the edges of the image do not darken. A sequence
-        receives the same blur on all its frames, unless its photometric types are drawn frame by frame.
+        of 5 to 15 pixels (7 to 21 pixels in the self-supervised task) at an angle of 0 to 180 degrees
+        (counter-clockwise from the horizontal), the streak trailing backward or forward along it with a direction of
+        -1 to 1, 0 spreading it evenly, drawn on the device (build_motion_blur_kernel). The borders are reflected so
+        that the edges of the image do not darken. A sequence receives the same blur on all its frames, unless its
+        photometric types are drawn frame by frame.
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -1321,10 +1961,10 @@ class DataAugmenter:
                 augmentation report.
         """
         # Draw an odd length of the line, its angle and the lean of its weights
-        kernel_size = random.randrange(start=MOTION_BLUR_KERNEL_SIZE_RANGE[0],
-                                       stop=MOTION_BLUR_KERNEL_SIZE_RANGE[1] + 1, step=2)
-        angle = random.uniform(*MOTION_BLUR_ANGLE_RANGE)
-        direction = random.uniform(*MOTION_BLUR_DIRECTION_RANGE)
+        minimum_kernel_size, maximum_kernel_size = self.strengths["motion_blur_kernel_size_range"]
+        kernel_size = random.randrange(start=minimum_kernel_size, stop=maximum_kernel_size + 1, step=2)
+        angle = random.uniform(*self.strengths["motion_blur_angle_range"])
+        direction = random.uniform(*self.strengths["motion_blur_direction_range"])
 
         # Draw the line on the device, then blur an image as a batch of one and the frames of a sequence as a batch
         # sharing the kernel
@@ -1335,13 +1975,13 @@ class DataAugmenter:
         return (blurred_images.view_as(other=image),
                 f"kernel of {kernel_size} pixels, angle {angle:.0f} degrees, direction {direction:+.2f}")
 
-    @staticmethod
-    def random_haze(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+    def random_haze(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Veils the image with a haze, the fog, condensation or dirt on the lens of a camera, so that the network learns
         to find objects whose contrast with their background is low: the image is blended with a uniform grey
-        airlight of 180 to 255 intensity levels taking 20% to 60% of every pixel (apply_haze). A sequence receives
-        the same haze on all its frames, unless its photometric types are drawn frame by frame.
+        airlight of 180 to 255 intensity levels taking 20% to 60% of every pixel (153 to 255 levels taking 20% to 70%
+        in the self-supervised task) (apply_haze). A sequence receives the same haze on all its
+        frames, unless its photometric types are drawn frame by frame.
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -1350,21 +1990,41 @@ class DataAugmenter:
             Tuple[torch.Tensor, str]: The hazy image in [0, 255] and the drawn strength and airlight for the
                 augmentation report.
         """
-        strength = random.uniform(*HAZE_STRENGTH_RANGE)
-        airlight = random.uniform(*HAZE_AIRLIGHT_RANGE)
+        strength = random.uniform(*self.strengths["haze_strength_range"])
+        airlight = random.uniform(*self.strengths["haze_airlight_range"])
         return (apply_haze(images=image, strength=strength, airlight=airlight),
                 f"strength {strength:.2f}, airlight {airlight:.0f} levels")
+
+    def random_solarize(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+        """
+        Solarizes the image, a strong photometric distortion so that the two views of an image cannot be matched by
+        their exact intensities (BYOL, Barlow Twins): every pixel at or above solarize_threshold, half of the 255
+        levels, is inverted, as kornia's RandomSolarize of the views. Drawn for the second view only in the
+        self-supervised task (SECOND_VIEW_ONLY_TYPES), for every image in the supervised tasks. A sequence is
+        solarized on all its frames, unless its photometric types are drawn frame by frame.
+
+        Args:
+            image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
+
+        Returns:
+            Tuple[torch.Tensor, str]: The solarized image in [0, 255] and its threshold for the augmentation report.
+        """
+        threshold = self.strengths["solarize_threshold"]
+        clamped_image = image.clamp(min=0.0, max=255.0)
+        return (torch.where(clamped_image < threshold, clamped_image, 255.0 - clamped_image),
+                f"threshold {threshold:g} levels")
 
     def random_black_out(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Cuts the image into a grid of 'types.random_black_out.grid_size' rows and columns (8 by default, chosen per
-        task after the size of the objects to hide) and blacks out every cell with a fixed probability of 0.2, the
-        number of hidden cells varying from image to image (Hide-and-Seek), so that the network learns from every
-        region of the image instead of the most telling one and copes with occluded parts of the scene. The boxes,
-        masks and keypoints are left unchanged, so an object can be hidden while keeping its label: the user chooses
-        the tasks and datasets it suits. Applied after the other photometric types, so that the cells stay black like
-        the padding of the data loaders. A sequence has the same cells blacked out on all its frames, unless its
-        photometric types are drawn frame by frame.
+        task after the size of the objects to hide) and blacks out every cell with a fixed probability (0.2 in the
+        supervised tasks, 0.35 in the self-supervised task), the number of hidden cells varying from image to image
+        (Hide-and-Seek), so that the network learns from every region of the image instead of the most telling one
+        and copes with occluded parts of the scene. The boxes, masks and keypoints are left unchanged, so an object
+        can be hidden while keeping its label: the user chooses the tasks and datasets it suits. Applied after the
+        other photometric types but the erasing, so that the cells stay black like the padding of the data loaders,
+        and drawn for the second view only in the self-supervised task (SECOND_VIEW_ONLY_TYPES). A sequence has the
+        same cells blacked out on all its frames, unless its photometric types are drawn frame by frame.
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -1375,7 +2035,42 @@ class DataAugmenter:
         """
         # Draw every cell of the grid on its own, then black out the hidden ones on every channel and frame at once
         grid_size = self.black_out_grid_size
-        hidden_cells = torch.tensor(data=[random.random() < BLACK_OUT_CELL_PROBABILITY
+        cell_probability = self.strengths["black_out_cell_probability"]
+        hidden_cells = torch.tensor(data=[random.random() < cell_probability
                                           for _ in range(grid_size * grid_size)]).view(grid_size, grid_size)
         return (apply_black_out(images=image, hidden_cells=hidden_cells),
                 describe_black_out(hidden_cells=hidden_cells))
+
+    def random_erasing(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
+        """
+        Erases a random rectangle of the image, an occlusion, filled with black like the padding of the data loaders: a
+        rectangle covering a share of the image area within erasing_area_range (2% to 15%) with a height / width ratio
+        drawn log-uniformly within erasing_aspect_ratio_range (0.3 to 3.3), as torchvision's and kornia's
+        RandomErasing, drawn again up to MAXIMUM_REGION_ATTEMPTS times until it fits in the image, which is left
+        unchanged otherwise. The boxes, masks and keypoints are left unchanged, so an object can be hidden while
+        keeping its label. Applied last, so that the rectangle stays black. A sequence has the same rectangle erased on
+        all its frames, unless its photometric types are drawn frame by frame.
+
+        Args:
+            image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
+
+        Returns:
+            Tuple[torch.Tensor, str]: The image with its rectangle at 0, and the rectangle for the augmentation report.
+        """
+        image_height, image_width = image.shape[-2], image.shape[-1]
+        minimum_ratio, maximum_ratio = self.strengths["erasing_aspect_ratio_range"]
+        logarithm_ratio_range = (math.log(minimum_ratio), math.log(maximum_ratio))
+
+        # Area and ratio drawn until the rectangle fits, at a random position, the erased copy keeping the input intact
+        for attempt_index in range(MAXIMUM_REGION_ATTEMPTS):
+            erased_area = image_height * image_width * random.uniform(*self.strengths["erasing_area_range"])
+            aspect_ratio = math.exp(random.uniform(*logarithm_ratio_range))
+            erased_height = round(math.sqrt(erased_area * aspect_ratio))
+            erased_width = round(math.sqrt(erased_area / aspect_ratio))
+            if erased_height < image_height and erased_width < image_width:
+                top = random.randint(0, image_height - erased_height)
+                left = random.randint(0, image_width - erased_width)
+                erased_image = image.clone()
+                erased_image[..., top:top + erased_height, left:left + erased_width] = 0.0
+                return erased_image, f"{erased_width}x{erased_height} pixels at top {top} and left {left} pixels"
+        return image, "no rectangle fitting in the image"

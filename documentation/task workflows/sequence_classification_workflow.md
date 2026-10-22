@@ -265,7 +265,7 @@ The same augmenter as the classification. Here every sample is a sequence `[T, 3
 **Example: the settings of the configuration**
 ```text
 activated True   probability 0.4   independent_frames False   shuffle_frames {'activated': False, 'probability': 0.5}
-5 of 20 types activated: random_crop, random_rotation, brightness_contrast_saturation, random_noise, random_haze
+5 of 28 types activated: random_crop, random_rotation, brightness_contrast_saturation, random_noise, random_haze
 ```
 
 ### Step 2.6 — `setup_training_paths()`

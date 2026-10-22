@@ -5,8 +5,8 @@
 ExperimentConfiguration:
   # Task trained by this configuration, selecting the trainer, the model and the checks of the task sections.
   # "self_supervised" trains the backbone without labels, from two random views of every image, and requires the
-  # ProjectionHead section and Data.view_augmentation. Its backbone then initialises the backbone of any other task
-  # through Backbone.pretrained.
+  # ProjectionHead section and Data.data_augmentation on. Its backbone then initialises the backbone of any other
+  # task through Backbone.pretrained.
   task: "self_supervised"
   # Root folder of all the training runs. Every run is saved in a subfolder named after its settings (task, input,
   # backbone modules, normalization and blocks, projection head, method and its setting, optimizer and weight decay
@@ -173,14 +173,23 @@ Data:
     # Attribute shared by every image of a batch (e.g. "site", its blocks then coming from cameras of the same site),
     # or null for blocks of any value in the same batch.
     batch_key: null
+  # Data augmentation drawing the two random views of the self-supervised task: every training and validation image is
+  # transformed twice, on the GPU right before the forward pass, every view drawing each activated type below with its
+  # probability and its own random values, and the loss pulls the two views of an image together. The strengths of the
+  # types are hard-coded, mostly stronger than in the supervised tasks (SELF_SUPERVISED_AUGMENTATION_STRENGTHS of
+  # vision_training/data/augmentations.py), the configuration only turning the types on and setting their
+  # probabilities, the same for both views but for random_solarize and random_black_out, drawn for the second view
+  # only, as the asymmetric views of BYOL and Barlow Twins. The backbone learns to ignore what changes between the
+  # views, so they must change everything except what defines the content of the image: a cue shared by both views
+  # (e.g. the colour of an object when the colour types are off) lets the network match the views without learning
+  # anything else. The augmentation gives no run name token and can change when a run resumes.
   data_augmentation:
-    # Global switch to enable or disable all data augmentation. Must be False for the self-supervised task: the two
-    # random views of Data.view_augmentation replace it. The types below are kept so that the section has the same
-    # keys in every task.
-    activated: False
-    # Probability that a training image is augmented at all. Each activated type below is then applied to that
-    # image with its own probability. For image sequences, all frames of a sequence share the same augmentation.
-    probability: 0.3
+    # Global switch of the augmentation, True for the self-supervised task, whose two views would otherwise both be
+    # the image itself.
+    activated: True
+    # Probability that a training image is augmented at all, ignored by the self-supervised task: every training and
+    # validation image gets its two views.
+    probability: 1.0
     # Sequence tasks only (False for the image tasks): draws the photometric augmentations below frame by frame,
     # every frame of an augmented sequence getting its own brightness, noise, colour... while the geometric
     # augmentations stay the same for all its frames, a crop or a rotation per frame making the objects jump.
@@ -190,125 +199,77 @@ Data:
     # a pair being shuffled on its own. For the sequences whose frame order carries no information (sets of photos).
     shuffle_frames: { activated: False, probability: 0.5 }
     types:
-      # Geometric augmentations : the class of an image does not change with them.
-      # Random Crop : crop keeping 75% to 100% of each side (same aspect ratio), resized back to the input size
-      random_crop: { activated: True, probability: 0.5 }
+      # Geometric augmentations, drawn on their own for each view.
+      # Random Crop : random resized crop covering 20% to 100% of the area with an aspect ratio of x1/2 to x2,
+      # resized back to the input size, the main augmentation of the views: its probability must be 1.0 when it is
+      # activated, a crop missing the object of the image leaving nothing to match
+      random_crop: { activated: True, probability: 1.0 }
       # Random Aspect Crop : crop keeping 75% to 100% of the width and, drawn on its own, 75% to 100% of the height,
-      # resized back to the input size, which stretches the content by x0.75 to x1.33 along one side (other camera
-      # proportions, suited to the images stretched without padding, keep_ratio False)
+      # resized back to the input size, which stretches the content by x0.75 to x1.33 along one side
       random_aspect_crop: { activated: False, probability: 0.3 }
       # Random Zoom Out : image shrunk to 50% to 100% of each side (same aspect ratio) at a random position of a
-      # black canvas of the input size, the objects then appearing smaller than in the dataset
+      # black canvas of the input size
       random_zoom_out: { activated: False, probability: 0.3 }
-      # Random Translation : shift along x, y or both (drawn at random) of up to 25% of the image width and
+      # Random Translation : shift along x, y or both (drawn at random) of up to 40% of the image width and
       # height, the uncovered border filled with black
       random_translation: { activated: False, probability: 0.5 }
       # Random Left to Right Flip (mirror)
       random_left_right_flip: { activated: True, probability: 0.5 }
-      # Random Up to Down Flip
+      # Random Up to Down Flip, for images whose content keeps its meaning upside down
       random_up_down_flip: { activated: False, probability: 0.5 }
-      # Random Rotation between -5° and 5°
-      random_rotation: { activated: True, probability: 0.5 }
+      # Random Rotation between -20° and 20°, the uncovered corners filled with black
+      random_rotation: { activated: False, probability: 0.5 }
       # Random -90° or 90° rotation (square images only)
       random_90_rotation: { activated: False, probability: 0.5 }
+      # Random Perspective : each corner moved inwards by up to 40% of half the image width and height, a change of
+      # viewpoint, the uncovered border filled with black
+      random_perspective: { activated: True, probability: 0.5 }
+      # Random Jigsaw, experimental : image cut into 2x2 pieces put back in a random order, breaking the global layout
+      # of the image for the datasets whose static background lets the views match without learning their content
+      random_jigsaw: { activated: False, probability: 0.2 }
 
-      # Photometric augmentations.
-      # Brightness (+-40 intensity levels), contrast and saturation (both x0.7 to x1.0) adjustments
-      brightness_contrast_saturation: { activated: True, probability: 0.5 }
+      # Photometric augmentations, drawn on their own for each view.
+      # Brightness, contrast and saturation each scaled by x0.2 to x1.8 (the colour jitter of SimCLR on ImageNet)
+      brightness_contrast_saturation: { activated: True, probability: 0.8 }
+      # Random Hue : hue turned by up to 36 degrees (a tenth of the hue circle) in either direction
+      random_hue: { activated: True, probability: 0.8 }
       # Contrast-limited Adaptive Histogram Equalization (CLAHE), clip limit 2.0 on a 4x4 grid of tiles
-      clahe_augment: { activated: True, probability: 0.5 }
+      clahe_augment: { activated: False, probability: 0.5 }
       # Image Sharpening with a Laplacian of Gaussian unsharp mask (sigma 1.5, strength 3)
-      sharp_augment: { activated: True, probability: 0.5 }
+      sharp_augment: { activated: False, probability: 0.5 }
       # Histogram Equalization of the luminance (Y channel of YUV)
-      equalize_histogram_augment: { activated: True, probability: 0.5 }
+      equalize_histogram_augment: { activated: False, probability: 0.5 }
       # Histogram Equalization of one random channel (B, G or R) or of all three channels
-      equalize_bgr_histogram_augment: { activated: True, probability: 0.5 }
-      # Random Noise : Gaussian noise with a standard deviation of 40 intensity levels
-      random_noise: { activated: True, probability: 0.5 }
+      equalize_bgr_histogram_augment: { activated: False, probability: 0.5 }
+      # Random Noise : Gaussian noise of a sensor with a standard deviation of 30 intensity levels
+      random_noise: { activated: True, probability: 0.2 }
       # Grayscale conversion, kept on three channels
-      gray_scale_augment: { activated: True, probability: 0.5 }
+      gray_scale_augment: { activated: True, probability: 0.2 }
       # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
       random_colour_augmentation: { activated: False, probability: 0.5 }
-      # Random Image Blurring : 9x9 Gaussian kernel with sigma 2.5
+      # Random Gamma : gamma correction with a gamma of 0.5 to 2.0, darkening or lightening the mid-tones
+      random_gamma: { activated: True, probability: 0.3 }
+      # Random Linear Illumination : ramp of 13 to 64 intensity levels growing from one side of the image to the
+      # opposite one, brightening or darkening it, an uneven lighting
+      random_linear_illumination: { activated: True, probability: 0.3 }
+      # Random Plasma Shadow : irregular shadows of a random fractal map darkening by up to 128 intensity levels
+      random_plasma_shadow: { activated: True, probability: 0.2 }
+      # Random Image Blurring : 23x23 Gaussian kernel with a sigma of 0.1 to 3.0
       random_blur: { activated: True, probability: 0.5 }
-      # Random Motion Blurring : streak of 5 to 15 pixels at an angle of 0 to 180 degrees, trailing backward
-      # or forward, the motion of the camera or of the objects during the exposure
-      random_motion_blur: { activated: False, probability: 0.3 }
-      # Random Haze : blend with a uniform grey airlight of 180 to 255 intensity levels taking 20% to 60% of every
-      # pixel, the fog or condensation of a camera lowering the contrast (applied after the other photometric types)
+      # Random Motion Blurring : streak of 7 to 21 pixels at an angle of 0 to 180 degrees, trailing backward or
+      # forward, the motion of the camera or of the objects during the exposure
+      random_motion_blur: { activated: True, probability: 0.1 }
+      # Random Haze : blend with a uniform grey airlight of 153 to 255 intensity levels taking 20% to 70% of every
+      # pixel, the fog or condensation of a camera lowering the contrast (applied after the blurs)
       random_haze: { activated: True, probability: 0.3 }
-      # Random Black Out : image cut into a grid of grid_size x grid_size cells (smaller cells hiding smaller
-      # parts), every cell blacked out with a fixed probability of 0.2 (applied last); the boxes, masks and
-      # keypoints are left unchanged, so an object can be hidden while keeping its label
-      random_black_out: { activated: False, probability: 0.3, grid_size: 8 }
-  # Random views of the self-supervised task: every training and validation image is transformed twice, on the GPU right
-  # before the forward pass, each view drawing its own crop, flips, rotation, perspective, jigsaw, colour and lighting
-  # changes, blurs, solarization, noise and erasing, and the loss pulls the two views of an image together. The backbone
-  # learns to ignore what changes between the views, so they must change everything except what defines the content of
-  # the image: a cue shared by both views (e.g. the colour of an object when the colour jitter is off) lets the network
-  # match the views without learning anything else. Every probability is a number, the same for both views, or a list
-  # [first view, second view], as the asymmetric views of BYOL and Barlow Twins. The views give no run name token and
-  # can change when a run resumes.
-  view_augmentation:
-    # Crop of a random area (fraction of the image area within scale) and aspect ratio (width / height within
-    # aspect_ratio), resized back to the input size, applied to every view. Small crops make the task harder, but a
-    # crop missing the object of the image leaves nothing to match.
-    random_resized_crop: { scale: [0.2, 1.0], aspect_ratio: [0.75, 1.3333] }
-    # Mirror from left to right.
-    left_right_flip: { probability: 0.5 }
-    # Mirror from top to bottom, for images whose content keeps its meaning upside down.
-    up_down_flip: { probability: 0.0 }
-    # Rotation by a random angle within [-maximum_degrees, maximum_degrees], the uncovered corners filled with black.
-    rotation: { probability: 0.0, maximum_degrees: 0.0 }
-    # Perspective distortion, a change of viewpoint: every corner of the image moved by up to distortion_scale (within
-    # [0, 1]) times half the image side, the uncovered borders filled with black.
-    perspective: { probability: 0.5, distortion_scale: 0.2 }
-    # Jigsaw, experimental: the image cut into a grid of [rows, columns] pieces put back in a random order, breaking its
-    # global layout for the datasets whose static background lets the views match without learning their content. Off by
-    # default, to try at 0.2 with [2, 2]; the grid must divide the input size.
-    jigsaw: { probability: 0.0, grid: [2, 2] }
-    # Brightness, contrast and saturation scaled by a random factor within [1 - strength, 1 + strength], and the hue
-    # shifted by up to hue (0.5 being half a turn of the hue circle), in a random order drawn for every batch.
-    colour_jitter: { probability: 0.8, brightness: 0.4, contrast: 0.4, saturation: 0.4, hue: 0.1 }
-    # Grayscale conversion, kept on three channels.
-    grayscale: { probability: 0.2 }
-    # Gamma correction, a non-linear change of the exposure: every pixel raised to a power drawn within gamma.
-    gamma: { probability: 0.3, gamma: [0.7, 1.5] }
-    # Haze, the fog, condensation or low contrast of a camera: every pixel blended with a uniform airlight,
-    # view x (1 - strength) + strength x airlight, the strength and the airlight (within [0, 1]) drawn within their
-    # ranges.
-    haze: { probability: 0.3, strength: [0.0, 0.5], airlight: [0.6, 1.0] }
-    # Linear illumination, an uneven lighting: a ramp from 0 to a change drawn within gain (within [0, 1], brightening
-    # or darkening) added from one side of the image to the opposite one.
-    linear_illumination: { probability: 0.3, gain: [0.05, 0.25] }
-    # Plasma shadow, irregular shadows: the pixels where a random fractal map, whose detail grows with a roughness drawn
-    # within roughness, is below a level drawn within shade_quantity are darkened by a value drawn within
-    # shade_intensity (within [-1, 0]). Its map is drawn on the GPU, so its views differ between devices for the same
-    # seed.
-    plasma_shadow: { probability: 0.2, shade_intensity: [-0.5, 0.0], shade_quantity: [0.0, 0.5], roughness: [0.1, 0.7] }
-    # Gaussian blur of an odd kernel_size, below twice the image size, its sigma drawn within the sigma range, nearly
-    # always on the first view and rarely on the second one, as the asymmetric views of BYOL and Barlow Twins.
-    gaussian_blur: { probability: [1.0, 0.1], kernel_size: 9, sigma: [0.1, 2.0] }
-    # Motion blur of a camera or an object in motion: a line of an odd length drawn within kernel_size, both bounds
-    # included and the same length for every image of a batch, at an angle within [-maximum_angle, maximum_angle]
-    # degrees, its weight moved towards one end by a direction drawn within direction (-1 the back, 0 even, 1 the
-    # front).
-    motion_blur: { probability: 0.1, kernel_size: [3, 9], maximum_angle: 180.0, direction: [-1.0, 1.0] }
-    # Solarization, a strong photometric distortion so that the views cannot match by their exact intensities: a value
-    # drawn within addition, strictly between -0.5 and 0.5, is added to every pixel, then the pixels above a threshold
-    # drawn within threshold are inverted. On the second view only, as BYOL and Barlow Twins.
-    solarize: { probability: [0.0, 0.2], threshold: [0.5, 0.5], addition: [0.0, 0.0] }
-    # Gaussian noise of a sensor, of standard deviation standard_deviation in RGB images in [0, 1] (0.03 is about 8 of
-    # the 255 levels), after both blurs which would smooth it away. Drawn on the GPU, so its views differ between
-    # devices for the same seed.
-    gaussian_noise: { probability: 0.2, standard_deviation: 0.03 }
-    # Black-out of the cells of a grid of grid_size x grid_size cells, every cell blacked out with a fixed
-    # probability of 0.2, as the random_black_out type of the data augmentation, last with the random
-    # erasing so that the cells stay black.
-    black_out: { probability: [0.0, 0.3], grid_size: 8 }
-    # Random erasing, an occlusion: a rectangle covering a fraction of the image drawn within scale, of aspect ratio
-    # drawn within aspect_ratio, filled with black, last so that the erased area stays plainly filled.
-    random_erasing: { probability: 0.25, scale: [0.02, 0.15], aspect_ratio: [0.3, 3.3] }
+      # Random Solarize : every pixel at or above 128 intensity levels inverted, on the second view only
+      random_solarize: { activated: True, probability: 0.2 }
+      # Random Black Out : image cut into a grid of grid_size x grid_size cells (smaller cells hiding smaller parts),
+      # every cell blacked out with a fixed probability of 0.35, on the second view only
+      random_black_out: { activated: True, probability: 0.3, grid_size: 8 }
+      # Random Erasing : one rectangle covering 2% to 15% of the image, of height / width ratio 0.3 to 3.3, filled with
+      # black (applied last)
+      random_erasing: { activated: True, probability: 0.25 }
 
 Backbone:
   # Number of input channels of the initial convolution block: must be 3, the loaders giving BGR images

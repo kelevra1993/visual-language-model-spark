@@ -10,7 +10,8 @@ from vision_training.configuration_processing.classification_checks import check
 from vision_training.configuration_processing.common_checks import (check_backbone_configuration,
                                                                     check_data_configuration,
                                                                     check_experiment_configuration,
-                                                                    check_optimization_configuration)
+                                                                    check_optimization_configuration,
+                                                                    check_removed_sections)
 from vision_training.configuration_processing.configuration_values import ConfigurationError
 from vision_training.configuration_processing.detection_checks import check_detection_configuration
 from vision_training.configuration_processing.instance_segmentation_checks import (
@@ -43,8 +44,8 @@ def check_configuration(experiment_configuration: Dict[str, Any], model_configur
     Verifies that a loaded configuration file is complete and consistent before any model or data loader is built.
     It is run by 'load_experiment_configuration', so an inconsistent file is rejected at startup with the full list
     of problems instead of failing later inside model construction or, worse, training silently with wrong values.
-    The sections common to every task (experiment, data, backbone, optimization) are checked first, then the sections
-    of the task.
+    The sections removed from the configuration files are refused first, alone, then the sections common to every task
+    (experiment, data, backbone, optimization) are checked, then the sections of the task.
 
     Args:
         experiment_configuration (Dict[str, Any]): The processed 'ExperimentConfiguration' section.
@@ -54,6 +55,11 @@ def check_configuration(experiment_configuration: Dict[str, Any], model_configur
         ConfigurationError: If a required configuration key is missing, or if one or more configuration values are
             inconsistent, listing all of them.
     """
+    # Refuse the removed sections on their own: a file written before their removal also lacks the keys added with it,
+    # whose first missing key would stop the other checks without naming the removed section
+    removed_section_errors = check_removed_sections(model_configuration=model_configuration)
+    if removed_section_errors:
+        raise ConfigurationError(errors=removed_section_errors)
     errors = []
 
     # Run every check of the common sections and collect all the problems so they can be fixed in a single pass

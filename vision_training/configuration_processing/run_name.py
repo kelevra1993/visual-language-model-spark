@@ -581,8 +581,9 @@ def build_self_supervised_sections(model_configuration: Dict[str, Any]) -> List[
     Builds the sections of the run name specific to the self-supervised task: the projection head
     P<global pooling AVG, MAX or FLAT>.<layer sizes, the embedding size last>, PBN or PLN when its hidden layers are
     batch or layer normalized, then the method with its setting, SIMCLR-T<temperature> or BT-OD<off-diagonal weight>,
-    e.g. 'PAVG.2048.128-PBN_SIMCLR-T0.1' or 'PAVG.2048.2048.2048-PBN_BT-OD0.005'. The view augmentation and the batch
-    normalization momentum give no token, so that they can change between two resumptions of a run.
+    e.g. 'PAVG.2048.128-PBN_SIMCLR-T0.1' or 'PAVG.2048.2048.2048-PBN_BT-OD0.005'. The data augmentation drawing the
+    views and the batch normalization momentum give no token, so that they can change between two resumptions of a
+    run.
 
     Args:
         model_configuration (Dict[str, Any]): The processed model configuration.

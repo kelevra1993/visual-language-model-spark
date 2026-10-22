@@ -9,30 +9,56 @@ per-frame draws of the sequence frames, frame shuffling, the rejected inputs, th
 pixels with the removal of the objects it pushes out, the removal of the fragments of objects left by the crop, the
 aspect crop keeping independent shares of the width and of the height and stretching the image, its boxes and masks,
 the keypoints moved without being renamed and unlabelled once out of the image, the ignored regions of the keypoint
-detection moved with them as binary masks, and the augmentation reports written in the information panels of the input
-viewer.
+detection moved with them as binary masks, the augmentation reports written in the information panels of the input
+viewer, the perspective and the jigsaw refusing the boxes, masks and keypoints they cannot move, the perspective warping
+the image like kornia, the jigsaw putting its pieces back in the drawn order, the hue turned with the brightness and
+the saturation kept, the gamma, the ramp of the linear illumination, the plasma map of kornia and its shadow, the
+solarization, the erasing of one black rectangle after the noise, and these types never making the host wait for the
+GPU.
 """
 
+import math
 import random
 import re
 import pytest
 import torch
 
+from kornia.color import rgb_to_hsv
+from kornia.contrib import diamond_square
 from kornia.filters import get_motion_kernel2d
+from kornia.geometry.transform import get_perspective_transform, warp_perspective
 from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
-from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, BLACK_OUT_CELL_PROBABILITY,
-                                                 EXCLUSIVE_EQUALIZATION_TYPES, GEOMETRIC_AUGMENTATION_TYPES,
-                                                 HAZE_AIRLIGHT_RANGE, HAZE_STRENGTH_RANGE,
-                                                 MAXIMUM_TRANSLATION_FRACTION, MINIMUM_ASPECT_CROP_FRACTION,
-                                                 MINIMUM_CROP_FRACTION, MOTION_BLUR_ANGLE_RANGE,
-                                                 MOTION_BLUR_DIRECTION_RANGE, MOTION_BLUR_KERNEL_SIZE_RANGE,
-                                                 NOISE_STANDARD_DEVIATION, PHOTOMETRIC_AUGMENTATION_TYPES,
-                                                 build_motion_blur_kernel, compute_cell_indices, send_grid_to_device)
+from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPES, EXCLUSIVE_EQUALIZATION_TYPES,
+                                                 GEOMETRIC_AUGMENTATION_TYPES, IMAGE_ONLY_AUGMENTATION_TYPES,
+                                                 PHOTOMETRIC_AUGMENTATION_TYPES, SUPERVISED_AUGMENTATION_STRENGTHS,
+                                                 build_motion_blur_kernel, build_plasma_map, compute_cell_indices,
+                                                 send_grid_to_device)
 from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
 
 IMAGE_SIZE = 96
+
+# Strengths of the supervised tasks whose drawn values the tests check
+MOTION_BLUR_KERNEL_SIZE_RANGE = SUPERVISED_AUGMENTATION_STRENGTHS["motion_blur_kernel_size_range"]
+MOTION_BLUR_ANGLE_RANGE = SUPERVISED_AUGMENTATION_STRENGTHS["motion_blur_angle_range"]
+MOTION_BLUR_DIRECTION_RANGE = SUPERVISED_AUGMENTATION_STRENGTHS["motion_blur_direction_range"]
+HAZE_STRENGTH_RANGE = SUPERVISED_AUGMENTATION_STRENGTHS["haze_strength_range"]
+HAZE_AIRLIGHT_RANGE = SUPERVISED_AUGMENTATION_STRENGTHS["haze_airlight_range"]
+NOISE_STANDARD_DEVIATION = SUPERVISED_AUGMENTATION_STRENGTHS["noise_standard_deviation"]
+BLACK_OUT_CELL_PROBABILITY = SUPERVISED_AUGMENTATION_STRENGTHS["black_out_cell_probability"]
+MAXIMUM_TRANSLATION_FRACTION = SUPERVISED_AUGMENTATION_STRENGTHS["maximum_translation_fraction"]
+MINIMUM_CROP_FRACTION = SUPERVISED_AUGMENTATION_STRENGTHS["crop_side_range"][0]
+MINIMUM_ASPECT_CROP_FRACTION = SUPERVISED_AUGMENTATION_STRENGTHS["aspect_crop_side_range"][0]
+
+# Geometric types moving the boxes, masks and keypoints with the image, the others moving the image only
+TARGET_MOVING_GEOMETRIC_TYPES = [name for name in GEOMETRIC_AUGMENTATION_TYPES
+                                 if name not in IMAGE_ONLY_AUGMENTATION_TYPES]
+
+# Types of the random views of SimCLR and Barlow Twins, offered to every task, whose parameters are drawn on the host
+# and applied on the device
+VIEW_TYPES = ["random_perspective", "random_jigsaw", "random_hue", "random_gamma", "random_linear_illumination",
+              "random_plasma_shadow", "random_solarize", "random_erasing"]
 
 # Grid size of random_black_out in the configurations of the repository
 DEFAULT_BLACK_OUT_GRID_SIZE = 8
@@ -102,11 +128,11 @@ def get_bright_region_box(image: torch.Tensor) -> List[float]:
             float(row_indices.max()) + 1.0]
 
 
-@pytest.mark.parametrize(argnames="augmentation_type", argvalues=GEOMETRIC_AUGMENTATION_TYPES)
+@pytest.mark.parametrize(argnames="augmentation_type", argvalues=TARGET_MOVING_GEOMETRIC_TYPES)
 def test_geometric_augmentation_moves_boxes_with_the_image(augmentation_type: str) -> None:
     """
-    Verifies that every geometric augmentation transforms the box exactly like the image content: the returned box
-    must match the position of the rectangle drawn at the original box, for several random draws.
+    Verifies that every geometric augmentation moving the targets transforms the box exactly like the image content: the
+    returned box must match the position of the rectangle drawn at the original box, for several random draws.
 
     Args:
         augmentation_type (str): The geometric augmentation type under test.
@@ -347,7 +373,7 @@ def test_haze_blends_every_image_with_a_uniform_grey_airlight(monkeypatch: pytes
     assert drawn_values == f"strength {float(strengths[0]):.2f}, airlight {float(airlights[0]):.0f} levels"
 
     # With the largest strength and airlight, the noise drawn with the haze comes first and is veiled by it: its
-    # standard deviation of 40 levels shrinks by 1 - strength around the hazy grey 100 x (1 - strength) + strength x 255
+    # standard deviation, NOISE_STANDARD_DEVIATION, shrinks by 1 - strength around the hazy grey of the image
     monkeypatch.setattr(target=random, name="uniform", value=lambda low, high: high)
     augmenter = DataAugmenter(augmentation_configuration=build_configuration(
         enabled_types=["random_noise", "random_haze"]))
@@ -619,12 +645,13 @@ def test_independent_frames_draw_the_photometric_types_frame_by_frame() -> None:
     assert all(torch.allclose(input=sequence_frame, other=shared_sequence[0]) for sequence_frame in shared_sequence)
 
 
-@pytest.mark.parametrize(argnames="augmentation_type", argvalues=GEOMETRIC_AUGMENTATION_TYPES)
+@pytest.mark.parametrize(argnames="augmentation_type", argvalues=TARGET_MOVING_GEOMETRIC_TYPES)
 def test_geometric_augmentation_moves_masks_with_the_image(augmentation_type: str) -> None:
     """
-    Verifies that every geometric augmentation moves the segmentation mask exactly like the image: the pixels of the
-    class of a bright rectangle stay on the rectangle (exactly for the pixel permutations, within the resampling
-    tolerance otherwise), and the mask only holds class indices or the ignored index, never interpolated values.
+    Verifies that every geometric augmentation moving the targets moves the segmentation mask exactly like the image:
+    the pixels of the class of a bright rectangle stay on the rectangle (exactly for the pixel permutations, within the
+    resampling tolerance otherwise), and the mask only holds class indices or the ignored index, never interpolated
+    values.
 
     Args:
         augmentation_type (str): The geometric augmentation type under test.
@@ -684,12 +711,12 @@ def test_photometric_augmentations_leave_masks_unchanged() -> None:
     assert torch.equal(input=augmented_masks, other=masks)
 
 
-@pytest.mark.parametrize(argnames="augmentation_type", argvalues=GEOMETRIC_AUGMENTATION_TYPES)
+@pytest.mark.parametrize(argnames="augmentation_type", argvalues=TARGET_MOVING_GEOMETRIC_TYPES)
 def test_geometric_augmentation_moves_instance_masks_and_recomputes_boxes(augmentation_type: str) -> None:
     """
-    Verifies that every geometric augmentation moves the binary instance masks with the image (the mask following the
-    rectangle drawn at its object), that they stay binary uint8, and that the box of every object becomes the tight box
-    of its moved mask.
+    Verifies that every geometric augmentation moving the targets moves the binary instance masks with the image (the
+    mask following the rectangle drawn at its object), that they stay binary uint8, and that the box of every object
+    becomes the tight box of its moved mask.
 
     Args:
         augmentation_type (str): The geometric augmentation type under test.
@@ -746,8 +773,8 @@ def test_rotation_leaves_the_uncovered_corners_of_instance_masks_as_background()
 def test_instance_masks_of_removed_objects_and_images_without_objects() -> None:
     """
     Verifies that an object whose mask left the image is removed with its box, label and mask, that every geometric
-    augmentation keeps an image without objects at [0, H, W] masks, and that instance masks without boxes or with
-    class masks are refused.
+    augmentation moving the targets keeps an image without objects at [0, H, W] masks, and that instance masks without
+    boxes or with class masks are refused.
     """
     # An empty mask gives an empty box, removed together with its label and mask
     instance_masks = torch.zeros(size=(2, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)
@@ -761,7 +788,7 @@ def test_instance_masks_of_removed_objects_and_images_without_objects() -> None:
 
     # An image without objects goes through every geometric augmentation
     augmenter = DataAugmenter(augmentation_configuration=build_configuration(
-        enabled_types=GEOMETRIC_AUGMENTATION_TYPES))
+        enabled_types=TARGET_MOVING_GEOMETRIC_TYPES))
     _, boxes, labels, _, moved_masks, _, _ = augmenter.augment_batch(
         images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)), bounding_boxes=[torch.zeros(size=(0, 4))],
         labels=[torch.zeros(size=(0,), dtype=torch.int64)],
@@ -1067,12 +1094,12 @@ def test_report_lines_of_sequences_and_of_unaugmented_samples() -> None:
         "Augmentation off (data_augmentation.activated False)"]
 
 
-@pytest.mark.parametrize(argnames="augmentation_type", argvalues=GEOMETRIC_AUGMENTATION_TYPES)
+@pytest.mark.parametrize(argnames="augmentation_type", argvalues=TARGET_MOVING_GEOMETRIC_TYPES)
 def test_geometric_augmentation_moves_keypoints_with_the_image(augmentation_type: str) -> None:
     """
-    Verifies that every geometric augmentation moves the keypoints of the keypoint detection like the image content:
-    a keypoint at the centre of the bright rectangle must land at the centre of the moved rectangle, keeping its
-    visibility, and the box of its object must follow the rectangle, for several random draws.
+    Verifies that every geometric augmentation moving the targets moves the keypoints of the keypoint detection like the
+    image content: a keypoint at the centre of the bright rectangle must land at the centre of the moved rectangle,
+    keeping its visibility, and the box of its object must follow the rectangle, for several random draws.
 
     Args:
         augmentation_type (str): The geometric augmentation type under test.
@@ -1101,13 +1128,13 @@ def test_geometric_augmentation_moves_keypoints_with_the_image(augmentation_type
         assert boxes[0].shape == (1, 4)
 
 
-@pytest.mark.parametrize(argnames="augmentation_type", argvalues=GEOMETRIC_AUGMENTATION_TYPES)
+@pytest.mark.parametrize(argnames="augmentation_type", argvalues=TARGET_MOVING_GEOMETRIC_TYPES)
 def test_geometric_augmentation_moves_the_ignored_regions_with_the_keypoints(augmentation_type: str) -> None:
     """
-    Verifies that every geometric augmentation moves the ignored regions of the keypoint detection, given as the
-    binary masks of the augmenter together with the boxes and keypoints of the objects, with the image: the region
-    drawn on the rectangle follows it and stays binary uint8, the border uncovered by a zoom-out, a translation or a
-    rotation being left out of it.
+    Verifies that every geometric augmentation moving the targets moves the ignored regions of the keypoint detection,
+    given as the binary masks of the augmenter together with the boxes and keypoints of the objects, with the image: the
+    region drawn on the rectangle follows it and stays binary uint8, the border uncovered by a zoom-out, a translation
+    or a rotation being left out of it.
 
     Args:
         augmentation_type (str): The geometric augmentation type under test.
@@ -1183,3 +1210,328 @@ def test_keypoints_need_their_boxes() -> None:
         augmenter.augment_batch(images=torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)), keypoints=keypoints)
     with pytest.raises(expected_exception=ValueError, match="not supported for image sequences"):
         augmenter.augment_batch(images=torch.zeros(size=(1, 2, 3, IMAGE_SIZE, IMAGE_SIZE)), keypoints=keypoints)
+
+
+@pytest.mark.parametrize(argnames="augmentation_type", argvalues=IMAGE_ONLY_AUGMENTATION_TYPES)
+def test_image_only_types_refuse_the_targets(augmentation_type: str) -> None:
+    """
+    Verifies that the geometric types moving the image only, the perspective and the jigsaw, which no box, mask or
+    keypoint can follow, refuse the boxes, the class masks, the instance masks and the keypoints with an error naming
+    the setting to turn off (the checks of the tasks having them refuse the types beforehand), while an image given
+    alone goes through them, the report naming the type.
+
+    Args:
+        augmentation_type (str): The image-only type under test.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[augmentation_type]))
+    box = [20.0, 30.0, 50.0, 70.0]
+    images = create_rectangle_image(box=box).unsqueeze(dim=0)
+    boxes, labels = [torch.tensor(data=[box])], [torch.tensor(data=[1])]
+
+    # Every kind of target refused, with the setting to turn off
+    refusal = re.escape(f"'Data.data_augmentation.types.{augmentation_type}.activated' must be False")
+    target_arguments = [{"bounding_boxes": boxes, "labels": labels},
+                        {"masks": torch.zeros(size=(1, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.int64)},
+                        {"bounding_boxes": boxes, "labels": labels,
+                         "instance_masks": [torch.ones(size=(1, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.uint8)]},
+                        {"bounding_boxes": boxes, "labels": labels,
+                         "keypoints": [torch.tensor(data=[[[35.0, 50.0, 2.0]]])]}]
+    for arguments in target_arguments:
+        with pytest.raises(expected_exception=ValueError, match=refusal):
+            augmenter.augment_batch(images=images, **arguments)
+
+    # Images alone go through the type, which changes them for some of the draws
+    changed_images = []
+    for seed in range(5):
+        random.seed(seed)
+        augmented_images, _, _, _, _, _, reports = augmenter.augment_batch(images=images)
+        assert augmented_images.shape == images.shape
+        assert [name for name, _ in reports[0]["geometric_augmentations"]] == [augmentation_type]
+        changed_images.append(not torch.equal(input=augmented_images, other=images))
+    assert any(changed_images)
+
+
+def test_perspective_warps_the_image_like_kornia(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies random_perspective, ported from kornia's RandomPerspective: every corner of the image moves inwards by its
+    own drawn share of perspective_distortion_scale of half the image side along both axes, and the image is warped
+    into the quadrilateral of the moved corners as kornia's warp_perspective does with the transform of
+    get_perspective_transform, its uncovered border black and the largest move of a corner given in the report.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture recording the draws of the corners.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_perspective"]))
+    images = torch.rand(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE), generator=torch.Generator().manual_seed(0)) * 255.0
+
+    # Draws of a seeded generator, recorded so that the last eight, the shares of the corners, are known
+    generator, drawn_shares = random.Random(5), []
+    monkeypatch.setattr(target=random, name="random",
+                        value=lambda: drawn_shares.append(generator.random()) or drawn_shares[-1])
+    warped_images, _, _, _, _, _, reports = augmenter.augment_batch(images=images)
+
+    # The moved corners, in the order of the corners and x before y, each moving inwards
+    reach = SUPERVISED_AUGMENTATION_STRENGTHS["perspective_distortion_scale"] * IMAGE_SIZE / 2.0
+    last_pixel = IMAGE_SIZE - 1.0
+    corners = [(0.0, 0.0), (last_pixel, 0.0), (last_pixel, last_pixel), (0.0, last_pixel)]
+    inward_directions = [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)]
+    corner_shares = drawn_shares[-8:]
+    moved_corners = [(corner_x + direction_x * reach * corner_shares[2 * index],
+                      corner_y + direction_y * reach * corner_shares[2 * index + 1])
+                     for index, ((corner_x, corner_y), (direction_x, direction_y))
+                     in enumerate(zip(corners, inward_directions))]
+
+    # The warp of kornia into the same corners, and the largest move of the report
+    transform = get_perspective_transform(points_src=torch.tensor(data=[corners]),
+                                          points_dst=torch.tensor(data=[moved_corners]))
+    kornia_images = warp_perspective(src=images, M=transform, dsize=(IMAGE_SIZE, IMAGE_SIZE), mode="bilinear",
+                                     padding_mode="zeros", align_corners=True)
+    assert torch.allclose(input=warped_images, other=kornia_images, atol=0.05)
+    assert float(warped_images[0, :, 0, 0].abs().max()) == 0.0 and float(warped_images[0, :, -1, -1].abs().max()) == 0.0
+    largest_move = max(math.hypot(moved_x - corner_x, moved_y - corner_y)
+                       for (moved_x, moved_y), (corner_x, corner_y) in zip(moved_corners, corners))
+    assert reports[0]["geometric_augmentations"] == [("random_perspective",
+                                                      f"corners moved by up to {largest_move:.1f} pixels")]
+
+
+def test_jigsaw_puts_the_pieces_back_in_the_drawn_order() -> None:
+    """
+    Verifies random_jigsaw: the image cut into 2x2 pieces is put back with its pieces in the order given in the report,
+    by slicing only so that every piece keeps its pixels exactly, a sequence receives the same order on all its
+    frames, and an image whose sides are not multiples of the grid is refused.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_jigsaw"]))
+
+    # Four pieces of distinct values, in reading order
+    piece_size = IMAGE_SIZE // 2
+    pieces = [torch.full(size=(3, piece_size, piece_size), fill_value=value) for value in [10.0, 80.0, 150.0, 220.0]]
+    image = torch.cat(tensors=[torch.cat(tensors=pieces[:2], dim=2), torch.cat(tensors=pieces[2:], dim=2)], dim=1)
+
+    # Every position of the shuffled image holds the piece the report names for it
+    for seed in range(5):
+        random.seed(seed)
+        shuffled_images, _, _, _, _, _, reports = augmenter.augment_batch(images=image.unsqueeze(dim=0))
+        drawn_values = dict(reports[0]["geometric_augmentations"])["random_jigsaw"]
+        piece_order = [int(piece_index) for piece_index in drawn_values.removeprefix("pieces in the order ").split()]
+        assert sorted(piece_order) == [0, 1, 2, 3]
+        for position_index, piece_index in enumerate(piece_order):
+            row_index, column_index = divmod(position_index, 2)
+            assert torch.equal(input=shuffled_images[0, :, row_index * piece_size:(row_index + 1) * piece_size,
+                                                     column_index * piece_size:(column_index + 1) * piece_size],
+                               other=pieces[piece_index])
+
+    # The frames of a sequence share their order, and sides that are not multiples of the grid are refused
+    shuffled_sequences = augmenter.augment_batch(images=image.expand(1, 3, 3, IMAGE_SIZE, IMAGE_SIZE).clone())[0]
+    assert all(torch.equal(input=frame, other=shuffled_sequences[0, 0]) for frame in shuffled_sequences[0])
+    with pytest.raises(expected_exception=ValueError, match="multiples of 2"):
+        augmenter.augment_batch(images=torch.zeros(size=(1, 3, IMAGE_SIZE + 1, IMAGE_SIZE + 1)))
+
+
+def test_hue_turns_the_colours_keeping_their_brightness_and_saturation() -> None:
+    """
+    Verifies random_hue: the hue of every coloured pixel turns by the angle given in the report, within
+    maximum_hue_shift of the hue circle in either direction, while the largest and the smallest channel of every pixel,
+    its brightness and its saturation, are kept, and a grey image, which has no hue, is left unchanged.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_hue"]))
+    images = torch.rand(size=(4, 3, IMAGE_SIZE, IMAGE_SIZE), generator=torch.Generator().manual_seed(0)) * 255.0
+    random.seed(0)
+    turned_images, _, _, _, _, _, reports = augmenter.augment_batch(images=images)
+
+    # The brightest and the darkest channel of every pixel kept
+    assert not torch.allclose(input=turned_images, other=images, atol=1.0)
+    assert torch.allclose(input=turned_images.amax(dim=1), other=images.amax(dim=1), atol=0.1)
+    assert torch.allclose(input=turned_images.amin(dim=1), other=images.amin(dim=1), atol=0.1)
+
+    # The hue of the saturated pixels, in the HSV space of the images reversed to RGB, turned by the reported angle
+    maximum_degrees = SUPERVISED_AUGMENTATION_STRENGTHS["maximum_hue_shift"] * 360.0
+    original_hsv = rgb_to_hsv(image=images.flip(dims=(1,)) / 255.0)
+    turned_hsv = rgb_to_hsv(image=turned_images.flip(dims=(1,)) / 255.0)
+    for image_index, report in enumerate(reports):
+        drawn_values = dict(report["photometric_augmentations"][0])["random_hue"]
+        degrees = float(re.fullmatch(pattern=r"hue ([+-]\d+\.\d) degrees", string=drawn_values).group(1))
+        assert -maximum_degrees <= degrees <= maximum_degrees
+        saturated_pixels = original_hsv[image_index, 1] > 0.3
+        hue_turns = torch.remainder(input=turned_hsv[image_index, 0] - original_hsv[image_index, 0],
+                                    other=2.0 * math.pi)[saturated_pixels]
+        expected_turn = math.radians(degrees) % (2.0 * math.pi)
+        turn_errors = torch.remainder(input=hue_turns - expected_turn + math.pi, other=2.0 * math.pi) - math.pi
+        assert float(turn_errors.abs().max()) < math.radians(0.5)
+
+    # A grey image keeps its pixels
+    grey_images = torch.full(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE), fill_value=90.0)
+    assert torch.allclose(input=augmenter.augment_batch(images=grey_images)[0], other=grey_images, atol=1e-3)
+
+
+def test_gamma_raises_every_pixel_to_the_drawn_power(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies random_gamma: every pixel of the image scaled to [0, 1] is raised to the drawn gamma, the bounds of
+    gamma_range darkening the mid-tones for the highest gamma and lightening them for the lowest one, the gamma being
+    given in the report.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture drawing the bounds of the range.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_gamma"]))
+    images = torch.rand(size=(2, 3, IMAGE_SIZE, IMAGE_SIZE), generator=torch.Generator().manual_seed(0)) * 255.0
+    for bound_index, expected_change in [(0, 1.0), (1, -1.0)]:
+        gamma = SUPERVISED_AUGMENTATION_STRENGTHS["gamma_range"][bound_index]
+        monkeypatch.setattr(target=random, name="uniform", value=lambda low, high, drawn_gamma=gamma: drawn_gamma)
+        corrected_images, _, _, _, _, _, reports = augmenter.augment_batch(images=images)
+        assert torch.allclose(input=corrected_images, other=255.0 * (images / 255.0) ** gamma, atol=1e-3)
+        assert bool((torch.sign(input=corrected_images - images) != -expected_change).all())
+        assert reports[0]["photometric_augmentations"][0] == [("random_gamma", f"gamma {gamma:.2f}")]
+
+
+def test_linear_illumination_ramps_from_nothing_to_the_gain_towards_its_side(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies random_linear_illumination: a ramp growing linearly from 0 on one side of the image to the drawn gain on
+    the opposite side brightens or darkens every pixel, along the rows or the columns towards the drawn side, the
+    signed gain and the side being given in the report.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture drawing the gain, its sign and its side.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(
+        enabled_types=["random_linear_illumination"]))
+    images = torch.full(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE), fill_value=100.0)
+    gain = SUPERVISED_AUGMENTATION_STRENGTHS["linear_illumination_gain_range"][1]
+    ramp = torch.linspace(start=0.0, end=1.0, steps=IMAGE_SIZE)
+    monkeypatch.setattr(target=random, name="uniform", value=lambda low, high: high)
+
+    # A brightening ramp towards the right, then a darkening one towards the top, the sign drawn below or above 0.5
+    for direction, sign_draw, sign, expected_ramp in [("right", 0.25, 1.0, ramp.view(1, -1)),
+                                                      ("top", 0.75, -1.0, ramp.flip(dims=(0,)).view(-1, 1))]:
+        monkeypatch.setattr(target=random, name="choice", value=lambda sequence, side=direction: side)
+        monkeypatch.setattr(target=random, name="random", value=lambda drawn_sign=sign_draw: drawn_sign)
+        lit_images, _, _, _, _, _, reports = augmenter.augment_batch(images=images)
+        expected_images = (100.0 + sign * gain * expected_ramp).expand(3, IMAGE_SIZE, IMAGE_SIZE)
+        assert torch.allclose(input=lit_images[0], other=expected_images, atol=1e-3)
+        assert reports[0]["photometric_augmentations"][0] == [
+            ("random_linear_illumination", f"{sign * gain:+.0f} levels growing towards the {direction}")]
+
+
+@pytest.mark.parametrize(argnames="device_name", argvalues=["cpu"] + (["cuda"] if torch.cuda.is_available() else []))
+def test_plasma_map_is_the_diamond_square_map_of_kornia(device_name: str) -> None:
+    """
+    Verifies build_plasma_map, the fractal map of random_plasma_shadow ported from kornia's diamond_square so that it
+    is drawn on the device without any copy from the host: for the same seed it gives the map of kornia normalized to
+    [0, 1], for square and rectangular sizes and several roughnesses, on the CPU and on the GPU.
+
+    Args:
+        device_name (str): The device of the maps.
+    """
+    device = torch.device(device_name)
+    for height, width in [(3, 3), (32, 32), (96, 128), (64, 256)]:
+        for roughness in [0.1, 0.4, 0.7]:
+            torch.manual_seed(seed=7)
+            ported_map = build_plasma_map(height=height, width=width, roughness=roughness, device=device)
+            torch.manual_seed(seed=7)
+            kornia_map = diamond_square(output_size=(1, 1, height, width), roughness=roughness, device=device,
+                                        dtype=torch.float32, normalize_range=(0.0, 1.0))[0, 0]
+            assert ported_map.shape == (height, width) and ported_map.device.type == device.type
+            assert torch.allclose(input=ported_map, other=kornia_map, atol=1e-4)
+
+
+def test_plasma_shadow_darkens_the_pixels_of_the_map_below_the_quantity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Verifies random_plasma_shadow: the pixels whose fractal map lies below the drawn quantity are darkened by the drawn
+    intensity and the others are kept, the map being the one of build_plasma_map for the drawn roughness and the same
+    seed, and the intensity, the quantity and the roughness being given in the report.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture drawing the roughness, the quantity and the intensity.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_plasma_shadow"]))
+    images = torch.full(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE), fill_value=200.0)
+
+    # The roughness, the quantity and the intensity, in the order of their draws
+    drawn_values = iter([0.4, 0.5, -60.0])
+    monkeypatch.setattr(target=random, name="uniform", value=lambda low, high: next(drawn_values))
+    torch.manual_seed(seed=0)
+    shadowed_images, _, _, _, _, _, reports = augmenter.augment_batch(images=images)
+    torch.manual_seed(seed=0)
+    plasma_map = build_plasma_map(height=IMAGE_SIZE, width=IMAGE_SIZE, roughness=0.4, device=torch.device("cpu"))
+
+    shadowed_pixels = plasma_map < 0.5
+    assert 0 < int(shadowed_pixels.sum()) < IMAGE_SIZE * IMAGE_SIZE
+    assert torch.equal(input=shadowed_images[0], other=(200.0 - 60.0 * shadowed_pixels.float()).expand(3, -1, -1))
+    assert reports[0]["photometric_augmentations"][0] == [
+        ("random_plasma_shadow", "intensity -60 levels, quantity 0.50, roughness 0.40")]
+
+
+def test_solarize_inverts_the_pixels_at_or_above_the_threshold() -> None:
+    """
+    Verifies random_solarize: every pixel at or above the threshold of 127.5 levels is inverted (255 minus its value)
+    and the darker ones are kept, the threshold being given in the report.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["random_solarize"]))
+    images = torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE))
+    images[0, :, 0, :6] = torch.tensor(data=[0.0, 100.0, 127.0, 127.5, 200.0, 255.0])
+    solarized_images, _, _, _, _, _, reports = augmenter.augment_batch(images=images)
+    assert solarized_images[0, 0, 0, :6].tolist() == [0.0, 100.0, 127.0, 127.5, 55.0, 0.0]
+    assert torch.equal(input=solarized_images[0, :, 1:], other=images[0, :, 1:])
+    assert reports[0]["photometric_augmentations"][0] == [("random_solarize", "threshold 127.5 levels")]
+
+
+def test_erasing_blacks_out_one_rectangle_after_the_noise() -> None:
+    """
+    Verifies random_erasing, drawn last: every image gets one black rectangle covering a share of its area within
+    erasing_area_range, its pixels exactly at 0 although the noise drawn before it reached every pixel, the rectangle
+    of the report being the one erased and the rest of the image carrying the noise.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(
+        enabled_types=["random_noise", "random_erasing"]))
+    grey_images = torch.full(size=(3, 3, IMAGE_SIZE, IMAGE_SIZE), fill_value=128.0)
+    random.seed(0)
+    torch.manual_seed(seed=0)
+    erased_images, _, _, _, _, _, reports = augmenter.augment_batch(images=grey_images)
+
+    # The black pixels of every image are exactly those of its reported rectangle
+    minimum_area, maximum_area = SUPERVISED_AUGMENTATION_STRENGTHS["erasing_area_range"]
+    for image, report in zip(erased_images, reports):
+        photometric_augmentations = report["photometric_augmentations"][0]
+        assert [name for name, _ in photometric_augmentations] == ["random_noise", "random_erasing"]
+        width, height, top, left = (int(value) for value in re.fullmatch(
+            pattern=r"(\d+)x(\d+) pixels at top (\d+) and left (\d+) pixels",
+            string=dict(photometric_augmentations)["random_erasing"]).groups())
+        erased_pixels = torch.zeros(size=(IMAGE_SIZE, IMAGE_SIZE), dtype=torch.bool)
+        erased_pixels[top:top + height, left:left + width] = True
+        assert torch.equal(input=(image == 0.0).all(dim=0), other=erased_pixels)
+        assert minimum_area - 0.005 <= width * height / IMAGE_SIZE ** 2 <= maximum_area + 0.005
+        assert float(image[:, ~erased_pixels].std()) > NOISE_STANDARD_DEVIATION / 2.0
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The training batches are augmented on the GPU.")
+@pytest.mark.parametrize(argnames="augmentation_type", argvalues=VIEW_TYPES)
+def test_view_types_on_the_gpu_never_make_the_host_wait(augmentation_type: str) -> None:
+    """
+    Verifies the types of the views of the self-supervised methods on the GPU, where the batches are augmented: drawing
+    one never makes the host wait for the device, which the synchronization debug mode of PyTorch turns into an error,
+    and the same draws give the images and the reports of the CPU, but for the plasma shadow, whose map is drawn by the
+    generator of the device.
+
+    Args:
+        augmentation_type (str): The type under test.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[augmentation_type]))
+    images = torch.rand(size=(2, 3, IMAGE_SIZE, IMAGE_SIZE), generator=torch.Generator().manual_seed(0)) * 255.0
+    device_images = images.to(device="cuda")
+    augmenter.augment_batch(images=device_images)
+    torch.cuda.synchronize()
+
+    # The type on the GPU with every synchronization of the host turned into an error
+    random.seed(3)
+    torch.cuda.set_sync_debug_mode(debug_mode="error")
+    try:
+        gpu_images, _, _, _, _, _, gpu_reports = augmenter.augment_batch(images=device_images)
+    finally:
+        torch.cuda.set_sync_debug_mode(debug_mode="default")
+    assert gpu_images.device.type == "cuda" and gpu_images.shape == images.shape
+
+    # The same draws on the CPU give the same images and the same reports
+    if augmentation_type != "random_plasma_shadow":
+        random.seed(3)
+        cpu_images, _, _, _, _, _, cpu_reports = augmenter.augment_batch(images=images)
+        assert gpu_reports == cpu_reports
+        assert torch.allclose(input=gpu_images.cpu(), other=cpu_images, atol=1e-2)

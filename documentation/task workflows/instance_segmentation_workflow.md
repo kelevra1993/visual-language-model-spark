@@ -36,7 +36,8 @@ main()
 │   └── check_configuration()
 │       ├── common checks
 │       └── check_instance_segmentation_configuration()
-│           ├── check_detection_configuration()                  every DetectionLevels.<level> also holds a mask_head
+│           ├── check_detection_configuration()                  every DetectionLevels.<level> also holds a mask_head,
+│           │                                                    and random_perspective and random_jigsaw are off
 │           └── check_mask_head_configuration()                  mask_resolution, upsampling, pool size <= resolution,
 │                                                                convolutions, normalization, modules, mask_threshold,
 │                                                                pretrained
@@ -191,7 +192,7 @@ dict: {1: 1, 2: 2, 3: 3, ..., 19: 19, 20: 20, 'background': 0}
 ```
 
 ### Step 1.5 — `check_configuration()`
-The common checks run first, then `check_instance_segmentation_configuration()`: the checks of the detection (`check_detection_configuration()`, which also requires a `mask_head` in every detection level) and `check_mask_head_configuration()`. The RoIAlign pool size of every level must not exceed `MaskHead.mask_resolution`, since the mask head only enlarges the pooled features.
+The common checks run first, then `check_instance_segmentation_configuration()`: the checks of the detection (`check_detection_configuration()`, which also requires a `mask_head` in every detection level and refuses `random_perspective` and `random_jigsaw`, whose moves the boxes and the masks cannot follow) and `check_mask_head_configuration()`. The RoIAlign pool size of every level must not exceed `MaskHead.mask_resolution`, since the mask head only enlarges the pooled features.
 
 **Example: output with `MaskHead.upsampling: nearest` and `DetectionLevels.5.mask_head.roi_align_pool_size: 32` in the YAML**
 ```text

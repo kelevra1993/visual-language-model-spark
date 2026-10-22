@@ -1303,8 +1303,8 @@ def test_self_supervised_run_names(head_settings: Dict[str, Any], label_dictiona
     """
     Verifies the sections of a self-supervised run: the projection head (pooling, layers and the normalization of its
     hidden layers), then the method with the setting changing its loss, the classes of the k-nearest neighbour
-    evaluation, a dataset without labels, and the view augmentation, with its probabilities given per view, and the
-    grouped batches giving no token.
+    evaluation, a dataset without labels, and the data augmentation drawing the views and the grouped batches giving
+    no token.
 
     Args:
         head_settings (Dict[str, Any]): The 'ProjectionHead' settings replaced for the test.
@@ -1314,8 +1314,8 @@ def test_self_supervised_run_names(head_settings: Dict[str, Any], label_dictiona
     experiment_configuration, model_configuration = get_self_supervised_reference_configurations()
     model_configuration["ProjectionHead"].update(head_settings)
     model_configuration["Data"]["label_dictionary"] = label_dictionary
-    model_configuration["Data"]["view_augmentation"]["rotation"]["probability"] = 0.0
-    model_configuration["Data"]["view_augmentation"]["solarize"]["probability"] = [0.0, 0.5]
+    model_configuration["Data"]["data_augmentation"]["types"]["random_rotation"]["probability"] = 0.0
+    model_configuration["Data"]["data_augmentation"]["types"]["random_solarize"]["probability"] = 0.5
     model_configuration["Data"]["grouped_batches"].update({"activated": True, "batch_key": "site"})
     assert build_run_name(experiment_configuration=experiment_configuration,
                           model_configuration=model_configuration) == SELF_SUPERVISED_REFERENCE_RUN_NAME.replace(

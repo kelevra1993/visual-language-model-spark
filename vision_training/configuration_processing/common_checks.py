@@ -1,12 +1,11 @@
 """
 Checks of the configuration sections shared by every task: ExperimentConfiguration, Data, Backbone, the 'pretrained'
-settings of the transferable components and Optimization. Run first by configuration_checker.py, before the checks
-of the task sections, and reused by the task checks (e.g. refusing the sequence settings for the image tasks, the
-error images settings of the classification-like and detection tasks, the loss weights of the detection tasks, or the
-random views of the self-supervised task and of the view losses of the image classifier).
+settings of the transferable components and Optimization, after the refusal of the sections removed from the
+configuration files. Run first by configuration_checker.py, before the checks of the task sections, and reused by the
+task checks (e.g. refusing the sequence settings for the image tasks, the geometric augmentation types moving the image
+only for the tasks with boxes, masks or keypoints, the error images settings of the classification-like and detection
+tasks, or the loss weights of the detection tasks).
 """
-
-import math
 
 from typing import Any, Dict, List
 
@@ -15,7 +14,7 @@ from vision_training.configuration_processing.configuration_values import (BACKB
                                                                            check_boolean_flags, check_positive_integers,
                                                                            check_probability_value,
                                                                            get_configuration_value, is_number)
-from vision_training.data.augmentations import AUGMENTATION_TYPES
+from vision_training.data.augmentations import AUGMENTATION_TYPES, IMAGE_ONLY_AUGMENTATION_TYPES
 
 
 # Label mapping modes handled by the configuration loader
@@ -28,50 +27,16 @@ IMAGE_CHANNELS = 3
 VALID_OPTIMIZERS = ["adam", "adamw", "sgd"]
 VALID_LEARNING_RATE_SCHEDULES = ["constant", "cosine"]
 
-# Transformations of the random views drawn with a probability, under '<view augmentation>.<name>.probability', a
-# number or a list [first view, second view]
-VIEW_TRANSFORMATIONS_WITH_PROBABILITY = ["left_right_flip", "up_down_flip", "rotation", "perspective", "jigsaw",
-                                         "colour_jitter", "grayscale", "gamma", "haze", "linear_illumination",
-                                         "plasma_shadow", "gaussian_blur", "motion_blur", "solarize", "gaussian_noise",
-                                         "black_out", "random_erasing"]
-
-# Largest hue shift of the colour jitter of the random views, half a turn of the hue circle
-MAXIMUM_HUE_SHIFT = 0.5
-
-# Largest rotation angle of the random views, in degrees
-MAXIMUM_ROTATION_DEGREES = 180.0
-
-# Largest angle of the line of the motion blur of the random views in either direction, in degrees, covering every
-# direction of the blur since its direction setting weights either end of the line
-MAXIMUM_MOTION_BLUR_DEGREES = 180.0
-
-# Bound of the value added to or removed from the solarized pixels of the random views, in RGB images in [0, 1], which
-# kornia requires the additions to stay strictly within
-MAXIMUM_SOLARIZE_ADDITION = 0.5
-
-# Smallest side, in pixels, of the random resized crops of the views: kornia solves a singular system to resize a crop
-# one pixel wide or high, and rounds the drawn sides to whole pixels
-MINIMUM_CROP_SIDE = 2
-
-# Ranges [low, high] of the random views verified by check_number_range, under '<view augmentation>.<key>': the value
-# both bounds must be above, whether they may equal it, the value they must not exceed and whether they may equal it.
-# The gamma is positive, the haze share and airlight intensity, the gain of the linear illumination, the plasma shade
-# quantity and roughness and the solarization threshold lie in [0, 1], the plasma shade intensity in [-1, 0]
-# (darkening the image), the motion blur direction in [-1, 1] (-1 and 1 weighting one end of the blur line only), the
-# solarization addition strictly within (-0.5, 0.5), and the erased rectangles cover a fraction (0, 1] of the image
-# with a positive aspect ratio
-VIEW_TRANSFORMATION_RANGES = [("gamma.gamma", 0.0, False, float("inf"), True),
-                              ("haze.strength", 0.0, True, 1.0, True), ("haze.airlight", 0.0, True, 1.0, True),
-                              ("linear_illumination.gain", 0.0, True, 1.0, True),
-                              ("plasma_shadow.shade_intensity", -1.0, True, 0.0, True),
-                              ("plasma_shadow.shade_quantity", 0.0, True, 1.0, True),
-                              ("plasma_shadow.roughness", 0.0, True, 1.0, True),
-                              ("motion_blur.direction", -1.0, True, 1.0, True),
-                              ("solarize.threshold", 0.0, True, 1.0, True),
-                              ("solarize.addition", -MAXIMUM_SOLARIZE_ADDITION, False, MAXIMUM_SOLARIZE_ADDITION,
-                               False),
-                              ("random_erasing.scale", 0.0, False, 1.0, True),
-                              ("random_erasing.aspect_ratio", 0.0, False, float("inf"), True)]
+# Sections removed from the configuration files, refused with what replaced them so that the settings of a file written
+# before are never silently ignored: the random views of the self-supervised task, now drawn by the types of
+# 'Data.data_augmentation', and the view losses of the image classifier
+REMOVED_SECTIONS = {"Data.view_augmentation": "the self-supervised task draws its two views with the types of "
+                                              "'Data.data_augmentation', whose strengths are hard-coded "
+                                              "(SELF_SUPERVISED_AUGMENTATION_STRENGTHS of "
+                                              "vision_training/data/augmentations.py), so its probabilities go to "
+                                              "those types",
+                    "ClassificationHead.view_losses": "the image classifier no longer has view losses (Barlow Twins "
+                                                      "and the contrastive loss on a second view of every image)"}
 
 # Name of the component of every section whose 'pretrained' settings initialise it with the one of another run, used
 # in the messages
@@ -80,6 +45,30 @@ PRETRAINED_COMPONENT_NAMES = {"Backbone": "backbone", "TemporalModel": "temporal
                               "SegmentationDecoder": "segmentation decoder", "RegionProposal": "region proposal heads",
                               "Detector": "detection heads", "MaskHead": "mask heads",
                               "HRNet": "high resolution network", "KeypointHead": "keypoint head"}
+
+
+def check_removed_sections(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Refuses the sections of REMOVED_SECTIONS, removed from the configuration files, naming what replaced each of them.
+    Run by configuration_checker.py before every other check, since a file written before the removal also lacks the
+    keys added with it, and the first missing key stops the other checks without saying why.
+
+    Args:
+        model_configuration (Dict[str, Any]): The processed model sections.
+
+    Returns:
+        List[str]: The description of every removed section found.
+    """
+    errors = []
+    for key_path, replacement in REMOVED_SECTIONS.items():
+        # Walk down to the section holding the removed key, a missing section holding nothing
+        *parent_keys, removed_key = key_path.split(".")
+        section = model_configuration
+        for parent_key in parent_keys:
+            section = section.get(parent_key) if isinstance(section, dict) else None
+        if isinstance(section, dict) and removed_key in section:
+            errors.append(f"'{key_path}' was removed: {replacement}. Delete it from the configuration file.")
+    return errors
 
 
 def check_experiment_configuration(experiment_configuration: Dict[str, Any], valid_tasks: List[str]) -> List[str]:
@@ -255,6 +244,28 @@ def check_image_task_sequence_settings(model_configuration: Dict[str, Any]) -> L
                                key_path="Backbone.normalization.feature_map_normalization") == "sequence":
         errors.append("'Backbone.normalization.feature_map_normalization' cannot be 'sequence' for this task, whose "
                       "samples have no frames.")
+    return errors
+
+
+def check_image_only_augmentation_types(model_configuration: Dict[str, Any]) -> List[str]:
+    """
+    Refuses the geometric augmentation types moving the image only (IMAGE_ONLY_AUGMENTATION_TYPES, the perspective and
+    the jigsaw) for the tasks whose targets move with the image, the object detection, the instance segmentation, the
+    semantic segmentation and the keypoint detection: DataAugmenter cannot move their boxes, masks or keypoints with
+    these types and stops at the first training batch given to one of them.
+
+    Args:
+        model_configuration (Dict[str, Any]): The model configuration containing the 'Data' section.
+
+    Returns:
+        List[str]: The description of every activated type moving the image only.
+    """
+    errors = []
+    for augmentation_type in IMAGE_ONLY_AUGMENTATION_TYPES:
+        key_path = f"Data.data_augmentation.types.{augmentation_type}.activated"
+        if get_configuration_value(configuration=model_configuration, key_path=key_path) is True:
+            errors.append(f"'{key_path}' must be False for this task: {augmentation_type} moves the image only, and "
+                          f"its bounding boxes, masks or keypoints cannot follow it.")
     return errors
 
 
@@ -542,41 +553,11 @@ def check_loss_weights_configuration(model_configuration: Dict[str, Any], loss_n
     return errors
 
 
-def check_number_range(value: Any, key_path: str, minimum_value: float, maximum_value: float,
-                       minimum_included: bool = False, maximum_included: bool = True) -> List[str]:
-    """
-    Verifies that a [minimum, maximum] range of the random views (crop scale, aspect ratio, blur sigma, haze strength,
-    solarization threshold...) is a list of two numbers in increasing order, above the minimum value (strictly unless
-    the minimum is included) and below the maximum value (strictly unless the maximum is included).
-
-    Args:
-        value (Any): The range read from the configuration.
-        key_path (str): The dotted key path of the range, used in the error message.
-        minimum_value (float): The value both bounds must be above.
-        maximum_value (float): The value both bounds must be below.
-        minimum_included (bool): Whether the bounds may equal the minimum value. Defaults to False.
-        maximum_included (bool): Whether the bounds may equal the maximum value. Defaults to True.
-
-    Returns:
-        List[str]: A single error description if the range is invalid, otherwise an empty list.
-    """
-    lower_comparison = "<=" if minimum_included else "<"
-    upper_comparison = "<=" if maximum_included else "<"
-    if not isinstance(value, list) or len(value) != 2 or not all(is_number(value=bound) for bound in value) or \
-            not (minimum_value <= value[0] if minimum_included else minimum_value < value[0]) or \
-            not value[0] <= value[1] or \
-            not (value[1] <= maximum_value if maximum_included else value[1] < maximum_value):
-        return [f"'{key_path}' must be a list of two numbers [low, high] with {minimum_value:g} {lower_comparison} low "
-                f"<= high {upper_comparison} {maximum_value:g}, got {value!r}."]
-    return []
-
-
 def check_black_out_grid_size(grid_size: Any, key_path: str, image_size: Any) -> List[str]:
     """
-    Verifies the number of rows and columns of the grid of a black-out, the random_black_out type of the data
-    augmentation of every task ('Data.data_augmentation.types.random_black_out.grid_size') or the black-out of the
-    random views ('<view augmentation>.black_out.grid_size'): an integer of at least 1, and at most the side of the
-    network input, so that every cell holds at least one pixel.
+    Verifies the number of rows and columns of the grid of the random_black_out type of the data augmentation of every
+    task ('Data.data_augmentation.types.random_black_out.grid_size'): an integer of at least 1, and at most the side of
+    the network input, so that every cell holds at least one pixel.
 
     Args:
         grid_size (Any): The grid size read from the configuration.
@@ -593,165 +574,3 @@ def check_black_out_grid_size(grid_size: Any, key_path: str, image_size: Any) ->
         return [f"'{key_path}' must be an integer within [1, 'Data.image_settings.size' ({image_size!r})], got "
                 f"{grid_size!r}: a grid finer than the image would hide cells holding no pixel."]
     return []
-
-
-def check_crop_sides(scale: List[float], aspect_ratio: List[float], image_size: int, key_prefix: str) -> List[str]:
-    """
-    Verifies that every crop the random resized crop of the views can draw keeps sides of at least MINIMUM_CROP_SIDE
-    pixels at the network input size, so that the first views of a training do not stop on the singular system kornia
-    solves to resize a crop one pixel wide or high. kornia draws a crop of an area within scale of the image and of a
-    width / height ratio within aspect_ratio, of width sqrt(area x ratio) and height sqrt(area / ratio) rounded to
-    whole pixels, and falls back to a centre crop of ratio aspect_ratio[0] spanning the image when ten draws give no
-    crop inside it. Called by check_view_augmentation_configuration once both ranges are valid.
-
-    Args:
-        scale (List[float]): The valid range of the area of the crop, as a fraction of the image area.
-        aspect_ratio (List[float]): The valid range of the width / height ratio of the crop.
-        image_size (int): The side of the square network input, 'Data.image_settings.size'.
-        key_prefix (str): The dotted key path of the checked view section, e.g. "Data.view_augmentation".
-
-    Returns:
-        List[str]: A single error description if a crop can be too thin, otherwise an empty list.
-    """
-    # Thinnest drawn crop, of the smallest area and the most extreme ratios, and the side of the centre crop fallback
-    smallest_area = scale[0] * image_size ** 2
-    smallest_drawn_side = min(math.sqrt(smallest_area * aspect_ratio[0]), math.sqrt(smallest_area / aspect_ratio[1]))
-    fallback_side = image_size * min(aspect_ratio[0], 1.0 / aspect_ratio[0])
-    smallest_side = min(smallest_drawn_side, fallback_side)
-
-    # A side rounded up to the minimum is kept, the rounding taking half a pixel at most
-    if smallest_side < MINIMUM_CROP_SIDE - 0.5:
-        return [f"'{key_prefix}.random_resized_crop' must give crops of at least {MINIMUM_CROP_SIDE} pixels on each "
-                f"side at 'Data.image_settings.size' ({image_size}), got sides down to {smallest_side:.1f} pixel with "
-                f"scale {scale} and aspect_ratio {aspect_ratio}: kornia cannot resize a crop one pixel wide or high."]
-    return []
-
-
-def check_view_augmentation_configuration(model_configuration: Dict[str, Any], key_prefix: str) -> List[str]:
-    """
-    Verifies a section of random views drawn by the ViewAugmenter (vision_training/data/view_augmentations.py): the two
-    views of every image of the self-supervised task ('Data.view_augmentation'), or the second view of every image of
-    the view losses of the image classifier ('ClassificationHead.view_losses.view_augmentation'). It checks the area and
-    aspect ratio ranges of the random resized crop, the probability of every other transformation (a number, or a list
-    of one per view), the largest rotation angle, the perspective distortion, the jigsaw grid, the strengths of the
-    colour jitter, the kernel size and sigma range of the Gaussian blur, the kernel sizes and largest angle of the
-    motion blur, the standard deviation of the Gaussian noise, the grid size of the black-out and the ranges of
-    VIEW_TRANSFORMATION_RANGES, so that kornia receives valid parameters.
-
-    Args:
-        model_configuration (Dict[str, Any]): The processed model sections.
-        key_prefix (str): The dotted key path of the checked section, e.g. "Data.view_augmentation".
-
-    Returns:
-        List[str]: The description of every inconsistency found.
-    """
-    errors = []
-    image_size = get_configuration_value(configuration=model_configuration, key_path="Data.image_settings.size")
-
-    # Area of the crop as a fraction of the image, and aspect ratio of the crop
-    scale = get_configuration_value(configuration=model_configuration,
-                                    key_path=f"{key_prefix}.random_resized_crop.scale")
-    aspect_ratio = get_configuration_value(configuration=model_configuration,
-                                           key_path=f"{key_prefix}.random_resized_crop.aspect_ratio")
-    crop_errors = check_number_range(value=scale, key_path=f"{key_prefix}.random_resized_crop.scale",
-                                     minimum_value=0.0, maximum_value=1.0)
-    crop_errors += check_number_range(value=aspect_ratio, key_path=f"{key_prefix}.random_resized_crop.aspect_ratio",
-                                      minimum_value=0.0, maximum_value=float("inf"))
-    errors += crop_errors
-
-    # Sides of the thinnest crop at the network input size, once both ranges and the size are valid
-    if not crop_errors and is_number(value=image_size) and image_size > 0:
-        errors += check_crop_sides(scale=scale, aspect_ratio=aspect_ratio, image_size=image_size,
-                                   key_prefix=key_prefix)
-
-    # Probability of every transformation applied to a part of the views, the same for both views or one per view
-    for transformation_name in VIEW_TRANSFORMATIONS_WITH_PROBABILITY:
-        key_path = f"{key_prefix}.{transformation_name}.probability"
-        errors += check_probability_value(value=get_configuration_value(configuration=model_configuration,
-                                                                        key_path=key_path), key_path=key_path,
-                                          per_view=True)
-
-    # Largest rotation angle, in either direction
-    maximum_degrees = get_configuration_value(configuration=model_configuration,
-                                              key_path=f"{key_prefix}.rotation.maximum_degrees")
-    if not is_number(value=maximum_degrees) or not 0.0 <= maximum_degrees <= MAXIMUM_ROTATION_DEGREES:
-        errors.append(f"'{key_prefix}.rotation.maximum_degrees' must be a number within [0, "
-                      f"{MAXIMUM_ROTATION_DEGREES:g}], got {maximum_degrees!r}.")
-
-    # Distortion of the perspective, the largest move of a corner as a fraction of half the image side
-    distortion_scale = get_configuration_value(configuration=model_configuration,
-                                               key_path=f"{key_prefix}.perspective.distortion_scale")
-    if not is_number(value=distortion_scale) or not 0.0 <= distortion_scale <= 1.0:
-        errors.append(f"'{key_prefix}.perspective.distortion_scale' must be a number within [0, 1], "
-                      f"got {distortion_scale!r}.")
-
-    # Jigsaw grid, [rows, columns] of pieces dividing the side of the network input, with at least two pieces since
-    # kornia otherwise keeps drawing a permutation that differs from the identity forever
-    grid = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.jigsaw.grid")
-    if not isinstance(grid, list) or len(grid) != 2 or \
-            any(isinstance(count, bool) or not isinstance(count, int) or count < 1 for count in grid) or \
-            grid[0] * grid[1] < 2 or (is_number(value=image_size) and any(image_size % count != 0 for count in grid)):
-        errors.append(f"'{key_prefix}.jigsaw.grid' must be a list of two integers [rows, columns] >= 1, giving at "
-                      f"least two pieces, that divide 'Data.image_settings.size' ({image_size!r}), got {grid!r}.")
-
-    # Strengths of the colour jitter, the hue shift being at most half a turn
-    for strength_name in ["brightness", "contrast", "saturation"]:
-        key_path = f"{key_prefix}.colour_jitter.{strength_name}"
-        strength = get_configuration_value(configuration=model_configuration, key_path=key_path)
-        if not is_number(value=strength) or strength < 0.0:
-            errors.append(f"'{key_path}' must be a number >= 0, got {strength!r}.")
-    hue = get_configuration_value(configuration=model_configuration, key_path=f"{key_prefix}.colour_jitter.hue")
-    if not is_number(value=hue) or not 0.0 <= hue <= MAXIMUM_HUE_SHIFT:
-        errors.append(f"'{key_prefix}.colour_jitter.hue' must be a number within [0, {MAXIMUM_HUE_SHIFT:g}], "
-                      f"got {hue!r}.")
-
-    # Odd kernel of the Gaussian blur, centred on its pixel, and its range of sigmas
-    kernel_size = get_configuration_value(configuration=model_configuration,
-                                          key_path=f"{key_prefix}.gaussian_blur.kernel_size")
-    if isinstance(kernel_size, bool) or not isinstance(kernel_size, int) or kernel_size < 3 or kernel_size % 2 == 0:
-        errors.append(f"'{key_prefix}.gaussian_blur.kernel_size' must be an odd integer >= 3, got {kernel_size!r}.")
-    elif is_number(value=image_size) and kernel_size // 2 >= image_size:
-        # The reflection padding of half the kernel must be shorter than the side of the views
-        errors.append(f"'{key_prefix}.gaussian_blur.kernel_size' ({kernel_size}) must be below twice "
-                      f"'Data.image_settings.size' ({image_size}): the blur pads the views by half its kernel on every "
-                      f"side by reflection, which needs more pixels than the side of the views.")
-    errors += check_number_range(value=get_configuration_value(configuration=model_configuration,
-                                                               key_path=f"{key_prefix}.gaussian_blur.sigma"),
-                                 key_path=f"{key_prefix}.gaussian_blur.sigma", minimum_value=0.0,
-                                 maximum_value=float("inf"))
-
-    # Odd kernel sizes of the motion blur, drawn between the two, and the largest angle of its line in either direction
-    motion_kernel_sizes = get_configuration_value(configuration=model_configuration,
-                                                  key_path=f"{key_prefix}.motion_blur.kernel_size")
-    if not isinstance(motion_kernel_sizes, list) or len(motion_kernel_sizes) != 2 or \
-            any(isinstance(size, bool) or not isinstance(size, int) or size < 3 or size % 2 == 0
-                for size in motion_kernel_sizes) or motion_kernel_sizes[0] > motion_kernel_sizes[1]:
-        errors.append(f"'{key_prefix}.motion_blur.kernel_size' must be a list of two odd integers [low, high] with "
-                      f"3 <= low <= high, got {motion_kernel_sizes!r}.")
-    maximum_angle = get_configuration_value(configuration=model_configuration,
-                                            key_path=f"{key_prefix}.motion_blur.maximum_angle")
-    if not is_number(value=maximum_angle) or not 0.0 <= maximum_angle <= MAXIMUM_MOTION_BLUR_DEGREES:
-        errors.append(f"'{key_prefix}.motion_blur.maximum_angle' must be a number within [0, "
-                      f"{MAXIMUM_MOTION_BLUR_DEGREES:g}], got {maximum_angle!r}.")
-
-    # Standard deviation of the Gaussian noise, in RGB images in [0, 1]
-    standard_deviation = get_configuration_value(configuration=model_configuration,
-                                                 key_path=f"{key_prefix}.gaussian_noise.standard_deviation")
-    if not is_number(value=standard_deviation) or standard_deviation < 0.0:
-        errors.append(f"'{key_prefix}.gaussian_noise.standard_deviation' must be a number >= 0, "
-                      f"got {standard_deviation!r}.")
-
-    # Rows and columns of the grid of the black-out, within the side of the network input
-    errors += check_black_out_grid_size(grid_size=get_configuration_value(configuration=model_configuration,
-                                                                          key_path=f"{key_prefix}.black_out.grid_size"),
-                                        key_path=f"{key_prefix}.black_out.grid_size", image_size=image_size)
-
-    # Ranges of the gamma, the haze, the linear illumination, the plasma shadow, the motion blur direction, the
-    # solarization and the random erasing
-    for range_key, minimum_value, minimum_included, maximum_value, maximum_included in VIEW_TRANSFORMATION_RANGES:
-        key_path = f"{key_prefix}.{range_key}"
-        errors += check_number_range(value=get_configuration_value(configuration=model_configuration,
-                                                                   key_path=key_path),
-                                     key_path=key_path, minimum_value=minimum_value, maximum_value=maximum_value,
-                                     minimum_included=minimum_included, maximum_included=maximum_included)
-    return errors

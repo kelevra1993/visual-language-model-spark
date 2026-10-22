@@ -2,13 +2,11 @@
 Tests of the information panels written by the trainers for the input viewer ('view_input_images'), the viewer itself
 being replaced by a recorder of its arguments: the object detection panels count the objects per class and name the
 objects removed by the augmentations, the panels of a pair of sequences give the real frames and the shuffled order of
-every member, the self-supervised panels describe the transformations drawn for each view, the self-supervised batch
-mosaic describes every batch of the grouped batch sampler (grouped or random) and is not shown for random batches, the
-classification panels
-add the second view of the view losses drawn from the image before its augmentation, and the keypoint
-panels count the objects per class and their keypoints by visibility, the flipped training image moving the keypoints
-without renaming them. The trainers are created without their datasets, only the attributes read by
-show_input_samples being set.
+every member, the self-supervised panels describe the augmentations drawn for each view, the solarization reaching the
+second view only, the self-supervised batch mosaic describes every batch of the grouped batch sampler (grouped or
+random) and is not shown for random batches, and the keypoint panels count the objects per class and their keypoints
+by visibility, the flipped training image moving the keypoints without renaming them. The trainers are created without
+their datasets, only the attributes read by show_input_samples being set.
 """
 
 import random
@@ -18,19 +16,15 @@ import torch
 from pathlib import Path
 from typing import Any, Dict, List
 
-import vision_training.trainers.classification_trainer as classification_trainer_module
 import vision_training.trainers.detection_trainer as detection_trainer_module
 import vision_training.trainers.keypoint_trainer as keypoint_trainer_module
 import vision_training.trainers.self_supervised_trainer as self_supervised_trainer_module
 import vision_training.trainers.sequence_classification_trainer as sequence_classification_trainer_module
 from tests.data.classification.test_classification_dataset import write_split
 from tests.data.test_grouped_batch_sampler import SITE_CAMERA_IMAGES
-from tests.data.test_view_augmentations import build_identity_configuration
-from vision_training.data.augmentations import AUGMENTATION_TYPES, MAXIMUM_TRANSLATION_FRACTION, DataAugmenter
+from vision_training.data.augmentations import AUGMENTATION_TYPES, SUPERVISED_AUGMENTATION_STRENGTHS, DataAugmenter
 from vision_training.data.loaders import get_classification_dataloaders
-from vision_training.data.view_augmentations import ViewAugmenter
 from vision_training.utilities.visualization import KEYPOINT_SIDE_COLOURS, build_class_colours
-from vision_training.trainers.classification_trainer import ClassificationTrainer
 from vision_training.trainers.detection_trainer import DetectionTrainer
 from vision_training.trainers.keypoint_trainer import KeypointTrainer
 from vision_training.trainers.self_supervised_trainer import SelfSupervisedTrainer
@@ -66,7 +60,8 @@ class ViewerRecorder:
         return True
 
 
-def build_augmenter(enabled_types: List[str], shuffle_probability: float = 0.0) -> DataAugmenter:
+def build_augmenter(enabled_types: List[str], shuffle_probability: float = 0.0,
+                    self_supervised: bool = False) -> DataAugmenter:
     """
     Builds an augmenter applying exactly the given types to every sample, and shuffling the frames of every sequence
     with the given probability.
@@ -75,6 +70,8 @@ def build_augmenter(enabled_types: List[str], shuffle_probability: float = 0.0) 
         enabled_types (List[str]): The augmentation types to activate, each with probability 1.
         shuffle_probability (float): The probability of shuffling the frames of a sequence, 0 turning the shuffling
             off. Defaults to 0.0.
+        self_supervised (bool): Whether the augmenter draws the views of the self-supervised task with the
+            self-supervised strengths. Defaults to False.
 
     Returns:
         DataAugmenter: The augmenter.
@@ -84,7 +81,7 @@ def build_augmenter(enabled_types: List[str], shuffle_probability: float = 0.0) 
     return DataAugmenter(augmentation_configuration={
         "activated": True, "probability": 1.0, "independent_frames": False,
         "shuffle_frames": {"activated": shuffle_probability > 0.0, "probability": shuffle_probability},
-        "types": types})
+        "types": types}, self_supervised=self_supervised)
 
 
 def test_detection_panels_count_the_objects_and_name_the_removed_ones(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,7 +100,7 @@ def test_detection_panels_count_the_objects_and_name_the_removed_ones(monkeypatc
     monkeypatch.setattr(target=detection_trainer_module, name="view_input_data", value=viewer_recorder)
     monkeypatch.setattr(target=random, name="choice", value=lambda sequence: "x")
     monkeypatch.setattr(target=random, name="randint", value=lambda low, high: high)
-    maximum_shift = int(IMAGE_SIZE * MAXIMUM_TRANSLATION_FRACTION)
+    maximum_shift = int(IMAGE_SIZE * SUPERVISED_AUGMENTATION_STRENGTHS["maximum_translation_fraction"])
 
     # Two objects in both images, the dog at the right border leaving the training image
     batch = {"images": torch.zeros(size=(1, 3, IMAGE_SIZE, IMAGE_SIZE)),
@@ -161,18 +158,18 @@ def test_pair_panels_give_the_real_frames_and_the_shuffled_order(monkeypatch: py
                              training_batch["images"][0, [4, 5], 0, 0, 0].to(dtype=torch.int64).tolist()]
 
 
-def test_self_supervised_panels_describe_the_transformations_of_each_view(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_self_supervised_panels_describe_the_augmentations_of_each_view(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    Verifies the panels of the self-supervised input viewer: both views of the training image are written with the
-    class of the image and the transformations drawn for them, the whole image being cropped when every other
-    transformation is turned off.
+    Verifies the panels of the self-supervised input viewer: both views of the training image, drawn by the data
+    augmentation with the self-supervised strengths, are written with the class of the image and the augmentations
+    drawn for them, the flip reaching both views and the solarization, drawn for the second view only, the second one.
 
     Args:
         monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the viewer.
     """
     trainer = SelfSupervisedTrainer.__new__(SelfSupervisedTrainer)
-    trainer.view_augmenter = ViewAugmenter(view_augmentation_configuration=build_identity_configuration(),
-                                           image_size=32)
+    trainer.data_augmenter = build_augmenter(enabled_types=["random_left_right_flip", "random_solarize"],
+                                             self_supervised=True)
     trainer.class_names, trainer.input_image_size = ["circle", "square"], 32
     viewer_recorder = ViewerRecorder()
     monkeypatch.setattr(target=self_supervised_trainer_module, name="view_input_data", value=viewer_recorder)
@@ -180,10 +177,17 @@ def test_self_supervised_panels_describe_the_transformations_of_each_view(monkey
     batch = {"images": torch.rand(size=(2, 3, 32, 32)) * 255.0, "labels": torch.tensor(data=[0, 1])}
     assert trainer.show_input_samples(training_batch=batch, validation_batch=batch, sample_index=1)
 
+    # Both views flipped and the second one solarized too, each panel listing the augmentations of its view
     assert viewer_recorder.arguments["window_titles"] == ["View 1", "View 2"]
-    assert viewer_recorder.arguments["panel_lines"] == [
-        ["Class : square", "", "View transformations",
-         "  random_resized_crop : 32x32 pixels at x 0, y 0 (100 % of the area)"]] * 2
+    panel_start = ["Class : square", "", "View augmentations", "Geometric :", "  random_left_right_flip",
+                   "Photometric :"]
+    assert viewer_recorder.arguments["panel_lines"] == [panel_start + ["  none"],
+                                                        panel_start + ["  random_solarize : threshold 127.5 levels"]]
+    flipped_image = batch["images"][1].flip(dims=(2,))
+    solarized_image = torch.where(condition=flipped_image < 127.5, input=flipped_image, other=255.0 - flipped_image)
+    first_view, second_view = viewer_recorder.arguments["images"]
+    assert torch.equal(input=first_view, other=flipped_image)
+    assert torch.equal(input=second_view, other=solarized_image)
 
 
 def build_grouped_training_loader(tmp_path: Path, activated: bool) -> torch.utils.data.DataLoader:
@@ -284,40 +288,6 @@ def test_self_supervised_batch_mosaic_describes_the_grouped_batches(tmp_path: Pa
     trainer.train_dataloader = build_grouped_training_loader(tmp_path=tmp_path / "random", activated=False)
     assert not trainer.show_input_batch(training_batch=next(iter(trainer.train_dataloader)), batch_index=0)
     assert mosaic_recorder.arguments == {}
-
-
-def test_classification_panels_show_the_second_view_of_the_view_losses(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    Verifies the panels of the classification input viewer with a view loss on: a third window shows the second view
-    of the training image with the transformations drawn for it, drawn from the image before the data augmentation, so
-    that a training image flipped by the augmentation keeps an unflipped second view when the view crops the whole
-    image without any other transformation.
-
-    Args:
-        monkeypatch (pytest.MonkeyPatch): The pytest fixture replacing the viewer.
-    """
-    trainer = ClassificationTrainer.__new__(ClassificationTrainer)
-    trainer.data_augmenter = build_augmenter(enabled_types=["random_left_right_flip"])
-    trainer.view_losses_activated = True
-    trainer.view_augmenter = ViewAugmenter(view_augmentation_configuration=build_identity_configuration(),
-                                           image_size=32)
-    trainer.class_names, trainer.output_mode, trainer.input_image_size = ["circle", "square"], "multi_class", 32
-    viewer_recorder = ViewerRecorder()
-    monkeypatch.setattr(target=classification_trainer_module, name="view_input_data", value=viewer_recorder)
-
-    # A training batch flipped by the data augmentation, the images being kept before it for the second views
-    batch = {"images": torch.rand(size=(2, 3, 32, 32), generator=torch.Generator().manual_seed(0)) * 255.0,
-             "labels": torch.tensor(data=[0, 1])}
-    training_batch = trainer.augment_batch(batch=batch)
-    assert torch.equal(input=training_batch["images"][1], other=batch["images"][1].flip(dims=(2,)))
-    assert trainer.show_input_samples(training_batch=training_batch, validation_batch=batch, sample_index=1)
-
-    # The second view of the unflipped image in a third window, with the class and the transformations of the view
-    assert viewer_recorder.arguments["window_titles"] == ["Training", "Validation", "Second View"]
-    assert viewer_recorder.arguments["panel_lines"][2] == [
-        "Class : square", "", "View transformations",
-        "  random_resized_crop : 32x32 pixels at x 0, y 0 (100 % of the area)"]
-    assert torch.allclose(input=viewer_recorder.arguments["images"][2], other=batch["images"][1], atol=1e-2)
 
 
 def test_keypoint_panels_count_the_keypoints_of_the_flipped_image(monkeypatch: pytest.MonkeyPatch) -> None:

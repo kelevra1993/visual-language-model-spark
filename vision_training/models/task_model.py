@@ -53,7 +53,7 @@ class TaskModel(nn.Module, ABC):
         """
         Prints the architecture summary of the model at the start of a training run, so that the user can check the
         feature map sizes and head structures before the training starts, with the auxiliary heads the trainer of the
-        task trains with the model (e.g. the projectors of the view losses of the image classifier).
+        task trains with the model (none for the current tasks).
 
         Args:
             auxiliary_heads (Optional[Dict[str, nn.Module]]): The auxiliary heads of the trainer keyed by name, built
@@ -141,7 +141,7 @@ class TaskModel(nn.Module, ABC):
 
         Args:
             auxiliary_heads (Optional[Dict[str, nn.Module]]): The auxiliary heads of the trainer keyed by name (e.g.
-                'barlow_twins_projector', shown as 'Barlow Twins Projector'), empty or None without any.
+                'auxiliary_projector', shown as 'Auxiliary Projector'), empty or None without any.
         """
         console = Console(width=60)
 
