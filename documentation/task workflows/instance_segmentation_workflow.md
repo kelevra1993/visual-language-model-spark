@@ -153,9 +153,10 @@ The model sections are those of the object detection (see `object_detection_work
 
 **Example: the sections and the mask settings**
 ```text
-experiment keys: task, experiment_folder, train_data_folder, validation_data_folder, test_data_folder, batch_size, information_dump,
-                 weight_saving_iterations, intermediate_weight_saving_iterations, number_iterations, validation_iteration_ratio,
-                 evaluation, tracking, learning_rate, resume_training, diagnosis_modes, tracking_root
+experiment keys: task, experiment_folder, run_name_suffix, train_data_folder, validation_data_folder, test_data_folder, batch_size,
+                 information_dump, weight_saving_iterations, intermediate_weight_saving_iterations, number_iterations,
+                 validation_iteration_ratio, evaluation, tracking, learning_rate, resume_training, allow_data_change_on_resume,
+                 diagnosis_modes, tracking_root, run_name
 model keys:      Optimization, Data, Backbone, DetectionLevels, RegionProposal, Detector, MaskHead
 evaluation:      {'per_class_report': True, 'number_sample_images': 8, 'score_threshold': 0.05, 'target_precision': 0.99,
                   'error_dumps': {'activated': False, 'maximum_per_class_pair': 20}}

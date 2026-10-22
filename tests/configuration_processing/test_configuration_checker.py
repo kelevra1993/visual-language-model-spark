@@ -3,7 +3,8 @@ Tests of the configuration checks of vision_training/configuration_processing/co
 load_experiment_configuration: the configurations shipped for every task are accepted, while inconsistent settings
 (detection, classification, sequence, comparison, segmentation, self-supervised, keypoint detection, normalization,
 pretrained transfers with the initialisation of their new classes, optimization) and missing keys are rejected with
-errors naming their path. The augmentation types moving the image only are refused for the tasks with boxes, masks or
+errors naming their path, the run name suffix being accepted null or made of letters, digits, '-' and '.' only. The
+augmentation types moving the image only are refused for the tasks with boxes, masks or
 keypoints and accepted for the others, and a section removed from the repository is refused alone, before the other
 checks. The keypoint definitions injected by the loader from the training labels are checked too, and so is the label
 dictionary saved with a run, taken by the configuration of its folder.
@@ -539,6 +540,58 @@ def test_missing_configuration_key_is_reported_with_its_path(tmp_path: Path, cap
         load_experiment_configuration(configuration_path=configuration_path)
 
     assert "Missing configuration key 'Detector.modules.residual_nets'." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(argnames=("run_name_suffix", "accepted"),
+                         argvalues=[(None, True), ("v1", True), ("batch-384.v2", True), ("", False),
+                                    ("v1_batch-384", False), ("runs/v1", False), ("v 1", False), (12, False),
+                                    (True, False)])
+def test_run_name_suffix_is_checked(tmp_path: Path, capsys: pytest.CaptureFixture, run_name_suffix: Any,
+                                    accepted: bool) -> None:
+    """
+    Verifies that the run name suffix is null or a non-empty string of letters, digits, '-' and '.', any other value
+    being refused with its key, so that the suffix always stays one section of the run name ('_' separating the
+    sections) and inside the experiment folder.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        run_name_suffix (Any): The run name suffix written in the configuration.
+        accepted (bool): Whether the configuration must be accepted.
+    """
+    configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
+    configuration["ExperimentConfiguration"]["run_name_suffix"] = run_name_suffix
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(yaml.safe_dump(configuration))
+
+    # An accepted suffix is loaded as written, a refused one stops the loading with the message of its key
+    if accepted:
+        experiment_configuration, _ = load_experiment_configuration(configuration_path=configuration_path)
+        assert experiment_configuration["run_name_suffix"] == run_name_suffix
+    else:
+        with pytest.raises(expected_exception=SystemExit):
+            load_experiment_configuration(configuration_path=configuration_path)
+        assert (f"'ExperimentConfiguration.run_name_suffix' must be null or a non-empty string of letters, digits, "
+                f"'-' and '.', got {run_name_suffix!r}.") in capsys.readouterr().out
+
+
+def test_configuration_without_run_name_suffix_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a configuration written before the run name suffix, without the key, is refused with its path
+    instead of being named as if the suffix were null.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+    """
+    configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
+    del configuration["ExperimentConfiguration"]["run_name_suffix"]
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(yaml.safe_dump(configuration))
+
+    with pytest.raises(expected_exception=SystemExit):
+        load_experiment_configuration(configuration_path=configuration_path)
+    assert "Missing configuration key 'ExperimentConfiguration.run_name_suffix'." in capsys.readouterr().out
 
 
 def empty_detection_levels(configuration: Dict[str, Any]) -> None:

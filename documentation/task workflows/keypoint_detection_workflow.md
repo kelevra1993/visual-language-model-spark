@@ -162,10 +162,10 @@ The `evaluation` section gives the OKS sigmas: `default_keypoint_sigma`, and `ke
 
 **Example: the sections and the keypoint settings**
 ```text
-experiment keys: ['task', 'experiment_folder', 'train_data_folder', 'validation_data_folder', 'test_data_folder', 'batch_size',
-                  'information_dump', 'weight_saving_iterations', 'intermediate_weight_saving_iterations', 'number_iterations',
-                  'validation_iteration_ratio', 'evaluation', 'tracking', 'learning_rate', 'resume_training', 'diagnosis_modes',
-                  'tracking_root']
+experiment keys: ['task', 'experiment_folder', 'run_name_suffix', 'train_data_folder', 'validation_data_folder', 'test_data_folder',
+                  'batch_size', 'information_dump', 'weight_saving_iterations', 'intermediate_weight_saving_iterations',
+                  'number_iterations', 'validation_iteration_ratio', 'evaluation', 'tracking', 'learning_rate', 'resume_training',
+                  'allow_data_change_on_resume', 'diagnosis_modes', 'tracking_root', 'run_name']
 model keys:      ['Optimization', 'Data', 'Backbone', 'HRNet', 'KeypointHead']
 evaluation:      {'per_class_report': True, 'number_sample_images': 16, 'default_keypoint_sigma': 0.05,
                   'keypoint_sigmas': {'stick_figure': {'left_elbow': 0.072, 'right_elbow': 0.072, 'left_hand': 0.062, 'right_hand': 0.062,

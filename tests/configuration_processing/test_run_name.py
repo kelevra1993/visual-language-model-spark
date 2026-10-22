@@ -4,8 +4,8 @@ task: the reference run names are fixed, every changed setting (architecture, in
 segmentation decoders and losses, projection heads and self-supervised methods, high resolution networks, keypoint
 heads and their higher resolution branch, transfers, normalization, optimizer, weight decay, anchor aspect ratios
 through the hash of the anchors, the max pooling after the last block, categories merged into one class counted once)
-changes the run name with its token, and the training settings that can change between two resumptions
-(augmentation, view augmentation, batch size, learning rate, schedule, clipping, mixed precision, moving average of
+changes the run name with its token, the run name suffix ends the name, and the training settings that can change
+between two resumptions (augmentation, batch size, learning rate, schedule, clipping, mixed precision, moving average of
 the weights, dropout rates, segmentation losses, heatmap and keypoint sigmas, tag loss weights and grouping settings)
 keep it.
 """
@@ -50,6 +50,9 @@ def get_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, Any]]:
 
     # Task of the run, giving the first section of the name
     experiment_configuration["task"] = "object_detection"
+
+    # No run name suffix, which would end the name
+    experiment_configuration["run_name_suffix"] = None
 
     # Input normalization, resizing mode and size
     model_configuration["Backbone"]["normalization"].update({"input_normalization": True,
@@ -316,8 +319,9 @@ def get_classification_reference_configurations() -> Tuple[Dict[str, Any], Dict[
     model_configuration = yaml.safe_load(stream=CLASSIFICATION_CONFIGURATION_PATH.read_text())
     experiment_configuration = model_configuration.pop("ExperimentConfiguration")
 
-    # Task, input and backbone of the run
+    # Task, input and backbone of the run, without run name suffix
     experiment_configuration["task"] = "classification"
+    experiment_configuration["run_name_suffix"] = None
     model_configuration["Data"]["image_settings"].update({"size": 256, "keep_ratio": True})
     model_configuration["Backbone"]["normalization"].update({"input_normalization": True,
                                                              "per_sample_normalization": False,
@@ -494,8 +498,9 @@ def get_sequence_reference_configurations() -> Tuple[Dict[str, Any], Dict[str, A
     model_configuration = yaml.safe_load(stream=SEQUENCE_CONFIGURATION_PATH.read_text())
     experiment_configuration = model_configuration.pop("ExperimentConfiguration")
 
-    # Task, input and backbone of the run
+    # Task, input and backbone of the run, without run name suffix
     experiment_configuration["task"] = "sequence_classification"
+    experiment_configuration["run_name_suffix"] = None
     model_configuration["Data"]["image_settings"].update({"size": 128, "keep_ratio": True})
     model_configuration["Backbone"]["normalization"].update({"input_normalization": True,
                                                              "per_sample_normalization": False,
@@ -899,6 +904,27 @@ def test_optimization_run_name_tokens() -> None:
         "_MC4", "_MC4_ADAMW-WD1e-4")
 
 
+@pytest.mark.parametrize(argnames=("run_name_suffix", "expected_ending"),
+                         argvalues=[(None, "_MC4_ADAMW-WD1e-4"), ("v1", "_MC4_ADAMW-WD1e-4_v1"),
+                                    ("batch-384.v2", "_MC4_ADAMW-WD1e-4_batch-384.v2")])
+def test_run_name_suffix_ends_the_run_name(run_name_suffix: str | None, expected_ending: str) -> None:
+    """
+    Verifies that the run name suffix is the last section of the run name, after the optimizer section, and that a
+    null suffix leaves the name without it, so that a run of the same settings given a suffix trains in a folder of
+    its own instead of resuming the run without suffix.
+
+    Args:
+        run_name_suffix (str | None): The run name suffix of the configuration.
+        expected_ending (str): The expected end of the run name, from its classes section.
+    """
+    experiment_configuration, model_configuration = get_classification_reference_configurations()
+    model_configuration["Optimization"].update({"optimizer": "adamw", "weight_decay": 1e-4})
+    experiment_configuration["run_name_suffix"] = run_name_suffix
+    assert build_run_name(experiment_configuration=experiment_configuration,
+                          model_configuration=model_configuration) == CLASSIFICATION_REFERENCE_RUN_NAME.replace(
+        "_MC4", expected_ending)
+
+
 SEGMENTATION_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" /
                                    "semantic_segmentation" / "configuration_synthetic_shapes.yaml")
 
@@ -919,8 +945,9 @@ def get_segmentation_reference_configurations() -> Tuple[Dict[str, Any], Dict[st
     model_configuration = yaml.safe_load(stream=SEGMENTATION_CONFIGURATION_PATH.read_text())
     experiment_configuration = model_configuration.pop("ExperimentConfiguration")
 
-    # Task, input and backbone of the run
+    # Task, input and backbone of the run, without run name suffix
     experiment_configuration["task"] = "semantic_segmentation"
+    experiment_configuration["run_name_suffix"] = None
     model_configuration["Data"]["image_settings"].update({"size": 512, "keep_ratio": True})
     model_configuration["Data"]["tiling"] = {"activated": False, "scale": 1.0, "overlap": 128}
     model_configuration["Backbone"]["normalization"].update({"input_normalization": True,
@@ -1270,6 +1297,9 @@ def get_self_supervised_reference_configurations() -> Tuple[Dict[str, Any], Dict
     """
     model_configuration = yaml.safe_load(stream=SELF_SUPERVISED_CONFIGURATION_PATH.read_text())
     experiment_configuration = model_configuration.pop("ExperimentConfiguration")
+
+    # No run name suffix, which would end the name
+    experiment_configuration["run_name_suffix"] = None
 
     # Input and backbone of the run
     model_configuration["Data"]["image_settings"].update({"size": 256, "keep_ratio": True})

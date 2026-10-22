@@ -5,8 +5,8 @@ neighbour report of the labelled test images, its per-class metrics file and the
 the sample views drawn again identically without moving the random state of the training, the moving average of the
 weights evaluated next to the trained weights on the same sample views, a dataset without labels evaluated on the
 collapse metrics of its representations only, a dataset mixing labelled and unlabelled images trained on every image
-and evaluated on the labelled ones, and the classes of the evaluation named after the categories of the three
-manifests.
+and evaluated on the labelled ones, the classes of the evaluation named after the categories of the three manifests,
+and a run given a run name suffix trained in a folder of its own.
 """
 
 import csv
@@ -19,7 +19,7 @@ import yaml
 from pathlib import Path
 from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
 from types import SimpleNamespace
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from unittest.mock import patch
 
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
@@ -43,7 +43,7 @@ UNLABELLED_EVALUATION_METRICS = ["Effective Rank", "Representation Standard Devi
 
 def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, number_iterations: int,
                               head_settings: Dict[str, Any], moving_average_activated: bool = False,
-                              grouped_batches_activated: bool = False) -> Path:
+                              grouped_batches_activated: bool = False, run_name_suffix: Optional[str] = None) -> Path:
     """
     Writes a copy of the synthetic shapes self-supervised configuration adapted to a quick training smoke test: the
     generated dataset, 64 pixel images, batches of 4 images, a small projection head and a saving schedule that
@@ -58,6 +58,7 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
             trained weights. Defaults to False.
         grouped_batches_activated (bool): Whether the batches gather blocks of 2 images of the same camera, from the
             "groups" of the samples. Defaults to False.
+        run_name_suffix (Optional[str]): The suffix ending the run name, None for none. Defaults to None.
 
     Returns:
         Path: The path of the written configuration file.
@@ -72,7 +73,8 @@ def write_smoke_configuration(temporary_directory: Path, dataset_folder: Path, n
                                      "test_data_folder": str(dataset_folder / "test"), "batch_size": 4,
                                      "information_dump": 2, "weight_saving_iterations": 4,
                                      "intermediate_weight_saving_iterations": 2, "number_iterations": number_iterations,
-                                     "validation_iteration_ratio": 2, "resume_training": True})
+                                     "validation_iteration_ratio": 2, "resume_training": True,
+                                     "run_name_suffix": run_name_suffix})
 
     # Small images, two loader workers per split, the label mapping of the generated dataset and a small head
     configuration["Data"]["image_settings"]["size"] = SMOKE_IMAGE_SIZE
@@ -106,10 +108,10 @@ def build_trainer(configuration_path: Path) -> SelfSupervisedTrainer:
                                  model_configuration=model_configuration, configuration_path=configuration_path)
 
 
-@pytest.mark.parametrize(argnames=("method", "run_name_suffix"),
+@pytest.mark.parametrize(argnames=("method", "run_name_ending"),
                          argvalues=[("simclr", "_SIMCLR-T0.2"), ("barlow_twins", "_BT-OD0.005")])
 def test_self_supervised_training_saves_evaluates_and_resumes(tmp_path: Path, capsys: pytest.CaptureFixture,
-                                                              method: str, run_name_suffix: str) -> None:
+                                                              method: str, run_name_ending: str) -> None:
     """
     Verifies the self-supervised training pipeline of each method on a generated synthetic dataset: 5 iterations save
     the intermediate, evaluated and final checkpoints with the loss and batch metrics of the method in TensorBoard,
@@ -122,7 +124,7 @@ def test_self_supervised_training_saves_evaluates_and_resumes(tmp_path: Path, ca
         tmp_path (Path): The pytest temporary directory.
         capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
         method (str): The self-supervised method, 'ProjectionHead.method'.
-        run_name_suffix (str): The end of the run name of the method.
+        run_name_ending (str): The end of the run name of the method.
     """
     dataset_folder = tmp_path / "synthetic_shapes"
     create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
@@ -133,7 +135,7 @@ def test_self_supervised_training_saves_evaluates_and_resumes(tmp_path: Path, ca
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=5,
         head_settings={"method": method}))
-    assert trainer.run_name.startswith("SSL_") and trainer.run_name.endswith(run_name_suffix)
+    assert trainer.run_name.startswith("SSL_") and trainer.run_name.endswith(run_name_ending)
     assert trainer.class_names == list(SHAPE_CATEGORIES)
     data_record = json.loads(s=(trainer.experiment_folder / "data.json").read_text())
     assert [class_record["class_name"] for class_record in data_record["classes"]] == list(SHAPE_CATEGORIES)
@@ -195,6 +197,42 @@ def test_self_supervised_training_saves_evaluates_and_resumes(tmp_path: Path, ca
     console_output = capsys.readouterr().out
     assert "Error encountered during iteration" not in console_output
     assert "Critical Error" not in console_output
+
+
+def test_run_name_suffix_starts_a_run_of_its_own(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that a run given a run name suffix trains in a folder of its own, '<run name>_v1', from iteration 1,
+    while the same settings without the suffix resume the run without suffix, so that a new run of the same settings
+    with larger batches or stronger views never resumes the checkpoints of the previous run.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 6}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+
+    # Run without suffix, trained for 2 iterations so that its last checkpoint can be resumed
+    trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings={}))
+    trainer.run_training_loop()
+    assert trainer.experiment_folder.name == trainer.run_name and not trainer.run_name.endswith("_v1")
+
+    # Same settings with the suffix: a run folder of its own next to the first one, trained from iteration 1
+    suffixed_trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=2, head_settings={},
+        run_name_suffix="v1"))
+    assert suffixed_trainer.run_name == f"{trainer.run_name}_v1"
+    assert suffixed_trainer.experiment_folder == trainer.experiment_folder.parent / f"{trainer.run_name}_v1"
+    assert suffixed_trainer.start_iteration == 1
+
+    # Same settings without the suffix: the first run resumes after its last checkpoint
+    resumed_trainer = build_trainer(configuration_path=write_smoke_configuration(
+        temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=4, head_settings={}))
+    assert resumed_trainer.experiment_folder == trainer.experiment_folder and resumed_trainer.start_iteration == 3
+    assert "Error encountered during iteration" not in capsys.readouterr().out
 
 
 def test_sample_views_are_fixed_and_leave_the_training_random_state(tmp_path: Path) -> None:
