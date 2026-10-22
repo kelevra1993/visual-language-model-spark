@@ -717,7 +717,7 @@ test          50000 samples ->  196 batches of 256
 ```
 
 ### Step 2.9 — `ClassificationDataset.__init__()`
-This reads the `labels.json` manifest of a split. For every sample it converts the raw category into a class index with the `label_dictionary` (a sample whose category is not mapped is left out, with a warning), shuffles the list once, and builds the class names from the categories. It also keeps every sample by identifier (`sample_records`), so that the evaluation can name the image of a prediction. No image is opened here: the files are only read when a batch is requested (Step 3.9), which is why a manifest of 1.27 million images is ready in seconds.
+This reads the `labels.json` manifest of a split. For every sample it converts the raw category into a class index with the `label_dictionary` (a sample whose category is not mapped is left out and counted in `number_unlabelled_samples`, which `get_classification_dataloaders()` prints for the three splits in one yellow block, `Samples Of Unmapped Categories, Left Out :` then one line per split), shuffles the list once, and builds the class names from the categories. It also keeps every sample by identifier (`sample_records`), so that the evaluation can name the image of a prediction. No image is opened here: the files are only read when a batch is requested (Step 3.9), which is why a manifest of 1.27 million images is ready in seconds.
 
 **Example: a manifest sample, and a kept sample after mapping and shuffling**
 ```text

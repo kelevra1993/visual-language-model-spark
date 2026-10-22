@@ -19,7 +19,6 @@ from typing import Any, Dict, List
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.label_mapping import get_class_names
 from vision_training.data.preprocessing import preprocess_image, read_image
-from vision_training.utilities.os_utilities import format_path_link, print_color
 
 
 class ClassificationDataset(Dataset):
@@ -33,7 +32,8 @@ class ClassificationDataset(Dataset):
     The images are resized and padded exactly like the detection loaders, and the raw categories are converted to the
     class indices of the label dictionary; samples whose category is not mapped are left out, unless the unlabelled
     samples are kept (self-supervised task), the label of a multi-class sample without a single mapped category (none,
-    or several in the 'category_ids' of a multi-label manifest) being then IGNORED_LABEL_INDEX.
+    or several in the 'category_ids' of a multi-label manifest) being then IGNORED_LABEL_INDEX. The number of these
+    samples, left out or kept, is reported by get_classification_dataloaders with the other splits.
     """
 
     def __init__(self, data_directory: str, labels_file: str, image_size: int, keep_ratio: bool,
@@ -66,9 +66,10 @@ class ClassificationDataset(Dataset):
             manifest = json.load(fp=labels_file_handler)
 
         # Keep the samples of the mapped categories with their class indices, and the others without class when the
-        # unlabelled samples are kept, which also reads the categories of a multi-label manifest
+        # unlabelled samples are kept, which also reads the categories of a multi-label manifest, counting the samples
+        # without a single mapped category for the report of the loaders
         self.samples = []
-        number_unlabelled_samples = 0
+        self.number_unlabelled_samples = 0
         for sample in manifest["samples"]:
             if output_mode == "multi_label" or (keep_unlabelled_samples and "category_ids" in sample):
                 raw_categories = sample["category_ids"]
@@ -78,7 +79,7 @@ class ClassificationDataset(Dataset):
                 raw_categories = []
             class_indices = [label_dictionary[category] for category in raw_categories if category in label_dictionary]
             if output_mode == "multi_class" and len(class_indices) != 1:
-                number_unlabelled_samples += 1
+                self.number_unlabelled_samples += 1
                 if not keep_unlabelled_samples:
                     continue
                 class_indices = []
@@ -92,13 +93,6 @@ class ClassificationDataset(Dataset):
             self.samples.append({"identifier": sample["id"], "file_name": sample["file_name"],
                                  "class_indices": class_indices, "groups": groups})
 
-        # Report the samples without mapped category, left out or kept without class
-        if number_unlabelled_samples and keep_unlabelled_samples:
-            print_color(color="yellow", output=f"{number_unlabelled_samples} samples without a single mapped category "
-                                               f"kept without class : {format_path_link(path=labels_file)}")
-        elif number_unlabelled_samples:
-            print_color(color="yellow", output=f"{number_unlabelled_samples} samples of unmapped categories left out "
-                                               f": {format_path_link(path=labels_file)}")
         if shuffle:
             random.shuffle(x=self.samples)
 

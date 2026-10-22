@@ -332,7 +332,7 @@ class_names: ['square', 'circle', 'triangle', 'rectangle', 'pentagon', 'hexagon'
 ```
 
 ### Step 2.8 — `get_classification_dataloaders(self_supervised=True)`
-The loaders of the classification (in `vision_training/data/loaders.py`), with three differences: the output mode is always `multi_class` (there is no `ClassificationHead` section), the datasets keep the images without a mapped category (Step 2.9), and the training and validation loaders drop their last incomplete batch, so that every batch of the losses has `batch_size` images. The test loader keeps every image.
+The loaders of the classification (in `vision_training/data/loaders.py`), with three differences: the output mode is always `multi_class` (there is no `ClassificationHead` section), the datasets keep the images without a mapped category (Step 2.9), and the training and validation loaders drop their last incomplete batch, so that every batch of the losses has `batch_size` images. The test loader keeps every image. Once the three splits are built, it prints the images without a mapped category of every split (Step 2.9) in one yellow block, then the keys and batches of the grouped batches in one blue block, one line per split and key.
 
 With `Data.grouped_batches` on, `build_grouped_batch_sampler()` (in `vision_training/data/grouped_batch_sampler.py`) builds the `GroupedBatchSampler` of the training and validation splits from the `groups` of their samples, given to `build_native_loader()` (Step 2.10). The sampler rebuilds the batches at every pass: the images grouped by (batch value, block value) are shuffled and cut into blocks of `images_per_block`, the blocks of every batch value are joined into full batches, and the images left over are shuffled into full random batches, the last incomplete one being dropped, so that a pass still gives `floor(N / batch_size)` batches and the iterations per epoch do not change. A split whose samples hold none of the keys keeps random batches with a yellow warning, and a split where only some samples hold them stops the launch with the number of samples missing each key.
 
@@ -346,12 +346,14 @@ With `Data.grouped_batches` on, `build_grouped_batch_sampler()` (in `vision_trai
 
 **Example output: grouped batches of a training split of 10 images in two cameras, with batches of 4 images and blocks of 2, and a validation split without groups**
 ```text
-Grouped batches of the 'train_data_folder' split : block key 'camera' (2 values), 2 grouped and 0 leftover batches per pass
 No sample of the 'validation_data_folder' split holds the keys ['camera'] of 'Data.grouped_batches': its batches stay random.
+Grouped Batches :
+  - Train block key : camera (2 values)
+  - Train batches per pass : 2 grouped, 0 leftover
 ```
 
 ### Step 2.9 — `ClassificationDataset.__init__()`
-The dataset of the classification (in `vision_training/data/classification/classification_dataset.py`), with `keep_unlabelled_samples=True`: an image without a mapped category is kept with the label -1 (`IGNORED_LABEL_INDEX`) instead of being dropped, and a yellow line counts them (see Step 5.6). Every record also keeps the optional `groups` of its sample, an empty dictionary without them, read by the grouped batches (Step 2.8). It shuffles the manifest once, so the first kept sample is not the first of the file.
+The dataset of the classification (in `vision_training/data/classification/classification_dataset.py`), with `keep_unlabelled_samples=True`: an image without a mapped category is kept with the label -1 (`IGNORED_LABEL_INDEX`) instead of being dropped, and counted in `number_unlabelled_samples`, which the loaders print for the three splits (Step 2.8, Step 5.6). Every record also keeps the optional `groups` of its sample, an empty dictionary without them, read by the grouped batches (Step 2.8). It shuffles the manifest once, so the first kept sample is not the first of the file.
 
 **Example: the manifest, the first kept sample and `dataset[0]`**
 ```text
@@ -1113,7 +1115,8 @@ The effective rank and the spread of the representations grow with the training,
 
 **Example output: the same 200 images without labels**
 ```text
-200 samples without a single mapped category kept without class : labels.json        <- yellow, while building the loaders
+Samples Without A Single Mapped Category, Kept Without Class :        <- yellow, once the loaders are built
+  - Test : 200 samples (labels.json)
 ...
 Iteration 12 · 200 Test Images · 2026-10-16 19:39 ──────────────────────────────────────────────────────────────────────
   Effective Rank   1.0506   Representation Standard Deviation   0.0011
