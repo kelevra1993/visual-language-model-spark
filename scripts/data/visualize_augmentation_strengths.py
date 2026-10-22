@@ -245,7 +245,7 @@ def build_type_figure(images: torch.Tensor, image_descriptions: List[str],
     Builds the figure of one augmentation type: every example image in a row, as the network receives it, then with
     the type applied alone at the supervised strengths, then at the self-supervised ones, the values drawn for each
     written under it. Both strengths of a row draw the same random numbers (apply_type_alone with the seed of the row),
-    so that the two columns differ by the strengths only, e.g. the same rotation scaled from 5 to 20 degrees at most.
+    so that the two columns differ by the strengths only, e.g. the same rotation scaled from 5 to 10 degrees at most.
 
     Args:
         images (torch.Tensor): The [N, 3, H, W] float BGR example images in [0, 255].

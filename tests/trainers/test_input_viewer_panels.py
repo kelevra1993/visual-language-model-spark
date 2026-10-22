@@ -182,9 +182,9 @@ def test_self_supervised_panels_describe_the_augmentations_of_each_view(monkeypa
     panel_start = ["Class : square", "", "View augmentations", "Geometric :", "  random_left_right_flip",
                    "Photometric :"]
     assert viewer_recorder.arguments["panel_lines"] == [panel_start + ["  none"],
-                                                        panel_start + ["  random_solarize : threshold 127.5 levels"]]
+                                                        panel_start + ["  random_solarize : threshold 191.25 levels"]]
     flipped_image = batch["images"][1].flip(dims=(2,))
-    solarized_image = torch.where(condition=flipped_image < 127.5, input=flipped_image, other=255.0 - flipped_image)
+    solarized_image = torch.where(condition=flipped_image < 191.25, input=flipped_image, other=255.0 - flipped_image)
     first_view, second_view = viewer_recorder.arguments["images"]
     assert torch.equal(input=first_view, other=flipped_image)
     assert torch.equal(input=second_view, other=solarized_image)

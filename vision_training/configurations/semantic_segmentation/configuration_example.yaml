@@ -216,7 +216,7 @@ Data:
       random_rotation: { activated: True, probability: 0.3 }
       # Random -90° or 90° rotation (square images only)
       random_90_rotation: { activated: False, probability: 0.3 }
-      # Random Perspective : each corner moved inwards by up to 10% of half the image width and height, a change of
+      # Random Perspective : each corner moved inwards by up to 5% of half the image width and height, a change of
       # viewpoint, the uncovered border filled with black; moves the image only, so it is refused for the tasks with
       # boxes, masks or keypoints
       random_perspective: { activated: False, probability: 0.3 }

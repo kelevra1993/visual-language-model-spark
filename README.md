@@ -283,16 +283,16 @@ Every task augments its training images with `Data.data_augmentation` (`DataAugm
 
 | Type | Supervised tasks | Self-supervised task |
 |---|---|---|
-| `random_crop` | 75 % to 100 % of each side, same aspect ratio, resized back to the input size | 20 % to 100 % of the area, aspect ratio x1/2 to x2 |
+| `random_crop` | 75 % to 100 % of each side, same aspect ratio, resized back to the input size | 50 % to 100 % of the area, aspect ratio x1/2 to x2 |
 | `random_aspect_crop` | 75 % to 100 % of the width and, drawn on its own, of the height | same |
 | `random_zoom_out` | image shrunk to 50 % to 100 % of each side on a black canvas | same |
-| `random_translation` | shift of up to 25 % of the width, of the height or of both | up to 40 % |
+| `random_translation` | shift of up to 25 % of the width, of the height or of both | same |
 | `random_left_right_flip`, `random_up_down_flip` | mirror | same |
-| `random_rotation` | -5 to 5 degrees | -20 to 20 degrees |
+| `random_rotation` | -5 to 5 degrees | -10 to 10 degrees |
 | `random_90_rotation` | -90 or 90 degrees, square images only | same |
-| `random_perspective` | every corner moved inwards by up to 10 % of half the image side | up to 40 % |
+| `random_perspective` | every corner moved inwards by up to 5 % of half the image side | same |
 | `random_jigsaw` | 2x2 pieces put back in a random order | same |
-| `brightness_contrast_saturation` | brightness +-40 levels, contrast and saturation x0.7 to x1.0 | brightness, contrast and saturation x0.2 to x1.8 |
+| `brightness_contrast_saturation` | brightness +-40 levels, contrast and saturation x0.7 to x1.0 | brightness, contrast and saturation x0.6 to x1.2 |
 | `random_hue` | hue turned by up to 18 degrees | up to 36 degrees |
 | `clahe_augment` | CLAHE, clip limit 2.0 on 4x4 tiles | same |
 | `sharp_augment` | Laplacian of Gaussian unsharp mask, sigma 1.5, strength 3 | same |
@@ -301,13 +301,13 @@ Every task augments its training images with `Data.data_augmentation` (`DataAugm
 | `random_noise` | Gaussian noise, standard deviation 20 levels | 30 levels |
 | `gray_scale_augment` | grayscale on three channels | same |
 | `random_colour_augmentation` | blue and red channels swapped | same |
-| `random_gamma` | gamma 0.8 to 1.25 | 0.5 to 2.0 |
-| `random_linear_illumination` | ramp of 12.75 to 38.25 levels growing towards one side | 12.75 to 63.75 levels |
-| `random_plasma_shadow` | pixels of a fractal map (roughness 0.1 to 0.7) below a quantity of 0 to 0.5 darkened by up to 76.5 levels | up to 127.5 levels |
-| `random_blur` | 9x9 Gaussian kernel, sigma 2.5 | 23x23 kernel, sigma 0.1 to 3.0 |
-| `random_motion_blur` | odd line of 5 to 15 pixels, angle 0 to 180 degrees, direction -1 to 1 | 7 to 21 pixels |
-| `random_haze` | airlight of 180 to 255 levels taking 20 % to 60 % of every pixel | 153 to 255 levels taking 20 % to 70 % |
-| `random_solarize` | pixels at or above 127.5 levels inverted | same, second view only |
+| `random_gamma` | gamma 0.8 to 1.25 | same |
+| `random_linear_illumination` | ramp of 12.75 to 38.25 levels growing towards one side | same |
+| `random_plasma_shadow` | pixels of a fractal map (roughness 0.1 to 0.7) below a quantity of 0 to 0.5 darkened by up to 76.5 levels | quantity of 0 to 0.3, up to 51 levels |
+| `random_blur` | 9x9 Gaussian kernel, sigma 2.5 | same |
+| `random_motion_blur` | odd line of 5 to 15 pixels, angle 0 to 180 degrees, direction -1 to 1 | same |
+| `random_haze` | airlight of 180 to 255 levels taking 20 % to 60 % of every pixel | 160 to 255 levels taking 20 % to 70 % |
+| `random_solarize` | pixels at or above 127.5 levels inverted | pixels at or above 191.25 levels, second view only |
 | `random_black_out` | every cell of a `grid_size` x `grid_size` grid blacked out with a probability of 0.2 | probability of 0.35, second view only |
 | `random_erasing` | black rectangle of 2 % to 15 % of the area, height / width 0.3 to 3.3 | same |
 
@@ -855,7 +855,7 @@ The projection head only serves this training: the representation compared by th
 
 The batches are rebuilt at every pass by `GroupedBatchSampler` (`vision_training/data/grouped_batch_sampler.py`): the images are grouped by (batch value, block value), every group is shuffled and cut into blocks of `images_per_block`, its remaining images going to a leftover pool; the blocks of every batch value are shuffled and joined into full batches, the blocks that cannot fill one going to the leftover pool; the leftover pool is shuffled and cut into full batches of random images; and the order of all the batches is shuffled, the last incomplete batch being dropped as with random batches. Every image is used at most once per pass, a pass gives `floor(N / batch_size)` batches like the random ones, and the draws use the PyTorch generator, so that a seed reproduces the batches. At launch, every grouped split prints its keys, their number of values and its grouped and leftover batches per pass. A split whose samples hold none of the keys keeps random batches with a warning naming it, and a split where only some samples hold them stops the launch, giving how many samples miss each key. The test split, encoded image by image for the k-NN evaluation, is not grouped. The section gives no run name token and can change when a run resumes.
 
-**Views.** The two views of every training and validation image are drawn by the data augmentation of the other tasks ([Data Augmentation](#data-augmentation)), which must be on: every view goes through every activated type of `Data.data_augmentation.types` with its `probability` and its own random values, the global `probability` being ignored since every image gets its two views. The views take the strengths of `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`, those of the views of SimCLR, BYOL and Barlow Twins. `random_crop` is the random resized crop of SimCLR (20 % to 100 % of the area, aspect ratio x1/2 to x2), whose probability must be 1.0 when it is on, or which is turned off to keep the whole images, as in the counted shapes configurations, whose crops would change the number of shapes of a view. `brightness_contrast_saturation` and `random_hue` are its colour jitter, each drawn with its own probability, and the translation, rotation, perspective, noise, gamma, linear illumination, plasma shadow, motion blur, haze and black-out are stronger than in the supervised tasks, the blur drawing a sigma of 0.1 to 3.0 on a 23x23 kernel. `random_solarize` and `random_black_out` are drawn for the second view only (`SECOND_VIEW_ONLY_TYPES`), as the asymmetric views of BYOL and Barlow Twins, every other type having the same probability for both views. The views are computed in float32, even within the bfloat16 autocast of the mixed precision, image by image on the device from Python numbers, so that the host does not wait for the GPU, except for `random_rotation` (on in the shape configurations), `clahe_augment`, `sharp_augment` and the two histogram equalizations, which make it wait at every image: on the GPU of the DGX Spark, while another training used it, the two views of 128 images of 256 pixels took 0.3 s with the types of the example configuration, and those of 256 images 0.7 s, against 2.5 s for the kornia views they replace.
+**Views.** The two views of every training and validation image are drawn by the data augmentation of the other tasks ([Data Augmentation](#data-augmentation)), which must be on: every view goes through every activated type of `Data.data_augmentation.types` with its `probability` and its own random values, the global `probability` being ignored since every image gets its two views. The views take the strengths of `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`, those of the views of SimCLR, BYOL and Barlow Twins lowered for the images of the project. `random_crop` is the random resized crop of SimCLR (50 % to 100 % of the area, aspect ratio x1/2 to x2), whose probability must be 1.0 when it is on, or which is turned off to keep the whole images, as in the counted shapes configurations, whose crops would change the number of shapes of a view. `brightness_contrast_saturation` and `random_hue` are its colour jitter (x0.6 to x1.2, milder than the x0.2 to x1.8 of SimCLR on ImageNet), each drawn with its own probability; the rotation, noise, haze and black-out are stronger than in the supervised tasks, the plasma shadow and the solarization milder, and the other types take the supervised strengths. `random_solarize` and `random_black_out` are drawn for the second view only (`SECOND_VIEW_ONLY_TYPES`), as the asymmetric views of BYOL and Barlow Twins, every other type having the same probability for both views. The views are computed in float32, even within the bfloat16 autocast of the mixed precision, image by image on the device from Python numbers, so that the host does not wait for the GPU, except for `random_rotation` (on in the shape configurations), `clahe_augment`, `sharp_augment` and the two histogram equalizations, which make it wait at every image: on the GPU of the DGX Spark, while another training used it, the two views of 128 images of 256 pixels took 0.3 s with the types of the example configuration, and those of 256 images 0.7 s, against 2.5 s for the kornia views they replace.
 
 The backbone learns to ignore what changes between the views, so a cue shared by both views lets it match them without learning the content: the colour of an object when the colour types are off, or its position when the crops are too large. A crop too small for the objects of the images leaves nothing in common between the views.
 
