@@ -53,6 +53,8 @@ def test_unknown_manifest_format_fails_loudly() -> None:
      {"images": {0: 1, 1: 1}, "annotations": {0: 2, 1: 1}}),
     ({"samples": [{"id": 1, "category_id": 1}, {"id": 2, "category_id": 1}, {"id": 3, "category_id": 9}]},
      {"images": {0: 2}}),
+    ({"samples": [{"id": 1, "category_id": 1}, {"id": 2}, {"id": 3, "category_id": 2}, {"id": 4}]},
+     {"images": {0: 1, 1: 1}}),
     ({"samples": [{"id": 1, "category_ids": [1, 2]}, {"id": 2, "category_ids": [2, 3]}, {"id": 3, "category_ids": []}]},
      {"images": {0: 1, 1: 2}}),
     ({"samples": [{"id": 1, "file_name": "1.png", "mask_file_name": "1.png"}]}, {}),
@@ -65,10 +67,11 @@ def test_unknown_manifest_format_fails_loudly() -> None:
 def test_classes_counted_in_every_manifest_format(labels: Dict[str, Any], expected_counts: Dict[str, Any]) -> None:
     """
     Verifies the counts of the classes in every manifest format, categories 1 and 2 being classes 0 and 1, category 3
-    merged into class 1 and category 9 unmapped: the images holding the class and its annotations for COCO, an image
-    counted once per class for the multi-label samples (categories 2 and 3 giving class 1 once), no count for the
-    segmentation samples without the categories of their masks and the masks of every class with them, the sequences
-    and the frames of the sequences, and the pairs.
+    merged into class 1 and category 9 unmapped: the images holding the class and its annotations for COCO, the
+    samples of a manifest mixing labelled images and images without category (the unlabelled images of the
+    self-supervised task, counted in no class), an image counted once per class for the multi-label samples
+    (categories 2 and 3 giving class 1 once), no count for the segmentation samples without the categories of their
+    masks and the masks of every class with them, the sequences and the frames of the sequences, and the pairs.
 
     Args:
         labels (Dict[str, Any]): The labels file of the split.
