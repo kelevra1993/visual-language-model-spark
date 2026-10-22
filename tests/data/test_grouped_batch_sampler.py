@@ -18,6 +18,7 @@ from tests.data.classification.test_classification_dataset import write_split
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.grouped_batch_sampler import GroupedBatchSampler, build_grouped_batch_sampler
 from vision_training.data.loaders import get_classification_dataloaders
+from vision_training.utilities.os_utilities import INVISIBLE_SEQUENCE_PATTERN
 
 # Images of every camera of every site of the tests. With blocks of 4 images and batches of 8, the site s0 gives 4
 # blocks (2 grouped batches) and 1 leftover image, the site s1 2 blocks (1 grouped batch) and 3 leftover images, and the
@@ -145,10 +146,10 @@ def test_same_seed_gives_the_same_batches_rebuilt_at_every_pass() -> None:
 
 def test_builder_keeps_random_batches_without_groups_and_stops_with_some(capsys: pytest.CaptureFixture) -> None:
     """
-    Verifies the sampler built for a split: none with the section off; a sampler, reported with its keys, their number
-    of values and the batches of a pass, when every sample holds the keys; none, with a warning naming the split, when
-    no sample holds them; and an error giving how many samples miss each key when only some samples hold them, or when
-    a value is not a string.
+    Verifies the sampler built for a split: none with the section off; a sampler, with one report line per key giving
+    its number of values and one for the batches of a pass, when every sample holds the keys; none, with a warning
+    naming the split, when no sample holds them, both without report lines; and an error giving how many samples miss
+    each key when only some samples hold them, or when a value is not a string.
 
     Args:
         capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
@@ -159,18 +160,19 @@ def test_builder_keeps_random_batches_without_groups_and_stops_with_some(capsys:
     assert build_grouped_batch_sampler(samples=samples,
                                        grouped_batches_configuration={**GROUPED_BATCHES_CONFIGURATION,
                                                                       "activated": False},
-                                       batch_size=BATCH_SIZE, split_name="train_data_folder") is None
-    sampler = build_grouped_batch_sampler(samples=samples, grouped_batches_configuration=GROUPED_BATCHES_CONFIGURATION,
-                                          batch_size=BATCH_SIZE, split_name="train_data_folder")
+                                       batch_size=BATCH_SIZE, split_name="train_data_folder") == (None, [])
+    sampler, report_lines = build_grouped_batch_sampler(
+        samples=samples, grouped_batches_configuration=GROUPED_BATCHES_CONFIGURATION, batch_size=BATCH_SIZE,
+        split_name="train_data_folder")
     assert isinstance(sampler, GroupedBatchSampler) and len(sampler) == 4
-    assert ("Grouped batches of the 'train_data_folder' split : block key 'camera' (5 values), batch key 'site' (3 "
-            "values), 3 grouped and 1 leftover batches per pass") in capsys.readouterr().out
+    assert report_lines == ["block key : camera (5 values)", "batch key : site (3 values)",
+                            "batches per pass : 3 grouped, 1 leftover"]
 
     # No sample with the keys: random batches, with a warning naming the split
     samples_without_groups = [{"identifier": sample["identifier"], "groups": {}} for sample in samples]
     assert build_grouped_batch_sampler(samples=samples_without_groups,
                                        grouped_batches_configuration=GROUPED_BATCHES_CONFIGURATION,
-                                       batch_size=BATCH_SIZE, split_name="validation_data_folder") is None
+                                       batch_size=BATCH_SIZE, split_name="validation_data_folder") == (None, [])
     assert ("No sample of the 'validation_data_folder' split holds the keys ['camera', 'site'] of "
             "'Data.grouped_batches': its batches stay random.") in capsys.readouterr().out
 
@@ -247,9 +249,9 @@ def test_self_supervised_loaders_give_grouped_batches(tmp_path: Path, capsys: py
     training_loader, validation_loader, test_loader = get_classification_dataloaders(
         experiment_configuration=experiment_configuration, model_configuration=model_configuration, batch_size=4,
         self_supervised=True)
-    printed_output = capsys.readouterr().out
-    assert ("Grouped batches of the 'train_data_folder' split : block key 'camera' (2 values), 3 grouped and 0 "
-            "leftover batches per pass") in printed_output
+    printed_output = INVISIBLE_SEQUENCE_PATTERN.sub(repl="", string=capsys.readouterr().out)
+    assert ("Grouped Batches :\n  - Train block key : camera (2 values)\n"
+            "  - Train batches per pass : 3 grouped, 0 leftover\n") in printed_output
     assert "No sample of the 'validation_data_folder' split holds the keys ['camera']" in printed_output
 
     # Full training batches of two blocks of one camera, every image once per pass

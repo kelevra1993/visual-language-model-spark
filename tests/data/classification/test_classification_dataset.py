@@ -1,9 +1,9 @@
 """
 Tests of the classification data of vision_training/data/classification: ClassificationDataset loading multi-class and
 multi-label manifests, keeping the unlabelled samples for the self-supervised task, whose loaders keep full training
-and validation batches, as the training loader of a classifier needing batch statistics does, the corrupted images
-named in their error, the label mapping without background class, and the manifests written by
-create_class_folder_manifests from class folders.
+and validation batches, as the training loader of a classifier needing batch statistics does, the console report of
+the samples without mapped category of the three splits, the corrupted images named in their error, the label mapping
+without background class, and the manifests written by create_class_folder_manifests from class folders.
 """
 
 import json
@@ -20,6 +20,7 @@ from vision_training.data.classification.class_folder_manifests import create_cl
 from vision_training.data.classification.classification_dataset import ClassificationDataset
 from vision_training.data.label_mapping import build_label_dictionary
 from vision_training.data.loaders import get_classification_dataloaders
+from vision_training.utilities.os_utilities import INVISIBLE_SEQUENCE_PATTERN
 
 
 def write_split(split_folder: Path, categories: List[Dict[str, Any]], samples: List[Dict[str, Any]]) -> None:
@@ -39,16 +40,15 @@ def write_split(split_folder: Path, categories: List[Dict[str, Any]], samples: L
     (split_folder / "labels.json").write_text(data=json.dumps(obj={"categories": categories, "samples": samples}))
 
 
-def test_multi_class_manifest_loading(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+def test_multi_class_manifest_loading(tmp_path: Path) -> None:
     """
     Verifies that the dataset reads a multi-class manifest: the images are resized to the network input, the raw
-    categories become class indices, the samples of unmapped categories are left out with a warning, the class names
-    come from the categories (joined when the label dictionary merges two categories), the class counts and the class
-    of every sample match, and a sample is named by its file name from its identifier.
+    categories become class indices, the samples of unmapped categories are left out and counted for the report of the
+    loaders, the class names come from the categories (joined when the label dictionary merges two categories), the
+    class counts and the class of every sample match, and a sample is named by its file name from its identifier.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed warning.
     """
     categories = [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}, {"id": 3, "name": "box"},
                   {"id": 4, "name": "star"}]
@@ -60,8 +60,7 @@ def test_multi_class_manifest_loading(tmp_path: Path, capsys: pytest.CaptureFixt
     dataset = ClassificationDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                                     image_size=64, keep_ratio=True, label_dictionary={1: 0, 2: 1, 3: 1},
                                     output_mode="multi_class", shuffle=False)
-    assert len(dataset) == 3
-    assert "1 samples of unmapped categories left out" in capsys.readouterr().out
+    assert len(dataset) == 3 and dataset.number_unlabelled_samples == 1
     assert dataset.class_names == {0: "circle", 1: "square+box"}
     assert dataset.get_class_counts() == [1, 2]
     assert dataset.get_sample_class_indices() == {1: [0], 2: [1], 3: [1]}
@@ -97,17 +96,15 @@ def test_multi_label_manifest_loading(tmp_path: Path) -> None:
     assert dataset.get_sample_class_indices() == {1: [0, 1], 2: []}
 
 
-def test_unlabelled_samples_are_kept_for_the_self_supervised_task(tmp_path: Path,
-                                                                 capsys: pytest.CaptureFixture) -> None:
+def test_unlabelled_samples_are_kept_for_the_self_supervised_task(tmp_path: Path) -> None:
     """
     Verifies that the self-supervised task, which trains on every image, keeps the samples without category, those of
     unmapped categories and the multi-label samples of several mapped categories with the ignored label and no class,
-    counted in the console, while the samples of a single mapped category, given by 'category_id' or by the
-    'category_ids' of a multi-label manifest, keep their class for the k-nearest neighbour evaluation.
+    counted for the report of the loaders, while the samples of a single mapped category, given by 'category_id' or by
+    the 'category_ids' of a multi-label manifest, keep their class for the k-nearest neighbour evaluation.
 
     Args:
         tmp_path (Path): The pytest temporary directory.
-        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed count.
     """
     categories = [{"id": 1, "name": "circle"}, {"id": 4, "name": "star"}, {"id": 5, "name": "triangle"}]
     samples = [{"id": 1, "file_name": "a.png", "category_id": 1}, {"id": 2, "file_name": "b.png", "category_id": 4},
@@ -118,8 +115,7 @@ def test_unlabelled_samples_are_kept_for_the_self_supervised_task(tmp_path: Path
     dataset = ClassificationDataset(data_directory=str(tmp_path / "data"), labels_file=str(tmp_path / "labels.json"),
                                     image_size=32, keep_ratio=True, label_dictionary={1: 0, 5: 1},
                                     output_mode="multi_class", shuffle=False, keep_unlabelled_samples=True)
-    assert len(dataset) == 5
-    assert "3 samples without a single mapped category kept without class" in capsys.readouterr().out
+    assert len(dataset) == 5 and dataset.number_unlabelled_samples == 3
     assert dataset.get_sample_class_indices() == {1: [0], 2: [], 3: [], 4: [1], 5: []}
     assert [int(dataset[sample_index]["labels"]) for sample_index in range(5)] == [
         0, IGNORED_LABEL_INDEX, IGNORED_LABEL_INDEX, 1, IGNORED_LABEL_INDEX]
@@ -162,6 +158,44 @@ def test_self_supervised_loaders_keep_full_batches(tmp_path: Path) -> None:
                                                             "than the batch size 4"):
         get_classification_dataloaders(experiment_configuration=experiment_configuration,
                                        model_configuration=model_configuration, batch_size=4, self_supervised=True)
+
+
+def test_loaders_report_the_samples_without_mapped_category(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies the console report of the classification loaders: once the three splits are built, the samples without a
+    single mapped category are counted in one block, one line per split holding some, titled as left out for the
+    classifier and as kept without class for the self-supervised task, a split without them having no line.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed report.
+    """
+    # Splits of 4 images, of which 2 training images and 1 validation image are of the unmapped category 2
+    categories = [{"id": 1, "name": "circle"}, {"id": 2, "name": "square"}]
+    for split_name, number_unmapped_samples in [("train", 2), ("validation", 1), ("test", 0)]:
+        write_split(split_folder=tmp_path / split_name, categories=categories,
+                    samples=[{"id": sample_identifier, "file_name": f"{sample_identifier}.png",
+                              "category_id": 2 if sample_identifier <= number_unmapped_samples else 1}
+                             for sample_identifier in range(1, 5)])
+    experiment_configuration = {f"{split_name}_data_folder": str(tmp_path / split_name)
+                                for split_name in ["train", "validation", "test"]}
+    model_configuration = {"Data": {"image_settings": {"size": 32, "keep_ratio": True}, "label_dictionary": {1: 0},
+                                    "loading": {"number_workers": 0, "prefetch_batches": 2},
+                                    "grouped_batches": {"activated": False, "block_key": "camera",
+                                                        "images_per_block": 2, "batch_key": None}},
+                           "ClassificationHead": {"output_mode": "multi_class"}}
+
+    # The classifier leaves the samples out, the self-supervised task keeps them, both reporting them in one block
+    titles = {False: "Samples Of Unmapped Categories, Left Out",
+              True: "Samples Without A Single Mapped Category, Kept Without Class"}
+    for self_supervised, expected_sizes in [(False, [2, 3, 4]), (True, [4, 4, 4])]:
+        loaders = get_classification_dataloaders(experiment_configuration=experiment_configuration,
+                                                 model_configuration=model_configuration, batch_size=2,
+                                                 self_supervised=self_supervised)
+        assert [len(loader.dataset) for loader in loaders] == expected_sizes
+        printed_output = INVISIBLE_SEQUENCE_PATTERN.sub(repl="", string=capsys.readouterr().out)
+        assert printed_output == (f"{titles[self_supervised]} :\n  - Train : 2 samples (labels.json)\n"
+                                  f"  - Validation : 1 samples (labels.json)\n")
 
 
 def test_classifier_needing_batch_statistics_drops_its_last_training_batch(tmp_path: Path) -> None:

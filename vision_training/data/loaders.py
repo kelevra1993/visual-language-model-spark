@@ -18,6 +18,7 @@ from vision_training.data.grouped_batch_sampler import build_grouped_batch_sampl
 from vision_training.data.segmentation.segmentation_dataset import SegmentationDataset
 from vision_training.data.sequence.sequence_dataset import SequenceDataset, collate_padded_sequences
 from vision_training.data.sequence.sequence_pair_dataset import PAIR_MEMBERS, SequencePairDataset
+from vision_training.utilities.os_utilities import format_path_link, print_color
 
 
 def build_native_loader(dataset: Dataset, batch_size: int, loading_configuration: Dict[str, Any],
@@ -211,8 +212,10 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
     incomplete batch of every pass, since its losses compare the views of the images of a batch with each other (a
     batch of a single image would give a loss without gradient). With 'Data.grouped_batches' on, their batches gather
     blocks of images sharing an attribute of their "groups" (GroupedBatchSampler), the hard negatives of each other.
-    The classifier leaves out the last incomplete training batch when its training needs batch statistics
-    (drop_last_training_batch), which a last batch of a single image cannot give.
+    Once every split is built, the samples without a single mapped category of the splits, then the keys and batches
+    of their grouped batches, are printed in one block each, one line per split and key. The classifier leaves out the
+    last incomplete training batch when its training needs batch statistics (drop_last_training_batch), which a last
+    batch of a single image cannot give.
 
     Args:
         experiment_configuration (Dict[str, Any]): The experiment configuration, giving the split folders.
@@ -237,15 +240,24 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
     output_mode = "multi_class" if self_supervised else model_configuration["ClassificationHead"]["output_mode"]
     loaders = []
 
+    # Console lines of the three splits, printed once every split is built so that the samples without a single mapped
+    # category and the grouped batches come in one block each instead of interleaved split by split
+    unlabelled_sample_lines = []
+    grouped_batch_lines = []
+
     # Build the loader of every split with the same settings
-    for split_key in ["train_data_folder", "validation_data_folder", "test_data_folder"]:
+    for split_key, split_label in [("train_data_folder", "Train"), ("validation_data_folder", "Validation"),
+                                   ("test_data_folder", "Test")]:
         split_data_folder = str(experiment_configuration[split_key])
-        dataset = ClassificationDataset(data_directory=os.path.join(split_data_folder, "data"),
-                                        labels_file=os.path.join(split_data_folder, "labels.json"),
+        labels_file = os.path.join(split_data_folder, "labels.json")
+        dataset = ClassificationDataset(data_directory=os.path.join(split_data_folder, "data"), labels_file=labels_file,
                                         image_size=data_configuration["image_settings"]["size"],
                                         keep_ratio=data_configuration["image_settings"]["keep_ratio"],
                                         label_dictionary=data_configuration["label_dictionary"],
                                         output_mode=output_mode, keep_unlabelled_samples=self_supervised)
+        if dataset.number_unlabelled_samples:
+            unlabelled_sample_lines.append(f"{split_label} : {dataset.number_unlabelled_samples} samples "
+                                           f"({format_path_link(path=labels_file)})")
 
         # Full batches for the self-supervised losses, the test split being encoded image by image, and for the training
         # batches of a classifier needing batch statistics
@@ -258,12 +270,24 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
 
         # Batches grouped by the attributes of the images for the self-supervised training and validation splits, when
         # 'Data.grouped_batches' is on and the split has groups, random batches otherwise
-        batch_sampler = build_grouped_batch_sampler(
+        batch_sampler, sampler_report_lines = build_grouped_batch_sampler(
             samples=dataset.samples, grouped_batches_configuration=data_configuration["grouped_batches"],
-            batch_size=batch_size, split_name=split_key) if self_supervised_split else None
+            batch_size=batch_size, split_name=split_key) if self_supervised_split else (None, [])
+        grouped_batch_lines.extend(f"{split_label} {report_line}" for report_line in sampler_report_lines)
         loaders.append(build_native_loader(dataset=dataset, batch_size=batch_size,
                                            loading_configuration=data_configuration["loading"], drop_last=drop_last,
                                            batch_sampler=batch_sampler))
+
+    # Report the samples without a single mapped category of every split, kept without class by the self-supervised
+    # task and left out by the classifier, then the keys and batches of the grouped batches, one line each
+    if unlabelled_sample_lines:
+        unlabelled_sample_title = ("Samples Without A Single Mapped Category, Kept Without Class" if self_supervised
+                                   else "Samples Of Unmapped Categories, Left Out")
+        print_color(color="yellow", output=f"{unlabelled_sample_title} :")
+        print_color(color="yellow", output="\n".join(unlabelled_sample_lines), indent=1)
+    if grouped_batch_lines:
+        print_color(color="blue", output="Grouped Batches :")
+        print_color(color="blue", output="\n".join(grouped_batch_lines), indent=1)
 
     return loaders[0], loaders[1], loaders[2]
 

@@ -25,6 +25,7 @@ from unittest.mock import patch
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.data.synthetic.create_synthetic_dataset import SHAPE_CATEGORIES, create_synthetic_dataset
 from vision_training.trainers.self_supervised_trainer import METHOD_TRACKED_METRICS, SelfSupervisedTrainer
+from vision_training.utilities.os_utilities import INVISIBLE_SEQUENCE_PATTERN
 from vision_training.utilities.visualization import CAPTION_BAR_HEIGHT
 from tests.data.classification.test_classification_dataset import write_split
 from tests.fixtures.evaluation_checks import check_sample_images, read_results_blocks
@@ -520,11 +521,10 @@ def test_training_on_grouped_batches(tmp_path: Path, capsys: pytest.CaptureFixtu
     trainer = build_trainer(configuration_path=write_smoke_configuration(
         temporary_directory=tmp_path, dataset_folder=dataset_folder, number_iterations=3,
         head_settings={"method": "simclr"}, grouped_batches_activated=True))
-    launch_output = capsys.readouterr().out
-    assert ("Grouped batches of the 'train_data_folder' split : block key 'camera' (2 values), 2 grouped and 0 "
-            "leftover batches per pass") in launch_output
-    assert ("Grouped batches of the 'validation_data_folder' split : block key 'camera' (2 values), 1 grouped and 0 "
-            "leftover batches per pass") in launch_output
+    launch_output = INVISIBLE_SEQUENCE_PATTERN.sub(repl="", string=capsys.readouterr().out)
+    assert ("Grouped Batches :\n  - Train block key : camera (2 values)\n"
+            "  - Train batches per pass : 2 grouped, 0 leftover\n  - Validation block key : camera (2 values)\n"
+            "  - Validation batches per pass : 1 grouped, 0 leftover\n") in launch_output
     assert len(trainer.train_dataloader) == trainer.iterations_per_epoch == 2
 
     # Every training batch made of two blocks of 2 images of one camera

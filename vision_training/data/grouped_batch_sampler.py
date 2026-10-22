@@ -135,12 +135,13 @@ class GroupedBatchSampler(Sampler[List[int]]):
 
 
 def build_grouped_batch_sampler(samples: List[Dict[str, Any]], grouped_batches_configuration: Dict[str, Any],
-                                batch_size: int, split_name: str) -> Optional[GroupedBatchSampler]:
+                                batch_size: int, split_name: str) -> Tuple[Optional[GroupedBatchSampler], List[str]]:
     """
     Builds the grouped batch sampler of a training or validation split of the self-supervised task from the "groups"
     of its samples, or gives None for random batches: when the section is off, or when no sample of the split holds
     the keys of the section, with a warning naming the split, so that a dataset without groups keeps its random
-    batches. Prints the keys, their number of values and the grouped and leftover batches of every pass.
+    batches. Also gives the lines describing the sampler (the keys, their number of values and the grouped and
+    leftover batches of every pass), which get_classification_dataloaders prints with those of the other splits.
 
     Args:
         samples (List[Dict[str, Any]]): The sample records of the dataset of the split, in its order, each with its
@@ -150,14 +151,15 @@ def build_grouped_batch_sampler(samples: List[Dict[str, Any]], grouped_batches_c
         split_name (str): The configuration key of the split, e.g. "train_data_folder", named in the messages.
 
     Returns:
-        Optional[GroupedBatchSampler]: The sampler of the split, or None for random batches.
+        Tuple[Optional[GroupedBatchSampler], List[str]]: The sampler of the split, or None for random batches, and the
+            lines describing it, e.g. "block key : camera (5 values)", empty without sampler.
 
     Raises:
         ValueError: If only some samples of the split hold the keys, giving how many samples miss each key, or if the
             value of a key is not a string.
     """
     if not grouped_batches_configuration["activated"]:
-        return None
+        return None, []
 
     # Key shared by the images of a block and, when given, the key shared by every image of a batch
     block_key = grouped_batches_configuration["block_key"]
@@ -170,7 +172,7 @@ def build_grouped_batch_sampler(samples: List[Dict[str, Any]], grouped_batches_c
     if all(missing_count == len(samples) for missing_count in missing_counts.values()):
         print_color(color="yellow", output=f"No sample of the '{split_name}' split holds the keys {group_keys} of "
                                            f"'Data.grouped_batches': its batches stay random.")
-        return None
+        return None, []
     if any(missing_counts.values()):
         missing_descriptions = ", ".join(f"{missing_count} miss '{group_key}'"
                                          for group_key, missing_count in missing_counts.items())
@@ -190,10 +192,9 @@ def build_grouped_batch_sampler(samples: List[Dict[str, Any]], grouped_batches_c
     sampler = GroupedBatchSampler(group_values=group_values, batch_size=batch_size,
                                   images_per_block=grouped_batches_configuration["images_per_block"])
 
-    # Keys with their number of values, and the batches of every pass
-    key_descriptions = [f"{key_role} key '{group_key}' ({len({sample['groups'][group_key] for sample in samples})} "
-                        f"values)" for key_role, group_key in zip(["block", "batch"], group_keys)]
-    print_color(color="blue", output=f"Grouped batches of the '{split_name}' split : {', '.join(key_descriptions)}, "
-                                     f"{sampler.number_grouped_batches} grouped and "
-                                     f"{sampler.number_leftover_batches} leftover batches per pass")
-    return sampler
+    # One line per key with its number of values, and one line for the batches of every pass
+    report_lines = [f"{key_role} key : {group_key} ({len({sample['groups'][group_key] for sample in samples})} values)"
+                    for key_role, group_key in zip(["block", "batch"], group_keys)]
+    report_lines.append(f"batches per pass : {sampler.number_grouped_batches} grouped, "
+                        f"{sampler.number_leftover_batches} leftover")
+    return sampler, report_lines
