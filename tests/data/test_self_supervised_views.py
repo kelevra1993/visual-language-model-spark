@@ -143,7 +143,11 @@ def test_second_view_only_types_never_reach_the_first_view() -> None:
     """
     images = create_test_images(number_images=4)
     configuration = build_configuration(enabled_types=SECOND_VIEW_ONLY_TYPES)
-    solarized_images = torch.where(condition=images < 127.5, input=images, other=255.0 - images)
+
+    # Images solarized at the threshold of each strength set, the views inverting the bright pixels only
+    solarized_images, supervised_solarized_images = [
+        torch.where(condition=images < strengths["solarize_threshold"], input=images, other=255.0 - images)
+        for strengths in [SELF_SUPERVISED_AUGMENTATION_STRENGTHS, SUPERVISED_AUGMENTATION_STRENGTHS]]
 
     # The first views untouched, the second views solarized with black cells
     random.seed(0)
@@ -160,7 +164,7 @@ def test_second_view_only_types_never_reach_the_first_view() -> None:
     supervised_images, _, _, _, _, _, supervised_reports = DataAugmenter(
         augmentation_configuration=configuration).augment_batch(images=images)
     assert list_drawn_types(reports=supervised_reports) == [SECOND_VIEW_ONLY_TYPES] * 4
-    assert bool(((supervised_images == solarized_images) | (supervised_images == 0.0)).all())
+    assert bool(((supervised_images == supervised_solarized_images) | (supervised_images == 0.0)).all())
 
 
 def test_views_follow_the_seeds() -> None:

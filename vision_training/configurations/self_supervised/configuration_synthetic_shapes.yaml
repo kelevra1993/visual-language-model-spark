@@ -202,7 +202,7 @@ Data:
     shuffle_frames: { activated: False, probability: 0.5 }
     types:
       # Geometric augmentations, drawn on their own for each view.
-      # Random Crop : random resized crop covering 20% to 100% of the area with an aspect ratio of x1/2 to x2,
+      # Random Crop : random resized crop covering 50% to 100% of the area with an aspect ratio of x1/2 to x2,
       # resized back to the input size, the main augmentation of the views: its probability must be 1.0 when it is
       # activated, a crop missing the object of the image leaving nothing to match
       random_crop: { activated: True, probability: 1.0 }
@@ -212,18 +212,18 @@ Data:
       # Random Zoom Out : image shrunk to 50% to 100% of each side (same aspect ratio) at a random position of a
       # black canvas of the input size
       random_zoom_out: { activated: False, probability: 0.3 }
-      # Random Translation : shift along x, y or both (drawn at random) of up to 40% of the image width and
+      # Random Translation : shift along x, y or both (drawn at random) of up to 25% of the image width and
       # height, the uncovered border filled with black
       random_translation: { activated: False, probability: 0.5 }
       # Random Left to Right Flip (mirror)
       random_left_right_flip: { activated: True, probability: 0.5 }
       # Random Up to Down Flip, for images whose content keeps its meaning upside down
       random_up_down_flip: { activated: True, probability: 0.5 }
-      # Random Rotation between -20° and 20°, the uncovered corners filled with black
+      # Random Rotation between -10° and 10°, the uncovered corners filled with black
       random_rotation: { activated: True, probability: 0.5 }
       # Random -90° or 90° rotation (square images only)
       random_90_rotation: { activated: False, probability: 0.3 }
-      # Random Perspective : each corner moved inwards by up to 40% of half the image width and height, a change of
+      # Random Perspective : each corner moved inwards by up to 5% of half the image width and height, a change of
       # viewpoint, the uncovered border filled with black
       random_perspective: { activated: True, probability: 0.5 }
       # Random Jigsaw, experimental : image cut into 2x2 pieces put back in a random order, breaking the global layout
@@ -231,7 +231,7 @@ Data:
       random_jigsaw: { activated: False, probability: 0.2 }
 
       # Photometric augmentations, drawn on their own for each view.
-      # Brightness, contrast and saturation each scaled by x0.2 to x1.8 (the colour jitter of SimCLR on ImageNet)
+      # Brightness, contrast and saturation each scaled by x0.6 to x1.2 (milder than the x0.2 to x1.8 of SimCLR)
       brightness_contrast_saturation: { activated: True, probability: 0.8 }
       # Random Hue : hue turned by up to 36 degrees (a tenth of the hue circle) in either direction
       random_hue: { activated: True, probability: 0.8 }
@@ -249,22 +249,22 @@ Data:
       gray_scale_augment: { activated: True, probability: 0.2 }
       # Random Colour augmentation : swap of the blue and red channels (BGR to RGB)
       random_colour_augmentation: { activated: False, probability: 0.3 }
-      # Random Gamma : gamma correction with a gamma of 0.5 to 2.0, darkening or lightening the mid-tones
+      # Random Gamma : gamma correction with a gamma of 0.8 to 1.25, darkening or lightening the mid-tones
       random_gamma: { activated: True, probability: 0.3 }
-      # Random Linear Illumination : ramp of 13 to 64 intensity levels growing from one side of the image to the
+      # Random Linear Illumination : ramp of 13 to 38 intensity levels growing from one side of the image to the
       # opposite one, brightening or darkening it, an uneven lighting
       random_linear_illumination: { activated: True, probability: 0.3 }
-      # Random Plasma Shadow : irregular shadows of a random fractal map darkening by up to 128 intensity levels
+      # Random Plasma Shadow : irregular shadows of a random fractal map darkening by up to 51 intensity levels
       random_plasma_shadow: { activated: True, probability: 0.2 }
-      # Random Image Blurring : 23x23 Gaussian kernel with a sigma of 0.1 to 3.0
+      # Random Image Blurring : 9x9 Gaussian kernel with a sigma of 2.5
       random_blur: { activated: True, probability: 0.5 }
-      # Random Motion Blurring : streak of 7 to 21 pixels at an angle of 0 to 180 degrees, trailing backward or
+      # Random Motion Blurring : streak of 5 to 15 pixels at an angle of 0 to 180 degrees, trailing backward or
       # forward, the motion of the camera or of the objects during the exposure
       random_motion_blur: { activated: True, probability: 0.1 }
-      # Random Haze : blend with a uniform grey airlight of 153 to 255 intensity levels taking 20% to 70% of every
+      # Random Haze : blend with a uniform grey airlight of 160 to 255 intensity levels taking 20% to 70% of every
       # pixel, the fog or condensation of a camera lowering the contrast (applied after the blurs)
       random_haze: { activated: True, probability: 0.3 }
-      # Random Solarize : every pixel at or above 128 intensity levels inverted, on the second view only
+      # Random Solarize : every pixel at or above 191 intensity levels inverted, on the second view only
       random_solarize: { activated: True, probability: 0.2 }
       # Random Black Out : image cut into a grid of grid_size x grid_size cells (smaller cells hiding smaller parts),
       # every cell blacked out with a fixed probability of 0.35, on the second view only

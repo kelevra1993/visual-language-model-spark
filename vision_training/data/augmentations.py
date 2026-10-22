@@ -135,11 +135,11 @@ class AugmentationStrengths(TypedDict):
 # Strengths of the supervised tasks, slight changes keeping every object recognisable: the crop keeps 75 % to 100 % of
 # each side, the brightness moves by up to 40 levels, the contrast and saturation only decrease and the noise has a
 # standard deviation of 20 levels. The types added with the self-supervised views (perspective, jigsaw, hue, gamma,
-# linear illumination, plasma shadow, solarization, erasing) take milder values than the views
+# linear illumination, plasma shadow, solarization, erasing) take mild values of their own
 SUPERVISED_AUGMENTATION_STRENGTHS: AugmentationStrengths = {
     "crop_side_range": (0.75, 1.0), "crop_area_range": None, "crop_aspect_ratio_range": None,
     "aspect_crop_side_range": (0.75, 1.0), "zoom_out_side_range": (0.5, 1.0), "maximum_translation_fraction": 0.25,
-    "maximum_rotation_degrees": 5.0, "perspective_distortion_scale": 0.1, "jigsaw_grid_size": 2,
+    "maximum_rotation_degrees": 5.0, "perspective_distortion_scale": 0.05, "jigsaw_grid_size": 2,
     "brightness_maximum_delta": 40.0, "brightness_factor_range": None, "contrast_factor_range": (0.7, 1.0),
     "saturation_factor_range": (0.7, 1.0), "maximum_hue_shift": 0.05,
     "clahe_clip_limit": 2.0, "clahe_grid_size": (4, 4), "sharpening_sigma": 1.5, "sharpening_strength": 3.0,
@@ -152,27 +152,27 @@ SUPERVISED_AUGMENTATION_STRENGTHS: AugmentationStrengths = {
     "haze_strength_range": (0.2, 0.6), "haze_airlight_range": (180.0, 255.0), "solarize_threshold": 127.5,
     "black_out_cell_probability": 0.2, "erasing_area_range": (0.02, 0.15), "erasing_aspect_ratio_range": (0.3, 3.3)}
 
-# Strengths of the self-supervised task, the views of SimCLR, BYOL and Barlow Twins, stronger than in the supervised
-# tasks so that the two views of an image share its content only: the crop covers 20 % to 100 % of the area with an
-# aspect ratio of x1/2 to x2, the colour jitter scales the brightness, contrast and saturation by 0.2 to 1.8 (the
-# colour jitter of SimCLR on ImageNet) and shifts the hue by up to a tenth of the hue circle, the translation and the
-# perspective reach 40 %, the rotation 20 degrees, the noise 30 levels, the blur a sigma of 3.0 on a 23x23 kernel
-# (about a tenth of the side of the views, as in SimCLR), the motion blur 21 pixels, the gamma 0.5 to 2.0, the haze
-# 70 % and the black-out 35 % of the cells. The other types keep the supervised values or those of the former views
+# Strengths of the self-supervised task, the views of SimCLR, BYOL and Barlow Twins, lowered from those of SimCLR on
+# ImageNet, which were too strong for the images of the project: the crop covers 50 % to 100 % of the area with an
+# aspect ratio of x1/2 to x2, the colour jitter scales the brightness, contrast and saturation by 0.6 to 1.2 and shifts
+# the hue by up to a tenth of the hue circle, the translation reaches 25 %, the perspective 5 %, the rotation 10
+# degrees, the noise 30 levels, the haze 70 % with an airlight of 160 to 255 levels and the black-out 35 % of the
+# cells. The plasma shadows darken by up to 51 levels on up to 30 % of the image and the solarization inverts the
+# pixels at or above 191.25 levels only, milder than in the supervised tasks. The other types keep the supervised values
 SELF_SUPERVISED_AUGMENTATION_STRENGTHS: AugmentationStrengths = {
-    "crop_side_range": None, "crop_area_range": (0.2, 1.0), "crop_aspect_ratio_range": (1.0 / 2.0, 2.0),
-    "aspect_crop_side_range": (0.75, 1.0), "zoom_out_side_range": (0.5, 1.0), "maximum_translation_fraction": 0.4,
-    "maximum_rotation_degrees": 20.0, "perspective_distortion_scale": 0.4, "jigsaw_grid_size": 2,
-    "brightness_maximum_delta": None, "brightness_factor_range": (0.2, 1.8), "contrast_factor_range": (0.2, 1.8),
-    "saturation_factor_range": (0.2, 1.8), "maximum_hue_shift": 0.1,
+    "crop_side_range": None, "crop_area_range": (0.5, 1.0), "crop_aspect_ratio_range": (1.0 / 2.0, 2.0),
+    "aspect_crop_side_range": (0.75, 1.0), "zoom_out_side_range": (0.5, 1.0), "maximum_translation_fraction": 0.25,
+    "maximum_rotation_degrees": 10.0, "perspective_distortion_scale": 0.05, "jigsaw_grid_size": 2,
+    "brightness_maximum_delta": None, "brightness_factor_range": (0.6, 1.2), "contrast_factor_range": (0.6, 1.2),
+    "saturation_factor_range": (0.6, 1.2), "maximum_hue_shift": 0.1,
     "clahe_clip_limit": 2.0, "clahe_grid_size": (4, 4), "sharpening_sigma": 1.5, "sharpening_strength": 3.0,
-    "noise_standard_deviation": 30.0, "gamma_range": (0.5, 2.0),
-    "linear_illumination_gain_range": (0.05 * 255.0, 0.25 * 255.0),
-    "plasma_shadow_intensity_range": (-0.5 * 255.0, 0.0), "plasma_shadow_quantity_range": (0.0, 0.5),
+    "noise_standard_deviation": 30.0, "gamma_range": (0.8, 1.25),
+    "linear_illumination_gain_range": (0.05 * 255.0, 0.15 * 255.0),
+    "plasma_shadow_intensity_range": (-0.2 * 255.0, 0.0), "plasma_shadow_quantity_range": (0.0, 0.3),
     "plasma_shadow_roughness_range": (0.1, 0.7),
-    "blur_kernel_size": 23, "blur_sigma_range": (0.1, 3.0), "motion_blur_kernel_size_range": (7, 21),
+    "blur_kernel_size": 9, "blur_sigma_range": (2.5, 2.5), "motion_blur_kernel_size_range": (5, 15),
     "motion_blur_angle_range": (0.0, 180.0), "motion_blur_direction_range": (-1.0, 1.0),
-    "haze_strength_range": (0.2, 0.7), "haze_airlight_range": (0.6 * 255.0, 255.0), "solarize_threshold": 127.5,
+    "haze_strength_range": (0.2, 0.7), "haze_airlight_range": (160.0, 255.0), "solarize_threshold": 0.75 * 255.0,
     "black_out_cell_probability": 0.35, "erasing_area_range": (0.02, 0.15), "erasing_aspect_ratio_range": (0.3, 3.3)}
 
 # Draws of the region of a crop of random area and aspect ratio before the central region is taken, as the random
@@ -1130,7 +1130,7 @@ class DataAugmenter:
         """
         Crops a random region and resizes it back to the original size, which zooms into the image. In the supervised
         tasks (crop_side_range) the region keeps the aspect ratio of the image and 75 to 100% of each side, a slight
-        zoom; in the self-supervised task (crop_area_range) it covers 20 to 100% of the area with an aspect ratio of
+        zoom; in the self-supervised task (crop_area_range) it covers 50 to 100% of the area with an aspect ratio of
         x1/2 to x2 (draw_area_crop), the random resized crop of SimCLR, its content being stretched when it is resized
         back. Boxes are shifted and scaled accordingly; boxes leaving the crop, or keeping too small a share of their
         area inside it, are removed afterwards by 'clean_bounding_boxes'. The mask is cropped and resized with the
@@ -1372,7 +1372,7 @@ class DataAugmenter:
         """
         Shifts the image along its width, its height or both (TRANSLATION_AXES, drawn with equal chances) by whole
         pixels, each shift being drawn up to maximum_translation_fraction of its side in either direction (25 % in the
-        supervised tasks, 40 % in the self-supervised task), so that every task, the classification included, sees
+        supervised and self-supervised tasks), so that every task, the classification included, sees
         its objects away from the positions of the dataset. The uncovered border is black like the padding of the data
         loaders. Boxes move by the same shifts without being clipped, so that 'clean_bounding_boxes' removes the
         objects pushed out of the image or keeping too small a share of their area inside it. The mask moves exactly,
@@ -1464,7 +1464,7 @@ class DataAugmenter:
                         mask: Optional[torch.Tensor]) -> Tuple[torch.Tensor, Optional[torch.Tensor],
                                                                Optional[torch.Tensor], float, str]:
         """
-        Rotates the image by a random angle between -5 and 5 degrees around its centre (-20 and 20 degrees in the
+        Rotates the image by a random angle between -5 and 5 degrees around its centre (-10 and 10 degrees in the
         self-supervised task), filling the uncovered corners with black like the padding of the data loaders. A rotated
         box is no longer axis aligned, so it is replaced by the enclosing box of its rotated corners, which is slightly
         larger than the object. The mask is rotated with the nearest interpolation, its uncovered corners being ignored
@@ -1567,7 +1567,7 @@ class DataAugmenter:
         """
         Distorts the perspective of the image, a change of viewpoint: each of its four corners moves inwards by up to
         perspective_distortion_scale of half the image width and of half its height, drawn on its own along both
-        axes (10 % in the supervised tasks, 40 % in the self-supervised task, as kornia's RandomPerspective), and the
+        axes (5 % in the supervised and self-supervised tasks, as kornia's RandomPerspective), and the
         image is warped into the quadrilateral of the moved corners with a bilinear sampling, its uncovered border being
         black like the padding of the data loaders. The coefficients of the transformation are solved on the host
         (compute_perspective_coefficients) and the sampling grid is computed on the device from them, so that the host
@@ -1662,8 +1662,8 @@ class DataAugmenter:
         """
         Changes the brightness, contrast and saturation to make the network robust to lighting and camera
         differences: slightly in the supervised tasks, a brightness shift of up to 40 intensity levels and the contrast
-        and saturation scaled by 0.7 to 1.0; strongly in the self-supervised task, the colour jitter of SimCLR scaling
-        the brightness, contrast and saturation by 0.2 to 1.8 each, its strength on ImageNet.
+        and saturation scaled by 0.7 to 1.0; in the self-supervised task, the colour jitter of SimCLR scaling the
+        brightness, contrast and saturation by 0.6 to 1.2 each, milder than its 0.2 to 1.8 on ImageNet.
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -1855,8 +1855,8 @@ class DataAugmenter:
         """
         Corrects the gamma of the image, a non-linear change of the exposure darkening or lightening the mid-tones
         more than the dark and bright areas: every pixel of the image scaled to [0, 1] is raised to a power drawn
-        within gamma_range (0.8 to 1.25 in the supervised tasks, 0.5 to 2.0 in the self-supervised task, kornia's
-        RandomGamma of the views).
+        within gamma_range (0.8 to 1.25 in the supervised and self-supervised tasks, kornia's RandomGamma of the
+        views).
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -1871,7 +1871,7 @@ class DataAugmenter:
         """
         Lights the image unevenly, a light source on one side of the scene: a ramp growing linearly from 0 on one side
         of the image to a gain drawn within linear_illumination_gain_range on the opposite side (13 to 38 levels in the
-        supervised tasks, 13 to 64 levels in the self-supervised task, kornia's RandomLinearIllumination of the views)
+        supervised and self-supervised tasks, kornia's RandomLinearIllumination of the views)
         brightens or darkens every pixel, the side towards which the ramp grows being drawn among the four
         (LINEAR_ILLUMINATION_DIRECTIONS). The ramp is computed on the device from numbers. A sequence receives the same
         illumination on all its frames, unless its photometric types are drawn frame by frame.
@@ -1903,8 +1903,8 @@ class DataAugmenter:
         Casts irregular shadows on the image: the pixels where a random fractal map (build_plasma_map, the plasma of
         kornia's RandomPlasmaShadow of the views), whose detail grows with a roughness drawn within
         plasma_shadow_roughness_range, falls below a quantity drawn within plasma_shadow_quantity_range are darkened by
-        an intensity drawn within plasma_shadow_intensity_range (up to 77 levels in the supervised tasks, up to 128
-        levels in the self-supervised task). A sequence receives the same shadows on all its frames, unless its
+        an intensity drawn within plasma_shadow_intensity_range (up to 77 levels below a quantity of up to 0.5 in the
+        supervised tasks, up to 51 levels below a quantity of up to 0.3 in the self-supervised task). A sequence receives the same shadows on all its frames, unless its
         photometric types are drawn frame by frame.
 
         Args:
@@ -1926,9 +1926,8 @@ class DataAugmenter:
 
     def random_blur(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
-        Blurs the image with a Gaussian kernel, 9x9 of sigma 2.5 in the supervised tasks, and 23x23 of a sigma drawn
-        within 0.1 and 3.0 in the self-supervised task (about a tenth of the side of the views, as the blur of SimCLR
-        and BYOL), simulating defocus and motion softness.
+        Blurs the image with a Gaussian kernel, 9x9 of sigma 2.5 in the supervised and self-supervised tasks,
+        simulating defocus and motion softness.
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -1947,7 +1946,7 @@ class DataAugmenter:
         Smears the image along a straight line, the motion of the camera or of the objects during the exposure (a
         conveyor belt, a vehicle, a shaking hand), so that the network learns to recognise objects whose edges are
         streaked in one direction instead of softened in all of them like by random_blur: the line is an odd kernel
-        of 5 to 15 pixels (7 to 21 pixels in the self-supervised task) at an angle of 0 to 180 degrees
+        of 5 to 15 pixels (in the supervised and self-supervised tasks) at an angle of 0 to 180 degrees
         (counter-clockwise from the horizontal), the streak trailing backward or forward along it with a direction of
         -1 to 1, 0 spreading it evenly, drawn on the device (build_motion_blur_kernel). The borders are reflected so
         that the edges of the image do not darken. A sequence receives the same blur on all its frames, unless its
@@ -1979,7 +1978,7 @@ class DataAugmenter:
         """
         Veils the image with a haze, the fog, condensation or dirt on the lens of a camera, so that the network learns
         to find objects whose contrast with their background is low: the image is blended with a uniform grey
-        airlight of 180 to 255 intensity levels taking 20% to 60% of every pixel (153 to 255 levels taking 20% to 70%
+        airlight of 180 to 255 intensity levels taking 20% to 60% of every pixel (160 to 255 levels taking 20% to 70%
         in the self-supervised task) (apply_haze). A sequence receives the same haze on all its
         frames, unless its photometric types are drawn frame by frame.
 
@@ -1998,8 +1997,9 @@ class DataAugmenter:
     def random_solarize(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Solarizes the image, a strong photometric distortion so that the two views of an image cannot be matched by
-        their exact intensities (BYOL, Barlow Twins): every pixel at or above solarize_threshold, half of the 255
-        levels, is inverted, as kornia's RandomSolarize of the views. Drawn for the second view only in the
+        their exact intensities (BYOL, Barlow Twins): every pixel at or above solarize_threshold (127.5 levels in the
+        supervised tasks, 191.25 levels in the self-supervised task, the bright pixels only) is inverted, as kornia's
+        RandomSolarize of the views. Drawn for the second view only in the
         self-supervised task (SECOND_VIEW_ONLY_TYPES), for every image in the supervised tasks. A sequence is
         solarized on all its frames, unless its photometric types are drawn frame by frame.
 

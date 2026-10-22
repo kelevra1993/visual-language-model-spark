@@ -132,11 +132,16 @@ def test_example_images_come_from_different_trucks_and_categories(tmp_path: Path
 
 def test_both_strengths_of_a_type_draw_the_same_random_numbers() -> None:
     """
-    Verifies apply_type_alone: with the same seed, the rotation of the views is the supervised rotation scaled from 5 to
-    20 degrees at most, and a type of the same strength in both sets, the flip, gives the same image.
+    Verifies apply_type_alone: with the same seed, the rotation of the views is the supervised rotation scaled by the
+    ratio of the largest angles of both strength sets, and a type of the same strength in both sets, the flip, gives the
+    same image.
     """
     supervised_augmenter, self_supervised_augmenter = build_augmenters()
     image = create_test_images(number_images=1)[0]
+
+    # Ratio of the largest rotation of the views to that of the supervised tasks, scaling the same drawn number
+    rotation_ratio = (SELF_SUPERVISED_AUGMENTATION_STRENGTHS["maximum_rotation_degrees"] /
+                      SUPERVISED_AUGMENTATION_STRENGTHS["maximum_rotation_degrees"])
     for seed in range(4):
         _, supervised_values = apply_type_alone(augmenter=supervised_augmenter, augmentation_type="random_rotation",
                                                 image=image, seed=seed)
@@ -145,7 +150,7 @@ def test_both_strengths_of_a_type_draw_the_same_random_numbers() -> None:
         supervised_angle, self_supervised_angle = [float(re.match(pattern=r"([+-][0-9.]+) degrees",
                                                                   string=drawn_values).group(1))
                                                    for drawn_values in [supervised_values, self_supervised_values]]
-        assert abs(self_supervised_angle - 4.0 * supervised_angle) <= 0.25
+        assert abs(self_supervised_angle - rotation_ratio * supervised_angle) <= 0.25
 
     # The same flip for both strengths, the caption of a type without drawn value saying so
     supervised_flip, flip_values = apply_type_alone(augmenter=supervised_augmenter,
