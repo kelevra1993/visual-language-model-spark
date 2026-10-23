@@ -73,8 +73,6 @@ This repository trains, evaluates and exports PyTorch models for nine vision tas
   <img src="README/architectures.png" width="100%" />
 </p>
 
-> **Image placeholder** (`README/architectures.png`): a diagram of the shared backbone feeding the task heads: the classification head, the region proposal and detection heads (with the mask heads for INS), the high resolution network, heatmap and tag head and higher resolution branch of KPT on the backbone stem, the U-Net decoder, and the temporal module (with the fusion of the two members for CMP) followed by the classification head (and the decoding of the selection for SEL).
-
 ## Prerequisites
 
 ### Package Requirements
@@ -229,8 +227,6 @@ At launch, the trainer prints the run name, its folders and files as clickable l
   <img src="README/experiment_launch_information.png" width="100%" />
 </p>
 
-> **Screenshot placeholder** (`README/experiment_launch_information.png`): the `=== Experiment Launch Information ===` block printed at the start of a training, with the run name, the folder links, the splits and their number of samples.
-
 Every `information_dump` iterations, it prints the averages of the interval: the iteration, the samples seen, the throughput (and the real frames per second for the sequence tasks), the training and validation losses and metrics, and the duration of the interval. The summaries stay on the multiples of `information_dump`: a run resumed from a checkpoint between two of them (an intermediate save or a Ctrl+C) has a shorter first interval, whose averages and throughput cover only the iterations it ran.
 
 A batch whose loading fails (e.g. an unreadable image, named in the error) is dropped and the next one taken, without stopping the training. Every distinct error is printed in yellow the first time it occurs in the run, `Training Batch Dropped : The image cannot be read : <file>`, the first one with its whole traceback, and the batches dropped since the previous summary are counted under it, `- Dropped Batches Since The Last Summary : Training 2, Validation 1`.
@@ -239,15 +235,11 @@ A batch whose loading fails (e.g. an unreadable image, named in the error) is dr
   <img src="README/interval_summary.png" width="100%" />
 </p>
 
-> **Screenshot placeholder** (`README/interval_summary.png`): two or three consecutive interval summaries of a training, with the iteration header, the throughput and the training and validation metrics.
-
 Every `weight_saving_iterations` iterations, the checkpoint is evaluated on the test split, and its report is printed and appended to `Results.txt` with the same layout: the global metrics, the notes and, with `evaluation.per_class_report`, the table of the classes sorted worst first. With the moving average of the weights on, a second report of the same checkpoint follows, headed `Iteration <n> · <evaluated samples> · EMA Weights · <date and time>` ([Moving Average Of The Weights](#moving-average-of-the-weights)).
 
 <p align="center">
   <img src="README/evaluation_report.png" width="100%" />
 </p>
-
-> **Screenshot placeholder** (`README/evaluation_report.png`): the report of one evaluated checkpoint in the console, with its header `Iteration <n> · <evaluated samples> · <date and time>`, the global metrics and the per-class table.
 
 ### Stopping And Resuming
 Ctrl+C stops the training and saves a checkpoint of the last training step taken, unless the checkpoint of that step was just saved. A checkpoint of a `weight_saving_iterations` iteration left unevaluated by a stop is announced, `The Checkpoint Of Iteration <n> Was Not Evaluated`, to be evaluated apart ([Evaluating Checkpoints](#evaluating-checkpoints)). With `resume_training: true`, launching the same configuration again resumes from the last checkpoint of its run folder, with its optimizer state. `number_iterations` is the total of the run: a run resumed from iteration 5000 with `number_iterations: 8000` trains the iterations 5001 to 8000, and a run whose last checkpoint is at or beyond it trains nothing and says so.
@@ -328,8 +320,6 @@ uv run python -m scripts.data.visualize_augmentation_strengths
   <img src="README/input_viewer.png" width="100%" />
 </p>
 
-> **Screenshot placeholder** (`README/input_viewer.png`): the Training and Validation windows of the input viewer side by side, each image followed by its black information panel listing its targets and, for the training sample, the augmentations drawn with their values.
-
 ### TensorBoard Monitoring
 To follow the training and validation curves and the test evaluations of a run, start TensorBoard on its folder and open http://localhost:6006:
 
@@ -342,8 +332,6 @@ The `Train` and `Validation` curves are written every iteration. The `Test` scal
 <p align="center">
   <img src="README/tensorboard.png" width="100%" />
 </p>
-
-> **Screenshot placeholder** (`README/tensorboard.png`): the TensorBoard scalars of a run, with the training and validation loss curves and a Test metric (e.g. `Accuracy` or `Mean IoU`) over the evaluations.
 
 ### Moving Average Of The Weights
 `Optimization.exponential_moving_average` keeps a second copy of the model, never trained itself, moved towards the trained weights after every optimizer step:
@@ -443,19 +431,13 @@ The classifier predicts the class of an image (`ClassificationHead.output_mode: 
   <img src="README/classification_sample.png" width="60%" />
 </p>
 
-> **Screenshot placeholder** (`README/classification_sample.png`): two or three sample images of a classification evaluation (`Evaluation/Iteration_<n>/Samples/`), each captioned `true -> predicted probability`, one green (right) and one red (wrong).
-
 <p align="center">
   <img src="README/confusion_matrix.png" width="60%" />
 </p>
 
-> **Screenshot placeholder** (`README/confusion_matrix.png`): the `confusion_matrix.png` of an evaluation of the synthetic shapes classifier.
-
 <p align="center">
   <img src="README/error_dumps.png" width="80%" />
 </p>
-
-> **Screenshot placeholder** (`README/error_dumps.png`): the `Errors/` folder of an evaluation in a file browser, with its `<TRUE>-TO-<PREDICTED>` folders and a few misclassified images.
 
 ### Object Detection (DET)
 The two-stage detector predicts the box, class and score of every object of an image. The region proposal heads and the detection heads run on several backbone levels (the keys of `DetectionLevels`), each level having its own anchors and heads. In training and in the validation loss, the ground truth boxes of every image are added to its proposals before the detection heads sample their positives and negatives, each at the level of its best anchor, so that every object gives a positive proposal even when the region proposal network misses it.
@@ -621,8 +603,6 @@ The sample images show the same test images at every evaluation: the ground trut
   <img src="README/keypoint_sample.png" width="80%" />
 </p>
 
-> **Screenshot placeholder** (`README/keypoint_sample.png`): a sample image of a keypoint detection evaluation, one test image with its ground truth objects, keypoints and skeletons on the left next to the objects found with their scores on the right.
-
 ### Semantic Segmentation (SEG)
 The segmenter predicts the class of every pixel. The backbone is the encoder of a U-Net: the decoder upsamples its last feature map level by level, each level merging the skip connection of a backbone block.
 
@@ -670,8 +650,6 @@ A side shorter than a tile is padded, the padding being ignored. `keep_ratio` is
   <img src="README/segmentation_sample.png" width="100%" />
 </p>
 
-> **Screenshot placeholder** (`README/segmentation_sample.png`): a sample image of a segmentation evaluation: the input, the true mask, the predicted mask and the error map side by side.
-
 ### Sequence Lengths (M2O, M2M, CMP, SEL)
 The sequence tasks read sequences of frames. Every sequence holds its frames in `data/<sequence name>/`, listed in order in `labels.json`. The backbone runs on every frame, then the temporal module (`TemporalModel.type`) combines the frames: `mean_pooling`, `max_pooling` and `attention_pooling` ignore their order, `gru`, `lstm`, `transformer` and `temporal_convolution` follow it.
 
@@ -716,8 +694,6 @@ The sequence classifier predicts one class per sequence (many to one). Every seq
   <img src="README/sequence_classification_sample.png" width="80%" />
 </p>
 
-> **Screenshot placeholder** (`README/sequence_classification_sample.png`): a sample image of a sequence classification evaluation: the frame grid of a sequence captioned `true -> predicted probability`.
-
 ### Sequence Labelling (M2M)
 The sequence labeller predicts one class per frame (many to many), the temporal module keeping one vector per frame. With `TemporalModel.causal: True` (transformer, temporal convolution), every frame only sees the frames before it, as in a live stream.
 
@@ -746,8 +722,6 @@ For example, a sequence true `A A A A A B B B B B` predicted `A A B A A B B A B 
 <p align="center">
   <img src="README/sequence_labelling_sample.png" width="80%" />
 </p>
-
-> **Screenshot placeholder** (`README/sequence_labelling_sample.png`): a sample image of a sequence labelling evaluation: the frame grid of a sequence, every frame captioned `true/predicted`, the wrong frames marked with `X`.
 
 ### Sequence Comparison (CMP)
 The sequence comparator predicts one class per pair of a before and an after sequence, e.g. whether an object was lost between two visits. Both members go through the same backbone and temporal module, and `Fusion.type` combines them: `concatenation`, `difference` (the change between both members made explicit) or `cross_attention` (the frames of each member attend to the frames of the other member).
@@ -785,8 +759,6 @@ Both members are read whole, and may hold different numbers of frames; a pair wi
 <p align="center">
   <img src="README/sequence_comparison_sample.png" width="80%" />
 </p>
-
-> **Screenshot placeholder** (`README/sequence_comparison_sample.png`): a sample image of a sequence comparison evaluation: the before member above the after member, captioned `true -> predicted probability`.
 
 ### Frame Selection (SEL)
 The frame selector chooses in every sequence the frames of every wanted class, the criterion of a choice being whatever the labels of the dataset encode (e.g. the sharpest view of each side of an object among the photos of a visit). Every class of the label mapping except the unselected one (`Selection.unselected_category`) is a wanted class, every sequence holds exactly `Selection.frames_per_class` frames of each, and its other frames are unselected.
