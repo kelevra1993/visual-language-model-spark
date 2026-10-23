@@ -164,8 +164,10 @@ Data:
     # Number of batches prepared in advance by every worker.
     prefetch_batches: 2
   image_settings:
-    # Target resolution to resize all the frames.
-    size: 512
+    # Target resolution to resize all the frames. 128, the size of the synthetic frames: the flattened frame vector
+    # of the head then holds 4096 features, against 65536 at 512 pixels, whose 50 million GRU weights stayed at
+    # chance.
+    size: 128
     # Flag to maintain the original aspect ratio when resizing.
     keep_ratio: True
   sequence_settings:
@@ -400,7 +402,9 @@ TemporalModel:
 ClassificationHead:
   # Global pooling reducing the final backbone feature map of every frame to one feature vector: "average", "max" or
   # "flatten" (all the values of the map, channels x height x width, which keeps where the features are in the frame).
-  global_pooling: "average"
+  # Flatten here: the class of a moving shape is the change of its position over the frames, which "average" and
+  # "max" remove from every frame vector, leaving the classifier at chance.
+  global_pooling: "flatten"
   # Units of the hidden fully connected layers between the sequence vector and the class logits, [] for none.
   fully_connected: [64]
   # Normalization of the outputs of every hidden layer before its ReLU: "batch" (statistics of every feature over

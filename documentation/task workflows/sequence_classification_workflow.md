@@ -5,7 +5,7 @@ This document follows one sequence classification run (many to one, M2O: one cla
 Every sequence is one sample, read whole: there is no window. A sequence longer than `Data.sequence_settings.maximum_sequence_length` is left out of its split with a warning, and the sequences of a batch are padded with black frames to the longest sequence of the batch.
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training:
-- **Stages 1 and 2**: `configurations/sequence_classification/configuration_synthetic_sequences.yaml` (synthetic moving shapes, 4 classes `moving_left`, `moving_right`, `moving_up`, `moving_down`, `maximum_sequence_length: 50`, 512 pixel frames, batch size 16), with the data and run folders redirected to a temporary folder. The dataset was generated with the synthetic generator (2000 training, 200 validation and 200 test sequences of 2 to 12 frames). The dataset of `configuration_example.yaml` is not on this machine.
+- **Stages 1 and 2**: `configurations/sequence_classification/configuration_synthetic_sequences.yaml` (synthetic moving shapes, 4 classes `moving_left`, `moving_right`, `moving_up`, `moving_down`, `maximum_sequence_length: 50`, 128 pixel frames, batch size 16), with the data and run folders redirected to a temporary folder. The dataset was generated with the synthetic generator (2000 training, 200 validation and 200 test sequences of 2 to 12 frames). The dataset of `configuration_example.yaml` is not on this machine.
 - **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `moving_down` for every sequence (4 classes: about 25% accuracy, a loss near ln 4 = 1.386), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
 ## Table of Contents
@@ -168,7 +168,7 @@ evaluation:               {'per_class_report': True, 'number_sample_images': 8, 
                            'save_predictions': True, 'error_dumps': {'activated': False, 'maximum_per_class_pair': 20}}
 TemporalModel:            {'type': 'gru', 'hidden_size': 128, 'number_layers': 1, 'number_heads': 4, 'kernel_size': 3, 'dropout_rate': 0.0,
                            'bidirectional': True, 'causal': False, 'positional_embedding': True, 'pretrained': {...}}
-ClassificationHead:       {'global_pooling': 'average', 'fully_connected': [64], 'fully_connected_normalization': 'none',
+ClassificationHead:       {'global_pooling': 'flatten', 'fully_connected': [64], 'fully_connected_normalization': 'none',
                            'batch_normalization_momentum': 0.1, 'dropout_rate': 0.2, 'output_mode': 'multi_class',
                            'label_smoothing': 0.0, 'class_weighting': 'none', 'pretrained': {...}}
 ```
@@ -220,7 +220,7 @@ get_trainer_class(task="sequence_classification") -> <class 'vision_training.tra
 
 ## Stage 2 — Trainer Initialization
 
-> The examples below are real outputs from building the trainer on `configurations/sequence_classification/configuration_synthetic_sequences.yaml` (512 pixel frames, `maximum_sequence_length: 50`, batch size 16), with the data and run folders redirected to a temporary folder. The whole construction took 0.09 s on CPU.
+> The examples below are real outputs from building the trainer on `configurations/sequence_classification/configuration_synthetic_sequences.yaml` (128 pixel frames, `maximum_sequence_length: 50`, batch size 16), with the data and run folders redirected to a temporary folder. The whole construction took 0.09 s on CPU.
 
 ### Step 2.1 — `SequenceClassificationTrainer.__init__()`
 Before calling the constructor of the classification trainer, it keeps `Data.sequence_settings`, read by its hooks (the split descriptions), and prints a warning when the frames of the training sequences are shuffled (`data_augmentation.shuffle_frames`) while the temporal module models their order (GRU, LSTM, transformer, temporal convolution): shuffling is meant for the sequences whose frame order carries no information, with a pooling. The class attributes describe the task to the shared code: `LABEL_TYPE = "sequence"` (one class per sequence), `MEMBERS_PER_SAMPLE = 1` (one sequence per sample, 2 for the pairs of the comparison), `SAMPLE_NAME = "Sequences"` and `COUNTS_FRAMES = True` (the frame throughput, Step 3.8).
@@ -241,7 +241,7 @@ The shared constructor (see `classification_workflow.md`, Step 2.2), reached thr
 
 **Example: some attributes set by the constructor**
 ```text
-self.device = device(type='cpu')   self.per_class_report = True   self.number_sample_images = 8   self.input_image_size = 512
+self.device = device(type='cpu')   self.per_class_report = True   self.number_sample_images = 8   self.input_image_size = 128
 self.batch_size = 16   self.mixed_precision = False   self.start_iteration = 1
 ```
 
@@ -256,7 +256,7 @@ The input and backbone tokens are those of every image task, the backbone being 
 
 **Example output**
 ```text
-M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4
+M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4
 ```
 
 ### Step 2.5 — `DataAugmenter()`
@@ -273,7 +273,7 @@ As for every task (see `classification_workflow.md`, Step 2.6): a resumed run fi
 
 **Example: the run folder after this step**
 ```text
-M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4/
+M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/
 ├── Tensorboard/
 ├── Weights/
 ├── data.json
@@ -323,7 +323,7 @@ len(dataset) = 125              (200 - 47 - 28)
 ```text
 sequence:   {'identifier': 1225, 'sequence_identifier': 1226, 'sequence_name': 'train_001225',
              'frames': ['train_001225/000000.png', 'train_001225/000001.png'], 'frame_labels': [2, 2]}
-dataset[0]: images (2, 3, 512, 512) torch.uint8, sequence_mask (2,) torch.bool [True, True], labels () torch.int64 2,
+dataset[0]: images (2, 3, 128, 128) torch.uint8, sequence_mask (2,) torch.bool [True, True], labels () torch.int64 2,
             sample_identifiers 1225
 get_sample_name(1225)  = 'train_001225'                 (the name of the sequence, '/' replaced by '_')
 describe_sample(1225)  = {'sequence': 'train_001225', 'first_frame': 'train_001225/000000.png', 'last_frame': 'train_001225/000001.png'}
@@ -356,7 +356,7 @@ The classification hook: it creates the `SequenceClassifier` from the registry `
 ```text
 model.backbone                 Backbone                   183,648 parameters
 model.global_pooling           Sequential                       0 parameters
-model.temporal_module          RecurrentTemporalModule    148,992 parameters
+model.temporal_module          RecurrentTemporalModule  3,245,568 parameters
 model.classification_head      ClassificationHead          16,708 parameters
 model.class_weights            buffer [4] torch.float32 [1.0, 1.0, 1.0, 1.0]
 model.number_classes           4
@@ -366,20 +366,20 @@ model.number_classes           4
 The model turns every frame into one vector with the shared backbone and a global pooling (Step 2.14), summarises the vectors of a sequence into one vector with the temporal module (Step 2.15), and gives the class logits with the head of the classification (Step 2.16). The backbone is the one of the image tasks, so a backbone trained on images can be transferred to it.
 
 ### Step 2.14 — `build_backbone()` + `build_global_pooling()`
-The backbone shared by every task (see `classification_workflow.md`, Step 2.14), built for a frame of `image_settings.size`. The global pooling (`average` here, `max`, or `flatten`) reduces its final feature map to one vector per frame, whose width `compute_pooled_features()` gives to the temporal module: as wide as the last backbone block for `average` and `max` (64 features per frame here), or channels x height x width of the final feature map for `flatten`, which then follows the image size.
+The backbone shared by every task (see `classification_workflow.md`, Step 2.14), built for a frame of `image_settings.size`. The global pooling (`flatten` here, `average` or `max`) reduces its final feature map to one vector per frame, whose width `compute_pooled_features()` gives to the temporal module: as wide as the last backbone block for `average` and `max` (64 features per frame here), or channels x height x width of the final feature map for `flatten`, which then follows the image size.
 
-**Example: the backbone panel of `print_summary()` for a 512×512 frame** (shortened)
+**Example: the backbone panel of `print_summary()` for a 128×128 frame** (shortened)
 ```text
 │  - Convolution Block 1                                                       │
 │    - Modules      : Squeeze-and-Excitation                                   │
-│    - Input Shape  : [1, 3, 512, 512]                                         │
-│    - Output Shape : [1, 16, 256, 256]                                        │
+│    - Input Shape  : [1, 3, 128, 128]                                         │
+│    - Output Shape : [1, 16, 64, 64]                                          │
 │  ...                                                                         │
 │  - Convolution Block 5                                                       │
 │    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
-│    - Input Shape  : [1, 64, 32, 32]                                          │
-│    - Output Shape : [1, 64, 32, 32]                                          │
-Final Backbone output shape: [1, 64, 32, 32]
+│    - Input Shape  : [1, 64, 8, 8]                                            │
+│    - Output Shape : [1, 64, 8, 8]                                            │
+Final Backbone output shape: [1, 64, 8, 8]
 ```
 
 ### Step 2.15 — `build_temporal_module()` → `RecurrentTemporalModule`
@@ -389,10 +389,10 @@ It builds the module of `TemporalModel.type` with `keep_time_axis=False`, so tha
 
 Every module gives the size of its output in `output_features`, read by the head.
 
-**Example: the module of the configuration** (64 features per frame, hidden size 128, bidirectional)
+**Example: the module of the configuration** (4096 features per frame, the flattened 64 x 8 x 8 map of a 128 pixel frame, hidden size 128, bidirectional)
 ```text
 RecurrentTemporalModule(
-  (recurrent_network): GRU(64, 128, batch_first=True, bidirectional=True)
+  (recurrent_network): GRU(4096, 128, batch_first=True, bidirectional=True)
 )
 output_features = 256          (2 directions x 128)
 ```
@@ -445,8 +445,8 @@ MetricTracker: batch_size 16, validation_iteration_ratio 25, sample_name 'Sequen
 
 **Example output**
 ```text
-- Run Name                : M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4
-- Experiment Folder       : file:///.../example_runs/M2O_IN-KAR-512_..._MC4
+- Run Name                : M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4
+- Experiment Folder       : file:///.../example_runs/M2O_IN-KAR-128_..._MC4
 ...
 - Data Record             : file:///.../data.json
 - Train Data Folder       : file:///tmp/.../synthetic_moving_shapes/train (2000 sequences, 13750 frames, 2000 sequences of at most 50 frames)
@@ -486,7 +486,7 @@ The backbone panel is shown in Step 2.14 and the receptive field panel is the on
 │ Output Features    : 256                                                     │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 ╭──────────────────────────── Classification Head ─────────────────────────────╮
-│ Global Pooling     : average                                                 │
+│ Global Pooling     : flatten                                                 │
 │ Input Features     : 256                                                     │
 │ Hidden Layers      : [64]                                                    │
 │ Normalization      : none                                                    │
@@ -501,9 +501,9 @@ The backbone panel is shown in Step 2.14 and the receptive field panel is the on
 │   - Estimated Size       : 0.74 MB                       │
 │                                                          │
 │ Temporal Module                                          │
-│   - Parameters           : 148,992                       │
-│   - Trainable Parameters : 148,992                       │
-│   - Estimated Size       : 0.60 MB                       │
+│   - Parameters           : 3,245,568                     │
+│   - Trainable Parameters : 3,245,568                     │
+│   - Estimated Size       : 12.98 MB                      │
 │                                                          │
 │ Classification Head                                      │
 │   - Parameters           : 16,708                        │
@@ -511,9 +511,9 @@ The backbone panel is shown in Step 2.14 and the receptive field panel is the on
 │   - Estimated Size       : 0.07 MB                       │
 │                                                          │
 │ Total Model                                              │
-│   - Parameters           : 349,348                       │
-│   - Trainable Parameters : 349,348                       │
-│   - Estimated Size       : 1.40 MB                       │
+│   - Parameters           : 3,445,924                     │
+│   - Trainable Parameters : 3,445,924                     │
+│   - Estimated Size       : 13.79 MB                      │
 ╰──────────────────────────────────────────────────────────╯
 ```
 
@@ -534,7 +534,7 @@ We Generate A New Model That Will Be Trained From Scratch.            -> start_i
 
 ## Stage 3 — Training Loop
 
-> The examples below are real outputs from a run on CPU of `configuration_synthetic_sequences.yaml` shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the error images and the MLflow tracking on. Its run name is `M2O_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4`; with batches of 4 sequences, an epoch is 500 iterations.
+> The examples below are real outputs from a run on CPU of `configuration_synthetic_sequences.yaml` shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, with the error images and the MLflow tracking on. Its run name is `M2O_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4`; with batches of 4 sequences, an epoch is 500 iterations. It was recorded with the `average` pooling the configuration had before `flatten` became its default, so its frame vectors have 64 features instead of the 1024 of a flattened 64 x 4 x 4 map; the steps are the same.
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
 The loop of every task (see `classification_workflow.md`, Step 3.1): from `start_iteration` to `number_iterations`, the total of the run, each iteration takes its training step, then saves its checkpoint, runs its validation batch and prints its summary on the iterations set for each, and evaluates its checkpoint last.
