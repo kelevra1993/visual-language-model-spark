@@ -202,7 +202,7 @@ The keypoints are not described in the YAML but in the `categories` of the COCO 
 - `keypoints`: the names, in the order of the COCO `keypoints` triplets.
 - `skeleton`: the pairs of keypoint indices drawn as lines in the viewers and the sample images.
 
-Any other field of a category is ignored. A keypoint keeps its name whatever the augmentation of its image: after a flip, the keypoint labelled `top_left` lies on the top right of the object and is still trained in the `top_left` channel. A flip or a large rotation therefore only suits keypoints whose names do not depend on their side or their orientation; the synthetic configuration turns the flip off and limits the rotation to 20 degrees.
+Any other field of a category is ignored. A keypoint keeps its name whatever the augmentation of its image: after a flip, the keypoint labelled `top_left` lies on the top right of the object and is still trained in the `top_left` channel. A flip or a large rotation therefore only suits keypoints whose names do not depend on their side or their orientation; the synthetic configuration turns both flips and the 90 degree rotation off, its rotation staying within the 5 degrees of the supervised tasks (`SUPERVISED_AUGMENTATION_STRENGTHS`).
 
 **Example: 5 of the 33 definitions**
 ```text

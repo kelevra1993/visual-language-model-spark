@@ -1,11 +1,10 @@
 """
 General trainer shared by every task: the run folder with the copy of the configuration and the record of the images of
 every split, the training loop with its validation passes, the starting weights, the optimizer and learning rate
-schedule, the moving average of the weights, the auxiliary heads trained with the model but kept outside it (none for
-the current tasks), the data augmentation with the strengths of the task, the checkpoints and the resume, the evaluation
-of the saved checkpoints on the test split (trained and averaged weights), the MLflow tracking of the run
-(vision_training/tracking) and the input batch viewer. The task trainers subclass it and implement its abstract hooks,
-and vision_training/main.py builds them through the task registry.
+schedule, the moving average of the weights, the data augmentation with the strengths of the task, the checkpoints and
+the resume, the evaluation of the saved checkpoints on the test split (trained and averaged weights), the MLflow
+tracking of the run (vision_training/tracking) and the input batch viewer. The task trainers subclass it and implement
+its abstract hooks, and vision_training/main.py builds them through the task registry.
 """
 
 import json
@@ -21,7 +20,6 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from shutil import copyfile
-from torch import nn
 from torch.utils.data import DataLoader
 from torch.utils.data.dataloader import _BaseDataLoaderIter
 from torch.utils.tensorboard import SummaryWriter
@@ -49,8 +47,8 @@ from vision_training.models.model_transfer import (TRANSFERABLE_COMPONENTS, free
                                                    get_component_name, load_pretrained_component,
                                                    load_segmentation_class_layers)
 from vision_training.models.task_model import TaskModel
-from vision_training.trainers.checkpointing import (AUXILIARY_HEADS_STATE_KEY, EXPONENTIAL_MOVING_AVERAGE_STATE_KEY,
-                                                    get_last_checkpoint_iteration, load_checkpoint, save_checkpoint)
+from vision_training.trainers.checkpointing import (EXPONENTIAL_MOVING_AVERAGE_STATE_KEY, get_last_checkpoint_iteration,
+                                                    load_checkpoint, save_checkpoint)
 from vision_training.trainers.learning_rate_schedule import compute_learning_rate_factor
 from vision_training.trainers.metric_tracking import INTERVAL_BATCHES_KEY, MetricTracker
 from vision_training.trainers.weight_averaging import ExponentialMovingAverage
@@ -251,15 +249,6 @@ class BaseTrainer(ABC):
         self.pretrained_checkpoint_paths = self.initialise_pretrained_components()
         self.optimizer = self.build_optimizer()
 
-        # Auxiliary heads of the task, trained with the model but kept outside it (e.g. the projectors of the view
-        # losses of the image classifier): never exported, transferred nor averaged, each with its own optimizer at the
-        # learning rate of the run and saved in the checkpoints under its name, so that a resumed run can add or drop
-        # one. A resume replaces their weights by those of its checkpoint
-        self.auxiliary_heads = self.build_auxiliary_heads()
-        self.auxiliary_optimizers = {head_name: self.create_optimizer(
-                                         parameter_groups=[{"params": list(auxiliary_head.parameters())}])
-                                     for head_name, auxiliary_head in self.auxiliary_heads.items()}
-
         # Moving average of the weights, started from the weights of the model once the transferred components are
         # loaded (a resume replaces it by the one of its checkpoint), and evaluated next to the trained weights
         self.exponential_moving_average_configuration = self.optimization_configuration["exponential_moving_average"]
@@ -287,14 +276,13 @@ class BaseTrainer(ABC):
         # Print experiment information to user so that they can know everything about the experiment
         # as well as input and output shapes of the model.
         self.print_experiment_information()
-        self.model.print_summary(auxiliary_heads=self.auxiliary_heads)
+        self.model.print_summary()
 
-        # Optional architecture diagnostics, printed before training continues, the model size counting the auxiliary
-        # heads trained with the model
+        # Optional architecture diagnostics, printed before training continues
         if self.diagnosis_modes["compute_receptive_field"]:
             self.model.print_receptive_field_summary()
         if self.diagnosis_modes["compute_model_size"]:
-            self.model.print_model_size_summary(auxiliary_heads=self.auxiliary_heads)
+            self.model.print_model_size_summary()
 
         # Optional viewer of the training and validation samples fed to the network, the program exits once it is closed
         # without having created the run folder
@@ -354,20 +342,6 @@ class BaseTrainer(ABC):
             Optional[Dict[str, float]]: The weight of every loss output, or None when every loss counts once.
         """
         return None
-
-    def build_auxiliary_heads(self) -> Dict[str, nn.Module]:
-        """
-        Builds the auxiliary heads of the task once its model is built: modules trained with the model through the
-        losses of forward_pass but kept outside it, so that they are never exported, transferred nor averaged and can
-        be added or dropped when a run resumes (e.g. a projector of an auxiliary loss). The general trainer gives each
-        one its own optimizer, steps it with the model and saves it in the checkpoints under its name. No head by
-        default, and no current task builds one.
-
-        Returns:
-            Dict[str, nn.Module]: The auxiliary heads on the device and in the precision of the run, keyed by name,
-                empty by default.
-        """
-        return {}
 
     @abstractmethod
     def describe_split(self, split_data_folder: Path) -> Tuple[int, str]:
@@ -633,8 +607,7 @@ class BaseTrainer(ABC):
         """
         Creates the optimizer of 'Optimization.optimizer' with its weight decay over parameter groups, at the learning
         rate of the run for the groups without their own: Adam (weight decay added to the gradients), AdamW (weight
-        decay decoupled from the gradients) or SGD with Nesterov momentum 0.9. Used for the model by build_optimizer and
-        for every auxiliary head of the task.
+        decay decoupled from the gradients) or SGD with Nesterov momentum 0.9. Used for the model by build_optimizer.
 
         Args:
             parameter_groups (List[Dict[str, Any]]): The parameter groups, each with its 'params' and optionally its
@@ -654,13 +627,11 @@ class BaseTrainer(ABC):
 
     def set_training_mode(self) -> None:
         """
-        Puts the model and the auxiliary heads in training mode before every training step, except the batch
-        normalization layers of the frozen transferred components, kept in evaluation mode so that their statistics stay
-        those of their source runs (see freeze_batch_normalization_statistics).
+        Puts the model in training mode before every training step, except the batch normalization layers of the
+        frozen transferred components, kept in evaluation mode so that their statistics stay those of their source
+        runs (see freeze_batch_normalization_statistics).
         """
         self.model.train()
-        for auxiliary_head in self.auxiliary_heads.values():
-            auxiliary_head.train()
         for section_name, pretrained_configuration in self.pretrained_configurations.items():
             if pretrained_configuration["freeze"]:
                 freeze_batch_normalization_statistics(
@@ -668,20 +639,16 @@ class BaseTrainer(ABC):
 
     def set_evaluation_mode(self) -> None:
         """
-        Puts the model and the auxiliary heads in evaluation mode before every validation pass, their batch
-        normalization layers using their running statistics.
+        Puts the model in evaluation mode before every validation pass, its batch normalization layers using their
+        running statistics.
         """
         self.model.eval()
-        for auxiliary_head in self.auxiliary_heads.values():
-            auxiliary_head.eval()
 
     def zero_gradients(self) -> None:
         """
-        Clears the gradients of the model and of the auxiliary heads before every training step.
+        Clears the gradients of the model before every training step.
         """
         self.optimizer.zero_grad()
-        for auxiliary_optimizer in self.auxiliary_optimizers.values():
-            auxiliary_optimizer.zero_grad()
 
     def augment_batch(self, batch: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -733,9 +700,8 @@ class BaseTrainer(ABC):
         Updates the model parameters after the backward pass of a training step: the gradients are clipped to
         'Optimization.gradient_clipping_norm' when it is set, the learning rate of every parameter group is set to
         its value of the schedule at this iteration, then the optimizer steps and the moving average of the weights,
-        when the run keeps one, moves towards the updated weights. Every auxiliary head steps with its own optimizer at
-        the learning rate of the run in the schedule, its gradients clipped on their own. The learning rate of the first
-        group is written to TensorBoard.
+        when the run keeps one, moves towards the updated weights. The learning rate of the first group is written to
+        TensorBoard.
 
         Args:
             iteration (int): The training iteration, giving the learning rate of the schedule.
@@ -751,15 +717,6 @@ class BaseTrainer(ABC):
         for parameter_group, base_learning_rate in zip(self.optimizer.param_groups, self.base_learning_rates):
             parameter_group["lr"] = base_learning_rate * learning_rate_factor
         self.optimizer.step()
-
-        # Every auxiliary head steps with its own optimizer, its gradients clipped on their own when asked
-        for head_name, auxiliary_optimizer in self.auxiliary_optimizers.items():
-            if gradient_clipping_norm is not None:
-                torch.nn.utils.clip_grad_norm_(parameters=self.auxiliary_heads[head_name].parameters(),
-                                               max_norm=gradient_clipping_norm)
-            for parameter_group in auxiliary_optimizer.param_groups:
-                parameter_group["lr"] = self.learning_rate * learning_rate_factor
-            auxiliary_optimizer.step()
 
         # Move the moving average of the weights towards the updated weights
         if self.exponential_moving_average is not None:
@@ -2096,9 +2053,9 @@ class BaseTrainer(ABC):
         ('mlflow_run_id', None without tracking or while the run is being opened), the source run of every
         transferable component of the task ('pretrained_backbone', 'pretrained_temporal_module',
         'pretrained_classification_head', 'pretrained_segmentation_decoder', 'pretrained_region_proposer_dictionary',
-        'pretrained_detector_heads_dictionary', 'pretrained_mask_heads_dictionary', None without transfer), the
-        moving average of the weights of a run keeping one and the auxiliary heads of a run having some, with their
-        optimizer states, and records it in the checkpoint registry of the run used to resume the training.
+        'pretrained_detector_heads_dictionary', 'pretrained_mask_heads_dictionary', None without transfer) and the
+        moving average of the weights of a run keeping one, and records it in the checkpoint registry of the run used
+        to resume the training.
 
         Args:
             iteration (int): The current training iteration, used for naming the weight file.
@@ -2113,17 +2070,9 @@ class BaseTrainer(ABC):
         exponential_moving_average_state = None
         if self.exponential_moving_average is not None:
             exponential_moving_average_state = self.exponential_moving_average.state_dict()
-
-        # Weights and optimizer state of every auxiliary head, for the runs that have some
-        auxiliary_heads_state = None
-        if self.auxiliary_heads:
-            auxiliary_heads_state = {head_name: {"head_state": auxiliary_head.state_dict(),
-                                                 "optimizer_state": self.auxiliary_optimizers[head_name].state_dict()}
-                                     for head_name, auxiliary_head in self.auxiliary_heads.items()}
         model_directory = save_checkpoint(weights_directory=self.weights_directory, iteration=iteration,
                                           model=self.model, optimizer=self.optimizer, metadata=metadata,
-                                          exponential_moving_average_state=exponential_moving_average_state,
-                                          auxiliary_heads_state=auxiliary_heads_state)
+                                          exponential_moving_average_state=exponential_moving_average_state)
 
         print("Checkpoint Folder :")
         print(f" - {format_path_link(path=model_directory)}")
@@ -2174,8 +2123,8 @@ class BaseTrainer(ABC):
     def load_model(self, iteration: int) -> None:
         """
         Loads the model weights and optimizer state from a specified iteration checkpoint of the run, with the tensors
-        mapped to the currently active device (CPU, CUDA, or MPS), the moving average of the weights of a run keeping
-        one, and the auxiliary heads of a run having some.
+        mapped to the currently active device (CPU, CUDA, or MPS), and the moving average of the weights of a run
+        keeping one.
 
         Args:
             iteration (int): The exact iteration number identifying the checkpoint to load.
@@ -2185,43 +2134,6 @@ class BaseTrainer(ABC):
         self.model.load_state_dict(checkpoint["model_state"])
         self.optimizer.load_state_dict(checkpoint["optimizer_state"])
         self.load_exponential_moving_average(checkpoint=checkpoint, iteration=iteration)
-        self.load_auxiliary_heads(checkpoint=checkpoint, iteration=iteration)
-
-    def load_auxiliary_heads(self, checkpoint: Dict[str, Any], iteration: int) -> None:
-        """
-        Restores the auxiliary heads of a resumed run and their optimizers from its checkpoint, each by its name, so
-        that a head can be added or dropped when the run resumes: a head missing from the checkpoint (turned on at
-        this resume), or saved with other layer sizes, starts from its random weights with a new optimizer, and a saved
-        head the run no longer has (turned off) is left out of the next checkpoints. Every such case is printed.
-
-        Args:
-            checkpoint (Dict[str, Any]): The loaded checkpoint.
-            iteration (int): The iteration of the checkpoint, for the messages.
-        """
-        saved_states = checkpoint[AUXILIARY_HEADS_STATE_KEY] if AUXILIARY_HEADS_STATE_KEY in checkpoint else {}
-        for head_name, auxiliary_head in self.auxiliary_heads.items():
-            head_title = head_name.replace("_", " ").title()
-            if head_name not in saved_states:
-                print_color(color="yellow", output=f"The Checkpoint Of Iteration {iteration} Holds No {head_title}, "
-                                                   f"It Starts From Random Weights.")
-                continue
-
-            # A head saved with other layer sizes cannot be loaded, it restarts
-            saved_head_state = saved_states[head_name]["head_state"]
-            saved_shapes = {key: tuple(value.shape) for key, value in saved_head_state.items()}
-            if saved_shapes != {key: tuple(value.shape) for key, value in auxiliary_head.state_dict().items()}:
-                print_color(color="yellow", output=f"The {head_title} Of The Checkpoint Of Iteration {iteration} Has "
-                                                   f"Other Layer Sizes, It Starts From Random Weights.")
-                continue
-            auxiliary_head.load_state_dict(state_dict=saved_head_state)
-            self.auxiliary_optimizers[head_name].load_state_dict(state_dict=saved_states[head_name]["optimizer_state"])
-
-        # Heads saved by the previous start that the run no longer has
-        for head_name in saved_states:
-            if head_name not in self.auxiliary_heads:
-                print_color(color="yellow", output=f"The {head_name.replace('_', ' ').title()} Of The Checkpoint Of "
-                                                   f"Iteration {iteration} Is No Longer Trained, It Is Left Out Of The "
-                                                   f"Next Checkpoints.")
 
     def load_exponential_moving_average(self, checkpoint: Dict[str, Any], iteration: int) -> None:
         """

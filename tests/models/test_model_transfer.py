@@ -96,7 +96,7 @@ def write_source_run(run_folder: Path, configuration: Dict[str, Any], model: tor
                                             NUMBER_UPDATES_KEY: 3}
     save_checkpoint(weights_directory=run_folder / "Weights", iteration=3, model=model,
                     optimizer=torch.optim.Adam(params=model.parameters()), metadata={"task": "classification"},
-                    exponential_moving_average_state=exponential_moving_average_state, auxiliary_heads_state=None)
+                    exponential_moving_average_state=exponential_moving_average_state)
 
     # Classes of the data record written by BaseTrainer.save_data_record
     if class_names is not None:

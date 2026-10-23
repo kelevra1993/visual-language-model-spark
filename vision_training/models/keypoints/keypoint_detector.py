@@ -377,15 +377,11 @@ class KeypointDetector(TaskModel):
         outputs["tag_push_loss"] = self.tag_push_weight * push_loss
         return outputs
 
-    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
+    def print_summary(self) -> None:
         """
         Prints the stem summary traced on an image, then the branches of every stage of the high resolution network and
         the heads: number of heatmap and tag channels, hidden width, heatmap sizes and Gaussian sigma of the targets,
         tag loss weights.
-
-        Args:
-            auxiliary_heads (Optional[Dict[str, nn.Module]]): Unused, the trainer of the task having no auxiliary
-                head; kept so that every task model prints its summary with the same arguments.
         """
         self.backbone.print_summary()
 

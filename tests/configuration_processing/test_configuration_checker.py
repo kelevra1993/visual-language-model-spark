@@ -4,10 +4,10 @@ load_experiment_configuration: the configurations shipped for every task are acc
 (detection, classification, sequence, comparison, segmentation, self-supervised, keypoint detection, normalization,
 pretrained transfers with the initialisation of their new classes, optimization) and missing keys are rejected with
 errors naming their path, the run name suffix being accepted null or made of letters, digits, '-' and '.' only. The
-augmentation types moving the image only are refused for the tasks with boxes, masks or
-keypoints and accepted for the others, and a section removed from the repository is refused alone, before the other
-checks. The keypoint definitions injected by the loader from the training labels are checked too, and so is the label
-dictionary saved with a run, taken by the configuration of its folder.
+augmentation types moving the image only are refused for the tasks with boxes, masks or keypoints and accepted for the
+others, the jigsaw refuses an image size that is not a multiple of its grid size, and a section removed from the
+repository is refused alone, before the other checks. The keypoint definitions injected by the loader from the training
+labels are checked too, and so is the label dictionary saved with a run, taken by the configuration of its folder.
 """
 
 import copy
@@ -21,6 +21,7 @@ from typing import Any, Callable, Dict, List
 from vision_training.configuration_processing.common_checks import REMOVED_SECTIONS
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.configuration_processing.detection_checks import check_detection_levels
+from vision_training.data.augmentations import SELF_SUPERVISED_AUGMENTATION_STRENGTHS, SUPERVISED_AUGMENTATION_STRENGTHS
 from vision_training.data.label_mapping import write_run_label_dictionary
 from vision_training.data.synthetic.create_synthetic_dataset import (KEYPOINT_CATEGORIES, build_keypoint_label_mapping,
                                                                      build_keypoint_labels)
@@ -906,6 +907,50 @@ def test_image_only_augmentation_types_are_accepted_without_targets(tmp_path: Pa
     _, model_configuration = load_experiment_configuration(configuration_path=configuration_path)
     augmentation_types = model_configuration["Data"]["data_augmentation"]["types"]
     assert augmentation_types["random_perspective"]["activated"] and augmentation_types["random_jigsaw"]["activated"]
+
+
+@pytest.mark.parametrize(argnames=("jigsaw_grid_size", "image_size", "jigsaw_activated", "refused_by_jigsaw", "loads"),
+                         argvalues=[(2, 1, True, True, False), (2, 1, False, False, False), (2, 256, True, False, True),
+                                    (3, 256, True, True, False), (3, 256, False, False, True)])
+def test_jigsaw_image_size_is_checked(tmp_path: Path, capsys: pytest.CaptureFixture, monkeypatch: pytest.MonkeyPatch,
+                                      jigsaw_grid_size: int, image_size: int, jigsaw_activated: bool,
+                                      refused_by_jigsaw: bool, loads: bool) -> None:
+    """
+    Verifies that an activated random_jigsaw refuses a side of the network input that is not a multiple of its grid
+    size, which would stop the training at its first batch, and that the jigsaw turned off leaves the size to the
+    other checks: the image of 1 pixel passes the power of two check but not the 2x2 grid, and a grid of 3x3 pieces in
+    both strength sets stands for a change of the hard-coded grid size.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        monkeypatch (pytest.MonkeyPatch): The pytest fixture setting the grid size of both strength sets.
+        jigsaw_grid_size (int): The grid size of random_jigsaw in both strength sets.
+        image_size (int): The side of the network input, 'Data.image_settings.size'.
+        jigsaw_activated (bool): Whether random_jigsaw is activated.
+        refused_by_jigsaw (bool): Whether the jigsaw check must refuse the image size.
+        loads (bool): Whether the configuration must load, an image of 1 pixel being refused by the backbone checks too.
+    """
+    monkeypatch.setitem(SUPERVISED_AUGMENTATION_STRENGTHS, "jigsaw_grid_size", jigsaw_grid_size)
+    monkeypatch.setitem(SELF_SUPERVISED_AUGMENTATION_STRENGTHS, "jigsaw_grid_size", jigsaw_grid_size)
+    configuration_path = write_task_configuration(temporary_directory=tmp_path, task_folder="self_supervised",
+                                                  configuration_name="configuration_synthetic_shapes.yaml",
+                                                  modify_function=None)
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["Data"]["image_settings"]["size"] = image_size
+    configuration["Data"]["data_augmentation"]["types"]["random_jigsaw"]["activated"] = jigsaw_activated
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+
+    # The configuration loads or stops, the message of the jigsaw being printed only for its refusal
+    if loads:
+        load_experiment_configuration(configuration_path=configuration_path)
+    else:
+        with pytest.raises(expected_exception=SystemExit):
+            load_experiment_configuration(configuration_path=configuration_path)
+    jigsaw_message = (f"'Data.image_settings.size' must be a multiple of {jigsaw_grid_size} when "
+                      f"'Data.data_augmentation.types.random_jigsaw.activated' is True, the jigsaw cutting the image "
+                      f"into {jigsaw_grid_size}x{jigsaw_grid_size} pieces of whole pixels, got {image_size}.")
+    assert (jigsaw_message in capsys.readouterr().out) == refused_by_jigsaw
 
 
 def keep_the_removed_view_losses(configuration: Dict[str, Any]) -> None:

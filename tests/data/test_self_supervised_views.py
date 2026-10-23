@@ -7,8 +7,8 @@ ignored, the types of SECOND_VIEW_ONLY_TYPES only reach the second view while th
 image, the views follow the seeds and stay in float32 under the bfloat16 autocast, the supervised augmenter and inputs
 other than a batch are refused, the two strength sets hold every strength with one setting of each pair of the crop and
 of the brightness, the random resized crop of the views draws an area and an aspect ratio within their ranges and
-falls back on the whole image, and on the GPU the views of the self-supervised configuration never make the host wait
-for the device, but for the types of HOST_WAITING_TYPES.
+falls back on the whole image, and on the GPU the views never make the host wait for the device, every type of the
+data augmentation being drawn.
 """
 
 import random
@@ -20,7 +20,8 @@ import yaml
 from pathlib import Path
 from typing import List, Optional
 
-from vision_training.data.augmentations import (SECOND_VIEW_ONLY_TYPES, SELF_SUPERVISED_AUGMENTATION_STRENGTHS,
+from vision_training.data.augmentations import (AUGMENTATION_TYPES, SECOND_VIEW_ONLY_TYPES,
+                                                 SELF_SUPERVISED_AUGMENTATION_STRENGTHS,
                                                  SUPERVISED_AUGMENTATION_STRENGTHS, AugmentationStrengths,
                                                  DataAugmenter)
 from tests.data.test_augmentations import build_configuration
@@ -31,11 +32,6 @@ IMAGE_SIZE = 32
 # Self-supervised configuration of the synthetic shapes, whose types draw the views of the tests
 SYNTHETIC_CONFIGURATION_PATH = (Path(__file__).parents[2] / "vision_training" / "configurations" / "self_supervised" /
                                 "configuration_synthetic_shapes.yaml")
-
-# Types making the host wait for the device at every image they change, for every task: the rotation, whose matrix
-# torchvision copies from the host, the CLAHE, the sharpening and the histogram equalizations
-HOST_WAITING_TYPES = ["random_rotation", "clahe_augment", "sharp_augment", "equalize_histogram_augment",
-                      "equalize_bgr_histogram_augment"]
 
 
 def create_test_images(number_images: int, image_size: int = IMAGE_SIZE) -> torch.Tensor:
@@ -54,7 +50,8 @@ def create_test_images(number_images: int, image_size: int = IMAGE_SIZE) -> torc
                          generator=generator).to(dtype=torch.float32)
 
 
-def build_views_augmenter(turned_off_types: Optional[List[str]] = None) -> DataAugmenter:
+def build_views_augmenter(turned_off_types: Optional[List[str]] = None,
+                          every_type_drawn: bool = False) -> DataAugmenter:
     """
     Builds the augmenter of the views of the self-supervised configuration of the synthetic shapes, as the general
     trainer builds it for the self-supervised task.
@@ -62,6 +59,8 @@ def build_views_augmenter(turned_off_types: Optional[List[str]] = None) -> DataA
     Args:
         turned_off_types (Optional[List[str]]): The types turned off in the configuration. Defaults to None, in
             which case every type keeps its setting.
+        every_type_drawn (bool): Whether every type is turned on with a probability of 1, instead of the settings of
+            the configuration. Defaults to False.
 
     Returns:
         DataAugmenter: The augmenter with the self-supervised strengths.
@@ -70,6 +69,9 @@ def build_views_augmenter(turned_off_types: Optional[List[str]] = None) -> DataA
         encoding="utf-8"))["Data"]["data_augmentation"]
     for augmentation_type in turned_off_types or []:
         augmentation_configuration["types"][augmentation_type]["activated"] = False
+    if every_type_drawn:
+        for augmentation_type in AUGMENTATION_TYPES:
+            augmentation_configuration["types"][augmentation_type].update({"activated": True, "probability": 1.0})
     return DataAugmenter(augmentation_configuration=augmentation_configuration, self_supervised=True)
 
 
@@ -299,11 +301,11 @@ def test_crop_of_the_views_falls_back_on_the_whole_image(monkeypatch: pytest.Mon
 def test_views_on_the_gpu_never_make_the_host_wait() -> None:
     """
     Verifies the views of the self-supervised configuration of the synthetic shapes on the GPU, where the trainer draws
-    them: drawing both views of a batch with the types of the configuration, but those of HOST_WAITING_TYPES, never
-    makes the host wait for the device, which the synchronization debug mode of PyTorch turns into an error, and the
-    views stay on the device.
+    them: drawing both views of a batch with every type of the data augmentation turned on, each of them drawn for
+    some view, never makes the host wait for the device, which the synchronization debug mode of PyTorch turns into an
+    error, and the views stay on the device.
     """
-    augmenter = build_views_augmenter(turned_off_types=HOST_WAITING_TYPES)
+    augmenter = build_views_augmenter(every_type_drawn=True)
     device_images = create_test_images(number_images=8).to(device="cuda")
     augmenter.create_views(images=device_images)
     torch.cuda.synchronize()
@@ -312,8 +314,11 @@ def test_views_on_the_gpu_never_make_the_host_wait() -> None:
     random.seed(0)
     torch.cuda.set_sync_debug_mode(debug_mode="error")
     try:
-        first_views, second_views, _, _ = augmenter.create_views(images=device_images)
+        first_views, second_views, first_reports, second_reports = augmenter.create_views(images=device_images)
     finally:
         torch.cuda.set_sync_debug_mode(debug_mode="default")
     assert first_views.device.type == "cuda" and second_views.device.type == "cuda"
+    drawn_types = {name for view_types in list_drawn_types(reports=first_reports + second_reports)
+                   for name in view_types}
+    assert drawn_types == set(AUGMENTATION_TYPES)
     assert first_views.shape == device_images.shape and second_views.shape == device_images.shape

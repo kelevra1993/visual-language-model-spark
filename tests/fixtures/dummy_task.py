@@ -109,13 +109,9 @@ class DummyModel(TaskModel):
             outputs.update({"first_loss": first_loss, "second_loss": 0.5 * first_loss})
         return outputs
 
-    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
+    def print_summary(self) -> None:
         """
         Prints nothing: the dummy model has no architecture worth summarising.
-
-        Args:
-            auxiliary_heads (Optional[Dict[str, nn.Module]]): Unused, the trainer of the task having no auxiliary
-                head; kept so that every task model prints its summary with the same arguments.
         """
 
     def get_size_components(self) -> Dict[str, nn.Module]:
