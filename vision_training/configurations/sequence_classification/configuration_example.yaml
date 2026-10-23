@@ -399,7 +399,9 @@ TemporalModel:
 ClassificationHead:
   # Global pooling reducing the final backbone feature map of every frame to one feature vector: "average", "max" or
   # "flatten" (all the values of the map, channels x height x width, which keeps where the features are in the frame).
-  global_pooling: "average"
+  # Flatten by default, so that a class given by a motion (the change of where an object is over the frames) can be
+  # learned, "average" and "max" removing the position from every frame vector.
+  global_pooling: "flatten"
   # Units of the hidden fully connected layers between the sequence vector and the class logits, [] for none.
   fully_connected: [256]
   # Normalization of the outputs of every hidden layer before its ReLU: "batch" (statistics of every feature over

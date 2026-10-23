@@ -686,7 +686,7 @@ The sequence classifier predicts one class per sequence (many to one). Every seq
 }
 ```
 
-**Configuration.** Copy `sequence_classification/configuration_example.yaml`. The task keys are `Data.sequence_settings`, `TemporalModel` (all 7 types) and `ClassificationHead`, with the evaluation keys of CLS.
+**Configuration.** Copy `sequence_classification/configuration_example.yaml`. The task keys are `Data.sequence_settings`, `TemporalModel` (all 7 types) and `ClassificationHead`, with the evaluation keys of CLS. Both configurations set `ClassificationHead.global_pooling: flatten`: a class given by a motion is the change of where an object is over the frames, which `average` and `max` remove from every frame vector (the synthetic moving shapes then stay at chance, the loss at ln 4). The synthetic configuration reads its frames at their 128 pixels, a flattened frame vector of 4096 features; at 512 pixels its 65536 features stayed at chance too.
 
 **Evaluation.** The metrics and files of CLS, computed on the sequences.
 
@@ -1309,7 +1309,7 @@ Examples, built from the configurations of the repository:
 | DET | `DET_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_BIN` |
 | INS | `INS_IN-KAR-1024_SE-RES-BN-B1x16.2x32.2x32.4x64.4x64.6x128.6x128_L567_A9.32-512.598295_RBN-R2x64_DSE-DRES-DBN-D7.2x64.256.128_MRES-MBN-MUTC-M14.4x64-MR28_BIN` |
 | CLS | `CLS_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_HAVG.128_MC4` |
-| M2O | `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HAVG.64_MC4` |
+| M2O | `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_GRU1x128-BI_HFLAT.64_MC4` |
 | CMP | `CMP_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T8_MEAN_FDIF_HAVG.64_MC2` |
 | SEG | `SEG_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_UTC-DBN-D2x64.2x64.2x32.2x32.1x16_MC9` |
 | SEL | `SEL_IN-KAR-256_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T12_GRU1x128-BI_HAVG.64_MC4_FPC1-SLW1` |
