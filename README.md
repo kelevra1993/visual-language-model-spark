@@ -1079,8 +1079,6 @@ uv run python -m vision_training.deployment.run_inference
   <img src="README/run_inference_output.png" width="100%" />
 </p>
 
-> **Screenshot placeholder** (`README/run_inference_output.png`): the console output of `run_inference.py`, with the throughput of the local run, of the TorchScript model and of the ONNX TensorRT model served by Triton.
-
 ## Configurations
 Every task has its own configuration files in `vision_training/configurations/<task>/`: a `configuration_example.yaml` and a `configuration_synthetic_*.yaml`. Both files of a task have the same keys, only their values differ.
 
