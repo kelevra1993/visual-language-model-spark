@@ -14,7 +14,8 @@ viewer, the perspective and the jigsaw refusing the boxes, masks and keypoints t
 the image like kornia, the jigsaw putting its pieces back in the drawn order, the hue turned with the brightness and
 the saturation kept, the gamma, the ramp of the linear illumination, the plasma map of kornia and its shadow, the
 solarization, the erasing of one black rectangle after the noise, and these types never making the host wait for the
-GPU.
+GPU, nor the rotation, the CLAHE, the sharpening and the histogram equalizations, which give the values of kornia and of
+their former kernels, the equalization of one channel changing only that channel.
 """
 
 import math
@@ -23,10 +24,12 @@ import re
 import pytest
 import torch
 
-from kornia.color import rgb_to_hsv
+from kornia.color import rgb_to_hsv, rgb_to_yuv, yuv_to_rgb
 from kornia.contrib import diamond_square
+from kornia.enhance import equalize_clahe
 from kornia.filters import get_motion_kernel2d
 from kornia.geometry.transform import get_perspective_transform, warp_perspective
+from torchvision.transforms.v2 import functional as vision_functional
 from typing import Any, Dict, List
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
@@ -34,7 +37,7 @@ from vision_training.data.augmentations import (DataAugmenter, AUGMENTATION_TYPE
                                                  GEOMETRIC_AUGMENTATION_TYPES, IMAGE_ONLY_AUGMENTATION_TYPES,
                                                  PHOTOMETRIC_AUGMENTATION_TYPES, SUPERVISED_AUGMENTATION_STRENGTHS,
                                                  build_motion_blur_kernel, build_plasma_map, compute_cell_indices,
-                                                 send_grid_to_device)
+                                                 get_sharpening_kernels, send_grid_to_device)
 from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
 
 IMAGE_SIZE = 96
@@ -59,6 +62,14 @@ TARGET_MOVING_GEOMETRIC_TYPES = [name for name in GEOMETRIC_AUGMENTATION_TYPES
 # and applied on the device
 VIEW_TYPES = ["random_perspective", "random_jigsaw", "random_hue", "random_gamma", "random_linear_illumination",
               "random_plasma_shadow", "random_solarize", "random_erasing"]
+
+# Types whose operations, ported from torchvision and kornia (vision_training/data/device_image_operations.py) or
+# filled on the device, used to make the host wait for the GPU at every image they changed
+DEVICE_COMPUTED_TYPES = ["random_rotation", "clahe_augment", "sharp_augment", "equalize_histogram_augment",
+                         "equalize_bgr_histogram_augment"]
+
+# Devices of the comparisons with kornia, the GPU when there is one
+DEVICES = ["cpu"] + (["cuda"] if torch.cuda.is_available() else [])
 
 # Grid size of random_black_out in the configurations of the repository
 DEFAULT_BLACK_OUT_GRID_SIZE = 8
@@ -218,6 +229,73 @@ def test_a_single_histogram_equalization_is_applied_per_image() -> None:
     augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["clahe_augment"]))
     reports = augmenter.augment_batch(images=images)[-1]
     assert all(report["photometric_augmentations"][0][0][0] == "clahe_augment" for report in reports)
+
+
+@pytest.mark.parametrize(argnames="device", argvalues=DEVICES)
+def test_clahe_and_luminance_equalization_give_the_values_of_kornia(device: str) -> None:
+    """
+    Verifies that clahe_augment and equalize_histogram_augment, computed on the device without copy from the host,
+    give exactly the values of their former implementation with kornia: the CLAHE of kornia's equalize_clahe on every
+    channel, and the equalization of the luminance in kornia's YUV space.
+
+    Args:
+        device (str): The device of the images.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=["clahe_augment"]))
+    images = (torch.rand(size=(2, 3, IMAGE_SIZE, IMAGE_SIZE), generator=torch.Generator().manual_seed(0)) *
+              255.0).to(device=device)
+    normalized_images = (images / 255.0).clamp(min=0.0, max=1.0)
+
+    # CLAHE with the clip limit and the tiles of the supervised strengths
+    expected_clahe_images = equalize_clahe(normalized_images, clip_limit=SUPERVISED_AUGMENTATION_STRENGTHS[
+        "clahe_clip_limit"], grid_size=SUPERVISED_AUGMENTATION_STRENGTHS["clahe_grid_size"]) * 255.0
+    assert torch.equal(input=augmenter.clahe_augment(image=images)[0], other=expected_clahe_images)
+
+    # Equalization of the luminance, the chrominance kept, in the RGB order of the YUV conversions
+    yuv_images = rgb_to_yuv((images.flip(dims=(-3,)) / 255.0).clamp(min=0.0, max=1.0))
+    equalized_luminance = vision_functional.equalize(yuv_images[..., 0:1, :, :].clamp(min=0.0, max=1.0))
+    expected_equalized_images = (yuv_to_rgb(torch.cat(tensors=[equalized_luminance, yuv_images[..., 1:, :, :]],
+                                                      dim=-3)).clamp(min=0.0, max=1.0) * 255.0).flip(dims=(-3,))
+    assert torch.equal(input=DataAugmenter.equalize_histogram_augment(image=images)[0],
+                       other=expected_equalized_images)
+
+
+def test_channel_equalization_changes_the_drawn_channels_only() -> None:
+    """
+    Verifies equalize_bgr_histogram_augment, its channels taken as slices: every channel set (B, G, R or all three) is
+    drawn for some images, the drawn channels are those of the report, equalized by torchvision's equalize, and the
+    other channels keep their values.
+    """
+    random.seed(1)
+    images = torch.rand(size=(24, 3, IMAGE_SIZE, IMAGE_SIZE), generator=torch.Generator().manual_seed(1)) * 255.0
+    drawn_channel_sets = set()
+    for image in images:
+        equalized_image, drawn_values = DataAugmenter.equalize_bgr_histogram_augment(image=image)
+        channel_name = drawn_values.removeprefix("channels ")
+        drawn_channel_sets.add(channel_name)
+        drawn_channels = ["BGR".index(channel) for channel in channel_name]
+        expected_channels = vision_functional.equalize((image[drawn_channels] / 255.0).clamp(min=0.0, max=1.0)) * 255.0
+        assert torch.equal(input=equalized_image[drawn_channels], other=expected_channels)
+        kept_channels = [channel_index for channel_index in range(3) if channel_index not in drawn_channels]
+        assert torch.equal(input=equalized_image[kept_channels], other=image[kept_channels])
+    assert drawn_channel_sets == {"B", "G", "R", "BGR"}
+
+
+@pytest.mark.parametrize(argnames="dtype", argvalues=[torch.float32, torch.bfloat16])
+def test_sharpening_kernels_are_those_of_the_sharpening(dtype: torch.dtype) -> None:
+    """
+    Verifies that the kernels of sharp_augment, filled on the device once per dtype and device by
+    get_sharpening_kernels, hold the luminance weights of the BGR channels and the Laplacian kernel that the type
+    copied from the host before, in the dtype of the images.
+
+    Args:
+        dtype (torch.dtype): The dtype of the images.
+    """
+    luminance_weights, laplacian_kernel = get_sharpening_kernels(dtype=dtype, device=torch.device("cpu"))
+    assert torch.equal(input=luminance_weights, other=torch.tensor(data=[0.114, 0.587, 0.299],
+                                                                     dtype=dtype).view(3, 1, 1))
+    assert torch.equal(input=laplacian_kernel, other=torch.tensor(
+        data=[[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]], dtype=dtype).view(1, 1, 3, 3))
 
 
 def test_motion_blur_streaks_the_image_along_the_drawn_angle(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1535,3 +1613,39 @@ def test_view_types_on_the_gpu_never_make_the_host_wait(augmentation_type: str) 
         cpu_images, _, _, _, _, _, cpu_reports = augmenter.augment_batch(images=images)
         assert gpu_reports == cpu_reports
         assert torch.allclose(input=gpu_images.cpu(), other=cpu_images, atol=1e-2)
+
+
+@pytest.mark.skipif(condition=not torch.cuda.is_available(), reason="The training batches are augmented on the GPU.")
+@pytest.mark.parametrize(argnames="augmentation_type", argvalues=DEVICE_COMPUTED_TYPES)
+def test_device_computed_types_on_the_gpu_never_make_the_host_wait(augmentation_type: str) -> None:
+    """
+    Verifies the rotation, the CLAHE, the sharpening and the histogram equalizations on the GPU, where the batches are
+    augmented: their operations ported from torchvision and kornia and their kernels being filled on the device,
+    drawing one on images, and the rotation on their class masks too, never makes the host wait for the device, which
+    the synchronization debug mode of PyTorch turns into an error, and the images and masks stay on the device.
+
+    Args:
+        augmentation_type (str): The type under test.
+    """
+    augmenter = DataAugmenter(augmentation_configuration=build_configuration(enabled_types=[augmentation_type]))
+    images = (torch.rand(size=(2, 3, IMAGE_SIZE, IMAGE_SIZE), generator=torch.Generator().manual_seed(0)) *
+              255.0).to(device="cuda")
+    masks = torch.ones(size=(2, IMAGE_SIZE, IMAGE_SIZE), dtype=torch.int64, device="cuda") if \
+        augmentation_type == "random_rotation" else None
+    augmenter.augment_batch(images=images, masks=masks)
+    torch.cuda.synchronize()
+
+    # The type on the GPU with every synchronization of the host turned into an error
+    random.seed(3)
+    torch.cuda.set_sync_debug_mode(debug_mode="error")
+    try:
+        augmented_images, _, _, augmented_masks, _, _, reports = augmenter.augment_batch(images=images, masks=masks)
+    finally:
+        torch.cuda.set_sync_debug_mode(debug_mode="default")
+    assert augmented_images.device.type == "cuda" and augmented_images.shape == images.shape
+    drawn_types = [[name for name, _ in report["geometric_augmentations"] + report["photometric_augmentations"][0]]
+                   for report in reports]
+    assert drawn_types == [[augmentation_type], [augmentation_type]]
+    if masks is not None:
+        assert augmented_masks.device.type == "cuda" and augmented_masks.dtype == torch.int64
+        assert set(augmented_masks.unique().tolist()) <= {1, IGNORED_LABEL_INDEX}

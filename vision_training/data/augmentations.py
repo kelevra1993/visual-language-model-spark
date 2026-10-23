@@ -10,9 +10,11 @@ by the task, the configuration only turning the types on and setting their proba
 equalizations drawn together for an image (EXCLUSIVE_EQUALIZATION_TYPES), only one, chosen at random, is applied, the
 geometric types of IMAGE_ONLY_AUGMENTATION_TYPES move the image only, and the types of SECOND_VIEW_ONLY_TYPES are drawn
 for the second view only of the self-supervised task. The line kernel of the motion blur, the cells of the black-out,
-the sampling grid of the perspective and the fractal map of the plasma shadow are computed on the device from numbers
-only (build_motion_blur_kernel, send_grid_to_device, compute_cell_indices, compute_perspective_coefficients,
-build_plasma_map), so that the host does not wait for the device at every image.
+the sampling grid of the perspective, the fractal map of the plasma shadow and the kernels of the sharpening are
+computed on the device from numbers only (build_motion_blur_kernel, send_grid_to_device, compute_cell_indices,
+compute_perspective_coefficients, build_plasma_map, get_sharpening_kernels), as are the rotation, the CLAHE and the
+YUV conversions ported from torchvision and kornia (vision_training/data/device_image_operations.py), so that the
+host never waits for the device at every image.
 Built by the base trainer from the Data.data_augmentation configuration, whose augmentation types are verified by the
 common checks. Every augmented sample comes with a report of the types drawn for it and their values, which the
 'view_input_images' diagnosis mode writes in the information panel next to every training image or view.
@@ -28,17 +30,17 @@ from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 from torch.nn import functional as torch_functional
 from torchvision import tv_tensors
 from torchvision.transforms.v2 import functional as vision_functional
-from torchvision.transforms.v2 import InterpolationMode
 
 from vision_training.core.contracts import IGNORED_LABEL_INDEX
 from vision_training.data.detection.coco_masks import compute_mask_bounding_boxes
+from vision_training.data.device_image_operations import (convert_colour_space, equalize_clahe_on_device,
+                                                          get_yuv_matrices, rotate_on_device)
 
 # kornia decorates some of its functions with torch.jit.script when it is imported, which recent PyTorch versions
 # report as deprecated; the notice is harmless and cannot be fixed on our side, so it is silenced for this import only
 with warnings.catch_warnings():
     warnings.filterwarnings(action="ignore", message=r"`torch\.jit\.script` is deprecated", category=FutureWarning)
-    from kornia.color import rgb_to_yuv, yuv_to_rgb
-    from kornia.enhance import adjust_hue, equalize_clahe
+    from kornia.enhance import adjust_hue
     from kornia.filters import filter2d
 
 # Geometric augmentations, applied first, in this order. They move the bounding boxes and the masks along with the
@@ -197,8 +199,9 @@ MINIMUM_BOX_SIDE = 1.0
 # find a fragment cut by the border of a crop or a rotation
 MINIMUM_VISIBLE_AREA_FRACTION = 0.25
 
-# Channel indices of the BGR images delivered by the data loaders
-BGR_CHANNEL_INDICES = {"B": [0], "G": [1], "R": [2], "BGR": [0, 1, 2]}
+# Channels of the BGR images delivered by the data loaders, as slices so that taking them never makes the host wait
+# for the device, which indexing with a list of channels does
+BGR_CHANNEL_INDICES = {"B": slice(0, 1), "G": slice(1, 2), "R": slice(2, 3), "BGR": slice(0, 3)}
 
 
 class AugmentationReport(TypedDict):
@@ -493,6 +496,30 @@ def get_plasma_kernels(device: torch.device) -> Tuple[torch.Tensor, torch.Tensor
     square_kernel[:, 0::2, 1] = 0.25
     square_kernel[:, 1, 0::2] = 0.25
     return diamond_kernel, square_kernel
+
+
+@lru_cache(maxsize=16)
+def get_sharpening_kernels(dtype: torch.dtype, device: torch.device) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Gives the kernels of the sharp_augment type on a device, filled from numbers once per dtype and device, so that
+    sharpening an image never makes the host wait for a copy to the device: the [3, 1, 1] luminance weights of the BGR
+    channels and the [1, 1, 3, 3] Laplacian kernel.
+
+    Args:
+        dtype (torch.dtype): The floating dtype of the images.
+        device (torch.device): The device of the images.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: The luminance weights and the Laplacian kernel.
+    """
+    luminance_weights = torch.empty(size=(3, 1, 1), dtype=dtype, device=device)
+    for channel_index, weight in enumerate([0.114, 0.587, 0.299]):
+        luminance_weights[channel_index].fill_(weight)
+    laplacian_kernel = torch.zeros(size=(1, 1, 3, 3), dtype=dtype, device=device)
+    laplacian_kernel[..., 0::2, 1] = 1.0
+    laplacian_kernel[..., 1, 0::2] = 1.0
+    laplacian_kernel[..., 1, 1] = -4.0
+    return luminance_weights, laplacian_kernel
 
 
 def build_plasma_seed(rows: int, columns: int, device: torch.device) -> torch.Tensor:
@@ -1468,7 +1495,9 @@ class DataAugmenter:
         self-supervised task), filling the uncovered corners with black like the padding of the data loaders. A rotated
         box is no longer axis aligned, so it is replaced by the enclosing box of its rotated corners, which is slightly
         larger than the object. The mask is rotated with the nearest interpolation, its uncovered corners being ignored
-        like its padding for a class mask, and background (0) for binary instance masks.
+        like its padding for a class mask, and background (0) for binary instance masks. The image and the mask are
+        rotated on the device from numbers (rotate_on_device, the values of torchvision's rotation), and the boxes by
+        torchvision.
 
         Args:
             image (torch.Tensor): The image [C, H, W] or sequence [T, C, H, W].
@@ -1483,8 +1512,7 @@ class DataAugmenter:
         maximum_degrees = self.strengths["maximum_rotation_degrees"]
         angle = random.uniform(-maximum_degrees, maximum_degrees)
 
-        rotated_image = vision_functional.rotate(image, angle=angle, interpolation=InterpolationMode.BILINEAR,
-                                                 fill=0.0)
+        rotated_image = rotate_on_device(image=image, angle=angle, interpolation="bilinear", fill=0.0)
 
         # Rotate the boxes and the mask by the same angle, the uncovered corners of a class mask being ignored and
         # those of binary instance masks being background
@@ -1495,8 +1523,9 @@ class DataAugmenter:
                 angle=angle).as_subclass(torch.Tensor)
         if mask is not None:
             mask_fill = IGNORED_LABEL_INDEX if mask.dtype == torch.int64 else 0
-            rotated_mask = vision_functional.rotate(tv_tensors.Mask(mask), angle=angle,
-                                                    fill=mask_fill).as_subclass(torch.Tensor)
+            rotated_mask = rotate_on_device(image=mask.unsqueeze(dim=0) if mask.dim() < 3 else mask, angle=angle,
+                                            interpolation="nearest", fill=mask_fill)
+            rotated_mask = rotated_mask.squeeze(dim=0) if mask.dim() < 3 else rotated_mask
         return rotated_image, rotated_boxes, rotated_mask, 1.0, f"{angle:+.1f} degrees"
 
     @staticmethod
@@ -1717,7 +1746,8 @@ class DataAugmenter:
     def clahe_augment(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Applies contrast-limited adaptive histogram equalization (clip limit 2.0 on a 4x4 grid of tiles) to every
-        channel, enhancing local contrast in dark or washed-out regions.
+        channel, enhancing local contrast in dark or washed-out regions, with the values of kornia's equalize_clahe
+        computed on the device (equalize_clahe_on_device).
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -1729,7 +1759,8 @@ class DataAugmenter:
         clip_limit, grid_size = self.strengths["clahe_clip_limit"], self.strengths["clahe_grid_size"]
         normalized_image = (image / 255.0).clamp(min=0.0, max=1.0)
         drawn_values = f"clip limit {clip_limit}, {grid_size[0]}x{grid_size[1]} tiles"
-        return equalize_clahe(normalized_image, clip_limit=clip_limit, grid_size=grid_size) * 255.0, drawn_values
+        return (equalize_clahe_on_device(images=normalized_image, clip_limit=clip_limit, grid_size=grid_size) * 255.0,
+                drawn_values)
 
     def sharp_augment(self, image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
@@ -1748,14 +1779,12 @@ class DataAugmenter:
         sharpening_strength = self.strengths["sharpening_strength"]
 
         # Grayscale luminance from the BGR channels, blurred to limit the noise amplified by the Laplacian
-        luminance_weights = torch.tensor(data=[0.114, 0.587, 0.299], dtype=image.dtype, device=image.device)
-        grayscale_image = (image * luminance_weights.view(3, 1, 1)).sum(dim=-3, keepdim=True)
+        luminance_weights, laplacian_kernel = get_sharpening_kernels(dtype=image.dtype, device=image.device)
+        grayscale_image = (image * luminance_weights).sum(dim=-3, keepdim=True)
         blurred_image = vision_functional.gaussian_blur(grayscale_image, kernel_size=[5, 5],
                                                         sigma=[sharpening_sigma, sharpening_sigma])
 
         # Apply the Laplacian kernel on every frame with reflected borders
-        laplacian_kernel = torch.tensor(data=[[0.0, 1.0, 0.0], [1.0, -4.0, 1.0], [0.0, 1.0, 0.0]], dtype=image.dtype,
-                                        device=image.device).view(1, 1, 3, 3)
         padded_image = torch_functional.pad(blurred_image.reshape(-1, 1, image_height, image_width),
                                             pad=(1, 1, 1, 1), mode="reflect")
         laplacian = torch_functional.conv2d(input=padded_image, weight=laplacian_kernel)
@@ -1769,7 +1798,8 @@ class DataAugmenter:
     def equalize_histogram_augment(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
         """
         Equalizes the histogram of the luminance (Y channel of YUV) only, which spreads the intensities over the
-        full range while keeping the colours.
+        full range while keeping the colours, the YUV conversions of kornia being computed with matrices kept on the
+        device (convert_colour_space).
 
         Args:
             image (torch.Tensor): The BGR image [C, H, W] or sequence [T, C, H, W] in [0, 255].
@@ -1778,13 +1808,16 @@ class DataAugmenter:
             Tuple[torch.Tensor, str]: The equalized BGR image in [0, 255] and the equalized channel for the
                 augmentation report.
         """
-        yuv_image = rgb_to_yuv((image.flip(dims=(-3,)) / 255.0).clamp(min=0.0, max=1.0))
+        rgb_to_yuv_matrix, yuv_to_rgb_matrix = get_yuv_matrices(dtype=image.dtype, device=image.device)
+        yuv_image = convert_colour_space(images=(image.flip(dims=(-3,)) / 255.0).clamp(min=0.0, max=1.0),
+                                         matrix=rgb_to_yuv_matrix)
 
         # Equalize the luminance channel and keep the two chrominance channels unchanged
         equalized_luminance = vision_functional.equalize(yuv_image[..., 0:1, :, :].clamp(min=0.0, max=1.0))
         yuv_image = torch.cat(tensors=[equalized_luminance, yuv_image[..., 1:, :, :]], dim=-3)
 
-        return (yuv_to_rgb(yuv_image).clamp(min=0.0, max=1.0) * 255.0).flip(dims=(-3,)), "luminance"
+        rgb_image = convert_colour_space(images=yuv_image, matrix=yuv_to_rgb_matrix)
+        return (rgb_image.clamp(min=0.0, max=1.0) * 255.0).flip(dims=(-3,)), "luminance"
 
     @staticmethod
     def equalize_bgr_histogram_augment(image: torch.Tensor) -> Tuple[torch.Tensor, str]:
