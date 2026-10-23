@@ -7,6 +7,7 @@ only for the tasks with boxes, masks or keypoints, the error images settings of 
 tasks, or the loss weights of the detection tasks).
 """
 
+import math
 import re
 
 from typing import Any, Dict, List
@@ -16,7 +17,9 @@ from vision_training.configuration_processing.configuration_values import (BACKB
                                                                            check_boolean_flags, check_positive_integers,
                                                                            check_probability_value,
                                                                            get_configuration_value, is_number)
-from vision_training.data.augmentations import AUGMENTATION_TYPES, IMAGE_ONLY_AUGMENTATION_TYPES
+from vision_training.data.augmentations import (AUGMENTATION_TYPES, IMAGE_ONLY_AUGMENTATION_TYPES,
+                                                SELF_SUPERVISED_AUGMENTATION_STRENGTHS,
+                                                SUPERVISED_AUGMENTATION_STRENGTHS)
 
 
 # Label mapping modes handled by the configuration loader
@@ -170,7 +173,7 @@ def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     Verifies the 'Data' section: loading settings, augmentation types with the grid of random_black_out, label
     mapping mode and the input image size. The image size must be a power of two so that every max pooling layer of the
     Backbone halves the feature maps exactly, which keeps the anchor strides and the feature map sizes consistent
-    across the detection levels.
+    across the detection levels, and a multiple of the grid size of random_jigsaw when it is activated.
 
     Args:
         model_configuration (Dict[str, Any]): The model configuration containing the 'Data' section.
@@ -234,6 +237,20 @@ def check_data_configuration(model_configuration: Dict[str, Any]) -> List[str]:
     errors += check_black_out_grid_size(grid_size=get_configuration_value(configuration=model_configuration,
                                                                           key_path=grid_size_key_path),
                                         key_path=grid_size_key_path, image_size=image_size)
+
+    # Pieces of random_jigsaw cut by slicing, of whole pixels only when the side of the network input is a multiple of
+    # the grid size of the strengths of every task, so that the training does not stop at its first batch
+    jigsaw_key_path = "Data.data_augmentation.types.random_jigsaw.activated"
+    jigsaw_grid_sizes = sorted({SUPERVISED_AUGMENTATION_STRENGTHS["jigsaw_grid_size"],
+                                SELF_SUPERVISED_AUGMENTATION_STRENGTHS["jigsaw_grid_size"]})
+    required_multiple = math.lcm(*jigsaw_grid_sizes)
+    image_size_valid = not isinstance(image_size, bool) and isinstance(image_size, int) and image_size >= 1
+    if get_configuration_value(configuration=model_configuration, key_path=jigsaw_key_path) is True and \
+            image_size_valid and image_size % required_multiple != 0:
+        grid_text = " or ".join(f"{grid_size}x{grid_size}" for grid_size in jigsaw_grid_sizes)
+        errors.append(f"'Data.image_settings.size' must be a multiple of {required_multiple} when '{jigsaw_key_path}' "
+                      f"is True, the jigsaw cutting the image into {grid_text} pieces of whole pixels, got "
+                      f"{image_size!r}.")
 
     return errors
 

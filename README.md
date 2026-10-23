@@ -291,7 +291,7 @@ Every task augments its training images with `Data.data_augmentation` (`DataAugm
 | `random_rotation` | -5 to 5 degrees | -10 to 10 degrees |
 | `random_90_rotation` | -90 or 90 degrees, square images only | same |
 | `random_perspective` | every corner moved inwards by up to 5 % of half the image side | same |
-| `random_jigsaw` | 2x2 pieces put back in a random order | same |
+| `random_jigsaw` | 2x2 pieces put back in a random order, cut by slicing, so that `Data.image_settings.size` must be a multiple of 2 (refused at launch otherwise) | same |
 | `brightness_contrast_saturation` | brightness +-40 levels, contrast and saturation x0.7 to x1.0 | brightness, contrast and saturation x0.6 to x1.2 |
 | `random_hue` | hue turned by up to 18 degrees | up to 36 degrees |
 | `clahe_augment` | CLAHE, clip limit 2.0 on 4x4 tiles | same |
