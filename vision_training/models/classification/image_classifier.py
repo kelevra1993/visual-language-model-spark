@@ -117,14 +117,10 @@ class ImageClassifier(TaskModel):
                                                       weight=self.decorrelation_configuration["weight"]))
         return outputs
 
-    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
+    def print_summary(self) -> None:
         """
         Prints the backbone summary, then the classification head: pooling, size of the pooled or flattened vector,
         hidden layers, dropout, output mode and number of classes.
-
-        Args:
-            auxiliary_heads (Optional[Dict[str, nn.Module]]): Unused, the trainer of the task having no auxiliary
-                head; kept so that every task model prints its summary with the same arguments.
         """
         self.backbone.print_summary()
         print_classification_head_summary(head_configuration=self.head_configuration,

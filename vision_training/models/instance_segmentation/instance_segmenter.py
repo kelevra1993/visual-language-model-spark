@@ -203,15 +203,11 @@ class InstanceSegmenter(TwoStageDetector):
             detection_masks[level_indices] = torch.sigmoid(input=class_logits).to(dtype=detection_masks.dtype)
         return detection_masks.reshape(batch_size, number_detections, self.mask_size, self.mask_size)
 
-    def print_summary(self, auxiliary_heads: Optional[Dict[str, nn.Module]] = None) -> None:
+    def print_summary(self) -> None:
         """
         Prints the summary of the two-stage detector followed by the panel of the mask heads.
-
-        Args:
-            auxiliary_heads (Optional[Dict[str, nn.Module]]): Passed on to the summary of the detector, the
-                trainer of the task having no auxiliary head.
         """
-        super(InstanceSegmenter, self).print_summary(auxiliary_heads=auxiliary_heads)
+        super(InstanceSegmenter, self).print_summary()
         self.print_mask_summary()
 
     def print_mask_summary(self) -> None:
