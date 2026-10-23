@@ -1321,8 +1321,6 @@ uv run mlflow ui --backend-store-uri sqlite:///<experiment_folder>/mlflow.db
   <img src="README/mlflow_runs.png" width="100%" />
 </p>
 
-> **Screenshot placeholder** (`README/mlflow_runs.png`): the run table of the MLflow interface, with several runs of the experiments root folder sorted by a test metric, and their parameter and metric columns.
-
 Advantages:
 - All the runs of an experiments root folder in one table, sorted and filtered by any setting or metric (e.g. the best test accuracy).
 - The full configuration of every run is kept, with the git commit it was trained from.
