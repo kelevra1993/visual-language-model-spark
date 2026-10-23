@@ -807,8 +807,6 @@ The sample and error images show the whole sequence as a grid of numbered thumbn
   <img src="README/frame_selection_sample.png" width="80%" />
 </p>
 
-> **Screenshot placeholder** (`README/frame_selection_sample.png`): a sample image of a frame selection evaluation on the synthetic dataset: the thumbnail grid of a sequence with its selection borders, one wrong choice if possible, the heat map of the circle, triangle and star classes below it, the caption `<right>/<total> selections right` and the legend.
-
 ### Self-Supervised Learning (SSL)
 The self-supervised task trains the backbone without labels, so that the images of a dataset too large to label initialise the backbone of the other tasks. Every training image is transformed twice at random (`Data.data_augmentation`), both views go through the backbone, the global pooling and a projection head, and the loss pulls the two views of an image together:
 - `ProjectionHead.method: "simclr"`: InfoNCE. The 2N views of a batch of N images are compared by cosine similarity divided by `simclr.temperature`, and every view must find the other view of its image among the 2N - 1 others: a cross-entropy whose right class is the partner of the view. Larger batches give more views to tell apart.
