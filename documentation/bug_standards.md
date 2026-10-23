@@ -55,7 +55,7 @@
 - **Coding standards:** most rules are respected everywhere (module docstrings, imports, no nested functions, no bare
   `except`, `Args:` docstrings, strict configuration access, linked paths, YAML comments, README layout). The
   violations S1 to S10 (formatting of the detection code, a few names and docstrings, duplicated code) were
-  corrected on 2026-10-20; S11, the README screenshots to take from real runs, is still open.
+  corrected on 2026-10-20, and S11, the README screenshots, on 2026-10-23.
 - **Fixed on 2026-10-20:** B7 and B20 (the views), and B34, B47 and B50 (the duplicated code of S10).
 - **Tests at this commit:** the full suite passes (1,415 tests in 5 minutes 26 seconds, run on 2026-10-20 in a clean worktree), a baseline for the fixes.
 
@@ -969,8 +969,8 @@ The rules of the global `CLAUDE.md` and of the project memory, checked on the 26
 
 S1 to S10 were corrected on 2026-10-20, in the worktree `audit-bug-standards` (not committed yet). The standards sweep
 run again on the corrected files finds no line over 120 characters, no stretch of 20 lines without a comment, no
-missing annotation or docstring and no abbreviated name outside the [Accepted Exceptions](#accepted-exceptions). S11
-is still open.
+missing annotation or docstring and no abbreviated name outside the [Accepted Exceptions](#accepted-exceptions). S11,
+the README screenshots, was done on 2026-10-23.
 
 #### S1. Missing type hints
 - **Fixed.** `RegionProposal.forward` (`region_proposer.py`) is annotated, and `test_convolution_block` returns `None`.
@@ -1028,10 +1028,12 @@ is still open.
   - [B50](#b50-keypointtrainer-copies-four-detectiontrainer-methods-and-frameselectiontrainer-redefines-the-describe_split-it-inherits): the keypoint and frame selection trainers.
 
 #### S11. README screenshots not made yet
-- Still open: the README shows 20 images of `README/` (the task overview, the architectures, a sample of every task,
-  the console output, TensorBoard, MLflow) that do not exist. They are the placeholders written on 2026-10-08
-  (`50c8dcf`), each with a description of the screenshot to take. Until they are made, the page shows 20 broken
-  images. They have to be taken from real runs and cannot be generated from the code.
+- **Fixed** on 2026-10-23: the 20 images of `README/` are made and their placeholder notes removed. The samples, the
+  console output, TensorBoard and MLflow come from runs of shortened copies of the synthetic configurations (the
+  detection and instance segmentation runs resumed to 5000 iterations, their detections rarely reaching the score
+  threshold of the samples at 2000; the sequence classification with flatten pooling at 128 pixels, which became its
+  default), the input viewer and the error folders from windows of the desktop, the inference output from Triton,
+  and the architecture diagram and the task overview are drawn from them.
 
 ### Accepted Exceptions
 - **`tmp_path` and `tmp_path_factory`** (235 test parameters): pytest fixture names, which cannot be renamed.
@@ -1074,7 +1076,7 @@ is still open.
    [B18](#b18-a-maximum-batch-size-of-1-crashes-the-onnx-export-and-at-2-the-dynamic-batch-is-never-checked) and [B16](#b16-one-artifact-write-failing-with-a-permanent-oserror-blocks-every-later-mlflow-write-and-leaves-the-run-running).
 4. **The low bugs, area by area**, starting with the misleading reports: [B51](#b51-keypoint-matched-objects-and-mean-pixel-error-count-predictions-far-from-the-object) to [B55](#b55-a-detection-test-split-without-objects-reports-map-and-mar-00-instead-of-no-value),
    [B45](#b45-the-console-summary-treats-the-correlation-metrics-as-higher-is-better-a-rising-off-diagonal-correlation-prints-green-with-best) and [B46](#b46-iterations-per-epoch-and-the-sample-counts-logged-to-mlflow-come-from-the-manifest-before-the-label-mapping).
-5. **The standards:** S1 to S10 are done (2026-10-20); S11 needs the screenshots of real runs.
+5. **The standards:** S1 to S10 are done (2026-10-20), S11 too (2026-10-23).
 
 ## How It Was Checked
 
