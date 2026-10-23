@@ -70,6 +70,7 @@
 - [H. Classification](#h-classification)
 - [I. Selection of training images by embedding clustering](#i-selection-of-training-images-by-embedding-clustering)
 - [J. Self-supervised counted shapes: tests left to run](#j-self-supervised-counted-shapes-tests-left-to-run)
+- [K. README screenshots and synthetic runs: left to redo](#k-readme-screenshots-and-synthetic-runs-left-to-redo)
 - [Suggested Order](#suggested-order)
 - [Repository Audit For Instance Segmentation](#repository-audit-for-instance-segmentation)
   - [Summary By Task](#summary-by-task)
@@ -504,6 +505,51 @@ self-supervised backbone learns not only how many shapes an image holds but also
     harder views of 2026-10-20 add, among others, a random erasing of 2 to 15 % of the image (probability 0.25) and a
     plasma shadow darkening parts of it (probability 0.2), which can also hide a shape of one view and change its
     count: to compare with `random_erasing.probability` and `plasma_shadow.probability` at 0 on the same probes.
+
+## K. README screenshots and synthetic runs: left to redo
+The 20 images of `README/` were taken on 2026-10-23 (S11 of `bug_standards.md`) from runs of shortened copies of the
+synthetic configurations in `experiments/readme_screenshots/` (MLflow database `mlflow.db`, console logs `<task>.log`
+kept with their colours). The helpers that made them are in `experiments/readme_screenshots/helpers/` (not
+committed): every image can be taken again from them without training, except where a new run is needed below.
+
+28. **Throughput of the inference on an idle GPU** (`README/run_inference_output.png`): it was measured while three
+    other trainings shared the GPU (48.72 samples per second locally, 43.14 through Triton as TorchScript and 96.59 as
+    ONNX with TensorRT), so it is lower than what the model gives alone. To take again once the GPU is free: export the
+    classification run into `vision_training/deployment/triton/served_models` with `helpers/export_and_measure.py
+    --step=export`, start Triton from that folder (`docker compose up -d`), run the same helper with `--step=measure`,
+    keep the final line of every progress bar and render them with `helpers/render_console_capture.py`.
+29. **Sequence labelling that learns** (`README/sequence_labelling_sample.png`): the synthetic configuration
+    (`sequence_labelling/configuration_synthetic_sequences.yaml`) predicts `no_change` for every frame after its 2000
+    iterations (balanced accuracy 0.014, the share of one class out of 71, the loss stopping at about 2.85), so the
+    sample shows the captions and the X of the wrong frames but its right frames are all `no_change`. The task needs a
+    longer training and another learning rate before its sample is taken again.
+30. **Synthetic detection runs long enough for their samples**: the detection and instance segmentation configurations
+    stop at 2000 iterations, where their detections rarely reach the 0.50 score threshold of the sample images
+    (mAP@0.5 of 0.31 and 0.40), the samples showing empty predictions. The README samples come from the same runs
+    resumed to 5000 iterations (0.75 and 0.76). Either raise `number_iterations` of both synthetic configurations or
+    say in the README that their samples show detections only after a longer training.
+31. **Flatten pooling on real sequences**: flatten became the default of the sequence classification on 2026-10-23
+    (`12075e7`), checked on the synthetic moving shapes only, at 128 pixels (accuracy 1.000; at 512 pixels its 65536
+    features per frame stayed at chance). The example configuration for real data keeps 256 pixels, a frame vector of
+    16384 features and about 12.6 million GRU weights, and was not trained: to try on a real dataset, with a smaller
+    input or `average` when the class does not depend on where the objects are in the frames.
+32. **The synthetic moving shapes dataset against its documentation**: the README and
+    `sequence_classification_workflow.md` describe sequences of 2 to 12 frames, the length drawn by
+    `create_synthetic_dataset.py`, but every sequence of `synthetic_moving_shapes` (the dataset read by
+    `configuration_synthetic_sequences.yaml`) has 8 frames, so the dataset predates the variable lengths. To create it
+    again and check that the flatten default still learns with padded sequences of different lengths.
+33. **Example outputs recorded before the changes**: Stage 3 of `sequence_classification_workflow.md` was recorded with
+    the former `average` pooling (a note says so) and could be recorded again with `flatten` at 128 pixels; the run
+    name examples of the README (Run Names) have rows that no configuration gives any more (`CLS_..._HAVG.128_MC4`,
+    the `T8` of M2O and CMP).
+34. **A frame selection sample with a wrong choice** (`README/frame_selection_sample.png`): its description asks for
+    one wrong choice if possible, but the run selects every frame right (1.000 at 2000 iterations), so the sample shows
+    three right choices. The weights of an earlier iteration (`Weights/Iteration_500` of the run) or a harder sequence
+    could show one.
+35. **Parameter columns of the MLflow table** (`README/mlflow_runs.png`): the parameters are logged under the path of
+    their setting (`ExperimentConfiguration.learning_rate`), which the narrow columns of the MLflow interface cut to
+    `ExperimentCon`, so the table shows the learning rate logged with the metrics instead. Logging a few short
+    parameter names (or a run description) would let the table show the settings of the runs.
 
 ## Suggested Order
 1. **The experiment of the loss weights (item 6)**, implemented, together with audit L5.
