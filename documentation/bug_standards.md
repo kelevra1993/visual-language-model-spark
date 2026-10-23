@@ -629,10 +629,9 @@
 - **Area:** training loop · **Severity:** low · **Status:** confirmed (reproduced by the reviewer, code read again) ·
   **Category:** bug (misleading output)
 - **Where:** `vision_training/trainers/metric_tracking.py:31-33` (`LOWER_IS_BETTER_SUFFIX = "_loss"`), 185-197, 244-255;
-  tracked keys at `self_supervised_trainer.py:38-41`, `classification_trainer.py:51-55, 206-207`.
-- **Problem:** only keys ending in `_loss` improve when they fall, but `cross_correlation_off_diagonal` (Barlow Twins,
-  also in the view losses) and `hidden_feature_correlation` (decorrelation) are mean absolute off-diagonal correlations
-  that should fall.
+  tracked keys at `self_supervised_trainer.py:41-47`, `classification_trainer.py:155-158, 237-239`.
+- **Problem:** only keys ending in `_loss` improve when they fall, but `cross_correlation_off_diagonal` (Barlow Twins)
+  and `hidden_feature_correlation` (decorrelation) are mean absolute off-diagonal correlations that should fall.
 - **Failure scenario:** a degrading redundancy reduction is shown as progress, the "Best" marker following the worst
   value.
 - **Fix:** let the tasks declare the direction of every tracked metric (or keep an explicit set of lower-is-better

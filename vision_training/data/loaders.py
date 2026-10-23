@@ -225,7 +225,7 @@ def get_classification_dataloaders(experiment_configuration: Dict[str, Any], mod
         self_supervised (bool): Whether the loaders feed the self-supervised trainer, which has no classification
             head (multi-class labels). Defaults to False.
         drop_last_training_batch (bool): Whether the training loader leaves out the last incomplete batch of every
-            pass, for a batch-normalized classification head or the view losses
+            pass, for a batch-normalized classification head, which a last batch of a single image would break
             (ClassificationTrainer.drops_last_training_batch). Defaults to False.
 
     Returns:

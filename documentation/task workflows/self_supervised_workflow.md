@@ -4,7 +4,7 @@ This document follows one self-supervised run from `main()` to the evaluation of
 
 The examples come from real runs on CPU, so that the GPU stayed free for other trainings:
 - **Stages 1 and 2**: `configurations/self_supervised/configuration_synthetic_shapes.yaml` (synthetic shapes, 9 shape classes, 256 pixel images, batch size 128, SimCLR), with the run folder redirected to a temporary folder and 2 loading workers.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, a test split of 1000 images and the MLflow tracking turned on. A second run, identical except for `ProjectionHead.method: barlow_twins`, gives the Barlow Twins outputs of Stage 3. After 12 iterations the representations are almost random, so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, the first 1000 images of the test split as test split and the MLflow tracking turned on, the random generators of Python, NumPy and PyTorch seeded with 0. A second run of 4 iterations, identical except for `ProjectionHead.method: barlow_twins` and without MLflow tracking, gives the Barlow Twins outputs of Stage 3, and Stage 5 evaluates the checkpoints on the first 200 test images. After 12 iterations the representations are almost random, so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
 ## Table of Contents
 - [Call Tree Overview](#call-tree-overview)
@@ -224,7 +224,7 @@ Every error is listed before the program stops.
 **Example output: a configuration with three errors**
 ```text
 ------------------------------------------------------
-Invalid Configuration File : file:///.../configuration_wrong.yaml
+Invalid Configuration File : configuration_wrong.yaml
 ------------------------------------------------------
   - 'Data.data_augmentation.types.random_crop.probability' must be 1.0 for the self-supervised task when 'Data.data_augmentation.types.random_crop.activated' is True, got 0.5: the random resized crop is drawn for every view, or turned off to keep the whole images.
   - 'ProjectionHead.method' must be one of ['simclr', 'barlow_twins'], got 'byol'.
@@ -237,7 +237,7 @@ A configuration still holding `Data.view_augmentation`, the section of the views
 **Example output: the configuration of the synthetic shapes before the merge of the two augmentations**
 ```text
 --------------------------------------------------------------------------------
-Invalid Configuration File : file:///.../configuration_before_single_data_augmentation.yaml
+Invalid Configuration File : configuration_before_single_data_augmentation.yaml
 --------------------------------------------------------------------------------
   - 'Data.view_augmentation' was removed: the self-supervised task draws its two views with the types of 'Data.data_augmentation', whose strengths are hard-coded (SELF_SUPERVISED_AUGMENTATION_STRENGTHS of vision_training/data/augmentations.py), so its probabilities go to those types. Delete it from the configuration file.
 SystemExit code 1
@@ -304,12 +304,12 @@ strengths is SELF_SUPERVISED_AUGMENTATION_STRENGTHS: True
     'random_plasma_shadow': 0.2, 'random_blur': 0.5, 'random_motion_blur': 0.1, 'random_haze': 0.3,
     'random_solarize': 0.2, 'random_black_out': 0.3, 'random_erasing': 0.25}
 black_out_grid_size: 8   second view only: ['random_solarize', 'random_black_out']
-  crop_area_range: (0.2, 1.0)
+  crop_area_range: (0.5, 1.0)
   crop_aspect_ratio_range: (0.5, 2.0)
-  maximum_rotation_degrees: 20.0
-  brightness_factor_range: (0.2, 1.8)
+  maximum_rotation_degrees: 10.0
+  brightness_factor_range: (0.6, 1.2)
   maximum_hue_shift: 0.1
-  blur_sigma_range: (0.1, 3.0)
+  blur_sigma_range: (2.5, 2.5)
   noise_standard_deviation: 30.0
 ```
 
@@ -495,7 +495,7 @@ barlow_twins: {'total_loss': 'Total Loss', 'barlow_twins_loss': 'Barlow Twins Lo
 - Validation Iter. Ratio  : 5
 - MLflow Tracking         : Off
 ```
-The 3906 iterations per epoch are 500000 / 128 rounded down: the self-supervised trainer sets `DROPS_LAST_TRAINING_BATCH`, since its training loader drops its last incomplete batch, while the other tasks round up, except the classification and sequence tasks whose training loader drops it too, for a batch normalized classification head or a view loss (see `classification_workflow.md`, Step 2.10).
+The 3906 iterations per epoch are 500000 / 128 rounded down: the self-supervised trainer sets `DROPS_LAST_TRAINING_BATCH`, since its training loader drops its last incomplete batch, while the other tasks round up, except the classification and sequence tasks whose training loader drops it too, for a batch normalized classification head (see `classification_workflow.md`, Step 2.10).
 
 ### Step 2.20 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
 The backbone panel, the Projection Head panel of Step 2.15, the receptive field and the size of every component.
@@ -544,7 +544,7 @@ We Generate A New Model That Will Be Trained From Scratch.
 
 ## Stage 3 — Training Loop
 
-> The examples below are real outputs from a run on CPU of `configuration_synthetic_shapes.yaml` shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, a test split of 1000 images and the MLflow tracking on. Its run name is `SSL_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2`. The construction took 4.8 s and the whole run 27.5 s. The Barlow Twins examples come from the same run with `ProjectionHead.method: barlow_twins` (run name ending `_BT-OD0.005`).
+> The examples below are real outputs from a run on CPU of `configuration_synthetic_shapes.yaml` shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4 iterations, a validation batch every 10 iterations, the first 1000 test images and the MLflow tracking on, seeded with 0. Its run name is `SSL_IN-KAR-64_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64.2x128_PAVG.512.128-PBN_SIMCLR-T0.2`. The Barlow Twins examples come from the first 4 iterations of the same run with `ProjectionHead.method: barlow_twins` (run name ending `_BT-OD0.005`).
 
 ### Step 3.1 — `trainer.run_training_loop()` → `run_training_iterations()`
 The loop of every task (see `classification_workflow.md`, Step 3.1): from `start_iteration` to `number_iterations`, the total of the run, each iteration takes its training step, then saves its checkpoint, runs its validation batch and prints its summary on the iterations set for each, and evaluates its checkpoint last.
@@ -573,12 +573,13 @@ Tensorboard/Validation/   Total Loss, InfoNCE Loss, Positive Pair Accuracy, Embe
 ```
 
 ### Step 3.4 — `start_experiment_tracking()`
-The MLflow run is created in the experiment `self_supervised` (the task name), in the local database of the experiments root folder.
+The MLflow run is created in the experiment `self_supervised` (the task name), in the local database of the experiments root folder, by a background thread, so that a slow database never delays the training.
 
 **Example output**
 ```text
-MLflow Run Created In The Experiment 'self_supervised' : 73a1f377fd644212b312f006de1614c6 (Browse : mlflow ui --backend-store-uri sqlite:///.../runs/mlflow.db)
+MLflow Run Created In The Experiment 'self_supervised' : a42373adfbf94d839fa79699e0103b2b (Browse : mlflow ui --backend-store-uri sqlite:///.../runs/mlflow.db)
 ```
+In this run the message came after the console summary of iteration 4: the checkpoint of iteration 3, saved while the run was still being created, holds `mlflow_run_id: None` (Step 3.5), and the interval metrics of iteration 4, queued before, were written once the run was open.
 
 ### Step 3.5 — `save_model()` → `save_checkpoint()`
 Saved right after the training step of iterations 3, 6, 9 and 12, so that the checkpoint of iteration N holds N steps (see `classification_workflow.md`, Step 3.6). The checkpoint holds the whole model, projection head included, so that the training can resume; only the backbone is transferred to other runs.
@@ -589,13 +590,14 @@ Checkpoint Folder :
  - Iteration_3
  - Model Saved In : model_000003.pt
 
-Weights/Iteration_3/model_000003.pt   6,967,751 bytes      Weights/Iteration_6/model_000006.pt   6,967,751 bytes
-Weights/Iteration_9/model_000009.pt   6,967,751 bytes      Weights/Iteration_12/model_000012.pt  6,967,751 bytes
+Weights/Iteration_3/model_000003.pt   6,967,879 bytes      Weights/Iteration_6/model_000006.pt   6,967,943 bytes
+Weights/Iteration_9/model_000009.pt   6,967,943 bytes      Weights/Iteration_12/model_000012.pt  6,967,943 bytes
 Weights/full-checkpoint               207 bytes: model_checkpoint_path: "Iteration_12", all_model_checkpoint_paths 3, 6, 9, 12
 ['iteration', 'model_state', 'optimizer_state', 'format_version', 'task', 'run_name', 'label_dictionary',
  'mlflow_run_id', 'pretrained_backbone']
 model_state: 108 tensors, the first 'backbone.convolution_blocks.0.squeeze_and_excitation_layers.0.first_adaptive_recalibrator.weight'
 format_version: 2   task: 'self_supervised'   pretrained_backbone: None
+mlflow_run_id: None in the checkpoint of iteration 3 (the MLflow run was not open yet), 'a42373adfbf94d839fa79699e0103b2b' in those of 6, 9 and 12
 ```
 
 ### Step 3.6 — `run_test_evaluation()`
@@ -606,9 +608,9 @@ The classification dataset reads every image with `read_image()` and resizes it 
 
 **Example: the first batch of the run**
 ```text
-images               [8, 3, 64, 64] torch.uint8 in [0, 252]
-labels               [8] torch.int64                  [6, 8, 1, 1, 0, 1, 8, 3]
-sample_identifiers   [8] torch.int64                  [48833, 387539, 251512, 104290, 77064, 235375, 394844, 284659]
+images               [8, 3, 64, 64] torch.uint8 in [0, 253]
+labels               [8] torch.int64                  [5, 8, 2, 7, 8, 2, 6, 0]
+sample_identifiers   [8] torch.int64                  [261621, 86285, 422277, 300679, 496458, 349760, 109902, 396162]
 ```
 
 ### Step 3.8 — `set_training_mode()`
@@ -619,7 +621,7 @@ The same function for the training and the validation batches (see `classificati
 
 **Example: the first training batch**
 ```text
-info_nce_loss = 3.5625   total_loss = 3.5625   positive_pair_accuracy = 0.0
+info_nce_loss = 3.0699   total_loss = 3.0699   positive_pair_accuracy = 0.0
 ```
 
 ### Step 3.10 — `prepare_batch()`
@@ -637,52 +639,47 @@ Returns the batch unchanged: the views are drawn in `forward_pass()` (Step 3.12)
 
 **Example: the views of a training batch and the augmentations drawn for two images** (the first training batch of the shortened configuration, drawn on CPU with the seeds 0 outside the run, `describe_report()` giving the lines of every view)
 ```text
-first_views, second_views: [8, 3, 64, 64] torch.float32 in [0, 255]
+first_views:  [8, 3, 64, 64] torch.float32 in [0, 249]
+second_views: [8, 3, 64, 64] torch.float32 in [0, 245]
 
 image 0, view 1:
   Geometric :
-    random_crop : 32x47 pixels (37 % of the area), at top 16 and left 25 pixels
-    random_up_down_flip
-    random_rotation : -2.9 degrees
+    random_crop : 57x63 pixels (88 % of the area), at top 1 and left 7 pixels
+    random_left_right_flip
+    random_rotation : -0.5 degrees
   Photometric :
-    random_hue : hue +21.1 degrees
-    random_noise : standard deviation 30 levels
-    random_gamma : gamma 0.96
-    random_blur : 23x23 kernel, sigma 2.59
-    random_erasing : 25x12 pixels at top 10 and left 18 pixels
+    random_hue : hue +16.5 degrees
+    random_linear_illumination : -36 levels growing towards the left
 image 0, view 2:
   Geometric :
-    random_crop : 38x24 pixels (22 % of the area), at top 10 and left 17 pixels
+    random_crop : 59x45 pixels (65 % of the area), at top 5 and left 0 pixels
     random_left_right_flip
-    random_perspective : corners moved by up to 11.9 pixels
+    random_perspective : corners moved by up to 1.9 pixels
   Photometric :
-    brightness_contrast_saturation : brightness x1.26, contrast x0.63, saturation x0.22
-    random_hue : hue -3.7 degrees
-    random_linear_illumination : +58 levels growing towards the bottom
-    random_motion_blur : kernel of 7 pixels, angle 114 degrees, direction +0.40
+    brightness_contrast_saturation : brightness x0.99, contrast x0.88, saturation x0.86
+    random_noise : standard deviation 30 levels
+    random_gamma : gamma 1.19
 image 1, view 1:
   Geometric :
-    random_crop : 53x42 pixels (54 % of the area), at top 7 and left 11 pixels
-    random_rotation : -5.3 degrees
-    random_perspective : corners moved by up to 6.3 pixels
+    random_crop : 46x60 pixels (67 % of the area), at top 1 and left 17 pixels
+    random_left_right_flip
+    random_rotation : +6.1 degrees
   Photometric :
-    brightness_contrast_saturation : brightness x0.32, contrast x1.45, saturation x0.69
-    random_hue : hue +8.7 degrees
+    brightness_contrast_saturation : brightness x0.71, contrast x0.94, saturation x0.74
+    random_hue : hue +33.7 degrees
+    random_linear_illumination : +33 levels growing towards the bottom
 image 1, view 2:
   Geometric :
-    random_crop : 30x42 pixels (31 % of the area), at top 13 and left 20 pixels
+    random_crop : 46x61 pixels (69 % of the area), at top 1 and left 4 pixels
     random_left_right_flip
     random_up_down_flip
-    random_perspective : corners moved by up to 14.9 pixels
+    random_rotation : -8.1 degrees
   Photometric :
-    brightness_contrast_saturation : brightness x0.98, contrast x0.92, saturation x0.25
-    random_hue : hue +11.5 degrees
+    brightness_contrast_saturation : brightness x0.78, contrast x1.10, saturation x0.78
+    random_hue : hue -28.2 degrees
     random_noise : standard deviation 30 levels
-    gray_scale_augment
-    random_gamma : gamma 1.91
-    random_plasma_shadow : intensity -50 levels, quantity 0.38, roughness 0.26
-    random_blur : 23x23 kernel, sigma 2.13
-    random_solarize : threshold 127.5 levels
+    random_plasma_shadow : intensity -34 levels, quantity 0.14, roughness 0.44
+    random_blur : 9x9 kernel, sigma 2.5
 ```
 
 ### Step 3.13 — `SelfSupervisedModel.forward()` → `encode()`
@@ -691,7 +688,7 @@ Both views go through the model as one batch of 2N = 16 images, so that the batc
 **Example: the outputs of the components on the 16 views**
 ```text
 backbone           [16, 128, 2, 2] torch.bfloat16
-global_pooling     [16, 128] torch.bfloat16 in [0, 0.8]       the representations
+global_pooling     [16, 128] torch.bfloat16 in [0, 0.96]      the representations
 projection_head    [16, 128] torch.bfloat16                   the embeddings, split into [8, 128] + [8, 128]
 ```
 
@@ -701,34 +698,34 @@ In `vision_training/losses/self_supervised_losses.py`, computed in float32 outsi
 **Example: the first iteration**
 ```text
 first and second embeddings: [8, 128] torch.bfloat16
-view 0: cosine with its partner 0.15, mean cosine with the 14 other views 0.40, highest cosine 0.75 (view 7)
-        -> its partner is not its most similar view, and its own row of the loss is about 4.06
-info_nce_loss = 3.5625   positive_pair_accuracy = 0.0   (ln 15 = 2.7081 for random embeddings)
+view 0: cosine with its partner 0.13, mean cosine with the 14 other views 0.39, highest cosine 0.82 (view 13)
+        -> its partner is not its most similar view, and its own row of the loss is about 4.72
+info_nce_loss = 3.0699   positive_pair_accuracy = 0.0   (ln 15 = 2.7081 for random embeddings)
 ```
 
 **Example: the 12 training iterations** (the learning rate stays at 0.0005)
 
 | Iteration | InfoNCE loss | Positive pair accuracy | Gradient norm |
 |---|---|---|---|
-| 1 | 3.5625 | 0.0 | 58.49 |
-| 2 | 2.3762 | 0.4375 | 50.39 |
-| 3 | 2.2249 | 0.375 | 45.64 |
-| 4 | 2.1200 | 0.375 | 42.02 |
-| 5 | 2.4303 | 0.125 | 54.76 |
-| 6 | 1.6858 | 0.5 | 29.31 |
-| 7 | 1.6953 | 0.5 | 36.09 |
-| 8 | 1.9359 | 0.375 | 32.87 |
-| 9 | 2.2775 | 0.125 | 37.79 |
-| 10 | 2.4104 | 0.3125 | 35.98 |
-| 11 | 1.7270 | 0.375 | 27.31 |
-| 12 | 1.7833 | 0.375 | 19.97 |
+| 1 | 3.0699 | 0.0 | 68.36 |
+| 2 | 2.6210 | 0.1875 | 40.08 |
+| 3 | 2.7429 | 0.1875 | 43.46 |
+| 4 | 2.3775 | 0.1875 | 37.75 |
+| 5 | 2.7915 | 0.125 | 30.52 |
+| 6 | 3.1341 | 0.125 | 40.13 |
+| 7 | 2.5209 | 0.125 | 33.69 |
+| 8 | 2.8691 | 0.0 | 28.89 |
+| 9 | 2.6249 | 0.0625 | 26.62 |
+| 10 | 2.6380 | 0.125 | 19.07 |
+| 11 | 2.7711 | 0.125 | 24.63 |
+| 12 | 2.7278 | 0.0 | 20.53 |
 
 ### Step 3.15 — `compute_embedding_standard_deviation()`
 The standard deviation over the batch of every feature of the L2-normalized embeddings of the first views, averaged over the features and multiplied by the square root of the dimension D. Embeddings spread over the whole sphere give about 1, collapsed embeddings (the same embedding whatever the image) give 0. It is computed without gradient and only watches the training.
 
 **Example: the training batches**
 ```text
-embedding_standard_deviation between 0.73 and 0.78 over the 12 iterations
+embedding_standard_deviation between 0.50 and 0.73 over the 12 iterations: 0.73 at iteration 1, 0.50 at iteration 12
 ```
 
 ### Step 3.16 — `compute_method_loss()` → `compute_barlow_twins_loss()` (Barlow Twins)
@@ -743,9 +740,9 @@ The diagonal correlation is the mean of the diagonal, and the off-diagonal corre
 **Example: the first iterations of the Barlow Twins run**
 ```text
 cross-correlation C: [128, 128]
-iteration 1: barlow_twins_loss = 150.8647   cross_correlation_diagonal = 0.0103   cross_correlation_off_diagonal = 0.2927
-             embedding_standard_deviation = 0.7651   gradient norm = 4980.37
-iterations 2 to 4: barlow_twins_loss = 108.62, 122.39, 159.85
+iteration 1: barlow_twins_loss = 165.0846   cross_correlation_diagonal = -0.0430   cross_correlation_off_diagonal = 0.3012
+             embedding_standard_deviation = 0.7320   gradient norm = 6000.94
+iterations 2 to 4: barlow_twins_loss = 95.06, 172.97, 93.75
 ```
 With a diagonal near 0 the invariance term alone is close to D = 128, which explains the size of the loss and of its gradients compared with InfoNCE.
 
@@ -763,64 +760,64 @@ Every 10 iterations, one validation batch runs through `run_model_iteration()` w
 
 **Example: the validation batch of iteration 10**
 ```text
-info_nce_loss = 2.708 (= ln 15)   positive_pair_accuracy = 0.1875   embedding_standard_deviation = 0.0012
+info_nce_loss = 2.7081 (= ln 15)   positive_pair_accuracy = 0.0   embedding_standard_deviation = 0.0005
 ```
-In evaluation mode the batch normalization uses its running statistics, which are not yet meaningful after 10 updates: all the embeddings are almost the same (standard deviation 0.0012), so every view is as similar to all the others and the loss is exactly the one of random embeddings. Step 4.9 explains it.
+In evaluation mode the batch normalization uses its running statistics, which are not yet meaningful after 10 updates: all the embeddings are almost the same (standard deviation 0.0005), so every view is as similar to all the others and the loss is exactly the one of random embeddings. Step 4.9 explains it.
 
 ### Step 3.21 — `average_trackers()` + `log_interval_metrics()` + `print_interval_summary()` + `report_dropped_batches()`
 The sums of the interval are divided by the number of batches it ran. After the summary, the batches dropped since the last one because their loading failed are counted by split, only when there are some (see `classification_workflow.md`, Step 3.24).
 
 **Example: the sums and the averages of the first interval**
 ```text
-before: {'interval_batches': 4, 'total_loss': 10.2836, 'info_nce_loss': 10.2836, 'positive_pair_accuracy': 1.1875, 'embedding_standard_deviation': 2.9867}
-after:  {'interval_batches': 4, 'total_loss': 2.5709, 'info_nce_loss': 2.5709, 'positive_pair_accuracy': 0.2969, 'embedding_standard_deviation': 0.7467}
-MLflow, step 4: {'train/Total Loss': 2.5709, 'train/InfoNCE Loss': 2.5709, 'train/Positive Pair Accuracy': 0.2969,
-                 'train/Embedding Standard Deviation': 0.7467, 'train/throughput': 4.6864,
-                 'train/interval_seconds': 6.8282, 'learning_rate': 0.0005}
-MLflow, step 12: train Total Loss 2.0495, Positive Pair Accuracy 0.2969, Embedding Standard Deviation 0.7493,
-                 validation Total Loss 2.708, Positive Pair Accuracy 0.1875, Embedding Standard Deviation 0.0012,
-                 throughput 11.5912, interval_seconds 2.7607
+before: {'interval_batches': 4, 'total_loss': 10.8112, 'info_nce_loss': 10.8112, 'positive_pair_accuracy': 0.5625, 'embedding_standard_deviation': 2.8716}
+after:  {'interval_batches': 4, 'total_loss': 2.7028, 'info_nce_loss': 2.7028, 'positive_pair_accuracy': 0.1406, 'embedding_standard_deviation': 0.7179}
+MLflow, step 4: {'train/Total Loss': 2.7028, 'train/InfoNCE Loss': 2.7028, 'train/Positive Pair Accuracy': 0.1406,
+                 'train/Embedding Standard Deviation': 0.7179, 'train/throughput': 5.3163,
+                 'train/interval_seconds': 6.0192, 'learning_rate': 0.0005}
+MLflow, step 12: train Total Loss 2.6904, Positive Pair Accuracy 0.0781, Embedding Standard Deviation 0.5425,
+                 validation Total Loss 2.7081, Positive Pair Accuracy 0.0, Embedding Standard Deviation 0.0005,
+                 throughput 11.2821, interval_seconds 2.8363
 ```
 
 **Example output: iterations 8 and 12**
 ```text
 ========================================================================================================================
-|     Iteration: 8     |      Total Images: 64     |    Interval Images: 32     |  Throughput: 4.0 Images Per Second   |
+|     Iteration: 8     |      Total Images: 64     |    Interval Images: 32     |  Throughput: 2.8 Images Per Second   |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   1.9368  -0.6341 Best
-Moving Average of Train InfoNCE Loss                   :   1.9368  -0.6341 Best
-Moving Average of Train Positive Pair Accuracy         :   0.3750  +0.0781 Best
-Moving Average of Train Embedding Standard Deviation   :   0.7506  +0.0039 Best
+Moving Average of Train Total Loss                     :   2.8289  +0.1261
+Moving Average of Train InfoNCE Loss                   :   2.8289  +0.1261
+Moving Average of Train Positive Pair Accuracy         :   0.0938  -0.0469
+Moving Average of Train Embedding Standard Deviation   :   0.6455  -0.0723
 ------------------------------------------------------------------------------------------------------------------------
-Interval Of 4 Iterations Took 00:00:07.
+Interval Of 4 Iterations Took 00:00:11.
 Validation Iterations In This Interval: 0 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 ...
 ========================================================================================================================
-|    Iteration: 12     |      Total Images: 96     |    Interval Images: 32     |  Throughput: 11.6 Images Per Second  |
+|    Iteration: 12     |      Total Images: 96     |    Interval Images: 32     |  Throughput: 11.3 Images Per Second  |
 ------------------------------------------------------------------------------------------------------------------------
-Moving Average of Train Total Loss                     :   2.0495  +0.1127
-Moving Average of Valid Total Loss                     :   2.7080
-Moving Average of Train InfoNCE Loss                   :   2.0495  +0.1127
-Moving Average of Valid InfoNCE Loss                   :   2.7080
-Moving Average of Train Positive Pair Accuracy         :   0.2969  -0.0781
-Moving Average of Valid Positive Pair Accuracy         :   0.1875
-Moving Average of Train Embedding Standard Deviation   :   0.7493  -0.0013
-Moving Average of Valid Embedding Standard Deviation   :   0.0012
+Moving Average of Train Total Loss                     :   2.6904  -0.1385 Best
+Moving Average of Valid Total Loss                     :   2.7081
+Moving Average of Train InfoNCE Loss                   :   2.6904  -0.1385 Best
+Moving Average of Valid InfoNCE Loss                   :   2.7081
+Moving Average of Train Positive Pair Accuracy         :   0.0781  -0.0156
+Moving Average of Valid Positive Pair Accuracy         :   0.0000
+Moving Average of Train Embedding Standard Deviation   :   0.5425  -0.1030
+Moving Average of Valid Embedding Standard Deviation   :   0.0005
 ------------------------------------------------------------------------------------------------------------------------
 Interval Of 4 Iterations Took 00:00:02.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
 ========================================================================================================================
 ```
-At iteration 12 no metric beats its best value, so no line ends with "Best".
+At iteration 8 no metric beats its best value, so no line ends with "Best"; at iteration 12 the loss beats the 2.7028 of iteration 4. The interval of iteration 8 also holds the test evaluation of iteration 6, the trackers of an interval starting at the summary before it, hence its throughput of 2.8 images per second.
 
-**Example output: the first interval of the Barlow Twins run** (throughput 3.7 Images Per Second)
+**Example output: the first interval of the Barlow Twins run** (throughput 12.2 Images Per Second)
 ```text
-Moving Average of Train Total Loss                     : 135.4303
-Moving Average of Train Barlow Twins Loss              : 135.4303
-Moving Average of Train Diagonal Correlation           :   0.0914
-Moving Average of Train Off-Diagonal Correlation       :   0.3017
-Moving Average of Train Embedding Standard Deviation   :   0.7511
+Moving Average of Train Total Loss                     : 131.7183
+Moving Average of Train Barlow Twins Loss              : 131.7183
+Moving Average of Train Diagonal Correlation           :   0.1465
+Moving Average of Train Off-Diagonal Correlation       :   0.3666
+Moving Average of Train Embedding Standard Deviation   :   0.7479
 ```
 
 ### Step 3.22 — end of the loop
@@ -828,7 +825,7 @@ The checkpoint of iteration 12 is already saved and evaluated inside its iterati
 
 **Example output**
 ```text
-Iteration 12 · 1000 Test Images · 2026-10-16 19:33 ───────────────      <- the evaluation of iteration 12, last in the iteration
+Iteration 12 · 1000 Test Images · 2026-10-23 02:19 ───────────────      <- the evaluation of iteration 12, last in the iteration
 ...
 Last Checkpoint Saved At Iteration 12. Exiting Training.
 ```
@@ -838,7 +835,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its test split (1000 images of 64×64 pixels, batch size 8), with `per_class_report: True`, `number_sample_images: 8` and `number_neighbours: 20`. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its test split (1000 images of 64×64 pixels, batch size 8), with `per_class_report: True`, `number_sample_images: 8` and `number_neighbours: 20`.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation loop of every task (see `classification_workflow.md`, Step 4.1). The test images are encoded as they are, without views, as in deployment.
@@ -865,9 +862,9 @@ Same function as in training (Step 3.10).
 
 **Example: the first test batch of iteration 12**
 ```text
-images            [8, 3, 64, 64] torch.float32 in [0, 255]
-representations   [8, 128] torch.float32 in [0, 0.1]
-embeddings        [8, 128]
+images            [8, 3, 64, 64] torch.float32 in [0, 245]
+representations   [8, 128] torch.float32 in [0, 0.084]
+embeddings        [8, 128] torch.float32 in [-0.24, 0.22]
 ```
 
 ### Step 4.5 — `accumulate_evaluation_batch()`
@@ -879,9 +876,9 @@ For each fixed test image of Step 2.11: the image next to two random views of it
 **Example: the sample images of iteration 12**
 ```text
 image and views: (64, 192, 3)  ->  with the caption bar: (88, 192, 3), wider for a long caption (88, 195, 3), (88, 196, 3)
-captions:        'circle | Views Similarity 1.000', 'plus_sign | Views Similarity 1.000', 'pentagon | Views Similarity 1.000'
-files:           Evaluation/Iteration_12/Samples/test_000000.png ... (8 images of 192×88 pixels)
-TensorBoard:     Test images Samples/test_000000, ...
+captions:        'pentagon | Views Similarity 1.000', 'star | Views Similarity 1.000', 'plus_sign | Views Similarity 1.000'
+files:           Evaluation/Iteration_12/Samples/test_000000.png, test_000001.png, test_000005.png ... (8 images of 192 to 196 × 88 pixels)
+TensorBoard:     Test images Samples/test_000000, Samples/test_000001, Samples/test_000005, ...
 ```
 A similarity of 1.000 here does not mean the backbone is invariant: Step 4.9 shows that every image gets almost the same representation at this point.
 
@@ -894,8 +891,8 @@ Concatenates the representations and the labels of the split, then computes:
 
 | Iteration | k-NN Accuracy | k-NN Balanced Accuracy | k-NN Macro F1 | Effective Rank | Representation Standard Deviation |
 |---|---|---|---|---|---|
-| 6 | 0.0930 | 0.0911 | 0.0910 | 1.0118 | 0.0002 |
-| 12 | 0.1070 | 0.1047 | 0.1021 | 1.0535 | 0.0012 |
+| 6 | 0.1080 | 0.1053 | 0.1030 | 1.0141 | 0.0002 |
+| 12 | 0.1210 | 0.1165 | 0.1113 | 1.0458 | 0.0008 |
 
 ```text
 notes:         'Labelled Test Images : 1000 of 1000', 'k-NN : 20 neighbours among the other labelled test images',
@@ -910,30 +907,30 @@ Classifies every labelled test image by its neighbours among the other labelled 
 - The k = min(20, N - 1) most similar images vote for their class with the weight exp(similarity / `NEAREST_NEIGHBOUR_TEMPERATURE`), the temperature being 0.07, the votes being summed per class (`scatter_add`); the class with the most votes is the prediction.
 - `compute_confusion_matrix()` and `compute_metrics_from_confusion_matrix()` give the accuracy, the balanced accuracy, the macro F1 and the precision, recall and F1 of every class; `write_class_metrics_file()` saves them in `class_metrics.csv`.
 
-**Example: image 0 of the test split at iteration 12** (label 8, octagon)
+**Example: image 0 of the test split at iteration 12** (label 6, plus_sign)
 ```text
 top 20 similarities: all 1.0
-neighbour labels:    [2, 5, 2, 2, 8, 3, 6, 4, 1, 7, 8, 1, 1, 7, 7, 6, 2, 0, 3, 0]
-votes per class:     [3.20e6, 4.80e6, 6.40e6, 3.20e6, 1.60e6, 1.60e6, 3.20e6, 4.80e6, 3.20e6]   (exp(1 / 0.07) = 1.6e6 per neighbour)
+neighbour labels:    [2, 7, 4, 5, 6, 8, 2, 5, 5, 7, 2, 2, 0, 0, 6, 3, 3, 4, 4, 5]
+votes per class:     [3.20e6, 0, 6.40e6, 3.20e6, 4.80e6, 6.40e6, 3.20e6, 3.20e6, 1.60e6]   (exp(1 / 0.07) = 1.6e6 per neighbour)
 prediction:          2 (triangle), wrong
-accuracy over the split: 0.107   samples per class: [91, 118, 125, 97, 99, 117, 126, 113, 114]
+accuracy over the split: 0.121   samples per class: [91, 118, 125, 97, 99, 117, 126, 113, 114]
 ```
-With all similarities at 1.0, every neighbour weighs the same and the vote is a plain count among neighbours chosen almost at random.
+With all similarities at 1.0, every neighbour weighs the same and the vote is a plain count among neighbours chosen almost at random: here triangle and hexagon tie with 4 neighbours each, and `argmax` keeps the first one.
 
 **Example: `class_metrics.csv` of iteration 12** (first rows)
 ```text
 class_index,class,samples,precision,recall,f1
-0,square,91,0.141176,0.131868,0.136364
+0,square,91,0.100000,0.065934,0.079470
 ...
 ```
 
 ### Step 4.9 — why the representations look collapsed
-The test images are encoded in evaluation mode, so the batch normalization layers use their running statistics instead of the statistics of the batch. After 12 iterations they have been updated only 13 times (`num_batches_tracked` 13) at momentum 0.1, so they are still far from the statistics of the data (the running variance of the last backbone layer averages 0.27), and the normalized features of all images end up nearly identical:
+The test images are encoded in evaluation mode, so the batch normalization layers use their running statistics instead of the statistics of the batch. After 12 iterations they have been updated only 12 times (`num_batches_tracked` 12) at momentum 0.1, so they are still far from the statistics of the data (the running variance of the last backbone layer averages 0.30), and the normalized features of all images end up nearly identical:
 
 **Example: one test batch at iteration 12, in both modes**
 ```text
-evaluation mode (running statistics):  mean pairwise cosine 1.0     feature standard deviation 3.8e-5
-training mode (batch statistics):      mean pairwise cosine 0.739   feature standard deviation 0.115
+evaluation mode (running statistics):  mean pairwise cosine 1.0     feature standard deviation 2.2e-5
+training mode (batch statistics):      mean pairwise cosine 0.774   feature standard deviation 0.114
 ```
 This explains the effective rank near 1, the views similarity of 1.000, the validation loss of exactly ln 15 and the k-NN near chance. The representations being positive after the ReLU and the pooling of the backbone also brings their directions closer. A longer training gives the running statistics time to settle.
 
@@ -942,9 +939,9 @@ The RankMe effective rank of the `[N, F]` representations: the singular values a
 
 **Example: iteration 12**
 ```text
-representations:  [1000, 128] in [0, 0.137], mean 0.0245
-singular values:  12.79, 0.0152, 0.0081, 0.0030, 0.0027, ...   (sum 12.85)
-p_1 = 12.79 / 12.85 = 0.9947   entropy = 0.0521   effective rank = exp(0.0521) = 1.0535
+representations:  [1000, 128] in [0, 0.084], mean 0.0171
+singular values:  9.2822, 0.0077, 0.0033, 0.0026, 0.0019, ...   (sum 9.3237)
+p_1 = 9.2822 / 9.3237 = 0.99555   entropy = 0.0448   effective rank = exp(0.0448) = 1.0458
 ```
 
 ### Step 4.11 — the per-class table and scalars
@@ -953,25 +950,25 @@ The table "Per Class k-NN Metrics" lists the classes with their number of labell
 **Example: `Evaluation/Iteration_12/class_metrics.csv` and the scalars of one class** (the table itself is in the block of Step 4.12)
 ```text
 class_index,class,samples,precision,recall,f1
-0,square,91,0.141176,0.131868,0.136364
-1,circle,118,0.136364,0.127119,0.131579
-2,triangle,125,0.123223,0.208000,0.154762
-3,rectangle,97,0.039474,0.030928,0.034682
+0,square,91,0.100000,0.065934,0.079470
+1,circle,118,0.153153,0.144068,0.148472
+2,triangle,125,0.150685,0.264000,0.191860
+3,rectangle,97,0.121951,0.103093,0.111732
 ...
-8,octagon,114,0.049383,0.035088,0.041026
+8,octagon,114,0.087379,0.078947,0.082949
 
 Tensorboard/Test tags of circle:  k-NN Precision/circle, k-NN Recall/circle, k-NN F1/circle
-k-NN Precision/circle:            step 6 0.0642, step 12 0.1364
+k-NN Precision/circle:            step 6 0.1017, step 12 0.1532
 ```
 The file keeps the class order of the label dictionary, while the console table sorts the classes by F1.
 
 ### Step 4.12 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
-**Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
+**Example output: the block of iteration 12** (the same text is appended to `Results.txt`; the three file names at the end are clickable links to the files)
 ```text
-Iteration 12 · 1000 Test Images · 2026-10-16 19:33 ─────────────────────────────────────────────────────────────────────
-  k-NN Accuracy                       0.1070   k-NN Balanced Accuracy   0.1047
-  k-NN Macro F1                       0.1021   Effective Rank           1.0535
-  Representation Standard Deviation   0.0012
+Iteration 12 · 1000 Test Images · 2026-10-23 02:19 ─────────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1210   k-NN Balanced Accuracy   0.1165
+  k-NN Macro F1                       0.1113   Effective Rank           1.0458
+  Representation Standard Deviation   0.0008
   Labelled Test Images : 1000 of 1000
   k-NN : 20 neighbours among the other labelled test images
   Sample Images : 8 fixed test images
@@ -979,20 +976,20 @@ Iteration 12 · 1000 Test Images · 2026-10-16 19:33 ─────────
   Per Class k-NN Metrics
    Class       Samples   Precision   Recall       F1
   ───────────────────────────────────────────────────
-   rectangle        97      0.0395   0.0309   0.0347
-   octagon         114      0.0494   0.0351   0.0410
-   star            113      0.0744   0.0796   0.0769
-   pentagon         99      0.0842   0.0808   0.0825
-   plus_sign       126      0.1043   0.0952   0.0996
-   circle          118      0.1364   0.1271   0.1316
-   square           91      0.1412   0.1319   0.1364
-   triangle        125      0.1232   0.2080   0.1548
-   hexagon         117      0.1698   0.1538   0.1614
+   pentagon         99      0.0476   0.0202   0.0284
+   square           91      0.1000   0.0659   0.0795
+   octagon         114      0.0874   0.0789   0.0829
+   plus_sign       126      0.1014   0.1111   0.1061
+   rectangle        97      0.1220   0.1031   0.1117
+   hexagon         117      0.1217   0.1197   0.1207
+   star            113      0.1231   0.1416   0.1317
+   circle          118      0.1532   0.1441   0.1485
+   triangle        125      0.1507   0.2640   0.1919
   k-nearest neighbour classification (20 neighbours) of the labelled test images by the other ones. Worst F1 first, ties
   in class order. — : no labelled test image of the class.
-  - Results : file:///.../Results.txt
-  - Class Metrics : file:///.../Evaluation/Iteration_12/class_metrics.csv
-  - Sample Images : file:///.../Evaluation/Iteration_12/Samples
+  - Results : Results.txt
+  - Class Metrics : class_metrics.csv
+  - Sample Images : Samples
 ```
 
 **Example: the run folder, TensorBoard and MLflow after the two evaluations**
@@ -1003,8 +1000,8 @@ runs/SSL_IN-KAR-64_..._SIMCLR-T0.2/
     Tensorboard/Train, Validation, Test
     Weights/Iteration_3, 6, 9, 12/  full-checkpoint
 Tensorboard/Test: 32 scalars (5 global + 27 per class) at steps 6 and 12, 8 images Samples/test_...
-    scalar k-NN Accuracy    6: 0.093, 12: 0.107
-    scalar Effective Rank   6: 1.0118, 12: 1.0535
+    scalar k-NN Accuracy    6: 0.108, 12: 0.121
+    scalar Effective Rank   6: 1.0141, 12: 1.0458
 MLflow (runs/mlflow.db): 44 metric keys, 91 rows: train/*, validation/*, test/<global metric>, test/best_k-NN Accuracy,
         27 test_class/k-NN <Metric>/<class>, learning_rate
     parameters: the flattened configuration, e.g. Data.data_augmentation.types.random_crop.probability = 1.0
@@ -1019,7 +1016,7 @@ With the moving average of the weights on (`Optimization.exponential_moving_aver
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of 200 test images (`test_200`). A second evaluation of the checkpoint of iteration 12 uses the same 200 images without their categories (`test_unlabelled_200`).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 200 test images (`test_200`). A second evaluation of the checkpoint of iteration 12 uses the same 200 images without their categories (`test_unlabelled_200`).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
 The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` to the self-supervised run, and `test_data_folder` to another split if needed. The split does not need labels: without them, only the effective rank and the representation standard deviation are computed (Step 5.6).
@@ -1047,22 +1044,22 @@ The MLflow run of the evaluation, named `<run name>-evaluation`, is created in t
 
 **Example output**
 ```text
-MLflow Run Created In The Experiment 'self_supervised' : 6e8ccfa7c4f843079a00356e7c5d084c (Browse : mlflow ui --backend-store-uri sqlite:///.../runs/mlflow.db)
-tags: evaluation_of 73a1f377fd644212b312f006de1614c6, evaluated_iterations "12, 9, 6, 3", test_data_folder, best_iteration 12
+MLflow Run Created In The Experiment 'self_supervised' : fea7baf32e174d2eb2c5f3583ad3cd74 (Browse : mlflow ui --backend-store-uri sqlite:///.../runs/mlflow.db)
+tags: evaluation_of a42373adfbf94d839fa79699e0103b2b, evaluated_iterations "12, 9, 6, 3", test_data_folder, best_iteration 3
 metrics: 33 keys, 132 rows
 ```
 
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
 **Example output**
 ```text
-Evaluation Summary Of 4 Checkpoints : file:///.../evaluations/SSL_IN-KAR-64_..._SIMCLR-T0.2/Evaluation/evaluation_summary.csv
-  - Best Checkpoint : iteration 12 (k-NN Accuracy 0.1200)
+Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv          <- a clickable link to evaluations/SSL_IN-KAR-64_..._SIMCLR-T0.2/Evaluation/evaluation_summary.csv
+  - Best Checkpoint : iteration 3 (k-NN Accuracy 0.1250)
 
 iteration,k-NN Accuracy,k-NN Balanced Accuracy,k-NN Macro F1,Effective Rank,Representation Standard Deviation, ...
-12,0.12,0.10986599953991256,0.10130809773488435,1.0506236098178765,0.0011394398752599955, ...
-9,0.105,0.0937...,0.0876...,1.0196...,0.000338..., ...
-6,0.07,0.0640...,0.0577...,1.0112...,0.000159..., ...
-3,0.105,0.0874...,0.0641...,1.0074...,0.000112..., ...
+12,0.11,0.09638447971781304,0.08247118900298986,1.0432647447459944,0.0008116378448903561, ...
+9,0.075,0.0631...,0.0522...,1.0232...,0.000390..., ...
+6,0.095,0.0848...,0.0840...,1.0131...,0.000190..., ...
+3,0.125,0.1118...,0.1045...,1.0072...,0.000103..., ...
 ```
 The file has 33 columns: the iteration, the 5 global metrics and the 27 per-class metrics.
 
@@ -1081,10 +1078,10 @@ evaluations/SSL_IN-KAR-64_..._SIMCLR-T0.2/
 -----------------------------
 Evaluating : model_000012.pt
 -----------------------------
-Iteration 12 · 200 Test Images · 2026-10-16 19:38 ──────────────────────────────────────────────────────────────────────
-  k-NN Accuracy                       0.1200   k-NN Balanced Accuracy   0.1099
-  k-NN Macro F1                       0.1013   Effective Rank           1.0506
-  Representation Standard Deviation   0.0011
+Iteration 12 · 200 Test Images · 2026-10-23 02:19 ──────────────────────────────────────────────────────────────────────
+  k-NN Accuracy                       0.1100   k-NN Balanced Accuracy   0.0964
+  k-NN Macro F1                       0.0825   Effective Rank           1.0433
+  Representation Standard Deviation   0.0008
   Labelled Test Images : 200 of 200
   k-NN : 20 neighbours among the other labelled test images
   Sample Images : 8 fixed test images
@@ -1092,15 +1089,15 @@ Iteration 12 · 200 Test Images · 2026-10-16 19:38 ─────────�
   Per Class k-NN Metrics
    Class       Samples   Precision   Recall       F1
   ───────────────────────────────────────────────────
+   square           16      0.0000   0.0000   0.0000
    rectangle        14      0.0000   0.0000   0.0000
-   octagon          21      0.0833   0.0476   0.0606
-   triangle         28      0.0571   0.0714   0.0635
-   circle           20      0.1111   0.0500   0.0690
-   square           16      0.1250   0.0625   0.0833
-   pentagon         23      0.1250   0.1739   0.1455
-   plus_sign        27      0.2500   0.1111   0.1538
-   hexagon          27      0.1277   0.2222   0.1622
-   star             24      0.1333   0.2500   0.1739
+   pentagon         23      0.0000   0.0000   0.0000
+   octagon          21      0.0435   0.0476   0.0455
+   circle           20      0.0833   0.0500   0.0625
+   hexagon          27      0.1111   0.1111   0.1111
+   plus_sign        27      0.1154   0.1111   0.1132
+   triangle         28      0.1622   0.2143   0.1846
+   star             24      0.1702   0.3333   0.2254
   ...
 ```
 
@@ -1108,28 +1105,28 @@ Iteration 12 · 200 Test Images · 2026-10-16 19:38 ─────────�
 
 | Iteration | k-NN Accuracy | k-NN Balanced Accuracy | k-NN Macro F1 | Effective Rank | Representation Standard Deviation |
 |---|---|---|---|---|---|
-| 12 | 0.1200 | 0.1099 | 0.1013 | 1.0506 | 0.0011 |
-| 9 | 0.1050 | 0.0937 | 0.0876 | 1.0196 | 0.0003 |
-| 6 | 0.0700 | 0.0640 | 0.0577 | 1.0112 | 0.0002 |
-| 3 | 0.1050 | 0.0874 | 0.0641 | 1.0074 | 0.0001 |
+| 12 | 0.1100 | 0.0964 | 0.0825 | 1.0433 | 0.0008 |
+| 9 | 0.0750 | 0.0632 | 0.0523 | 1.0233 | 0.0004 |
+| 6 | 0.0950 | 0.0848 | 0.0840 | 1.0132 | 0.0002 |
+| 3 | 0.1250 | 0.1118 | 0.1045 | 1.0073 | 0.0001 |
 
-The effective rank and the spread of the representations grow with the training, as the running statistics of the batch normalization settle (Step 4.9).
+The effective rank and the spread of the representations grow with the training, as the running statistics of the batch normalization settle (Step 4.9). The k-NN accuracy of these almost collapsed representations only moves around chance (0.11) on 200 images, which makes iteration 3 the best checkpoint here.
 
 **Example output: the same 200 images without labels**
 ```text
 Samples Without A Single Mapped Category, Kept Without Class :        <- yellow, once the loaders are built
   - Test : 200 samples (labels.json)
 ...
-Iteration 12 · 200 Test Images · 2026-10-16 19:39 ──────────────────────────────────────────────────────────────────────
-  Effective Rank   1.0506   Representation Standard Deviation   0.0011
+Iteration 12 · 200 Test Images · 2026-10-23 02:20 ──────────────────────────────────────────────────────────────────────
+  Effective Rank   1.0433   Representation Standard Deviation   0.0008
   Labelled Test Images : 0 of 200
   k-NN : skipped, fewer than two labelled test images
   Sample Images : 8 fixed test images
-  - Results : file:///.../Results.txt
-  - Sample Images : file:///.../Evaluation/Iteration_12/Samples
+  - Results : Results.txt
+  - Sample Images : Samples
 -------------------------------------------------------------
-Evaluation Summary Of 1 Checkpoints : file:///.../Evaluation/evaluation_summary.csv
+Evaluation Summary Of 1 Checkpoints : evaluation_summary.csv
 -------------------------------------------------------------
-  - Best Checkpoint : iteration 12 (Effective Rank 1.0506)
+  - Best Checkpoint : iteration 12 (Effective Rank 1.0433)
 ```
 The images are the same as in `test_200`, so the effective rank is the same; without labels there is no class table nor `class_metrics.csv`, the sample images are captioned `unlabelled`, and the MLflow run of the evaluation has 3 metric keys.
