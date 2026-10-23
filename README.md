@@ -4,8 +4,6 @@
   <img src="README/tasks_overview.png" width="100%" />
 </p>
 
-> **Screenshot placeholder** (`README/tasks_overview.png`): one evaluation sample image of each of the nine supervised tasks side by side, taken from `<run>/Evaluation/Iteration_<n>/Samples/` of the synthetic runs: a classified shape, the detected boxes, the detected boxes with their masks, the grouped keypoints of the objects of an image, a segmentation (input, true mask, predicted mask, error map), a sequence classification frame grid, a sequence labelling frame grid, a before / after pair and a frame selection grid with its heat map.
-
 ## Table Of Content
 - [Description](#description)
 - [Prerequisites](#prerequisites)
@@ -525,8 +523,6 @@ The COCO 2017 splits downloaded by `vision_training/data/data_retriever.py` alre
 <p align="center">
   <img src="README/instance_segmentation_sample.png" width="80%" />
 </p>
-
-> **Screenshot placeholder** (`README/instance_segmentation_sample.png`): a sample image of an instance segmentation evaluation, the ground truth boxes and masks on the left next to the detections above `Detector.inference.score_threshold` with their masks on the right, every box and mask in the colour of its class.
 
 ### Keypoint Detection (KPT)
 The keypoint detector is bottom-up, as in HigherHRNet ([Cheng et al., 2020](https://arxiv.org/abs/1908.10357)): the network sees the whole image, finds the keypoints of all its objects at once, and groups them into objects with the tags of associative embedding ([Newell et al., 2017](https://arxiv.org/abs/1611.05424)). It needs no box: an image without any object gives no keypoint, and an image with several objects of several classes gives all of them in one pass. Every sample is one whole image, as in DET.
