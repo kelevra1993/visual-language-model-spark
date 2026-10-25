@@ -757,13 +757,15 @@ committed): every image can be taken again from them without training, except wh
   - Backbone blocks that change width with 2 layers (blocks 2, 4 and 6 of the SEG example and the synthetic SEG and CLS
     configurations) have no shortcut.
   - The detection, mask and region proposal heads use the same block, so they are affected too.
-  - `get_active_module_names` still prints "Residual Shortcuts", and the YAML comments say "Shortcuts are added every
-    two convolution layers".
+  - The YAML comments say "Shortcuts are added every two convolution layers". The summaries listed "Residual
+    Shortcuts" for these blocks too, until `get_active_module_names` listed them only for the blocks adding one
+    (`count_residual_additions`, 2026-10-24).
 - **Fix:** when the input and output channels differ, add a 1×1 convolution with normalization as the projection
   shortcut of the first pair, and set the parity to 0.
   - The new keys only appear in channel-changing residual blocks, so existing checkpoints of those blocks need a
     non-strict load or a migration.
-  - Until then, report the residual module only when at least one addition happens.
+  - Until then, the summaries report the residual module only when at least one addition happens (done on
+    2026-10-24, the computation unchanged); the projection shortcut is still to do.
 
 #### H5. A failed save or evaluation (e.g. disk full) is swallowed: no checkpoint, no evaluation, skipped steps, orphan `.tmp` files
 - **Where:**

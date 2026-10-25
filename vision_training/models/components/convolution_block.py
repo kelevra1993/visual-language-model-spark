@@ -388,19 +388,44 @@ class ConvolutionBlock(nn.Module):
             return input_tensor
         return self.block[self.pooling_index](input_tensor)
 
-    def get_active_module_names(self) -> List[str]:
+    def count_residual_additions(self) -> int:
         """
-        Lists the architecture modules enabled in this block, so that the Backbone and Detection summaries can show
-        which convolution modules are actually used by each block.
+        Counts the shortcut additions of the block, made by compute_layers at every layer closing a residual pair, so
+        that the summaries of the Backbone and of the detection and mask heads list the residual shortcuts of a block
+        only when it adds one. A block whose first layer changes the channel count closes its first pair at its third
+        layer (parity 1), so with two layers it adds none and computes like a block without shortcuts.
 
         Returns:
-            List[str]: The names of the enabled modules, empty for a plain convolution block.
+            int: The number of shortcut additions, 0 without the residual shortcuts.
         """
-        # Map every module flag of the block to its displayed name, keeping only the enabled ones
-        residual_name = "Pre-Activation Residual Shortcuts" if self.pre_activation else "Residual Shortcuts"
-        module_flags = {"Inception": self.inception, residual_name: self.residual,
-                        "Squeeze-and-Excitation": self.squeeze_and_excite}
-        return [module_name for module_name, is_enabled in module_flags.items() if is_enabled]
+        # Count the layers closing a pair with the condition of compute_layers
+        return sum(1 for layer_index in range(self.number_layers)
+                   if self.residual and layer_index % 2 == (1 - self.residual_parity) and layer_index != 0)
+
+    def get_active_module_names(self) -> List[str]:
+        """
+        Lists the architecture modules used by this block, so that the Backbone and Detection summaries can show
+        which convolution modules are actually used by each block. The residual shortcuts are listed only for a block
+        adding at least one (count_residual_additions); a pre-activation block adding none is listed by its
+        pre-activation layers, whose order still differs from a plain block.
+
+        Returns:
+            List[str]: The names of the used modules, empty for a plain convolution block.
+        """
+        # Name the residual placement only when the block adds a shortcut, or keeps the pre-activation order without one
+        residual_name = None
+        if self.residual and self.count_residual_additions() > 0:
+            residual_name = "Pre-Activation Residual Shortcuts" if self.pre_activation else "Residual Shortcuts"
+        elif self.pre_activation:
+            residual_name = "Pre-Activation Layers"
+
+        # Keep the used modules in their order within a layer: Inception, the residual placement, Squeeze-and-Excitation
+        module_names = ["Inception"] if self.inception else []
+        if residual_name is not None:
+            module_names.append(residual_name)
+        if self.squeeze_and_excite:
+            module_names.append("Squeeze-and-Excitation")
+        return module_names
 
     def get_receptive_field_layers(self) -> List[Dict[str, Any]]:
         """
