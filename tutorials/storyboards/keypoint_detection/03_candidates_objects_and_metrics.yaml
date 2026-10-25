@@ -104,8 +104,8 @@ scenes:
       - type: curve
         box: [180, 110, 1180, 560]
         series:
-          - {colour: blue, points: "{{keypoint_detection.oks_trapezoid_points}}"}
-          - {colour: aqua, points: "{{keypoint_detection.oks_capsule_points}}"}
+          - {name: "trapezoid", colour: blue, points: "{{keypoint_detection.oks_trapezoid_points}}"}
+          - {name: "capsule", colour: aqua, points: "{{keypoint_detection.oks_capsule_points}}"}
         x_range: [0, 30]
         y_range: [0, 1]
         x_ticks: [{value: 0, label: "0"}, {value: 10, label: "10"}, {value: 20, label: "20"}, {value: 30, label: "30"}]

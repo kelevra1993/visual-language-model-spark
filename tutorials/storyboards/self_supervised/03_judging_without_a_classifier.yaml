@@ -197,6 +197,7 @@ scenes:
 
   - kind: text_panel
     title: "Pitfalls"
+    font_size: 34
     columns:
       - heading: "symptom"
         lines:

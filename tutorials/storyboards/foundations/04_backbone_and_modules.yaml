@@ -299,6 +299,7 @@ scenes:
 
   - kind: yaml
     title: "Starting from a trained run"
+    font_size: 34
     code_reference: "vision_training/models/model_transfer.py · load_pretrained_component"
     source:
       file: vision_training/configurations/classification/configuration_synthetic_shapes.yaml
