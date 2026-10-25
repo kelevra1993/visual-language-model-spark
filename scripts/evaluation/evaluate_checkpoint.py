@@ -6,12 +6,43 @@ is on, tracked in an MLflow run of their own.
 """
 
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 from vision_training.core.task_registry import get_trainer_class
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
 from vision_training.evaluation.checkpoint_evaluation import evaluate_checkpoints
 from vision_training.models.model_transfer import disable_pretrained_settings
 from vision_training.trainers.checkpointing import get_checkpoint_iterations, get_last_checkpoint_iteration
+from vision_training.utilities.os_utilities import print_color
+
+
+def apply_error_image_limit(experiment_configuration: Dict[str, Any],
+                            maximum_error_images_per_class_pair: Optional[int]) -> None:
+    """
+    Turns the error images of the evaluated checkpoints on with their own limit per pair of true and predicted classes,
+    for the tasks saving their errors as images (an 'evaluation.error_dumps' section: classification, detection),
+    e.g. to look at every error of a checkpoint. The tasks without error images (semantic segmentation, keypoint
+    detection, self-supervised learning) are evaluated without them, a warning telling that the limit was skipped.
+
+    Args:
+        experiment_configuration (Dict[str, Any]): The loaded experiment configuration of the evaluated run, changed in
+            place.
+        maximum_error_images_per_class_pair (Optional[int]): The largest number of error images of every pair of
+            classes, None to keep the experiment's 'evaluation.error_dumps' settings.
+    """
+    if maximum_error_images_per_class_pair is None:
+        return
+
+    # The tasks without an error_dumps section save no error image, so the limit has nothing to apply to
+    error_dumps_configuration = experiment_configuration.get("evaluation", {}).get("error_dumps")
+    if error_dumps_configuration is None:
+        print_color(color="yellow", output=f"maximum_error_images_per_class_pair is skipped: the "
+                                           f"{experiment_configuration['task']} task saves no error image (no "
+                                           f"'evaluation.error_dumps' section).")
+        return
+    error_dumps_configuration["activated"] = True
+    error_dumps_configuration["maximum_per_class_pair"] = maximum_error_images_per_class_pair
+
 
 if __name__ == "__main__":
     # Run name of the trained experiment whose configuration and checkpoints are evaluated, it is only read, in the
@@ -32,7 +63,8 @@ if __name__ == "__main__":
     track_evaluation = None
     # Largest number of error images saved for every pair of true and predicted classes, the first ones met, in
     # 'Evaluation/Iteration_<n>/Errors/<TRUE>-TO-<PREDICTED>/', the error images being turned on. A number above the
-    # number of test samples saves every error. None keeps the experiment's 'evaluation.error_dumps' settings
+    # number of test samples saves every error. None keeps the experiment's 'evaluation.error_dumps' settings. Skipped
+    # with a warning for the tasks without error images (semantic segmentation, keypoint detection, self-supervised)
     maximum_error_images_per_class_pair = 100000
     # Root folder of the evaluations, kept apart from the experiment so that its files are untouched. Like a training
     # run, Results.txt, Tensorboard/Test and the Evaluation folder are written in a subfolder of it with the name of
@@ -54,12 +86,9 @@ if __name__ == "__main__":
         experiment_configuration["batch_size"] = batch_size
     if track_evaluation is not None:
         experiment_configuration["tracking"]["activated"] = track_evaluation
-    # Error images turned on with their own limit per pair of classes, e.g. to look at every error of a checkpoint, for
-    # the tasks saving their errors as images (an 'evaluation.error_dumps' section)
-    if maximum_error_images_per_class_pair is not None:
-        error_dumps_configuration = experiment_configuration["evaluation"]["error_dumps"]
-        error_dumps_configuration["activated"] = True
-        error_dumps_configuration["maximum_per_class_pair"] = maximum_error_images_per_class_pair
+    # Error images turned on with their own limit per pair of classes, for the tasks saving their errors as images
+    apply_error_image_limit(experiment_configuration=experiment_configuration,
+                            maximum_error_images_per_class_pair=maximum_error_images_per_class_pair)
 
     # The weights come from the evaluated checkpoints, so the pretrained components the run started from are not loaded
     disable_pretrained_settings(model_configuration=model_configuration)

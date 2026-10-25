@@ -1,9 +1,9 @@
 """
 Tests of vision_training/evaluation/segmentation/segmentation_metrics.py and segmentation_report.py: the pixel confusion
 matrix and the histograms of the pixel probabilities leave the ignored pixels out, the metrics computed from a known
-confusion matrix match the values computed by hand with the absent classes left out of the means, the per-class rows,
-table and scalars give no metric to a class without pixels, and the ROC AUC and average precision of the per-class
-report join them.
+confusion matrix match the values computed by hand with the classes predicted without true pixel counted in the means
+and the classes neither present nor predicted left out, the per-class rows, table and scalars give no metric to a class
+without pixels, and the ROC AUC and average precision of the per-class report join them.
 """
 
 import pytest
@@ -69,8 +69,8 @@ def test_curve_metrics_join_the_class_rows_table_and_scalars() -> None:
 
 def test_metrics_of_a_known_confusion_matrix() -> None:
     """
-    Verifies the pixel accuracy, the IoU and Dice of every class, their means over the classes present and the
-    frequency-weighted IoU on a confusion matrix whose class 2 has no true pixel but is predicted once.
+    Verifies the pixel accuracy, the IoU and Dice of every class, their means over the classes present or predicted
+    and the frequency-weighted IoU on a confusion matrix whose class 2 has no true pixel but is predicted once.
     """
     # Rows true classes, columns predicted classes: 8 background pixels (one predicted as class 2), 4 pixels of class 1
     # (one predicted as background), no pixel of class 2
@@ -81,16 +81,32 @@ def test_metrics_of_a_known_confusion_matrix() -> None:
     background_iou, class_iou = 7.0 / 9.0, 3.0 / 4.0
     assert metrics["pixel_accuracy"] == pytest.approx(expected=10.0 / 12.0)
     assert metrics["iou"] == pytest.approx(expected=[background_iou, class_iou, 0.0])
-    assert metrics["mean_iou"] == pytest.approx(expected=(background_iou + class_iou) / 2.0)
+    # The mean counts class 2, predicted on a background pixel without any true pixel, with its IoU of 0
+    assert metrics["mean_iou"] == pytest.approx(expected=(background_iou + class_iou + 0.0) / 3.0)
     assert metrics["frequency_weighted_iou"] == pytest.approx(expected=(8.0 * background_iou + 4.0 * class_iou) / 12.0)
 
-    # Dice: twice the right pixels over the true and predicted pixels, the mean leaving out the absent class
+    # Dice: twice the right pixels over the true and predicted pixels, the mean counting the predicted class 2
     background_dice, class_dice = 14.0 / 16.0, 6.0 / 7.0
     assert metrics["dice"] == pytest.approx(expected=[background_dice, class_dice, 0.0])
-    assert metrics["mean_dice"] == pytest.approx(expected=(background_dice + class_dice) / 2.0)
+    assert metrics["mean_dice"] == pytest.approx(expected=(background_dice + class_dice + 0.0) / 3.0)
     assert metrics["precision"] == pytest.approx(expected=[7.0 / 8.0, 1.0, 0.0])
     assert metrics["recall"] == pytest.approx(expected=[7.0 / 8.0, 3.0 / 4.0, 0.0])
     assert metrics["support"] == [8, 4, 0]
+
+
+def test_class_painted_without_true_pixel_lowers_the_mean_iou() -> None:
+    """
+    Verifies the case of the audit (B53): masks of classes 0 and 1, class 2 painted on a quarter of the pixels (half of
+    class 0), give the IoU [0.5, 1, 0] and a mean IoU of 0.5 as in mmseg and Cityscapes (every class with a non-empty
+    union) instead of the 0.75 of the classes present only, the mean Dice counting class 2 as well, and a class neither
+    present nor predicted staying out of both means.
+    """
+    confusion_matrix = torch.tensor(data=[[2, 0, 2, 0], [0, 4, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
+    metrics = compute_segmentation_metrics(confusion_matrix=confusion_matrix)
+    assert metrics["iou"] == pytest.approx(expected=[0.5, 1.0, 0.0, 0.0])
+    assert metrics["mean_iou"] == pytest.approx(expected=0.5)
+    assert metrics["dice"] == pytest.approx(expected=[2 / 3, 1.0, 0.0, 0.0])
+    assert metrics["mean_dice"] == pytest.approx(expected=(2 / 3 + 1.0 + 0.0) / 3)
 
 
 def test_metrics_without_labelled_pixel_are_zero() -> None:

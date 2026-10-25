@@ -3,11 +3,11 @@ Object keypoint similarity and keypoint accuracy of the keypoint detection task,
 keypoint trainer has grouped the keypoint candidates of every image into objects
 (models/keypoints/keypoint_grouping.py): the per-keypoint standard deviations of the similarity (COCO sigmas, from the
 evaluation section of the configuration), the object keypoint similarity (OKS) of every predicted object with every
-ground truth object of the same class and image, which replaces the intersection over union of the average precision
-of mean_average_precision.py, the matching of every ground truth object to one predicted object, and, on the matched
-keypoints, the percentage of correct keypoints (PCK, a keypoint within a fraction of the longest box side) and the
-pixel errors of every class and keypoint, with their tables for the report and rows for the metrics files. The objects
-are measured by their box areas in network input pixels.
+ground truth object of the same class and image, which replaces the intersection over union of the average precision of
+mean_average_precision.py, the matching of every ground truth object to one predicted object reaching an OKS of 0.5,
+and, on the matched keypoints, the percentage of correct keypoints (PCK, a keypoint within a fraction of the longest box
+side) and the pixel errors of every class and keypoint, with their tables for the report and rows for the metrics files.
+The objects are measured by their box areas in network input pixels.
 """
 
 import torch
@@ -26,6 +26,11 @@ CORRECT_KEYPOINTS_NAME = f"PCK@{CORRECT_KEYPOINT_FRACTION:g}"
 
 # Smallest box area dividing the squared distances, so that a degenerate box gives a similarity instead of a NaN
 MINIMUM_OBJECT_AREA = torch.finfo(torch.float64).eps
+
+# Smallest object keypoint similarity at which a predicted object matches a ground truth object for the keypoint
+# accuracy, the overlap of the OKS AP@0.5, so that a prediction far from the object (whose similarity only reaches 0
+# on an underflow, about 4 box sides away) leaves it missed rather than adding its distance to the pixel errors
+MINIMUM_MATCH_SIMILARITY = 0.5
 
 # Values of every ground truth object of the test split kept by evaluate_image_keypoints for the keypoint accuracy
 EVALUATED_OBJECT_KEYS = ["labels", "bounding_boxes", "keypoints", "visibilities", "predicted_keypoints", "matched"]
@@ -145,8 +150,9 @@ def compute_keypoint_boxes(keypoints: torch.Tensor) -> torch.Tensor:
 def match_ground_truth_objects(keypoint_overlaps: torch.Tensor) -> torch.Tensor:
     """
     Matches every ground truth object of an image to at most one predicted object for the keypoint accuracy, whatever
-    the scores: the one-to-one matching of the largest total object keypoint similarity, a pair of similarity 0 (other
-    class or no keypoint close) never matching.
+    the scores: the one-to-one matching of the largest total object keypoint similarity over the pairs reaching
+    MINIMUM_MATCH_SIMILARITY, a pair below it (other class, or keypoints too far) never matching nor taking part in the
+    assignment.
 
     Args:
         keypoint_overlaps (torch.Tensor): The [D, G] object keypoint similarity of every predicted object with every
@@ -158,10 +164,14 @@ def match_ground_truth_objects(keypoint_overlaps: torch.Tensor) -> torch.Tensor:
     matched_predictions = torch.full(size=(keypoint_overlaps.shape[1],), fill_value=-1, dtype=torch.int64)
     if keypoint_overlaps.numel() == 0:
         return matched_predictions
-    prediction_indices, ground_truth_indices = linear_sum_assignment(cost_matrix=keypoint_overlaps.numpy(),
+
+    # Leave the pairs below the minimum similarity out of the assignment, then keep the assigned pairs reaching it
+    eligible_overlaps = torch.where(keypoint_overlaps >= MINIMUM_MATCH_SIMILARITY, keypoint_overlaps,
+                                    torch.zeros_like(input=keypoint_overlaps))
+    prediction_indices, ground_truth_indices = linear_sum_assignment(cost_matrix=eligible_overlaps.numpy(),
                                                                      maximize=True)
     for prediction_index, ground_truth_index in zip(prediction_indices, ground_truth_indices, strict=True):
-        if keypoint_overlaps[prediction_index, ground_truth_index] > 0:
+        if eligible_overlaps[prediction_index, ground_truth_index] > 0:
             matched_predictions[ground_truth_index] = int(prediction_index)
     return matched_predictions
 
