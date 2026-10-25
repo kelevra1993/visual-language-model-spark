@@ -5,11 +5,109 @@ This document follows one keypoint detection run (KPT) from `main()` to the eval
 The model is a bottom-up keypoint detector (HigherHRNet): the whole image goes through the stem of the backbone and an HRNet (high resolution network), and its head predicts, at 1/4 of the image, one heatmap and one tag map per keypoint of every class. A higher resolution branch predicts a second set of heatmaps at 1/2 of the image. The heatmaps give the keypoint candidates of every channel (its local maxima), and the tags group the candidates of the keypoints of a class into objects: the keypoints of one object share the same tag, two objects of the same class get distant tags. The detector never needs a box: it finds the objects of every class, and none when an image has none.
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training (`CUDA_VISIBLE_DEVICES=` empty for every run). The synthetic dataset of the configuration, `synthetic_shapes`, was generated in a temporary folder with `create_synthetic_dataset(task="keypoint_detection")` at the size of the examples: 300 training, 30 validation and 30 test images of 512 pixels, 2 to 5 objects per image, 37 categories. 33 of them have keypoints (a square has its 4 corners, a triangle 3, a stick figure 11, a hollow nonagon 18), 243 in all; `circle`, `ellipse`, `annulus` and `hollow_ellipse` are distractors without keypoints, left out of the `label_mapping.json` written by `build_keypoint_label_mapping()`, which numbers the 33 others from 1. The data folders and the mapping file of the configuration were redirected to it. The input viewer and every other window stay off.
-- **Stages 1 and 2**: `configurations/keypoint_detection/configuration_synthetic_shapes.yaml` (512 pixel images, a 3-block stem ending at 1/4 of the image, an HRNet of base width 16 with 1, 2 and 2 modules in its stages 2, 3 and 4, a hidden width of 256, the higher resolution branch, a heatmap sigma of 2 cells, tag weights of 0.1), with the run folder redirected to a temporary folder and the iterations of Stage 3.
+- **Stages 1 and 2**: `vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml` (512 pixel images, a 3-block stem ending at 1/4 of the image, an HRNet of base width 16 with 1, 2 and 2 modules in its three stages of 2, 3 and 4 branches, a hidden width of 256, the higher resolution branch, a heatmap sigma of 2 cells, tag weights of 0.1), with the run folder redirected to a temporary folder and the iterations of Stage 3.
 - **Stages 3, 4 and 5**: the same configuration shortened to batch size 8 (it is 16), 60 iterations (20000), a checkpoint and a test evaluation every 30 iterations (2000), an intermediate checkpoint every 15 (1000), a console summary every 10 (500), a validation batch every 10 training iterations (0, no validation), a warm-up of 10 iterations and a decay of 50 (500 and 19500), 2 loading workers (8), with the MLflow tracking turned on (off). The model and the augmentations are those of Stages 1 and 2. After 60 iterations of batches of 8 images the detector is far from trained, so the metrics of the examples are low: the point is to see the shapes, the files and the order of the steps.
-- **Stage 6**: the checkpoint of iteration 60 exported to TorchScript and ONNX on CPU by a script repeating the steps of `export_experiment()`, which only runs on CUDA (see Step 6.1). The client example of Step 6.6 uses the trained weights of iteration 2000 of a GPU run of the same model, like the steps inside a test batch of Stage 4.
+- **Stage 6**: the checkpoint of iteration 60 exported to TorchScript and ONNX on CPU by a script repeating the steps of `export_experiment()`, which only runs on CUDA (see Step 6.1). The client example of Step 6.6 uses the trained weights of iteration 6000 of a GPU run of the same model, whose iteration 2000 also serves the steps inside a test batch of Stage 4.
+
+## Read This First
+
+The keypoint detection task (`task: "keypoint_detection"`, run name code `KPT`) takes one whole image and gives every object of every class it finds: its class, the position of every keypoint of its class in network input pixels (NaN when not found), the score of every keypoint and the score of the object. The keypoint names and skeleton of every class are read from the COCO `categories` of the training `labels.json`, so classes can have different keypoints (4 corners for a square, 11 joints for the stick figure). It is bottom-up (HigherHRNet): the network predicts one heatmap and one tag map per keypoint of every class, 243 channels for the 33 synthetic classes, and `group_keypoint_candidates()` groups the candidates into objects on the CPU, so no box is needed and an image without object gives none. Choose it when every object is described by named points (corners, joints, tips); choose DET for boxes, INS for the mask of every object, SEG for a class per pixel without objects. The dataset is the COCO layout of DET with a `keypoints` list per annotation, and the stem is the shared `Backbone`, so a backbone trained by another task can initialise it.
+
+### The Task At A Glance
+
+```text
+on disk        <split>/data/*.png, <split>/labels.json (COCO: keypoints [x, y, v] per object, keypoint names and
+               skeleton per category), label_mapping.json {category id: class 1..33}, 4 distractors left out
+sample         CocoDetectionDataset: image [3, 512, 512] uint8, boxes [N, 4], labels [N], keypoints [N, 18, 3]
+batch (16)     images [16, 3, 512, 512]; boxes, labels, keypoints: lists of 16; augment_batch moves the keypoints
+stem           Backbone, 3 blocks: [16, 3, 512, 512] -> [16, 64, 128, 128] (stride 4)
+HRNet          3 stages, branches [16, 16, 128, 128] [16, 32, 64, 64] [16, 64, 32, 32] [16, 128, 16, 16], exchanged
+               after every module -> 1/4 branch [16, 16, 128, 128]
+head           3x3 16 -> 256, 1x1 256 -> 486: heatmap logits [16, 243, 128, 128], tags [16, 243, 128, 128]
+higher res.    cat [16, 502, 128, 128] -> 4x4 transposed conv -> [16, 16, 256, 256] -> 4 conv -> 3x3 -> 1x1
+               -> heatmap logits [16, 243, 256, 256]
+targets        Gaussians of sigma 2 cells at strides 4 and 2 (keypoint cell = 1), tag_indices [16, M, 18]
+losses         focal heatmap loss (both strides summed) + 0.1 x tag pull + 0.1 x tag push = total loss
+inference      heatmaps averaged at stride 2 -> 30 local maxima per channel: candidate_positions [B, 243, 30, 2],
+               candidate_scores [B, 243, 30], candidate_tags [B, 243, 30] (the exported outputs)
+grouping       group_keypoint_candidates (NumPy): labels [D], keypoints [D, 18, 2] (NaN not found), scores [D]
+evaluation     OKS of every object with every ground truth: OKS mAP@0.5/area (headline), OKS mAR, Matched
+               Objects, PCK@0.05, Mean OKS, Mean Keypoint Error, for the trained and the averaged weights
+files          Evaluation/Iteration_<n>/ class_metrics.csv, keypoint_metrics.csv, Samples/, EMA/; Results.txt
+```
+
+### Files To Know
+
+| Role | File | Main functions or classes |
+|---|---|---|
+| Trainer | `vision_training/trainers/keypoint_trainer.py`, `vision_training/trainers/coco_split_trainer.py` | `KeypointTrainer`: `prepare_batch`, `augment_batch`, `forward_pass`, `predict_batch`, `accumulate_evaluation_batch`, `compute_evaluation_results`, `build_sample_image`; `CocoSplitTrainer.read_test_manifest` |
+| Keypoint definitions | `vision_training/data/keypoints/keypoint_categories.py`, `vision_training/configuration_processing/configuration_loader.py` | `read_keypoint_categories`, `inject_keypoint_categories` |
+| Dataset and loaders | `vision_training/data/detection/coco_dataset.py`, `vision_training/data/loaders.py` | `CocoDetectionDataset.add_keypoints`, `collate_function`, `get_keypoint_dataloaders` |
+| Model | `vision_training/models/keypoints/keypoint_detector.py`, `vision_training/models/keypoints/hrnet.py` | `KeypointDetector`, `build_keypoint_channel_table`, `extract_keypoint_candidates`, `compute_peak_offsets`; `HighResolutionNetwork`, `BranchTransition`, `ExchangeModule`, `HigherResolutionBranch`, `build_prediction_head` |
+| Targets | `vision_training/data/keypoints/heatmap_targets.py` | `build_keypoint_targets`, `draw_gaussian_heatmaps` |
+| Losses | `vision_training/losses/keypoint_losses.py` | `compute_heatmap_loss`, `compute_tag_losses` |
+| Grouping | `vision_training/models/keypoints/keypoint_grouping.py` | `group_keypoint_candidates`, `match_candidates_to_objects` |
+| Metrics and evaluation | `vision_training/evaluation/keypoints/object_keypoint_similarity.py`, `vision_training/evaluation/detection/average_precision_report.py` | `build_keypoint_sigma_table`, `evaluate_image_keypoints`, `match_ground_truth_objects`, `summarise_keypoint_accuracy`; `summarise_average_precisions(overlap_type="keypoints")` |
+| Sample images and input viewer | `vision_training/utilities/visualization.py` | `build_keypoint_sample_grid`, `draw_keypoint_objects` |
+| Configuration checks | `vision_training/configuration_processing/keypoint_checks.py` | `check_keypoint_configuration` |
+| Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_keypoint_sections` |
+| Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_keypoint_labels`, `build_keypoint_label_mapping`, `KEYPOINT_CATEGORIES`, `KEYPOINT_NAMES` |
+| Export | `vision_training/models/keypoints/inference_keypoint_detector.py`, `vision_training/deployment/export_specifications.py` | `InferenceKeypointDetector` (model name `keypoint_detector`, candidates only), `get_export_specification`, `compare_keypoints` |
+
+### Run It
+
+```bash
+# 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
+#    task = "keypoint_detection" and output_folders["keypoint_detection"] (250,000 / 50,000 / 50,000 images of 512
+#    pixels with 2 to 5 objects; lower split_sizes["keypoint_detection"] for a first try, 300 / 30 / 30 here)
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset
+
+# 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
+uv run python -m vision_training.main --configuration_path="vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml"
+
+# 3. Evaluation of checkpoints: set run_name, experiment_folder, iteration (None, an integer or "all"),
+#    test_data_folder, batch_size, track_evaluation, output_folder and maximum_error_images_per_class_pair = None
+#    (Step 5.1) in the main block of scripts/evaluation/evaluate_checkpoint.py
+uv run python -m scripts.evaluation.evaluate_checkpoint
+
+# 4. Export (CUDA only, Step 6.1): set experiment_folder, iteration and formats in the main block of
+#    vision_training/deployment/export_model.py
+uv run python -m vision_training.deployment.export_model
+```
+
+### Configuration Keys To Know First
+
+| Key | Value in the synthetic configuration | Effect |
+|---|---|---|
+| `KeypointHead.heatmap_sigma` | `2.0` | standard deviation of the target Gaussians in heatmap cells at strides 4 and 2, truncated at ceil(3 sigma) = 6 cells |
+| `KeypointHead.tag_pull_weight`, `KeypointHead.tag_push_weight` | `0.1`, `0.1` | weights of the two associative embedding losses in the total loss |
+| `KeypointHead.hidden_width` | `256` | 3x3 convolution of 256 channels before the 1x1 predictions of both heads (`KH256`): the 243 heatmaps outnumber the 16 channels of the 1/4 branch; 0 for the 1x1 heads of HigherHRNet |
+| `KeypointHead.higher_resolution` | `True` | second set of heatmaps at 1/2 of the image (`HH`), averaged with the upsampled 1/4 heatmaps at inference |
+| `KeypointHead.inference` | `maximum_candidates: 30`, `keypoint_threshold: 0.1`, `tag_threshold: 1.0`, `object_score_threshold: 0.2` | candidates per channel and grouping thresholds; the evaluation keeps every object, the sample images and the clients those scoring at least 0.2 |
+| `KeypointHead.ignore_unlabelled_objects` | `False` | leaves the cells at least half covered by the objects without labelled keypoint out of the heatmap loss, from their `segmentation` (True in the COCO configuration) |
+| `HRNet.base_width`, `HRNet.modules_per_stage`, `HRNet.blocks_per_branch` | `16`, `[1, 2, 2]`, `2` | branches of 16, 32, 64 and 128 channels, exchange modules per stage, residual pairs per branch (`HR16.1.2.2x2`); the image size must be a multiple of 4 x 2^3 = 32 |
+| `Backbone.convolutions`, `Backbone.last_max_pooling` | `[1, 16]`, `[2, 32]`, `[2, 64]`, `False` | the stem, which must end at 1/4 of the image: 3 blocks without the last pooling, or 2 with it |
+| `ExperimentConfiguration.evaluation.default_keypoint_sigma`, `keypoint_sigmas` | `0.05`, 8 sigmas of `stick_figure` | the OKS tolerance of every keypoint, the COCO constant being 2 sigma |
+| `Data.data_augmentation.types` | both flips and `random_90_rotation` off, `random_rotation` on (5 degrees) | the geometric types move the keypoints without renaming them; `random_perspective` and `random_jigsaw` are refused |
+
+### What A Run Writes
+
+- `Results.txt`: one block per evaluated checkpoint and kind of weights, with `Matched Objects`, `PCK@0.05`, `Mean OKS` and `Mean Keypoint Error (pixels)`, then the OKS mAP tables of the methods, object sizes and recalls, and with `per_class_report` the OKS AP per class, the keypoint accuracy per class and per keypoint (Step 4.10).
+- `Evaluation/Iteration_<n>/class_metrics.csv` (one row per class: the `oks_` average precisions and the keypoint accuracy), `keypoint_metrics.csv` (one row per keypoint of every class: labelled, found, PCK, mean error), `Samples/<image>.png` (Ground Truth next to Prediction, 1028x560 for 512 pixel images, the objects of score >= `object_score_threshold`), and `EMA/` with the same files for the moving average of the weights. No confusion matrix and no error images: the task has no `evaluation.error_dumps`.
+- `Tensorboard/Test` and `Tensorboard/Test_EMA`: 65 scalars on the synthetic dataset, which has no small object (the 12 `OKS mAP@<threshold>/<method>`, `OKS mAP@0.5 By Size/<size>` and `OKS mAP@[0.5:0.95] By Size/<size>` of the medium and large objects, the 12 `OKS mAR@<threshold>/<all, medium or large>`, the 4 `Keypoint Accuracy/<metric>` and the 33 `OKS AP@0.5/<class>`), and the 16 sample images; `Tensorboard/Train`, and `Tensorboard/Validation` only when `validation_iteration_ratio` is above 0 (0 in this configuration): `Total Loss`, `Heatmap Loss`, `Tag Pull Loss`, `Tag Push Loss` (and `Learning Rate` in Train).
+- `Weights/Iteration_<n>/model_<n>.pt`: about 51 MB, four times the 12.50 MB of the weights (the moving average and the two Adam moments), with the source runs of `Backbone`, `HRNet` and `KeypointHead`.
+
+### Pitfalls
+
+- A flip or a large rotation never renames a keypoint: after a left-right flip `left_hand` lies on the right and is still trained in the `left_hand` channel, so these types only suit names that depend neither on the side nor on the orientation (`DataAugmenter.augment_batch()` of `augmentations.py`; README, Keypoint Detection, Augmentation). The comment of `create_synthetic_dataset.py` saying that a flip swaps them is wrong (`bug_standards.md` B28).
+- `residual_nets: True` adds no shortcut in the stem: its three blocks all change the channel count (`ConvolutionBlock.count_residual_additions()`; `suggestions.md` H4, Step 2.11); only the HRNet branches and the refinement of the higher resolution branch have residual pairs.
+- A keypoint head transferred from another run is checked on its class names and tensor shapes only, so keypoints in another order land on the wrong channels (`model_transfer.py`; `bug_standards.md` B10). The export writes no channel names either: a client rebuilds the channel table from the training `labels.json` (`suggestions.md` G14).
+- `Matched Objects` and `Mean Keypoint Error (pixels)` match a ground truth object to any object found with an OKS above 0, however far it is (`match_ground_truth_objects()` of `object_keypoint_similarity.py`; `bug_standards.md` B51): read them next to `PCK@0.05` and the OKS mAP.
+- `scripts/evaluation/evaluate_checkpoint.py` stops with `KeyError: 'error_dumps'` unless `maximum_error_images_per_class_pair = None` (`bug_standards.md` B56).
+- `export_experiment()` loads the checkpoint on CUDA, hard-coded, so the export needs a GPU (`export_model.py`, Step 6.1).
 
 ## Table of Contents
+- [Read This First](#read-this-first)
 - [Call Tree Overview](#call-tree-overview)
 - [Stage 1 — Entry Point and Configuration Loading](#stage-1--entry-point-and-configuration-loading)
 - [Stage 2 — Trainer Initialization](#stage-2--trainer-initialization)
@@ -139,7 +237,7 @@ client of the exported model   [STEP 6.6]
 
 ## Stage 1 — Entry Point and Configuration Loading
 
-> The examples below are real outputs from running the loader on `configurations/keypoint_detection/configuration_synthetic_shapes.yaml`, its data folders and mapping file redirected to the generated dataset and its iterations shortened as in Stage 3.
+> The examples below are real outputs from running the loader on `vision_training/configurations/keypoint_detection/configuration_synthetic_shapes.yaml`, its data folders and mapping file redirected to the generated dataset and its iterations shortened as in Stage 3.
 
 ### Step 1.1 — `main()`
 The entry point is the same for every task (see `classification_workflow.md`, Step 1.1). The run of Stage 3 was started with:
@@ -155,7 +253,7 @@ The model sections are `Optimization`, `Data`, `Backbone`, `HRNet` and `Keypoint
 - `hidden_width`: the channels of a 3x3 convolution before the 1x1 convolution of the predictions, in both heads (0 for none). The 243 heatmaps outnumber the 16 channels of the highest resolution branch by far, and a 1x1 convolution on 16 channels cannot raise every heatmap on its own keypoints only.
 - `heatmap_sigma`: the standard deviation of the target Gaussians, in heatmap cells, at both strides.
 - `ignore_unlabelled_objects`: leaves the pixels of the objects without labelled keypoint out of the heatmap loss (Steps 2.6, 3.6 and 3.7), which needs their `segmentation`. False here, the synthetic shapes having none; True for the COCO crowds and persons without keypoints.
-- `tag_pull_weight` and `tag_push_weight`: the weights of the two tag losses (Step 3.7).
+- `tag_pull_weight` and `tag_push_weight`: the weights of the two tag losses (Step 3.8).
 - `inference`: the grouping of the candidates into objects (Step 4.3): `maximum_candidates` per channel, `keypoint_threshold` (the lowest heatmap score of a grouped candidate), `tag_threshold` (the largest distance between the tag of a keypoint and the mean tag of its object) and `object_score_threshold` (the lowest score of an object kept by the deployment and the sample images, the evaluation keeping them all).
 
 The `evaluation` section gives the OKS sigmas: `default_keypoint_sigma`, and `keypoint_sigmas` per class and keypoint.
@@ -274,12 +372,12 @@ For Training We Will Be Using device: cpu
 ```
 
 ### Step 2.3 — `get_run_name()` → `build_run_name()` → `build_keypoint_sections()`
-The prefix is `KPT`, followed by the dataset and the backbone sections of every task, then the sections of `build_keypoint_sections()`:
+The prefix is `KPT`, followed by the input section (`IN-KAR-512`: input normalization, kept aspect ratio, image size) and the backbone section of every image task, then the sections of `build_keypoint_sections()`:
 - `HRSE-HRRES-HRBN-HR16.1.2.2x2`: the HRNet modules (squeeze-and-excitation, residual shortcuts), its normalization (batch), and its base width, modules per stage and blocks per branch (`HRPT` and `HRFRZ` are added for a pretrained or frozen HRNet).
 - `K243-KH256-HH`: the heatmap channels of the head, its hidden width and the higher resolution branch (`KHPT` and `KHFRZ` for a pretrained or frozen head).
 - `MC33`: the number of classes.
 
-The augmentation, the heatmap sigma, the tag loss weights and the grouping settings give no token.
+The augmentation, the heatmap sigma, the tag loss weights and the grouping settings give no token. An optimizer section (`ADAMW`, `SGD`, `WD<weight decay>`) and the `run_name_suffix` would come last; plain Adam without weight decay and a null suffix give none.
 
 **Example output**
 ```text
@@ -290,7 +388,7 @@ KPT_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x64_HRSE-HRRES-HRBN-HR16.1.2.2x2_K243-KH256
 The augmenter of every task. Its geometric types move the keypoints of the objects with the image (Step 3.4). The run folder is created as for every task (see `classification_workflow.md`, Step 2.6), with the copy of the configuration and `label_dictionary.json`, the class index of every category of the run: before it, a resumed run keeps the classes of its `label_dictionary.json` when the mapping file now gives others, its keypoint definitions, indexed by class, being read again for them (`restore_run_label_dictionary()`), and a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`). The loaders built next are refused when one of them gives no batch (`check_loaders_give_batches()`).
 
 ### Step 2.5 — `build_dataloaders()` → `get_keypoint_dataloaders()` → `CocoDetectionDataset(load_keypoints=True)`
-`build_dataloaders()` reads `class_names` from the test `labels.json` (`get_class_names()`), gives every class a colour for the sample images, keeps the file name of every test image and calls `get_keypoint_dataloaders()`. It builds one `CocoDetectionDataset` per split, the dataset of the object detection, with `load_keypoints=True` and `maximum_keypoints=18`, and with `load_ignored_regions=True` for the training and validation splits when `KeypointHead.ignore_unlabelled_objects` is on (off here; never for the test split, which computes no loss). The sample is **one whole image** with all its objects, as for the detection. The dataset reads the number of keypoints of every category from the `categories` of the split (0 for the distractors).
+`build_dataloaders()` calls `read_test_manifest()` of `CocoSplitTrainer`, which reads `class_names` from the test `labels.json` (`get_class_names()`), gives every class a colour for the sample images and keeps the file name of every test image, then calls `get_keypoint_dataloaders()`. It builds one `CocoDetectionDataset` per split, the dataset of the object detection, with `load_keypoints=True` and `maximum_keypoints=18`, and with `load_ignored_regions=True` for the training and validation splits when `KeypointHead.ignore_unlabelled_objects` is on (off here; never for the test split, which computes no loss). The sample is **one whole image** with all its objects, as for the detection. The dataset reads the number of keypoints of every category from the `categories` of the split (0 for the distractors).
 
 **Example: the loaders**
 ```text
@@ -406,10 +504,16 @@ The three transferable components are the `Backbone`, the `HRNet` and the `Keypo
 ```
 
 ### Step 2.11 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-`KeypointDetector.print_summary()` prints the backbone summary traced on an image, then the branches of every HRNet stage, traced in evaluation mode, and the heads. The stem divides the 512 pixel image by 4: the max pooling of block 1 (1/2), the max pooling of block 2 (1/4), and no max pooling after block 3 (`last_max_pooling: False`). The HRNet panel counts the stem as its first stage, so its 3 stages of `modules_per_stage` have 2, 3 and 4 branches.
+`KeypointDetector.print_summary()` prints the backbone summary traced on an image, then the branches of every HRNet stage, traced in evaluation mode, and the heads. The stem divides the 512 pixel image by 4: the max pooling of block 1 (1/2), the max pooling of block 2 (1/4), and no max pooling after block 3 (`last_max_pooling: False`). The backbone panel lists the residual shortcuts of a block only when it adds one (`ConvolutionBlock.count_residual_additions()`): every block of the stem changes the channel count (3 → 16, 16 → 32, 32 → 64), which shifts its residual pairs by one layer, so with 1 or 2 layers none adds a shortcut, despite `residual_nets: True` and the `RES` token of the run name (`documentation/suggestions.md`, H4). The branches of the HRNet and the refinement of the higher resolution branch keep their width, so their 4 layers add 2 shortcuts each. The HRNet panel numbers the 3 stages of `modules_per_stage` from 1, with 2, 3 and 4 branches: the stages 2 to 4 of the HRNet paper, the stem standing for its stem and its single branch stage 1.
 
-**Example output**
+**Example output** (the model of the configuration rebuilt on CPU with the current code)
 ```text
+------------------------------
+Backbone Architecture Summary
+------------------------------
+------------------------------------
+Input image shape: [1, 3, 512, 512]
+------------------------------------
 ╭─────────────────────────── Backbone Architecture ────────────────────────────╮
 │ Normalization Strategy: Batch                                                │
 │                                                                              │
@@ -419,12 +523,12 @@ The three transferable components are the `Backbone`, the `HRNet` and the `Keypo
 │    - Output Shape : [1, 16, 256, 256]                                        │
 │                                                                              │
 │  - Convolution Block 2                                                       │
-│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
+│    - Modules      : Squeeze-and-Excitation                                   │
 │    - Input Shape  : [1, 16, 256, 256]                                        │
 │    - Output Shape : [1, 32, 128, 128]                                        │
 │                                                                              │
 │  - Convolution Block 3                                                       │
-│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
+│    - Modules      : Squeeze-and-Excitation                                   │
 │    - Input Shape  : [1, 32, 128, 128]                                        │
 │    - Output Shape : [1, 64, 128, 128]                                        │
 ╰──────────────────────────────────────────────────────────────────────────────╯
@@ -739,7 +843,9 @@ The summary counts images.
 
 **Example output: the summaries of iterations 10 and 60**
 ```text
+========================================================================================================================
 |    Iteration: 10     |      Total Images: 80     |    Interval Images: 80     |  Throughput: 0.6 Images Per Second   |
+------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :   9.8927
 Moving Average of Valid Total Loss                     :  10.0279
 Moving Average of Train Heatmap Loss                   :   9.8744
@@ -748,10 +854,14 @@ Moving Average of Train Tag Pull Loss                  :   0.0021
 Moving Average of Valid Tag Pull Loss                  :   0.0003
 Moving Average of Train Tag Push Loss                  :   0.0162
 Moving Average of Valid Tag Push Loss                  :   0.0125
+------------------------------------------------------------------------------------------------------------------------
 Interval Of 10 Iterations Took 00:02:24.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
-
+========================================================================================================================
+...
+========================================================================================================================
 |    Iteration: 60     |     Total Images: 480     |    Interval Images: 80     |  Throughput: 0.5 Images Per Second   |
+------------------------------------------------------------------------------------------------------------------------
 Moving Average of Train Total Loss                     :   7.9859  -0.0256 Best
 Moving Average of Valid Total Loss                     :   8.0162  -0.0787 Best
 Moving Average of Train Heatmap Loss                   :   7.9735  -0.0195 Best
@@ -760,8 +870,10 @@ Moving Average of Train Tag Pull Loss                  :   0.0026  -0.0011
 Moving Average of Valid Tag Pull Loss                  :   0.0019  -0.0005
 Moving Average of Train Tag Push Loss                  :   0.0098  -0.0050 Best
 Moving Average of Valid Tag Push Loss                  :   0.0250  +0.0000
+------------------------------------------------------------------------------------------------------------------------
 Interval Of 10 Iterations Took 00:02:34.
 Validation Iterations In This Interval: 1 (Ratio: Every 10 Training Iterations).
+========================================================================================================================
 ```
 
 **Example: the training losses of the run**
@@ -1058,7 +1170,7 @@ The averaged weights follow the trained weights a few iterations behind (the n-t
 > The examples below are real outputs of a copy of `scripts/evaluation/evaluate_checkpoint.py` whose `run_name` and `experiment_folder` point to the run of Stage 3 (checkpoints 15, 30, 45 and 60, captured when those of iterations 15, 30 and 45 were still saved before their training step), with `iteration = "all"`, `batch_size = 16` and the whole test split, on CPU with the MLflow tracking on. The four checkpoints, each with its averaged weights, were evaluated in 2 min 27 s, about 17 s per evaluation.
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5).
+The same script for every task (see `classification_workflow.md`, Stage 5). Its main block must also set `maximum_error_images_per_class_pair = None`: the keypoint configurations have no `evaluation.error_dumps` section, and the default of the script (100000) stops with `KeyError: 'error_dumps'` (`documentation/bug_standards.md`, B56).
 
 ### Step 5.2 — trainer construction
 The trainer is built from the `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it rather than those of the mapping file (`classification_workflow.md`, Step 5.2).
@@ -1088,10 +1200,10 @@ MLflow Run Created In The Experiment 'keypoint_detection' : 8974fb1c8f1541aaa07b
 ### Step 5.5 — `summarise_checkpoint_evaluations()`
 The checkpoints are ranked on the headline metric of the task, the OKS mAP@0.5 (area method), for the trained and the averaged weights.
 
-**Example output** (the four checkpoints tie at 0, so the four iterations are listed in their evaluation order)
+**Example output** (the four checkpoints tie at 0, so the four iterations are listed in their evaluation order; the file name is a terminal link to `experiments/evaluations/<run>/Evaluation/evaluation_summary.csv`)
 ```text
 -------------------------------------------------------------
-Evaluation Summary Of 4 Checkpoints : file:///.../experiments/evaluations/KPT_IN-KAR-512_..._MC33/Evaluation/evaluation_summary.csv
+Evaluation Summary Of 4 Checkpoints : evaluation_summary.csv
 -------------------------------------------------------------
   - Best Checkpoint : iterations 60, 45, 30, 15 tie (OKS mAP@0.5/area 0.0000)
   - Best Checkpoint (EMA Weights) : iterations 60, 45, 30, 15 tie (OKS mAP@0.5/area 0.0000)
@@ -1124,7 +1236,7 @@ Every checkpoint is loaded with its moving average and evaluated as in Stage 4, 
 **Example output**
 ```text
 -----------------------------
-Evaluating : file:///.../experiments/KPT_IN-KAR-512_..._MC33/Weights/Iteration_60/model_000060.pt
+Evaluating : model_000060.pt
 -----------------------------
 Test Evaluation Iteration 60: 100%|██████████| 2/2 [00:17<00:00,  8.61s/it]
 Iteration 60 · 30 Test Images · 2026-10-18 00:25 ───────────────────────────────────────────────────────────────────────
@@ -1142,7 +1254,7 @@ The reports are those of Step 4.10: at iteration 60 the trained weights match on
 
 ## Stage 6 — Export (Optional)
 
-> The examples of Steps 6.2 to 6.5 are real outputs of a script repeating the steps of `export_experiment()` on CPU, on the checkpoint of iteration 60 of the run of Stage 3 (trained weights), with a maximum batch size of 16 and the TensorRT precision FP32, the exported models being run by TorchScript and ONNX Runtime on CPU. Triton itself was not started. After 60 iterations the client of Step 6.6 groups no object, so its example uses the ONNX export of the trained weights of iteration 2000 of the GPU run of Stage 4.
+> The examples of Steps 6.2 to 6.5 are real outputs of a script repeating the steps of `export_experiment()` on CPU, on the checkpoint of iteration 60 of the run of Stage 3 (trained weights), with a maximum batch size of 16 and the TensorRT precision FP32, the exported models being run by TorchScript and ONNX Runtime on CPU. Triton itself was not started. After 60 iterations the client of Step 6.6 groups no object, so its example uses the ONNX export of the trained weights of iteration 6000 of the GPU run of Stage 4 (its sample image `Evaluation/Iteration_6000/Samples/test_000000.png` shows the same three objects, scored 0.90, 0.87 and 0.80).
 
 ### Step 6.1 — `vision_training/deployment/export_model.py` → `export_experiment()`
 Run as a script after the training (the experiment folder, iteration, trained or averaged weights, formats, Triton model repository, model version, maximum batch size and TensorRT precision set in its `__main__` block). `export_experiment()` turns TF32 off, loads the checkpoint on CUDA with `load_trained_model()` (the device is hard-coded, which is why this stage was run by a script repeating its steps on CPU), wraps it with `build_inference_model()`, builds the export specification, exports every format to `<repository>/<model name>_<format>/<version>/`, writes its `config.pbtxt` and compares the exported model to the eager one, raising a `RuntimeError` on a mismatch.

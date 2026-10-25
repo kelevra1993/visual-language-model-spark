@@ -5,10 +5,110 @@ This document follows one sequence classification run (many to one, M2O: one cla
 Every sequence is one sample, read whole: there is no window. A sequence longer than `Data.sequence_settings.maximum_sequence_length` is left out of its split with a warning, and the sequences of a batch are padded with black frames to the longest sequence of the batch.
 
 The examples come from real runs on CPU, so that the GPU stayed free for another training:
-- **Stages 1 and 2**: `configurations/sequence_classification/configuration_synthetic_sequences.yaml` (synthetic moving shapes, 4 classes `moving_left`, `moving_right`, `moving_up`, `moving_down`, `maximum_sequence_length: 50`, 128 pixel frames, batch size 16), with the data and run folders redirected to a temporary folder. The dataset was generated with the synthetic generator (2000 training, 200 validation and 200 test sequences of 2 to 12 frames). The dataset of `configuration_example.yaml` is not on this machine.
-- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `moving_down` for every sequence (4 classes: about 25% accuracy, a loss near ln 4 = 1.386), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
+- **Stages 1 and 2**: `vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml` (synthetic moving shapes, 4 classes `moving_left`, `moving_right`, `moving_up`, `moving_down`, `maximum_sequence_length: 50`, 128 pixel frames, batch size 16), with the data and run folders redirected to a temporary folder. The dataset was generated with the synthetic generator (2000 training, 200 validation and 200 test sequences of 2 to 12 frames). The dataset the configuration points to on this machine (`/home/robert_kelevra/Data/sequence_data/synthetic_moving_shapes`, read by the README runs) was generated before the lengths became variable: every one of its sequences has 8 frames of 128 pixels. The dataset of `configuration_example.yaml` is not on this machine.
+- **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel frames, batch size 4, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, with the error images and the MLflow tracking turned on. After 12 iterations the network predicts `moving_down` for every sequence (4 classes: about 25% accuracy, a loss near ln 4 = 1.386), so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps. This run was recorded on 2026-10-18, before the ROC and precision-recall curves joined the evaluation (2026-10-20) and before `flatten` became the pooling of the configuration (2026-10-23): the steps say where the current code prints more, and the README runs of `experiments/readme_screenshots/` give the current outputs (`M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4`, the current synthetic configuration trained for 1,000 iterations, and `M2O_IN-KAR-512_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HAVG.64_MC4`, the former `average` pooling at 512 pixels, 2,000 iterations).
+
+In the console, every file or folder path is a terminal hyperlink (`format_path_link()` of `vision_training/utilities/os_utilities.py`) showing the name of the file or folder, underlined; the examples write the `file://` URI the link opens, except where they show that name.
+
+## Read This First
+
+The sequence classification task (`task: "sequence_classification"`, run name code `M2O`, many to one) learns one class for a whole sequence of frames. Every real frame goes through the shared backbone and the frame pooling of `ClassificationHead.global_pooling` (`average`, `max`, or `flatten`, which keeps the whole last feature map), the temporal module of `TemporalModel.type` summarises the frame vectors of the sequence into one vector, and the fully connected head of CLS gives K logits read with a softmax (`output_mode` must be `multi_class`). A sequence is read whole, up to `Data.sequence_settings.maximum_sequence_length` frames, and the sequences of a batch are padded with black frames that a mask keeps out of the model. Choose it rather than CLS when the class needs several frames (the synthetic moving shapes are labelled with a direction that no single frame shows), rather than M2M or SEL when the answer is one class for the whole sequence and not a class or a choice per frame, and rather than CMP when there is a single sequence and not a before and an after sequence to compare. `SequenceClassificationTrainer` extends `ClassificationTrainer`: the loss, the batch accuracy and the whole evaluation are those of CLS, computed on sequences, and `SequenceLabellingTrainer` (M2M) and `SequenceComparisonTrainer` (CMP) extend it in turn.
+
+### The Task At A Glance
+
+```text
+<split>/labels.json {"id": 1, "name": "train_000000", "frames": ["train_000000/000000.png", ...], "category_id": 2}
+<split>/data/train_000000/000000.png ... (2 to 12 frames from the generator)   label_mapping.json {"1": 0, .., "4": 3}
+SequenceDataset: a sequence longer than maximum_sequence_length (50) left out; read_image + preprocess_image (128)
+   sample {images [T_i, 3, 128, 128] uint8, sequence_mask [T_i] all True, labels: class index, sample_identifiers}
+collate_padded_sequences: black frames up to the longest sequence T of the batch, mask False on them
+   ─► images [16, T, 3, 128, 128], sequence_mask [16, T], labels [16] ─► prepare_batch (float32 in [0, 255])
+   ─► augment_batch: one draw per sequence, shared by all its frames (training batches only)
+SequenceClassifier.forward(input_tensor, sequence_mask, labels)
+   encode_frames: the N real frames of the batch as one image batch ─► Backbone (SE, shortcuts in blocks 3 and 5)
+      B1 [N, 16, 64, 64]  B2 [N, 32, 32, 32]  B3 [N, 32, 16, 16]  B4 [N, 64, 8, 8]  B5 [N, 64, 8, 8]
+      ─► flatten [N, 4096] ─► put back at their frame positions, zero vectors on the padding: [16, T, 4096]
+   RecurrentTemporalModule: GRU(4096, 128, bidirectional) on packed sequences ─► final states [16, 256]
+   ClassificationHead: Dropout, Linear 64, ReLU, Dropout, Linear 4 ─► class_logits [16, 4] ─► softmax
+loss: classification_loss = cross entropy (no class weights, no label smoothing) = total_loss; batch accuracy
+every weight_saving_iterations (1000): the whole test split ─► accuracy, balanced accuracy, macro F1, top-2,
+   macro ROC AUC, macro average precision, per-class metrics and thresholds at precision 0.99
+   ─► Results.txt, Tensorboard/Test, Evaluation/Iteration_<n>/ (confusion matrix, class_metrics.csv, curves,
+      class_thresholds.json, predictions.csv, Samples/ and Errors/ as grids of the real frames, 4 columns)
+export: InferenceSequenceModel, images [B, T, 3, 128, 128] float32 BGR, every frame real ─► class_probabilities [B, 4]
+```
+
+### Files To Know
+
+| Role | File | Main functions or classes |
+|---|---|---|
+| Trainer | `vision_training/trainers/sequence_classification_trainer.py` | `SequenceClassificationTrainer`: `build_dataloaders`, `prepare_batch`, `forward_pass`, `predict_batch`, `augment_batch`, `get_member_length`, `describe_split`, `build_input_image`, `build_sample_frame_grid`, `show_input_samples` |
+| Loss, batch metric and evaluation (inherited) | `vision_training/trainers/classification_trainer.py` | `ClassificationTrainer`: `build_model`, `compute_batch_metrics`, `dump_errors`, `build_sample_image`, `compute_evaluation_results`, `write_predictions_file` |
+| Shared training loop | `vision_training/trainers/base_trainer.py` | `BaseTrainer`: `run_training_iterations`, `run_model_iteration`, `save_model`, `run_test_evaluation`, `restore_last_model` |
+| Dataset and loaders | `vision_training/data/sequence/sequence_dataset.py`, `vision_training/data/loaders.py`, `vision_training/data/split_description.py` | `SequenceDataset`, `read_sequence_frames`, `collate_padded_sequences`, `get_sequence_dataloaders`, `build_native_loader`, `count_split_sequences` |
+| Model | `vision_training/models/sequence/sequence_classifier.py`, `sequence_model.py`, `frame_encoder.py` | `SequenceClassifier`, `SequenceFrameModel.compute_class_outputs`, `encode_frames` |
+| Temporal modules | `vision_training/models/sequence/temporal_modules.py` | `build_temporal_module`, `MaskedMeanPooling`, `MaskedMaxPooling`, `AttentionPooling`, `RecurrentTemporalModule`, `TransformerTemporalModule`, `TemporalConvolutionModule` |
+| Frame pooling and head | `vision_training/models/classification/classification_head.py` | `build_global_pooling`, `compute_pooled_features`, `ClassificationHead` |
+| Loss | `vision_training/losses/classification_losses.py` | `compute_classification_loss`, `compute_balanced_class_weights` |
+| Metrics and evaluation | `vision_training/evaluation/classification/` | `compute_confusion_matrix`, `compute_metrics_from_confusion_matrix`, `compute_top_k_accuracy`, `find_class_thresholds`, `compute_class_score_curves`, `build_class_metrics_table` |
+| Sequence augmentation | `vision_training/data/augmentations.py` | `DataAugmenter.augment_batch` (one draw per sequence), `DataAugmenter.shuffle_frames` |
+| Configuration checks | `vision_training/configuration_processing/sequence_checks.py` | `check_sequence_classification_configuration`, `check_sequence_settings`, `check_temporal_model_configuration` |
+| Run name | `vision_training/configuration_processing/run_name.py` | `build_sequence_sections`, `build_sequence_length_tokens`, `build_temporal_tokens` |
+| Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `generate_moving_shape_sequence`, `build_sequence_labels` |
+| Export | `vision_training/models/sequence/inference_sequence_model.py`, `vision_training/deployment/export_specifications.py` | `InferenceSequenceModel` (model name `sequence_classifier`) |
+| Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
+
+### Run It
+
+```bash
+# 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
+#    task = "sequence_classification" and output_folders["sequence_classification"] (2,000 / 200 / 200 sequences of
+#    2 to 12 frames of 512 pixels, one shape moving left, right, up or down across the frames)
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset
+
+# 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first
+uv run python -m vision_training.main --configuration_path="vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml"
+
+# 3. Evaluation of checkpoints: set run_name, experiment_folder (the run folder), iteration (None, an integer or
+#    "all"), test_data_folder, batch_size, track_evaluation, maximum_error_images_per_class_pair and output_folder
+#    in the main block of scripts/evaluation/evaluate_checkpoint.py
+uv run python -m scripts.evaluation.evaluate_checkpoint
+```
+
+### Configuration Keys To Know First
+
+| Key | Value in the synthetic configuration | Effect |
+|---|---|---|
+| `Data.sequence_settings.maximum_sequence_length` | `50` | the longest sequence kept: a longer one is left out of its split, the test split included, with a red warning (`T50`); the number of positions of the embedding of a transformer |
+| `TemporalModel.type` | `"gru"` | any of the 7 types: `mean_pooling`, `max_pooling` and `attention_pooling` ignore the order of the frames, `gru`, `lstm`, `transformer` and `temporal_convolution` follow it |
+| `TemporalModel.hidden_size`, `number_layers` | `128`, `1` | `GRU1x128`; for `gru` and `lstm`, `dropout_rate` only acts between stacked layers |
+| `TemporalModel.bidirectional` | `True` | both directions concatenated, 256 features (`BI`); `causal: True` is refused for M2O |
+| `ClassificationHead.global_pooling` | `"flatten"` | the 64 x 8 x 8 map of a 128 pixel frame becomes 4,096 features, which keep where the shape is (`HFLAT`); `average` and `max` give 64 |
+| `Data.image_settings.size` | `128` | the frame size; with `flatten` it sets the GRU input (65,536 features and 50.4 million GRU weights at 512 pixels) |
+| `ClassificationHead.fully_connected` | `[64]` | the hidden layer of the head on the 256 features of a sequence (`.64` of `HFLAT.64`) |
+| `Data.data_augmentation.independent_frames` | `False` | every frame of a sequence gets the same draws; True draws the photometric types frame by frame |
+| `Data.data_augmentation.shuffle_frames` | `activated: False, probability: 0.5` | permutes the real frames of the training sequences whose order carries nothing; a yellow warning with an ordered temporal module |
+| `ExperimentConfiguration.evaluation.top_k` | `2` | the `Top-2 Accuracy` headline metric |
+
+### What A Run Writes
+
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Sequences · <date>`, with `Accuracy` (the headline metric), `Balanced Accuracy`, `Macro F1`, `Top-2 Accuracy` and, with `per_class_report`, `Macro ROC AUC`, `Macro Average Precision` and the per-class table sorted by F1, worst first; the notes `Error Images : ...` and `Sample Images : 8 fixed test sequences`.
+- `Evaluation/Iteration_<n>/`: the files of CLS (`confusion_matrix.csv`, `class_metrics.csv`, `class_thresholds.json`, and with `per_class_report` `confusion_matrix.png`, `roc_curves.png`, `precision_recall_curves.png`); `predictions.csv` with `save_predictions`, one row per test sequence with its `sequence`, `first_frame` and `last_frame` before the classes and probabilities; `Samples/<sequence>.png` and `Errors/<TRUE>-TO-<PREDICTED>/<sequence>_<score>.png`, the real frames of the sequence on a numbered grid of 4 columns under the caption `true -> predicted probability` (532 pixels wide and 292 high for 8 frames of 128 pixels in the README run).
+- `data.json`: the `sequences` of every class in every split, and every frame of every split.
+- `Tensorboard/Train` and `Validation`: `Total Loss`, `Classification Loss`, `Accuracy` (and `Learning Rate`); `Tensorboard/Test`: 6 headline scalars, `Precision`, `Recall`, `F1`, `ROC AUC` and `Average Precision` of every class, the images `Samples/<sequence>`, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`.
+- The console summary gives the `Sequences Per Second` and the real `Frames Per Second` (padding frames left out), sent to MLflow as `train/throughput` and `train/frame_throughput`.
+
+### Pitfalls
+
+- `average` and `max` remove where the shape is from every frame vector, so the moving shapes stay at chance: the README run at 512 pixels with `average` kept its interval training loss between 1.386 and 1.391 for 2,000 iterations and a test accuracy of 0.23 (every sequence predicted `moving_down`), while the current `flatten` configuration at 128 pixels reached 0.995 at iteration 500 and 1.000 at iteration 1000 (`Results.txt` and `sequence_classification*.log` of `experiments/readme_screenshots/`; README, Sequence Classification). At 512 pixels `flatten` gives 65,536 features per frame and a GRU of 50.4 million weights, and stayed at 0.23 after 500 iterations (run `..._HFLAT.64_MC4_verification`; `suggestions.md` K31).
+- The dataset the synthetic configuration points to on this machine predates the variable lengths: its sequences all have 8 frames of 128 pixels, so the README runs never padded a batch, while `create_synthetic_dataset.py` now writes 2 to 12 frames of 512 pixels (`suggestions.md` K32).
+- Blocks 2 and 4 of the synthetic backbone (16 to 32 and 32 to 64 channels, 2 layers each) add no residual shortcut, their first layer changing the channel count, so only blocks 3 and 5 add one and the backbone summary lists `Residual Shortcuts` for them only (`count_residual_additions()` of `convolution_block.py`; `suggestions.md` H4, the projection shortcut still to do).
+- `Iterations Per Epoch` and the split descriptions count the sequences of the manifests before the label mapping, so they are too high when the mapping leaves categories out (`count_split_sequences()` of `split_description.py`; `bug_standards.md` B46).
+- `TemporalModel.dropout_rate` does nothing with a single GRU or LSTM layer: the dropout of PyTorch only acts between stacked layers (`RecurrentTemporalModule.__init__()` of `temporal_modules.py`).
+- `shuffle_frames` with an ordered temporal module only prints a yellow warning and trains on the shuffled frames, which destroys the class of the moving shapes (`SequenceClassificationTrainer.__init__()`).
 
 ## Table of Contents
+- [Read This First](#read-this-first)
 - [Call Tree Overview](#call-tree-overview)
 - [Stage 1 — Entry Point and Configuration Loading](#stage-1--entry-point-and-configuration-loading)
 - [Stage 2 — Trainer Initialization](#stage-2--trainer-initialization)
@@ -50,17 +150,18 @@ main()
 │   │   ClassificationTrainer constructor (top_k, target_precision, save_predictions, error_dumps, output_mode).
 │   │
 │   └── BaseTrainer.__init__()
-│       │   Same order as for every task: device, run name, settings, augmenter, classes of a resumed run, previous
-│       │   training moved aside, paths, loaders and their check, sample sequences, model, pretrained components,
-│       │   optimizer, metric tracker, printouts, restoration.
+│       │   Same order as for every task: device, run name, settings, augmenter, classes of a resumed run, check of
+│       │   the data of a resumed run, previous training moved aside, paths, loaders and their check, record of the
+│       │   data, sample sequences, model, pretrained components, optimizer, metric tracker, printouts, restoration.
 │       │
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
 │       │       The run name adds the maximum sequence length (T<frames>) and the temporal module (e.g. GRU1x128-BI)
 │       │       before the head and the classes.
-│       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
-│       │       A resumed run keeps the classes of its label_dictionary.json, a training from scratch renames the
-│       │       run folder of a previous training of the same settings v<n>_<run name>, then the run folder is
-│       │       created with the configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
+│       ├── restore_run_label_dictionary() / check_resumed_data() / move_previous_run_folder() / setup_training_paths()
+│       │       A resumed run keeps the classes of its label_dictionary.json and is refused when a labels.json
+│       │       changed since its data.json, a training from scratch renames the run folder of a previous training of
+│       │       the same settings v<n>_<run name>, then the run folder is created with the configuration and
+│       │       label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
 │       │   │   Builds the three loaders and keeps class_names, taken from the categories of the training manifest.
 │       │   │
@@ -76,10 +177,12 @@ main()
 │       │               The training loader leaves out its last incomplete batch with a batch normalized
 │       │               classification head (fully_connected_normalization "batch").
 │       ├── check_loaders_give_batches()        refuses a split whose loader gives no batch
+│       ├── save_data_record()                  data.json: the sequences of every class, the frames of every split
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       The class of every test sequence, so that the sample sequences are spread over the classes.
 │       ├── build_model()
-│       │   │   Creates the SequenceClassifier from the registry, then copies the class weights of the loss.
+│       │   │   Creates the SequenceClassifier from the registry, then, with class_weighting "balanced", sets the
+│       │   │   class weights of the loss.
 │       │   │
 │       │   └── SequenceClassifier.__init__()
 │       │       ├── build_backbone()            the shared backbone, run on every frame
@@ -138,7 +241,10 @@ run_test_evaluation(iteration)  [STAGE 4]
     ├── save_sample_images() -> build_sample_image()   the frame grid captioned with the true and predicted classes
     ├── compute_evaluation_results()                   confusion matrix, accuracy, balanced accuracy, macro F1, top-k,
     │                                                  thresholds, class_metrics.csv, predictions.csv (sequence, first
-    │                                                  and last frame of every sequence)
+    │                                                  and last frame of every sequence); with per_class_report the ROC
+    │                                                  and precision-recall curves (Macro ROC AUC, Macro Average
+    │                                                  Precision, roc_curves.png, precision_recall_curves.png) and
+    │                                                  confusion_matrix.png
     └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
 scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
@@ -151,7 +257,7 @@ scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
 
 ## Stage 1 — Entry Point and Configuration Loading
 
-> The examples below are real outputs from running the loader on `configurations/sequence_classification/configuration_synthetic_sequences.yaml`.
+> The examples below are real outputs from running the loader on `vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml`.
 
 ### Step 1.1 — `main()`
 The entry point is the same for every task (see `classification_workflow.md`, Step 1.1): `parse_configuration_path()` reads the path of the YAML file from the command line (`--configuration_path`), then it loads the file, looks up the trainer of `ExperimentConfiguration.task` and starts its training loop. Nothing in it is specific to the sequences.
@@ -220,7 +326,7 @@ get_trainer_class(task="sequence_classification") -> <class 'vision_training.tra
 
 ## Stage 2 — Trainer Initialization
 
-> The examples below are real outputs from building the trainer on `configurations/sequence_classification/configuration_synthetic_sequences.yaml` (128 pixel frames, `maximum_sequence_length: 50`, batch size 16), with the data and run folders redirected to a temporary folder. The whole construction took 0.09 s on CPU.
+> The examples below are real outputs from building the trainer on `vision_training/configurations/sequence_classification/configuration_synthetic_sequences.yaml` (128 pixel frames, `maximum_sequence_length: 50`, batch size 16), with the data and run folders redirected to a temporary folder. The whole construction took 0.09 s on CPU.
 
 ### Step 2.1 — `SequenceClassificationTrainer.__init__()`
 Before calling the constructor of the classification trainer, it keeps `Data.sequence_settings`, read by its hooks (the split descriptions), and prints a warning when the frames of the training sequences are shuffled (`data_augmentation.shuffle_frames`) while the temporal module models their order (GRU, LSTM, transformer, temporal convolution): shuffling is meant for the sequences whose frame order carries no information, with a pooling. The class attributes describe the task to the shared code: `LABEL_TYPE = "sequence"` (one class per sequence), `MEMBERS_PER_SAMPLE = 1` (one sequence per sample, 2 for the pairs of the comparison), `SAMPLE_NAME = "Sequences"` and `COUNTS_FRAMES = True` (the frame throughput, Step 3.8).
@@ -252,7 +358,7 @@ For Training We Will Be Using device: cpu
 ```
 
 ### Step 2.4 — `get_run_name()` → `build_run_name()`
-The input and backbone tokens are those of every image task, the backbone being applied to every frame. `build_sequence_sections()` then adds the maximum sequence length, `T<maximum_sequence_length>` (`build_sequence_length_tokens()`), and the temporal module (`build_temporal_tokens()`): `MEAN`, `MAX`, `ATT<hidden size>`, `GRU` or `LSTM<layers>x<hidden size>` with `BI` when bidirectional, `TRF<layers>x<hidden size>.<heads>` (with `NPE` without positional embedding) or `TCN<layers>x<hidden size>.<kernel size>`, plus the transfer tokens. The head (`HAVG.64`: average pooling, one hidden layer of 64) and the classes (`MC4`) end the name. The temporal dropout gives no token, so that it can change between two resumptions of a run.
+The input and backbone tokens are those of every image task, the backbone being applied to every frame. `build_sequence_sections()` then adds the maximum sequence length, `T<maximum_sequence_length>` (`build_sequence_length_tokens()`), and the temporal module (`build_temporal_tokens()`): `MEAN`, `MAX`, `ATT<hidden size>`, `GRU` or `LSTM<layers>x<hidden size>` with `BI` when bidirectional, `TRF<layers>x<hidden size>.<heads>` (with `NPE` without positional embedding) or `TCN<layers>x<hidden size>.<kernel size>`, plus the transfer tokens. The head (`HFLAT.64`: the flattened feature map, one hidden layer of 64) and the classes (`MC4`) end the name. The temporal dropout gives no token, so that it can change between two resumptions of a run.
 
 **Example output**
 ```text
@@ -269,16 +375,16 @@ activated True   probability 0.4   independent_frames False   shuffle_frames {'a
 ```
 
 ### Step 2.6 — `setup_training_paths()`
-As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), and a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`). Besides the copy of the configuration, the run folder holds `label_dictionary.json`, the class index of every category of the run, and `data.json`, the record of the data of the run (the classes with their sequences in every split, and for every split its folder, the hash of its `labels.json` and its frames).
+As for every task (see `classification_workflow.md`, Step 2.6): a resumed run first keeps the classes of its `label_dictionary.json` (`restore_run_label_dictionary()`), and a training from scratch renames the folder of a previous training of the same settings `v<n>_<run name>` (`move_previous_run_folder()`); before that, a resumed run whose `labels.json` changed since its `data.json` is refused (`check_resumed_data()`). Besides the copy of the configuration, the run folder holds `label_dictionary.json`, the class index of every category of the run. `data.json`, the record of the data of the run (the classes with their sequences in every split, and for every split its folder, the hash of its `labels.json` and its frames), is written next to them once the loaders are built and checked (`save_data_record()`, after Step 2.8).
 
-**Example: the run folder after this step**
+**Example: the run folder once the trainer is built**
 ```text
 M2O_IN-KAR-128_SE-RES-BN-B1x16.2x32.2x32.2x64.2x64_T50_GRU1x128-BI_HFLAT.64_MC4/
 ├── Tensorboard/
 ├── Weights/
 ├── data.json
 ├── label_dictionary.json
-└── training_configuration.yaml    26,837 bytes
+└── training_configuration.yaml    31,113 bytes
 ```
 
 ### Step 2.7 — `build_dataloaders()`
@@ -301,7 +407,7 @@ collate     functools.partial(<function collate_padded_sequences>, members_per_s
 ```
 
 ### Step 2.9 — `SequenceDataset.__init__()`
-It reads the manifest of the split: its `categories` and its `sequences`, each giving its `id`, its `name`, its ordered `frames` (paths relative to `data/`) and its `category_id`. Every sequence is one sample, fed whole to the model. The sequences of an unmapped category or without frames are left out first, counted in one yellow note; then every sequence longer than `maximum_sequence_length` is left out with a red warning naming it, followed by a red total for the split. Every kept sequence keeps its identifier, its name, its frames and the class of each frame (the class of the sequence), and the sequences are shuffled once and kept by identifier for the evaluation outputs. No frame is read here.
+It reads the manifest of the split: its `categories` and its `sequences`, each giving its `id`, its `name`, its ordered `frames` (paths relative to `data/`) and its `category_id`. Every sequence is one sample, fed whole to the model. The sequences of an unmapped category or without frames are left out first, counted in one yellow note printed once the split is read; then every other sequence longer than `maximum_sequence_length` is left out with a red warning naming it, followed by a red total for the split, before that note. Every kept sequence keeps its identifier, its name, its frames and the class of each frame (the class of the sequence), and the sequences are shuffled once and kept by identifier for the evaluation outputs. No frame is read here.
 
 **Example: a manifest sequence, and the lengths of the training sequences**
 ```text
@@ -366,7 +472,9 @@ model.number_classes           4
 The model turns every frame into one vector with the shared backbone and a global pooling (Step 2.14), summarises the vectors of a sequence into one vector with the temporal module (Step 2.15), and gives the class logits with the head of the classification (Step 2.16). The backbone is the one of the image tasks, so a backbone trained on images can be transferred to it.
 
 ### Step 2.14 — `build_backbone()` + `build_global_pooling()`
-The backbone shared by every task (see `classification_workflow.md`, Step 2.14), built for a frame of `image_settings.size`. The global pooling (`flatten` here, `average` or `max`) reduces its final feature map to one vector per frame, whose width `compute_pooled_features()` gives to the temporal module: as wide as the last backbone block for `average` and `max` (64 features per frame here), or channels x height x width of the final feature map for `flatten`, which then follows the image size.
+The backbone shared by every task (see `classification_workflow.md`, Step 2.14), built for a frame of `image_settings.size`. The global pooling (`flatten` here, `average` or `max`) reduces its final feature map to one vector per frame, whose width `compute_pooled_features()` gives to the temporal module: as wide as the last backbone block for `average` and `max` (64 features for this backbone), or channels x height x width of the final feature map for `flatten` (64 x 8 x 8 = 4096 features per frame here), which then follows the image size.
+
+The panel lists `Residual Shortcuts` only for the blocks adding at least one shortcut (`ConvolutionBlock.count_residual_additions()`): blocks 3 and 5. Blocks 2 and 4 change the channel count at their first layer, so their 2 layers close no residual pair and add none, and block 1 has a single layer (`suggestions.md` H4).
 
 **Example: the backbone panel of `print_summary()` for a 128×128 frame** (shortened)
 ```text
@@ -374,6 +482,11 @@ The backbone shared by every task (see `classification_workflow.md`, Step 2.14),
 │    - Modules      : Squeeze-and-Excitation                                   │
 │    - Input Shape  : [1, 3, 128, 128]                                         │
 │    - Output Shape : [1, 16, 64, 64]                                          │
+│                                                                              │
+│  - Convolution Block 2                                                       │
+│    - Modules      : Squeeze-and-Excitation                                   │
+│    - Input Shape  : [1, 16, 64, 64]                                          │
+│    - Output Shape : [1, 32, 32, 32]                                          │
 │  ...                                                                         │
 │  - Convolution Block 5                                                       │
 │    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
@@ -385,7 +498,7 @@ Final Backbone output shape: [1, 64, 8, 8]
 ### Step 2.15 — `build_temporal_module()` → `RecurrentTemporalModule`
 It builds the module of `TemporalModel.type` with `keep_time_axis=False`, so that it returns one vector per sequence, and with `maximum_sequence_length` as its largest length (the size of the positional embedding of the transformer):
 - **poolings**, which ignore the frame order: `mean_pooling` and `max_pooling` (the mean or the maximum of the real frames, no weights) and `attention_pooling` (a weighted mean, the weight of every frame learned from its vector);
-- **ordered modules**: `gru` and `lstm` (the final state of the last layer after the last real frame, both directions concatenated when bidirectional), `transformer` (with a learned positional embedding unless `positional_embedding` is False) and `temporal_convolution`.
+- **ordered modules**: `gru` and `lstm` (the final state of the last layer after the last real frame, both directions concatenated when bidirectional, `dropout_rate` acting between stacked layers only), `transformer` (the frame vectors projected to `hidden_size`, a learned positional embedding unless `positional_embedding` is False, pre-normalization encoder layers whose attention leaves out the padding frames) and `temporal_convolution` (stacked 1D convolutions of `kernel_size` frames whose dilation doubles at every layer, the padding frames set to zero before every convolution). For one vector per sequence, the transformer and the temporal convolution average the outputs of the real frames.
 
 Every module gives the size of its output in `output_features`, read by the head.
 
@@ -518,7 +631,7 @@ The backbone panel is shown in Step 2.14 and the receptive field panel is the on
 ```
 
 ### Step 2.22 — `view_input_batches()` → `show_input_samples()`
-With `diagnosis_modes.view_input_images`, the real frames of an augmented training sequence and of a validation sequence are laid out on grids of 4 columns (`build_sample_frame_grid()` → `build_frame_grid()`), every frame numbered, each grid followed by an information panel giving the class of the sequence (`get_sample_caption()`, `Class : moving_up`), its real frames (`Real frames : 7`) and, for the training sequence, the augmentations drawn with their values (one line per real frame when `independent_frames` is on) and the order of its frames (`describe_frame_order()`, `Frame order : shuffled, showing frames 2, 0, 1, ...` or `kept`). It needs a display, so it has no console output to show here.
+With `diagnosis_modes.view_input_images`, the real frames of an augmented training sequence and of a validation sequence are laid out on grids of 4 columns (`build_sample_frame_grid()` → `build_frame_grid()`), every frame numbered, each grid followed by an information panel giving the class of the sequence (`get_sample_caption()`, `Class : moving_up`), its real frames (`Real frames : 7`) and, for the training sequence, the augmentations drawn with their values (one line per real frame when `independent_frames` is on) and, when `shuffle_frames` is on, the order of its frames (`describe_frame_order()`, `Frame order : shuffled, showing frames 2, 0, 1, ...` or `kept`); the validation panel reads `Augmentations : none (validation sample)`. It needs a display, so it has no console output to show here.
 
 ### Step 2.23 — `restore_last_model()` → `get_last_checkpoint_iteration()` / `load_model()`
 The same restoration as every task (see `classification_workflow.md`, Steps 2.26 to 2.28).
@@ -583,7 +696,7 @@ Weights/Iteration_9/model_000009.pt   4,289,735 bytes      Weights/Iteration_12/
 model_state: 94 tensors, the first 'class_weights', then 'backbone.convolution_blocks.0. ...'
 format_version 2   task 'sequence_classification'   pretrained_backbone / _temporal_module / _classification_head None
 ```
-The MLflow run being open from iteration 2, the four checkpoints hold `mlflow_run_id: '1489ef2ba2ed4370bdd5d228fc8544c5'`.
+The MLflow run being open from iteration 2, the four checkpoints hold `mlflow_run_id: '1489ef2ba2ed4370bdd5d228fc8544c5'`. With the current `flatten` configuration at 128 pixels, the GRU holds 3,245,568 weights instead of 148,992, with their Adam moments: a checkpoint of the README run takes 41,450,653 bytes.
 
 ### Step 3.6 — `run_test_evaluation()`
 At iterations 6 and 12, last in the iteration, after its checkpoint and its summary (see `classification_workflow.md`, Step 3.7), see Stage 4.
@@ -666,7 +779,7 @@ zero vectors per sequence [4, 1, 1, 0]        (the padding frames of the sequenc
 ```
 
 ### Step 3.15 — temporal module: `RecurrentTemporalModule.forward()`
-The GRU reads the frame vectors of every sequence in order. With a mask, the sequences are packed (`pack_padded_sequence()` with the number of real frames of each), so that the GRU stops at the last real frame of every sequence and never reads its padding frames; the vector of the sequence is the final state of the last layer in both directions, concatenated. The other modules use the mask the same way: the poolings and the transformer leave the padding frames out.
+The GRU reads the frame vectors of every sequence in order. With a mask, the sequences are packed (`pack_padded_sequence()` with the number of real frames of each), so that the GRU stops at the last real frame of every sequence and never reads its padding frames; the vector of the sequence is the final state of the last layer in both directions, concatenated. The other modules use the mask too: the poolings and the transformer leave the padding frames out, and the temporal convolution sets them to zero before every convolution and averages its outputs over the real frames. The padding thus changes nothing: in evaluation mode, four test sequences of 7, 7, 3 and 5 frames padded to 7 get the probabilities they get alone without mask, to 1.5e-08 (a new model of the configuration on the CPU, random weights).
 
 **Example: the first batch**
 ```text
@@ -764,7 +877,7 @@ Last Checkpoint Saved At Iteration 12. Exiting Training.
 
 ## Stage 4 — Test Evaluation of a Checkpoint
 
-> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 sequences of 2 to 12 frames of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `moving_down` for every sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps.
+> The examples below are real outputs of the evaluation of the checkpoints of iterations 6 and 12 of the run of Stage 3, on its whole test split (200 sequences of 2 to 12 frames of 64×64 pixels), with `per_class_report: True`, `number_sample_images: 8`, `top_k: 2`, `save_predictions: True`, `error_dumps` activated with `maximum_per_class_pair: 2`, and the MLflow tracking on. Both checkpoints predict `moving_down` for every sequence. The outputs of iteration 6 were captured when its checkpoint was still saved before its training step, after 5 steps; it now holds 6 steps. They were recorded on 2026-10-18, before the ROC and precision-recall curves: with `per_class_report`, the current evaluation also scores every class one against the rest with its ROC curve and precision-recall curve, prints `Macro ROC AUC` and `Macro Average Precision` after `Top-2 Accuracy`, adds the `ROC AUC` and `Average Precision` columns to the per-class table and to `class_metrics.csv`, and writes and logs `roc_curves.png` and `precision_recall_curves.png` (`classification_workflow.md`, Steps 4.14 and 4.15). Steps 4.11 and 4.13 show the current layout from the README run at 128 pixels.
 
 ### Step 4.1 — `run_test_evaluation()`
 The evaluation of the classification (see `classification_workflow.md`, Stage 4), every sample being a whole sequence. The test sequences are never augmented. The test loader shuffles its sequences, so the order of the rows of `predictions.csv` changes from one evaluation to the next.
@@ -837,6 +950,7 @@ files             = Confusion Matrix Table, Class Thresholds, Class Metrics, Con
 images            = Confusion Matrix        sample_images = Samples/test_000000, ... (8)
 class_scalars     = 12: Precision/moving_left, Recall/moving_left, F1/moving_left, Precision/moving_right, ...
 ```
+The current results also hold `Macro ROC AUC` and `Macro Average Precision` in `metrics`, the files `ROC Curves Image` and `Precision Recall Curves Image` after `Confusion Matrix Image`, the images `ROC Curves` and `Precision Recall Curves`, and 20 class scalars, `ROC AUC/<class>` and `Average Precision/<class>` following the F1 of every class.
 
 ### Step 4.8 — `compute_confusion_matrix()` + `compute_metrics_from_confusion_matrix()`
 The confusion matrix counts the sequences of every pair (true class, predicted class); the precision, recall, F1, accuracy, balanced accuracy and macro F1 come from it (see `classification_workflow.md`, Steps 4.9 and 4.10).
@@ -887,8 +1001,8 @@ For every class, the lowest probability threshold keeping a precision of at leas
 ```
 At iteration 12 only `moving_left` reaches the precision: threshold 0.22249144315719604, recall 0.019230769230769232 (1 of the 52 `moving_left` sequences).
 
-### Step 4.11 — `build_class_metrics_rows()` + `write_class_metrics_file()` + `save_confusion_matrix_image()`
-`class_metrics.csv` is written at every evaluation; `confusion_matrix.png` only with `per_class_report` (see `classification_workflow.md`, Steps 4.14 and 4.15).
+### Step 4.11 — `build_class_metrics_rows()` + `write_class_metrics_file()` + `save_confusion_matrix_image()` + `save_score_curve_images()`
+`class_metrics.csv` is written at every evaluation; `confusion_matrix.png`, `roc_curves.png` and `precision_recall_curves.png` only with `per_class_report`, which also adds the `roc_auc` and `average_precision` columns after `f1` (see `classification_workflow.md`, Steps 4.14 and 4.15). The example of this run predates the curves.
 
 **Example: `Evaluation/Iteration_6/class_metrics.csv`**
 ```text
@@ -897,6 +1011,15 @@ class_index,class,samples,precision,recall,f1,threshold_at_target_precision,reca
 1,moving_right,45,0.000000,0.000000,0.000000,,
 2,moving_up,56,0.000000,0.000000,0.000000,,
 3,moving_down,47,0.235000,1.000000,0.380567,0.270371,0.021277
+```
+
+**Example: the current layout, `Evaluation/Iteration_500/class_metrics.csv` of the README run at 128 pixels** (`M2O_IN-KAR-128_..._HFLAT.64_MC4` in `experiments/readme_screenshots/`, one `moving_left` sequence predicted `moving_down`)
+```text
+class_index,class,samples,precision,recall,f1,roc_auc,average_precision,threshold_at_target_precision,recall_at_target_precision
+0,moving_left,49,1.000000,0.979592,0.989691,1.000000,1.000000,0.213127,1.000000
+1,moving_right,52,1.000000,1.000000,1.000000,1.000000,1.000000,0.520245,1.000000
+2,moving_up,53,1.000000,1.000000,1.000000,1.000000,1.000000,0.981040,1.000000
+3,moving_down,46,0.978723,1.000000,0.989247,1.000000,1.000000,0.953328,1.000000
 ```
 
 ### Step 4.12 — `write_predictions_file()`   (only with `save_predictions`)
@@ -912,6 +1035,8 @@ test_000007,test_000007/000000.png,test_000007/000004.png,moving_down,moving_dow
 The probabilities are almost the same for every sequence: the checkpoint of iteration 6 of this example was trained for 5 steps only, since it was captured when a checkpoint was still saved before the step of its iteration (it now holds 6 steps, `classification_workflow.md`, Step 3.6).
 
 ### Step 4.13 — `report_evaluation()` → `report_evaluation_results()` + `track_evaluation()`
+The block of the report and the links of the files written by the evaluation (see `classification_workflow.md`, Steps 4.18 and 4.19). The first example predates the curves; the second one, from the README run at 128 pixels, has the current layout.
+
 **Example output: the block of iteration 12** (the same text is appended to `Results.txt`)
 ```text
 Iteration 12 · 200 Test Sequences · 2026-10-18 08:48 ───────────────────────────────────────────────────────────────────
@@ -939,6 +1064,26 @@ Iteration 12 · 200 Test Sequences · 2026-10-18 08:48 ────────�
   - Sample Images : file:///.../Evaluation/Iteration_12/Samples
 ```
 
+**Example: the current layout, the first block of `Results.txt` of the README run at 128 pixels** (`M2O_IN-KAR-128_..._HFLAT.64_MC4`, trained on GPU with the error images off)
+```text
+Iteration 500 · 200 Test Sequences · 2026-10-23 04:38 ──────────────────────────────────────────────────────────────────
+  Accuracy        0.9950   Balanced Accuracy         0.9949
+  Macro F1        0.9947   Top-2 Accuracy            1.0000
+  Macro ROC AUC   1.0000   Macro Average Precision   1.0000
+  Sample Images : 8 fixed test sequences
+
+  Per Class Metrics
+                                                                      Average   Threshold    Recall
+   Class          Samples   Precision   Recall       F1   ROC AUC   Precision     @ P0.99   @ P0.99
+  ──────────────────────────────────────────────────────────────────────────────────────────────────
+   moving_down         46      0.9787   1.0000   0.9892    1.0000      1.0000      0.9533    1.0000
+   moving_left         49      1.0000   0.9796   0.9897    1.0000      1.0000      0.2131    1.0000
+   moving_right        52      1.0000   1.0000   1.0000    1.0000      1.0000      0.5202    1.0000
+   moving_up           53      1.0000   1.0000   1.0000    1.0000      1.0000      0.9810    1.0000
+  Worst F1 first, ties in class order. — : no samples of the class, no negative for the ROC AUC, or the precision 0.99
+  is never reached.
+```
+
 **Example: the run folder, TensorBoard and MLflow after the two evaluations**
 ```text
 Evaluation/Iteration_6/ and Iteration_12/   Errors/ (3 pairs x 2)  Samples/ (8)  class_metrics.csv  class_thresholds.json
@@ -951,19 +1096,20 @@ MLflow: test/Accuracy, test/Balanced Accuracy, test/Macro F1, test/Top-2 Accurac
         artifacts configuration/training_configuration.yaml, data/data.json, metric_names.json, Results.txt,
         evaluation/iteration_6/ and iteration_12/: class_metrics.csv, class_thresholds.json, confusion_matrix.png
 ```
+The current evaluation writes 26 scalars to `Tensorboard/Test` (6 global + 20 per class) and 11 images (the 8 samples, `Confusion Matrix`, `ROC Curves` and `Precision Recall Curves`), as the event files of the README runs hold, and also sends `test/Macro ROC AUC`, `test/Macro Average Precision`, 20 `test_class/` scalars, `roc_curves.png` and `precision_recall_curves.png` to MLflow.
 
 
 ---
 
 ## Stage 5 — Standalone Checkpoint Evaluation (Optional)
 
-> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 sequences of the test split (its `labels.json` reduced, its `data/` folder linked).
+> The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12, captured when those of iterations 3, 6 and 9 were still saved before their training step) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 40 sequences of the test split (its `labels.json` reduced, its `data/` folder linked). They were recorded on 2026-10-18, before the ROC and precision-recall curves (Stage 4).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` to the sequence run, and `test_data_folder` to another labelled split (holding `labels.json` and `data/`) if needed. The sequences longer than the `maximum_sequence_length` of the run are left out of the evaluation, with the red warnings of Step 2.9.
+The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` and `experiment_folder` (the run folder, built from `run_name` in the main block) to the sequence run, and `test_data_folder` to another labelled split (holding `labels.json` and `data/`) if needed; `maximum_error_images_per_class_pair` turns the error images on with its own limit, and `output_folder` (`<experiments>/evaluations` by default) receives the evaluation in a folder named after the run. The sequences longer than the `maximum_sequence_length` of the run are left out of the evaluation, with the red warnings of Step 2.9.
 
 ### Step 5.2 — trainer construction
-The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder, the reduced split and the batch size, and builds a `SequenceClassificationTrainer`.
+The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder, the reduced split and the batch size, keeps the name of the run folder (`run_name`), turns the transfer of the pretrained components off (`disable_pretrained_settings()`) and builds a `SequenceClassificationTrainer`.
 
 **Example: the split line of the launch information**
 ```text
@@ -996,6 +1142,7 @@ iteration,Accuracy,Balanced Accuracy,Macro F1,Top-2 Accuracy,Precision/moving_le
 6,0.125,0.25,0.05555555555555555,0.425,0.0,0.0,0.0, ...
 3,0.125,0.25,0.05555555555555555,0.425,0.0,0.0,0.0, ...
 ```
+The columns are the scalars of every evaluation (`build_summary_columns()`), those of every class only with `per_class_report`: the current evaluation inserts `Macro ROC AUC` and `Macro Average Precision` after `Top-2 Accuracy`, and `ROC AUC/<class>` and `Average Precision/<class>` after the F1 of every class.
 
 ### Step 5.6 — `run_test_evaluation()` for each checkpoint
 **Example output: the block of the checkpoint of iteration 12 on the 40 sequences**

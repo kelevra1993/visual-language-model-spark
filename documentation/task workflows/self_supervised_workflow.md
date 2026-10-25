@@ -6,7 +6,110 @@ The examples come from real runs on CPU, so that the GPU stayed free for other t
 - **Stages 1 and 2**: `configurations/self_supervised/configuration_synthetic_shapes.yaml` (synthetic shapes, 9 shape classes, 256 pixel images, batch size 128, SimCLR), with the run folder redirected to a temporary folder and 2 loading workers.
 - **Stages 3, 4 and 5**: the same configuration, shortened to 64 pixel images, batch size 8, 12 iterations, a checkpoint every 6 iterations (an intermediate one every 3), a console summary every 4, a validation batch every 10, 2 loading workers, the first 1000 images of the test split as test split and the MLflow tracking turned on, the random generators of Python, NumPy and PyTorch seeded with 0. A second run of 4 iterations, identical except for `ProjectionHead.method: barlow_twins` and without MLflow tracking, gives the Barlow Twins outputs of Stage 3, and Stage 5 evaluates the checkpoints on the first 200 test images. After 12 iterations the representations are almost random, so the metrics of the examples are poor on purpose: the point is to see the shapes, the files and the order of the steps.
 
+The outputs of Stages 1 and 2 were computed again on 2026-10-24 with the current code, except the grouped batches examples of Steps 2.8 and 2.10, checked against the code only, and the first kept sample of Step 2.9, a draw of the unseeded shuffle of the manifest; those of Stages 3 to 5 come from the runs of 2026-10-23. There is no run of this task in `experiments/readme_screenshots/`; the only GPU run of this configuration, 2,000 iterations trained on 2026-10-24 in `experiments/tutorials/`, is not used by this document.
+
+## Read This First
+
+The self-supervised task (`task: "self_supervised"`, run name code `SSL`) trains the shared backbone without labels. Every training and validation image is drawn twice by the data augmentation (`Data.data_augmentation`, with the hard-coded `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`); both views go through the backbone, a global pooling giving the **representation** of the image and a projection head giving its **embedding**, and the loss of `ProjectionHead.method` pulls the two views of an image together: InfoNCE over the 2N views of the batch (`simclr`) or the Barlow Twins cross-correlation pushed to the identity (`barlow_twins`). The labels of the `labels.json` manifests are only read by the test evaluation, a leave-one-out k-nearest neighbour classification of the labelled test images by their representations, next to the effective rank that watches the collapse. Choose it to pre-train the backbone on images too many to label, then initialise any other task with `Backbone.pretrained` (the projection head is dropped); choose CLS when the images are labelled. The task reuses the dataset layout, the dataset and the loaders of CLS, and its metrics code for the k-NN scores; the exported encoder (`image_encoder`) returns L2-normalized representations for similarity searches.
+
+### The Task At A Glance
+
+```text
+<split>/labels.json  {"id": 1, "file_name": "train_000000.png", "category_id": 6}    label_mapping.json {"1": 0, ..}
+<split>/data/train_000000.png (512 px) ─► ClassificationDataset(keep_unlabelled_samples=True): read_image, resize 256
+   sample {images [3, 256, 256] uint8, labels: class index or -100 (read by the evaluation only), sample_identifiers}
+DataLoader (batch 128, drop_last for train and validation) ─► prepare_batch: images [128, 3, 256, 256] float32
+forward_pass ─► DataAugmenter.create_views (float32, autocast off): first and second views [128, 3, 256, 256]
+   every activated type drawn per image and per view; random_solarize and random_black_out on the second view only
+SelfSupervisedModel.encode() of the 2N = 256 views in one pass (the batch normalization sees both views):
+   Backbone: InputNormalizer x / 255 - 0.5, 6 ConvolutionBlocks (SE, shortcuts in blocks 3 and 5) ─► [256, 128, 8, 8]
+   ─► global_pooling average ─► representations [256, 128] ─► ProjectionHead: Linear 512, BatchNorm, ReLU, Linear 128
+   ─► embeddings [256, 128], split into the first [128, 128] and the second [128, 128] views
+loss: simclr: info_nce_loss = cross entropy of every view against the 2N - 1 others, cosine / 0.2, partner at i ± N
+      barlow_twins: barlow_twins_loss = Σ (C_ii - 1)² + 0.005 · Σ_i≠j C_ij², C the [128, 128] cross-correlation
+batch metrics: positive_pair_accuracy (or diagonal and off-diagonal correlations), embedding_standard_deviation
+   ─► TensorBoard Train every iteration, Validation every 5 (validation_iteration_ratio), console every 10
+every weight_saving_iterations: test images encoded without views ─► representations [50000, 128] kept on the CPU
+   ─► leave-one-out k-NN of the labelled ones (20 neighbours, weights exp(cosine / 0.07)): k-NN Accuracy, Balanced
+      Accuracy, Macro F1, per class precision, recall, F1; Effective Rank, Representation Standard Deviation
+   ─► Results.txt block, Tensorboard/Test, Evaluation/Iteration_<n>/ (class_metrics.csv, Samples/)
+export: InferenceEncoder (image_encoder), images [B, 3, 256, 256] ─► representations [B, 128], L2-normalized
+transfer: Backbone.pretrained of any task loads the backbone; the projection head is dropped
+```
+
+### Files To Know
+
+| Role | File | Main functions or classes |
+|---|---|---|
+| Trainer | `vision_training/trainers/self_supervised_trainer.py` | `SelfSupervisedTrainer`: `build_dataloaders`, `forward_pass`, `predict_batch`, `compute_batch_metrics`, `compute_nearest_neighbour_results`, `compute_evaluation_results`, `build_sample_image`, `show_input_samples`, `show_input_batch` |
+| Shared training loop | `vision_training/trainers/base_trainer.py` | `BaseTrainer`: `run_training_iterations`, `run_model_iteration`, `save_model`, `run_test_evaluation`, `evaluate_test_split` |
+| Dataset and loaders | `vision_training/data/classification/classification_dataset.py`, `vision_training/data/loaders.py`, `vision_training/data/grouped_batch_sampler.py` | `ClassificationDataset(keep_unlabelled_samples=True)`, `get_classification_dataloaders(self_supervised=True)`, `GroupedBatchSampler`, `build_grouped_batch_sampler` |
+| Views | `vision_training/data/augmentations.py` | `DataAugmenter.create_views`, `describe_report`, `SELF_SUPERVISED_AUGMENTATION_STRENGTHS`, `SECOND_VIEW_ONLY_TYPES` |
+| Model | `vision_training/models/self_supervised/self_supervised_model.py`, `vision_training/models/backbones/backbone.py`, `vision_training/models/classification/classification_head.py` | `SelfSupervisedModel` (`represent`, `encode`, `compute_method_loss`, `forward`), `build_backbone`, `build_global_pooling`, `compute_pooled_features` |
+| Head | `vision_training/models/self_supervised/projection_head.py`, `vision_training/models/components/fully_connected_block.py` | `ProjectionHead`, `print_projection_head_summary`, `build_fully_connected_block` |
+| Losses | `vision_training/losses/self_supervised_losses.py` | `compute_info_nce_loss`, `compute_barlow_twins_loss`, `compute_feature_cross_correlation`, `compute_embedding_standard_deviation` |
+| Metrics and evaluation | `vision_training/evaluation/self_supervised/representation_metrics.py`, `vision_training/evaluation/classification/`, `vision_training/evaluation/evaluation_report.py` | `compute_nearest_neighbour_predictions`, `compute_effective_rank`, `compute_confusion_matrix`, `compute_metrics_from_confusion_matrix`, `build_class_metrics_table`, `write_class_metrics_file` |
+| Configuration checks | `vision_training/configuration_processing/self_supervised_checks.py` | `check_self_supervised_configuration`, `check_projection_head_configuration`, `check_grouped_batches_configuration` |
+| Run name | `vision_training/configuration_processing/run_name.py` | `build_run_name`, `build_self_supervised_sections` |
+| Synthetic data generator | `vision_training/data/synthetic/create_synthetic_dataset.py` | `create_synthetic_dataset`, `build_classification_labels` (this configuration), `build_shape_count_labels` (the counted shapes) |
+| Export | `vision_training/models/self_supervised/inference_encoder.py`, `vision_training/deployment/export_specifications.py` | `InferenceEncoder` (model name `image_encoder`, input `images`, output `representations`), `compare_representations` |
+| Standalone evaluation | `scripts/evaluation/evaluate_checkpoint.py`, `vision_training/evaluation/checkpoint_evaluation.py` | `evaluate_checkpoints`, `summarise_checkpoint_evaluations` |
+
+### Run It
+
+```bash
+# 1. Synthetic dataset: in the main block of vision_training/data/synthetic/create_synthetic_dataset.py, set
+#    task = "classification" and output_folders["classification"] (500,000 / 50,000 / 50,000 images of 512 pixels),
+#    the dataset of configuration_synthetic_shapes.yaml; task = "self_supervised" creates the counted shapes of
+#    configuration_counted_shapes_simclr.yaml and configuration_counted_shapes_barlow_twins.yaml
+uv run python -m vision_training.data.synthetic.create_synthetic_dataset
+
+# 2. Training: set experiment_folder, the three data folders and Data.label_mapping.mapping_file_path first;
+#    diagnosis_modes.view_input_images: True shows the two views of the training images instead (needs a display)
+uv run python -m vision_training.main --configuration_path="vision_training/configurations/self_supervised/configuration_synthetic_shapes.yaml"
+
+# 3. Evaluation of checkpoints: in the main block of scripts/evaluation/evaluate_checkpoint.py set run_name,
+#    experiment_folder (the run folder), iteration (None, an integer or "all"), test_data_folder, batch_size,
+#    track_evaluation, output_folder, and maximum_error_images_per_class_pair = None (see the pitfalls)
+uv run python -m scripts.evaluation.evaluate_checkpoint
+```
+
+A dataset generated now holds the 35 classes of `SHAPE_CATEGORIES` (a k-NN chance level of 1/35); the dataset on disk, the comment of the configuration and the examples of this document have the 9 classes of the datasets generated before the other classes were added.
+
+### Configuration Keys To Know First
+
+| Key | Value in the synthetic configuration | Effect |
+|---|---|---|
+| `ProjectionHead.method` | `"simclr"` | InfoNCE (`SIMCLR-T<temperature>` run name token) or `"barlow_twins"` (`BT-OD<weight>`); also selects the batch metrics tracked |
+| `ProjectionHead.simclr.temperature`, `ProjectionHead.barlow_twins.off_diagonal_weight` | `0.2`, `0.005` | divides the cosine similarities of InfoNCE; weighs the off-diagonal terms of Barlow Twins; both are checked (> 0) whatever the method |
+| `ProjectionHead.global_pooling` | `"average"` | the representation compared by the k-NN and exported: 128 values; `"flatten"` gives the 8,192 values of the [128, 8, 8] map and ties it to the image size |
+| `ProjectionHead.fully_connected` | `[512, 128]` | hidden layers, then the embedding size (linear only), the `PAVG.512.128` token |
+| `ProjectionHead.fully_connected_normalization` | `"batch"` | `PBN`; `"layer"` gives `PLN`; must be `"none"` when the list holds the embedding layer only |
+| `Data.data_augmentation.activated` | `True` | must be True, its types drawing the views; its global `probability` is ignored |
+| `Data.data_augmentation.types.random_crop` | `activated: True, probability: 1.0` | random resized crop of 50 % to 100 % of the area, aspect ratio x1/2 to x2; the checks refuse another probability |
+| `ExperimentConfiguration.batch_size` | `128` | N: every view is compared with the 2N - 1 = 255 others; at least 2, and a training or validation split smaller than a batch stops the launch |
+| `ExperimentConfiguration.evaluation.number_neighbours` | `20` | k of the leave-one-out k-NN, reduced to the labelled test images minus 1 |
+| `Data.grouped_batches.activated` | `False` | True builds the batches from blocks of `images_per_block` (32) images sharing `groups[block_key]` (`"camera"`), the hard negatives |
+
+### What A Run Writes
+
+- `Results.txt`: one block per evaluated checkpoint, `Iteration <n> · <N> Test Images · <date>`, with `k-NN Accuracy` (the headline metric), `k-NN Balanced Accuracy`, `k-NN Macro F1`, `Effective Rank` and `Representation Standard Deviation`, the notes `Labelled Test Images : <l> of <N>` and `k-NN : 20 neighbours among the other labelled test images`, and with `per_class_report` the table `Per Class k-NN Metrics`, worst F1 first. A test split with fewer than two labelled images gives the two collapse metrics only, `Effective Rank` being then the headline metric.
+- `Evaluation/Iteration_<n>/`: `class_metrics.csv` (`class_index,class,samples,precision,recall,f1`, whatever `per_class_report`, when the k-NN is computed) and `Samples/<sample>.png` (the test image and two views drawn from a seed of the image, side by side below a 24 pixel caption bar `<class> | Views Similarity <cosine>`); `EMA/` with the moving average of the weights. There is no confusion matrix, threshold, prediction file, curve nor error image.
+- `Tensorboard/Train` and `Tensorboard/Validation`: `Total Loss`, `InfoNCE Loss`, `Positive Pair Accuracy`, `Embedding Standard Deviation` (Barlow Twins: `Barlow Twins Loss`, `Diagonal Correlation`, `Off-Diagonal Correlation`, `Embedding Standard Deviation`), and `Learning Rate` in Train; `Tensorboard/Test`: the 5 global metrics, `k-NN Precision/<class>`, `k-NN Recall/<class>` and `k-NN F1/<class>` with `per_class_report`, and the images `Samples/<sample>`.
+- `Weights/Iteration_<n>/model_<n>.pt` (e.g. `Weights/Iteration_250/model_000250.pt`): the whole model, projection head included, so that the training resumes; only the backbone initialises other runs.
+- With the MLflow tracking: `test/<metric>`, `test_class/k-NN <Metric>/<class>`, `test/best_k-NN Accuracy` with the tag `best_iteration`, and `class_metrics.csv` under `evaluation/iteration_<n>/`.
+
+### Pitfalls
+
+- The first checkpoints look collapsed whatever the training: the test images and the validation batches are encoded in evaluation mode, whose batch normalization uses running statistics updated at momentum 0.1 (`Backbone.normalization.batch_normalization_momentum`, `ProjectionHead.batch_normalization_momentum`). After 12 iterations every test image got almost the same representation (mean pairwise cosine 1.0, against 0.774 in training mode), hence an effective rank of 1.05, a views similarity of 1.000 and a validation InfoNCE of exactly ln(2N - 1) (Step 4.9 and Step 3.20 of this document).
+- A cue shared by both views lets the loss fall without learning the content: the colour of a shape when the colour types are off, or its position when the crops are too large. A `Positive Pair Accuracy` near 1 long before the k-NN accuracy rises shows it, and the input viewer shows the views with their drawn augmentations before a training (README, Self-Supervised Learning, Views and Training metrics; `self_supervised.md`, Checks Left To Run).
+- The views, the batch size, the learning rate and the grouped batches give no run name token: a run of the same settings with stronger views or another batch size resumes the previous run folder (`resume_training: true`) unless `run_name_suffix` is set (`build_self_supervised_sections()` of `run_name.py`; the comment of `run_name_suffix` in the configuration).
+- `scripts/evaluation/evaluate_checkpoint.py` stops on a self-supervised run with `KeyError: 'error_dumps'` unless `maximum_error_images_per_class_pair` is set to `None`: its default 100000 is written into `evaluation.error_dumps`, a section the self-supervised configurations do not have (`evaluate_checkpoint.py:36, 59-62`; `bug_standards.md` B56, open).
+- With Barlow Twins, a rising `Off-Diagonal Correlation` prints in green with `Best` in the console summary, only the keys ending in `_loss` improving when they fall (`LOWER_IS_BETTER_SUFFIX` of `metric_tracking.py`; `bug_standards.md` B45, open).
+- Blocks 2, 4 and 6 of the synthetic configuration (16 to 32, 32 to 64 and 64 to 128 channels, 2 layers each) add no residual shortcut, so only blocks 3 and 5 list `Residual Shortcuts` in the backbone summary, and a backbone transferred to another task keeps this layout (`ConvolutionBlock.residual_parity` and `count_residual_additions()` of `convolution_block.py`; `suggestions.md` H4, open).
+
 ## Table of Contents
+- [Read This First](#read-this-first)
 - [Call Tree Overview](#call-tree-overview)
 - [Stage 1 — Entry Point and Configuration Loading](#stage-1--entry-point-and-configuration-loading)
 - [Stage 2 — Trainer Initialization](#stage-2--trainer-initialization)
@@ -49,7 +152,8 @@ main()
 │               ├── grouped:    Data.grouped_batches: activated flag, block_key a string, batch_key null or a string,
 │               │               images_per_block >= 2, dividing the batch size when the section is on
 │               ├── head:       check_projection_head_configuration(): pooling, layers, normalization, method
-│               │               (simclr or barlow_twins) and its temperature or off-diagonal weight
+│               │               (simclr or barlow_twins), and the temperature and the off-diagonal weight above 0,
+│               │               both checked whatever the method
 │               └── batch:      batch size of at least 2, number_neighbours > 0
 │
 ├── get_trainer_class(task)  -> SelfSupervisedTrainer
@@ -59,25 +163,29 @@ main()
 │   │   general trainer build its DataAugmenter with the self-supervised strengths: it draws the two views.
 │   │
 │   └── BaseTrainer.__init__()
-│       │   Same order as for every task: device, run name, settings, augmenter, classes of a resumed run, previous
-│       │   training moved aside, paths, loaders and their check, sample images, model, pretrained components,
-│       │   optimizer, metric tracker, printouts, restoration.
+│       │   Same order as for every task: device, run name, settings, augmenter, classes of a resumed run, refusal
+│       │   of a resume on changed labels, previous training moved aside, paths, loaders and their check, record of
+│       │   the data, sample images, model, pretrained components, optimizer and moving average of the weights,
+│       │   metric tracker, printouts, input viewer, analysis of the training data (nothing for this task),
+│       │   restoration.
 │       │
 │       ├── get_device() / get_run_name() -> build_run_name() / DataAugmenter()
 │       │       The run name starts with SSL and ends with the head (PAVG.<layers>-PBN), the method
 │       │       (SIMCLR-T<temperature> or BT-OD<off-diagonal weight>) and the run_name_suffix if not null.
 │       │       The DataAugmenter takes SELF_SUPERVISED_AUGMENTATION_STRENGTHS: it draws the two random views
 │       │       of every image.
-│       ├── restore_run_label_dictionary() / move_previous_run_folder() / setup_training_paths()
-│       │       A resumed run keeps the classes of its label_dictionary.json, a training from scratch renames the
-│       │       run folder of a previous training of the same settings v<n>_<run name>, then the run folder is
-│       │       created with the configuration and label_dictionary.json (classification_workflow.md, Step 2.6).
+│       ├── restore_run_label_dictionary() / check_resumed_data() / move_previous_run_folder() / setup_training_paths()
+│       │       A resumed run keeps the classes of its label_dictionary.json and is refused when the labels.json of
+│       │       a split changed since its data.json, a training from scratch renames the run folder of a previous
+│       │       training of the same settings v<n>_<run name>, then the run folder is created with the configuration
+│       │       and label_dictionary.json (classification_workflow.md, Step 2.6).
 │       ├── build_dataloaders()
 │       │   │   Builds the three loaders and names the classes after the categories of the three manifests.
 │       │   │
 │       │   └── get_classification_dataloaders(self_supervised=True)
 │       │       ├── ClassificationDataset.__init__(output_mode="multi_class", keep_unlabelled_samples=True)
-│       │       │       Same dataset as the classification; an image without a mapped category is kept, label -1.
+│       │       │       Same dataset as the classification; an image without a mapped category is kept, with the
+│       │       │       label IGNORED_LABEL_INDEX (-100).
 │       │       ├── build_grouped_batch_sampler()
 │       │       │       With Data.grouped_batches on, the GroupedBatchSampler of the training and validation splits
 │       │       │       whose samples hold its keys: batches of blocks of images sharing an attribute of their groups.
@@ -85,6 +193,9 @@ main()
 │       │               drop_last for the training and validation loaders, so that every batch has batch_size images,
 │       │               or the GroupedBatchSampler in place of the batch size, the shuffling and drop_last.
 │       ├── check_loaders_give_batches()          refuses a split whose loader gives no batch
+│       ├── save_data_record()                    data.json: the classes, counted on the labelled images of every
+│       │                                         split, and the images of every split (classification_workflow.md,
+│       │                                         Step 2.7)
 │       ├── get_test_sample_classes() + choose_sample_identifiers()
 │       │       The 8 fixed test images of the sample images, spread over the classes.
 │       ├── build_model()
@@ -156,8 +267,9 @@ run_test_evaluation(iteration)  [STAGE 4]
 │       └── write_class_metrics_file()                class_metrics.csv
 └── report_evaluation() -> report_evaluation_results() + track_evaluation()
 
-scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]
-└── same as every task: loads training_configuration.yaml, builds the SelfSupervisedTrainer in the output folder, then
+scripts/evaluation/evaluate_checkpoint.py  [STAGE 5]   (uv run python -m scripts.evaluation.evaluate_checkpoint)
+└── same as every task, with maximum_error_images_per_class_pair set to None (the configuration has no error_dumps
+    section): loads training_configuration.yaml, builds the SelfSupervisedTrainer in the output folder, then
     evaluate_checkpoints() -> start_evaluation_tracking() + summarise_checkpoint_evaluations() -> run_test_evaluation()
 ```
 
@@ -204,7 +316,7 @@ label_mapping: {'mode': 'multi_class', 'mapping_file_path': '.../classifier_data
 ```
 
 ### Step 1.4 — `build_label_dictionary()`
-Reads the mapping file of `Data.label_mapping` (in `vision_training/data/label_mapping.py`) and gives the class index of every category identifier. Unlike the detection and the segmentation there is no background class. The labels are never read by the training: they only name the classes of the k-nearest neighbour evaluation of Stage 4.
+Reads the mapping file of `Data.label_mapping` (in `vision_training/data/label_mapping.py`) and gives the class index of every category identifier. Unlike the detection and the segmentation there is no background class. The labels are never read by the training: they only name the classes of the k-nearest neighbour evaluation of Stage 4. A configuration file read from a run folder holding a `label_dictionary.json` (the copy of the configuration read by the standalone evaluation, Step 5.2) takes the classes of that file instead of the mapping file (`read_run_label_dictionary()`).
 
 **Example output**
 ```text
@@ -216,7 +328,7 @@ label_dictionary: {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 6, 8: 7, 9: 8}
 The common checks, then `check_self_supervised_configuration()` (in `vision_training/configuration_processing/self_supervised_checks.py`):
 - **data**: `multi_class` label mode, classes 0 to K-1, `Data.data_augmentation.activated` True, since its types draw the two views of every image, which would otherwise both be the image itself, `random_crop`, the random resized crop of the views, at a probability of 1.0 when it is activated (drawn for every view, or turned off to keep the whole images), and no sequence settings (`check_image_task_sequence_settings()`). The flag and the probability of every type are checked as for every task (`check_data_configuration()`); the strengths are hard-coded.
 - **grouped batches**: `check_grouped_batches_configuration()`: `Data.grouped_batches.activated` is True or False, `block_key` a non-empty string, `batch_key` null or a non-empty string, and `images_per_block` an integer of at least 2 that divides the batch size when the section is on.
-- **head**: `check_projection_head_configuration()`: pooling, layers, normalization, the method (`simclr` or `barlow_twins`) and its settings.
+- **head**: `check_projection_head_configuration()`: the pooling, the layers (a non-empty list of positive integers, the embedding size last), the normalization (`"none"` when the list holds the embedding layer only) and its batch momentum, the method (`simclr` or `barlow_twins`), and the settings of both methods (`simclr.temperature` and `barlow_twins.off_diagonal_weight` above 0), checked whatever the method so that a run can switch method by one key.
 - **batch and evaluation**: a batch size of at least 2, and `number_neighbours` above 0.
 
 Every error is listed before the program stops.
@@ -253,7 +365,7 @@ SystemExit code 1
 
 ## Stage 2 — Trainer Initialization
 
-> The examples below are real outputs from building the trainer on `configurations/self_supervised/configuration_synthetic_shapes.yaml` (256 pixel images, batch size 128, 2 loading workers), with the run folder redirected to a temporary folder. The whole construction took 7.0 s on CPU.
+> The examples below are real outputs from building the trainer on `configurations/self_supervised/configuration_synthetic_shapes.yaml` (256 pixel images, batch size 128, 2 loading workers), with the run folder redirected to a temporary folder. The whole construction took 14.3 s on CPU, at the lowest priority next to other trainings.
 
 ### Step 2.1 — `SelfSupervisedTrainer.__init__()`
 Before calling `BaseTrainer.__init__()`, it stores what its hooks read: `self.method` (`ProjectionHead.method`), and `self.number_neighbours` (`evaluation.number_neighbours`, the k of the k-NN evaluation). Its class attributes name the task for the shared code, `DROPS_LAST_TRAINING_BATCH` telling it that the training loader drops its last incomplete batch (Step 2.19), and `SELF_SUPERVISED_AUGMENTATION` that its `DataAugmenter` draws the views with the self-supervised strengths (Step 2.5).
@@ -314,15 +426,15 @@ black_out_grid_size: 8   second view only: ['random_solarize', 'random_black_out
 ```
 
 ### Step 2.6 — `setup_training_paths()`
-Creates the run folder, copies the YAML file into it and writes the label dictionary of the run (`label_dictionary.json`), then the constructor writes the data record once the loaders exist. The copy is a file copy, so it holds the file as written, not the values changed in memory after loading. Before it, `restore_run_label_dictionary()` keeps the classes of a resumed run and `move_previous_run_folder()` renames the folder of a previous training of the same settings when the run starts from scratch, as for every task (see `classification_workflow.md`, Step 2.6).
+Creates the run folder, copies the YAML file into it and writes the label dictionary of the run (`label_dictionary.json`), then the constructor writes the data record once the loaders exist. The copy is a file copy, so it holds the file as written, not the values changed in memory after loading. Before it, `restore_run_label_dictionary()` keeps the classes of a resumed run, `check_resumed_data()` refuses the resume of a run whose `labels.json` changed since its `data.json` (unless `allow_data_change_on_resume` is true) and `move_previous_run_folder()` renames the folder of a previous training of the same settings when the run starts from scratch, as for every task (see `classification_workflow.md`, Step 2.6).
 
 **Example: the run folder after the construction**
 ```text
 Tensorboard/                    folder
 Weights/                        folder
-data.json                       17,000,995 bytes
-label_dictionary.json           the class index of every category of the run
-training_configuration.yaml     23,809 bytes
+data.json                       17,002,746 bytes
+label_dictionary.json           110 bytes, the class index of every category of the run
+training_configuration.yaml     28,255 bytes
 ```
 
 ### Step 2.7 — `build_dataloaders()`
@@ -355,7 +467,7 @@ Grouped Batches :
 ```
 
 ### Step 2.9 — `ClassificationDataset.__init__()`
-The dataset of the classification (in `vision_training/data/classification/classification_dataset.py`), with `keep_unlabelled_samples=True`: an image without a mapped category is kept with the label -1 (`IGNORED_LABEL_INDEX`) instead of being dropped, and counted in `number_unlabelled_samples`, which the loaders print for the three splits (Step 2.8, Step 5.6). Every record also keeps the optional `groups` of its sample, an empty dictionary without them, read by the grouped batches (Step 2.8). It shuffles the manifest once, so the first kept sample is not the first of the file.
+The dataset of the classification (in `vision_training/data/classification/classification_dataset.py`), with `keep_unlabelled_samples=True`: an image without a mapped category is kept with the label -100 (`IGNORED_LABEL_INDEX` of `vision_training/core/contracts.py`) instead of being dropped, and counted in `number_unlabelled_samples`, which the loaders print for the three splits (Step 2.8, Step 5.6). Every record also keeps the optional `groups` of its sample, an empty dictionary without them, read by the grouped batches (Step 2.8). It shuffles the manifest once, so the first kept sample is not the first of the file.
 
 **Example: the manifest, the first kept sample and `dataset[0]`**
 ```text
@@ -413,11 +525,49 @@ Its methods:
 | Total | representation size 128, embedding size 128 | 571,104 |
 
 ### Step 2.14 — `build_backbone()`
-The backbone of every task (see `classification_workflow.md`).
+The backbone of every task (see `classification_workflow.md`, Step 2.14). `Backbone.print_summary()` traces a zero image through the blocks in evaluation mode and lists the modules each block uses (`ConvolutionBlock.get_active_module_names()`). Blocks 2, 4 and 6 change the channel count with 2 layers, so their pairs start at their second layer and they add no residual shortcut (`count_residual_additions()` gives 0, 0, 1, 0, 1, 0 for the six blocks): only blocks 3 and 5 list `Residual Shortcuts` (`suggestions.md` H4).
 
-**Example output** (256 pixels)
+**Example output** (256 pixels, printed by `print_summary()`, Step 2.20)
 ```text
-Block outputs: [1, 16, 128, 128], [1, 32, 64, 64], [1, 32, 32, 32], [1, 64, 16, 16], [1, 64, 8, 8], [1, 128, 8, 8]
+------------------------------
+Backbone Architecture Summary
+------------------------------
+------------------------------------
+Input image shape: [1, 3, 256, 256]
+------------------------------------
+╭─────────────────────────── Backbone Architecture ────────────────────────────╮
+│ Normalization Strategy: Batch                                                │
+│                                                                              │
+│  - Convolution Block 1                                                       │
+│    - Modules      : Squeeze-and-Excitation                                   │
+│    - Input Shape  : [1, 3, 256, 256]                                         │
+│    - Output Shape : [1, 16, 128, 128]                                        │
+│                                                                              │
+│  - Convolution Block 2                                                       │
+│    - Modules      : Squeeze-and-Excitation                                   │
+│    - Input Shape  : [1, 16, 128, 128]                                        │
+│    - Output Shape : [1, 32, 64, 64]                                          │
+│                                                                              │
+│  - Convolution Block 3                                                       │
+│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
+│    - Input Shape  : [1, 32, 64, 64]                                          │
+│    - Output Shape : [1, 32, 32, 32]                                          │
+│                                                                              │
+│  - Convolution Block 4                                                       │
+│    - Modules      : Squeeze-and-Excitation                                   │
+│    - Input Shape  : [1, 32, 32, 32]                                          │
+│    - Output Shape : [1, 64, 16, 16]                                          │
+│                                                                              │
+│  - Convolution Block 5                                                       │
+│    - Modules      : Residual Shortcuts, Squeeze-and-Excitation               │
+│    - Input Shape  : [1, 64, 16, 16]                                          │
+│    - Output Shape : [1, 64, 8, 8]                                            │
+│                                                                              │
+│  - Convolution Block 6                                                       │
+│    - Modules      : Squeeze-and-Excitation                                   │
+│    - Input Shape  : [1, 64, 8, 8]                                            │
+│    - Output Shape : [1, 128, 8, 8]                                           │
+╰──────────────────────────────────────────────────────────────────────────────╯
 --------------------------------------------
 Final Backbone output shape: [1, 128, 8, 8]
 --------------------------------------------
@@ -498,7 +648,7 @@ barlow_twins: {'total_loss': 'Total Loss', 'barlow_twins_loss': 'Barlow Twins Lo
 The 3906 iterations per epoch are 500000 / 128 rounded down: the self-supervised trainer sets `DROPS_LAST_TRAINING_BATCH`, since its training loader drops its last incomplete batch, while the other tasks round up, except the classification and sequence tasks whose training loader drops it too, for a batch normalized classification head (see `classification_workflow.md`, Step 2.10).
 
 ### Step 2.20 — `print_summary()` / `print_receptive_field_summary()` / `print_model_size_summary()`
-The backbone panel, the Projection Head panel of Step 2.15, the receptive field and the size of every component.
+The backbone panel of Step 2.14, the Projection Head panel of Step 2.15, the receptive field and the size of every component.
 
 **Example output** (shortened)
 ```text
@@ -515,10 +665,12 @@ The backbone panel, the Projection Head panel of Step 2.15, the receptive field 
 │   - Parameters           : 438,368                       │
 │   - Trainable Parameters : 438,368                       │
 │   - Estimated Size       : 1.76 MB                       │
+│                                                          │
 │ Projection Head                                          │
 │   - Parameters           : 132,736                       │
 │   - Trainable Parameters : 132,736                       │
 │   - Estimated Size       : 0.54 MB                       │
+│                                                          │
 │ Total Model                                              │
 │   - Parameters           : 571,104                       │
 │   - Trainable Parameters : 571,104                       │
@@ -529,7 +681,7 @@ The backbone panel, the Projection Head panel of Step 2.15, the receptive field 
 ### Step 2.21 — `view_input_batches()`
 Only with `diagnosis_modes.view_input_images`, then the program exits. `show_input_samples()` draws the two views of a training image with `create_views()` and shows them in two windows, "View 1" and "View 2", each next to a black information panel holding the class of the image and, under "View augmentations", the augmentations drawn for the view with their values (`describe_report()`, the lines of Step 3.12). The validation images get their views drawn the same way, so only the training image is shown.
 
-With `Data.grouped_batches` on, `show_input_batch()` first shows every training batch whole in a "Training Batch" window, before the views of its images: `build_batch_mosaic()` (in `vision_training/utilities/visualization.py`) lays out the thumbnails of its images in the order of the batch, cut into blocks of `images_per_block` images, each under a caption bar, up to 16 thumbnails per row, below a header drawn like the information panels. `describe_input_batch()` writes the header from the `grouped_batch_flags` the `GroupedBatchSampler` keeps for the batches of its current pass: the position of the batch in the pass, whether it is grouped or a random batch of the leftover pool, and the grouped and random batches of a pass; a grouped batch adds its batch value and its blocks, every block captioned with its block value; a random batch counts the images of every batch and block value, most frequent first, and captions every image with its values. Random batches (the section off, or a training split without groups) show no mosaic. SPACE goes from the mosaic to the views of the first image of the batch, ENTER stops. It needs a display and was not run for this document.
+With `Data.grouped_batches` on, `show_input_batch()` first shows every training batch whole in a "Training Batch" window, before the views of its images: `build_batch_mosaic()` (in `vision_training/utilities/visualization.py`) lays out the thumbnails of its images in the order of the batch, cut into blocks of `images_per_block` images, each under a caption bar, up to 16 thumbnails per row, below a header drawn like the information panels. `describe_input_batch()` writes the header from the `grouped_batch_flags` the `GroupedBatchSampler` keeps for the batches of its current pass: the position of the batch in the pass, whether it is grouped or a random batch of the leftover pool, and the grouped and random batches of a pass; a grouped batch adds its batch value and its blocks, every block captioned with its block value; a random batch counts the images of every batch and block value, most frequent first, and captions every image with its values. Random batches (the section off, or a training split without groups) show no mosaic. SPACE goes from the mosaic to the views of the first image of the batch, ENTER stops. The terminal only receives the title of the viewer in red and its keys in green, as for every task (see `classification_workflow.md`, Step 2.25), and no run folder is created. It needs a display and was not run for this document.
 
 ### Step 2.22 — `restore_last_model()` → `get_last_checkpoint_iteration()` / `load_model()`
 **Example output** (a new run folder)
@@ -871,7 +1023,7 @@ embeddings        [8, 128] torch.float32 in [-0.24, 0.22]
 Keeps the representations of the kept samples (`.detach().float().cpu()`), their labels and their identifiers. The embeddings are not kept: the representation is what is evaluated.
 
 ### Step 4.6 — `save_sample_images()` → `build_sample_image()`
-For each fixed test image of Step 2.11: the image next to two random views of it, captioned with its class (or `unlabelled`) and the cosine similarity of the representations of both views, which a backbone invariant to the views brings close to 1. The views are drawn from the seed `SAMPLE_VIEWS_SEED` (20000) plus the sample identifier, inside `torch.random.fork_rng()`, so that every evaluation compares the same two views and the random state of the training is left unchanged. `add_caption_bar()` adds a bar under the image.
+For each fixed test image of Step 2.11: the image next to two random views of it, captioned with its class (or `unlabelled`) and the cosine similarity of the representations of both views, which a backbone invariant to the views brings close to 1. The views are drawn from the seed `SAMPLE_VIEWS_SEED` (20000) plus the sample identifier, inside `torch.random.fork_rng()`, so that every evaluation compares the same two views and the random state of the training is left unchanged (Python's `random` state is saved and restored around the draw). `add_caption_bar()` writes the caption in a black bar of 24 pixels (`CAPTION_BAR_HEIGHT`) above the image and its views, padding them with gray on the right when the caption is wider.
 
 **Example: the sample images of iteration 12**
 ```text
@@ -1019,10 +1171,10 @@ With the moving average of the weights on (`Optimization.exponential_moving_aver
 > The examples below are real outputs of the logic of `scripts/evaluation/evaluate_checkpoint.py` run on the run of Stage 3 (checkpoints 3, 6, 9 and 12) with `iteration = "all"`, `batch_size = 16` and, to keep it short, a test folder of the first 200 test images (`test_200`). A second evaluation of the checkpoint of iteration 12 uses the same 200 images without their categories (`test_unlabelled_200`).
 
 ### Step 5.1 — `scripts/evaluation/evaluate_checkpoint.py`
-The same script for every task (see `classification_workflow.md`, Stage 5): set `run_name` to the self-supervised run, and `test_data_folder` to another split if needed. The split does not need labels: without them, only the effective rank and the representation standard deviation are computed (Step 5.6).
+The same script for every task (see `classification_workflow.md`, Stage 5), configured by the variables of its main block and run with `uv run python -m scripts.evaluation.evaluate_checkpoint`: set `run_name` to the self-supervised run and `experiment_folder` to its run folder, `iteration` to `None` (the last checkpoint), an integer or `"all"`, and `test_data_folder` to another split if needed. Set `maximum_error_images_per_class_pair` to `None`: its default 100000 is written into `evaluation.error_dumps`, a section the self-supervised configurations do not have, and stops the script with `KeyError: 'error_dumps'` (`bug_standards.md` B56); the self-supervised evaluation saves no error image. The split does not need labels: without them, only the effective rank and the representation standard deviation are computed (Step 5.6).
 
 ### Step 5.2 — trainer construction
-The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder `evaluations/`, the evaluated split and the batch size, calls `disable_pretrained_settings()` (nothing to change here, the run had no pretrained backbone) and builds a `SelfSupervisedTrainer`.
+The script loads `training_configuration.yaml` of the run, with the classes of the `label_dictionary.json` saved next to it, points it to the output folder (`experiment_folder` set to `output_folder`, by default the `evaluations/` folder next to the run folder, and `run_name` to the name of the run folder, so that the files go to `evaluations/<run name>/`), the evaluated split and the batch size, calls `disable_pretrained_settings()` (nothing to change here, the run had no pretrained backbone) and builds a `SelfSupervisedTrainer`.
 
 **Example output** (shortened)
 ```text
