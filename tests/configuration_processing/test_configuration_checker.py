@@ -3,7 +3,8 @@ Tests of the configuration checks of vision_training/configuration_processing/co
 load_experiment_configuration: the configurations shipped for every task are accepted, while inconsistent settings
 (detection, classification, sequence, comparison, segmentation, self-supervised, keypoint detection, normalization,
 pretrained transfers with the initialisation of their new classes, optimization) and missing keys are rejected with
-errors naming their path, the run name suffix being accepted null or made of letters, digits, '-' and '.' only. The
+errors naming their path, the run name suffix being accepted null or made of letters, digits, '-' and '.' only, and the
+intermediate weight saving 0 (none) or a positive integer smaller than the evaluated weight saving. The
 augmentation types moving the image only are refused for the tasks with boxes, masks or keypoints and accepted for the
 others, the jigsaw refuses an image size that is not a multiple of its grid size, and a section removed from the
 repository is refused alone, before the other checks. The keypoint definitions injected by the loader from the training
@@ -16,7 +17,7 @@ import pytest
 import yaml
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from vision_training.configuration_processing.common_checks import REMOVED_SECTIONS
 from vision_training.configuration_processing.configuration_loader import load_experiment_configuration
@@ -574,6 +575,45 @@ def test_run_name_suffix_is_checked(tmp_path: Path, capsys: pytest.CaptureFixtur
             load_experiment_configuration(configuration_path=configuration_path)
         assert (f"'ExperimentConfiguration.run_name_suffix' must be null or a non-empty string of letters, digits, "
                 f"'-' and '.', got {run_name_suffix!r}.") in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(argnames=("intermediate_weight_saving_iterations", "expected_message"),
+                         argvalues=[(0, None), (2500, None),
+                                    (-1, "'ExperimentConfiguration.intermediate_weight_saving_iterations' must be an "
+                                         "integer >= 0, got -1."),
+                                    (5000, "'ExperimentConfiguration.intermediate_weight_saving_iterations' (5000) "
+                                           "must be smaller than 'ExperimentConfiguration.weight_saving_iterations' "
+                                           "(5000).")])
+def test_intermediate_weight_saving_iterations_is_checked(tmp_path: Path, capsys: pytest.CaptureFixture,
+                                                          intermediate_weight_saving_iterations: int,
+                                                          expected_message: Optional[str]) -> None:
+    """
+    Verifies that the intermediate weight saving is 0, which saves no checkpoint between the evaluated ones, or a
+    positive integer smaller than weight_saving_iterations (5000 in the example configuration), a negative value or one
+    not more frequent than the evaluated checkpoints being refused with its key.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the printed messages.
+        intermediate_weight_saving_iterations (int): The value written in the configuration.
+        expected_message (Optional[str]): The refusal message, None when the value must be accepted.
+    """
+    configuration = yaml.safe_load(stream=EXAMPLE_CONFIGURATION_PATH.read_text())
+    configuration["ExperimentConfiguration"]["weight_saving_iterations"] = 5000
+    configuration["ExperimentConfiguration"]["intermediate_weight_saving_iterations"] = \
+        intermediate_weight_saving_iterations
+    configuration_path = tmp_path / "configuration.yaml"
+    configuration_path.write_text(yaml.safe_dump(configuration))
+
+    # An accepted value is loaded as written, a refused one stops the loading with the message of its key
+    if expected_message is None:
+        experiment_configuration, _ = load_experiment_configuration(configuration_path=configuration_path)
+        assert experiment_configuration["intermediate_weight_saving_iterations"] == \
+            intermediate_weight_saving_iterations
+    else:
+        with pytest.raises(expected_exception=SystemExit):
+            load_experiment_configuration(configuration_path=configuration_path)
+        assert expected_message in capsys.readouterr().out
 
 
 def test_configuration_without_run_name_suffix_is_refused(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:

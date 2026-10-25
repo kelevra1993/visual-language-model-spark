@@ -117,17 +117,17 @@ def check_experiment_configuration(experiment_configuration: Dict[str, Any], val
                                                  "ExperimentConfiguration.weight_saving_iterations",
                                                  "ExperimentConfiguration.number_iterations"], allow_zero=False)
 
-    # Intermediate checkpoints (saved without test evaluation) must be more frequent than the evaluated ones
+    # Intermediate checkpoints (saved without test evaluation) must be more frequent than the evaluated ones, 0 for none
     intermediate_saving_errors = check_positive_integers(
         configuration=configuration, key_paths=["ExperimentConfiguration.intermediate_weight_saving_iterations"],
-        allow_zero=False)
+        allow_zero=True)
     errors += intermediate_saving_errors
     weight_saving_iterations = get_configuration_value(configuration=configuration,
                                                        key_path="ExperimentConfiguration.weight_saving_iterations")
     intermediate_weight_saving_iterations = get_configuration_value(
         configuration=configuration, key_path="ExperimentConfiguration.intermediate_weight_saving_iterations")
     if not intermediate_saving_errors and isinstance(weight_saving_iterations, int) and \
-            intermediate_weight_saving_iterations >= weight_saving_iterations:
+            0 < weight_saving_iterations <= intermediate_weight_saving_iterations:
         errors.append(f"'ExperimentConfiguration.intermediate_weight_saving_iterations' "
                       f"({intermediate_weight_saving_iterations}) must be smaller than "
                       f"'ExperimentConfiguration.weight_saving_iterations' ({weight_saving_iterations}).")
