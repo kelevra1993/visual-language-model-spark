@@ -34,7 +34,8 @@ ExperimentConfiguration:
   # Frequency (in iterations) to checkpoint the model weights and run the test evaluation on them.
   weight_saving_iterations: 1000
   # Frequency (in iterations) of additional checkpoints saved without running the test evaluation, between the
-  # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations.
+  # weight_saving_iterations checkpoints. Must be an integer strictly smaller than weight_saving_iterations, or 0 to
+  # save none.
   intermediate_weight_saving_iterations: 500
   # Total number of training iterations before stopping.
   number_iterations: 1e10

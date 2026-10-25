@@ -288,6 +288,37 @@ def test_predictions_file_per_class_report_and_sample_images_can_be_turned_off(t
     assert test_events.Tags()["images"] == []
 
 
+def test_intermediate_weight_saving_can_be_turned_off(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    """
+    Verifies that 'intermediate_weight_saving_iterations' 0 saves no checkpoint between the evaluated ones: a run of 5
+    iterations evaluated every 4 keeps only the evaluated checkpoint of iteration 4 and the last one of iteration 5,
+    and its summary reports the intermediate saving as turned off.
+
+    Args:
+        tmp_path (Path): The pytest temporary directory.
+        capsys (pytest.CaptureFixture): The pytest fixture capturing the console output of the trainer.
+    """
+    dataset_folder = tmp_path / "synthetic_shapes"
+    create_synthetic_dataset(output_folder=str(dataset_folder), image_size=SMOKE_IMAGE_SIZE,
+                             split_sizes={"train": 8, "validation": 4, "test": 4}, maximum_objects=1,
+                             minimum_frames=1, maximum_frames=1, number_workers=2, task="classification")
+
+    # The smoke configuration with its intermediate checkpoints of every 2 iterations turned off
+    configuration_path = write_smoke_configuration(temporary_directory=tmp_path, dataset_folder=dataset_folder,
+                                                   number_iterations=5, head_settings={}, evaluation_settings={})
+    configuration = yaml.safe_load(stream=configuration_path.read_text())
+    configuration["ExperimentConfiguration"]["intermediate_weight_saving_iterations"] = 0
+    configuration_path.write_text(data=yaml.safe_dump(data=configuration))
+
+    trainer = build_trainer(configuration_path=configuration_path)
+    trainer.run_training_loop()
+
+    # No Iteration_2 checkpoint, only the evaluated and the last ones
+    assert sorted(path.name for path in trainer.weights_directory.glob("Iteration_*")) == ["Iteration_4",
+                                                                                         "Iteration_5"]
+    assert "- Save Only Every         : Turned Off" in capsys.readouterr().out
+
+
 def test_flattened_feature_map_training(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     """
     Verifies a short classification training whose head reads the flattened final feature map: the run name carries

@@ -1091,8 +1091,10 @@ class BaseTrainer(ABC):
         print_color(color="blue", output=f"- Batch Size              : {self.batch_size}")
         print_color(color="blue", output=f"- Total Iterations        : {self.training_iterations}")
         print_color(color="blue", output=f"- Save And Evaluate Every : {self.weight_saving_iterations} iterations")
-        print_color(color="blue", output=f"- Save Only Every         : {self.intermediate_weight_saving_iterations} "
-                                         f"iterations")
+        # An intermediate weight saving of 0 saves no checkpoint between the evaluated ones
+        intermediate_saving_description = f"{self.intermediate_weight_saving_iterations} iterations" if \
+            self.intermediate_weight_saving_iterations > 0 else "Turned Off"
+        print_color(color="blue", output=f"- Save Only Every         : {intermediate_saving_description}")
         # The optimization settings: learning rate, optimizer, schedule, gradient clipping and weight moving average
         print_color(color="blue", output=f"- Learning Rate           : {self.learning_rate}")
         print_color(color="blue", output=f"- Optimizer               : {self.optimization_configuration['optimizer']} "
@@ -1542,10 +1544,12 @@ class BaseTrainer(ABC):
                 last_stepped_iteration = training_iteration
 
                 # Save the model right after the step of every weight saving iteration (evaluated at the end of the
-                # iteration) and of the more frequent intermediate weight saving iterations in between, so that the
-                # checkpoint of iteration k holds its k steps
+                # iteration) and of the more frequent intermediate weight saving iterations in between (none when
+                # intermediate_weight_saving_iterations is 0), so that the checkpoint of iteration k holds its k steps
                 is_evaluated_iteration = training_iteration % self.weight_saving_iterations == 0
-                if is_evaluated_iteration or training_iteration % self.intermediate_weight_saving_iterations == 0:
+                is_intermediate_iteration = self.intermediate_weight_saving_iterations > 0 and \
+                    training_iteration % self.intermediate_weight_saving_iterations == 0
+                if is_evaluated_iteration or is_intermediate_iteration:
                     self.save_model(iteration=training_iteration)
                     last_saved_iteration = training_iteration
 
